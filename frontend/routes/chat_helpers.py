@@ -617,9 +617,33 @@ _REST_OF_BAND_RE = re.compile(r"\bthe\s+rest\s+of\s+the\s+(?:morning|afternoon|e
 HANGOUT_STATED_CAP_MINUTES = 180  # mirrors HANGOUT.maxStatedMinutes (src/engine/hangOut.ts); the engine enforces it too
 
 
+_HANGOUT_WAIT_RE = re.compile(
+    r"\b(?:i(?:['\u2019]ll|\s+will|['\u2019]m\s+going\s+to|\s+am\s+going\s+to|['\u2019]d\s+like\s+to|\s+want\s+to|\s+can|\s+could|\s+just)?\s+)?"
+    r"(?:wait|stay|sit|linger|stick|hang(?:\s+out)?)(?:\s+(?:around|put|here|there|tight|in\s+\w+|on\s+\w+)){0,3}\s+(?:for\s+)?(?:another\s+)?" + _STATED_DURATION_PAT,
+    re.IGNORECASE)
+_WAIT_CONDITIONAL_RE = re.compile(r"\b(?:maybe|perhaps|might|if|should|could|would|when|once|unless|later|tomorrow|tonight|then)\b", re.IGNORECASE)
+
+
+def _find_wait_intent(player_msg):
+    """ORW-477: the wait phrase the player states, or None. The original wait/chill + until/for phrase, else a verb + stated duration ("I wait a couple of hours", "I'll stay here for another
+    two hours"). A conditional/future phrasing ("maybe I'll wait later"), a question, or quoted speech is not a wait."""
+    msg = str(player_msg or "")
+    m = _HANGOUT_INTENT_RE.search(msg)
+    if m:
+        return m
+    for m in _HANGOUT_WAIT_RE.finditer(msg):
+        sent_start = max(msg.rfind(c, 0, m.start()) for c in ".?!\n") + 1
+        sent_end = [i for i in (msg.find(c, m.end()) for c in ".?!\n") if i >= 0]
+        sentence = msg[sent_start:min(sent_end) + 1 if sent_end else len(msg)]
+        if "?" in sentence or msg[:m.start()].count('"') % 2 or _WAIT_CONDITIONAL_RE.search(msg[sent_start:m.start()] + " " + msg[m.end():m.end() + 12]):
+            continue
+        return m
+    return None
+
+
 def parse_stated_wait(player_msg) -> tuple:
     """ORW-445: (max_minutes | None, until_band_end) from the wait phrase in the player's message. The player's own words only; (None, False) when no duration is stated."""
-    m = _HANGOUT_INTENT_RE.search(str(player_msg or ""))
+    m = _find_wait_intent(player_msg)
     if not m:
         return (None, False)
     span = m.group(0).lower()
@@ -668,7 +692,7 @@ _HANGOUT_STOP_LINES = {
 
 def hang_out_intent(player_msg) -> bool:
     """True when the player's message asks to hang out / wait / chill until something happens (a conservative wait-verb + until/for-a-while phrase)."""
-    return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
+    return bool(player_msg) and _find_wait_intent(player_msg) is not None
 
 
 # review of #2688: the ENGINE's own player-facing stop line for `event-due` (src/engine/hangOut.ts hangOutStopLine) is appended to the steer too; it must be reconciled with the FE template.
@@ -7806,7 +7830,8 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()
     if tod:
-        parts.append(_MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
+        # ORW-479: the engine's `earlyMorning` flag (set for both the late-night and the morning phase) reads "Early morning" on the header.
+        parts.append("Early morning" if game_state.get("earlyMorning") is True and tod in ("morning", "late-night") else _MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
     return " · ".join(parts) if parts else None
 
 

@@ -266,6 +266,15 @@ describe("0148 - the house lives it, unseen; houseguests see it; nobody else nap
     expect(first).toMatch(/woke from a nap/);
     expect(s.getMomentPrompt({}).systemPrompt).not.toMatch(/- WHILE YOU SLEPT \(voice only/); // consumed once
   });
+  it("ORW-477: a shortened nap tells the narrator how long the player really slept; a full nap says nothing of the cut", () => {
+    const cutRun = setup(3, (x) => quiet(x) && ["nominations", "veto-ceremony", "eviction"].includes(priv(x).live.beat!));
+    at(cutRun.s, 15);
+    cutRun.s.nap({ hours: 3 });
+    expect(cutRun.s.getMomentPrompt({}).systemPrompt).toMatch(/cut short: you slept only about 60 minutes/);
+    const full = setup(); at(full.s, 8);
+    full.s.nap({ hours: 2 });
+    expect(full.s.getMomentPrompt({}).systemPrompt).not.toMatch(/cut short/);
+  });
   it("no houseguest ever naps: napHoursToday is the PLAYER's alone and no NPC rest deficit reads it", () => {
     const { s } = setup(); at(s, 8);
     const npc = [...priv(s).presence.keys()].find((id) => id !== "player")!;

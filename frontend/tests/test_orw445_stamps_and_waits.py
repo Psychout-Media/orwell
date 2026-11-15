@@ -115,3 +115,47 @@ def test_rest_of_band_after_until_sets_the_band_target():
     """Review of #2772: the match ends at until/till, so the band phrase after it must still count."""
     assert ch.parse_stated_wait("hang out until the rest of the afternoon") == (None, True)
     assert ch.parse_stated_wait("chill till the rest of the morning") == (None, True)
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("I wait a couple of hours", (120, False)),
+    ("I'll stay here for another two hours", (120, False)),
+    ("stay put for another three hours", (180, False)),
+    ("sit here for a few hours", (180, False)),
+    ("I'll linger for an hour", (60, False)),
+    ("let's stick around another hour", (60, False)),
+    ("wait around here for a couple of hours", (120, False)),
+    ("wait here for an hour", (60, False)),
+])
+def test_orw477_stated_waits_start_a_hangout(msg, want):
+    assert ch.hang_out_intent(msg)
+    assert ch.parse_stated_wait(msg) == want
+
+
+@pytest.mark.parametrize("msg", [
+    "maybe I'll wait later",
+    "maybe I'll wait a couple of hours",
+    "should I wait a couple of hours?",
+    'she said "I wait a couple of hours" and left',
+    "I wait for the HOH to speak",
+    "I need an hour of sleep",
+])
+def test_orw477_not_a_wait(msg):
+    assert not ch.hang_out_intent(msg)
+    assert ch.parse_stated_wait(msg) == (None, False)
+
+
+@pytest.mark.parametrize("gs,want", [
+    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "morning", "earlyMorning": True}, "Week 1 · Nominations · Early morning"),
+    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "morning", "earlyMorning": False}, "Week 1 · Nominations · Morning"),
+    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "morning"}, "Week 1 · Nominations · Morning"),
+    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "late-night", "earlyMorning": True}, "Week 1 · Nominations · Early morning"),
+    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "evening", "earlyMorning": True}, "Week 1 · Nominations · Evening"),
+])
+def test_orw479_header_says_early_morning(gs, want):
+    assert ch._format_game_moment(gs) == want
+
+
+def test_orw479_pregame_none():
+    assert ch._format_game_moment({"started": False, "earlyMorning": True}) is None
+    assert ch._format_game_moment(None) is None

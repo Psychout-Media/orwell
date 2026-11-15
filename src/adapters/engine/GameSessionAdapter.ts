@@ -12287,7 +12287,8 @@ export class GameSessionAdapter implements GameSession {
     const came = now.filter((id) => !before.has(id)).map((id) => this.nameOf(id));
     const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
     const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
-    const parts = [`You just woke from a nap in the ${here.replace(/-/g, " ")}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
+    const cut = nw.wokenBy ? ` (cut short: you slept only about ${Math.round((nw.endHour - nw.startHour) * 60)} minutes)` : ""; // ORW-477: the narrator is told the real slept length of a shortened nap
+    const parts = [`You just woke from a nap in the ${here.replace(/-/g, " ")}${cut}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
     parts.push(now.length ? `In the room now: ${now.map((id) => this.nameOf(id)).join(", ")}.` : "Nobody else is in the room.");
     if (came.length) parts.push(`Came in while you slept: ${came.join(", ")}.`);
     if (went.length) parts.push(`Left while you slept: ${went.join(", ")}.`);
