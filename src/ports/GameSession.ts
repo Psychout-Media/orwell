@@ -2569,7 +2569,7 @@ export interface NapReq {
   idempotencyKey?: string;
 }
 /** Why a nap was refused (nothing changed: the clock has not moved). */
-export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "already-asleep";
+export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "early-morning" | "already-asleep";
 export interface NapView {
   /** false = refused, nothing changed: see `reason` + `why`. */
   ok: boolean;

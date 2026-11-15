@@ -11956,6 +11956,8 @@ export class GameSessionAdapter implements GameSession {
     if (this.houseEventInSession()) return refuse("event-in-session", "The whole house is gathered for an event right now; the player cannot slip away to sleep.");
     if (live.playerRetired) return refuse("already-asleep", "The player is already asleep.");
     if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
+    // ORW-451: woken before the house after an early bed (phase "morning", clock 2am up to the wake-up - the early-morning band, ORW-441): a nap is a DAYTIME nap (0148), so this is refused like the night.
+    if (isEarlyMorning(live.nightDepth)) return refuse("early-morning", "It is still the early morning and the house is asleep; the day has not started yet, so this is no time for a nap.");
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
@@ -12024,7 +12026,7 @@ export class GameSessionAdapter implements GameSession {
     if (live.finished || live.spectator || playerHasLeft(live, PLAYER) || live.playerRetired) return false;
     if (!this.perConversationClockLive() || live.playedGame !== true || this.inPremiere()) return false;
     if (live.pending || this.houseEventInSession() || milestoneDueOf(live)) return false;
-    return live.timeOfDay === "morning" || live.timeOfDay === "afternoon";
+    return (live.timeOfDay === "morning" || live.timeOfDay === "afternoon") && !isEarlyMorning(live.nightDepth); // ORW-451: not in the early-morning band
   }
 
   private takeWhileYouSlept(): string | undefined {

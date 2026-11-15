@@ -158,6 +158,15 @@ describe("0148 - the nap lever: refusals leave the clock unmoved", () => {
     expect(priv(s).live.napHoursToday).toBe(credit);
   };
   it("the evening", () => { const { s } = setup(); at(s, 17); unchanged(s, () => s.nap({ hours: 1 }), "evening"); });
+  // ORW-451: after an early bed the player wakes at bed + 8h in phase "morning" but before the house's wake-up - the early-morning band (ORW-441). Ryne allows a DAYTIME nap only.
+  it("the early morning, after an early bed (before the house's wake-up)", () => {
+    const { s } = setup(); at(s, 5, 21);
+    expect(priv(s).live.timeOfDay).toBe("morning"); // the phase alone would let it through
+    unchanged(s, () => s.nap({ hours: 1 }), "early-morning");
+    expect(s.getMomentPrompt({}).systemPrompt).not.toContain("- NAP (open now):");
+    at(s, 8, 21);
+    expect(s.getMomentPrompt({}).systemPrompt).toContain("- NAP (open now):"); // from the house's wake-up it is the day again
+  });
   it("a competition in session", () => {
     const { s } = setup(); at(s, 9);
     priv(s).live.competition = { comp: "hoh-competition", field: ["x"] };
