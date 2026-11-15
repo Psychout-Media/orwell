@@ -49,8 +49,10 @@ Then("every narrator prompt names a part of the day and states no clock time", f
     const lines = p.split("\n");
     assert.ok(lines.some((l) => l.startsWith("- Part of the day: ")), "a prompt names no part of the day");
     assert.ok(!p.includes("- Clock: "), "a prompt still carries the clock line");
-    // the only clock-looking text allowed is the rule's own quoted counter-examples, which sit on the part-of-day line
-    assert.doesNotMatch(lines.filter((l) => !l.startsWith("- Part of the day: ")).join("\n"), CLOCK_TIME, "a prompt states a clock time");
+    // the only clock-looking text allowed is the rule's own quoted counter-examples on the part-of-day line: strip just the
+    // "quoted" spans there and scan everything else, the band line included (review of #2739)
+    const scanned = lines.map((l) => (l.startsWith("- Part of the day: ") ? l.replace(/"[^"]*"/g, "") : l)).join("\n");
+    assert.doesNotMatch(scanned, CLOCK_TIME, "a prompt states a clock time");
   }
 });
 

@@ -33,6 +33,7 @@ interface TWorld {
   twA?: EntityId;
   twB?: EntityId;
   twTraj?: Trajectory;
+  twSignals?: Parameters<typeof deriveTrajectory>[0];
   twTrajMixed?: Trajectory;
   twNatures?: { off: string[]; on: string[] };
   twDraws?: { off: number[]; on: number[] };
@@ -193,11 +194,14 @@ Given("a cooler-shaped fold signal sequence between two houseguests", function (
   // The model proposes the DIRECTION (cooler) — a souring/cooling-shaped fold. It proposes NO magnitude;
   // the engine owns it. A "cooler" shape lands a negative bond delta with no threat delta (the engine's own
   // bounded amount), exactly like the `cooler` consequence direction (`CONSEQUENCE_DIRECTION_IMPACTS`).
-  tw(this).twTraj = deriveTrajectory([{ bondDelta: -0.105, threatDelta: 0, betrayal: false },
-    { bondDelta: -0.105, threatDelta: 0, betrayal: false }], undefined);
+  tw(this).twSignals = [{ bondDelta: -0.105, threatDelta: 0, betrayal: false },
+    { bondDelta: -0.105, threatDelta: 0, betrayal: false }];
 });
 
-When("the trajectory is derived from those signals", function () { /* derived above: deriveTrajectory is the pure function the engine fold calls */ });
+When("the trajectory is derived from those signals", function (this: BbWorld) {
+  // deriveTrajectory is the pure function the engine fold calls
+  tw(this).twTraj = deriveTrajectory(tw(this).twSignals!, undefined);
+});
 
 Then("the trajectory direction reflects the proposed shape", function (this: BbWorld) {
   // A cooler shape ⇒ the arc is falling (cooling or souring), never warming.

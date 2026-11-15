@@ -39,6 +39,53 @@ def test_ceiling_releases_the_caller_at_the_ceiling_not_after_the_cleanup():
     assert CEILING <= elapsed < CEILING + 0.5, elapsed  # the old wrapper waited ~CLEANUP_S longer (see the PR timings)
 
 
+def test_a_fast_stream_cannot_outrun_the_consumer():
+    """Review of #2752: an unbounded queue let a generator that never awaits run to completion before the consumer
+    got a single chunk (and starved the deadline). The producer may run only a few chunks ahead."""
+    produced = [0]
+
+    async def firehose():
+        for i in range(20000):
+            produced[0] += 1
+            yield i
+
+    async def go():
+        seen_ahead = []
+        async for _ in ca._bounded_stream(firehose(), wall_clock_s=5):
+            seen_ahead.append(produced[0] - len(seen_ahead) - 1)
+            if len(seen_ahead) >= 50:
+                break
+        return max(seen_ahead)
+
+    assert _run(go()) <= 8
+
+
+def test_an_abandoned_stream_cannot_write_after_the_cancel():
+    writes = []
+
+    async def slow():
+        try:
+            for i in range(1000):
+                await asyncio.sleep(0.01)
+                yield i
+        finally:
+            writes.append("closed")
+
+    async def go():
+        async for c in ca._bounded_stream(slow(), wall_clock_s=0.05):
+            pass
+
+    try:
+        _run(go())
+    except ca.AuthoringDeadline:
+        pass
+    else:
+        raise AssertionError("no deadline")
+    n = len(writes)
+    _run(asyncio.sleep(0.2))
+    assert len(writes) <= n + 1  # the cancelled pump finished its cleanup once and produced nothing further
+
+
 def test_a_fast_stream_is_unchanged_and_a_provider_error_still_surfaces():
     async def ok():
         for c in ("a", "b"):
@@ -62,9 +109,9 @@ def test_a_fast_stream_is_unchanged_and_a_provider_error_still_surfaces():
 
 _PC = {"heightBuild": "lean", "skinTone": "tan", "hair": "short brown hair", "facialFeatures": "a square jaw",
        "distinguishingMark": "none notable", "ageLook": "thirties", "style": "plain"}
-_GOOD = json.dumps({"biography": "Liam pours wine in Waco and he never misses a sunrise. Friends call him loyal, and his cellar is famous.",
+_GOOD = json.dumps({"biography": "Namea pours wine in Waco and he never misses a sunrise. Friends call him loyal, and his cellar is famous.",
                     "vocation": "sommelier", "physicalCharacteristics": _PC})
-_NPC = {"id": "npc:1", "name": "Liam Colvin", "genderPresentation": "man", "age": 30, "hometown": "Waco, Texas",
+_NPC = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30, "hometown": "Waco, Texas",
         "vocation": "sommelier", "biography": "A seeded floor biography that the engine keeps when the writer omits its own.",
         "physicalCharacteristics": _PC}
 
@@ -104,7 +151,7 @@ def test_two_stalls_fall_to_the_floor_after_exactly_one_retry():
 
 def test_the_authoring_slot_is_free_at_the_ceiling_so_the_next_houseguest_starts_then():
     ca.reset_attempts("u438")
-    other = {**_NPC, "id": "npc:2", "name": "Ada Rowe"}
+    other = {**_NPC, "id": "npc:2", "name": "Nameb Surnameb"}
     n, calls, writes, elapsed = _drive({1}, [_NPC, other], concurrency=1)
     assert n == 2
     # call 2 (the retry) and call 3 (the next houseguest) both started well before the stalled call's cleanup ended
@@ -117,7 +164,7 @@ DRAFT = "Runs compliance for a regional credit union and sings in a choir."
 
 
 def test_the_draft_is_hidden_only_while_the_engine_marks_it_as_genesis_draft():
-    card = {"id": "npc:3", "name": "Samir Nesbitt", "authored": True, "biography": DRAFT, "biographyDraft": True,
+    card = {"id": "npc:3", "name": "Namec Surnamec", "authored": True, "biography": DRAFT, "biographyDraft": True,
             "vocation": "funeral service apprentice", "physicalCharacteristics": {"hair": "short"}}
     persona = R._public_persona(card)
     assert "biography" not in persona and persona["vocation"] == "funeral service apprentice"
@@ -125,7 +172,7 @@ def test_the_draft_is_hidden_only_while_the_engine_marks_it_as_genesis_draft():
 
 def test_a_finished_card_shows_its_biography_whatever_it_says():
     for text in (DRAFT, "Loves puzzles.", "Spent a decade somewhere."):
-        done = {"id": "npc:3", "name": "Samir Nesbitt", "authored": True, "biography": text}  # marker cleared by the writer
+        done = {"id": "npc:3", "name": "Namec Surnamec", "authored": True, "biography": text}  # marker cleared by the writer
         assert R._public_persona(done)["biography"] == text
 
 

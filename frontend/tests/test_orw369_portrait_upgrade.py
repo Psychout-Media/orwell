@@ -396,13 +396,22 @@ def test_a_429_keeps_the_breathing_gap_before_the_next_attempt():
     assert st["rate_limited"] is True and st["next_ok_at"] >= 100.0 + U.GAP_S
 
 
+def test_the_429_gap_counts_from_the_failure_not_from_the_tick_start():
+    import time
+    st = {"failed": 0, "fails": {}, "retry_at": {}, "next_ok_at": 0.0, "rate_limited": False,
+          "tick_t0": time.monotonic() - 20.0}  # the call took 20 s before the 429 came back
+    U._note_failure("u", "u", "npc_1", st, 100.0, 0.0, RuntimeError("http-429: slow down"))
+    assert st["next_ok_at"] >= 120.0 + U.GAP_S - 0.5
+
+
 def test_the_billing_gate_only_reads_the_users_own_provider_host(season, monkeypatch):
     state, d = season
     log, stored = [], []
     _gen(monkeypatch, log)
     _fake_engine(monkeypatch, stored)
-    state["house"] = [_card(1)]
+    state["house"] = [_card(1), _card(2), _card(3)]   # one season throughout: the quiet window is not reset by the swap
     P.reset_billing_breaker()
+    monkeypatch.setattr(P, "portrait_parallel", lambda user: 1)  # one houseguest per tick
 
     async def host(user):
         return "mine.example"
@@ -411,9 +420,11 @@ def test_the_billing_gate_only_reads_the_users_own_provider_host(season, monkeyp
         P._trip_billing_breaker("other.example")          # an unrelated provider is out of credits
         _run(U.upgrade_tick("u", now=0.0))
         assert _run(U.upgrade_tick("u", now=100.0)) == "upgraded"
+        assert len(log) == 1
         P._trip_billing_breaker("mine.example")           # the user's own provider is
-        state["house"] = [_card(2)]
+        assert U.stale_candidates("u", state, P.load_manifest("u"))   # a stale candidate remains in the same season
         assert _run(U.upgrade_tick("u", now=200.0)) == "waiting"
+        assert len(log) == 1                              # and it was held at the billing gate, not shot
     finally:
         P.reset_billing_breaker()
 

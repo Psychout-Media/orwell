@@ -668,7 +668,7 @@ def test_pre_fingerprint_and_pre_version_entry_is_not_reshot_and_records_version
     orwell_portraits._save_manifest("u", {"npc_1": {"file": "npc_1.png", "name": "Houseguest One", "source": "generated"}})
     summary = _run(orwell_portraits.generate_and_store(
         [{"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "facet-A"}], "u", record_beats=False))
-    assert summary["generated"] == 0 and calls["n"] == 0
+    assert summary == {"generated": 0, "skipped": 1, "total": 1} and calls["n"] == 0  # counted as skipped, not shot
     assert (d / "npc_1.png").read_bytes() == b"PNG:legacy"
     assert orwell_portraits.load_manifest("u")["npc_1"]["promptVersion"] == 1
 

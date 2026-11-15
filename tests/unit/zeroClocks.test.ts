@@ -104,6 +104,9 @@ describe("ORW-392 - the HUD says Early morning past 2am, before the house's wake
       expect((s.gameStatus() as any).earlyMorning, "up at 4:55am after an early bed").toBe(true);
       expect((s.getGameState() as any).earlyMorning).toBe(true);
       l.nightDepth = 7.99; expect((s.gameStatus() as any).earlyMorning).toBe(true);
+      // the lower edge of the 0-24 branch: 2:00am is in the band, just before it is not (review of #2756)
+      l.nightDepth = 2; expect((s.gameStatus() as any).earlyMorning, "2.0 on the 0-24 scale").toBe(true);
+      l.nightDepth = 1.99; expect((s.gameStatus() as any).earlyMorning, "just below 2.0").toBeUndefined();
       l.nightDepth = 8; expect((s.gameStatus() as any).earlyMorning, "the house's wake-up call").toBeUndefined();
       l.nightDepth = 9;
       expect((s.gameStatus() as any).earlyMorning).toBeUndefined();
