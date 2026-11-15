@@ -135,11 +135,15 @@ describe("0148 - the nap lever: waking", () => {
     expect(priv(s).live.playerRetired).toBe(false);
     expect(priv(s).live.lastSleepDepth).toBe(28); // only a bed re-stamps the night
   });
-  it("the player sleeps in their own bedroom (the HOH room when they hold the crown)", () => {
+  it("the player sleeps in a bedroom, and in the HOH room when they hold the crown", () => {
     const { s } = setup();
     at(s, 8);
     s.nap({ hours: 1 });
-    expect(["bedroom-a", "bedroom-b", "bedroom-c", "hoh-room"]).toContain(priv(s).presence.get("player"));
+    expect(["bedroom-a", "bedroom-b", "bedroom-c"], "not the HOH, so a plain bedroom").toContain(priv(s).presence.get("player"));
+    const h = setup(); at(h.s, 8);
+    (priv(h.s).live as { hoh?: string }).hoh = "player"; // the player holds the crown
+    h.s.nap({ hours: 1 });
+    expect(priv(h.s).presence.get("player"), "the crown holder naps in the HOH room").toBe("hoh-room");
   });
 });
 
