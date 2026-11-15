@@ -22,6 +22,7 @@
 
   let timer = null;
   let _failures = 0;
+  let _lastAwake = null;
   let _lastAnnounced = null; // A11Y-1: announce nightfall state only when it changes
   function _pollDelay() { return Math.min(POLL_MS * Math.pow(2, _failures), 120000); }
 
@@ -99,6 +100,7 @@
       const existing = document.getElementById(ID);
       if (existing && _gadget) { _gadget.hide(); existing.removeAttribute("title"); }
       _lastAnnounced = null;
+      _lastAwake = null;
       return;
     }
     const el = ensureEl();
@@ -110,7 +112,8 @@
 
     // BODY (ORW-383, Ryne): who is AWAKE and available, day and night - not "N have turned in". The engine's observable `awake` list (Vault-free names); an older payload without it falls back to the
     // turned-in list. The player is never listed.
-    const awakeList = Array.isArray(state.awake) ? state.awake : null;
+    // The engine holds the awake list back while a ceremony is staged (its ids could carry the unrevealed outcome); keep showing the last one meanwhile.
+    const awakeList = Array.isArray(state.awake) ? (_lastAwake = state.awake) : _lastAwake;
     const asleep = Array.isArray(state.asleep) ? state.asleep : [];
     const body = el.querySelector("[data-role='body']");
     if (awakeList) {

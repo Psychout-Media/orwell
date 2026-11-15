@@ -23,6 +23,7 @@ const BEDS = new Set(["bedroom-a", "bedroom-b", "bedroom-c"]);
 describe("sleepers belong in bedrooms; the state names who is awake", () => {
   it("after the player turns in, every houseguest wakes in a bedroom, not where the evening left them", () => {
     const { s, live } = game();
+    s.setSleepersInBedEnabled(true);
     for (let i = 0; i < 400 && live().timeOfDay !== "night"; i++) s.advanceClockPerConversation();
     // seat the house outside the bedrooms first (the evening's rooms), so the assertion cannot pass by accident
     const occ = s.occupancy()!; const me = (s.getGameState() as unknown as { player?: { id: string } }).player?.id;
