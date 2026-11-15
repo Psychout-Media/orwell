@@ -3485,6 +3485,7 @@ export class GameSessionAdapter implements GameSession {
     );
     if (req.biography !== undefined && !facetGuard.dropBiography) {
       target.character.biography = req.biography;
+      delete target.character.biographyDraft; // ORW-438: the writer's biography replaces genesis's draft
       publicFields.push("biography");
     }
     // ORW-388 / ORW-431b: the writer's identity concept becomes the card's identity: it replaces a stored one, and fills a card whose genesis
@@ -3832,7 +3833,7 @@ export class GameSessionAdapter implements GameSession {
       // Authoring the biography over the floor placeholder is the same season-start UPGRADE as
       // recordCastProfile (#1067): mark the provenance so the 0031 superset check reads it as an
       // accretion, not degradation, once the cast goes live.
-      if (c.biography !== undefined) { target.character.biography = c.biography; target.character.deepProfileAuthored = true; touched = true; }
+      if (c.biography !== undefined) { target.character.biography = c.biography; target.character.deepProfileAuthored = true; target.character.biographyDraft = true; touched = true; }
       if (c.presentation !== undefined) { target.character.presentation = c.presentation; touched = true; }
       if (c.appearance !== undefined) { target.character.appearance = c.appearance; touched = true; }
       if (touched) committed++;
@@ -7031,6 +7032,7 @@ export class GameSessionAdapter implements GameSession {
       // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
       // target the still-floor cards.
       ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.biographyDraft === true ? { biographyDraft: true } : {}),
       ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
       // I6 distinct-voices fix: the SAFE rendered voice-fingerprint clause (0084) the live `view()`
       // mapping now carries — keeps this pre-warm/portrait shape in sync with the live roster card
@@ -7519,6 +7521,7 @@ export class GameSessionAdapter implements GameSession {
       const pub = layer.public[n.id];
       if (!pub) continue;
       n.character.biography = pub.biography;
+      delete n.character.biographyDraft; // ORW-438: the seeded floor biography replaces any draft
       n.character.physicalCharacteristics = pub.physicalCharacteristics;
       n.character.castingType = { id: pub.castingType.id, label: pub.castingType.label, read: pub.castingType.read }; // ORW-381
       // 0063: GROUND the skin tone from the houseguest's ethnicity identity facet, so the structured
@@ -15583,6 +15586,7 @@ export class GameSessionAdapter implements GameSession {
         // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
         // target the still-floor cards.
         ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.biographyDraft === true ? { biographyDraft: true } : {}),
         ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
         // I6 distinct-voices fix (NARR-15/PROMPT-2): a COMPACT, player-surface-SAFE voice-fingerprint
         // clause (0084), rendered from the controlled voice DIAL vocab only (register/rhythm/energy/
