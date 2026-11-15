@@ -378,3 +378,17 @@ def test_orw370_the_panel_names_each_final_hoh_part_from_the_schedule():
     # an ordinary HOH (no part) keeps its name; a stray part on another event never renames it
     assert lab(None) == "HOH competition: this afternoon"
     assert lab(7) == "HOH competition: this afternoon"
+
+
+def test_orw392_the_hud_says_early_morning_past_2am_before_the_wake_up_call():
+    """ORW-392 (Ryne: the mirror of Late night): the engine's `earlyMorning` flag turns the late-night chip into Early morning; without the flag it stays Late night."""
+    src = _read(PANEL)
+    a = src.index("const TOD_LABELS")
+    b = src.index("const todLabel")
+    snippet = src[a: src.index("\n", b) + 1]
+    assert _node_eval(snippet, 'todLabel("late-night", true)').endswith("Early morning")
+    assert _node_eval(snippet, 'todLabel("late-night")').endswith("Late night")
+    assert _node_eval(snippet, 'todLabel("late-night", false)').endswith("Late night")
+    assert _node_eval(snippet, 'todLabel("morning", true)').endswith("Morning")  # the flag only ever renames the late-night phase
+    nightstatus = _read(PANEL.replace("orwellStatusPanel.js", "orwellNightStatus.js"))
+    assert "state.earlyMorning === true" in nightstatus and "Early morning" in nightstatus

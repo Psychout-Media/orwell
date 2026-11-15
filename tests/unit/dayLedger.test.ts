@@ -67,12 +67,20 @@ describe("ORW-271 - the floor ledger entry at turnIn", () => {
 });
 
 describe("ORW-271 - recordDaySummary", () => {
+  it("ORW-402: a whole-day summary (about 400 words plus key list) is stored whole, not cut at 900", () => {
+    const { session } = rig(5);
+    closeNight(session);
+    const long = "word ".repeat(450).trim() + " Key list: tail-marker";
+    expect(session.recordDaySummary({ day: 1, text: long }).accepted).toBe(true);
+    expect(session.dayLedger()[0]!.text).toBe(long);
+  });
+
   it("is idempotent per (day,tier), caps and strips text", () => {
     const { session } = rig(5);
     closeNight(session);
-    expect(session.recordDaySummary({ day: 1, text: "first\u0007\n  text " + "x".repeat(2000) }).accepted).toBe(true);
+    expect(session.recordDaySummary({ day: 1, text: "first\u0007\n  text " + "x".repeat(5000) }).accepted).toBe(true);
     const t = session.dayLedger()[0]!.text!;
-    expect(t.length).toBeLessThanOrEqual(900);
+    expect(t.length).toBeLessThanOrEqual(3200);
     expect(t).not.toMatch(/[\u0000-\u001f]/);
     session.recordDaySummary({ day: 1, text: "second" });
     expect(session.dayLedger()).toHaveLength(1);
@@ -190,5 +198,21 @@ describe("ORW-271 - played-game byte-identity and rng neutrality", () => {
     expect(on.has).toBe(true);
     expect(on.v).toBe(off.v);
     expect(on.snap).toEqual(off.snap);
+  });
+});
+
+describe("ORW-387 - a provider error is never a day's memory", () => {
+  const ERR = 'event: error data: {"status": 400, "text": "Provider returned HTTP 400: bad request"}';
+  it("refuses an error-shaped summary, and lets a real one replace a stored error (a real one still stands)", () => {
+    process.env.ORWELL_DAY_CONDENSE = "1";
+    const { session } = rig(23, true);
+    closeNight(session);
+    expect(session.recordDaySummary({ day: 1, text: ERR }).accepted).toBe(false);
+    const live = (session as unknown as { live: { dayLedger: { day: number; tier: string; text?: string }[] } }).live;
+    live.dayLedger.find((d) => d.tier === "day" && d.day === 1)!.text = ERR; // a save written before the fix
+    expect(session.recordDaySummary({ day: 1, text: "The real day." }).accepted).toBe(true);
+    expect(session.dayLedger().find((d) => d.day === 1)!.text).toBe("The real day.");
+    session.recordDaySummary({ day: 1, text: "A later rewrite." });
+    expect(session.dayLedger().find((d) => d.day === 1)!.text).toBe("The real day.");
   });
 });

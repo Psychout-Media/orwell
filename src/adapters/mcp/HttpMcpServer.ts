@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { stallTimer } from "../stallTiming";
 import type { Server } from "node:http";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { McpServer } from "./McpServer";
@@ -278,6 +279,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
           ok: true,
           ...metrics.snapshot(),
           embeddings,
+          stalls: stallTimer.snapshot(),
           flags: (() => {
             const f = bootFlags();
             try {

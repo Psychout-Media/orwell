@@ -172,6 +172,18 @@ async def _lead(key: tuple[str, str], flight_key: tuple, u: str, start: int, fet
     return value
 
 
+def peek(name: str, user: str | None, max_age_s: float = 30.0) -> Any:
+    """ORW-408: the already-cached answer for `name`/`user`, or None. Never fetches and never awaits, so a caller on the streaming path cannot be delayed by a slow engine.
+    Served only while no invalidation (any engine write) landed since it was read and it is at most `max_age_s` old."""
+    u = _ukey(user)
+    with _LOCK:
+        ent = _ENTRIES.get((u, name))
+        if ent is None or not _fresh(u, ent.start) or (time.monotonic() - ent.t) > max_age_s:
+            return None
+        value = ent.value
+    return copy.deepcopy(value)
+
+
 async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]], timeout_class: Any = None) -> Any:
     """ORW-396: in-flight calls are keyed by `timeout_class` too, so a read with a wider timeout never joins a tighter-timeout call (it would fail at the shorter bound).
     Stored entries stay shared across classes (a fresh answer is a fresh answer). Serve `name` for `user` from the cache, a shared in-flight call, or `fetch()`. Only CACHEABLE tools are ever stored."""

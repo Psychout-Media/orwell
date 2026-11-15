@@ -102,10 +102,32 @@ export function currentReadOf(
   return { toward, drift };
 }
 
+/**
+ * ORW-401 — step damping near the extremes: a step toward the NEARER end of [0,1] shrinks the closer the
+ * value is to that end (1 at the middle, `FLOOR` at the end); a step back toward the middle is undamped.
+ */
+const EXTREME_DAMP_FLOOR = 0.1;
+function extremeDamping(x: number, d: number): number {
+  if (d === 0 || (d > 0) !== (x >= 0.5)) return 1;
+  const edge = Math.abs(2 * x - 1);
+  return Math.max(EXTREME_DAMP_FLOOR, 1 - edge * edge);
+}
+
 export class RelationshipModel {
   private readonly edges = new Map<string, EdgeSignals>();
   /** Per-holder disposition (from `Character`, 0004/0015) — the per-game-feel input (§7). */
   private readonly dispositions = new Map<EntityId, RelationshipDisposition>();
+  /**
+   * ORW-401 — OPT-IN fold meter (played games only). When set, every directed fold on `from→to` is scaled by
+   * `fn(from, to)` (the shrinking per-window effect) AND damped near the extremes so repeated scenes cannot
+   * polarise an edge to 0 or 1. Unset (headless / default) ⇒ untouched arithmetic ⇒ byte-identical.
+   * Pure arithmetic on the already-drawn jitter: it takes NO rng draw.
+   */
+  private foldMeter?: (from: EntityId, to: EntityId) => number | null;
+
+  setFoldMeter(fn: ((from: EntityId, to: EntityId) => number | null) | undefined): void {
+    this.foldMeter = fn;
+  }
 
   constructor(
     private readonly allianceThreshold: number,
@@ -159,10 +181,19 @@ export class RelationshipModel {
     const dThreat = imp.threat ?? 0;
     const dAlignment = imp.alignment ?? 0;
     const dReliability = imp.reliability ?? 0;
+    const m = this.foldMeter ? this.foldMeter(from, to) : null; // null ⇒ not a played game ⇒ legacy arithmetic
+    if (m !== null) {
+      const step = (x: number, d: number): number => clamp(x + d * m * extremeDamping(x, d));
+      e.trust = step(e.trust, dTrust * (dTrust < 0 ? disp.adverseScale : disp.bondScale) * jTrust);
+      e.affinity = step(e.affinity, dAffinity * (dAffinity < 0 ? disp.adverseScale : disp.bondScale) * jAffinity);
+      e.threat = step(e.threat, dThreat * (dThreat > 0 ? disp.adverseScale : disp.bondScale) * jThreat);
+      e.alignment = step(e.alignment, dAlignment * disp.bondScale * jAlignment);
+    } else {
     e.trust = clamp(e.trust + dTrust * (dTrust < 0 ? disp.adverseScale : disp.bondScale) * jTrust);
     e.affinity = clamp(e.affinity + dAffinity * (dAffinity < 0 ? disp.adverseScale : disp.bondScale) * jAffinity);
     e.threat = clamp(e.threat + dThreat * (dThreat > 0 ? disp.adverseScale : disp.bondScale) * jThreat);
     e.alignment = clamp(e.alignment + dAlignment * disp.bondScale * jAlignment);
+    }
     e.reliability = clamp(e.reliability + dReliability * (dReliability < 0 ? disp.adverseScale : disp.bondScale));
     e.confidence = clamp(e.confidence + C.CONFIDENCE_STEP);
   }
@@ -297,6 +328,23 @@ export class RelationshipModel {
       e.alignment += (base.alignment - e.alignment) * r;
       e.confidence = clamp(e.confidence - r * 0.5);
       // `reliability` (E54) deliberately does NOT decay: evidence stands until contradicted.
+    }
+  }
+
+  /**
+   * ORW-401 follow-up: pull the feelings (trust, affinity, threat) of every edge `eligible` accepts a proportion `rate`
+   * of the way back to the baseline. Proportional ⇒ never crosses the baseline. No rng, no disposition scaling; the
+   * evidence signals (alignment, confidence, reliability) are untouched. Opt-in: nothing calls it in a headless run.
+   */
+  driftTowardBaseline(rate: number, eligible: (from: EntityId, to: EntityId) => boolean): void {
+    const base = this.constants.baseline;
+    const r = clamp(rate);
+    for (const [k, e] of this.edges) {
+      const [from, to] = k.split("->") as [EntityId, EntityId];
+      if (!eligible(from, to)) continue;
+      e.trust += (base.trust - e.trust) * r;
+      e.affinity += (base.affinity - e.affinity) * r;
+      e.threat += (base.threat - e.threat) * r;
     }
   }
 

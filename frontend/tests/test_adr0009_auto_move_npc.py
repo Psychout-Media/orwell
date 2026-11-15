@@ -197,6 +197,6 @@ def test_house_rooms_exclude_diary_room_for_npcs():
     # …but the NPC extraction prompt and the client-side filter both exclude it (asserted via behavior
     # in test_diary_room_is_rejected). Keep the floor plan in lockstep with the engine.
     assert set(al._HOUSE_ROOMS) == {
-        "kitchen", "living-room", "backyard", "bedroom-a", "bedroom-b",
-        "hoh-room", "bathroom", "storage-room", "diary-room",
+        "kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b",
+        "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room",
     }

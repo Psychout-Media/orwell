@@ -486,3 +486,12 @@ def test_direct_turn_in_chip_is_its_own_round_before_the_narration(monkeypatch):
     first_text = next(i for i, e in enumerate(evs) if "delta" in e and e.get("type") is None)
     assert start < step < first_text, kinds                     # chip, then the round closes, then the narration
     assert evs[start]["round"] == 1 and evs[step]["round"] == 2
+
+
+def test_undecodable_chunk_passthrough_follows_the_first_stream_round():
+    """The belt is its own round, so the first narration round can be 2: the JSONDecodeError pass-through must compare against `_first_stream_round`, not a literal 1."""
+    import inspect
+    from src import agent_loop as al
+    src = inspect.getsource(al)
+    i = src.index("except json.JSONDecodeError:\n                    if round_num")
+    assert "round_num == _first_stream_round" in src[i:i + 120]

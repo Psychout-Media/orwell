@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from _ci_refresh_durations import parse_log
-from _ci_shard import DURATIONS_PATH, MIN_WEIGHT, assign_files, load_durations, nested_env, parse_shard, select_shard, weigh_files
+from _ci_shard import DURATIONS_PATH, MIN_WEIGHT, assign_files, classify_missing, files_added_by_this_change, load_durations, nested_env, parse_shard, select_shard, weigh_files
 
 
 def test_partition_is_disjoint_and_complete():
@@ -158,3 +158,67 @@ def test_refresh_parser_sums_setup_call_teardown_per_file():
         "noise 1.0s elsewhere\n"
     )
     assert parse_log(log) == {"test_x.py": 14.0, "test_y.py": 3.0}
+
+
+def test_every_browser_test_file_has_a_measured_duration():
+    """ORW-390: a browser file with no entry in _ci_durations.json is weighed as test count x mean seconds-per-test, which badly underweighs the slow
+    real-stack files; 21 such files piled into one shard (fe-browser-tests 5/5: 13-14 min against 4-9 for the rest, cancelled at the 15 min limit).
+    ORW-413: it FAILS only for a file this change adds (compared with the base: the merge ref's first parent in CI). A file main gained meanwhile (the PR is not at fault, and
+    the guard and the file landed a minute apart on 2026-11-15, turning main red) only WARNS in the job summary; the splitter weighs it at 15 s per test until the table is refreshed."""
+    from conftest import _module_launches_browser  # the same structural rule that adds the `browser` marker
+    here = os.path.dirname(os.path.abspath(__file__))
+    table = load_durations()
+    missing = [n for n in _real_test_files() if _module_launches_browser(os.path.join(here, n)) and n not in table]
+    must_fail, warn_only = classify_missing(missing, files_added_by_this_change(os.path.dirname(here)))
+    if warn_only:
+        msg = f"browser test file(s) with no entry in frontend/tests/_ci_durations.json (added by main, not by this change; weighed at 15 s per test): {warn_only}. Refresh the table."
+        print(f"::warning::{msg}")
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+                fh.write(f"### Duration table warning\n{msg}\n")
+    assert not must_fail, (
+        f"browser test file(s) this change adds with no entry in frontend/tests/_ci_durations.json: {must_fail}. Unweighed files make fe-browser-tests shards lopsided. "
+        "A brand-new file is in no main log yet: add `\"<file name>\": <seconds>` to frontend/tests/_ci_durations.json by hand (a conservative 15 per test is fine) "
+        "and let the next refresh replace it with the measured time (`python3 frontend/tests/_ci_refresh_durations.py leg-1.log ... leg-10.log`, the `gh api repos/Psychout-Media/orwell/actions/jobs/<job id>/logs` of the fe-browser-tests jobs of a green main run)."
+    )
+
+
+def test_missing_duration_fails_only_for_a_file_this_change_adds():
+    assert classify_missing(["a.py", "b.py"], {"a.py"}) == (["a.py"], ["b.py"])
+    assert classify_missing(["a.py"], set()) == ([], ["a.py"])
+    assert classify_missing(["a.py"], None) == (["a.py"], [])  # base unknown: fail closed
+
+
+def test_unknown_browser_file_weighs_15_seconds_per_test():
+    durations = {"known.py": 4.0}
+    w = weigh_files({"known.py": 2, "new_browser.py": 3, "new_unit.py": 3}, durations, frozenset({"new_browser.py"}))
+    assert w["new_browser.py"] == 45.0
+    assert w["new_unit.py"] == 6.0  # the table's mean (4 s / 2 tests) x 3
+    assert w["known.py"] == 4.0
+
+
+def test_files_added_by_this_change_in_a_real_repo(tmp_path):
+    def git(*a):
+        subprocess.run(["git", "-C", str(tmp_path), "-c", "user.email=t@t", "-c", "user.name=t", *a], check=True, capture_output=True)
+
+    (tmp_path / "frontend" / "tests").mkdir(parents=True)
+    t = tmp_path / "frontend" / "tests"
+    git("init", "-q", "-b", "main")
+    (t / "test_old.py").write_text("")
+    git("add", "-A"); git("commit", "-qm", "base")
+    git("checkout", "-qb", "pr")
+    (t / "test_pr_adds.py").write_text("")
+    git("add", "-A"); git("commit", "-qm", "pr")
+    git("checkout", "-q", "main")
+    (t / "test_main_adds.py").write_text("")
+    git("add", "-A"); git("commit", "-qm", "main moves")
+    git("checkout", "-q", "pr")
+    git("merge", "-q", "--no-ff", "-m", "merge ref", "main")  # what CI checks out: parent 1 = the PR head, parent 2 = main in a local merge; CI's merge ref has parent 1 = main
+    # In this local merge the first parent is the PR head, so the PR's own file is not "added"; build the CI shape: main first.
+    git("checkout", "-q", "main")
+    git("merge", "-q", "--no-ff", "-m", "ci merge ref", "pr")
+    added = files_added_by_this_change(str(tmp_path))
+    assert added == {"test_pr_adds.py"}, added  # main's own test_main_adds.py is NOT this change's
+    # a single-parent HEAD with no origin/main (a push to main): the commit is its own change
+    git("checkout", "-q", "-b", "push", "pr~0")
+    assert files_added_by_this_change(str(tmp_path)) is not None

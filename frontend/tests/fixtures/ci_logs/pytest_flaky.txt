@@ -1,0 +1,3 @@
+2026-11-15T02:28:52.6771185Z == flaky tests (ORW-229): 1 passed only on a rerun, 0 still red after a rerun ==
+2026-11-15T02:28:52.6772009Z   FLAKY (passed on rerun 1): tests/test_orw275_chapters.py::test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away
+2026-11-15T02:28:52.6789390Z ##[warning]tests/test_orw275_chapters.py::test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away

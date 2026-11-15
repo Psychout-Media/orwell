@@ -59,6 +59,8 @@ export interface PersistedCharacter {
    */
   biography?: string;
   physicalCharacteristics?: PhysicalCharacteristics;
+  /** ORW-381: the casting type (presentation only). Byte-stable; absent on a pre-ORW-381 save. */
+  castingType?: { id: string; label: string; read: string };
   /**
    * Provenance flag for the season-start deep-profile authoring write-back (#1067). Unset on the seeded
    * deterministic floor; set `true` the first time `recordCastProfile` authors a richer PUBLIC facet

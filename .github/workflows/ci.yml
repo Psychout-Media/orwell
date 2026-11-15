@@ -5,9 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    # ORW-218 (two-tier CI): `ready_for_review` starts the full run when a draft is marked ready. (Label events are deliberately NOT triggers: every label
-    # change would cancel and restart the in-flight run. A `full-ci` label is read on the next push, reopen or ready_for_review.)
-    types: [opened, synchronize, reopened, ready_for_review]
+    # ORW-413 (one run per PR): a draft runs the FULL suite too, so marking it ready starts no second run: `ready_for_review` is deliberately NOT a trigger (it would
+    # cancel the in-flight run and start the same one again). Label events are not triggers either: every label change would cancel and restart the in-flight run.
+    types: [opened, synchronize, reopened]
   # The coming merge queue (ORW-226): always the full suite.
   merge_group:
     types: [checks_requested]
@@ -20,10 +20,10 @@ on:
 permissions:
   contents: read
 
-# TWO TIERS (ORW-218). Draft PRs run only the FAST tier: `changes`, typecheck + build (`test`, BDD skipped), `test-unit`, `fe-unit`. Everything else (the HEAVY tier:
-# BDD, coverage*, heavy-sims, smoke, fe-browser-tests, fe-browser, fe-responsive, mirror-parity, a11y-matrix) runs on a non-draft PR, a draft labelled `full-ci`, a push to
-# main and a merge_group. `ci-gate` FAILS CLOSED for a draft without the label (and for any applicable job that was skipped when it should have run), so a
-# fast-tier result can never be merged. Non-draft PRs, main and the merge queue behave exactly as before.
+# ONE RUN PER PR (ORW-413, amending ORW-218's two tiers). ORW-218 ran only a fast tier on a draft and the full suite when the PR was marked ready, so every PR paid
+# two runs (a draft was red at `ci-gate` by design). Now every PR, draft or not, runs the full suite once; marking a draft ready starts nothing. The `full` output of
+# `changes` is therefore always `true` today (it stays as the one switch a later change can use to narrow a PR run), and `ci-gate` keeps its fail-closed rules: a job
+# that applies to the change and was SKIPPED fails the gate, and so would a `full=false` run (it can never be merged on a partial result).
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   # Never cancel on main: each merge was cancelling the previous run (19 of 39 in 24h), so main rarely finished a verdict.
@@ -80,19 +80,9 @@ jobs:
           persist-credentials: false
           # Full history: the diff base (ci/resolve-base.sh) is the PR base sha, the merge_group base_sha or the push `before`, all of which must be local.
           fetch-depth: 0
-      - name: CI tier (fast tier for a draft PR without the full-ci label; full otherwise)
+      - name: CI tier (ORW-413, always the full suite, drafts included)
         id: tier
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          IS_DRAFT: ${{ github.event.pull_request.draft }}
-          HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-        run: |
-          if [ "$EVENT_NAME" = "pull_request" ] && [ "$IS_DRAFT" = "true" ] && [ "$HAS_LABEL" != "true" ]; then
-            echo "full=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::draft PR: fast tier only (changes, typecheck+build, test-unit, fe-unit). Mark it ready for review, or add the full-ci label and push, for the full suite."
-          else
-            echo "full=true" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "full=true" >> "$GITHUB_OUTPUT"
       - name: detect changed paths
         id: filter
         env:
@@ -130,6 +120,10 @@ jobs:
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
           FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
+          # ORW-416 (root cause of the #2681 main break): front-end tests also READ repo files outside frontend/ and src/ (deploy scripts, systemd units, ci/ and harness
+          # scripts, a few design docs and fixtures). #2681 changed only deploy/, fe-unit was skipped, and test_orw174 (which reads deploy/orwell-backup.sh) broke every later PR.
+          # frontend/tests/test_ci_fe_reads_repo_filter.py proves this list covers EVERY such path the front-end tests read.
+          FE_READS_REPO_RE='^(deploy/|ci/|\.github/workflows/|scripts/(live-run|rehearsal-kit)/|scripts/ci(/|$)|tests/unit/beatsTerminateThemselves\.test\.ts$|scripts/stage-finale-snapshot\.ts$|docs/audits/playtest-harness/|docs/design/(liquid-glass/|frontend-single-worker-ceiling\.md$)|docs/legacy/meta-feedback/|docs/mocks/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
           DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
@@ -156,7 +150,7 @@ jobs:
               # ORW-218 (root cause of the #2457 main break): front-end tests READ engine source (the tool registry, the GameSession port, the MCP server, the prompt text...), so an
               # engine-only PR that changes one of those files must still run fe-unit; before this, FRONTEND_RE matched only frontend/ and test_1412/1414 were skipped while ci-gate passed.
               # frontend/tests/test_ci_fe_reads_engine_filter.py proves this list covers EVERY engine .ts file the front-end tests read.
-              frontend)  re="$FRONTEND_RE|$FE_READS_ENGINE_RE" ;;
+              frontend)  re="$FRONTEND_RE|$FE_READS_ENGINE_RE|$FE_READS_REPO_RE" ;;
               # ORW-218: the F5 mirror-parity gate script lives under docs/audits/playtest-harness/, outside frontend/, so a change to ONLY the gate used to skip every render lane.
               fe_render) re="$FRONTEND_RE|^docs/audits/playtest-harness/"; subject="$fe_changed" ;;
               deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
@@ -170,6 +164,30 @@ jobs:
               echo "==> ${name}: skipped"
             fi
           done
+
+  # ── Fast checks (ORW-413) ──────────────────────────────────────────────────────
+  # The first signal. One job that finishes in about a minute and that NO other job waits for: typecheck, the source-pinned guard tests (the CI wiring pins, the F-3 window
+  # ratchet, no-new-bespoke-menu, the Vault-Wall dependency test ...), the Vault word scans that fail on a public string (the 0110 "confidence" scan, the 0023 "opinion change
+  # is invisible" scan), py_compile and the ES-module syntax check. All of it is `npm run ci:fast` (ci/fast-checks.sh): run that locally before pushing, because every
+  # failure it can report would otherwise be found by a slow lane minutes later. Each check also still runs in its own full lane; nothing was removed from there.
+  # Needs only the path filter (so a docs-only PR skips it); `ci-gate` requires it.
+  fast-checks:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # ORW-413: the duration-table guard compares with HEAD^1 (main, in the PR merge ref)
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (the FE guard tests need the front end's imports)
+      - run: npm run ci:fast
 
   # ── Engine gate ───────────────────────────────────────────────────────────────
   # typecheck -> build -> unit/property/arch (minus the heavy sims) -> BDD.
@@ -198,24 +216,30 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # ORW-39: the unit suite runs in the sharded `test-unit` job below. ORW-229 re-shard: the BDD gate (about 4 of this job's 7 minutes) runs in
-      # its own parallel `bdd` job below, so this job is typecheck + build only (the fast tier a draft runs, ORW-218).
-      - run: npm run typecheck
+      # ORW-39: the unit suite runs in the sharded `test-unit` job below. ORW-229 re-shard: the BDD gate runs in its own parallel `bdd` job below. ORW-413: the typecheck
+      # moved to the `fast-checks` job (it is the first signal there), so this job proves the bundle builds and the dependency rules hold.
       - run: npm run build
       # The dependency-cruiser CLI (the whole rule set, including `no-circular`). The vitest architecture test only covers the Vault-Wall edges, so an import cycle (emotionalArc <-> characterFactory <-> tells,
-      # introduced by #2178) sat on main unflagged until this step existed. Seconds; part of the fast tier a draft runs.
+      # introduced by #2178) sat on main unflagged until this step existed. Seconds.
       - run: npm run test:arch
 
   # ── BDD gate, its own job (ORW-229 re-shard) ───────────────────────────────────────
   # `npm run test:bdd` (Cucumber over the implemented .feature files) used to run at the end of `test`, after the typecheck and build, which put
   # about 7 min on the critical path. It needs neither (tsx runs the TS directly), so it runs in parallel here. The 0072/0073 scenarios
-  # delegate to the vendored front-end's pytest, so this job carries the FE deps. Heavy tier (ORW-218): skipped for a draft, and ci-gate fails
-  # closed for a draft, so it can never be merged unrun.
+  # delegate to the vendored front-end's pytest, so this job carries the FE deps. Runs on every PR since ORW-413 (it was skipped for a draft
+  # under ORW-218's two tiers), and ci-gate fails closed if it was skipped when it applies.
+  # ORW-413: three legs (`ci/bdd-shard.mjs`, balanced by measured seconds per feature, ci/bdd-durations.json). One process ran all 845 scenarios in 8-9 minutes, the longest
+  # job of an engine round; every feature still runs in exactly one leg (tests/unit/ciBddShard.test.ts), and each leg prints its features' seconds so the table can be refreshed.
   bdd:
     needs: changes
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    name: bdd (${{ matrix.shard }}/3)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -226,11 +250,12 @@ jobs:
           cache: npm
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm ci
-      - run: npm run test:bdd
+      - run: node ci/bdd-shard.mjs ${{ matrix.shard }}/3
 
   # ── Unit suite, SHARDED (ORW-39) ────────────────────────────────────────────────
-  # `test:unit:fast` (everything but the heavy sims) split five ways with --shard (balanced by measured duration, vitest.sequencer.ts); every file still runs
-  # exactly once across the legs. ORW-229 re-shard: 5 legs instead of 4 for the 40-slot pool (the balanced 4-leg long pole was 6:29, #2240).
+  # `test:unit:fast` (everything but the heavy sims) split eight ways with --shard (balanced by measured duration, vitest.sequencer.ts); every file still runs
+  # exactly once across the legs. ORW-229 re-shard: 5 legs instead of 4 for the 40-slot pool (the balanced 4-leg long pole was 6:29, #2240). ORW-413: 8 legs on a
+  # re-measured table (ci/test-durations.json): the table totals 2,256 s of file time and the heaviest single file is 280 s, so beyond 8 legs a leg is one file.
   # The build runs first because some unit tests exercise dist/. `ci-gate` needs this job, so a failed leg fails the gate.
   test-unit:
     needs: changes
@@ -240,7 +265,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    name: test-unit (${{ matrix.shard }}/8)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -253,7 +279,7 @@ jobs:
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm run build
       # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
-      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/5 --retry=1
+      - run: npm run test:unit:fast -- --shard=${{ matrix.shard }}/8 --retry=1
 
   # ── Heavy simulation lane (ONE job — consolidated for the single self-hosted runner) ──────────
   #
@@ -344,15 +370,15 @@ jobs:
           pattern: shard-manifest-*
           path: .shard-manifests
           merge-multiple: true
-      - name: all six shard reports must be present
+      - name: all eight shard reports must be present
         run: |
           ls -l .vitest-reports
-          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 6
-      # ORW-218: the duration-balanced split must have run every test file exactly once across the six legs (nothing unassigned, nothing twice, set == files on disk minus the heavy exclusions).
+          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 8
+      # ORW-218: the duration-balanced split must have run every test file exactly once across the eight legs (nothing unassigned, nothing twice, set == files on disk minus the heavy exclusions).
       - name: shard union equals the full test set
         run: >-
-          node ci/check-shard-union.mjs .shard-manifests --count 6 --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all six shards.
+          node ci/check-shard-union.mjs .shard-manifests --count 8 --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
+      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all eight shards.
       - run: >-
           npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --coverage
@@ -369,7 +395,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    name: coverage-shard (${{ matrix.shard }}/8)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -385,7 +412,7 @@ jobs:
         run: >-
           npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-          --coverage.reporter=json --shard=${{ matrix.shard }}/6 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
+          --coverage.reporter=json --shard=${{ matrix.shard }}/8 --reporter=blob --outputFile=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-blob-${{ matrix.shard }}
@@ -458,15 +485,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 2  # ORW-413: the duration-table guard compares with HEAD^1 (main, in the PR merge ref)
           # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
-      - name: py_compile the front-end (incl. extensionless CLI scripts)
-        run: |
-          python3 -m py_compile $(git ls-files 'frontend/**/*.py')
-          for s in $(git ls-files 'frontend/scripts/*' 'frontend/integrations/**'); do
-            # ORW-239: only a non-python shebang is skipped; a real compile error now fails the step (it used to end `|| true`).
-            if head -1 "$s" | grep -q python; then python3 -m py_compile "$s"; fi
-          done
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: mkdir -p frontend/covdata
       - name: pytest — non-browser suite, parallel (app-admin 0029, game build 0032)
@@ -487,20 +508,7 @@ jobs:
           path: frontend/covdata/
           retention-days: 7
           if-no-files-found: error
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # EVERY front-end script, parsed as an ES module (they are loaded as modules). A comment containing
-      # a literal `*/` in chatReconcile.js (#1785) broke the whole module at page load and blanked the send
-      # path; the old two-file check could not see it. Copy to .mjs so node parses module syntax.
-      - name: syntax-check all front-end JS (as ES modules)
-        run: |
-          tmp="$(mktemp -d)"; bad=0
-          for f in $(git ls-files 'frontend/static/js/*.js'); do
-            cp "$f" "$tmp/check.mjs"
-            node --check "$tmp/check.mjs" 2>"$tmp/err" || { echo "::error file=$f::$(head -5 "$tmp/err" | tr '\n' ' ')"; bad=1; }
-          done
-          exit $bad
+      # ORW-413: py_compile of the front end and the ES-module syntax check of every static/js file moved to the `fast-checks` job (ci/fast-checks.sh), where they fail in a minute.
 
   # ── Front-end coverage gate (ORW-218) ───────────────────────────────────────────
   # Mirrors the engine `coverage` job: the two fe-unit shards each upload their coverage data (`fe-coverage-data-<i>`); this job combines them into ONE
@@ -543,17 +551,22 @@ jobs:
     needs: changes
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # ORW-390: 15 -> 20 min. Shard 5/5 ran 12-14 min on main (0697c631 13, d581fcbf 14, 08734b14 13, 5953710f 12) against 4-9 for shards 1-4, so PR #2647 was
+    # cancelled at the limit twice and #2659 once (its tests had passed in 856 s). A job is ~1-2 min of setup (checkout, python, playwright, npm ci, build) PLUS the tests.
+    # The root cause (21 browser files missing from _ci_durations.json) is fixed too, and test_ci_shard.py now fails on a missing entry; this is the headroom.
+    timeout-minutes: 20
     # ORW-193: parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
     # shard (fixed ports, one real page at a time) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
     # ORW-229 re-shard: five legs, files balanced by MEASURED seconds (frontend/tests/_ci_durations.json). Simulated on the 49 browser files:
     # 3 count-balanced legs were 6.8/3.1/3.4 min of tests (the real 3/3 run: 8.4/4.6/6.0 min jobs); 5 duration-balanced legs are 3.3/2.5/2.5/
     # 2.5/2.5, and the 3.3 is one file alone (test_a58_golden_render_live_vs_reload, 200 s), so a sixth leg would add a setup and save nothing.
+    # ORW-413: ten legs. With the table re-measured (the unbalanced 5-leg runs were 593 and 558 s for the two longest legs) the browser files total about 2,200 s and the heaviest
+    # single file (test_a64_week1_clock_real_loop, 338 s) now sits alone in a leg, so that file, not the shard count, sets this lane's length.
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5]
-    name: fe-browser-tests (${{ matrix.shard }}/5)
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    name: fe-browser-tests (${{ matrix.shard }}/10)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -574,7 +587,7 @@ jobs:
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
           ORWELL_SKIP_LANE: browser
-          ORWELL_CI_SHARD: ${{ matrix.shard }}/5
+          ORWELL_CI_SHARD: ${{ matrix.shard }}/10
         # --durations=0 (was 8): every test's time is in the log, so the shard table can be refreshed from any green run (_ci_refresh_durations.py)
         run: cd frontend && python3 -m pytest tests/ -m browser --reruns 1 -q -rs --durations=0
 
@@ -871,7 +884,7 @@ jobs:
   # THE single required check — point branch protection HERE, not at the individual gated jobs. It
   # ALWAYS runs (`if: always()`), so its conclusion always resolves even when every upstream job was
   # path-skipped. It passes when no needed job FAILED or was CANCELLED and every SKIPPED job was skipped
-  # because its path filter is false; it fails otherwise, and always fails for a draft PR's fast tier
+  # because its path filter is false; it fails otherwise, and always fails for a run that was not the full suite (full=false)
   # (ORW-218, pinned by tests/unit/ciGateLogic.test.ts).
   #
   # Why this is genuinely deadlock-free on an all-skip (e.g. a docs-only PR): the gated jobs report
@@ -881,6 +894,7 @@ jobs:
     timeout-minutes: 5
     needs:
       - changes
+      - fast-checks
       - test
       - bdd
       - test-unit
@@ -902,6 +916,7 @@ jobs:
         env:
           RESULTS: >-
             changes=${{ needs.changes.result }}
+            fast-checks=${{ needs.fast-checks.result }}
             test=${{ needs.test.result }}
             bdd=${{ needs.bdd.result }}
             test-unit=${{ needs.test-unit.result }}
@@ -931,6 +946,7 @@ jobs:
           applicable() {
             case "$1" in
               changes) echo true ;;
+              fast-checks) if [ "$ENGINE" = true ] || [ "$FRONTEND" = true ]; then echo true; else echo false; fi ;;
               test|bdd|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;
               heavy-sims) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
@@ -939,8 +955,8 @@ jobs:
               *) echo true ;;
             esac
           }
-          # The fast tier (the only jobs a draft PR runs).
-          is_fast() { case "$1" in changes|test|test-unit|fe-unit) return 0 ;; *) return 1 ;; esac; }
+          # The fast tier (the jobs that always apply first; since ORW-413 a draft runs the full suite too).
+          is_fast() { case "$1" in changes|fast-checks|test|test-unit|fe-unit) return 0 ;; *) return 1 ;; esac; }
           fail=0
           # The tier and filter outputs decide which skips are acceptable, so each must be exactly `true` or `false` (ORW-218 review). An empty or
           # garbled value (e.g. a broken `changes` job) fails the gate instead of silently accepting every skip.
@@ -959,7 +975,7 @@ jobs:
             case "$result" in
               success) ;;
               skipped)
-                # Skipped is fine only if the path filter said the job does not apply, or it is a heavy-tier job on a draft (reported below).
+                # Skipped is fine only if the path filter said the job does not apply, or the run is not the full suite (reported below).
                 if [ "$(applicable "$name")" = "true" ] && { [ "$FULL" = "true" ] || is_fast "$name"; }; then
                   echo "::error::needed job '$name' was SKIPPED although it applies to this change (a skipped required check must not count as a pass)"
                   fail=1
@@ -976,8 +992,8 @@ jobs:
             exit 1
           fi
           if [ "$FULL" != "true" ]; then
-            echo "::error::draft: fast checks only — mark ready for the full suite (or add the full-ci label and push). ci-gate stays red so a draft can never be merged on the fast tier alone."
-            echo "ci-gate: FAIL (draft, fast tier only)"
+            echo "::error::this run was not the full suite (full=false). ci-gate stays red so a partial run can never be merged."
+            echo "ci-gate: FAIL (not the full suite)"
             exit 1
           fi
           echo "ci-gate: PASS (all needed jobs succeeded, or were skipped because their path filter does not apply)"

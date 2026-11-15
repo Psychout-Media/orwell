@@ -567,6 +567,8 @@ export interface SessionSnapshot extends SessionCore {
    * snapshot itself is ENGINE-ONLY (see above), so carrying Vault content here crosses no wall.
    */
   vault?: HiddenRecord[];
+  /** ORW-401: the per-window relationship-fold counts (played games), so a restart does not refill them. Counts only. */
+  foldMeter?: { key: string; counts: Record<string, number> };
 }
 
 export function cloneSession<T>(value: T): T {
@@ -677,6 +679,7 @@ export function toGameState(snap: SessionSnapshot): GameState {
       // #1067: the season-start authoring provenance flag — drives the ONE sanctioned floor→authored public-
       // facet upgrade the 0031 checkpoint permits. Spread (not nested) so it stays absent on the seeded floor
       // and on pre-#1067 saves (no spurious change to the byte-compare for an un-authored character).
+      ...(hg.character.castingType !== undefined ? { castingType: hg.character.castingType } : {}), // ORW-381
       ...(hg.character.deepProfileAuthored === true ? { deepProfileAuthored: true } : {}),
     };
     souls[hg.id] = {
