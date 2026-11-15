@@ -64,6 +64,25 @@ Feature: 0087 — Relationship trajectories (a bond that warms or curdles, with 
       Then that NPC's movement pull toward the player is stronger than with the trajectory layer off
       And no player-facing projection differs from the layer-off projection
 
+  Rule: Momentum toward the player is bounded, reversible and can stay flat (ORW-336b - no radicalization)
+
+    Scenario: A long run of scenes plateaus at a modest cap, never an extreme
+      Given a played game where the player records fifty cooler scenes toward an NPC
+      Then the NPC-to-player momentum is at the player-arc cap, well below full
+      And the NPC's movement tilt toward or away from the player is at most 1.3 times
+
+    Scenario: An apology or a deep talk turns the arc, and a few more bring it flat
+      Given a played game where the player records six cooler scenes toward an NPC
+      When the player then records one warmer scene
+      Then the NPC-to-player momentum has been cut at least in half
+      When the player then records one more warmer scene
+      Then the NPC-to-player phase is steady
+
+    Scenario: With no further scenes the arc fades to steady within a dozen ticks
+      Given a played game where the player records six cooler scenes toward an NPC
+      When the house ticks with no scene between them and the player
+      Then the NPC-to-player phase is steady within 12 ticks
+
   Rule: Momentum is hidden state — surfaced only through behavior (player AND admin)
 
     Scenario: The momentum term never appears on any player-facing surface

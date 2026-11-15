@@ -141,12 +141,22 @@ export function deriveTrajectory(
   // A `steady` window bleeds momentum toward 0 (the run lost its direction) but does not zero it instantly.
   const dominant = Math.max(warmCount, coolCount);
   const consistency = window.length > 0 ? dominant / window.length : 0;
-  const priorM = prior?.momentum ?? 0;
+  let priorM = prior?.momentum ?? 0;
+  let opposed = false;
+  if (phase !== "steady") {
+    const rising = phase === "warming";
+    // ORW-336b (player arcs only; both knobs absent elsewhere): a flip of direction starts the new arc fresh, and the newest
+    // fold going AGAINST the arc cuts the carried momentum at once.
+    if (c.flipReset && prior && (prior.phase === "warming") !== rising) priorM = 0; // from steady too: a fresh arc after flatness starts small
+    const last = window[window.length - 1]!;
+    if (c.opposeDamp && !last.betrayal && (rising ? last.bondDelta < 0 : last.bondDelta > 0)) { priorM *= 1 - c.opposeDamp; opposed = true; }
+  }
   let momentum: number;
   if (phase === "steady") {
     momentum = priorM * (1 - c.buildRate); // a directionless run lets momentum lapse toward flat
   } else {
-    const built = priorM + c.buildRate * consistency;
+    let built = opposed ? priorM : priorM + c.buildRate * consistency; // an opposing fold takes wind OUT of the arc; it never feeds it
+    if (c.momentumCap !== undefined) built = Math.min(built, Math.max(c.momentumCap, priorM)); // an earlier betrayal spike is not pushed down, nor built further
     momentum = anyBetrayal ? Math.max(built, c.betrayalSpike) : built;
   }
   return { phase, momentum: clamp01(momentum) };

@@ -193,6 +193,7 @@ interface N2P {
   n2pSb?: ReturnType<GameSessionRegistry["sandboxFor"]>;
   n2pNpc?: EntityId;
   n2pOther?: { sb: N2P["n2pSb"]; npc: EntityId };
+  n2pPlateau?: number;
 }
 type N2PSess = { trajectoryOf(a: string, b: string): Trajectory; movementIntentFor(id: string): Array<{ target: string; weight: number }> | null;
   setTrajectoriesEnabled(on: boolean): void; livingIds(): string[]; live: { playedGame?: boolean } };
@@ -261,6 +262,41 @@ Then("the NPC-to-player phase is souring", function (this: BbWorld) {
 Given("a played game where an NPC starts a run of conflict scenes the player witnesses", function (this: BbWorld) {
   const g = n2pGame(); n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
   n2pScenes(g.sb, g.npc, { kind: "conflict", npcInit: true });
+});
+
+function n2pRun(this: BbWorld, k: number, direction: string): void {
+  const g = n2p(this).n2pSb ? { sb: n2p(this).n2pSb!, npc: n2p(this).n2pNpc! } : n2pGame();
+  n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
+  for (let i = 0; i < k; i++) n2pScenes1(g.sb, g.npc, direction);
+}
+function n2pScenes1(sb: NonNullable<N2P["n2pSb"]>, npc: EntityId, direction: string): void {
+  sb.commands.recordInteraction({ initiator: "player" as EntityId, witnessSet: ["player" as EntityId, npc], toward: [npc], content: `one ${Math.random()}`,
+    consequence: { edges: [{ toward: npc, direction: direction as never }] } });
+}
+Given("a played game where the player records fifty cooler scenes toward an NPC", function (this: BbWorld) { n2pRun.call(this, 50, "cooler"); });
+Given("a played game where the player records six cooler scenes toward an NPC", function (this: BbWorld) { n2pRun.call(this, 6, "cooler"); });
+Then("the NPC-to-player momentum is at the player-arc cap, well below full", function (this: BbWorld) {
+  const m = n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).momentum;
+  assert.ok(m > 0.4 && m <= 0.5 + 1e-9, `plateau ${m}`);
+});
+Then("the NPC's movement tilt toward or away from the player is at most 1.3 times", function (this: BbWorld) {
+  const m = n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).momentum;
+  assert.ok(1 + 0.6 * m <= 1.3 + 1e-9);
+});
+When("the player then records one warmer scene", function (this: BbWorld) {
+  n2p(this).n2pPlateau = n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).momentum; n2pScenes1(n2p(this).n2pSb!, n2p(this).n2pNpc!, "warmer");
+});
+Then("the NPC-to-player momentum has been cut at least in half", function (this: BbWorld) {
+  assert.ok(n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).momentum <= n2p(this).n2pPlateau! / 2 + 1e-9);
+});
+When("the player then records one more warmer scene", function (this: BbWorld) { n2pScenes1(n2p(this).n2pSb!, n2p(this).n2pNpc!, "warmer"); });
+Then("the NPC-to-player phase is steady", function (this: BbWorld) { assert.equal(n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).phase, "steady"); });
+When("the house ticks with no scene between them and the player", function () { /* the ticks are counted in the Then */ });
+Then("the NPC-to-player phase is steady within 12 ticks", function (this: BbWorld) {
+  const s = n2pSess(n2p(this).n2pSb!) as unknown as { decayUntouchedTrajectories(t: ReadonlySet<string>): void };
+  let ticks = 0;
+  while (n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).phase !== "steady" && ticks < 50) { s.decayUntouchedTrajectories(new Set()); ticks++; }
+  assert.ok(ticks <= 12, `${ticks} ticks`);
 });
 
 Given("a played game where the player records a run of warmer scenes toward an NPC", function (this: BbWorld) {

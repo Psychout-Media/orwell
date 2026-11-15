@@ -136,6 +136,23 @@ A trajectory therefore **never widens what the LLM may magnitude.** Widening wha
 *propose* about a scene's shape (open-set interpretation) feeds the trajectory's *direction* only;
 the trajectory's *strength* is engine-owned, exactly as `rel.applyDirected` magnitude is today.
 
+## NPC-to-player momentum: bounded, reversible, can stay flat (ORW-336b, 2026-11-15)
+
+Ryne's rule: momentum must not turn into radicalization ("they either really love you or hate you"); an apology or a deep talk must be
+able to turn an arc; and an arc may simply stay flat. The NPC->PLAYER arcs therefore use their own constants,
+`PLAYER_ARC_CONSTANTS` (`trajectoryConstants.ts`), so the off-screen NPC<->NPC arcs and every headless seeded sim are byte-identical:
+
+| Rule | Old behavior (off-screen constants) | Player arcs |
+|---|---|---|
+| Bounded | momentum climbs to 1.0 in 4 scenes (movement tilt x1.6) | ordinary streaks plateau at `momentumCap` 0.5 (tilt at most x1.3); a betrayal spikes to 0.6 and fades |
+| Reversible | momentum is carried across a flip (3 warm scenes after a long cooling streak gave a warming arc at 0.93) and one warm scene changed nothing | an opposing scene halves the momentum at once (`opposeDamp` 0.5, no build); two opposing scenes read flat; a new direction after a flip starts from zero (`flipReset`) |
+| Flat | an unfed arc needs about 50 ticks to fade (`neglectDecay` 0.05) | 0.2 per tick: about 10 ticks from the cap, 11 from a betrayal spike |
+
+A 1:1 warm/cool stream stays steady (momentum 0 after the first four scenes); a 3:1 stream settles warming at the cap, never past it.
+The arc's only consumer is the NPC's movement toward or away from the player (`applyTrajectoryToPulls`); it never writes an edge, a
+bond or a threat, so the relationship itself cannot be driven to a floor or ceiling by momentum. Gate: `tests/unit/momentumProperties0087.test.ts`
+and the three "bounded, reversible, can stay flat" scenarios in the `.feature`.
+
 ## Vault-safe by construction (mandate #2 — symmetric for player AND admin)
 
 `phase` and `momentum` are **hidden engine state**, held beside the 0002 edges in the engine-only

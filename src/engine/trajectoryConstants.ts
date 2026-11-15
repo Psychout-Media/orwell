@@ -70,6 +70,23 @@ export interface TrajectoryConstants {
    * is intentionally EMPTY — exactly today's `natureWeights`, no tilt.
    */
   bias: Record<TrajectoryPhase, Partial<Record<InteractionType, number>>>;
+  /**
+   * ORW-336b (the momentum-properties pass; ABSENT on the off-screen arcs, so they are byte-identical): the ceiling an ordinary
+   * run may build momentum to. A long streak plateaus here instead of climbing to 1 - "no radicalization": nobody ends up
+   * loving or hating the player on momentum alone. A betrayal's spike may sit above it (it is a one-off, and decays).
+   */
+  momentumCap?: number;
+  /**
+   * ORW-336b: when the window's direction FLIPS (warming <-> cooling/souring) momentum starts fresh instead of carrying the
+   * old arc's momentum across the flip, so a turnaround is gradual and the new arc cannot begin near its maximum.
+   */
+  flipReset?: boolean;
+  /**
+   * ORW-336b: a fold that OPPOSES the arc's current direction (a warm scene during a cooling arc, an apology) cuts the carried
+   * momentum by this fraction at once (0..1), so one change of heart visibly takes the wind out of the arc rather than being
+   * outvoted by the older scenes still in the window. Absent/0 = no damping.
+   */
+  opposeDamp?: number;
 }
 
 /** The arc's current direction (spec). `steady` ⇒ no tilt (byte-identical to today's `natureWeights`). */
@@ -101,3 +118,18 @@ export const TRAJECTORY_CONSTANTS: TrajectoryConstants = {
  * `minMomentum` the arc is noise and nothing changes. Sits beside the 0078 `MOVEMENT_MEMORY` memory tilt it mirrors.
  */
 export const TRAJECTORY_PLAYER_APPROACH = { minMomentum: 0.15, gain: 0.6 } as const;
+
+/**
+ * ORW-336b - the constants for the NPC->PLAYER arcs ONLY (the off-screen NPC<->NPC arcs keep `TRAJECTORY_CONSTANTS`, so headless
+ * seeded sims are byte-identical). Ryne's rule: momentum must not radicalize ("they either really love you or hate you"); an arc
+ * can be turned by an apology or a deep talk, and it can simply stay flat. So: a modest ceiling (0.5 => the movement tilt is at
+ * most 1 + 0.6 x 0.5 = x1.3), a flip starts fresh, an opposing scene halves the momentum, and an unfed arc fades fast (0.2 per
+ * tick: ~9 ticks from the ceiling) instead of the 0.05 neglect cadence (~49 ticks).
+ */
+export const PLAYER_ARC_CONSTANTS: TrajectoryConstants = {
+  ...TRAJECTORY_CONSTANTS,
+  neglectDecay: 0.2,
+  momentumCap: 0.5,
+  flipReset: true,
+  opposeDamp: 0.5,
+};

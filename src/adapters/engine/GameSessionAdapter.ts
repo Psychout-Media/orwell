@@ -247,7 +247,7 @@ import {
   deriveTrajectory, decayTrajectory, STEADY, kindFoldSignal,
   type Trajectory, type FoldSignal,
 } from "../../engine/trajectory";
-import { TRAJECTORY_CONSTANTS, TRAJECTORY_PLAYER_APPROACH } from "../../engine/trajectoryConstants";
+import { TRAJECTORY_CONSTANTS, TRAJECTORY_PLAYER_APPROACH, PLAYER_ARC_CONSTANTS } from "../../engine/trajectoryConstants";
 import { buildSystemPrompt, momentForPhase, requiredLeverForPhase, renderStoryFacts, renderSurfacedFacts, renderHardConstraints, dedupeKeepNewest } from "../../engine/momentPrompts";
 import {
   producerForSeed, renderProducerVoice, mergeProducer, validateProducerProfile,
@@ -8937,7 +8937,8 @@ export class GameSessionAdapter implements GameSession {
     folds.push(signal);
     while (folds.length > TRAJECTORY_CONSTANTS.recencyWindow) folds.shift();
     this.trajectoryFolds.set(key, folds);
-    this.trajectories.set(key, deriveTrajectory(folds, this.trajectories.get(key)));
+    // ORW-336b: the NPC->PLAYER arcs use the capped/reversible/fast-fading player constants; every other arc is unchanged.
+    this.trajectories.set(key, deriveTrajectory(folds, this.trajectories.get(key), partner === PLAYER ? PLAYER_ARC_CONSTANTS : TRAJECTORY_CONSTANTS));
   }
 
   /**
@@ -8952,7 +8953,7 @@ export class GameSessionAdapter implements GameSession {
     this.playerFedArcs = new Set();
     for (const [key, traj] of this.trajectories) {
       if (touched.has(key) || fed.has(key)) continue;
-      const next = decayTrajectory(traj);
+      const next = decayTrajectory(traj, key.endsWith(`->${PLAYER}`) ? PLAYER_ARC_CONSTANTS : TRAJECTORY_CONSTANTS);
       if (next.momentum <= 0 || next.phase === "steady") {
         this.trajectories.delete(key);
         this.trajectoryFolds.delete(key);
