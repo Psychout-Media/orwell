@@ -62,22 +62,11 @@ export interface PublicAppearanceFacets {
   vocation?: string;
 }
 
-import {
-  EXPRESSION_VARIANTS, FRAMING_VARIANTS, BACKDROP_VARIANTS,
-  FACIAL_STRUCTURE_VARIANTS, LIGHTING_VARIANTS, STYLE_ANCHOR_VARIANTS, WORN_TEXTURE_VARIANTS,
-  LEGACY_STYLE_ANCHOR_VARIANTS,
-} from "./imageConstants";
-
 /**
- * ORW-361: the two wardrobe/on-camera fields ORW-360 adds to the facet. Read through this local type
- * (defensively) so this prompt works before and after that card lands; absent fields fall back.
+ * ORW-380: the three look fields the writer authors (ORW-360 wardrobe/onCamera, ORW-380 photoHair). Read
+ * through this local type (defensively) so a facet without them still builds.
  */
-type PortraitLook = PhysicalCharacteristics & { wardrobe?: readonly string[]; onCamera?: string };
-
-/** Ages the skin only when the written age-look says so. */
-const WORN_AGE_LOOK = /\b(weathered|worn|lived-in|sun-creased|craggy|rough|tired|haggard|older than)\b/i;
-
-const FRAME_RULES = "The only person in the frame. No text, logos, badges or screens, and no photos on the walls. At home in the Orwell house, not at work";
+type PortraitLook = PhysicalCharacteristics & { wardrobe?: readonly string[]; onCamera?: string; photoHair?: string };
 
 const isRealMark = (m: string | undefined): m is string => !!m && m.trim() !== "" && !/^none\b/i.test(m.trim());
 
@@ -93,56 +82,6 @@ export function physicalFacetToAppearance(p: PhysicalCharacteristics): string {
   return parts.join(", ");
 }
 
-// ── #1317 (cast portraits converge, root cause 3) — gender-aware BUILD/HAIR phrasing at
-// PROMPT-ASSEMBLY time only ──────────────────────────────────────────────────────────────────────
-// The STORED `physicalCharacteristics` facet (heightBuild/hair) is deliberately gender-NEUTRAL — it
-// never encodes `genderPresentation`, so the same pool serves every gender and the stored facet stays
-// byte-stable (0007/0031; never mutated here). Before this fix the ONLY gender cue an image model saw
-// was the repeated directive `genderPresentationPhrase` in the Subject line — the build/hair VOCABULARY
-// itself never shifted, so a man and a woman dealt the same stored build/hair phrase rendered near-
-// identically apart from the name/phrase cue. These pools map facet → a short, hash-seeded gendered
-// CLAUSE appended at prompt-assembly time (never replacing the stored phrase, never touching storage),
-// so the same stored facet now visibly reads differently across presentations.
-const BUILD_GENDER_CUES: Record<"man" | "woman" | "nonbinary", readonly string[]> = {
-  man: ["reads distinctly masculine", "carries a masculine presence", "a build that reads masculine"],
-  woman: ["reads distinctly feminine", "carries a feminine presence", "a build that reads feminine"],
-  nonbinary: ["reads androgynous", "carries a gender-neutral presence", "a build that resists easy gendering"],
-};
-const HAIR_GENDER_CUES: Record<"man" | "woman" | "nonbinary", readonly string[]> = {
-  man: ["styled with masculine grooming", "cut with a masculine edge", "groomed in a masculine style"],
-  woman: ["styled with feminine flair", "finished with feminine styling", "worn with a feminine touch"],
-  nonbinary: ["styled in a gender-neutral way", "cut with an androgynous edge", "styled without a strong gender cue"],
-};
-
-function genderCue(
-  pool: Record<"man" | "woman" | "nonbinary", readonly string[]>,
-  gender: "man" | "woman" | "nonbinary",
-  seed: number,
-): string {
-  const cues = pool[gender];
-  return cues[((seed % cues.length) + cues.length) % cues.length]!;
-}
-
-/**
- * Compose a SEPARATE gendered build/hair clause for the prompt — deliberately NOT folded into the
- * `Physical appearance:` line itself. `Physical appearance:` is `physicalFacetToAppearance(p)` verbatim,
- * a load-bearing invariant (L29, `momentOrchestration.test.ts`): the narrator context and the portrait
- * prompt must share the EXACT SAME appearance clause byte-for-byte, so words and picture can never
- * diverge. Splicing a gender cue into heightBuild/hair before that call would break the shared-string
- * containment check, so instead the cue rides as its own trailing clause — additive, portrait-only,
- * and it never touches `p` (no mutation; the stored facet stays gender-neutral and byte-stable).
- */
-function genderedBuildHairClause(
-  p: PhysicalCharacteristics,
-  gender: "man" | "woman" | "nonbinary" | undefined,
-  shot: number,
-): string | undefined {
-  if (!gender) return undefined;
-  const buildCue = genderCue(BUILD_GENDER_CUES, gender, shot);
-  const hairCue = genderCue(HAIR_GENDER_CUES, gender, shot >>> 20);
-  return `the build ${buildCue}, the hair ${hairCue}`;
-}
-
 /** A generated portrait prompt ready to hand to an image provider. */
 export interface PortraitPromptResult {
   houseguestId: string;
@@ -150,100 +89,168 @@ export interface PortraitPromptResult {
   prompt: string;
 }
 
-// The per-subject shot key (G24) is `fnv1a` from src/domain/num.ts (FNV-1a 32-bit): the same (houseguestId, season anchor) pair always yields the same hash, so a houseguest re-renders as the same
-// shot across restarts and backfills, while different houseguests land on different picks.
+type Gender = "man" | "woman" | "nonbinary";
+
+/** The spots a moment can name, in the words the Setting line uses. Order is the order the text is searched. */
+const SPOTS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  { name: "kitchen", re: /\bkitchen\b/i },
+  { name: "living room", re: /\bliving[- ]room\b/i },
+  { name: "dining room", re: /\bdining[- ]room\b/i },
+  { name: "backyard", re: /\b(?:backyard|back yard)\b/i },
+  { name: "lounge", re: /\blounge\b/i },
+  { name: "bedroom", re: /\bbedroom\b/i },
+];
+/** The fallback rooms, dealt by houseguest-id hash when the moment names none. */
+const FALLBACK_ROOMS = ["kitchen", "living room", "dining room", "backyard", "lounge", "bedroom"] as const;
+
+const LIGHT_BY_SPOT: Record<string, readonly [string, string]> = {
+  backyard: ["warm golden-hour light", "soft open shade in late afternoon"],
+  kitchen: ["bright soft window light from the side", "bright, airy morning light"],
+  "dining room": ["bright soft window light from the side", "bright, airy morning light"],
+  "living room": ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
+  lounge: ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
+  bedroom: ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
+};
+
+const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark|gap)\b/i;
+const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
+const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
+const HAIR_CUT_MARKERS = [", usually", " usually", " that ", " by ", " until "] as const;
+
+const PRONOUNS: Record<Gender | "none", { subj: string; obj: string; plural: boolean }> = {
+  man: { subj: "He", obj: "him", plural: false },
+  woman: { subj: "She", obj: "her", plural: false },
+  nonbinary: { subj: "They", obj: "them", plural: true },
+  none: { subj: "They", obj: "them", plural: true },
+};
+
+const BRIEF_TAIL =
+  "Hair and makeup done for the shoot, well groomed and camera-ready, but a real, believable person and not a model: "
+  + "keep the stated age and build exactly, with natural skin that is not airbrushed. Shot at eye level on a full-frame "
+  + "camera with an 85mm portrait lens, shallow depth of field, crisp focus on the eyes, soft flattering light, "
+  + "true-to-life colour. The only person in the frame; no text or logos.";
+
+const sentence = (t: string): string => {
+  const x = t.trim().replace(/[\s.]+$/, "");
+  return x === "" ? "" : `${x}.`;
+};
+const upperFirst = (t: string): string => (t === "" ? t : t[0]!.toUpperCase() + t.slice(1));
+const lowerFirst = (t: string): string => (t === "" ? t : t[0]!.toLowerCase() + t.slice(1));
+
+/** The written hair cut at the first "usually / that / by / until" clause, ready to take ", neatly styled". */
+export function trimWrittenHair(hair: string): string {
+  let cut = hair.length;
+  for (const m of HAIR_CUT_MARKERS) {
+    const i = hair.indexOf(m);
+    if (i >= 0 && i < cut) cut = i;
+  }
+  return hair.slice(0, cut).replace(/[\s,;.]+$/, "").trim();
+}
+
+/** Keep only the signature parts of a (possibly compound) distinguishing mark; scars, birthmarks, burns and chipped teeth are not sent. */
+export function signatureMarkClause(mark: string | undefined): string {
+  if (!isRealMark(mark)) return "";
+  const parts = mark.split(/;|,\s*plus\b/i).map((p) => p.replace(/^[\s,]*(?:and\s+)?/i, "").trim()).filter((p) => p !== "");
+  const kept = parts.filter((p) => SIGNATURE_MARK_RE.test(p) && !NOT_SENT_MARK_RE.test(p));
+  return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
+}
+
+function spotOf(onCamera: string): string | undefined {
+  let best: { name: string; at: number } | undefined;
+  for (const sp of SPOTS) {
+    const m = sp.re.exec(onCamera);
+    if (m && (best === undefined || m.index < best.at)) best = { name: sp.name, at: m.index };
+  }
+  return best?.name;
+}
+
+/** Make the moment a sentence with a subject: a line that opens with an -ing word or a place gets "He is" (or "They are") in front. */
+function momentSentence(onCamera: string, subj: string, plural: boolean): string {
+  const t = onCamera.trim();
+  if (/^(?:he|she|they|his|her|their)\b/i.test(t)) return sentence(t);
+  if (/^[A-Za-z-]+ing\b/.test(t) || /^(?:on|in|at|by|near|beside|against|under|over|inside|outside|behind|with)\b/i.test(t)) {
+    return sentence(`${subj} ${plural ? "are" : "is"} ${lowerFirst(t)}`);
+  }
+  return sentence(t);
+}
+
+function fallbackPose(demeanor: string | undefined, plural: boolean): string {
+  const d = (demeanor ?? "").toLowerCase();
+  if (/\b(?:warm|bubbly|loud|chatty)\b/.test(d)) return plural ? "lean in with a big open smile" : "leans in with a big open smile";
+  if (/\b(?:guarded|cold|quiet|watchful|steady)\b/.test(d)) {
+    return plural ? "sit back, composed, with a small closed-mouth smile" : "sits back, composed, with a small closed-mouth smile";
+  }
+  return plural ? "stand relaxed with an easy half-smile" : "stands relaxed with an easy half-smile";
+}
 
 /**
- * Build a photorealistic portrait prompt for one houseguest using ONLY their
- * public appearance facets and the season-level style anchor. The output is
- * safe to send to any image provider — it carries no hidden game state.
+ * Build the photo-brief v3 prompt (ORW-380): ONE paragraph, in a fixed order, from the public facets only.
+ * No name, no job, no season anchor (still stored by the adapter, ignored here), no random expression,
+ * framing, lighting or backdrop lines. The pose and the room come from the writer's `onCamera` moment, or
+ * (absent) from the demeanor and a houseguest-id hash, so the same houseguest always gets the same shot.
  *
- * G24: expression, framing, and backdrop vary PER SUBJECT (hash-seeded off the
- * houseguest id + the season anchor) instead of every portrait sharing one
- * identical pose/crop — the cast stops looking like a grid of siblings while
- * the season anchor keeps the set cohesive.
- *
- * The name is included in the prompt purely for identification of the subject
- * in the output; it is a public fact (the player knows every houseguest's name).
+ * The name is accepted for the stable call signature and for the result record; it is not sent.
  */
 export function buildPortraitPrompt(
   houseguestId: string,
   name: string,
   facets: PublicAppearanceFacets,
-  styleAnchor: string,
+  _styleAnchor: string,
 ): PortraitPromptResult {
-  const { appearance, age, presentation, physicalCharacteristics, ethnicity, genderPresentation, demeanor,
-    identityConcept, vocation } = facets;
+  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, demeanor, presentation } = facets;
   const look = physicalCharacteristics as PortraitLook | undefined;
+  const clean = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const pr = PRONOUNS[genderPresentation ?? "none"];
+  const idHash = fnv1a(houseguestId);
+
+  // 2. Who: age, heritage, gender, then the written face.
+  const noun = genderPresentation === "man" ? "man" : genderPresentation === "woman" ? "woman"
+    : genderPresentation === "nonbinary" ? "nonbinary person with a soft androgynous look" : "person";
+  const article = age === 8 || age === 11 || age === 18 || (age >= 80 && age <= 89) ? "an" : "a";
+  const who = `Waist-up portrait of ${article} ${age}-year-old ${ethnicity ? `${ethnicity} ` : ""}${noun}`;
+  let withClause: string;
+  if (look) {
+    const ageLook = clean(look.ageLook);
+    const bits = [look.skinTone, look.heightBuild, look.facialFeatures].map(clean).filter((x) => x !== "");
+    if (ageLook !== "" && !AGE_LOOK_BLOCK_RE.test(ageLook)) bits.push(ageLook);
+    withClause = bits.length > 0 ? ` with ${bits.join(", ")}` : "";
+  } else {
+    withClause = appearance.trim() !== "" ? ` with ${appearance.trim()}` : "";
+  }
+
+  // 3. Hair: the shoot-day line, or the written cut trimmed and neatened.
+  const photoHair = clean(look?.photoHair);
+  const writtenHair = look ? trimWrittenHair(clean(look.hair)) : "";
+  const hairLine = photoHair !== "" ? sentence(`Hair: ${photoHair}`)
+    : writtenHair !== "" ? sentence(`Hair: ${writtenHair}, neatly styled`) : "";
+
+  // 4. Signature features only.
+  const markLine = signatureMarkClause(look?.distinguishingMark);
+
+  // 5. Clothes.
   const wardrobe = Array.isArray(look?.wardrobe)
     ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => w.trim()).filter((w) => w !== "")
     : [];
-  const onCamera = typeof look?.onCamera === "string" ? look.onCamera.trim() : "";
-  const writtenFace = typeof look?.facialFeatures === "string" && look.facialFeatures.trim() !== "";
-  // Older saves stored the anchor with the real show name in it; never send that to a provider.
-  // A stored pre-ORW-361 anchor maps to its new anchor by index (its skin cues would age the person);
-  // any other stored anchor only gets the show name swapped.
-  const legacyIdx = LEGACY_STYLE_ANCHOR_VARIANTS.indexOf(styleAnchor as typeof LEGACY_STYLE_ANCHOR_VARIANTS[number]);
-  const anchor = legacyIdx >= 0 ? STYLE_ANCHOR_VARIANTS[legacyIdx]! : styleAnchor.replace(/Big Brother/g, "Orwell");
-  const shot = fnv1a(`${houseguestId}|${styleAnchor}`);
-  const expression = EXPRESSION_VARIANTS[shot % EXPRESSION_VARIANTS.length]!;
-  const framing = FRAMING_VARIANTS[(shot >>> 8) % FRAMING_VARIANTS.length]!;
-  const backdrop = BACKDROP_VARIANTS[(shot >>> 16) % BACKDROP_VARIANTS.length]!;
-  const facialStructure = FACIAL_STRUCTURE_VARIANTS[(shot >>> 24) % FACIAL_STRUCTURE_VARIANTS.length]!;
-  // #1317: a SECOND hash-seeded pick off the first hash, so lighting draws from fresh bits.
-  const shot2 = fnv1a(`${shot}|v2`);
-  const lighting = LIGHTING_VARIANTS[shot2 % LIGHTING_VARIANTS.length]!;
-  // The anchor's own index picks its parallel worn-texture cue; an old stored anchor falls back to a hash pick.
-  const anchorIdx = STYLE_ANCHOR_VARIANTS.indexOf(anchor as typeof STYLE_ANCHOR_VARIANTS[number]);
-  const wornTexture = WORN_TEXTURE_VARIANTS[anchorIdx >= 0 ? anchorIdx : shot2 % WORN_TEXTURE_VARIANTS.length]!;
-  const isWorn = !!look && WORN_AGE_LOOK.test(look.ageLook ?? "");
-  const skinLine = isWorn ? wornTexture : "natural, healthy skin with real texture";
-  // L29: the written facet AUTHORS the physical line. `physicalFacetToAppearance` (the narrator's
-  // verbatim string) is unchanged; the portrait line is built separately: no mark, no style.
-  const physical = look
-    ? [look.heightBuild, look.skinTone, look.hair, look.facialFeatures, look.ageLook]
-      .filter((x) => typeof x === "string" && x.trim() !== "").join(", ")
-    : appearance;
-  // #1317 Fix C: a SEPARATE gendered build/hair clause (additive; the stored facet stays neutral).
-  const genderedStyling = look ? genderedBuildHairClause(look, genderPresentation, shot) : undefined;
-  const mark = look?.distinguishingMark;
-  const hasMark = isRealMark(mark);
-  // Clothing: written wardrobe, else the written style, else the legacy presentation. Never two styles.
-  const clothingLine = wardrobe.length > 0
-    ? `Wearing: ${wardrobe.join(", ")}`
-    : `Presentation style: ${look?.style ? look.style : presentation}`;
-  const genderPhrase = genderPresentation ? genderPresentationPhrase(genderPresentation) : undefined;
-  // The gender phrase leads, the name trails (de-bias, #1140); the age is explicit (ORW-361).
-  const subjectParts: string[] = [];
-  if (genderPhrase) subjectParts.push(genderPhrase);
-  subjectParts.push(`${genderPhrase ? "" : "a person "}who looks exactly ${age} years old`);
-  if (ethnicity) subjectParts.push(`of ${ethnicity} heritage`);
-  subjectParts.push(`named ${name}`);
-  const expressionLine = demeanor ? `${expression}, ${demeanor}` : expression;
-  const closeLine = look
-    ? (writtenFace ? `Distinctive look: ${look.facialFeatures}`
-      : `Distinctive look: ${facialStructure}`)
-    : `Distinctive look: ${physical}`;
+  const styleText = clean(look?.style) !== "" ? clean(look?.style) : presentation.trim();
+  const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}`)
+    : sentence(`Wearing clothes in this style: ${styleText}`);
+
+  // 6 + 7. The moment and the room.
+  const onCamera = clean(look?.onCamera);
+  const spot = (onCamera !== "" ? spotOf(onCamera) : undefined) ?? FALLBACK_ROOMS[idHash % FALLBACK_ROOMS.length]!;
+  const momentLine = onCamera !== "" ? momentSentence(onCamera, pr.subj, pr.plural)
+    : sentence(`${pr.subj} ${fallbackPose(demeanor, pr.plural)}, looking into the camera`);
+  const settingLine = `Setting: the house ${spot}, softly out of focus behind ${pr.obj}.`;
+
+  // 8. Light, chosen for the spot (the two choices split by the id hash).
+  const lights = LIGHT_BY_SPOT[spot]!;
+  const lightLine = `Light: ${lights[idHash % 2]!}.`;
+
   const prompt = [
-    `Subject: ${subjectParts.join(", ")}`,
-    `Physical appearance: ${physical}`,
-    ...(genderedStyling ? [`Build & hair styling: ${genderedStyling}`] : []),
-    ...(hasMark ? [`Mark (subtle: faint, small and long-healed, never a fresh wound, bruise or stain): ${mark}`] : []),
-    clothingLine,
-    // The authored story sentence stays unless an on-camera line replaces it.
-    ...(!onCamera && identityConcept ? [`Character: ${identityConcept} — reflect this in wardrobe, grooming, and attitude`] : []),
-    ...(vocation ? [`Occupation: ${vocation}`] : []),
-    anchor,
-    FRAME_RULES,
-    `Skin: ${skinLine}`,
-    ...(look && writtenFace ? [] : [`Facial structure: ${facialStructure}`]),
-    ...(onCamera ? [] : [`Expression: ${expressionLine}`]),
-    `Lighting: ${lighting}`,
-    `Framing: ${framing}`,
-    ...(onCamera ? [] : [`Setting: ${backdrop}`]),
-    ...(onCamera ? [] : [closeLine]),
-    ...(onCamera ? [`On camera: ${onCamera}`] : []),
-  ].join(". ");
+    "Official cast portrait of a contestant on a reality TV show, photographed by the show's photographer inside the house where the show is filmed.",
+    sentence(`${who}${withClause}`),
+    hairLine, markLine, clothesLine, momentLine, settingLine, lightLine, BRIEF_TAIL,
+  ].filter((x) => x !== "").join(" ");
 
   return { houseguestId, name, prompt };
 }

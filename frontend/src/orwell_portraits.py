@@ -1505,7 +1505,14 @@ def _prompt_fingerprint(prompt: Optional[str]) -> Optional[str]:
 # Only a portrait actually shot with the new prompt records PORTRAIT_PROMPT_VERSION (new seasons,
 # missing faces, a forced single re-shoot). A background upgrader (ORW-369) walks `stale_portrait_ids`
 # and re-shoots one houseguest at a time through `generate_and_store(..., force_ids=[id])`.
-PORTRAIT_PROMPT_VERSION = 2
+PORTRAIT_PROMPT_VERSION = 3
+
+# ORW-380: prepended to the prompt of a forced upgrade re-shoot (the ORW-369 upgrader) that carries the current
+# portrait as the reference image: it keeps the person and lets the new brief change everything else.
+UPGRADE_IDENTITY_PREFIX = (
+    "The same person as in the reference photo: keep their face, skin tone and age. Everything else (hair "
+    "styling, clothes, pose, setting and light) follows this brief, with clear even skin and no marks other "
+    "than those named. ")
 
 
 def _entry_prompt_version(entry) -> int:
@@ -1894,8 +1901,8 @@ def finalize_player_headshot(user: Optional[str], png: bytes, kind: str = "studi
 
 
 # --- the studio: generate N image-to-image options off the uploaded photo ---
-_STUDIO_BASE = ("photorealistic candid reality-TV cast portrait, natural unretouched skin "
-                "texture, soft practical lighting, head-and-shoulders")
+_STUDIO_BASE = ("photorealistic candid reality-TV cast portrait, natural skin, "
+                "soft practical lighting, head-and-shoulders")
 _STUDIO_VARIANTS = (
     "a natural easy smile, soft window light, looking at camera",
     "three-quarter angle, a relaxed confident look, warm practical light",
@@ -2195,7 +2202,15 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         _INFLIGHT.setdefault(_safe_user(user), set()).add(sid)
         try:
             t0 = time.monotonic()
-            png = await _generate_one(str(prompt), user, reference_png=ref)
+            # ORW-380: an upgrader re-shoot (forced, with the current file as the reference) carries the
+            # identity prefix instead of the generic "minimal alteration" one (keep_identity=False).
+            _upgrade_ref = bool(ref and sid in reshoot_ids and entry.get("identityPrefix") is True
+                                and _safe_id(str(hid)) in forced)
+            if _upgrade_ref:
+                png = await _generate_one(UPGRADE_IDENTITY_PREFIX + str(prompt), user, reference_png=ref,
+                                          keep_identity=False)
+            else:
+                png = await _generate_one(str(prompt), user, reference_png=ref)
             duration_ms = int((time.monotonic() - t0) * 1000)
             if ref and not png:
                 source = "generated"  # reference failed; the log carries the reason

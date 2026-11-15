@@ -367,6 +367,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["houseguestId"])) refuse("houseguestId", "a houseguest id (string)");
       if (args["wardrobe"] !== undefined && !Array.isArray(args["wardrobe"])) refuse("wardrobe", "an array when present");
       if (args["onCamera"] !== undefined && typeof args["onCamera"] !== "string") refuse("onCamera", "a string when present");
+      if (args["photoHair"] !== undefined && typeof args["photoHair"] !== "string") refuse("photoHair", "a string when present");
+      if (args["clear"] !== undefined && !Array.isArray(args["clear"])) refuse("clear", "an array when present");
       return;
     case "recordRoomCanon":
       // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
