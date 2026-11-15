@@ -7,7 +7,7 @@ SRC = (pathlib.Path(__file__).resolve().parents[1] / "static" / "js" / "orwellSt
 
 
 def test_the_chip_appends_the_day_number_to_the_time_of_day_label():
-    assert re.search(r'todLabel\(st\.timeOfDay\)\s*\+\s*\(.*Number\.isInteger\(st\.dayNumber\).*", Day "\s*\+\s*st\.dayNumber', SRC)
+    assert re.search(r'todLabel\(st\.timeOfDay,\s*st\.earlyMorning\)\s*\+\s*\(.*Number\.isInteger\(st\.dayNumber\).*", Day "\s*\+\s*st\.dayNumber', SRC)
 
 
 def test_no_exact_minutes_reach_the_chip():

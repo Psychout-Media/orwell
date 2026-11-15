@@ -189,11 +189,11 @@ async def run_enrich(owner: Optional[str] = None) -> dict:
     except Exception:
         strict = False
     try:
-        from src.orwell_cast_authoring import _resolve_llm_fn  # the shared background-utility completion
+        from src.orwell_cast_authoring import _resolve_llm_fn, resolve_prose_llm_fn  # the shared background-utility completion
     except Exception:
         return {"voiced": 0, "total": 0, "reason": "no-model"}
 
-    llm_fn = await _resolve_llm_fn(owner)
+    llm_fn = await resolve_prose_llm_fn(_resolve_llm_fn, owner)  # ORW-387: a prose prompt; json_object makes a strict provider answer 400
     if llm_fn is None:
         # STRICT enrichment policy (owner directive 2026-07-11): an unwired class is a LOUD failure —
         # an ERROR + an admin-visible ledger entry. Soft: the legacy silent debug line, byte-identical.

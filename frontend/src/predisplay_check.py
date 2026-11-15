@@ -3,7 +3,7 @@
 Owner ruling: when narration contradicts the engine's hard facts, quietly rewrite once (regenerate with the specific correction, show only the fixed reply); only if the redo still fails remove the
 smallest wrong part; never cut mid-sentence. THIS SLICE is the pure CHECKER plus a counter. It does NOT rewrite: the live turn streams each sentence-buffered chunk to the player as it is produced
 (agent_loop `_guard_stream_chunk` -> `yield data: {delta}`), so no whole reply exists before part of it is shown. A true "regenerate then show" needs the reply held back until its end; that is
-the remaining slice (see the PR body). Until then a hit is only COUNTED as `predisplay-conflict:<fact>` through the soft-fail ledger.
+the remaining slice (see the PR body). Until then a hit is only COUNTED (plain counter + INFO log; not a health event).
 
 Three hard facts, all from Vault-free public state:
   asleep-speaks   a houseguest the engine lists as asleep speaks or acts in the scene
@@ -13,9 +13,12 @@ Pure functions, fail-open, no rng.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 from typing import Any, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
@@ -27,7 +30,13 @@ _ACT_RE = re.compile(
     r"\b(?:says?|said|asks?|asked|replies|replied|whispers?|whispered|shouts?|shouted|laughs?|laughed|grins?|grinned|smiles?|smiled|walks?|walked|"
     r"steps?|stepped|enters?|entered|comes?|came|sits?|sat|stands?|stood|looks?\s+up|turns?|turned|grabs?|grabbed|pours?|poured|nods?|nodded|"
     r"shrugs?|shrugged|joins?|joined|leans?|leaned|opens?|opened|hugs?|hugged|mutters?|muttered|calls?|called|speaks?|spoke)\b", re.IGNORECASE)
-_QUOTE_RE = re.compile(r"[\"“”]")
+_QUOTED_RE = re.compile(r"[\"“][^\"“”]*(?:[\"”]|$)")  # quoted speech; a dangling open quote runs to the end (fail-open)
+_ACT_SRC = _ACT_RE.pattern[len(r"\b(?:"):-len(r")\b")]
+
+
+def _outside_quotes(text: str) -> str:
+    """The text with every quoted span blanked: a name inside speech is only mentioned, never the one speaking or acting."""
+    return _QUOTED_RE.sub(" ", text)
 
 _TODAY_WORDS_RE = re.compile(r"\b(?:this\s+(?:morning|afternoon|evening)|tonight|later\s+today|today|this\s+(?:very\s+)?(?:hour|night)|in\s+(?:a\s+few|an?)\s+hours?|in\s+\w+\s+minutes)\b", re.IGNORECASE)
 _EVENT_WORDS = {
@@ -62,23 +71,30 @@ def _name_forms(name: Any) -> "list[str]":
 
 
 def asleep_conflicts(text: str, asleep_names: Iterable[Any]) -> "list[str]":
-    """Names of asleep houseguests the text has speaking or acting. A sentence that only says they are asleep is fine."""
+    """Names of asleep houseguests who SPEAK (an `@[Name] -` speaker tag at a line start, or a `Name says/asks/...` attribution) or are the grammatical subject of an act verb, outside quoted speech.
+    A name inside quotation marks, or merely mentioned (object, asleep, snoring), never counts."""
     hits: "list[str]" = []
     names = [n for n in (asleep_names or []) if str(n or "").strip()]
     if not text or not names:
         return hits
-    for sent in _sentences(text):
-        for n in names:
-            for form in _name_forms(n):
-                m = re.search(r"(?<!\w)" + re.escape(form) + r"(?!\w)", sent)
-                if not m:
-                    continue
-                rest = sent[:m.start()] + " " + sent[m.end():]  # the name itself must not count as a sleep word
-                if _SLEEP_OK_RE.search(rest) and not _QUOTE_RE.search(sent):
-                    break  # mentioned as sleeping, no voice
-                if _QUOTE_RE.search(sent) or _ACT_RE.search(sent):
-                    hits.append(str(n))
-                break
+    outside = _outside_quotes(text)
+    for n in names:
+        forms = [re.escape(f) for f in _name_forms(n)]
+        alt = "(?:" + "|".join(forms) + ")"
+        if re.search(r"^[ \t]*@\[\s*" + alt + r"\s*\]\s*[\u2014\u2013-]", text, re.MULTILINE):
+            hits.append(str(n))
+            continue
+        subj = re.compile(r"(?<!\w)" + alt + r"(?!\w),?\s+(?:\w+ly\s+)?(?:" + _ACT_SRC + r")\b", re.IGNORECASE)
+        for sent in _sentences(outside):
+            m = subj.search(sent)
+            if not m:
+                continue
+            nm = re.search(r"(?<!\w)" + alt + r"(?!\w)", sent)
+            rest = sent[:nm.start()] + " " + sent[nm.end():]  # the name itself must not count as a sleep word
+            if _SLEEP_OK_RE.search(rest):
+                continue  # mentioned as sleeping, no voice
+            hits.append(str(n))
+            break
     return sorted(set(hits))
 
 
@@ -91,7 +107,7 @@ def schedule_conflict(text: str, schedule: Any) -> Optional[str]:
     if not pat:
         return None
     ev = re.compile(r"\b(?:" + pat + r")\b", re.IGNORECASE)
-    for sent in _sentences(text):
+    for sent in _sentences(_outside_quotes(text)):  # a quoted line is a character's guess, not the narration placing the event
         if re.search(r"\b(?:tomorrow|yesterday|last\s+night|earlier|was|were|had)\b", sent, re.IGNORECASE):
             continue
         if ev.search(sent) and _TODAY_WORDS_RE.search(sent):
@@ -127,24 +143,27 @@ def correction_for(fact: str) -> str:
     }.get(fact, "")
 
 
+PREDISPLAY_COUNTS: "dict[str, int]" = {}
+
+
 def record_conflicts(facts: "list[str]", user: Any = None) -> None:
-    """Count each hit as `predisplay-conflict:<fact>` through the soft-fail ledger. Never raises."""
+    """Count each hit in a plain counter + an INFO log line. Deliberately NOT record_soft_failure: until the rewrite slice exists a count-only hit is not a health event and must not show RED on the admin page."""
     for f in facts:
-        try:
-            from src.log_rings import record_soft_failure
-            record_soft_failure("predisplay-conflict:" + f, RuntimeError("narration contradicted an engine hard fact"), corrected="counted only (no rewrite in this slice)", user=user)
-        except Exception:  # failsoft-ok: recorder-self
-            pass
+        PREDISPLAY_COUNTS[f] = PREDISPLAY_COUNTS.get(f, 0) + 1
+        logger.info("[predisplay-conflict] %s (count only, no rewrite in this slice)", f)
 
 
 async def check_and_count(text: str, owner: Any) -> "list[str]":
-    """Read the live state, find conflicts, count them. Returns the fact ids (the caller ignores them in this slice). Off by `ORWELL_PREDISPLAY_CHECK=0`."""
+    """Find conflicts against the ALREADY-CACHED engine state and count them. Never fetches: with no fresh cached state the check is skipped, so a slow engine cannot delay a streamed chunk.
+    Returns the fact ids (the caller ignores them in this slice). Off by `ORWELL_PREDISPLAY_CHECK=0`."""
     if not text or not predisplay_check_enabled():
         return []
     try:
-        from src import orwell_engine
+        from src import engine_read_cache
         from src.zero_clocks import zero_clocks_on
-        state = await orwell_engine.get_game_state_polled(user=owner)
+        state = engine_read_cache.peek("getGameState", owner)
+        if state is None:
+            return []
         facts = find_conflicts(text, state, zero_clocks=zero_clocks_on())
         if facts:
             record_conflicts(facts, owner)
