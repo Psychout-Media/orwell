@@ -8656,6 +8656,8 @@ async def _stream_agent_loop_impl(
         # this round — the raw markup must never reach the client. The actual tool call is still
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
+        _opener_halted_round = False  # ORW-453: this round's visible stream was cut by a tool-call opener: nothing after it was shown, so nothing after it is stored
+        _opener_halt = False  # ORW-453: set only on the delta where the tool-call opener halts the visible stream
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
         _round_replay = False  # F-6: this round re-told a scene already shown this turn and was dropped whole
         _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
@@ -9220,8 +9222,14 @@ async def _stream_agent_loop_impl(
                             # strip still parses the call). round_response keeps the raw text.
                             if not _visible_halted and tool_call_opener_index(round_response) >= 0:
                                 _visible_halted = True
+                                _opener_halted_round = True
+                                _opener_halt = True  # ORW-453: this halt is the tool-call opener's (not an A2 scene cut): its unshown tail leaves the stored text too, below
                                 _flush = round_response[:tool_call_opener_index(round_response)]
-                                _game_buf = _flush[_visible_emitted_len:]  # only the not-yet-flushed tail
+                                # ORW-453: the unshown tail is the held text PLUS this chunk's pre-opener text, cut where the opener starts: an opener split across chunks ("<tool" then "_call>") has its first
+                                # half already in the held tail, and that half must not stay in the tail (it used to overwrite the held text, losing it and a space).
+                                _comb = _game_buf + data["delta"]
+                                _ci = tool_call_opener_index(_comb)
+                                _game_buf = _comb[:_ci] if _ci >= 0 else _game_buf + _flush[_visible_emitted_len:]
                             if not _visible_halted:
                                 _game_buf += data["delta"]
                                 _visible_emitted_len = len(round_response)
@@ -9333,6 +9341,13 @@ async def _stream_agent_loop_impl(
                                         _visible_halted = True
                                 _prev_chunk_dropped = _chunk_ended_in_drop(_complete, _shown_piece)  # ORW-437
                             if _visible_halted:
+                                if _opener_halt and _game_buf:
+                                    # ORW-453 (Kevin: "save only what was shown"): the unfinished sentence buffered before the opener is never shown, so it is cut from the STORED text as well
+                                    # (shown == stored). It is the suffix of the raw text that precedes the opener.
+                                    _op_i = tool_call_opener_index(round_response)
+                                    if _op_i >= len(_game_buf) and round_response[:_op_i].endswith(_game_buf):
+                                        round_response = round_response[:_op_i - len(_game_buf)] + round_response[_op_i:]
+                                _opener_halt = False
                                 _game_buf = ""  # don't carry the pre-opener tail past the halt
                             continue  # narration, not a document — skip the doc-fence path
                         else:
@@ -9654,7 +9669,12 @@ async def _stream_agent_loop_impl(
 
         # Save cleaned round text for history persistence
         # Keep <think> blocks so they render in the thinking section on reload
-        cleaned_round = strip_tool_blocks(round_response).strip()
+        _store_src = round_response
+        if _opener_halted_round and _scrub_active:
+            _oi = tool_call_opener_index(round_response)
+            if _oi >= 0:
+                _store_src = round_response[:_oi]  # ORW-453 ("save only what was shown"): prose AFTER the call was never shown, so it is not stored (and cannot weld onto the text before the call)
+        cleaned_round = strip_tool_blocks(_store_src).strip()
         cleaned_round = _persisted_round_text(
             cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
             scrub_active=_scrub_active, round_emitted=_round_emitted_text)
