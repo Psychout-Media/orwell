@@ -414,3 +414,12 @@ def zero_clocks_off(monkeypatch) -> None:
     import src.settings as _st
     _real = _st.get_setting
     monkeypatch.setattr(_st, "get_setting", lambda k, d=None: False if k == "zero_clocks" else _real(k, d))
+
+
+@pytest.fixture(autouse=True)
+def _portrait_photo_check_off(monkeypatch) -> None:
+    """ORW-384: the automatic photo check adds awaits (a DeepSeek endpoint lookup) to every NPC portrait
+    task. Tests of the generation pipeline stub `_generate_one` and drain with a fixed number of loop turns,
+    so the check is OFF by default here; test_orw384_photo_check.py puts the real one back."""
+    from src import orwell_portrait_check as _c
+    monkeypatch.setattr(_c, "check_enabled", lambda user: False)

@@ -588,7 +588,8 @@ def _provider_error_reason(resp) -> Optional[str]:
 
 
 def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
-                duration_ms: int = 0, detail: Optional[str] = None) -> None:
+                duration_ms: int = 0, detail: Optional[str] = None,
+                check: Optional[dict] = None) -> None:
     """Append one generation attempt/outcome to the capped JSONL ring. Best-effort:
     a logging failure must never break the generation pipeline itself.
 
@@ -604,6 +605,8 @@ def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
     }
     if (not ok) and detail:
         entry["detail"] = str(detail)[:200]
+    if isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
+        entry["check"] = {k: v for k, v in check.items() if k in ("ok", "problems", "reshot", "first")}
     try:
         lines = []
         try:
@@ -1547,9 +1550,38 @@ def _stamp_version_one(user: Optional[str], sid: str) -> None:
         _save_manifest(user, manifest)
 
 
+async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref: Optional[bytes]):
+    """ORW-384: check a fresh NPC cast photo; on a fail re-shoot ONCE (same prompt + a fix line, same
+    reference) and keep the second unless it has MORE problems. Returns (png, check_meta|None). Fail
+    open: a skipped check returns the photo untouched with no meta; this never raises."""
+    try:
+        from src import orwell_portrait_check as C
+        facts = C.facts_from_prompt(prompt)
+        first = await C.check_portrait(png, facts, user)
+        if first is None:
+            return png, None
+        if first["ok"]:
+            return png, {"ok": True, "problems": [], "reshot": False}
+        meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
+        png2 = await _generate_one(prompt + " Fix in this version: " + C.problems_in_words(first["problems"]) + ".",
+                                   user, reference_png=ref)
+        if not png2:
+            meta["reshot"] = False
+            return png, meta
+        second = await C.check_portrait(png2, facts, user)
+        if second is None:
+            return png2, meta  # re-shot but the second look was skipped: keep the fix, verdict stays the first's
+        meta["ok"], meta["problems"] = second["ok"], second["problems"]
+        return (png, {**meta, "ok": False, "problems": first["problems"]}) if len(second["problems"]) > len(first["problems"]) \
+            else (png2, meta)
+    except Exception as e:  # failsoft-ok: fail-open (the photo is kept as is)
+        logger.info("[portraits] photo check skipped: %s", e)
+        return png, None
+
+
 def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: str,
                     source: str = "generated", fingerprint: Optional[str] = None,
-                    ref_clean: Optional[bool] = None) -> str:
+                    ref_clean: Optional[bool] = None, check: Optional[dict] = None) -> str:
     """Persist one portrait + update the manifest; return its stored filename.
 
     `source` (G26) records HOW the portrait was made: 'generated' (text-to-image, the default),
@@ -1594,6 +1626,9 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
     entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
     if source == "reference" and ref_clean:
         entry["refClean"] = True
+    if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
+        entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
+                          "reshot": bool(check.get("reshot"))}
     manifest[_safe_id(houseguest_id)] = entry
     _save_manifest(user, manifest)
     if replaced_in_place:
@@ -2227,11 +2262,14 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 _note_generation_failure(user, str(hid), reason)
                 skipped += 1
                 return
+            check_meta = None
+            if not is_player:  # ORW-384: NPC cast photos only (never the player's own photo)
+                png, check_meta = await _portrait_check_pass(png, str(prompt), user, ref)
             try:
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
-                                    ref_clean=ref_clean)
-                log_attempt(str(hid), True, None, duration_ms)
+                                    ref_clean=ref_clean, check=check_meta)
+                log_attempt(str(hid), True, None, duration_ms, check=check_meta)
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
                 if not silent:
