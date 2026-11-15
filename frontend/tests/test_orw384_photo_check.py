@@ -391,7 +391,7 @@ def test_hair_colour_and_length_are_read_from_the_hair_clause_in_any_order():
     pr2 = "Waist-up portrait of a 30-year-old woman. Hair: shoulder-length waves, jet black. Setting: the house kitchen"
     f = C.visible_features(pr2)
     assert "jet black hair" in f and "shoulder-length hair" in f
-    assert C.visible_features("Hair: a neat low bun. Setting: x") == []
+    assert C.visible_features("Hair: a neat low bun. Setting: x") == ["hair in bun"]  # ORW-460: a style-only line still yields a checkable feature
     assert C.visible_features("a woman with short brown hair") == ["brown hair", "short brown hair"]  # older wording still parses, exactly
     assert "short hair" in C.visible_features("a woman with short hair")
 
@@ -413,6 +413,41 @@ def test_nonbinary_has_no_wrong_presentation_verdict(env):
     assert _run(C.check_portrait(b"PNG", {"gender": "nonbinary"}, "u")) == {"ok": True, "problems": []}
     env.replies = [_reply(["wrong-presentation"])]
     assert _run(C.check_portrait(b"PNG", {"gender": "woman"}, "u"))["problems"] == ["wrong-presentation"]
+
+
+def _hair(line):
+    return C.visible_features(f"Waist-up portrait of a 30-year-old woman. Hair: {line}. Setting: the house kitchen")
+
+
+def test_every_real_hair_line_yields_at_least_one_checkable_feature():
+    """ORW-460: 81 of 612 real hair lines (photoHair and hair) had no checkable feature, so that photo's hair was never checked."""
+    import json
+    import os
+    lines = json.load(open(os.path.join(os.path.dirname(__file__), "fixtures", "orw460_hair_lines.json")))
+    assert len(lines) > 500
+    assert [x for x in lines if not _hair(x)] == []
+
+
+def test_soft_colours_cuts_and_styles_are_checkable():
+    assert _hair("voluminous dark waves swept back off the forehead") == ["dark hair"]
+    assert _hair("neat locs falling past the shoulder, kept immaculate") == ["hair past the shoulder"]
+    assert _hair("a salt-and-pepper buzzcut") == ["salt-and-pepper hair", "hair with a buzzcut"]
+    assert _hair("sleek caramel lob tucked neatly behind one ear") == ["caramel hair", "hair with a lob"]
+    assert _hair("tight natural curls shaped neat") == ["hair in curls"]
+
+
+def test_a_real_colour_after_an_accessory_word_is_kept_and_an_accent_is_not_the_colour():
+    assert "brown hair" in _hair("buzzed close with a clean line-up, espresso-brown and neat")
+    assert "dark brown hair" in _hair("tapered low fade with a twist-out top, dark brown with a cool cast")
+    assert not any("copper" in f for f in _hair("close-cropped dark hair with a faint copper cast"))
+    assert _hair("sleek caramel-highlighted lob, glossy") == ["hair with a lob"]
+    assert not any("silver" in f for f in _hair("loose dark waves with scattered silver, neat"))
+    assert not any("blond" in f for f in _hair("natural afro with a bright gold-blond top, neat"))
+
+
+def test_a_soft_cut_about_the_sides_is_not_a_whole_head_feature():
+    assert _hair("tight natural coils with a fade at the sides") == ["hair in coils"]
+    assert _hair("tight natural coils, a crop at the sides") == ["hair in coils"]
 
 
 def test_an_unpriced_model_ledgers_no_made_up_zero_cost(env):
