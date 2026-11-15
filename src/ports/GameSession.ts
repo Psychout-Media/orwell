@@ -2195,6 +2195,8 @@ export interface DailyRecapView {
   highlights: string[];
   /** Gossip that reached the player's own knowledge today via a real in-game pathway (0002). */
   surfaced: string[];
+  /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), when no ceremony/deal made the highlights - so every bedtime, the premiere night included, has something to review. Absent when empty. */
+  yourDay?: string[];
   /** The non-committal forward tease, when an eligible in-motion thread exists; absent on a quiet day. */
   hook?: DailyRecapHook;
 }
