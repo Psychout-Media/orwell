@@ -506,7 +506,7 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  */
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
-const DAY_LEDGER_TEXT_CHARS = 900;
+const DAY_LEDGER_TEXT_CHARS = 3200; // ORW-402: a whole-day summary (up to ~400 words) plus its key list
 /** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
 const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
