@@ -3522,7 +3522,7 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.identityConcept === "string") {
       const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
       if (repaired.length > 0) {
-        target.character.identityConcept = renamedFrom !== undefined ? renameGivenNameInProse(repaired, renamedFrom, target.name) : repaired;
+        target.character.identityConcept = renamedFrom !== undefined ? clipCodePoints(renameGivenNameInProse(repaired, renamedFrom, target.name), 300) : repaired; // the rename can lengthen it: clip again (review of #2775)
         publicFields.push("identityConcept");
       }
     }

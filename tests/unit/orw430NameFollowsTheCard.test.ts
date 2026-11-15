@@ -105,3 +105,14 @@ describe("ORW-437 re-check of #2775: own full name with a possessive, more relat
     expect(swap("Free Will matters.", "Will")).toBe("Free Will matters.");
   });
 });
+
+describe("review of #2775: hyphenated relations and line breaks", () => {
+  const swap = (text: string, from: string) => renameGivenNameInProse(text, `${from} Surnamea`, "Nameb Surnamea");
+  it("a hyphenated relation before 'of' marks a person: 'mother-in-law of Grace'", () => {
+    expect(swap("Her mother-in-law of Grace waits.", "Grace")).toBe("Her mother-in-law of Nameb waits.");
+  });
+  it("a capitalised word at the start of the NEXT line is not the surname of a given name that ends a line", () => {
+    expect(swap("She was called Grace\nTuesday came.", "Grace")).toBe("She was called Nameb\nTuesday came.");
+    expect(renameGivenNameInProse("Her rival Lola Other waits.", "Lola Lawrence", "Nameb Lawrence")).toBe("Her rival Lola Other waits.");
+  });
+});
