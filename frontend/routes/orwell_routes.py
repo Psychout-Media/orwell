@@ -2146,6 +2146,21 @@ def setup_orwell_routes() -> APIRouter:
     #: A42: the client fail-soft sites allowed to raise a RED health event (each is a real anomaly the client auto-corrects, or a refusal it degrades around).
     _FE_RED_SURFACES = frozenset({"ws:resync-heal", "ws:resync-reconcile-failed", "ws:beat-backwards", "ws:reconnect-run-gone", "ws:chat-subscribe-refused"})
 
+    def _fe_report_session_user(request: Request) -> Optional[str]:
+        """The logged-in user behind a beacon on the auth-exempt /fe-report, or None (logged out / invalid cookie)."""
+        try:
+            user = _current_user(request)
+            if user:
+                return user
+            from routes.auth_routes import SESSION_COOKIE
+            am = getattr(request.app.state, "auth_manager", None)
+            token = request.cookies.get(SESSION_COOKIE)
+            if am is not None and token and am.validate_token(token):
+                return am.get_username_for_token(token)
+        except Exception:
+            pass
+        return None
+
     @router.post("/fe-report")
     async def orwell_fe_report(request: Request):
         # Manual parse: sendBeacon may land as text/plain — content-type is no gate.
@@ -2156,11 +2171,14 @@ def setup_orwell_routes() -> APIRouter:
             declared = -1
         if declared < 0 or declared > 16384:
             return Response(status_code=204)
-        raw = b""
-        async for part in request.stream():  # cap the read too: a lying header cannot make us buffer more than the cap
-            raw += part
-            if len(raw) > 16384:
-                return Response(status_code=204)
+        raw = bytearray()
+        try:
+            async for part in request.stream():  # cap the read too: a lying header cannot make us buffer more than the cap
+                if len(raw) + len(part) > 16384:  # refuse BEFORE extending: no oversize chunk is ever buffered or recopied
+                    return Response(status_code=204)
+                raw.extend(part)
+        except Exception:
+            return Response(status_code=204)  # a client abort mid-upload is silence, never a 500
         try:
             data = json.loads(raw.decode("utf-8", "replace") or "{}")
         except Exception:
@@ -2175,7 +2193,9 @@ def setup_orwell_routes() -> APIRouter:
             fields[key] = " ".join(v.split())[:cap]  # one ring line: collapse whitespace, clip
         if not fields["surface"]:
             return Response(status_code=204)
-        who = _current_user(request) or (request.client.host if request.client else "anon")
+        # #2700: this path is auth-exempt, so AuthMiddleware never sets request.state: resolve the session user from the cookie here.
+        session_user = _fe_report_session_user(request)
+        who = session_user or (request.client.host if request.client else "anon")
         if not _fe_report_limiter.check(f"fe-report:{who}"):
             return Response(status_code=204)  # over the window: drop silently
         # A `startup`-tagged report is a benign boot race: a HUD poll fired before the
@@ -2186,13 +2206,13 @@ def setup_orwell_routes() -> APIRouter:
         # A42 (#1599, no silent fail-soft): an ALLOWLISTED client fail-soft site (a real anomaly the client auto-corrected, or a subscribe refusal) raises the same RED-eligible health event the
         # server-side swallows do. Allowlist only - a player-context beacon must never be able to light the God-Mode alarm with an arbitrary surface name.
         # ORW-396: the beacon is reachable logged-out, so only a logged-in user may raise RED; an anonymous `red` is just logged below.
-        if data.get("red") is True and fields["surface"] in _FE_RED_SURFACES and _current_user(request):
+        if data.get("red") is True and fields["surface"] in _FE_RED_SURFACES and session_user:
             try:
                 from src import log_rings as _lr
                 corrected = data.get("corrected")
                 _lr.record_soft_failure("client:" + fields["surface"], f'{fields["errorClass"]} - {fields["detail"]}',
                                         corrected=(" ".join(corrected.split())[:80] if isinstance(corrected, str) and corrected.strip() else None),
-                                        user=_current_user(request))
+                                        user=session_user)
             except Exception:
                 pass
         level = logging.DEBUG if data.get("startup") is True else logging.INFO

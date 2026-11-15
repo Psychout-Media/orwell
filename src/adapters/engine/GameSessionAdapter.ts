@@ -85,7 +85,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
-import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
@@ -6441,6 +6441,10 @@ export class GameSessionAdapter implements GameSession {
       if (c.physicalCharacteristics && typeof scrubbedMark === "string" && scrubbedMark.trim()) {
         c.physicalCharacteristics.distinguishingMark = scrubbedMark;
       }
+      // ORW-430: a biography/background that broke an age rule keeps its correct sentences (the repair dropped only the
+      // offending ones); only a story with too little left stays cleared.
+      if (repairedFields.includes("biography") && typeof repaired.biography === "string" && repaired.biography.trim()) c.biography = repaired.biography;
+      if (repairedFields.includes("background") && typeof repaired.background === "string" && repaired.background.trim()) c.background = repaired.background;
       const after = validateDossierCoherence(project());
       let action: "repaired" | "floored" = "repaired";
       let fields = [...repairedFields];
@@ -6453,6 +6457,9 @@ export class GameSessionAdapter implements GameSession {
         this.clearCoherenceFields(c, floorFields);
         fields = [...new Set([...fields, ...floorFields])];
       }
+      // ORW-430: never leave a card marked authored with no biography. The front end's backfill (`unauthored_ids`) reads
+      // `authored`, so an emptied card is marked unauthored and gets written again.
+      if (!(typeof c.biography === "string" && c.biography.trim())) c.deepProfileAuthored = false;
       affected.push({ id: n.id, fields, action });
       // #1599 — a genuine fault, surfaced even though auto-corrected (never swallowed). Vault-free: ids +
       // public field names only, never a secret value or the offending prose.
@@ -8742,7 +8749,7 @@ export class GameSessionAdapter implements GameSession {
    * A8 - the one NPC (awake, living) whose desire clock has crossed its threshold RIGHT NOW, or null. Deterministic: the relationship drive comes from `rankApproaches` on an
    * hours-keyed stream, the role is public standing (HOH/nominee), the schedule is the public day schedule. Pure read - the caller records the approach.
    */
-  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string } | null {
+  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string; capped?: true } | null {
     const live = this.live;
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
     const m = nextMilestone(live);
@@ -8765,8 +8772,10 @@ export class GameSessionAdapter implements GameSession {
       return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
     });
     const byGoal = goalDriven(goalCands);
-    if (byGoal && (!best || DESIRE.goalUrgency > best.urgency)) return byGoal;
-    return best ? { npc: best.npc, desire: best.desire } : null;
+    const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
+    // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next one is marked `capped`: the caller spends the want exactly as before (cooldown, movement, orientation untouched, so the house-life mix is unchanged) but the player is not interrupted.
+    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return { ...pick, capped: true };
+    return pick;
   }
 
   /**
@@ -8805,9 +8814,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
-  private noteApproach(npc: EntityId): void {
+  private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
+    if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
   /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
@@ -9086,8 +9096,9 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
-        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
+      if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+          const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
   }
 
@@ -11704,7 +11715,8 @@ export class GameSessionAdapter implements GameSession {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
-            this.noteApproach(hit.npc);
+            this.noteApproach(hit.npc, hit.desire, hit.capped);
+            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
