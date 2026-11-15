@@ -63,6 +63,7 @@ logger = logging.getLogger(__name__)
 
 # Track active streams for partial-save safety net
 from src.turn_inflight import InflightRegistry as _InflightRegistry  # ORW-406
+from src import turn_inflight as _turn_inflight  # ORW-461
 _active_streams: Dict[str, dict] = _InflightRegistry()
 _IMAGE_MODEL_PREFIXES = ("gpt-image", "dall-e", "chatgpt-image")
 
@@ -1339,6 +1340,7 @@ def setup_chat_routes(
             # Register active stream for partial-save safety net. ORW-243: `framed` notes a game, casting or
             # feeds-down turn, whose streamed `partial` stream_status never returns (R-VLT-2).
             _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode, "framed": bool(ctx.framed)}
+            _turn_inflight.admit_end(client_msg_id)   # ORW-461: registered now, so the admission count hands over to the registry with no gap
 
             # Early SSE keepalive (E): flush the connection — commit the 200 + a byte — BEFORE the
             # model's first token, which can be many seconds out on a cold/loaded provider. An
@@ -2139,6 +2141,11 @@ def setup_chat_routes(
         # Thin HTTP wrapper over the shared `_prepare_chat_stream` pipeline (unchanged behavior): build
         # the producer, then run the ADR 0012 run-keying / casting single-flight / subscribe tail. An
         # early pre-stream guard returns an `_sse_error_response` (a StreamingResponse) — forward it as-is.
+        # ORW-461: while an update holds new turns, refuse before anything starts (a typed, retryable answer; nothing was written, so a re-send cannot double). A turn that passes
+        # is counted in flight until its stream registers (the SSE route has no clientMsgId at this point, so that count simply expires after a few seconds).
+        _held_until = _turn_inflight.check_and_admit(None)
+        if _held_until is not None:
+            return _sse_error_response("update-holding: the game is restarting for an update; send again in a moment", 503)
         prepared = await _prepare_chat_stream(request)
         if not isinstance(prepared, _PreparedChatTurn):
             return prepared
