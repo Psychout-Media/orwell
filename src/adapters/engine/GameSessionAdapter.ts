@@ -6198,8 +6198,9 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      // ORW-368: `toastRemaining` ("N more after this batch") exists only once a batch has been released; before the first one there is no "this batch" to count from.
       // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
-      ...(pe.stage === "toast" ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
+      ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
       ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
     };
   }
