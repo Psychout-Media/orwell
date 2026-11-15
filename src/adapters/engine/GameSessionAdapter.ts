@@ -5594,7 +5594,7 @@ export class GameSessionAdapter implements GameSession {
    * ORW-466 (Ryne 2026-11-15: "most people would have an assigned bed... every house guest is choosing which bed they would like to sleep in for the season"): each houseguest's bed, claimed on
    * move-in day in entrance order (early arrivals first, as on the show). The player is skipped here and picks for themselves (until that lever lands, they get the bed left over at their first
    * bedtime - `bedThePlayer`). A PLAYED game only: a headless or calibration game never assigns beds, so its seeded outcomes stay exactly as they were. Each NPC reads a room by who is already in it
-   * (their feeling for them: first impressions, pre-show ties) and their own nature (a social houseguest likes a busy room, a private one a quiet room), plus a little luck from a side stream
+   * (their feeling for them: first impressions, pre-show ties) and their own nature (a social houseguest likes a busy room, a private one a quiet room), plus a little luck from a side stream; within the room they share half of a double only with someone they really like, else take a single
    * (`${seed}:beds:...`) so no shared roll moves. Supersedes the ORW-383 "sleepers in bed" setting (an arbitrary room per houseguest), which is deleted.
    */
   private ensureBeds(): BedsState | undefined {
@@ -5611,6 +5611,7 @@ export class GameSessionAdapter implements GameSession {
         return crowd + ties;
       },
       (who, room) => new SeededRandom(hashSeed(`${seed}:beds:${who}:${room}`)).next(),
+      (who, other) => this.rel.edge(who, other).affinity, // half of a double only next to someone they really like (beds.ts SHARE_DOUBLE_AT)
       { skip: new Set([PLAYER]), day: s.dayNumber ?? 1 },
     );
     return s.beds;

@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { resolvePending } from "../../features/support/answerPending";
-import { BEDROOM_LAYOUT } from "../../src/engine/data/bedrooms";
-import { roomOfBed, type BedsState } from "../../src/engine/beds";
+import { BEDROOM_LAYOUT, spotsIn } from "../../src/engine/data/bedrooms";
+import { roomOfBed, pickSpot, bedPartner, type BedsState } from "../../src/engine/beds";
 
 /** ORW-466 (Ryne 2026-11-15: "most people would have an assigned bed... The HOH assigned bed would be upstairs in the HOH room"): every houseguest owns a bed, claimed on move-in day; sleepers sleep
  * and wake in their own bed (the HOH in the HOH room); the player gets the bed left over at their first bedtime until they pick one. Supersedes ORW-383's arbitrary-room setting. Also ORW-383's
@@ -48,7 +48,9 @@ describe("assigned beds (ORW-466); the state names who is awake (ORW-383)", () =
     const owners = Object.keys(beds.owner);
     expect(owners.length, "all 16 houseguests own a bed").toBe(16);
     expect(new Set(Object.values(beds.owner)).size, "no two share a bed").toBe(16);
-    for (const r of BEDROOM_LAYOUT) expect(Object.values(beds.owner).filter((b) => roomOfBed(b) === r.room).length).toBeLessThanOrEqual(r.beds);
+    for (const r of BEDROOM_LAYOUT) expect(Object.values(beds.owner).filter((b) => roomOfBed(b) === r.room).length).toBeLessThanOrEqual(spotsIn(r));
+    const inHouse = new Set(owners);
+    for (const id of owners) { const p = bedPartner(beds, id, inHouse); if (p) expect(bedPartner(beds, p, inHouse), "a double is shared by exactly two").toBe(id); }
     expect(beds.claims.find((c) => c.who === "player")?.why).toBe("leftover");
     expect(beds.claims.filter((c) => c.why === "move-in").length, "the 15 NPCs claimed on move-in day").toBe(15);
   });
@@ -65,6 +67,14 @@ describe("assigned beds (ORW-466); the state names who is awake (ORW-383)", () =
     s.turnIn({});
     for (const [id, bed] of Object.entries(before)) if (id !== gone) expect(liveOf(s).beds!.owner[id], `${id} keeps their bed`).toBe(bed);
     expect(liveOf(s).beds!.claims.length, "history is never thinned").toBeGreaterThanOrEqual(claims);
+  });
+
+  it("doubles (Ryne: \"there could definitely be doubles in the mix\"): half of a double only next to someone they really like; otherwise a single", () => {
+    const state: BedsState = { owner: { friend: "bedroom-b#d1:1" }, claims: [] };
+    const inHouse = new Set(["friend", "close", "stranger"]);
+    const feel = (who: string) => (who === "close" ? 0.9 : 0.3);
+    expect(pickSpot(state, "close", "bedroom-b", inHouse, (w) => feel(w)), "a close houseguest shares the double").toBe("bedroom-b#d1:2");
+    expect(pickSpot(state, "stranger", "bedroom-b", inHouse, (w) => feel(w)), "a stranger takes a single").toMatch(/#s\d$/);
   });
 
   it("a headless game (nobody playing) assigns no beds, so calibration and simulated seasons are untouched", () => {
