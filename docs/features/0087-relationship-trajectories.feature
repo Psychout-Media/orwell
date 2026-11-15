@@ -35,14 +35,34 @@ Feature: 0087 — Relationship trajectories (a bond that warms or curdles, with 
 
   Rule: The engine owns momentum; the model only proposes shape
 
-    # ORW-335: a player scene's consequence descriptor does not feed trajectories (only off-screen NPC-to-NPC folds do); this pins the
-    # direction-not-magnitude rule on the fold itself.
-    Scenario: A cooler-shaped fold feeds direction, never magnitude
-      Given a cooler-shaped fold lands between two houseguests
-      When the engine folds the scene and updates the trajectory
+    # ORW-336: built. A player-witnessed scene (recordInteraction) folds into the NPC-to-PLAYER arc of each present NPC: the
+    # DIRECTION is the model's proposed consequence direction (else the scene kind's), the AMOUNT is the engine's own.
+    Scenario: A cooler-shaped player scene feeds direction, never magnitude
+      Given a played game where the player records a run of scenes proposing a cooler consequence toward an NPC
+      When the engine folds the scenes and updates the NPC-to-player trajectory
       Then the trajectory direction reflects the proposed shape
       And the momentum magnitude is the engine's own bounded, seeded amount
       And no number proposed by the model sets how far the momentum moved
+
+    Scenario: A proposed emphasis never changes the momentum
+      Given two played games where the player proposes the same cooler direction with a slight and a strong emphasis
+      When the engine folds the scenes and updates the NPC-to-player trajectory
+      Then both NPC-to-player trajectories are identical
+
+    Scenario: With no descriptor the scene kind implies the direction
+      Given a played game where the player records a run of conflict scenes with no consequence descriptor
+      When the engine folds the scenes and updates the NPC-to-player trajectory
+      Then the NPC-to-player phase is souring
+
+    Scenario: A scene an NPC starts and the player witnesses feeds the same arc
+      Given a played game where an NPC starts a run of conflict scenes the player witnesses
+      When the engine folds the scenes and updates the NPC-to-player trajectory
+      Then the NPC-to-player phase is souring
+
+    Scenario: Momentum toward the player bends the NPC's approach, never shown
+      Given a played game where the player records a run of warmer scenes toward an NPC
+      Then that NPC's movement pull toward the player is stronger than with the trajectory layer off
+      And no player-facing projection differs from the layer-off projection
 
   Rule: Momentum is hidden state — surfaced only through behavior (player AND admin)
 

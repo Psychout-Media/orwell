@@ -242,10 +242,10 @@ import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
-  deriveTrajectory, decayTrajectory, STEADY,
+  deriveTrajectory, decayTrajectory, STEADY, kindFoldSignal,
   type Trajectory, type FoldSignal,
 } from "../../engine/trajectory";
-import { TRAJECTORY_CONSTANTS } from "../../engine/trajectoryConstants";
+import { TRAJECTORY_CONSTANTS, TRAJECTORY_PLAYER_APPROACH } from "../../engine/trajectoryConstants";
 import { buildSystemPrompt, momentForPhase, requiredLeverForPhase, renderStoryFacts, renderSurfacedFacts, renderHardConstraints, dedupeKeepNewest } from "../../engine/momentPrompts";
 import {
   producerForSeed, renderProducerVoice, mergeProducer, validateProducerProfile,
@@ -4931,6 +4931,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.trajectoriesEnabled) this.applyTrajectoryToPulls(id, pulls);
     return pulls.length ? pulls : null;
   }
 
@@ -4951,6 +4952,23 @@ export class GameSessionAdapter implements GameSession {
       } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
       else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
     }
+  }
+
+  /**
+   * ORW-336 (0087) - the NPC's hidden MOMENTUM toward the PLAYER bends whether they seek or shun the player. A WARMING arc
+   * draws them toward the player (an avoid is lifted, an existing pull is scaled up); a COOLING/SOURING arc keeps them away
+   * (an existing pull becomes an avoid, or a soft avoid is added). Scaled by momentum, bounded by `TRAJECTORY_PLAYER_APPROACH`;
+   * below `minMomentum` nothing changes. Played games only (caller gates); no rng; engine-only state, never projected.
+   */
+  private applyTrajectoryToPulls(id: EntityId, pulls: MovementPull[]): void {
+    if (id === PLAYER || !this.presenceActive().includes(PLAYER)) return;
+    const t = this.trajectories.get(`${id}->${PLAYER}`);
+    if (!t || t.phase === "steady" || t.momentum < TRAJECTORY_PLAYER_APPROACH.minMomentum) return;
+    const scale = 1 + TRAJECTORY_PLAYER_APPROACH.gain * t.momentum;
+    const existing = pulls.find((p) => p.target === PLAYER);
+    const avoid = t.phase !== "warming";
+    if (existing) { existing.avoid = avoid; existing.weight *= scale; }
+    else pulls.push({ target: PLAYER, weight: MOVEMENT_INTENT.minCharge * scale, avoid });
   }
 
   /** ORW-32 - an observer who chose to AVOID a visibly rattled houseguest keeps away from them while the avoid lasts: any pull toward them becomes an avoid. Played games only (caller gates); no rng; engine-only state. */
@@ -8869,10 +8887,30 @@ export class GameSessionAdapter implements GameSession {
    * the calibration spine is untouched.
    */
   recordTrajectoryFold(initiator: EntityId, partner: EntityId, type: InteractionType): void {
+    this.foldTrajectorySignal(initiator, partner, GameSessionAdapter.foldSignalFor(type));
+  }
+
+  /** Arcs fed by a PLAYER scene since the last off-screen tick (ORW-336): the tick's neglect decay skips them once,
+   *  so a scene the player just played is not decayed before it ever biases anything. Transient (not persisted). */
+  private playerFedArcs: Set<string> = new Set();
+
+  /**
+   * ORW-336 (0087 open question 4): fold one player-witnessed scene into the NPC->PLAYER arc. `signal` is built by the
+   * caller from DIRECTION only (the model's proposed consequence direction, else the scene kind) - the engine owns the
+   * amount (the existing `TRAJECTORY_CONSTANTS`). PLAYED games only (`live.playedGame`): a headless seeded sim never
+   * reaches this, so it stays byte-identical. Pure, no rng. VAULT-ONLY: the arc is read only by `applyTrajectoryToPulls`.
+   */
+  recordPlayerSceneTrajectory(npc: EntityId, signal: FoldSignal): void {
+    if (!this.trajectoriesEnabled || this.live?.playedGame !== true || npc === PLAYER) return;
+    this.foldTrajectorySignal(npc, PLAYER, signal);
+    this.playerFedArcs.add(`${npc}->${PLAYER}`);
+  }
+
+  private foldTrajectorySignal(initiator: EntityId, partner: EntityId, signal: FoldSignal): void {
     if (!this.trajectoriesEnabled) return;
     const key = `${initiator}->${partner}`;
     const folds = this.trajectoryFolds.get(key) ?? [];
-    folds.push(GameSessionAdapter.foldSignalFor(type));
+    folds.push(signal);
     while (folds.length > TRAJECTORY_CONSTANTS.recencyWindow) folds.shift();
     this.trajectoryFolds.set(key, folds);
     this.trajectories.set(key, deriveTrajectory(folds, this.trajectories.get(key)));
@@ -8886,8 +8924,10 @@ export class GameSessionAdapter implements GameSession {
    */
   decayUntouchedTrajectories(touched: ReadonlySet<string>): void {
     if (!this.trajectoriesEnabled) return;
+    const fed = this.playerFedArcs;
+    this.playerFedArcs = new Set();
     for (const [key, traj] of this.trajectories) {
-      if (touched.has(key)) continue;
+      if (touched.has(key) || fed.has(key)) continue;
       const next = decayTrajectory(traj);
       if (next.momentum <= 0 || next.phase === "steady") {
         this.trajectories.delete(key);
@@ -8906,9 +8946,7 @@ export class GameSessionAdapter implements GameSession {
    * carries NO raw edge state (only the nature's constant shape), so it crosses no wall.
    */
   private static foldSignalFor(type: InteractionType): FoldSignal {
-    const imp = RELATIONSHIP_CONSTANTS.IMPACT[type];
-    const bondDelta = ((imp.affinity ?? 0) + (imp.trust ?? 0)) / 2;
-    return { bondDelta, threatDelta: imp.threat ?? 0, betrayal: type === "betrayal" };
+    return kindFoldSignal(type);
   }
 
   // ─── 0104 — SEASON-OVER-SEASON NOTORIETY (a reputation that precedes the player) ─────────────────

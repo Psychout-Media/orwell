@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { RelationshipModel } from "../../src/engine/relationships";
+import { GameSessionRegistry } from "../../src/composition/registry";
 import { richOffscreenStretch } from "../../src/engine/offscreen";
 import { InMemoryEventStore } from "../../src/adapters/inmemory/InMemoryEventStore";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
@@ -187,36 +188,100 @@ Then("the momentum is high", function (this: BbWorld) {
 
 // === Rule: the engine owns momentum; the model only proposes shape ======================================
 
-Given("a cooler-shaped fold lands between two houseguests", function (this: BbWorld) {
-  // ORW-335: reworded from "the player records a scene ... proposes a cooler consequence shape": the trajectory layer reads only
-  // off-screen NPC-to-NPC folds (orchestrator -> recordTrajectoryFold); a player scene's consequence descriptor does NOT feed it (not built).
-  // The model proposes the DIRECTION (cooler) — a souring/cooling-shaped fold. It proposes NO magnitude;
-  // the engine owns it. A "cooler" shape lands a negative bond delta with a little threat (the engine's own
-  // bounded amount), exactly like the `cooler` consequence direction (`CONSEQUENCE_DIRECTION_IMPACTS`).
-  tw(this).twTraj = deriveTrajectory([{ bondDelta: -0.105, threatDelta: 0.03, betrayal: false },
-    { bondDelta: -0.105, threatDelta: 0.03, betrayal: false }], undefined);
+// ORW-336: the REAL recordInteraction path (registry sandbox, played game) feeds the NPC->PLAYER arc.
+interface N2P {
+  n2pSb?: ReturnType<GameSessionRegistry["sandboxFor"]>;
+  n2pNpc?: EntityId;
+  n2pOther?: { sb: N2P["n2pSb"]; npc: EntityId };
+}
+type N2PSess = { trajectoryOf(a: string, b: string): Trajectory; movementIntentFor(id: string): Array<{ target: string; weight: number }> | null;
+  setTrajectoriesEnabled(on: boolean): void; livingIds(): string[]; live: { playedGame?: boolean } };
+const n2p = (w: BbWorld): N2P => w as unknown as N2P;
+const n2pSess = (sb: NonNullable<N2P["n2pSb"]>): N2PSess => sb.session as unknown as N2PSess;
+function n2pGame(): { sb: NonNullable<N2P["n2pSb"]>; npc: EntityId } {
+  const sb = new GameSessionRegistry().sandboxFor(`n2p-${Math.random()}`);
+  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
+  sb.session.advanceGame(); sb.session.advanceGame();
+  const s = n2pSess(sb); s.setTrajectoriesEnabled(true); s.live.playedGame = true;
+  return { sb, npc: s.livingIds().find((i) => i !== "player")! as EntityId };
+}
+function n2pScenes(sb: NonNullable<N2P["n2pSb"]>, npc: EntityId, o: { direction?: string; emphasis?: string; kind?: string; npcInit?: boolean }): void {
+  for (let i = 0; i < TC.recencyWindow; i++) {
+    sb.commands.recordInteraction({
+      initiator: (o.npcInit ? npc : "player") as EntityId, witnessSet: ["player" as EntityId, npc], toward: [npc], content: `scene ${i}`,
+      ...(o.kind ? { kind: o.kind as never } : {}),
+      ...(o.direction ? { consequence: { edges: [{ toward: npc, direction: o.direction as never, ...(o.emphasis ? { emphasis: o.emphasis as never } : {}) }] } } : {}),
+    });
+  }
+}
+const n2pArc = (sb: NonNullable<N2P["n2pSb"]>, npc: EntityId): Trajectory => n2pSess(sb).trajectoryOf(npc, "player");
+
+Given("a played game where the player records a run of scenes proposing a cooler consequence toward an NPC", function (this: BbWorld) {
+  const g = n2pGame(); n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
+  n2pScenes(g.sb, g.npc, { direction: "cooler" });
 });
-
-When("the engine folds the scene and updates the trajectory", function () { /* folded above (deriveTrajectory over the fold signals) */ });
-
+When("the engine folds the scenes and updates the NPC-to-player trajectory", function () { /* folded by recordInteraction above */ });
 Then("the trajectory direction reflects the proposed shape", function (this: BbWorld) {
-  // A cooler shape ⇒ the arc is falling (cooling or souring), never warming.
-  assert.ok(["cooling", "souring"].includes(tw(this).twTraj!.phase), `cooler shape ⇒ falling arc (${tw(this).twTraj!.phase})`);
+  const t = n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!);
+  assert.ok(["cooling", "souring"].includes(t.phase), `cooler shape => falling arc (${t.phase})`);
 });
-
 Then("the momentum magnitude is the engine's own bounded, seeded amount", function (this: BbWorld) {
-  // The magnitude comes from the engine's constants (buildRate × consistency), NOT from any model number.
-  assert.ok(tw(this).twTraj!.momentum > 0 && tw(this).twTraj!.momentum <= 1, "bounded, engine-derived");
+  const m = n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).momentum;
+  assert.ok(m > 0 && m <= 1, "bounded, engine-derived");
 });
-
-Then("no number proposed by the model sets how far the momentum moved", function (this: BbWorld) {
-  // Proof: two cooler proposals — BOTH a real (above-floor) cooling, but with WILDLY different magnitudes the
-  // model might attach — derive the SAME momentum, because `deriveTrajectory` reads only the DIRECTION (sign
-  // + above the noise floor), never a proposed magnitude. The engine's `buildRate × consistency` sets the
-  // amount, identically for both.
+Then("no number proposed by the model sets how far the momentum moved", function () {
+  // No number can be proposed at all: the descriptor carries only a direction + a RELATIVE emphasis label, and the fold signal is
+  // built from the engine's own unscaled CONSEQUENCE_DIRECTION_IMPACTS (the next scenario pins that emphasis changes nothing).
   const slight = deriveTrajectory([{ bondDelta: -0.15, threatDelta: 0.01, betrayal: false }], undefined);
   const huge = deriveTrajectory([{ bondDelta: -0.95, threatDelta: 0.01, betrayal: false }], undefined);
   assert.equal(slight.momentum, huge.momentum, "momentum magnitude is engine-owned, not proposal-scaled");
+});
+
+Given("two played games where the player proposes the same cooler direction with a slight and a strong emphasis", function (this: BbWorld) {
+  const a = n2pGame(); const b = n2pGame();
+  n2pScenes(a.sb, a.npc, { direction: "cooler", emphasis: "slight" });
+  n2pScenes(b.sb, b.npc, { direction: "cooler", emphasis: "strong" });
+  n2p(this).n2pSb = a.sb; n2p(this).n2pNpc = a.npc; n2p(this).n2pOther = { sb: b.sb, npc: b.npc };
+});
+Then("both NPC-to-player trajectories are identical", function (this: BbWorld) {
+  const o = n2p(this).n2pOther!;
+  const t1 = n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!);
+  assert.deepEqual(t1, n2pArc(o.sb!, o.npc));
+  assert.ok(t1.momentum > 0);
+});
+
+Given("a played game where the player records a run of conflict scenes with no consequence descriptor", function (this: BbWorld) {
+  const g = n2pGame(); n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
+  n2pScenes(g.sb, g.npc, { kind: "conflict" });
+});
+Then("the NPC-to-player phase is souring", function (this: BbWorld) {
+  assert.equal(n2pArc(n2p(this).n2pSb!, n2p(this).n2pNpc!).phase, "souring");
+});
+
+Given("a played game where an NPC starts a run of conflict scenes the player witnesses", function (this: BbWorld) {
+  const g = n2pGame(); n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
+  n2pScenes(g.sb, g.npc, { kind: "conflict", npcInit: true });
+});
+
+Given("a played game where the player records a run of warmer scenes toward an NPC", function (this: BbWorld) {
+  const g = n2pGame(); n2p(this).n2pSb = g.sb; n2p(this).n2pNpc = g.npc;
+  n2pScenes(g.sb, g.npc, { direction: "warmer" });
+});
+Then("that NPC's movement pull toward the player is stronger than with the trajectory layer off", function (this: BbWorld) {
+  const sb = n2p(this).n2pSb!; const npc = n2p(this).n2pNpc!; const s = n2pSess(sb);
+  const on = s.movementIntentFor(npc)?.find((p) => p.target === "player")?.weight ?? 0;
+  s.setTrajectoriesEnabled(false);
+  const off = s.movementIntentFor(npc)?.find((p) => p.target === "player")?.weight ?? 0;
+  assert.ok(on > off, `arc strengthens the approach (${on} > ${off})`);
+});
+Then("no player-facing projection differs from the layer-off projection", function (this: BbWorld) {
+  const proj = (enabled: boolean): string => {
+    const g = n2pGame(); n2pSess(g.sb).setTrajectoriesEnabled(enabled); n2pScenes(g.sb, g.npc, { direction: "warmer" });
+    const s = g.sb.session; return JSON.stringify([s.getMomentPrompt({}), s.npcVoice(g.npc), s.gameStatus(), s.getGameState(), s.seasonRecap()]);
+  };
+  const on = proj(true);
+  assert.equal(on, proj(false));
+  assert.ok(!/"momentum"\s*:/.test(on));
 });
 
 // === Rule: momentum is hidden state — surfaced only through behavior (player AND admin) ==================
