@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, ResolveOpenLedgerResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -241,7 +241,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { emptyOpenLedger, openLedgerProposal, openLedgerSection, recordOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { emptyOpenLedger, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -14649,6 +14649,29 @@ export class GameSessionAdapter implements GameSession {
     this.openLedger = out.ledger;
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
+  }
+
+  /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
+  resolveOpenLedger(req: ResolveOpenLedgerReq): ResolveOpenLedgerResult {
+    if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq);
+    if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    this.backgroundPersist(); // durable, but NOT a board beat
+    return { accepted: true };
+  }
+
+  /** ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only. */
+  openLedgerHere(): OpenLedgerItemView[] {
+    if (!this.openLedgerEnabled || !this.house || !this.live || this.live.playedGame !== true) return [];
+    const wa = this.whereabouts();
+    if (!wa) return [];
+    const open = { ...this.openLedger, entries: this.openLedger.entries.filter((e) => e.status === "open") };
+    return openLedgerRelevant(open, wa.present.map((x) => x.id as string)).map(({ e }) => ({
+      id: e.id, text: e.text, speaker: e.speaker, parties: partiesOf(e), ...(e.about ? { about: e.about } : {}), kind: e.kind,
+    }));
   }
 
   /**

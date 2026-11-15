@@ -1146,7 +1146,7 @@ export interface RecordLookExtrasResult {
   reason?: string;
 }
 
-/** ORW-407: the open-ledger write-back (a commitment or claim made to or by the player, free text). Exactly these four fields. */
+/** ORW-407: the open-ledger write-back (a commitment, pact, claim or plan made in the player's hearing, free text). The first four fields are required; `parties` and `about` are optional (slice 2). */
 export interface RecordOpenLedgerReq {
   /** Verbatim or near-verbatim from the narration, at most 240 characters. */
   text: string;
@@ -1155,7 +1155,17 @@ export interface RecordOpenLedgerReq {
   addressedTo: string[];
   /** A free string (at most 40 characters), never a closed list. */
   kind: string;
+  /** Slice 2: everyone party to a group pact or proposal (ids, at most 8), stored once. */
+  parties?: string[];
+  /** Slice 2: who or what a claim concerns, free text (at most 80 characters; a houseguest id when it is one). */
+  about?: string;
 }
+
+/** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
+export interface ResolveOpenLedgerReq { entryId: string; status: "kept" | "broken" | "withdrawn"; note: string }
+export interface ResolveOpenLedgerResult { accepted: boolean; reason?: string }
+/** One open entry that matters to whoever is here now (player-visible fields only). */
+export interface OpenLedgerItemView { id: string; text: string; speaker: string; parties: string[]; about?: string; kind: string }
 
 export interface RecordOpenLedgerResult {
   accepted: boolean;
@@ -3247,6 +3257,10 @@ export interface GameSession {
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
   /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
+  /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */
+  resolveOpenLedger(req: ResolveOpenLedgerReq): ResolveOpenLedgerResult;
+  /** ORW-407 slice 2: the still-open entries that matter to those here now (bounded; player-visible fields only). [] before a played game. */
+  openLedgerHere(): OpenLedgerItemView[];
 
   /**
    * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields
