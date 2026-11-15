@@ -187,7 +187,7 @@ Then("the momentum is high", function (this: BbWorld) {
 
 // === Rule: the engine owns momentum; the model only proposes shape ======================================
 
-Given("a cooler-shaped fold lands between two houseguests", function (this: BbWorld) {
+Given("a cooler-shaped fold signal sequence between two houseguests", function (this: BbWorld) {
   // ORW-335: reworded from "the player records a scene ... proposes a cooler consequence shape": the trajectory layer reads only
   // off-screen NPC-to-NPC folds (orchestrator -> recordTrajectoryFold); a player scene's consequence descriptor does NOT feed it (not built).
   // The model proposes the DIRECTION (cooler) — a souring/cooling-shaped fold. It proposes NO magnitude;
@@ -197,7 +197,7 @@ Given("a cooler-shaped fold lands between two houseguests", function (this: BbWo
     { bondDelta: -0.105, threatDelta: 0.03, betrayal: false }], undefined);
 });
 
-When("the engine folds the scene and updates the trajectory", function () { /* folded above (deriveTrajectory over the fold signals) */ });
+When("the trajectory is derived from those signals", function () { /* derived above: deriveTrajectory is the pure function the engine fold calls */ });
 
 Then("the trajectory direction reflects the proposed shape", function (this: BbWorld) {
   // A cooler shape ⇒ the arc is falling (cooling or souring), never warming.
