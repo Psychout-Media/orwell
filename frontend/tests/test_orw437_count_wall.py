@@ -1,0 +1,49 @@
+"""ORW-437 (review of #2656, #2693): small plain-bug fixes in the engine-count wall. Pure functions, no engine."""
+import importlib
+
+ch = importlib.import_module("routes.chat_helpers")
+
+
+def _kinds(text):
+    return [(c.kind, c.n, c.rooms) for c in ch._engine_count_claims(text)]
+
+
+def test_other_n_are_here_is_a_claim():
+    assert [k for k in _kinds("The other five are here.") if k[0] == "others"] == [("others", 5, ())]
+
+
+def test_n_of_you_left_is_a_strict_house_claim():
+    c = ch._engine_count_claims("Eleven of you are left.")[0]
+    assert c.kind == "house"
+    assert not ch._engine_count_ok(c, {"house": 12, "room": 3, "others": 2, "voters": None})
+
+
+def test_negative_voters_is_unavailable_not_a_count():
+    wa = {"room": "kitchen", "nearby": [], "counts": {"room": 3, "others": 2, "house": 12, "voters": -1}}
+    assert ch._engine_counts_of(wa)["voters"] is None
+
+
+def test_one_asleep_is_checked():
+    c = ch._engine_count_claims("One houseguest is asleep upstairs.")[0]
+    assert c.kind == "asleep" and c.n == 1
+    assert not ch._engine_count_ok(c, {"asleep": 0})
+    assert ch._engine_count_ok(c, {"asleep": 4})
+
+
+def test_negated_empty_is_not_a_claim():
+    assert _kinds("The kitchen is not empty.") == []
+    assert _kinds("The kitchen isn't empty.") == []
+    assert _kinds("The kitchen is no longer empty.") == []
+    assert _kinds("The kitchen is empty.") == [("empty", 0, ("kitchen",))]
+
+
+def test_empty_claim_names_only_the_clause_it_ends():
+    assert _kinds("Sam is in the kitchen, and the living room is empty.") == [("empty", 0, ("living-room",))]
+    assert _kinds("Sam is in the kitchen and the living room is empty.") == [("empty", 0, ("living-room",))]
+    # a list of rooms before one empty word is still all claimed
+    assert _kinds("The kitchen, the living room and the dining room are all empty.")[0][2] == ("kitchen", "living-room", "dining-room")
+
+
+def test_lounge_bathroom_are_rooms():
+    assert _kinds("The lounge is empty.") == [("empty", 0, ("lounge",))]
+    assert _kinds("The bathroom is empty.") == [("empty", 0, ("bathroom",))]

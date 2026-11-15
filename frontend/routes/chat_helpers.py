@@ -6609,7 +6609,7 @@ _EC_ROOM_ANCHOR = (r"(?:\s+(?:are\s+)?(?:right\s+now\s+)?(?:in\s+here|here|in\s+
                    r"bathroom|hoh\s*room|storage\s*room|room)|together\s+in\s+(?:here|this\s+room)))")
 _EC_ROOM_US_RE = re.compile(r"\b(?:(there\s+(?:are|were|'s)\s+)|(?:the|all|just|only)\s+)" + _EC_NUM_RE + r"\s+of\s+us\b(" + _EC_ROOM_ANCHOR + r")?", re.IGNORECASE)
 _EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|need|needs|have\s+to|gotta|must|better|ought|going\s+to|gonna|might|may|'ll|’ll|against|vs|versus|\bto\b)\b", re.IGNORECASE)
-_EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
+_EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:are\s+)?(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
 _EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
 _EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
 _EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], defaults=((),))
@@ -6617,8 +6617,12 @@ _EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], de
 _EC_ASLEEP_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:of\s+(?:them|us|you|the\s+(?:other\s+)?(?:houseguests|others|people))\s+)?(?:\w+\s+){0,2}?(?:asleep|sleeping|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", re.IGNORECASE)
 _EC_EMPTY_WORD_RE = re.compile(r"\b(?:empty|deserted|vacant)\b(?!\s*-?\s*(?:handed|of)\b)|\b(?:nobody|no\s+one)(?:'s|’s|\s+is|\s+was)?\s+(?:in|there)\b", re.IGNORECASE)
 _EC_EMPTY_CUT_RE = re.compile(r"\bbut\b|\bwhile\b|\bwhereas\b|\bthough\b|\bexcept\b|\bonly\b|;", re.IGNORECASE)
+_EC_NEG_TAIL_RE = re.compile(r"(?:\bnot|n['’]t|\bno\s+longer|\bnever)\s+(?:\w+\s+)?$", re.IGNORECASE)  # "isn't empty", "not completely empty": not an empty claim
+_EC_CLAUSE_CUT_RE = re.compile(r",\s*(?:and\s+)?|\band\s+", re.IGNORECASE)
+_EC_COPULA_RE = re.compile(r"\b(?:is|are|was|were|sits|stands|sit|stand|waits|wait)\b", re.IGNORECASE)
 _EC_ROOM_WORDS = (("kitchen", "kitchen"), ("living room", "living-room"), ("great room", "living-room"), ("dining room", "dining-room"), ("back yard", "backyard"), ("backyard", "backyard"),
-                  ("yard", "backyard"), ("hallway", "hallway"))
+                  ("yard", "backyard"), ("hallway", "hallway"), ("lounge", "lounge"), ("bathroom", "bathroom"), ("hoh room", "hoh-room"),
+                  ("storage room", "storage-room"), ("diary room", "diary-room"))
 
 
 def _ec_rooms_named(segment: str) -> list:
@@ -6639,8 +6643,15 @@ def _empty_room_claims(text: str) -> list:
     for sentence in re.split(r"(?<=[.!?\n])", clean):
         for m in _EC_EMPTY_WORD_RE.finditer(sentence):
             lead = sentence[:m.start()]
+            if _EC_NEG_TAIL_RE.search(lead):
+                continue  # "the kitchen is not empty"
             cuts = list(_EC_EMPTY_CUT_RE.finditer(lead))
             seg = lead[cuts[-1].end():] if cuts else lead
+            # "Sam is in the kitchen, and the living room is empty": a comma/"and" that follows a clause with its own verb starts a new clause
+            for cm in reversed(list(_EC_CLAUSE_CUT_RE.finditer(seg))):
+                if _EC_COPULA_RE.search(seg[:cm.start()]):
+                    seg = seg[cm.end():]
+                    break
             rooms = _ec_rooms_named(seg)
             if not rooms:  # "an empty kitchen": the room right after the word
                 rooms = _ec_rooms_named(re.match(r"\s*(?:\w+\s+)?\w+(?:\s+room)?", sentence[m.end():]).group(0)) if re.match(r"\s*(?:\w+\s+)?\w+", sentence[m.end():]) else []
@@ -6665,7 +6676,7 @@ def _engine_count_claims(text: str) -> list:
         return out
     for m in _EC_ASLEEP_RE.finditer(text):
         n = _ec_num(m.group(1))
-        if n is not None and n >= 2:
+        if n is not None and n >= 1:  # "one houseguest is asleep" is a count too (checked as n <= the engine's asleep list)
             out.append(_EcClaim("asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
@@ -6686,7 +6697,7 @@ def _engine_count_claims(text: str) -> list:
         if n is None or n < 2:
             continue
         who = re.sub(r"\s+", " ", m.group("who").lower())
-        out.append(_EcClaim("house" if who == "of us" else "house-loose", n, m.group(0).strip()))
+        out.append(_EcClaim("house" if who in ("of us", "of you") else "house-loose", n, m.group(0).strip()))  # "of you" says the player is in the count too
     for m in _EC_VOTES_RE.finditer(text):
         nums = [x for x in (_ec_num(g) for g in m.groups() if g) if x is not None]
         if nums:
@@ -6711,7 +6722,7 @@ def _engine_counts_of(whereabouts) -> Optional[dict]:
             if isinstance(nb, dict) and nb.get("room"):
                 rooms[str(nb["room"])] = len(nb.get("present") or [])
         return {"room": c["room"], "others": c["others"], "house": c["house"],
-                "voters": v if isinstance(v, int) and not isinstance(v, bool) else None,
+                "voters": v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else None,
                 "asleep": a if isinstance(a, int) and not isinstance(a, bool) and a >= 0 else None,
                 "rooms": rooms}
     except Exception:
