@@ -102,6 +102,82 @@ def test_a_write_inside_a_ledgered_turn_is_not_a_between_turn_allowance(_led, mo
     assert ledger._PENDING_FE_WRITES.get("player") == 1
 
 
+def test_a_failed_turn_closes_the_window_in_a_finally(_led, monkeypatch):
+    """A turn that raises (or is cancelled) never reaches record_turn: the loop wrapper's `finally` must still close the window."""
+    al = importlib.import_module("src.agent_loop")
+
+    async def impl(*a, _ledger_turn_tokens=None, **kw):
+        _ledger_turn_tokens.append(ledger.begin_turn("player"))
+        yield "data: x\n\n"
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(al, "_stream_agent_loop_impl", impl)
+
+    async def run():
+        with pytest.raises(RuntimeError):
+            async for _ in al.stream_agent_loop(owner="player"):
+                pass
+    asyncio.get_event_loop().run_until_complete(run())
+    assert "player" not in ledger._IN_TURN
+    _seam(monkeypatch, {"beatSeq": 9})
+    _call("recordInteraction")  # the next between-turn write is counted again
+    assert ledger._PENDING_FE_WRITES.get("player") == 1
+
+
+def test_overlapping_turns_each_hold_their_own_window(_led, monkeypatch):
+    _seam(monkeypatch, {"beatSeq": 9})
+    a, b = ledger.begin_turn("player"), ledger.begin_turn("player")
+    ledger.end_turn("player", a)
+    ledger.end_turn("player", a)  # idempotent
+    _call("recordInteraction")
+    assert ledger._PENDING_FE_WRITES.get("player", 0) == 0  # b is still inside its turn
+    ledger.end_turn("player", b)
+    _call("recordInteraction")
+    assert ledger._PENDING_FE_WRITES.get("player") == 1
+
+
+def test_an_unknown_tool_is_not_counted_and_is_logged_once(_led, monkeypatch, caplog):
+    import logging
+    ledger._UNKNOWN_LOGGED.clear()
+    _seam(monkeypatch, {"ok": True, "beatSeq": 7})
+    with caplog.at_level(logging.INFO, logger=ledger.logger.name):
+        _call("someBrandNewTool")
+        _call("someBrandNewTool")
+    assert ledger._PENDING_FE_WRITES.get("player", 0) == 0
+    assert len([r for r in caplog.records if "someBrandNewTool" in r.getMessage()]) == 1
+
+
+@pytest.mark.parametrize("tool", ["setBehavioralFlags", "endOfSessionSummary"])
+def test_known_non_bumping_tools_are_not_counted(_led, monkeypatch, tool):
+    _seam(monkeypatch, {"ok": True})
+    _call(tool)
+    assert ledger._PENDING_FE_WRITES.get("player", 0) == 0
+
+
+def test_every_tool_the_frontend_can_call_is_classified():
+    """Drift guard: a tool added to the FE's `_call("<name>")` sites must be classified bumping / non-bumping / pure read."""
+    root = Path(__file__).resolve().parents[1]
+    names = set()
+    for sub in ("src", "routes"):
+        for f in (root / sub).rglob("*.py"):
+            names |= set(re.findall(r"\b_call(?:_inner)?\(\s*[\"']([A-Za-z]+)[\"']", f.read_text(errors="ignore")))
+    known = ledger.BUMPING_WRITES | ledger.NON_BUMPING_WRITES | cache.PURE_READS
+    unclassified = sorted(names - known)
+    assert not unclassified, f"classify in orwell_sync_ledger BUMPING_WRITES / NON_BUMPING_WRITES (or PURE_READS): {unclassified}"
+    assert not (ledger.BUMPING_WRITES & (ledger.NON_BUMPING_WRITES | cache.PURE_READS))
+
+
+def test_bumping_names_exist_in_the_engine_source():
+    ts = Path(__file__).resolve().parents[2] / "src" / "adapters" / "engine" / "GameSessionAdapter.ts"
+    if not ts.exists():
+        pytest.skip("engine source not present")
+    text = ts.read_text()
+    reg = Path(__file__).resolve().parents[2] / "src" / "surfaces" / "tools" / "registry.ts"
+    blob = text + (reg.read_text() if reg.exists() else "")
+    missing = [n for n in sorted(ledger.BUMPING_WRITES) if n not in blob]
+    assert not missing, missing
+
+
 def test_casting_turn_park_closes_the_window(_led):
     ledger.begin_turn("player")
     ledger.park_pending_unledgered_turn("player")
