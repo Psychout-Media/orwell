@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -242,7 +242,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { emptyOpenLedger, openLedgerProposal, openLedgerSection, recordOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { emptyOpenLedger, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -319,6 +319,7 @@ import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
+import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
@@ -3669,7 +3670,7 @@ export class GameSessionAdapter implements GameSession {
       // off the name and leave the portrait rendering the name's gender). The given-name token is swapped to
       // the final presentation, surname kept, so name + portrait + narration read the same gender. (The
       // display name lives on the Houseguest wrapper — `n.name` — not on the static Character.)
-      if (pub.name !== undefined) n.name = pub.name;
+      if (pub.name !== undefined) this.renameHouseguest(n, pub.name);
       if (proposed[n.id]) applied++;
     }
 
@@ -3836,7 +3837,7 @@ export class GameSessionAdapter implements GameSession {
       used.delete(given); // free the wrong-gender given before picking its replacement
       const next = pickGivenNameFor(gender, rng, used);
       used.add(next);
-      n.name = parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next;
+      this.renameHouseguest(n, parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next);
     }
   }
 
@@ -7353,7 +7354,23 @@ export class GameSessionAdapter implements GameSession {
       used.delete(given); // free the colliding given before picking the replacement
       const next = pickGivenNameFor(g, rng, used);
       used.add(next);
-      n.name = parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next;
+      this.renameHouseguest(n, parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next);
+    }
+  }
+
+  /**
+   * ORW-430: change a houseguest's display name AND carry the change into the public prose written around the old
+   * given name (genesis writes the name, identity and first biography together; a later gender or cross-season
+   * re-pick must not leave a biography about "Nia" on Samir's card). Public text only; a no-op when the given name
+   * did not change or the prose never used it.
+   */
+  private renameHouseguest(n: { name: string; character: Character }, next: string): void {
+    const prior = n.name;
+    n.name = next;
+    const c = n.character;
+    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation"] as const) {
+      const v = c[k];
+      if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
   }
 
@@ -14755,6 +14772,29 @@ export class GameSessionAdapter implements GameSession {
     this.openLedger = out.ledger;
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
+  }
+
+  /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
+  resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
+    if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq);
+    if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    this.backgroundPersist(); // durable, but NOT a board beat
+    return { accepted: true };
+  }
+
+  /** ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only. */
+  openLedgerHere(): OpenLedgerItemView[] {
+    if (!this.openLedgerEnabled || !this.house || !this.live || this.live.playedGame !== true) return [];
+    const wa = this.whereabouts();
+    if (!wa) return [];
+    const open = { ...this.openLedger, entries: this.openLedger.entries.filter((e) => e.status === "open") };
+    return openLedgerRelevant(open, wa.present.map((x) => x.id as string)).map(({ e }) => ({
+      id: e.id, text: e.text, speaker: e.speaker, parties: partiesOf(e), ...(e.about ? { about: e.about } : {}), kind: e.kind,
+    }));
   }
 
   /**

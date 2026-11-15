@@ -122,7 +122,7 @@ async function playSeed(seed: number) {
     const PLAYER_READS = [
       "gameStatus", "getGameState", "stateDelta", "getMomentPrompt", "recallSceneMemories", "getVisibleStateFor", "renderScene", "socialRead", "socialInitiatives",
       "whereabouts", "premiereIntros", "seasonRecap", "dailyRecap", "dayLedger", "npcVoice", "playerTagline", "finaleView", "playerDossier", "playerReceipts",
-      "worldSnapshotView", "competitionStagingView", "endOfSessionSummary", "getPortraitPrompt", "getOffscreenSceneSkeletons", "sealedFromHouse", "knowledgeScopeManifest",
+      "worldSnapshotView", "competitionStagingView", "endOfSessionSummary", "getPortraitPrompt", "getOffscreenSceneSkeletons", "sealedFromHouse", "knowledgeScopeManifest", "openLedgerHere",
     ];
     // Registry coverage: every registered projection that is read through a tool must be in the list (or be swept as an advance view below).
     for (const e of PLAYER_PROJECTION_REGISTRY) {

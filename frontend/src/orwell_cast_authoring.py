@@ -1234,6 +1234,8 @@ _STORY_PROBLEM_TEXT = {
     "story-age": "the biography states an age that is not the skeleton age; say exactly the skeleton age or no number at all",
     "story-feature": "the biography names a physical feature (tooth gap, tattoo, glasses, scar, birthmark, freckles...) that the look block does not have; remove it or add it to the look",
     "story-show-name": "the show is called Orwell; never write Big Brother",
+    "story-name": "the biography is about someone other than the houseguest: write it about the houseguest by the exact name in the skeleton (first name or full name), never another first name as its subject",
+    "story-cast-name": "the biography is about another houseguest on the cast: write it about this houseguest by the exact name in the skeleton",
 }
 _LOOK_PROBLEM_TEXT.update(_STORY_PROBLEM_TEXT)
 
@@ -1252,7 +1254,7 @@ _OTHER_PERSON_RE = re.compile(
     r"boyfriend|girlfriend|ex|daughter|son|kids?|child|children|aunt|uncle|cousin|niece|nephew|grandmother|"
     r"grandfather|grandma|grandpa|grandparents?|parents?|twin|friend|best friend|roommate|neighbou?r|boss|"
     r"manager|coach|mentor|teacher|professor|student|clients?|customers?|patients?|crew|team|colleagues?|"
-    r"coworkers?|rivals?|family|people|everyone|nobody|someone|anyone|girls|boys|men|women|guys)\b", re.I)
+    r"coworkers?|rivals?|family|people|someone|girls|boys|men|women|guys)\b", re.I)
 _NAMED_PERSON_RE = re.compile(r"(?<!\bthe )(?<!\bThe )\b[A-Z][a-z]{2,}\b")
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])(\s+)")
 _PRON_RE = re.compile(r"\b(she|he|they|her|hers|herself|him|his|himself|them|their|theirs|themself|themselves)\b", re.I)
@@ -1419,7 +1421,104 @@ def story_missing_features(text: str, profile: dict, npc: dict) -> list:
     return out
 
 
-def story_problems(profile: dict, npc: dict) -> list:
+
+# ── ORW-430: the story must be about the card's own name ───────────────────────────────────────────────
+# Genesis writes the name, identity and first biography together; the gender fold later re-picks the GIVEN name
+# (diversity.ts step 7.5) and nothing rewrote the prose, so a biography can be about "Nia" on Samir's card.
+# The net reads PUBLIC text only and logs codes, never the text. A first name is the SUBJECT when it opens a
+# sentence and a verb follows. The check fires only when the houseguest's own first name never appears in the text
+# and the same other name opens the first sentence or two or more sentences. A relative or boss named in passing
+# is never a subject-opener, so it is left alone.
+_SUBJECT_RE = re.compile(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(?:['\u2019]s)?\s+([a-z]+)")
+_NOT_A_VERB = frozenset({"and", "or", "but", "of", "in", "on", "at", "to", "from", "for", "with", "the", "a", "an",
+                         "who", "whose", "which", "that", "as", "by", "than", "nor", "so", "if", "into", "over"})
+_NOT_A_NAME = frozenset(w.lower() for w in (
+    "The This That These Those There Their They Then When While Where After Before During Since Until Though Although "
+    "She He We You Who Whom Because Between Raised Born Off Outside Inside Every Each Most Some Many Much Few Once Always Never Even Just Only "
+    "Also Her His Its Our Your Whenever Behind Beyond Across Along Among Around Beneath Despite Instead Meanwhile "
+    "Nobody Everyone Someone Anyone Nothing Something Everything Today Tonight Yesterday Often Sometimes Lately "
+    "Recently Eventually Still Later Soon Now Here Over Under With Without From Into Upon Within Beside Besides "
+    "Orwell Sunday Monday Tuesday Wednesday Thursday Friday Saturday January February March April June July August "
+    "September October November December Off-camera Fresh Quiet Soft Gentle Sharp Warm Cool Quick Steady Young Older "
+    "Small Large Little Early Late Good Great Real Free Open Private Public Single Double Second Third First Last "
+    "Next Both Neither Either Another Other Such What Which Whoever Whatever Whichever However Still Yet Perhaps "
+    "Maybe Likely Mostly Mainly Nearly Almost Already Currently Formerly Honestly Quietly Slowly Gently").split())
+
+
+def _own_words(npc: dict) -> set:
+    return {w.lower() for k in ("name", "hometown", "vocation") for w in re.findall(r"[A-Za-z']+", str((npc or {}).get(k) or ""))}
+
+
+def _first_name(npc: dict) -> str:
+    toks = str((npc or {}).get("name") or "").split()
+    return toks[0] if toks else ""
+
+
+def _cast_first_names(cast, npc: dict) -> frozenset:
+    out = set()
+    for c in cast or []:
+        if isinstance(c, dict) and c.get("id") != (npc or {}).get("id"):
+            f = _first_name(c).lower()
+            if f:
+                out.add(f)
+    return frozenset(out)
+
+
+def _subject_names(text: str, npc: dict) -> dict:
+    """First names that open sentences as the grammatical subject, in order: {name: sentence count}. Empty when the
+    houseguest's own first name is in the text (the biography is then about them), or when there is no card name."""
+    own_first = _first_name(npc).lower()
+    if not own_first or not isinstance(text, str) or not text.strip():
+        return {}
+    if re.search(r"\b%s\b" % re.escape(own_first), text, re.I):
+        return {}
+    own = _own_words(npc)
+    counts: dict = {}
+    for part in _sentences(text)[::2]:
+        m = _SUBJECT_RE.match(part)
+        if not m:
+            continue
+        tok, nxt = m.group(1), m.group(2)
+        low = tok.lower()
+        if nxt in _NOT_A_VERB or low in _NOT_A_NAME or low in own:
+            continue
+        if low.endswith("ing") and len(low) > 5:
+            continue
+        if own_first.startswith(low) or low.startswith(own_first):
+            continue  # a nickname or a longer form of the card's own first name: not claimed
+        if re.search(r"\b(?:in|from|of|to|near|at|around|outside|across)\s+%s\b" % re.escape(tok), text):
+            continue  # a place, used as a place elsewhere in the text
+        counts[tok] = counts.get(tok, 0) + 1
+    first = next((t for t in [_SUBJECT_RE.match(_sentences(text)[0] or "")] if t), None)
+    opener = first.group(1) if first else None
+    return {t: n for t, n in counts.items() if n >= 2 or t == opener}
+
+
+def story_name_codes(text: str, npc: dict, cast=None) -> list:
+    """`story-name` (a first name nobody on the cast owns is the subject) and/or `story-cast-name` (another cast
+    member's first name is the subject). [] when the text is about the houseguest or names no subject."""
+    subj = _subject_names(text, npc)
+    if not subj:
+        return []
+    cast_first = _cast_first_names(cast, npc)
+    out = []
+    if any(t.lower() not in cast_first for t in subj):
+        out.append("story-name")
+    if any(t.lower() in cast_first for t in subj):
+        out.append("story-cast-name")
+    return out
+
+
+def repair_story_name(text: str, npc: dict) -> str:
+    """Swap each wrong subject first name (every occurrence, with its possessive) for the card's first name."""
+    out = text
+    own_first = _first_name(npc)
+    for tok in _subject_names(text, npc):
+        out = re.sub(r"\b%s\b" % re.escape(tok), own_first, out)
+    return out
+
+
+def story_problems(profile: dict, npc: dict, cast=None) -> list:
     """Reason codes for the biography the writer just produced ([] when clean or when there is none)."""
     bio = (profile or {}).get("biography")
     if not isinstance(bio, str) or not bio.strip():
@@ -1433,6 +1532,7 @@ def story_problems(profile: dict, npc: dict) -> list:
         out.append("story-feature")
     if _BB_RE.search(bio):
         out.append("story-show-name")
+    out += story_name_codes(bio, npc, cast)
     return out
 
 
@@ -1460,7 +1560,7 @@ def repair_story_text(text: str, profile: dict, npc: dict) -> str:
     lacks, and "Big Brother". Returns the text unchanged when nothing is wrong (and never an empty string)."""
     if not isinstance(text, str) or not text.strip():
         return text
-    out = text
+    out = repair_story_name(text, npc)  # first: the repaired name makes the pronoun and age checks below see the houseguest
     pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
     bad = pronoun_conflict_sentences(out, npc)
     if bad:
@@ -1735,6 +1835,8 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         f"{pronoun_rule}"
         f"{hand_rule}"
         f"{taken_rule}\n"
+        f"The biography is about {name} and no one else: write it about {name} by that exact name (or by role), "
+        f"and never give them any other first name.\n"
         f"Write {name}'s secret bible as JSON now — their own independent life, no protagonist."
     )
     return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
@@ -2452,7 +2554,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return 0
             # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
             # ORW-388: the biography's own story checks (pronoun, age, look feature, show name) ride the same single strict retry.
-            problems = look_problems(profile, npc) + story_problems(profile, npc)
+            problems = look_problems(profile, npc) + story_problems(profile, npc, cast)
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
                 _spend_attempt(ukey, hid)
@@ -2465,7 +2567,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
                     look_profile = None
                 if (look_profile is not None and not look_problems(look_profile, npc)
-                        and not story_problems(look_profile, npc)
+                        and not story_problems(look_profile, npc, cast)
                         and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
                     profile = look_profile
                 else:
