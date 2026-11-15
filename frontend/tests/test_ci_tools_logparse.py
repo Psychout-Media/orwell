@@ -118,3 +118,56 @@ def test_quarantine_report_counts_runs_per_test():
 if __name__ == "__main__":
     import pytest
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+def test_pytest_setup_and_teardown_errors_are_named_too():
+    # review of #2698: a job that fails only through a fixture error has an ERRORS section and `ERROR ...` summary lines, no FAILURES section.
+    log = (
+        "=================================== ERRORS ====================================\n"
+        "_________________ ERROR at setup of test_the_fixture_breaks _________________\n"
+        "E   RuntimeError: no browser\n"
+        "=========================== short test summary info ===========================\n"
+        "ERROR tests/test_x.py::test_the_fixture_breaks - RuntimeError: no browser\n"
+    )
+    r = parse.parse_failures(log)
+    assert r["tests"] == ["test_the_fixture_breaks"], r
+    assert r["errors"] and "RuntimeError: no browser" in r["errors"][0]
+
+
+def test_quarantine_patch_picks_the_method_of_the_named_class(tmp_path):
+    # review of #2698: two classes with the same method name; the node id names the second one.
+    f = tmp_path / "frontend" / "tests"; f.mkdir(parents=True)
+    (f / "test_y.py").write_text("import pytest\n\nclass TestA:\n    def test_same(self):\n        pass\n\nclass TestB:\n    def test_same(self):\n        pass\n")
+    patch = quar.pytest_patch("tests/test_y.py::TestB::test_same", "ORW-1", "2026-11-15", tmp_path)
+    assert patch and "+    @pytest.mark.quarantine" in patch
+    assert " class TestB:" in patch  # the hunk's context sits under TestB, not TestA
+    assert quar.pytest_patch("tests/test_y.py::TestC::test_same", "ORW-1", "2026-11-15", tmp_path) is None
+
+
+def test_parametrized_variants_give_one_patch_hunk(tmp_path):
+    f = tmp_path / "frontend" / "tests"; f.mkdir(parents=True)
+    (f / "test_z.py").write_text("import pytest\n\ndef test_p():\n    pass\n")
+    agg = {"tests/test_z.py::test_p[a]": {"runs": {1}, "jobs": {"j"}}, "tests/test_z.py::test_p[b]": {"runs": {1}, "jobs": {"j"}}}
+    out = quar.render(agg, 1, "2026-11-15", tmp_path)
+    assert out.count("+@pytest.mark.quarantine") == 1
+
+
+def test_watch_pr_rejects_a_bad_or_empty_run_id_before_touching_github():
+    # review of #2698: an empty --run used to switch a read-only replay into live mode.
+    import subprocess
+    for bad in ("abc", ""):
+        r = subprocess.run(["bash", str(REPO / "scripts" / "ci" / "watch-pr.sh"), "5", "--run", bad], capture_output=True, text=True, timeout=20)
+        assert r.returncode == 64 and "numeric run id" in r.stderr, (bad, r.returncode, r.stderr)
+
+
+def test_watch_pr_source_pins_for_the_gate_rerun_and_attempt_floor_fixes():
+    src = (REPO / "scripts" / "ci" / "watch-pr.sh").read_text()
+    assert '"$gate" = success ] && [ "${#flakejobs[@]}" -eq 0 ] && [ "${#cancelled[@]}" -eq 0' in src  # a green gate with a recorded cancellation still re-runs
+    assert 'RE-RUN REJECTED' in src                                                                       # a failed `gh run rerun` is not scheduled work
+    assert '"$rid" != "$last_rid"' in src                                                               # a new run resets the attempt floor
+    assert '*onflict*) say "PR #$pr has a MERGE CONFLICT' in src                                       # a conflict found at merge time is exit 3
+
+
+def test_pr_overlap_reads_renames_and_paginates():
+    src = (REPO / "scripts" / "ci" / "pr-overlap.sh").read_text()
+    assert "previous_filename" in src and "--paginate" in src and "--limit 200" not in src

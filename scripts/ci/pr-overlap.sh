@@ -19,11 +19,12 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 if [ -n "$only" ]; then case $only in *[!0-9]*) echo "--pr needs a number" >&2; exit 64 ;; esac; fi
-prs=$(gh pr list -R "$R" --state open --limit 200 --json number,headRefName,isDraft) || { echo "gh pr list failed" >&2; exit 1; }
+# Paginated (a fixed --limit silently dropped every PR past it); one object per PR, slurped into an array.
+prs=$(gh api --paginate "repos/$R/pulls?state=open&per_page=100" --jq '.[]|{number,headRefName:.head.ref,isDraft:.draft}' | jq -s .) || { echo "listing open PRs failed" >&2; exit 1; }
 tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
 while IFS=$'\t' read -r n br dr; do
   [ -z "$n" ] && continue
-  files=$(gh api --paginate "repos/$R/pulls/$n/files?per_page=100" --jq '.[].filename' 2>/dev/null) || { echo "listing files of PR $n failed" >&2; exit 1; }
+  files=$(gh api --paginate "repos/$R/pulls/$n/files?per_page=100" --jq '.[]|.filename, (.previous_filename // empty)' 2>/dev/null) || { echo "listing files of PR $n failed" >&2; exit 1; }
   while IFS= read -r f; do [ -n "$f" ] && printf '%s\t%s\t%s%s\n' "$f" "$n" "$br" "$([ "$dr" = true ] && echo ' (draft)')" >>"$tmp"; done <<<"$files"
 done < <(jq -r '.[]|"\(.number)\t\(.headRefName)\t\(.isDraft)"' <<<"$prs")
 python3 -I - "$tmp" "$only" "$(jq length <<<"$prs")" <<'PY'

@@ -33,7 +33,9 @@ def gh(*args: str) -> str:
 def gh_log(repo: str, job_id: int) -> str:
     try:
         return gh("api", f"repos/{repo}/actions/jobs/{job_id}/logs")
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as e:
+        # An empty log must not read as "no flakes": say which job could not be read (rate limit, expired logs).
+        print(f"warning: could not download the log of job {job_id} ({(e.stderr or '').strip()[:120]}); its flakes are missing from this report", file=sys.stderr)
         return ""
 
 
@@ -69,12 +71,26 @@ def locate_pytest(tid: str, root: Path = REPO_ROOT) -> tuple[Path, int] | None:
     m = re.match(r"^(?P<file>[^:\s]+\.py)::(?P<rest>.+)$", tid)
     if not m:
         return None
-    name = m.group("rest").split("::")[-1].split("[")[0]
+    parts = m.group("rest").split("::")
+    name = parts[-1].split("[")[0]
+    cls = parts[-2].split("[")[0] if len(parts) > 1 else None
     path = root / "frontend" / m.group("file")
     if not path.is_file():
         return None
-    for i, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
-        if re.match(rf"^\s*(async\s+)?def {re.escape(name)}\(", line):
+    lines = path.read_text(encoding="utf-8").splitlines()
+    start, limit = 0, len(lines)
+    if cls:  # resolve the class first: the same method name in another class must not be marked (review of #2698)
+        for i, line in enumerate(lines):
+            cm = re.match(rf"^(\s*)class {re.escape(cls)}\b", line)
+            if cm:
+                indent = len(cm.group(1))
+                start = i + 1
+                limit = next((k for k in range(i + 1, len(lines)) if lines[k].strip() and len(lines[k]) - len(lines[k].lstrip()) <= indent), len(lines))
+                break
+        else:
+            return None
+    for i in range(start, limit):
+        if re.match(rf"^\s*(async\s+)?def {re.escape(name)}\(", lines[i]):
             return path, i
     return None
 
@@ -111,9 +127,14 @@ def render(agg: dict[str, dict], n_runs: int, today: str, root: Path = REPO_ROOT
     for tid, d in sorted(agg.items(), key=lambda kv: (-len(kv[1]["runs"]), kv[0])):
         out.append(f"  {len(d['runs'])}/{n_runs} runs  {tid}\n      lanes: {', '.join(sorted(d['jobs']))}\n      runs: {', '.join(str(r) for r in sorted(d['runs'], reverse=True))}")
     out.append("\nPatches to quarantine them (docs/CI.md, rule 3: open the Plane card first, replace ORW-NNN with its number; review before applying):\n")
+    seen: set[str] = set()  # parametrized variants of one test give the same hunk; emit it once (applying it twice fails)
     for tid in sorted(agg):
         if "::" in tid and ".py" in tid:
             patch = pytest_patch(tid, "ORW-NNN", today, root)
+            if patch and patch in seen:
+                continue
+            if patch:
+                seen.add(patch)
             out.append(patch if patch else f"# {tid}: could not locate the test under frontend/; mark it by hand\n")
         elif " > " in tid and ".ts" in tid:
             out.append(vitest_hint(tid, "ORW-NNN", today) + "\n")
