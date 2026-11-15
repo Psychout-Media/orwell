@@ -375,8 +375,19 @@ function statedYearSpans(text: string, vocation?: string): number[] {
  */
 const OTHER_PERSON_WORD_RE =
   /\b(?:mother|mom|mum|mama|father|dad|papa|sister|brother|sibling|wife|husband|spouse|partner|fianc[eé]e?|boyfriend|girlfriend|ex|daughter|son|kids?|child|children|aunt|uncle|cousin|niece|nephew|grandmother|grandfather|grandma|grandpa|grandparents?|parents?|twin|friend|best friend|roommate|neighbou?r|boss|manager|coach|mentor|teacher|professor|student|clients?|customers?|patients?|crew|team|colleagues?|coworkers?|rivals?|family|someone|girls|boys|men|women|guys)\b/i;
-/** A span that measures a THING's age ("a diner open thirty years"), not the houseguest's. */
-const THING_SPAN_RE = /\b(?:open|opened|founded|established|in business|been around|standing|operated|operating|history|tradition)\b/i;
+/** A span count: digits, a tens word or "a decade". */
+const SPAN_COUNT = "(?:\\d{1,3}|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|a\\s+decade|one\\s+decade|decades)";
+/**
+ * A span that measures a THING's age ("a diner open thirty years", "in business thirty years", "thirty years of
+ * history"). The thing wording must sit right next to the count, so a houseguest's "thirty years standing at the
+ * counter" or a stray "history" elsewhere in the clause does not hide a real contradiction (review of #2742).
+ */
+const THING_SPAN_RE = new RegExp(
+  `\\b(?:open|opened|founded|established|in\\s+business|been\\s+around|operated|operating|standing)\\s+(?:for\\s+)?(?:about\\s+|nearly\\s+|almost\\s+|over\\s+|more\\s+than\\s+)?${SPAN_COUNT}\\b`
+  + `|\\b${SPAN_COUNT}[\\s-]+years?\\s+(?:of\\s+(?:history|tradition)|in\\s+business)\\b`
+  + `|\\b(?:founded|established|opened)\\s+(?:\\w+\\s+){0,3}?${SPAN_COUNT}[\\s-]+years?\\s+ago\\b`,
+  "i",
+);
 /** "all 22 years of her life": the span IS the houseguest's age, said as a lifetime. */
 const LIFETIME_RE = /\byears?\s+of\s+(?:her|his|their|my)\s+(?:whole\s+)?life\b|\b(?:her|his|their)\s+whole\s+life\b|\ball\s+(?:her|his|their)\s+life\b/i;
 
@@ -386,7 +397,11 @@ function splitSentences(text: string): string[] {
 
 function plainlyAboutHouseguest(sentence: string, vocation?: string): boolean {
   let s = sentence;
-  for (const w of (vocation ?? "").toLowerCase().match(/[a-z']{3,}/g) ?? []) s = s.replace(new RegExp(`\\b${w}\\b`, "gi"), " ");
+  // The houseguest's OWN vocation words are not another person, except after a possessive ("her teacher" is someone
+  // else even when she is a teacher herself; review of #2742).
+  for (const w of (vocation ?? "").toLowerCase().match(/[a-z']{3,}/g) ?? []) {
+    s = s.replace(new RegExp(`(\\b(?:her|his|their|my|our|your)\\s+(?:[a-z'-]+\\s+)?)?\\b${w}\\b`, "gi"), (m, poss) => (poss ? m : " "));
+  }
   return !OTHER_PERSON_WORD_RE.test(s) && !RELATIVE_SUBJECT_RE.test(sentence);
 }
 

@@ -36,6 +36,23 @@ describe("ORW-430 a real contradiction is mended, not blanked", () => {
     const d = { genderPresentation: "woman" as const, age: 22, biography: `${good}Her grandkids visit on Sundays.` };
     expect(validateDossierCoherence(d).repairFields).toEqual(["biography"]);
   });
+  it("a span about the houseguest is still caught when a thing word sits elsewhere in the sentence (review of #2742)", () => {
+    for (const bio of [
+      "She spent thirty years standing behind the counter.",
+      "She has spent thirty years on the job with a long history of regulars.",
+      "She spent thirty years operating the grill.",
+      "She spent thirty years on the job.",
+    ]) {
+      const d = { genderPresentation: "woman" as const, age: 25, vocation: "diner server", biography: `${good}${bio}` };
+      expect(validateDossierCoherence(d).repairFields, bio).toEqual(["biography"]);
+    }
+  });
+  it("a role-holder around the houseguest is not the houseguest even when the houseguest holds that role", () => {
+    const d = { genderPresentation: "woman" as const, age: 25, vocation: "teacher", biography: "She teaches fifth grade. Her teacher spent thirty years at the school." };
+    expect(validateDossierCoherence(d).repairFields).toEqual([]);
+    const own = { genderPresentation: "woman" as const, age: 25, vocation: "teacher", biography: "She teaches fifth grade. She spent thirty years as a teacher." };
+    expect(validateDossierCoherence(own).repairFields).toEqual(["biography"]);
+  });
   it("a background with the span is judged as the background, not the biography", () => {
     const d = { genderPresentation: "woman" as const, age: 22, biography: good.trim(), background: "thirty years inside the courthouse machine" };
     expect(validateDossierCoherence(d).repairFields).toEqual(["background"]);
