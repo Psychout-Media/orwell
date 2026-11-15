@@ -12,7 +12,7 @@ import json
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("non_game_text_routing")
+pytestmark = [pytest.mark.usefixtures("non_game_text_routing"), pytest.mark.usefixtures("zero_clocks_off")]
 
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 GLM = "z-ai/glm-4.7"

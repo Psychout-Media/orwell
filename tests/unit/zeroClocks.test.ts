@@ -1,0 +1,69 @@
+import { describe, it, expect, afterEach } from "vitest";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { clockBandFor, formatClockBandLabel } from "../../src/engine/timeOfDay";
+
+/**
+ * ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never a clock time. PRESENTATION ONLY: the engine clock, day schedule, sleep debt and bedtime logic are untouched
+ * (Ryne: the game itself keeps its internal clock). Roles only.
+ */
+afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
+
+const CLOCK_TIME = /\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:am|pm)\b/i;
+
+function started(seed = 7) {
+  GameSessionAdapter.setTimeOfDayEnabled(true);
+  const sb = new GameSessionRegistry().sandboxFor(`zc-${Math.random()}`);
+  const s = sb.session as GameSessionAdapter;
+  s.createCharacter({ playerName: "The Player", archetype: "floater", seed });
+  s.setPerConversationClockEnabled(true);
+  return s;
+}
+const live = (s: GameSessionAdapter) => s.snapshot().live as unknown as { nightDepth?: number; dayNumber?: number; timeOfDay?: string };
+function runToClock(s: GameSessionAdapter) { for (let i = 0; i < 80 && live(s).timeOfDay === undefined; i++) s.advanceGame(); }
+
+describe("the eight spoken bands", () => {
+  it("map the engine clock hour to a part of the day (incl. past midnight)", () => {
+    const cases: Array<[number, string]> = [[8, "morning"], [9.67, "morning"], [12, "midday"], [14, "afternoon"], [17, "evening"], [21, "night"], [24, "late night"], [27.08, "small hours"], [30, "early morning"]];
+    for (const [h, b] of cases) expect(clockBandFor(h), String(h)).toBe(b);
+    expect(formatClockBandLabel(27.08, 5)).toBe("small hours, Day 5");
+  });
+});
+
+describe("getMomentPrompt with zeroClocks", () => {
+  it("hands the narrator the band and NO clock time at any hour; without the flag it is byte-identical to before", () => {
+    const s = started();
+    runToClock(s);
+    expect(live(s).timeOfDay).toBeDefined();
+    const seenBands = new Set<string>();
+    for (let i = 0; i < 60; i++) {
+      const zc = s.getMomentPrompt({ zeroClocks: true }).systemPrompt;
+      const off = s.getMomentPrompt({}).systemPrompt;
+      const line = zc.split("\n").find((l) => l.startsWith("- Part of the day: "))!;
+      expect(line).toBeDefined();
+      seenBands.add(line.split(" (engine truth)")[0]!);
+      // the only clock-looking text allowed is the quoted counter-examples in the rule itself
+      expect(zc.split("\n").filter((l) => !l.startsWith("- Part of the day: ")).join("\n")).not.toMatch(CLOCK_TIME);
+      expect(zc).not.toContain("- Clock: ");
+      expect(off).toContain("- Clock: ");
+      s.advanceClockPerConversation();
+      s.advanceClockPerConversation();
+    }
+    expect(seenBands.size, "the band moves as the clock moves").toBeGreaterThan(1);
+  });
+
+  it("is presentation only: with the setting ON vs OFF the engine clock, schedule, timeOfDay and event order are byte-identical", () => {
+    const run = (zc: boolean) => {
+      const s = started(11);
+      const trace: unknown[] = [];
+      for (let i = 0; i < 70; i++) {
+        s.getMomentPrompt(zc ? { zeroClocks: true } : {}); // the narrator's read each step; must change nothing
+        const r = i % 3 === 0 ? s.advanceGame() : (s.advanceClockPerConversation(), null);
+        const v = s.view();
+        trace.push({ i, nd: live(s).nightDepth, day: live(s).dayNumber, tod: v.timeOfDay, label: v.clockLabel, ds: v.daySchedule, phase: v.phase, ev: r && (r as { event?: unknown }).event, held: r && (r as { held?: unknown }).held });
+      }
+      return JSON.stringify({ trace, snap: s.snapshot().live });
+    };
+    expect(run(true)).toBe(run(false));
+  });
+});

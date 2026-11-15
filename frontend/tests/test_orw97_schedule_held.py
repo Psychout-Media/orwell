@@ -1,3 +1,4 @@
+import pytest
 """ORW-97 / A65: the engine HOLDS an ordinary advanceGame before the schedule says an event is due (typed `held`, reason "schedule", nothing committed).
 The FE must read it: tell the narrator why from the Vault-free payload, never treat it as a successful advance (no refresh/pending cache), and mark the hold
 so the stall-nudge / forced-advance belts do not escalate against the refusal. A real advance clears the hold."""
@@ -7,6 +8,9 @@ import json
 
 chat_helpers = importlib.import_module("routes.chat_helpers")
 HELD = {"beatSeq": 5, "event": None, "pending": None, "held": {"next": "hoh-competition", "minutesUntil": 180, "reason": "schedule"}}
+
+
+pytestmark = pytest.mark.usefixtures("zero_clocks_off")
 
 
 def _run(coro):

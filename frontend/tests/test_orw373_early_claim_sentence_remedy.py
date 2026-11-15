@@ -11,6 +11,7 @@ ch = importlib.import_module("routes.chat_helpers")
 agent_loop = importlib.import_module("src.agent_loop")
 
 _USER = "u-orw373"
+pytestmark = pytest.mark.usefixtures("zero_clocks_off")
 
 HOH_COMP_RULES = '''The living room has been transformed. On a stand at the front, a screen cycles two words: **HOLD THE LINE.**
 

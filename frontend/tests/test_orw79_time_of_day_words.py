@@ -1,9 +1,13 @@
+import pytest
 """ORW-79 (A95): the narrator sets the scene with a period-of-day LIGHT phrase ("the afternoon sun") that disagrees with the engine clock - `_clock_misstated` only reads an explicit "it's H:MM". The new
 `_time_of_day_words_misstated` is its scene-setting sibling in the same closed-set, next-turn re-ground family (never an edit of creative prose). Narrow: light/sun/glow phrases only, present tense only,
 tolerant of flashbacks / future / hypotheticals / asides, and of a clock within the boundary tolerance of the named period. Pure: no model. Roles only."""
 import importlib
 
 ch = importlib.import_module("routes.chat_helpers")
+
+
+pytestmark = pytest.mark.usefixtures("zero_clocks_off")
 
 
 def live(label):

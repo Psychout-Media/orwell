@@ -447,6 +447,8 @@ export interface GameStateView {
    * told to name no other time. Absent pre-game / clock dormant => byte-identical.
    */
   clockLabel?: string;
+  /** ORW-377: zero-clocks narration view only (set by `getMomentPrompt` when `zeroClocks`, which also drops `clockLabel`): the part of the day + Day N ("small hours, Day 5"), never minutes. Never on the HUD / getGameState view. */
+  clockBand?: string;
   /**
    * ORW-345: the in-game DAY number behind `clockLabel` ("..., Day 4" -> 4), public and Vault-free, present under the same gate as `clockLabel`. The front end stamps it onto every saved chat row (`metadata.game_day`) so the
    * closed-day condensing of the narrator's prompt (ORW-271) can tell which rows belong to a closed day. It was only on `gameStatus`, never on this view, so on the live path no row was ever stamped and nothing condensed.
@@ -1074,6 +1076,10 @@ export interface MomentPromptReq {
    * terminal Show Brief for this turn. Absent ⇒ the response is byte-identical to before (no `showBrief`).
    */
   brief?: ShowBriefReq;
+  /**
+   * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
+   */
+  zeroClocks?: boolean;
 }
 
 /**

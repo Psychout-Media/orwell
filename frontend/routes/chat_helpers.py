@@ -834,6 +834,8 @@ def engine_held_note(held) -> str:
     except (TypeError, ValueError):
         mins = None
     when = "later today" if mins is None or mins <= 0 else (f"in about {mins} minutes" if mins < 90 else f"in about {round(mins / 60)} hours")
+    if _zc_on() and mins is not None and mins > 0:
+        when = "very soon" if mins <= 30 else "later on"  # ORW-377: no minutes/hours counts - the house has no clocks
     return (f"Production hasn't called the house in yet: the {nxt} is not due until {when}, so nothing advanced. Stay in the scene, keep the houseguests talking, "
             "do NOT narrate it starting, and do not call advanceGame again until the production calls the house in.")
 
@@ -5092,6 +5094,17 @@ def _veto_possession_without_holder(text: str, live: dict) -> Optional[str]:
 # Live replay 4 (turns 59 and 94): asked what time it was, the narrator answered "It's 8:10am on day 3/4" - a canned line copied from its own earlier reply - while the engine clock read about noon (and the beat it named,
 # "the nomination ceremony this afternoon", was long over). A present-tense "it's H:MM am/pm" that disagrees with the engine's clock by more than the tolerance is a fabrication of a closed-set fact the engine states exactly.
 _CLOCK_STATEMENT_RE = re.compile(r"\b(?:it(?:'s|\u2019s|\s+is)|the\s+time\s+is|right\s+now\s+it(?:'s|\u2019s))\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b(?:[^.\n]{0,30}?\bday\s+(\d{1,2})\b)?", re.IGNORECASE)
+from src.zero_clocks import narrator_clock as _zc_narrator_clock, zero_clocks_on as _zc_on, sentence_states_zero_clock_time_raw as _zc_raw  # ORW-377
+
+
+def sentence_states_zero_clock_time(text: str) -> bool:
+    """ORW-377: with the zero-clocks setting ON, does this sentence state a clock time (the pre-emission guard drops it)? OFF / any hiccup => False (nothing dropped)."""
+    try:
+        return bool(text) and _zc_on() and _zc_raw(text)
+    except Exception:
+        return False
+
+
 _CLOCK_LABEL_RE = re.compile(r"^(\d{1,2}):(\d{2})(am|pm),\s*Day\s+(\d+)$")
 _CLOCK_TOLERANCE_MIN = 45
 
@@ -5116,7 +5129,7 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
         diff = min(diff, 1440 - diff)
         said_day = int(m.group(4)) if m.group(4) else None
         if diff > _CLOCK_TOLERANCE_MIN or (said_day is not None and said_day != eng_day):
-            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
+            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + _zc_narrator_clock(lab) + " (use exactly that)"
     return None
 
 
@@ -5171,7 +5184,7 @@ def _time_of_day_words_misstated(text: str, live: dict) -> Optional[str]:
             lo, hi = span
             if lo - _CLOCK_TOLERANCE_MIN <= eng < hi + _CLOCK_TOLERANCE_MIN:
                 continue
-            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + lab + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
+            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + _zc_narrator_clock(lab) + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
     return None
 
 
@@ -6052,7 +6065,7 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
-            "reads " + (str(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
+            "reads " + (_zc_narrator_clock(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
             "goes to bed, call the `turnIn` tool FIRST and voice the morning only from what it returns.")
         logger.warning("[orwell] pre-emission guard HELD an unbacked-morning claim for user=%s - engine clock still %s", user, tod)
         return False
@@ -6103,7 +6116,7 @@ async def screen_streamed_clock_time(user, sentence: str) -> bool:
             return True
         _stash_overclaim_reground(
             user,
-            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + lab + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
+            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + _zc_narrator_clock(lab) + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
         logger.warning("[orwell] pre-emission guard HELD a misstated clock time for user=%s - engine clock %s", user, lab)
         return False
     except Exception as e:
@@ -6961,7 +6974,8 @@ _PRODUCTION_WARN_MINUTES = 30
 def _production_warning_steer(phase: str, minutes: int) -> str:
     """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only."""
     label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
-    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called (roughly {int(minutes)} in-game minutes away). Let the house feel it: a voice or a bell from production, "
+    _away = "a few minutes away" if _zc_on() else f"roughly {int(minutes)} in-game minutes away"  # ORW-377: no minutes count under zero clocks
+    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called ({_away}). Let the house feel it: a voice or a bell from production, "
             "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
 
 

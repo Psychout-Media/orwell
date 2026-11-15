@@ -1513,6 +1513,10 @@ export function renderGameContext(view: GameStateView): string {
       ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
       : []),
     // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
+    // ORW-377 (zero clocks in the house): no clock time reaches the narrator. The part of the day only, and the rule against ever saying a clock time lives HERE (the per-turn context), not in the base prompt.
+    ...(view.clockBand
+      ? [`- Part of the day: ${view.clockBand} (engine truth). The house has no clocks, as on the real show: voice the part of the day (light, hush, who is up) and NEVER state a clock time: no "6:15", "3am", "8 o'clock", "quarter past eight", "it's eight in the morning". Durations ("for two hours") are fine.`]
+      : []),
     ...(view.clockLabel
       ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
       : []),

@@ -1056,6 +1056,26 @@ async function initTimeOfDaySettings() {
   });
 }
 
+/* ── Zero clocks in the house (ORW-377) ── */
+async function initZeroClocksSettings() {
+  const toggle = el('set-zeroClocksToggle');
+  if (!toggle) return;
+  try {
+    const res = await fetch('/api/auth/settings', { credentials: 'same-origin' });
+    const settings = await res.json();
+    toggle.checked = settings.zero_clocks !== false;
+  } catch (e) { console.warn('Failed to load zero-clocks setting', e); }
+  toggle.addEventListener('change', async function () {
+    try {
+      await fetch('/api/auth/settings', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zero_clocks: toggle.checked }),
+      });
+    } catch (e) { console.warn('Failed to save zero-clocks setting', e); }
+  });
+}
+
 /* ── Token Economy (ADR 0010) ── */
 async function initTokenEconomySettings() {
   const rNarr = el('set-reasoningNarration');
@@ -2907,6 +2927,7 @@ function initAll() {
   initOverseerModes();
   initImageSettings();
   initTimeOfDaySettings();
+  initZeroClocksSettings();
   initTokenEconomySettings();
   initVisionSettings();
   initTtsSettings();
