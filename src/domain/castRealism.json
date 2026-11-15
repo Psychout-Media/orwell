@@ -1,0 +1,1006 @@
+{
+ "version": 1,
+ "_comment": "ORW-480: the casting-director table. One entry per ATTRIBUTE KIND: where to read it (field), how to tag it (single = first matching value, multi = every matching value), the VALUES with the words that tag them, and the CAP: the most cards in one cast that may share a value ('share' of the cast, never below 'min'). A new kind is a new entry here, not new code. Mirrored byte for byte in frontend/src/cast_realism.json (parity test frontend/tests/test_orw480_cast_realism_table.py); tagged by src/domain/castRealism.ts and frontend/src/orwell_cast_realism.py, which must agree on tests/fixtures/orw480_tag_cases.json.",
+ "kinds": {
+  "sector": {
+   "field": "vocation",
+   "multi": false,
+   "cap": {
+    "share": 0.14,
+    "min": 2
+   },
+   "note": "job sector; no sector on more than 2 of 15 (3 for the wide ones, see per-value caps)",
+   "values": {
+    "care-and-public-service": {
+     "words": [
+      "nurse",
+      "paramedic",
+      "emt",
+      "firefighter",
+      "fire fighter",
+      "medic",
+      "doctor",
+      "physician",
+      "hospice",
+      "caregiver",
+      "home health",
+      "cna",
+      "pharmac",
+      "dentist",
+      "dental",
+      "hygienist",
+      "therapist",
+      "surgeon",
+      "veterinar",
+      "police",
+      "officer",
+      "deputy",
+      "sheriff",
+      "detective",
+      "soldier",
+      "marine",
+      "veteran",
+      "army",
+      "navy",
+      "air force",
+      "corrections",
+      "border patrol",
+      "hospital",
+      "clinic",
+      "social worker",
+      "civil service",
+      "city hall",
+      "dispatcher",
+      "lifeguard"
+     ]
+    },
+    "office-admin": {
+     "words": [
+      "office manager",
+      "administrat",
+      "receptionist",
+      "secretary",
+      "clerk",
+      "accountant",
+      "bookkeep",
+      "paralegal",
+      "hr ",
+      "human resources",
+      "insurance",
+      "banker",
+      "bank teller",
+      "operations manager",
+      "executive assistant",
+      "office"
+     ]
+    },
+    "education-youth": {
+     "words": [
+      "teacher",
+      "professor",
+      "tutor",
+      "school",
+      "after-school",
+      "counselor",
+      "librarian",
+      "daycare",
+      "preschool",
+      "principal",
+      "education"
+     ]
+    },
+    "coaching-fitness": {
+     "words": [
+      "coach",
+      "trainer",
+      "athlet",
+      "fitness",
+      "gym",
+      "yoga",
+      "pilates",
+      "conditioning",
+      "referee"
+     ]
+    },
+    "food-hospitality": {
+     "words": [
+      "cook",
+      "chef",
+      "server",
+      "bartender",
+      "barista",
+      "baker",
+      "restaurant",
+      "caterer",
+      "cafeteria",
+      "waiter",
+      "waitress",
+      "sommelier",
+      "hotel",
+      "hostess",
+      "dishwasher",
+      "food truck"
+     ]
+    },
+    "trades-labor": {
+     "words": [
+      "electrician",
+      "plumber",
+      "welder",
+      "mechanic",
+      "carpenter",
+      "tree",
+      "landscap",
+      "construction",
+      "roofer",
+      "driver",
+      "trucker",
+      "warehouse",
+      "mason",
+      "farmer",
+      "rancher",
+      "fisher",
+      "lineman",
+      "contractor",
+      "painter",
+      "machinist",
+      "logger",
+      "oil",
+      "miner",
+      "dock",
+      "forklift",
+      "hvac",
+      "technician"
+     ],
+     "cap": {
+      "share": 0.2,
+      "min": 3
+     }
+    },
+    "creative-media": {
+     "words": [
+      "artist",
+      "musician",
+      "dj",
+      "photographer",
+      "designer",
+      "writer",
+      "editor",
+      "producer",
+      "podcast",
+      "actor",
+      "dancer",
+      "comedian",
+      "influencer",
+      "filmmaker",
+      "singer",
+      "journalist",
+      "radio",
+      "illustrator",
+      "tattoo",
+      "stylist",
+      "florist",
+      "barber"
+     ],
+     "cap": {
+      "share": 0.2,
+      "min": 3
+     }
+    },
+    "tech-science": {
+     "words": [
+      "engineer",
+      "developer",
+      "programmer",
+      "analyst",
+      "data ",
+      "scientist",
+      "researcher",
+      "it ",
+      "network",
+      "software",
+      "chemist",
+      "biologist",
+      "lab",
+      "statistic",
+      "geolog"
+     ]
+    },
+    "sales-business": {
+     "words": [
+      "sales",
+      "realtor",
+      "real estate",
+      "entrepreneur",
+      "owner",
+      "marketing",
+      "consultant",
+      "broker",
+      "store manager",
+      "retail",
+      "buyer",
+      "founder",
+      "promoter",
+      "shop"
+     ],
+     "cap": {
+      "share": 0.2,
+      "min": 3
+     }
+    }
+   },
+   "fallback": "other"
+  },
+  "role": {
+   "field": "vocation",
+   "multi": false,
+   "cap": {
+    "share": 0.0,
+    "min": 1
+   },
+   "rule": "head-noun",
+   "note": "the last word of the job title (manager, coach, nurse ...): no two cards share one"
+  },
+  "prop": {
+   "field": "onCamera",
+   "multi": true,
+   "cap": {
+    "share": 0.0,
+    "min": 2
+   },
+   "note": "the thing in a hand; any one prop on at most 2 cards",
+   "values": {
+    "mug": {
+     "words": [
+      "mug",
+      "cup",
+      "coffee",
+      "tea"
+     ]
+    },
+    "papers": {
+     "words": [
+      "clipboard",
+      "folder",
+      "notebook",
+      "playbook",
+      "binder",
+      "notepad",
+      "paperwork",
+      "planner",
+      "journal",
+      "clip board"
+     ]
+    },
+    "book": {
+     "words": [
+      "book",
+      "paperback",
+      "novel"
+     ]
+    },
+    "device": {
+     "words": [
+      "phone",
+      "tablet",
+      "laptop",
+      "headphones",
+      "earbuds",
+      "camera"
+     ]
+    },
+    "bag": {
+     "words": [
+      "bag",
+      "backpack",
+      "tote",
+      "purse",
+      "satchel"
+     ]
+    },
+    "drink": {
+     "words": [
+      "glass",
+      "bottle",
+      "beer",
+      "soda",
+      "water bottle",
+      "juice",
+      "smoothie",
+      "cocktail",
+      "lemonade"
+     ]
+    },
+    "tool": {
+     "words": [
+      "wrench",
+      "stopwatch",
+      "whistle",
+      "tape measure",
+      "hammer",
+      "tools",
+      "clippers",
+      "brush",
+      "apron",
+      "gloves"
+     ]
+    },
+    "instrument": {
+     "words": [
+      "guitar",
+      "ukulele",
+      "harmonica",
+      "drumstick",
+      "tambourine",
+      "violin",
+      "keyboard",
+      "microphone"
+     ]
+    },
+    "ball": {
+     "words": [
+      "ball",
+      "football",
+      "basketball",
+      "frisbee",
+      "racket"
+     ]
+    },
+    "keys": {
+     "words": [
+      "keys",
+      "keychain",
+      "lanyard",
+      "badge"
+     ]
+    },
+    "food": {
+     "words": [
+      "sandwich",
+      "apple",
+      "snack",
+      "bowl",
+      "plate",
+      "spatula",
+      "cookie",
+      "pastry"
+     ]
+    }
+   }
+  },
+  "expression": {
+   "field": "onCamera",
+   "multi": false,
+   "cap": {
+    "share": 0.55,
+    "min": 2
+   },
+   "note": "a smile of any kind on at most about half the cast; the rest are serious, wry, guarded, thoughtful, amused without a smile",
+   "values": {
+    "smile": {
+     "words": [
+      "smile",
+      "smiling",
+      "grin",
+      "grinning",
+      "smirk",
+      "laugh",
+      "beam",
+      "half-smile"
+     ]
+    },
+    "serious": {
+     "words": [
+      "serious",
+      "stern",
+      "unsmiling",
+      "neutral",
+      "deadpan",
+      "pensive",
+      "thoughtful",
+      "focused",
+      "guarded",
+      "squint",
+      "scowl",
+      "frown",
+      "solemn",
+      "intent",
+      "unreadable",
+      "level look",
+      "steady look",
+      "tired",
+      "worried",
+      "wary"
+     ]
+    }
+   }
+  },
+  "smile-kind": {
+   "field": "onCamera",
+   "multi": false,
+   "cap": {
+    "share": 0.2,
+    "min": 2
+   },
+   "note": "which smile: a knowing smile on more than 2 of 15 reads as one source",
+   "values": {
+    "knowing": {
+     "words": [
+      "knowing",
+      "knowingly"
+     ]
+    },
+    "closed-mouth": {
+     "words": [
+      "closed-mouth",
+      "closed-lip",
+      "closed mouth",
+      "closed lip",
+      "closed smile"
+     ]
+    },
+    "wide": {
+     "words": [
+      "broad",
+      "wide",
+      "big grin",
+      "big smile",
+      "beaming",
+      "toothy"
+     ]
+    },
+    "half": {
+     "words": [
+      "half-smile",
+      "half smile",
+      "smirk",
+      "one corner",
+      "corner of"
+     ]
+    },
+    "warm-easy": {
+     "words": [
+      "warm",
+      "easy smile",
+      "easy grin",
+      "gentle",
+      "soft smile"
+     ]
+    }
+   }
+  },
+  "gaze": {
+   "field": "onCamera",
+   "multi": false,
+   "cap": {
+    "share": 0.6,
+    "min": 2
+   },
+   "note": "eyes on the lens on at most about 60 percent of the cast",
+   "values": {
+    "lens": {
+     "words": [
+      "lens",
+      "into the camera",
+      "at the camera",
+      "on the camera",
+      "to the camera",
+      "toward the camera",
+      "straight at the camera",
+      "eyes on camera",
+      "gaze on camera",
+      "down the lens",
+      "to camera"
+     ]
+    },
+    "away": {
+     "words": [
+      "looking away",
+      "looks away",
+      "off-camera",
+      "off camera",
+      "out the window",
+      "past the lens",
+      "to one side",
+      "downward",
+      "looking down",
+      "looks down",
+      "into the distance",
+      "aside",
+      "glancing",
+      "over one shoulder",
+      "away from the camera",
+      "sideways glance",
+      "toward the window"
+     ]
+    }
+   }
+  },
+  "pose": {
+   "field": "onCamera",
+   "multi": false,
+   "cap": {
+    "share": 0.4,
+    "min": 2
+   },
+   "note": "seated, leaning, standing, arms crossed and chin-on-hand are different bodies; none on more than 40 percent",
+   "values": {
+    "arms-crossed": {
+     "words": [
+      "arms crossed",
+      "arms folded",
+      "arms loosely crossed",
+      "crossed arms",
+      "folded arms"
+     ],
+     "cap": {
+      "share": 0.2,
+      "min": 2
+     }
+    },
+    "chin-on-hand": {
+     "words": [
+      "chin resting",
+      "chin on",
+      "chin propped",
+      "knuckles",
+      "on her fist",
+      "on his fist",
+      "hand under chin",
+      "cheek on"
+     ],
+     "cap": {
+      "share": 0.14,
+      "min": 2
+     }
+    },
+    "leaning": {
+     "words": [
+      "lean",
+      "leaning",
+      "against the",
+      "propped",
+      "braced"
+     ]
+    },
+    "seated": {
+     "words": [
+      "seated",
+      "sits",
+      "sitting",
+      "couch",
+      "sofa",
+      "chair",
+      "stool",
+      "perched",
+      "armrest",
+      "bench",
+      "floor"
+     ]
+    },
+    "standing": {
+     "words": [
+      "stands",
+      "standing",
+      "doorway",
+      "upright",
+      "by the"
+     ]
+    }
+   }
+  },
+  "room": {
+   "field": "onCamera",
+   "multi": false,
+   "cap": {
+    "share": 0.2,
+    "min": 3
+   },
+   "note": "where the photo is taken; no spot on more than 3 of 15",
+   "values": {
+    "kitchen": {
+     "words": [
+      "kitchen"
+     ]
+    },
+    "living-room": {
+     "words": [
+      "living room"
+     ]
+    },
+    "dining-room": {
+     "words": [
+      "dining room"
+     ]
+    },
+    "backyard": {
+     "words": [
+      "backyard",
+      "yard",
+      "patio",
+      "deck",
+      "garden",
+      "pool"
+     ]
+    },
+    "lounge": {
+     "words": [
+      "lounge"
+     ]
+    },
+    "bedroom": {
+     "words": [
+      "bedroom"
+     ]
+    },
+    "hallway": {
+     "words": [
+      "hallway",
+      "corridor",
+      "stairs",
+      "staircase"
+     ]
+    }
+   }
+  },
+  "closing-read": {
+   "field": "onCamera",
+   "multi": false,
+   "cap": {
+    "share": 0.4,
+    "min": 2
+   },
+   "note": "a closing 'the one who ...' read on every line is a template; at most about 40 percent",
+   "values": {
+    "the-one-who": {
+     "words": [
+      "the one who",
+      "the one that"
+     ]
+    }
+   }
+  },
+  "garment": {
+   "field": "wardrobe",
+   "multi": true,
+   "cap": {
+    "share": 0.27,
+    "min": 2
+   },
+   "note": "the kind of piece: the same piece on more than about 4 of 15 reads as one wardrobe",
+   "values": {
+    "blazer": {
+     "words": [
+      "blazer",
+      "sport coat",
+      "suit jacket"
+     ],
+     "cap": {
+      "share": 0.2,
+      "min": 3
+     }
+    },
+    "jacket": {
+     "words": [
+      "jacket",
+      "coat",
+      "parka",
+      "windbreaker",
+      "bomber",
+      "puffer",
+      "chore"
+     ]
+    },
+    "vest": {
+     "words": [
+      "vest"
+     ],
+     "cap": {
+      "share": 0.14,
+      "min": 2
+     }
+    },
+    "hoodie": {
+     "words": [
+      "hoodie",
+      "sweatshirt",
+      "zip-up",
+      "pullover"
+     ]
+    },
+    "sweater": {
+     "words": [
+      "sweater",
+      "cardigan",
+      "knit",
+      "jumper",
+      "cashmere",
+      "turtleneck",
+      "crewneck",
+      "henley"
+     ]
+    },
+    "button-down": {
+     "words": [
+      "button-down",
+      "button down",
+      "button-up",
+      "oxford",
+      "flannel shirt",
+      "dress shirt",
+      "blouse",
+      "polo",
+      "pearl-snap",
+      "western shirt"
+     ]
+    },
+    "tee": {
+     "words": [
+      "tee",
+      "t-shirt",
+      "tank",
+      "jersey",
+      "tshirt"
+     ]
+    },
+    "jeans": {
+     "words": [
+      "jeans",
+      "denim"
+     ],
+     "cap": {
+      "share": 0.4,
+      "min": 3
+     }
+    },
+    "trousers": {
+     "words": [
+      "trousers",
+      "slacks",
+      "chinos",
+      "pants",
+      "joggers",
+      "sweatpants",
+      "cargo"
+     ]
+    },
+    "shorts": {
+     "words": [
+      "shorts"
+     ]
+    },
+    "dress-skirt": {
+     "words": [
+      "dress",
+      "skirt",
+      "jumpsuit",
+      "romper",
+      "sundress"
+     ]
+    },
+    "boots": {
+     "words": [
+      "boots",
+      "boot"
+     ]
+    },
+    "sneakers": {
+     "words": [
+      "sneakers",
+      "trainers",
+      "slides",
+      "sandals",
+      "loafers",
+      "flats",
+      "heels",
+      "oxfords",
+      "clogs"
+     ]
+    }
+   }
+  },
+  "colour": {
+   "field": "wardrobe",
+   "multi": false,
+   "cap": {
+    "share": 0.4,
+    "min": 3
+   },
+   "note": "the first colour word of the main piece: no one colour family on more than 40 percent of the cast",
+   "values": {
+    "black-charcoal": {
+     "words": [
+      "black",
+      "charcoal",
+      "jet",
+      "onyx"
+     ]
+    },
+    "white-cream": {
+     "words": [
+      "white",
+      "cream",
+      "ivory",
+      "ecru",
+      "oatmeal",
+      "off-white"
+     ]
+    },
+    "grey": {
+     "words": [
+      "gray",
+      "grey",
+      "heather",
+      "slate",
+      "silver"
+     ]
+    },
+    "navy-blue": {
+     "words": [
+      "navy",
+      "blue",
+      "denim",
+      "indigo",
+      "cobalt",
+      "teal"
+     ]
+    },
+    "brown-tan": {
+     "words": [
+      "brown",
+      "tan",
+      "khaki",
+      "camel",
+      "tweed",
+      "olive",
+      "taupe",
+      "rust",
+      "mustard",
+      "sand"
+     ]
+    },
+    "green": {
+     "words": [
+      "green",
+      "sage",
+      "moss",
+      "forest",
+      "emerald"
+     ]
+    },
+    "red-pink": {
+     "words": [
+      "red",
+      "burgundy",
+      "maroon",
+      "pink",
+      "coral",
+      "magenta",
+      "crimson"
+     ]
+    },
+    "bright": {
+     "words": [
+      "yellow",
+      "orange",
+      "purple",
+      "lavender",
+      "lilac",
+      "gold",
+      "bold",
+      "neon",
+      "print",
+      "floral"
+     ]
+    }
+   }
+  }
+ },
+ "unreal-clothes": {
+  "note": "words that make a wardrobe piece (or the style line) not a garment a shop sells: a work badge, a costume, a uniform-as-style, bare skin under a blazer, hand-sewn patches",
+  "words": [
+   "lanyard",
+   "badge",
+   "name tag",
+   "nametag",
+   "id card",
+   "worn like a uniform",
+   "like a uniform",
+   "uniform-style",
+   "costume",
+   "cosplay",
+   "bare neckline",
+   "bare chest",
+   "no shirt",
+   "shirtless under",
+   "hand-sewn",
+   "clip-art",
+   "safety pin"
+  ]
+ },
+ "garment-nouns": [
+  "shirt",
+  "tee",
+  "t-shirt",
+  "blouse",
+  "top",
+  "tank",
+  "polo",
+  "henley",
+  "sweater",
+  "cardigan",
+  "jumper",
+  "hoodie",
+  "sweatshirt",
+  "jacket",
+  "coat",
+  "blazer",
+  "vest",
+  "parka",
+  "windbreaker",
+  "puffer",
+  "bomber",
+  "dress",
+  "skirt",
+  "jumpsuit",
+  "romper",
+  "jeans",
+  "trousers",
+  "slacks",
+  "chinos",
+  "pants",
+  "shorts",
+  "joggers",
+  "sweatpants",
+  "leggings",
+  "overalls",
+  "coveralls",
+  "boots",
+  "boot",
+  "sneakers",
+  "trainers",
+  "loafers",
+  "flats",
+  "heels",
+  "sandals",
+  "slides",
+  "oxfords",
+  "clogs",
+  "shoes",
+  "belt",
+  "scarf",
+  "hat",
+  "cap",
+  "beanie",
+  "tie",
+  "socks",
+  "watch",
+  "necklace",
+  "earrings",
+  "bracelet",
+  "ring",
+  "glasses",
+  "sunglasses",
+  "apron",
+  "kurta",
+  "sari",
+  "hijab",
+  "kilt",
+  "suit",
+  "pullover",
+  "tunic",
+  "cape",
+  "poncho",
+  "gloves",
+  "bandana",
+  "jersey",
+  "turtleneck",
+  "crewneck",
+  "flannel",
+  "button-down",
+  "oxford",
+  "gown",
+  "bodysuit",
+  "cargos"
+ ]
+}
