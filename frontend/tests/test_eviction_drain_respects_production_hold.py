@@ -25,6 +25,13 @@ def test_the_other_original_conditions_are_unchanged(kw):
 
 
 def test_the_agent_loop_feeds_the_live_hold_into_the_gate():
+    """The gate call itself must carry the hold read on THIS turn (review of #2276: `production_is_holding(owner)` also appears in the
+    runway calculation, so finding it anywhere in the module proved nothing)."""
+    import re
     src = inspect.getsource(al)
-    assert "_gates.want_drain_eviction(" in src and "production_is_holding(owner)" in src
+    m = re.search(r"_want_drain_eviction = _gates\.want_drain_eviction\((.*?)\)\n", src, re.S)
+    assert m, "the drain decision goes through agent_gates.want_drain_eviction"
+    assert re.search(r"\bproduction_holding=_production_holding_now\b", m.group(1)), m.group(1)
+    window = src[max(0, m.start() - 400):m.start()]  # the hold is read right before the gate call (fail-closed to False on an error)
+    assert "_production_holding_now = bool(_ch_hold.production_is_holding(owner))" in window, window
     assert "_want_drain_eviction = (_in_eviction and (not _progressed)" not in src  # the ungated inline expression is gone

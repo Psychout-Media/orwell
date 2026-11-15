@@ -25,3 +25,13 @@ def is_aside_only(text: Optional[str]) -> bool:
     if not _ASIDE_SPAN_RE.search(t):
         return False
     return not _ASIDE_SPAN_RE.sub("", t).strip(_REMAINDER_TRIM)
+
+
+def strip_asides(text: Optional[str]) -> str:
+    """The text with every `(( ))` aside span removed (an `ooc:`-prefixed text is all aside, so nothing is left). What remains is the
+    in-character part a recorder may match names in and save as content: a private note inside an aside never becomes a witnessed
+    event (review of #2247). Whitespace left behind is collapsed."""
+    t = (text or "").strip()
+    if not t or _OOC_PREFIX_RE.match(t):
+        return ""
+    return " ".join(_ASIDE_SPAN_RE.sub(" ", t).split())

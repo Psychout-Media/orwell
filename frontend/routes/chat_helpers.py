@@ -9796,7 +9796,9 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 # ORW-199/200: in-memory only. The endpoint record is the source of truth and
                 # `resolve_session_headers` supplies auth at call time; persisting a plain-text
                 # copy of the provider key on the session row is what let it go stale.
-                sess.headers = build_headers(ep.api_key, base)
+                # Keep the session's non-auth headers (a custom proxy header, say): only the auth is repaired (review of #2246).
+                from src.endpoint_resolver import _non_auth_headers, _stored_headers_dict
+                sess.headers = {**_non_auth_headers(_stored_headers_dict(sess.headers)), **build_headers(ep.api_key, base)}
                 logger.info(f"Resolved auth headers for session {session_id} from endpoint {ep.name}")
                 return
         finally:
