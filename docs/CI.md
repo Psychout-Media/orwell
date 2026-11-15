@@ -12,7 +12,7 @@ How the GitHub checks run lives in `.github/workflows/ci.yml` (the per-job comme
 npm run ci:fast
 ```
 
-**A browser test file with no measured duration** (`frontend/tests/_ci_durations.json`) is weighed at 15 s per test by the splitter. The guard `test_every_browser_test_file_has_a_measured_duration` fails only for a file your change adds (compared with the base: the first parent of the PR merge ref, or `git merge-base` with origin/main locally); a file main gained meanwhile only warns in the job summary, so two PRs that merge a minute apart cannot turn main red. Add `"<file>.py": <seconds>` (15 per test is fine) for a file you add.
+**You never hand-edit a duration table in a feature PR** (`ci/test-durations.json`, `ci/bdd-durations.json`, `frontend/tests/_ci_durations.json`). A new test file or feature with no entry is weighed by the splitter (the median for unit files and features, 15 s per test for a browser file) and listed as a warning in the job summary (`added by this change` or `by main`); an entry for a deleted file is ignored. None of these fails a PR. The tables are only balancing hints and are refreshed from main's own run logs by `npm run ci:refresh-durations`, `ci/refresh-test-durations.mjs` and `frontend/tests/_ci_refresh_durations.py` (a scheduled refresh PR is the follow-up, ORW-413 PR 3).
 
 It is `ci/fast-checks.sh`. Every check in it also still runs in its full lane; nothing was moved out of a lane's coverage.
 
