@@ -23,7 +23,7 @@
 // every cast surface renders). Portraits are PRIMARY (owner ruling); the designed monogram is
 // the no-photo fallback only; small faces take the kit's tight face-weighted crop
 // (`ow-mono-crop`). The face is decorative chrome (~24px, rounded like .odec-face), aria-hidden,
-// and never a tap target.
+// and (ORW-359) a tap target only when it resolves to a roster houseguest.
 //
 // NON-GAME build: hard-gated on body[data-game-build] (the M2-7 pattern) — the observer bails,
 // no face is ever inserted, and the injected CSS is scoped under body[data-game-build], so the
@@ -57,6 +57,9 @@
       "body[data-game-build] #chat-history .msg > .role .ow-chatface {" +
       "  width: 24px; height: 24px; border-radius: 7px; overflow: hidden;" +
       "  flex: 0 0 auto; display: inline-block; position: relative; pointer-events: none; }" +
+      // ORW-359: a face that resolves to a roster houseguest is a tap target (the chat's delegated
+      // listener in orwellChatNames.js opens the cast card); the role label keeps its own hit area.
+      "body[data-game-build] #chat-history .msg > .role .ow-chatface[data-hg] { pointer-events: auto; cursor: pointer; }" +
       "body[data-game-build] #chat-history .msg > .role .ow-chatface .ow-mono-face {" +
       "  width: 100%; height: 100%; }" +
       // The face replaces the generic model dot (same slot, same rhythm as .has-logo).
@@ -98,8 +101,9 @@
       }
       const name = (pc && pc.name) || (deps.playerName ? deps.playerName() : null) || "You";
       return {
-        sig: "u|" + (portrait || "mono:" + name),
+        sig: "u|" + ((pc && pc.id) || "") + "|" + (portrait || "mono:" + name),
         card: { id: (pc && pc.id) || "player", name: name, portrait: portrait },
+        hg: (pc && pc.id) || null,
         crop: !!portrait,
         forceMono: false,
       };
@@ -123,6 +127,7 @@
       return {
         sig: "n|" + card.id + "|" + (card.portrait || ""),
         card: { id: card.id, name: card.name || label, status: card.status, portrait: card.portrait || null },
+        hg: card.id,
         crop: !!card.portrait,
         forceMono: false,
       };
@@ -174,7 +179,15 @@
     if (old) old.remove();
     const holder = document.createElement("span");
     holder.className = "ow-chatface";
-    holder.setAttribute("aria-hidden", "true"); // decorative — the label text is the name
+    if (r.hg) {
+      // ORW-359: a roster face opens that houseguest's cast card (delegated click + keydown).
+      holder.setAttribute("data-hg", String(r.hg));
+      holder.setAttribute("role", "button");
+      holder.setAttribute("aria-label", "Open " + (r.card.name || "houseguest") + "'s cast card");
+      holder.tabIndex = 0;
+    } else {
+      holder.setAttribute("aria-hidden", "true"); // decorative — the label text is the name
+    }
     try {
       holder.appendChild(M.face(r.card, { alt: "", forceMono: r.forceMono, crop: r.crop }));
     } catch (_) {
