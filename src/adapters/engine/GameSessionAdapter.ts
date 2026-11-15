@@ -11721,6 +11721,12 @@ export class GameSessionAdapter implements GameSession {
       const hour = this.live.nightDepth ?? WAKE_HOUR;
       return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) } });
     }
+    // ORW-446 (BDD Auditor, ORW-433 probe): a goodnight while a ceremony is open (the staged eviction reveal, one ballot per advance; a comp; the toast) went through, the day rolled and the reveal resumed the next evening
+    // (one eviction stretched Day 7 to Day 11). Like moves and naps, the bed is HELD until the event finishes: typed `held`, nothing commits, the clock and sleep state do not move. A game a person is playing only
+    // (headless drivers never ask), and it follows the bedtime-gate switch the harnesses already flip.
+    if (this.bedtimeGateEnabled && this.live.playedGame === true && (this.live.pending || liveHouseEvent(this.live))) {
+      return remember({ ...this.advanceView(null), held: { next: "ceremony", minutesUntil: 0, reason: "ceremony" } });
+    }
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       const recap = this.materializeDailyRecap();
