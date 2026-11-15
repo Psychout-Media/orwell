@@ -65,6 +65,7 @@ export interface PublicAppearanceFacets {
 import {
   EXPRESSION_VARIANTS, FRAMING_VARIANTS, BACKDROP_VARIANTS,
   FACIAL_STRUCTURE_VARIANTS, LIGHTING_VARIANTS, STYLE_ANCHOR_VARIANTS, WORN_TEXTURE_VARIANTS,
+  LEGACY_STYLE_ANCHOR_VARIANTS,
 } from "./imageConstants";
 
 /**
@@ -180,7 +181,10 @@ export function buildPortraitPrompt(
   const onCamera = typeof look?.onCamera === "string" ? look.onCamera.trim() : "";
   const writtenFace = typeof look?.facialFeatures === "string" && look.facialFeatures.trim() !== "";
   // Older saves stored the anchor with the real show name in it; never send that to a provider.
-  const anchor = styleAnchor.replace(/Big Brother/g, "Orwell");
+  // A stored pre-ORW-361 anchor maps to its new anchor by index (its skin cues would age the person);
+  // any other stored anchor only gets the show name swapped.
+  const legacyIdx = LEGACY_STYLE_ANCHOR_VARIANTS.indexOf(styleAnchor as typeof LEGACY_STYLE_ANCHOR_VARIANTS[number]);
+  const anchor = legacyIdx >= 0 ? STYLE_ANCHOR_VARIANTS[legacyIdx]! : styleAnchor.replace(/Big Brother/g, "Orwell");
   const shot = fnv1a(`${houseguestId}|${styleAnchor}`);
   const expression = EXPRESSION_VARIANTS[shot % EXPRESSION_VARIANTS.length]!;
   const framing = FRAMING_VARIANTS[(shot >>> 8) % FRAMING_VARIANTS.length]!;
@@ -197,7 +201,8 @@ export function buildPortraitPrompt(
   // L29: the written facet AUTHORS the physical line. `physicalFacetToAppearance` (the narrator's
   // verbatim string) is unchanged; the portrait line is built separately: no mark, no style.
   const physical = look
-    ? [look.heightBuild, look.skinTone, look.hair, look.facialFeatures, look.ageLook].join(", ")
+    ? [look.heightBuild, look.skinTone, look.hair, look.facialFeatures, look.ageLook]
+      .filter((x) => typeof x === "string" && x.trim() !== "").join(", ")
     : appearance;
   // #1317 Fix C: a SEPARATE gendered build/hair clause (additive; the stored facet stays neutral).
   const genderedStyling = look ? genderedBuildHairClause(look, genderPresentation, shot) : undefined;
@@ -217,7 +222,7 @@ export function buildPortraitPrompt(
   const expressionLine = demeanor ? `${expression}, ${demeanor}` : expression;
   const closeLine = look
     ? (writtenFace ? `Distinctive look: ${look.facialFeatures}`
-      : `Distinctive look: ${facialStructure}${hasMark ? `, ${mark}` : ""}`)
+      : `Distinctive look: ${facialStructure}`)
     : `Distinctive look: ${physical}`;
   const prompt = [
     `Subject: ${subjectParts.join(", ")}`,
@@ -229,8 +234,8 @@ export function buildPortraitPrompt(
     ...(!onCamera && identityConcept ? [`Character: ${identityConcept} — reflect this in wardrobe, grooming, and attitude`] : []),
     ...(vocation ? [`Occupation: ${vocation}`] : []),
     anchor,
-    `Skin: ${skinLine}`,
     FRAME_RULES,
+    `Skin: ${skinLine}`,
     ...(look && writtenFace ? [] : [`Facial structure: ${facialStructure}`]),
     ...(onCamera ? [] : [`Expression: ${expressionLine}`]),
     `Lighting: ${lighting}`,

@@ -39,6 +39,18 @@ export const STYLE_ANCHOR_VARIANTS = [
 ] as const;
 
 /**
+ * ORW-361: the five pre-ORW-361 anchors, FROZEN. A running season keeps the anchor it adopted from its
+ * save; one of these strings maps (by index) to its new anchor + worn-texture cue at prompt-build time.
+ */
+export const LEGACY_STYLE_ANCHOR_VARIANTS = [
+  "photorealistic candid production still from a reality TV show, on-camera flash, unretouched natural skin texture, flyaway hairs, slight facial asymmetry, Big Brother house interior",
+  "photorealistic documentary-style frame from a reality TV series, available window light, true-to-life skin with visible pores, unstyled details, Big Brother house backdrop",
+  "photorealistic reality TV casting-tape still, slightly imperfect framing, natural unretouched complexion, stray hairs, soft indoor light, Big Brother house interior",
+  "photorealistic candid moment captured on a reality TV set, mixed practical lighting, lived-in skin texture, natural blemishes, faint edge motion blur, Big Brother house behind",
+  "photorealistic behind-the-scenes still from a reality TV show, handheld camera feel, honest unretouched features, uneven indoor lighting, Big Brother house interior",
+] as const;
+
+/**
  * ORW-361: the skin and imperfection cues that used to ride inside each anchor, parallel to
  * STYLE_ANCHOR_VARIANTS (same index). They are emitted only for a person whose written age-look says
  * worn or weathered; everyone else gets a plain healthy-skin line, so a 25-year-old is not aged by

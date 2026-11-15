@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildPortraitPrompt, buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
-import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS, WORN_TEXTURE_VARIANTS, BACKDROP_VARIANTS } from "../../src/engine/imageConstants";
+import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS, LEGACY_STYLE_ANCHOR_VARIANTS, WORN_TEXTURE_VARIANTS, BACKDROP_VARIANTS } from "../../src/engine/imageConstants";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { buildEngineCore } from "../../src/composition/engineRoot";
@@ -437,6 +437,31 @@ describe("ORW-361 — portrait prompt v2", () => {
     expect(worn).toContain(`Skin: ${WORN_TEXTURE_VARIANTS[2]}`);
     expect(worn).not.toContain("healthy skin");
     for (const w of WORN_TEXTURE_VARIANTS) expect(withNew).not.toContain(w);
+  });
+
+  it("each pre-ORW-361 stored anchor maps to the new anchor: no Big Brother, no worn cue unless worn", () => {
+    LEGACY_STYLE_ANCHOR_VARIANTS.forEach((legacyAnchor, i) => {
+      const p = buildPortraitPrompt("hg:7", "F", { ...base, physicalCharacteristics: facet }, legacyAnchor).prompt;
+      expect(p).toContain(STYLE_ANCHOR_VARIANTS[i]!);
+      expect(p).not.toMatch(/Big Brother|unretouched|true-to-life|lived-in|honest|blemish|pores/);
+      const w = buildPortraitPrompt("hg:7", "F", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired, worn" } }, legacyAnchor).prompt;
+      expect(w).toContain(`Skin: ${WORN_TEXTURE_VARIANTS[i]}`);
+    });
+  });
+
+  it("the mark is said once even with no written face, and no empty facet part renders ', ,'", () => {
+    const p = buildPortraitPrompt("hg:7", "F", { ...base, physicalCharacteristics: { ...facet, facialFeatures: "", ageLook: "" } }, anchor).prompt;
+    expect(p.split("thin scar through the left eyebrow").length - 1).toBe(1);
+    expect(p).toContain("Facial structure:");
+    expect(p).not.toMatch(/, ,|,\s*\./);
+  });
+
+  it("frame rules come immediately after the anchor, then Skin", () => {
+    const l = withNew.split(". ");
+    const i = l.findIndex((x) => x.includes("Orwell house") && x.startsWith("photorealistic"));
+    expect(l[i + 1]).toBe("The only person in the frame");
+    expect(l.find((x) => x.startsWith("Skin:"))).toBeTruthy();
+    expect(withNew.indexOf("Skin:")).toBeGreaterThan(withNew.indexOf("At home in the Orwell house"));
   });
 
   it("no mark line for 'none' and no memory-wall backdrop", () => {
