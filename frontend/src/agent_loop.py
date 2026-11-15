@@ -9269,8 +9269,8 @@ async def _stream_agent_loop_impl(
                 # very text the guard cut (a reload or second window would show the invented outcome).
                 if not _scene_broken:
                     round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
-                if _pd_rw_cont:
-                    try:  # ORW-408: the redo still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
+                if _pd_rw_cont or (not _pd_rewrite_used and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
+                    try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
                         from src.predisplay_check import quote_open_after as _pd_qopen2
                         _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner, in_quote=_pd_qopen2(_round_emitted_text))

@@ -158,10 +158,11 @@ def test_redo_sentence_that_still_conflicts_is_dropped_whole(monkeypatch):
 
 
 def test_round_with_tool_markup_in_the_stream_is_skipped_safely(monkeypatch):
-    # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold, no continuation (today's behaviour)
+    # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold and no continuation call is made
     emitted, cont, stored, _ = _drive(
         monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A + BAD + '<tool_call>{"name": "advanceGame", "arguments": {}}</tool_call>']}], redo=REDO)
     assert cont == []
+    # NOTE (review of #2723): in this shape the stored text keeps the conflicting sentence that the live stream did not show; not asserted equal, see ORW-437 report.
 
 
 def test_native_tool_call_after_a_withheld_sentence_runs_and_no_continuation_is_made(monkeypatch):
@@ -172,7 +173,7 @@ def test_native_tool_call_after_a_withheld_sentence_runs_and_no_continuation_is_
     assert cont == [], "a round with a tool call is never continued: the call would be dropped or the scene narrated twice"
     assert "Sleeper Role says" not in emitted and TAIL.strip() not in emitted
     assert emitted.startswith(CLEAN_A.strip()) and REDO.strip() not in emitted
-    assert n_rounds >= 2 and extra["runs"], "the round's native tool call still ran and the loop went on to the next round"
+    assert n_rounds >= 2 and extra["runs"] == ["advanceGame"], "the round's native tool call ran exactly once and the loop went on to the next round"
     assert stored[0] == CLEAN_A.strip()
 
 
@@ -370,3 +371,10 @@ def test_leading_sentences_that_repeat_the_shown_tail_are_dropped():
     assert pc.drop_repeated_prefix("A door closes. The kitchen is quiet.", shown) == "A door closes. The kitchen is quiet.", "only LEADING repeats are dropped"
     assert pc.drop_repeated_prefix("The kitchen is quiet.", shown) == ""
     assert pc.drop_repeated_prefix("New line.", "") == "New line."
+
+
+def test_orw437_an_unterminated_final_sentence_that_conflicts_is_dropped_at_the_flush(monkeypatch):
+    """review of #2723: `_split_complete_sentences` leaves a final sentence with no terminator in the buffer; the end-of-stream flush used to emit it unchecked."""
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, "Sleeper Role walks into the kitchen"]}], redo="X")
+    assert "Sleeper Role" not in emitted, emitted
+    assert emitted.strip() == CLEAN_A.strip() and stored[0] == emitted.strip()
