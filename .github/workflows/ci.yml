@@ -590,8 +590,8 @@ jobs:
     # cancelled at the limit twice and #2659 once (its tests had passed in 856 s). A job is ~1-2 min of setup (checkout, python, playwright, npm ci, build) PLUS the tests.
     # The root cause (21 browser files missing from _ci_durations.json) is fixed too, and test_ci_shard.py now fails on a missing entry; this is the headroom.
     timeout-minutes: 20
-    # ORW-193: parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
-    # shard (fixed ports, one real page at a time) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
+    # ORW-193: parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Since ORW-414 a shard runs TWO workers
+    # (`-n 2 --dist loadgroup`: free port and data dir per stack, one stack boot per file) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
     # ORW-229 re-shard: five legs, files balanced by MEASURED seconds (frontend/tests/_ci_durations.json). Simulated on the 49 browser files:
     # 3 count-balanced legs were 6.8/3.1/3.4 min of tests (the real 3/3 run: 8.4/4.6/6.0 min jobs); 5 duration-balanced legs are 3.3/2.5/2.5/
     # 2.5/2.5, and the 3.3 is one file alone (test_a58_golden_render_live_vs_reload, 200 s), so a sixth leg would add a setup and save nothing.

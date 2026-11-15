@@ -431,7 +431,10 @@ def pytest_sessionfinish(session, exitstatus):
         return
     lane = os.environ.get("ORWELL_SKIP_LANE", "unit")
     skipped = []
+    report_browser_ids = set()  # ORW-414: under xdist the controller's session.items is EMPTY (the workers collect), so read the marker off each skip report itself
     for rep in tr.stats.get("skipped", []):
+        if "browser" in (getattr(rep, "keywords", None) or {}):
+            report_browser_ids.add(rep.nodeid)
         lr = getattr(rep, "longrepr", None)
         reason = lr[2] if isinstance(lr, tuple) and len(lr) >= 3 else str(lr)
         skipped.append((rep.nodeid, str(reason)))
@@ -440,7 +443,7 @@ def pytest_sessionfinish(session, exitstatus):
             ceiling = json.load(f).get(lane)
     except Exception:
         ceiling = None
-    browser_ids = {i.nodeid for i in session.items if i.get_closest_marker("browser")}
+    browser_ids = {i.nodeid for i in session.items if i.get_closest_marker("browser")} | report_browser_ids
     from _skip_guard import evaluate
     problems = evaluate(skipped, lane=lane, ceiling=ceiling, browser_ids=browser_ids)
     tr.write_sep("=", f"A41 skip guard (lane={lane}): {len(skipped)} skipped, ceiling={ceiling}")
