@@ -151,3 +151,11 @@ def test_settings_toggle_exists():
     root = Path(__file__).resolve().parent.parent
     assert 'id="set-zeroClocksToggle"' in (root / "static" / "index.html").read_text()
     assert "zero_clocks" in (root / "static" / "js" / "settings.js").read_text()
+
+
+def test_orw437_a_dotted_time_and_a_semicolon_clause_are_handled_per_sentence(setting):
+    """review of #2657: "3 a.m." must not be split into "3 a." + "m." (so it escaped the check); a semicolon compound loses only its clock clause."""
+    out = _guard("The kettle clicks off. The hall is dark at 3 a.m. The player stays put.")
+    assert "3 a.m" not in out and "The kettle clicks off." in out and "The player stays put." in out
+    out = _guard("The kettle clicks off; it is 9 p.m. by the light; the player stays put.")
+    assert "p.m" not in out and "the player stays put." in out and "The kettle clicks off;" in out

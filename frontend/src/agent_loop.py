@@ -5755,6 +5755,19 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
     )
 
 
+def _split_sentences_keep_dotted_times(text: str) -> list:
+    """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
+    zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
+    parts = re.split(r"(?<=[.!?\n])", text)
+    out: list = []
+    for p in parts:
+        if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):
+            out[-1] += p
+        else:
+            out.append(p)
+    return out
+
+
 async def _pre_emission_outcome_guard(text: str, owner) -> str:
     """0065 Part C — the PRE-EMISSION outcome guard, applied to already-leak-scrubbed text just
     before it streams to the player. Splits `text` into sentences and, for any sentence that asserts
@@ -5799,7 +5812,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     # At least one sentence carries closed-set claim language OR names someone out of the house — split
     # and screen sentence-by-sentence, preserving the original delimiters so non-suspect prose streams
     # byte-identically.
-    parts = re.split(r"(?<=[.!?\n])", text)
+    parts = _split_sentences_keep_dotted_times(text)  # review of #2657: "3 a.m." / "9 p.m." must not be cut into "3 a." + "m."
     out = []
     for part in parts:
         try:
@@ -5812,7 +5825,14 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # the two claim kinds not yet chyron-covered (the season winner, a player expulsion).
             # ORW-377 (zero clocks in the house): a stated clock time ("6:15", "3am", "quarter past eight") is dropped as a SENTENCE - never the scene. Closed-set only; fail-open.
             if chat_helpers.sentence_states_zero_clock_time(part):
-                continue
+                # review of #2657: in a semicolon-joined compound only the clause that states the time goes; the safe clauses survive
+                _clauses = re.split(r"(?<=;)", part)
+                if len(_clauses) > 1:
+                    part = "".join(c for c in _clauses if not chat_helpers.sentence_states_zero_clock_time(c))
+                    if not part.strip():
+                        continue
+                else:
+                    continue
             if chat_helpers._sentence_has_chyron_covered_claim(part):
                 continue  # a chyron already carries this fact — the model's restatement never renders
             if chat_helpers._sentence_has_closed_set_claim(part):
