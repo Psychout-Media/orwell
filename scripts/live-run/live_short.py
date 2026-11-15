@@ -13,7 +13,7 @@ cast names are hard-coded: whatever the cast is, the checks read it from the eng
 from __future__ import annotations
 
 import os
-import argparse, json, re, sys, time, urllib.request
+import argparse, json, re, sys, time, urllib.error, urllib.request
 
 CAST_LINES = [
     "Hi! My name is Rowan. I read rooms before I speak, and I want to win by being liked and quietly useful.",
@@ -66,7 +66,11 @@ class Engine:
 
     def call(self, name, args=None):
         r = urllib.request.Request(self.base + "/player/call", data=json.dumps({"name": name, "args": args or {}}).encode(), headers=self.h, method="POST")
-        return json.load(urllib.request.urlopen(r, timeout=90)).get("result")
+        try:
+            return json.load(urllib.request.urlopen(r, timeout=90)).get("result")
+        except urllib.error.HTTPError as e:  # name the engine call and its answer, so a COULD-NOT-RUN report says what refused
+            body = e.read().decode("utf-8", "replace")[:300]
+            raise RuntimeError(f"engine {name} {args or {}} -> HTTP {e.code}: {body}") from None
 
     def hour(self):
         st = self.call("getGameState"); m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", st.get("clockLabel") or "")
