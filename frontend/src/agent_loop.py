@@ -8688,6 +8688,11 @@ async def _stream_agent_loop_impl(
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner)
+                                    try:  # ORW-408: count (never alter) narration that contradicts an engine hard fact; the rewrite needs a held-back reply (see src/predisplay_check.py)
+                                        from src.predisplay_check import check_and_count as _pd_check
+                                        await _pd_check(_guarded.text, owner)
+                                    except Exception:  # failsoft-ok: counter only
+                                        pass
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
                                     # survives into the persisted/reload text or a post-turn belt.
