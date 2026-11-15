@@ -5750,6 +5750,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
+                and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
                 and not chat_helpers.sentence_states_zero_clock_time(text)):
             return text
     except Exception:

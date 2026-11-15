@@ -82,3 +82,37 @@ def test_fails_open(monkeypatch):
 
     monkeypatch.setattr(oe, "game_status", boom)
     assert asyncio.get_event_loop().run_until_complete(ch.screen_streamed_house_awake("u", "The house is up and moving.")) is True
+
+
+def test_orw437_the_screen_reads_the_clock_from_the_state_projection_when_status_has_none(monkeypatch):
+    """review of #2735: the real `gameStatus` has no `clockLabel` and bands a 4am wake "morning" without `earlyMorning`."""
+    from src import orwell_engine as oe
+    from routes import chat_helpers as ch
+    stashed = []
+
+    async def real_shaped_status(user=None):
+        return {"timeOfDay": "morning", "asleep": ["a"]}  # no clockLabel, no earlyMorning
+
+    async def state(user=None, timeout=None):
+        return {"clockLabel": "4:10am, Day 3", "asleep": ["a"]}
+
+    monkeypatch.setattr(oe, "game_status", real_shaped_status)
+    monkeypatch.setattr(oe, "get_game_state_polled", state)
+    monkeypatch.setattr(ch, "_stash_overclaim_reground", lambda u, d: stashed.append(d))
+    run = asyncio.get_event_loop().run_until_complete
+    assert run(ch.screen_streamed_house_awake("u", "Everyone is already awake in the kitchen.")) is False and stashed
+
+
+def test_orw437_a_standalone_house_awake_claim_is_held_by_the_pre_emission_guard(monkeypatch):
+    """review of #2735: the fast path used to return before the house-awake screen for a sentence with no other claim."""
+    from src import agent_loop as al
+    from routes import chat_helpers as ch
+    seen = []
+
+    async def held(user, sentence):
+        seen.append(sentence)
+        return False
+
+    monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
+    out = asyncio.get_event_loop().run_until_complete(al._pre_emission_outcome_guard("Everyone is already awake in the kitchen.", "u"))
+    assert seen and out == ""

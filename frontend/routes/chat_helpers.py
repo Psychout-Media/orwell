@@ -6270,6 +6270,15 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
+        if not status.get("clockLabel"):
+            # review of #2735: `gameStatus` carries no `clockLabel` (only the `getGameState` projection does), and an early wake is banded
+            # "morning" without `earlyMorning`, so read the clock-bearing projection (the <=400 ms cached poll copy) before deciding.
+            try:
+                gs = await orwell_engine.get_game_state_polled(user=user)
+                if isinstance(gs, dict):
+                    status = {**status, **{k: gs[k] for k in ("clockLabel", "asleep") if k in gs and (k not in status or k == "clockLabel")}}
+            except Exception as e:
+                logger.debug("[orwell] house-awake guard: clock projection unavailable for user=%s: %s", user, _exc_detail(e))
         lab = status.get("clockLabel")
         if not (_clock_is_before_house_wake(lab) or status.get("earlyMorning") is True):
             return True
