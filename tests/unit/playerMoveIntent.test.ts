@@ -37,7 +37,7 @@ describe("ORW-419 parsePlayerMoveIntent", () => {
     "I might head to the lounge",
     "I'm going to go to the kitchen",
     "Can you take me to the kitchen?",
-    "I walk over to Alex and talk",
+    "I walk over to the nominee and talk",
     "I go to the moon",
   ];
   for (const text of notMoves) {

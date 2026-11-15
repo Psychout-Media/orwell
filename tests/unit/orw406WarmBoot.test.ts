@@ -39,6 +39,14 @@ describe("ORW-406 warm before taking traffic", () => {
     expect(rt.warmStatus().warmed).toBe(true);
   });
 
+  it("review of #2720: a sandbox a request resumes first already has a non-degradation baseline", () => {
+    const rt = boot(seeded());
+    const baselines = (rt.orchestrator as unknown as { baselines: Map<string, unknown> }).baselines;
+    expect(baselines.has("player-a")).toBe(false);
+    rt.registry.sandboxFor("player-a"); // the warm-up has not reached it; its first commit must be checked
+    expect(baselines.has("player-a")).toBe(true);
+  });
+
   it("no save means warm at once; an eager (non-deferred) boot is warm too", () => {
     const empty = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orw406-"))), deferResume: true });
     expect(empty.warmStatus().warmed).toBe(true);
@@ -68,5 +76,16 @@ describe("ORW-406 /health readiness", () => {
   it("an engine with no probe wired, or a throwing probe, reports warmed (never wedges an updater)", async () => {
     expect(await health()).toMatchObject({ warmed: true });
     expect(await health(() => { throw new Error("x"); })).toMatchObject({ ok: true, warmed: true });
+  });
+});
+
+describe("review of #2732: a failing durability probe says unknown", () => {
+  it("/health keeps answering and reports saveStatusUnknown instead of a clean backlog", async () => {
+    const server = createHttpMcpServer({ resolve: () => { throw new Error("unused"); } }, { saveStatus: () => { throw new Error("db down"); } });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      const j = (await (await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/health`)).json()) as Record<string, unknown>;
+      expect(j).toMatchObject({ ok: true, saveUnsyncedUsers: 0, saveStatusUnknown: true });
+    } finally { await new Promise<void>((r) => server.close(() => r())); }
   });
 });

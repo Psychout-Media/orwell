@@ -85,6 +85,7 @@ describe("ORW-392 - the HUD says Early morning past 2am, before the house's wake
       expect((s.getGameState() as any).earlyMorning).toBe(true);
       l.timeOfDay = "morning"; l.nightDepth = 9;
       expect((s.gameStatus() as any).earlyMorning).toBeUndefined();
+      expect((s.getGameState() as any).earlyMorning, "the game-state view drops it outside the band too").toBeUndefined();
     } finally { GameSessionAdapter.setTimeOfDayEnabled(null); }
   });
 });
