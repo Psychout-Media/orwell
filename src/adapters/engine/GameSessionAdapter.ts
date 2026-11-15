@@ -2044,6 +2044,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
+      this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
       this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)
       // BEFORE the deferred `onPersist` above ran, so `out.beatSeq` was captured PRE-commit-funnel:
