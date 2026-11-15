@@ -95,7 +95,7 @@ def env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(settings, "get_user_setting", gus)
 
-    async def fake(prompt, user, reference_png=None):
+    async def fake(prompt, user, reference_png=None, keep_identity=True):
         st.shots.append((prompt, reference_png))
         return b"PNG%d" % len(st.shots)
 
@@ -394,3 +394,14 @@ def test_hair_colour_and_length_are_read_from_the_hair_clause_in_any_order():
     assert C.visible_features("Hair: a neat low bun. Setting: x") == []
     assert "short dark brown hair" not in C.visible_features("a woman with short brown hair")  # older wording still parses
     assert "short hair" in C.visible_features("a woman with short hair")
+
+
+def test_a_forced_upgrade_check_reshoot_keeps_the_upgrade_identity_prefix(env):
+    P._write_portrait("u", "npc:1", b"OLD-FACE", "Cole", source="generated")
+    env.replies = [_reply(["messy-hair"]), _reply([])]
+    entry = {**_entry(), "identityPrefix": True}
+    _run(P.generate_and_store([entry], "u", record_beats=False, force_ids=["npc:1"], silent=True))
+    assert len(env.shots) == 2
+    assert env.shots[0][0].startswith(P.UPGRADE_IDENTITY_PREFIX)          # the first upgrade shot
+    assert env.shots[1][0].startswith(P.UPGRADE_IDENTITY_PREFIX)          # the fix re-shoot too (ORW-437)
+    assert "Fix in this version" in env.shots[1][0]
