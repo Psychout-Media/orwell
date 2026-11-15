@@ -81,8 +81,8 @@ def test_oncamera_rules():
     n = _npc()
     assert ca.look_problems(_pc(onCamera="leans in; at the kitchen counter."), n) == []
     assert "oncamera-shape" in ca.look_problems(_pc(onCamera="leans in, no spot named."), n)
-    assert "oncamera-shape" in ca.look_problems(_pc(onCamera="kitchen and also the backyard"), n)
-    assert "oncamera-shape" in ca.look_problems(_pc(onCamera="kitchen " + "x" * 300), n)
+    assert "oncamera-scene" in ca.look_problems(_pc(onCamera="kitchen and also the backyard"), n)  # ORW-380: two spots
+    assert "oncamera-scene" in ca.look_problems(_pc(onCamera="kitchen " + "x" * 300), n)           # ORW-380: over 240
 
 
 def test_fallbacks_after_failed_retry():
