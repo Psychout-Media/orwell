@@ -5684,7 +5684,7 @@ def _split_complete_sentences(buf: str):
     """Split a streaming buffer into (complete_prefix, remainder) at the LAST sentence boundary —
     so we only ever judge whole sentences, never a half-streamed one. A newline also ends a unit."""
     last = -1
-    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE))
+    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE) or re.search(r"(?<![\d.])\d{1,2}\.$", buf))  # ORW-455: also a bare "9." (the "15am" of "9.15am" is in the next chunk)
     for m in re.finditer(r"[.!?](?=\s|$)|\n", buf):
         # ORW-437: a buffer that ENDS at "3 a." / "9 p." is mid-time (the "m." is in the next chunk): that dot is not a boundary yet, or the two halves were judged as separate sentences
         # (the clock check never saw "3 a.m." and the stored-text mirror cut between them). The round's flush resolves it if nothing follows.
@@ -5711,6 +5711,9 @@ def _chunk_ended_in_drop(raw: str, shown: str) -> bool:
     if not parts:
         return False
     last = parts[-1].strip()
+    shown_parts = [p.strip() for p in _split_sentences_keep_dotted_times(shown or "") if p.strip()]
+    if shown_parts and not any(shown_parts[-1] in (p or "") for p in parts):
+        return False  # ORW-455: what was shown ends in text that is NOT in the raw chunk: a later guard REWROTE a sentence (it was not dropped), so a following "; and" opener stays
     return last[:20] not in (shown or "")[-(len(last) + 40):]
 
 
@@ -5727,7 +5730,8 @@ _TOOL_MARKUP_TAG_RE = re.compile(
 # ORW-472: the SAFE subset of the ORW-440 tags for the raw-text mirror cut: result / use wrappers only (open or close). `tool_calls?`, `function_calls?` and `antml:*` are deliberately NOT here: they can carry a call the parser
 # needs, so they are never cut out of the raw round text (independently checked: `parse_tool_blocks` returned the same blocks for a `<tool_call>` and a `<function_calls>` call wrapped in every combination of these tags, with and without them).
 _TOOL_MARKUP_SAFE_TAG_RE = re.compile(
-    r"[ \t]*</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>[ \t]*",
+    r"[ \t]*(?:</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>"
+    r"|</\s*(?:tool_calls|function_calls)\s*>)[ \t]*",  # ORW-455: the CLOSERS of the plural wrappers only (never `<tool_calls>`, `<function_calls>`, nor a singular `</tool_call>` the parser pairs with its opener)
     re.IGNORECASE,
 )
 
@@ -5896,6 +5900,27 @@ def _split_sentences_keep_dotted_times(text: str) -> list:
     return out
 
 
+_CLOSER_OPENERS = {"'": "'\u2018", "\u2019": "'\u2018", '"': '"\u201c', "\u201d": '"\u201c', ")": "(", "]": "["}
+_LEAD_CLOSER_RE = re.compile(r"^(\s*)(['\"\u2019\u201d)\]]+)(?=\s)")
+
+
+def _strip_orphan_closer(part: str, dropped: str) -> str:
+    """ORW-455: `dropped` (the part before this one) was removed. If it OPENED a quote or bracket that this part starts by closing ("'It was 3 a.m." | "' You nod."), the leading closer is an orphan: remove it
+    (`_mirror_wall_drop` reads the same edit, see `_lead_closer_stripped`). Otherwise the part is returned unchanged."""
+    m = _LEAD_CLOSER_RE.match(part)
+    if not m:
+        return part
+    if not all(any(o in dropped for o in _CLOSER_OPENERS.get(c, "")) for c in set(m.group(2))):
+        return part
+    return m.group(1) + part[m.end():]
+
+
+def _lead_closer_stripped(before_part: str, after_part: str) -> bool:
+    """True when `after_part` is `before_part` with only a leading closing quote/bracket removed (the ORW-455 edit)."""
+    m = _LEAD_CLOSER_RE.match(before_part)
+    return bool(m) and m.group(1) + before_part[m.end():] == after_part
+
+
 async def _pre_emission_outcome_guard(text: str, owner) -> str:
     """0065 Part C — the PRE-EMISSION outcome guard, applied to already-leak-scrubbed text just
     before it streams to the player. Splits `text` into sentences and, for any sentence that asserts
@@ -5948,7 +5973,11 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     # byte-identically.
     parts = _split_sentences_keep_dotted_times(text)  # review of #2657: "3 a.m." / "9 p.m." must not be cut into "3 a." + "m."
     out = []
+    _last_part, _last_n = None, 0
     for part in parts:
+        if _last_part is not None and len(out) == _last_n:
+            part = _strip_orphan_closer(part, _last_part)  # ORW-455: the previous part was dropped and opened a quote/bracket: its closer leads this part and goes with it
+        _last_part, _last_n = part, len(out)
         try:
             # T0-3 (issue #1778, D1 2026-07-21) — the HARD-DROP rail: a weekly-loop closed-set claim
             # (HOH/noms/veto/eviction — the kinds an engine `BeatAnnouncement` chyron now carries
@@ -6133,6 +6162,12 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
     ai = 0
     for bp in b_parts:
         if ai < len(a_parts) and a_parts[ai] == bp:
+            ai += 1
+            continue
+        if ai < len(a_parts) and _lead_closer_stripped(bp, a_parts[ai]):
+            idx = round_response.rfind(bp)  # ORW-455: the part survived minus an orphan closing quote: make the same edit in the raw text instead of erasing the part
+            if idx >= 0:
+                round_response = round_response[:idx] + a_parts[ai] + round_response[idx + len(bp):]
             ai += 1
             continue
         if not bp.strip():
