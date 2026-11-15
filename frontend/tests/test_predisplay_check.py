@@ -45,19 +45,48 @@ def test_correction_names_each_fact():
     assert all(pc.correction_for(f) for f in (pc.FACT_ASLEEP, pc.FACT_CLOCK, pc.FACT_SCHEDULE))
 
 
-def test_counter_recorded_once_per_fact_and_text_untouched(monkeypatch):
+def test_asleep_name_inside_quoted_speech_or_merely_mentioned_is_clean():
+    for text in ('"Sleeper Role is asleep," Other whispers.', '"Where\'s Sleeper?" Other asked.', "Other looks over at Sleeper Role and sighs.",
+                 '\u201cSleeper Role is asleep,\u201d Other whispers.'):
+        assert pc.find_conflicts(text, STATE, zero_clocks=False) == [], text
+
+
+def test_asleep_speaker_tag_and_attribution_and_subject_still_count():
+    assert pc.find_conflicts('@[Sleeper Role] \u2014 "Morning."', STATE, zero_clocks=False) == [pc.FACT_ASLEEP]
+    assert pc.find_conflicts('"Morning," Sleeper asks.', STATE, zero_clocks=False) == [pc.FACT_ASLEEP]
+    assert pc.find_conflicts("Sleeper quietly sits on the couch.", STATE, zero_clocks=False) == [pc.FACT_ASLEEP]
+
+
+def test_schedule_check_ignores_quoted_speech():
+    assert pc.find_conflicts('"The nominations are tonight," Other guesses.', STATE, zero_clocks=False) == []
+
+
+def test_counter_is_plain_not_a_health_event_and_text_untouched(monkeypatch):
     import src.log_rings as lr
     seen = []
     monkeypatch.setattr(lr, "record_soft_failure", lambda cls, exc, **kw: seen.append(cls))
-    from src import orwell_engine
-
-    async def fake_state(user=None, timeout=None):
-        return STATE
-    monkeypatch.setattr(orwell_engine, "get_game_state_polled", fake_state)
+    from src import engine_read_cache as erc
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
     monkeypatch.setattr("src.zero_clocks.zero_clocks_on", lambda: True)
+    pc.PREDISPLAY_COUNTS.clear()
     got = asyncio.new_event_loop().run_until_complete(pc.check_and_count('Sleeper says, "It\'s 8:15." The nominations are tonight.', "u"))
     assert got == [pc.FACT_ASLEEP, pc.FACT_CLOCK, pc.FACT_SCHEDULE]
-    assert seen == ["predisplay-conflict:" + f for f in got]
+    assert seen == [], "a count-only hit must not raise a RED-eligible health event"
+    assert pc.PREDISPLAY_COUNTS == {f: 1 for f in got}
+
+
+def test_check_never_fetches_engine_state_and_skips_without_a_cached_state(monkeypatch):
+    from src import engine_read_cache as erc, orwell_engine
+    called = []
+
+    async def slow(*a, **k):
+        called.append(1)
+        await asyncio.sleep(30)
+    monkeypatch.setattr(orwell_engine, "get_game_state_polled", slow)
+    monkeypatch.setattr(orwell_engine, "get_game_state", slow)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: None)
+    got = asyncio.new_event_loop().run_until_complete(asyncio.wait_for(pc.check_and_count("Sleeper Role walks in.", "u"), 1))
+    assert got == [] and called == []
 
 
 def test_flag_off_counts_nothing(monkeypatch):

@@ -104,7 +104,7 @@
       return;
     }
     const el = ensureEl();
-    const [emoji, label] = TOD[tod];
+    const [emoji, label] = (tod === "late-night" && state.earlyMorning === true) ? ["\u{1F305}", "Early morning"] : TOD[tod]; // ORW-392
 
     // PHASE LINE: the time-of-day indicator (emoji + label) at the top of the card body.
     el.querySelector("[data-role='phase']").innerHTML =

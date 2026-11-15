@@ -3,6 +3,7 @@ import type { EmbeddingProvider } from "../../ports/EmbeddingProvider";
 import { DeterministicEmbedding } from "./DeterministicEmbedding";
 import { PINNED_MODEL } from "./fastembedWorker";
 import { CachedEmbedding } from "./PersistentEmbedCache";
+import { stallTimer } from "../stallTiming";
 
 /**
  * ENGINE-ONLY real embedding provider (ADR 0004 / audit E86a): fastembed, local ONNX,
@@ -54,6 +55,7 @@ export class FastembedEmbedding implements EmbeddingProvider {
   /** Synchronous real embedding via the worker bridge; deterministic fallback once degraded. */
   embed(text: string): number[] {
     if (this.degraded) return this.fallback.embed(text);
+    const t0 = stallTimer.now();
     try {
       Atomics.store(this.ctl, 0, 0);
       this.worker.postMessage({ text });
@@ -62,8 +64,11 @@ export class FastembedEmbedding implements EmbeddingProvider {
       const state = Atomics.load(this.ctl, 0);
       if (state !== 1) throw new Error("worker reported an embed error");
       const len = this.ctl[1]!;
-      return Array.from(this.payload.subarray(0, len));
+      const out = Array.from(this.payload.subarray(0, len));
+      stallTimer.record("embed.call", stallTimer.now() - t0, { chars: text.length });
+      return out;
     } catch (e) {
+      stallTimer.record("embed.call", stallTimer.now() - t0, { chars: text.length, failed: 1 });
       // Fail once, fail for the process: per-call flip-flopping would interleave vector
       // spaces inside an index. Loud, permanent (until restart), and the game plays on.
       this.degraded = true;

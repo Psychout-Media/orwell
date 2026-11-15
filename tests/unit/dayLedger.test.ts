@@ -192,3 +192,19 @@ describe("ORW-271 - played-game byte-identity and rng neutrality", () => {
     expect(on.snap).toEqual(off.snap);
   });
 });
+
+describe("ORW-387 - a provider error is never a day's memory", () => {
+  const ERR = 'event: error data: {"status": 400, "text": "Provider returned HTTP 400: bad request"}';
+  it("refuses an error-shaped summary, and lets a real one replace a stored error (a real one still stands)", () => {
+    process.env.ORWELL_DAY_CONDENSE = "1";
+    const { session } = rig(23, true);
+    closeNight(session);
+    expect(session.recordDaySummary({ day: 1, text: ERR }).accepted).toBe(false);
+    const live = (session as unknown as { live: { dayLedger: { day: number; tier: string; text?: string }[] } }).live;
+    live.dayLedger.find((d) => d.tier === "day" && d.day === 1)!.text = ERR; // a save written before the fix
+    expect(session.recordDaySummary({ day: 1, text: "The real day." }).accepted).toBe(true);
+    expect(session.dayLedger().find((d) => d.day === 1)!.text).toBe("The real day.");
+    session.recordDaySummary({ day: 1, text: "A later rewrite." });
+    expect(session.dayLedger().find((d) => d.day === 1)!.text).toBe("The real day.");
+  });
+});

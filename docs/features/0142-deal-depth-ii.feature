@@ -1,46 +1,91 @@
-# spec-only: SPEC FIRST (ORW-88, 2026-11-11) - not built, not wired into cucumber.cjs. Feature 0142 - Deal depth II. Roles only.
+# Executable spec - IMPLEMENTED & green; BDD-gated in cucumber.cjs (ORW-385). Feature 0142 - Deal depth II. Roles only.
+# Steps: features/step_definitions/deal_depth_ii.steps.ts. They drive the REAL live adapter (a played game: a person is playing)
+# and, for the pure package-cost comparison, the real DealLedger + RelationshipModel.
 
 Feature: Deal depth II - counteroffers, owed favors, new deal kinds, weighing a break
 
-  Scenario: A lukewarm NPC answers an ask with terms (counteroffer)
-    Given an NPC who would not accept the player's ask as stated
-    When the player makes the ask in chat
-    Then the NPC answers with one engine-chosen term drawn from its drive, fear and bonds
-    And the counteroffer is open state voiced in chat, with no pop-up
-    And it lapses at the end of the week if neither side acts
+  # --- 1. Counteroffers (built: a refusal for cost alone counters with the cheaper safety pact the NPC would take) ----------
 
-  Scenario: Accepting or countering a counteroffer yields an ordinary deal
-    Given an open counteroffer from an NPC
-    When the player accepts it or proposes changed terms the NPC then accepts
-    Then an ordinary deal is recorded with those terms
+  Scenario: A lukewarm NPC answers a too-dear ask with a counteroffer
+    Given a played game and an NPC who would refuse a comp-throw ask only because it costs too much
+    When the player asks that NPC to throw a competition
+    Then the ask is refused and the NPC counters with the safety pact the engine says it would take
+    And the counteroffer stands as open state voiced in chat, with no pop-up decision and no deal yet
+    And the counteroffer lapses unanswered when the week rolls, with no deal made from it
 
-  Scenario: Keeping a deal banks a favor either side can call in
-    Given a deal that resolved as kept
-    Then the honored side holds a banked favor
-    When a side calls it in later
-    Then the engine prices whether the other side honors it from trust, reliability and cost
-    And ignoring a called-in favor costs trust and reliability
+  Scenario: Accepting a counteroffer yields an ordinary deal
+    Given an open counteroffer from an NPC in a played game
+    When the player accepts the counteroffer
+    Then an ordinary safety deal with that NPC is recorded and the offer no longer stands
 
-  Scenario: A conditional deal binds only when its condition happens
-    Given a conditional deal "if one party is nominated the other votes to keep them"
-    When the condition occurs
-    Then the promise binds and is adjudicated like any vote deal
-    And when it never occurs the deal lapses without a break
+  Scenario: Declining a counteroffer makes no deal
+    Given an open counteroffer from an NPC in a played game
+    When the player declines the counteroffer
+    Then no deal with that NPC is recorded and the offer no longer stands
 
-  Scenario: An information deal moves only through co-presence
-    Given an information deal between two houseguests
-    When they are not together
-    Then nothing is passed
-    And when they are together a Vault-free, witnessed fact may pass
+  # --- 2. Owed favors (built: a favor is banked for the PLAYER, the honored side of a deal an NPC kept; the player calls it in) ---
 
-  Scenario: A package deal bundles two promises
-    Given a package of two promises
-    Then each promise is kept or broken on its own, and a break of either costs the whole package's reliability
+  Scenario: Keeping a deal banks a favor the player can call in
+    Given a played game where an NPC promised the player to throw a competition
+    When the NPC throws that competition
+    Then the deal is kept and the player holds a banked favor from that NPC
 
-  Scenario: An NPC weighs breaking a deal from its own interest
-    Given an NPC bound by an open deal with a tempting alternative
-    Then the engine decides keep, quietly break or renegotiate from interest, personality and the price of being known as a liar
-    And the decision draws no rng from the shared stream in a game nobody is playing
+  Scenario: A called-in favor tips a marginal ask into a deal
+    Given a played game where an NPC owes the player a favor and would refuse a comp-throw ask for cost alone
+    When the player calls the favor in for a comp-throw
+    Then the engine has the NPC honor it with an ordinary deal and the favor is spent
+
+  Scenario: Ignoring a called-in favor costs trust
+    Given a played game where an NPC owes the player a favor but distrusts and fears the player
+    When the player calls the favor in for a vote
+    Then the engine has the NPC ignore it, no deal binds and the favor is spent
+    And the player's hidden trust in that NPC falls
+
+  # --- 3. New deal kinds --------------------------------------------------------------------------------------------------
+
+  Scenario: A conditional deal binds only at the vote
+    Given a played game with a conditional deal between the player and an NPC
+    When the NPC nominates the player
+    Then the conditional deal is still open
+    When the NPC votes to evict the player
+    Then the conditional deal is broken
+
+  Scenario: A conditional deal whose condition occurs and is honored is kept
+    Given a played game with a conditional deal between the player and an NPC
+    When the NPC votes out the other nominee while the player is on the block
+    Then the conditional deal is kept
+
+  Scenario: A conditional deal whose condition never occurs lapses without a break
+    Given a played game with a conditional deal between the player and an NPC
+    When the week ends with no vote that tests it
+    Then the conditional deal is neither kept nor broken and no longer binds
+
+  Scenario: An information deal moves only through co-presence, and never the Vault
+    Given a played game with an information deal from an NPC who holds a fact the player does not, and a sealed Vault secret about that NPC
+    When the NPC and the player are in different rooms on a beat
+    Then nothing is passed to the player
+    When the NPC and the player are in the same room on a beat
+    Then the NPC's held fact reaches the player, once
+    And the sealed Vault secret reaches no player surface
+
+  Scenario: A package deal bundles two promises adjudicated on their own
+    Given a played game with a package deal in which an NPC promises the player safety and to protect a third houseguest
+    Then the two promises are recorded as separate parts of one package
+    When the NPC nominates the protected third houseguest
+    Then only the protect-third part is broken and the safety part stays open
+
+  Scenario: A break inside a package costs more than a stand-alone break
+    Given two identical promises to spare a houseguest, one of them inside a package
+    When each promisor nominates the houseguest they promised to spare
+    Then the wronged party's read of the packaged breaker falls further than of the stand-alone breaker
+
+  # --- 4. NPCs weigh breaking a deal ----------------------------------------------------------------------------------------
+
+  Scenario: An NPC weighs breaking a deal from its own interest, on a side stream
+    Given a played game with an open safety deal an NPC promised the player
+    When the NPC weighs the deal on a beat with no ceremony open
+    Then the deal is marked weighed for this week
+    And the same state weighed again gives the same verdicts, because each roll is keyed on the deal and the week
 
   Scenario: Temptation against the price of being known as a liar
     Given a played game and an NPC with a get-them-out goal on the player, a low bond and little credibility to lose
@@ -50,20 +95,23 @@ Feature: Deal depth II - counteroffers, owed favors, new deal kinds, weighing a 
     And zeroing the temptation stops the breaking, and zeroing the cost makes it more frequent
 
   Scenario: A deliberate break is quiet
-    Given an NPC that breaks a deal on purpose
-    Then the deal keeps showing as open to the player and no player-witnessed event is recorded
-    And the betrayal, jury and witness fallout is the ordinary break's
-    And the real reason and the temptation terms are Vault-side and never voiced
+    Given an NPC that breaks a deal with the player on purpose
+    Then the deal keeps showing as open to the player and no player-witnessed betrayal is recorded
+    And the break and its named terms are recorded Vault-side and never voiced
 
   Scenario: Tempted but not enough to break, the NPC asks to renegotiate
-    Given an NPC whose temptation is high but whose margin over the price is not positive
-    Then it may float a standing offer to swap the deal for a lighter one, carrying the id of the deal it replaces
-    And the old deal stays binding until the player accepts, and accepting retires it neutrally
+    Given an NPC whose temptation is high but whose margin over the price is not positive, bound by a final-two deal with the player
+    Then it floats a standing offer to swap the deal for a lighter vote promise, carrying the id of the deal it replaces
+    And the old deal stays binding until the player accepts, and accepting retires it neutrally and binds the lighter one
 
   Scenario: Each deal is weighed once a week and never during a ceremony
     Given an open deal already weighed this week
-    Then it is not rolled again that week, and nothing is weighed while a ceremony step is open
+    Then it is not rolled again that week
+    And nothing is weighed while a ceremony step is open
+
+  # --- 5. Gating --------------------------------------------------------------------------------------------------------------
 
   Scenario: Headless seeded runs are unchanged
-    Given a seeded game nobody is playing
-    Then none of this behavior runs and the seeded trajectory is byte-identical
+    Given a seeded game nobody is playing, with deal depth on and a tempting open deal with the player
+    When every deal-depth-II entry point is tried
+    Then none of this behavior runs and the engine state is byte-identical
