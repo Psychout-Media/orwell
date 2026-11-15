@@ -148,4 +148,7 @@ if (embedMode === "fastembed") {
 // Resume saved games now — after warm-up — so resumed souls capture the real embedder when warm.
 // (Before this, a request for a saved user still works: the resolver builds their sandbox lazily.)
 // ORW-406: warm in the background (yielding per user) and report `warmed` on /health; a request that arrives first builds its own sandbox via the same cached path.
-void runtime.warmSaved();
+// A save-store enumeration error must never become an unhandled rejection that takes the process down: log it; a request still builds its own sandbox lazily.
+void runtime.warmSaved().catch((e: unknown) => {
+  console.error(`[orwell] boot warm-up failed (${e instanceof Error ? e.message : String(e)}); saved games load on first request`);
+});

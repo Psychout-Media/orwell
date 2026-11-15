@@ -118,12 +118,13 @@ function warmFields(probe?: () => { warmed: boolean; warmMs: number | null }): {
   }
 }
 
-/** ORW-404: `/health` save-backlog fields; a broken probe reports zeros so it can never fail the liveness answer. */
-function saveFields(probe?: HttpMcpOptions["saveStatus"]): NonNullable<ReturnType<NonNullable<HttpMcpOptions["saveStatus"]>>> {
+/** ORW-404: `/health` save-backlog fields; a broken probe reports zeros plus `saveStatusUnknown: true` so it can never fail the liveness answer or look like a clean backlog. */
+function saveFields(probe?: HttpMcpOptions["saveStatus"]): NonNullable<ReturnType<NonNullable<HttpMcpOptions["saveStatus"]>>> & { saveStatusUnknown?: true } {
   try {
     return probe?.() ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
   } catch {
-    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
+    // Liveness still answers, but the zeros must not read as "nothing unsynced": say the status is unknown (review of #2732).
+    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false, saveStatusUnknown: true };
   }
 }
 

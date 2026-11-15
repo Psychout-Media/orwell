@@ -78,3 +78,14 @@ describe("ORW-406 /health readiness", () => {
     expect(await health(() => { throw new Error("x"); })).toMatchObject({ ok: true, warmed: true });
   });
 });
+
+describe("review of #2732: a failing durability probe says unknown", () => {
+  it("/health keeps answering and reports saveStatusUnknown instead of a clean backlog", async () => {
+    const server = createHttpMcpServer({ resolve: () => { throw new Error("unused"); } }, { saveStatus: () => { throw new Error("db down"); } });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try {
+      const j = (await (await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/health`)).json()) as Record<string, unknown>;
+      expect(j).toMatchObject({ ok: true, saveUnsyncedUsers: 0, saveStatusUnknown: true });
+    } finally { await new Promise<void>((r) => server.close(() => r())); }
+  });
+});

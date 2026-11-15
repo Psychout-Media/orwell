@@ -140,3 +140,52 @@ describe("humanizeTidy strips pathway slugs before names go in (review of #2680:
     expect(out).toContain("something they half-overheard");
   });
 });
+
+describe("open ledger shape and brief wording (review of #2692, #2721)", () => {
+  const known = new Set(["npc:1", "npc:2"]);
+  it("rejects a player entry nobody could ever see, and an unknown npc subject; takes a player-authored claim", async () => {
+    const { openLedgerProposal } = await import("../../src/engine/openLedger");
+    expect(openLedgerProposal({ text: "x", speaker: "player", addressedTo: [], kind: "k" }, known)).toBe("bad-addressee");
+    expect(openLedgerProposal({ text: "x", speaker: "npc:1", addressedTo: ["player"], kind: "k", about: "npc:99" }, known)).toBe("bad-addressee");
+    expect(openLedgerProposal({ text: "x", speaker: "player", addressedTo: ["npc:1"], kind: "k" }, known)).toMatchObject({ speaker: "player" });
+    expect(openLedgerProposal({ text: "x", speaker: "player", addressedTo: [], kind: "k", about: "the next competition" }, known)).toMatchObject({ about: "the next competition" });
+  });
+  it("stops at 200 entries with reason full and keeps all 200", async () => {
+    const { recordOpenEntry, emptyOpenLedger } = await import("../../src/engine/openLedger");
+    let l = emptyOpenLedger();
+    const ctx = { turn: 1, beatSeq: 1, room: "kitchen", witnesses: ["npc:1"] };
+    for (let i = 0; i < 200; i++) l = recordOpenEntry(l, { text: `t${i}`, speaker: "npc:1", addressedTo: ["player"], kind: "k" }, ctx).ledger;
+    const r = recordOpenEntry(l, { text: "one more", speaker: "npc:1", addressedTo: ["player"], kind: "k" }, ctx);
+    expect(r.outcome).toBe("full");
+    expect(r.ledger.entries).toHaveLength(200);
+  });
+  it("says 'you said' for the player's own words, and names the real other side when speaker is a houseguest and the addressee another one", async () => {
+    const { openLedgerSection } = await import("../../src/engine/openLedger");
+    const name = (id: string) => id.toUpperCase();
+    const mine = openLedgerSection(led(entry({ speaker: "player", addressedTo: ["npc:a"], parties: ["npc:a", "npc:b"] })), ["npc:a"], name)!;
+    expect(mine).toContain("you said (");
+    expect(mine).not.toContain("you heard you say");
+    const overheard = openLedgerSection(led(entry({ speaker: "npc:a", addressedTo: ["npc:b"] })), ["npc:a", "npc:b"], name)!;
+    expect(overheard).toContain("you heard NPC:A say");
+    expect(overheard).not.toContain("open between you and");
+  });
+  it("restore refuses a repeated id and an id at or beyond nextId", () => {
+    expect(restoreOpenLedger({ nextId: 3, entries: [entry({ id: "open:1" }), entry({ id: "open:1", quoteHash: "z" })] }).problems).toBe(1);
+    expect(restoreOpenLedger({ nextId: 2, entries: [entry({ id: "open:5" })] }).problems).toBe(1);
+  });
+});
+
+describe("MCP guard lets the engine decide on empty kind and empty note (review of #2692, #2721)", () => {
+  it("an empty kind reaches the engine (and defaults to claim); an empty note reaches the resolver", async () => {
+    const { McpServer } = await import("../../src/adapters/mcp/McpServer");
+    const { GameSessionRegistry } = await import("../../src/composition/registry");
+    const sb = new GameSessionRegistry().sandboxFor(`ol-mcp-${Math.random()}`);
+    sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+    sb.session.setOpenLedgerEnabled(true);
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands: sb.commands, session: sb.session });
+    const rec = (await server.callTool("recordOpenLedger", { text: "x", speaker: "player", addressedTo: ["npc:1"], kind: "" })) as { reason?: string };
+    expect(rec.reason, JSON.stringify(rec)).not.toMatch(/free-text kind/); // the engine answered (no-game here), the guard did not refuse
+    const res = (await server.callTool("resolveOpenLedger", { entryId: "open:1", status: "kept", note: "" })) as { reason?: string };
+    expect(JSON.stringify(res)).not.toMatch(/free-text note/);
+  });
+});

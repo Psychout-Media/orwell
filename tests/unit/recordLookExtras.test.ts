@@ -118,7 +118,7 @@ describe("ORW-380 clear", () => {
   it("removes an old look field the new writer left out, and nothing else", () => {
     const { sb, id, npc } = setup();
     sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], onCamera: "She sits in the lounge." });
-    const r = sb.session.recordLookExtras({ houseguestId: id, photoHair: "a neat low bun", clear: ["onCamera", "bogus"] });
+    const r = sb.session.recordLookExtras({ houseguestId: id, photoHair: "a neat low bun", clear: ["onCamera", "bogus"] as never });
     expect(r).toEqual({ accepted: true, fields: ["photoHair"], cleared: ["onCamera"] });
     const p = npc().character.physicalCharacteristics!;
     expect(p.onCamera).toBeUndefined();

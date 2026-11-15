@@ -79,7 +79,7 @@ export interface Runtime {
    * ORW-406 slice 3: the same resume as `resumeSaved`, but yielding to the event loop between users so a
    * request arriving mid-warm-up is served at once (it builds its own sandbox through the same
    * `registry.sandboxFor`, which caches per user, so no save is loaded twice). Resolves when every saved
-   * game is resident; never rejects. `warmStatus` reports readiness for `/health`.
+   * game has been loaded once (with more saved games than `maxResidentSandboxes`, idle ones are unloaded again as later ones load, so `warmed` means the pass finished, not that every game is still resident). A save-store enumeration error rejects: the entrypoint catches and logs it. `warmStatus` reports readiness for `/health`.
    */
   warmSaved(): Promise<void>;
   warmStatus(): { warmed: boolean; warmMs: number | null };
