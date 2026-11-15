@@ -25,6 +25,8 @@ import threading
 
 import pytest
 
+from _ports import free_port
+
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(FRONTEND, "static")
 
@@ -86,7 +88,7 @@ def test_onboarding_reroute_fallback_does_not_strand_a_scrim():
 
 # ── browser gate: the real kit sweeps an orphan and restores a clickable page ──
 
-_PORT = int(os.environ.get("ORWELL_925_PORT", "8796"))
+_PORT = free_port()  # ORW-414: a kernel-assigned free port per process (was a fixed default), so two browser tests can run at once
 
 
 def _chromium_path():

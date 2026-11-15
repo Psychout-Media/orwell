@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pytest
 
+from _settle import app_ready
+
 from test_f3_drop_after_saved_no_recovery import _post_form, _stack  # noqa: F401
 
 pytestmark = pytest.mark.browser
@@ -23,7 +25,7 @@ def test_highlight_js_loads_only_when_a_code_block_appears(_stack):  # noqa: F81
         page.on("request", lambda r: hits.append(r.url) if "highlight.min.js" in r.url else None)
         page.goto(fbase + "/", wait_until="load", timeout=30000)
         page.wait_for_function("() => !!(window.sessionModule && window.sessionModule.selectSession)", timeout=15000)
-        page.wait_for_timeout(2500)
+        app_ready(page, names=("chatModule", "sessionModule"))
         assert hits == [], f"highlight.js must not load at boot: {hits}"
         assert page.evaluate("() => !!window.hljs") is False
         # a code block appears in the chat: it loads once and colours the block

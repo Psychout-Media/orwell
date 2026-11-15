@@ -54,7 +54,7 @@ def test_orw165_three_panels_share_one_snapshot(fe):
             assert page.evaluate("typeof window.OrwellGame.get") == "function"
             # a state change: Bo turns in for the night and the player is running on empty
             box["state"] = {"started": True, "asleep": [{"id": "b", "name": "Bo"}], "player": {"restStatus": "running on empty"}}
-            page.wait_for_timeout(1200)  # let the first-load freshness window lapse
+            page.wait_for_timeout(1200)  # elapsed-time on purpose: the store's first-load freshness window is wall-clock, the test is about it lapsing
             before = box["state_hits"]
             page.evaluate("window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")
             assert _poll(page, "[...document.querySelectorAll('#orwell-room-strip .ors-chip')].some(c => /turned in/.test(c.title || ''))", True), \
