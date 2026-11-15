@@ -15,6 +15,12 @@ TAIL = "The kettle clicks off. "
 REDO = "Everyone else keeps their voices low. "
 
 
+
+@pytest.fixture(autouse=True)
+def _rewrite_on(monkeypatch):
+    """The rewrite ships OFF by default; these tests exercise it, so turn it on (a test that needs it off sets the flag itself)."""
+    monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
+
 def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408"):
     """Returns (emitted_text, continuation_calls, stored_round_texts, n_rounds)."""
     from src import agent_loop as al
@@ -188,3 +194,13 @@ def test_split_is_none_without_fresh_state_and_never_raises(monkeypatch):
     monkeypatch.setattr(erc, "peek", lambda *a, **k: 1 / 0)
     assert pc.split_at_first_conflict(BAD, "u") is None
 
+
+
+def test_the_rewrite_is_off_unless_asked_for(monkeypatch):
+    """ORW-408: default OFF until the review findings are fixed (quoted speech across chunks, tool calls after a withhold, the silent wait)."""
+    from src import predisplay_check as pc
+    monkeypatch.delenv("ORWELL_PREDISPLAY_REWRITE", raising=False)
+    monkeypatch.delenv("ORWELL_PREDISPLAY_CHECK", raising=False)
+    assert pc.predisplay_rewrite_enabled() is False
+    monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
+    assert pc.predisplay_rewrite_enabled() is True
