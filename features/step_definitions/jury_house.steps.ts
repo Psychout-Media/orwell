@@ -435,7 +435,9 @@ Given("the jury-house experience with no optional roundtable vote-nudging enable
 });
 
 When("a seeded season is played to its finale with and without the player using the jury house", function (this: W) {
-  const seed = seedCache.get("seated:2:false") ?? 3;
+  // A seed whose player really lands on the jury (found here, so the scenario never depends on another one's cache).
+  findGame("seated:2:false", false, seatedWith(2));
+  const seed = seedCache.get("seated:2:false")!;
   const run = (useJury: boolean): string => {
     const sb = newSandbox(seed, false);
     let asked = 0;
