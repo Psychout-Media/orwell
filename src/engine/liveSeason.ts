@@ -833,6 +833,8 @@ export interface LiveSeasonState {
    * when off => byte-identical. Persisted with the season.
    */
   desireApproachedAt?: Record<string, number>;
+  /** ORW-423 (played games only): the running run of same-purpose approaches to the player (desire, count, last in-game hour); caps lobbying pile-ups. Absent in headless sims => byte-identical. */
+  approachStreak?: { desire: string; count: number; lastHour: number };
   /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
   pitched?: Record<string, number>;
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */

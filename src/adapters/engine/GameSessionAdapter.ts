@@ -85,7 +85,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
-import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
@@ -8746,8 +8746,10 @@ export class GameSessionAdapter implements GameSession {
       return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
     });
     const byGoal = goalDriven(goalCands);
-    if (byGoal && (!best || DESIRE.goalUrgency > best.urgency)) return byGoal;
-    return best ? { npc: best.npc, desire: best.desire } : null;
+    const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
+    // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next ones wait (no rng; they keep their desire and cooldown state, so nobody is forgotten).
+    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return null;
+    return pick;
   }
 
   /**
@@ -8786,9 +8788,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
-  private noteApproach(npc: EntityId): void {
+  private noteApproach(npc: EntityId, desire?: string): void {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
+    if (live.playedGame === true && desire !== undefined) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
   /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
@@ -9063,7 +9066,7 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+      if (hit) { this.noteApproach(hit.npc, hit.desire); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
         const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
     }
   }
@@ -11681,7 +11684,7 @@ export class GameSessionAdapter implements GameSession {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
-            this.noteApproach(hit.npc);
+            this.noteApproach(hit.npc, hit.desire);
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
