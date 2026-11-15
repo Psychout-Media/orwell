@@ -180,7 +180,7 @@ describe("ORW-432 card check on seven live-shaped cards (role labels)", () => {
 
 describe("ORW-432 what moved and what did not", () => {
   const SEEDS6 = [1, 2, 3, 77, 2026, 4242];
-  it("stats, names, ages, hidden profiles, threads, biographies and every look field except the changed ones are byte-identical to main", () => {
+  it("stats, names, ages, hidden profiles, threads and every look field are byte-identical to main for the blanked draws (the background text and the biographies built from it are re-pinned by ORW-458)", () => {
     // `blankText` also blanks what ORW-458 changed (the public background line and the floor biography built from it),
     // so the first hash proves NO DRAW MOVED: it equals main's hash with the same blanking. The second pins the full text.
     const run = (blankText: boolean) => {

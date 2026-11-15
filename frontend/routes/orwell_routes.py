@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Optional
 
 import anyio
@@ -810,7 +811,7 @@ def _dossier_card(state: dict, houseguest_id: str) -> Optional[dict]:
 # the whole HouseguestCard dict), so a future Vault-adjacent field added to the card can never
 # silently reach this surface without a deliberate edit here.
 _PERSONA_FIELDS = (
-    # ORW-458 (Kevin): the archetype is a game-mechanic label the player never sees; the engine keeps it internally.
+    # ORW-458: archetype is an internal game-mechanic label, not part of the public persona.
     "strategyStyle", "background", "vocation", "hometown",
     "age", "demeanor", "biography",
 )
@@ -818,6 +819,12 @@ _PERSONA_FIELDS = (
 
 def _public_persona(card: dict) -> dict:
     out = {k: card.get(k) for k in _PERSONA_FIELDS if card.get(k) not in (None, "")}
+    # Review of #2788: a card saved before ORW-458 can carry the generated suffix "a nurse who plays as a villain" in its background; the dossier never shows the label.
+    bg = out.get("background")
+    if isinstance(bg, str):
+        stripped = re.sub(r"\s+who plays as an? [^.]*\.?$", "", bg).strip()
+        if stripped:
+            out["background"] = stripped
     # ORW-438: genesis writes its first biography without the houseguest's name ("Runs compliance for a regional credit
     # union..."). While the engine marks the stored biography as that draft (`biographyDraft`), it is not shown; the
     # card keeps its identity line and structured facts, and the real biography appears when the writer's lands.
