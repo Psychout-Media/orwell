@@ -127,8 +127,9 @@ describe("#1107 — eviction reveal forbids a fabricated full numeric vote tally
     // the exact failure mode (#1107): a phantom-ballot count above the legal voters
     expect(frag.toLowerCase()).toContain("phantom ballot");
     expect(frag.toLowerCase()).toContain("more votes than there are legal voters");
-    // and it spells out WHY: 16 minus HOH minus the two nominees ⇒ far fewer actually vote
-    expect(frag.toLowerCase()).toContain("minus the hoh and the two nominees");
+    // and it spells out WHY (ORW-376: no fixed "16" - the engine states the live voter count in the hard constraints)
+    expect(frag.toLowerCase()).toContain("the hoh and the nominees do not vote");
+    expect(frag).not.toMatch(/house is 16/);
     expect(frag.toLowerCase()).toContain("never state a number of votes that could not");
   });
 });

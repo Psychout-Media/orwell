@@ -75,6 +75,7 @@ separate, complementary pathway type).
 - **`whereabouts()`.** A read-only, Vault-free projection: occupants of the player's room + occupants of
   adjacent rooms (names/public presence only). No motives, no hidden state, no relationship numbers, no
   occupancy of non-adjacent rooms (you can't see through walls — and fog of war is gameplay).
+  **Amendment (ORW-376, 2026-11-15):** "no numbers" means no relationship/stat/hidden numbers (durations like `turnsHere` were already allowed); the view also carries `counts` — `room` (the player included), `others`, `house` (the player included) and, on a vote night, `voters` — the plain HEADCOUNT of people the player can already see, so the narrator quotes a number instead of counting a list of the OTHER people's names. These integers are the only numbers the view may carry beyond durations.
 - **Zero-beat social turns.** Moving rooms, milling, and conversation are recorded as events but advance no
   phase/week/ceremony. The watcher treats them as activity (no idle fast-forward steamrolls a gathering
   player). Only the 0034 seam progresses the game.

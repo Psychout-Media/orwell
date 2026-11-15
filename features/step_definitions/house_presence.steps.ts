@@ -154,8 +154,14 @@ Then("it reveals nothing about rooms out of sight", function (this: BbWorld) {
   // L21/L24 + 0077: duration + the tracked layer ride the view; `zone`/`conspicuous` are optional —
   // still no out-of-sight room's occupants appear in the visible (`nearby`) set.
   const required = ["companions", "nearby", "present", "room", "tracked", "turnsHere"];
-  const allowed = [...required, "zone", "conspicuous"];
+  // ORW-376 (0049 amendment): `counts` = the headcount of people the player can already see (room/others/house/voters), integers only; no other number is allowed.
+  const allowed = [...required, "zone", "conspicuous", "counts"];
   assert.ok(required.every((k) => k in w), "the view carries the required keys");
+  if (w.counts) {
+    assert.ok(Object.keys(w.counts).every((k) => ["room", "others", "house", "voters"].includes(k)), "counts carries only the headcount keys");
+    assert.ok(Object.values(w.counts).every((v) => Number.isInteger(v)), "counts are plain integers");
+    assert.equal(w.counts.room, w.counts.others + 1, "the player is always counted");
+  }
   assert.ok(Object.keys(w).every((k) => allowed.includes(k)), "the view carries no unexpected keys");
 });
 

@@ -5507,6 +5507,20 @@ export class GameSessionAdapter implements GameSession {
     return null;
   }
 
+  /**
+   * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house`). `voters` only on
+   * eviction night: the living house minus the HOH and the nominees (distinct, so a nominee who is also the HOH is not taken off twice).
+   */
+  private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number } {
+    const living = this.livingIds();
+    const out: { room: number; others: number; house: number; voters?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
+    if (this.phase === "eviction") {
+      const off = new Set<EntityId>([...(this.ceremony.hoh ? [this.ceremony.hoh] : []), ...this.ceremony.nominees]);
+      out.voters = living.filter((id) => !off.has(id)).length;
+    }
+    return out;
+  }
+
   whereabouts(): WhereaboutsView | null {
     if (!this.house || !this.presence) return null;
     this.gatherForCeremony();
@@ -5543,6 +5557,7 @@ export class GameSessionAdapter implements GameSession {
         nearby: [],                       // no side rooms during a whole-house event
         turnsHere: this.presenceTenure?.get(me) ?? 0,
         companions: others.map((id) => ({ ...named(id), turnsHere: 0 })),
+        counts: this.headCounts(others.length),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
       };
@@ -5594,6 +5609,7 @@ export class GameSessionAdapter implements GameSession {
       // voices continuity (who has lingered with you vs. who just walked in) instead of resetting.
       turnsHere: this.presenceTenure?.get(me) ?? 0,
       companions: presentPlain.map((p) => ({ ...p, turnsHere: this.presenceTenure?.get(p.id) ?? 0 })),
+      counts: this.headCounts(presentPlain.length),
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
