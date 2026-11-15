@@ -1,0 +1,78 @@
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { validateDossierCoherence, repairDossierCoherence, dropOffendingStorySentences } from "../../src/engine/castingIntake";
+
+// ORW-430: season start must not blank a biography that agrees with the card. The validator flags a biography only
+// for a span or grandparent self-reference, and read spans in sentences about other people and things.
+
+type Gender = "man" | "woman" | "nonbinary";
+const FIX = JSON.parse(readFileSync(new URL("../fixtures/orw430_correct_biographies.json", import.meta.url), "utf8")) as {
+  cases: { name: string; gender: Gender; age: number; vocation: string; biography: string }[];
+};
+
+describe("ORW-430 a correct biography is never flagged", () => {
+  for (const c of FIX.cases) {
+    it(c.name, () => {
+      const d = { genderPresentation: c.gender, age: c.age, vocation: c.vocation, biography: c.biography };
+      const r = validateDossierCoherence(d);
+      expect(r.repairFields).toEqual([]);
+      expect(repairDossierCoherence(d).repaired.biography).toBe(c.biography);
+    });
+  }
+});
+
+describe("ORW-430 a real contradiction is mended, not blanked", () => {
+  const good = "She waits tables at a Macon diner and knows every regular by their order. ";
+  it("keeps the correct sentences and drops only the sentence with the impossible span", () => {
+    const bio = `${good}She spent thirty years behind the counter.`;
+    const d = { genderPresentation: "woman" as const, age: 22, vocation: "diner server", biography: bio };
+    expect(validateDossierCoherence(d).repairFields).toEqual(["biography"]);
+    expect(repairDossierCoherence(d).repaired.biography).toBe(good.trim());
+  });
+  it("a biography that is only the bad sentence is cleared (no text is invented)", () => {
+    expect(dropOffendingStorySentences("She spent thirty years behind the counter.", 22, "diner server")).toBeUndefined();
+  });
+  it("a grandparent self-reference on a 22-year-old is still caught", () => {
+    const d = { genderPresentation: "woman" as const, age: 22, biography: `${good}Her grandkids visit on Sundays.` };
+    expect(validateDossierCoherence(d).repairFields).toEqual(["biography"]);
+  });
+  it("a background with the span is judged as the background, not the biography", () => {
+    const d = { genderPresentation: "woman" as const, age: 22, biography: good.trim(), background: "thirty years inside the courthouse machine" };
+    expect(validateDossierCoherence(d).repairFields).toEqual(["background"]);
+  });
+});
+
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+
+describe("ORW-430 enforceCastCoherence at season start", () => {
+  type Npc = { character: Record<string, unknown> & { biography?: string; deepProfileAuthored?: boolean } };
+  const setup = (biography: string) => {
+    const s = new GameSessionAdapter();
+    s.createCharacter({ playerName: "The Player", seed: 7 });
+    const npc = (s as unknown as { house: { npcs: Npc[] } }).house.npcs[0]!;
+    npc.character.genderPresentation = "woman";
+    npc.character.age = 22;
+    npc.character.biography = biography;
+    npc.character.deepProfileAuthored = true;
+    (s as unknown as { enforceCastCoherence: () => unknown }).enforceCastCoherence();
+    return npc;
+  };
+  const good = "She waits tables at a Macon diner and knows every regular by their order.";
+
+  it("keeps the correct sentences of a biography with one impossible span, and the card stays authored", () => {
+    const npc = setup(`${good} She spent thirty years behind the counter.`);
+    expect(npc.character.biography).toBe(good);
+    expect(npc.character.deepProfileAuthored).toBe(true);
+  });
+
+  it("a biography with nothing left is cleared and the card counts as NOT authored, so the backfill writes it again", () => {
+    const npc = setup("She spent thirty years behind the counter.");
+    expect(npc.character.biography).toBeUndefined();
+    expect(npc.character.deepProfileAuthored).toBe(false);
+  });
+
+  it("a correct biography is left byte-for-byte", () => {
+    const bio = "Her father ran the Macon diner where he taught her to carry four plates. Her brother still cooks there and his pancakes are famous.";
+    expect(setup(bio).character.biography).toBe(bio);
+  });
+});
