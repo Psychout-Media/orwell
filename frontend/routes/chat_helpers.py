@@ -1260,18 +1260,40 @@ def _is_house_search(msg) -> bool:
 
 
 def _search_target(player_msg, game_state) -> Optional[str]:
-    """ORW-462: the houseguest the player's message names (full name, or a first name of more than two letters), from the engine's house roster, so the engine search can ALWAYS resolve that one person. None when nobody is named."""
+    """ORW-462: the houseguest the player's message names, from the ACTIVE roster, so the engine search can ALWAYS resolve that one person. Full names first (the earliest in the message);
+    then CAPITALISED first names only (case-sensitive, word-bounded, more than two letters), the earliest by position in the message. A first name shared by two active houseguests, with no
+    surname in the message, names nobody (the safe side). Evicted houseguests and the player are never targets. None when nobody is named."""
     if not isinstance(player_msg, str) or not isinstance(game_state, dict):
         return None
     msg = re.sub(r"\(\([^)]*\)\)", " ", player_msg, flags=re.DOTALL)
+    me = (game_state.get("player") or {}).get("id")
+    roster = []
     for h in game_state.get("house") or []:
-        full = str(h.get("name") or "").strip() if isinstance(h, dict) else ""
-        if not full or h.get("id") == (game_state.get("player") or {}).get("id"):
+        if not isinstance(h, dict) or h.get("id") == me or str(h.get("status") or "active") != "active":
             continue
+        full = str(h.get("name") or "").strip()
+        if full:
+            roster.append(full)
+    fulls = []
+    for full in roster:
+        m = re.search(r"\b" + re.escape(full) + r"\b", msg, re.IGNORECASE)
+        if m:
+            fulls.append((m.start(), full))
+    if fulls:
+        return min(fulls)[1]
+    firsts = []
+    for full in roster:
         first = full.split()[0]
-        if re.search(r"\b" + re.escape(full) + r"\b", msg, re.IGNORECASE) or (len(first) > 2 and re.search(r"\b" + re.escape(first) + r"\b", msg, re.IGNORECASE)):
-            return full
-    return None
+        if len(first) <= 2:
+            continue
+        m = re.search(r"\b" + re.escape(first) + r"\b", msg)  # case-sensitive: "will" the verb is not Will
+        if m:
+            firsts.append((m.start(), first))
+    if not firsts:
+        return None
+    pos, first = min(firsts)
+    owners = [full for full in roster if full.split()[0] == first]
+    return owners[0] if len(owners) == 1 else None
 
 
 def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
@@ -1296,6 +1318,10 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
     shown = named or [e for e in entries if e.get("status") != "asleep"]
     lines = ["HOUSE SEARCH (engine truth - the player is asking where someone is or searching the house, and the game has looked in every room for them):"]
     for e in shown:
+        if e.get("status") == "told" and not e.get("toldBy"):
+            # nobody the player can see is there to say it: the house knows, and no speaker is invented
+            lines.append(f"- {e['name']}: {str(e.get('room') or '').replace('-', ' ')}, door closed to the player. Nobody in view is there to say it: it is common knowledge in the house; do NOT invent a speaker.")
+            continue
         lines.append(f"- {e['name']}: {e['fact']}")
     if not named:
         lines.append("(Those are all the houseguests who are awake. Anyone not listed is asleep, below.)")

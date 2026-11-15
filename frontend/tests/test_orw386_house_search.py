@@ -167,7 +167,7 @@ def _closed_search():
 def test_search_target_is_the_named_houseguest_from_the_roster():
     gs = {"player": {"id": "player"}, "house": [{"id": "player", "name": "Pat Lee"}, {"id": "npc:10", "name": "Miguel Ortega"}, {"id": "npc:11", "name": "Jett Wooten"}]}
     assert chat_helpers._search_target("Look for Miguel. Where is he?", gs) == "Miguel Ortega"
-    assert chat_helpers._search_target("where is jett wooten", gs) == "Jett Wooten"
+    assert chat_helpers._search_target("where is jett wooten", gs) == "Jett Wooten"  # a full name matches in any case
     assert chat_helpers._search_target("Check every room", gs) is None
     assert chat_helpers._search_target("Where is Pat?", gs) is None  # the player is not searched for
     assert chat_helpers._search_target(None, gs) is None and chat_helpers._search_target("Where is Miguel?", None) is None
@@ -195,3 +195,47 @@ def test_engine_wrapper_sends_looking_for_only_when_given(monkeypatch):
     _run(orwell_engine.whereabouts(user=_USER, search=True, looking_for="Miguel Ortega"))
     _run(orwell_engine.whereabouts(user=_USER))
     assert seen == [("whereabouts", {"search": True}), ("whereabouts", {"search": True, "lookingFor": "Miguel Ortega"}), ("whereabouts", {})]
+
+
+def _roster(*names, evicted=()):
+    return {"player": {"id": "player"}, "house": [{"id": "player", "name": "Pat Lee", "status": "active"}] + [
+        {"id": f"npc:{i}", "name": n, "status": "evicted" if n in evicted else "active"} for i, n in enumerate(names, 1)]}
+
+
+def test_search_target_full_name_beats_a_first_name_match_earlier_in_the_roster():
+    gs = _roster("Alex Smith", "Alex Jones", "Miguel Ortega")
+    assert chat_helpers._search_target("Where is Alex Jones?", gs) == "Alex Jones"
+    assert chat_helpers._search_target("Where is Alex Smith?", gs) == "Alex Smith"
+
+
+def test_search_target_a_first_name_shared_by_two_active_houseguests_names_nobody():
+    gs = _roster("Alex Smith", "Alex Jones", "Miguel Ortega")
+    assert chat_helpers._search_target("Where is Alex?", gs) is None
+    assert chat_helpers._search_target("Where is Alex?", _roster("Alex Smith", "Alex Jones", evicted=("Alex Jones",))) == "Alex Smith"
+
+
+def test_search_target_ignores_lowercase_words_that_are_first_names():
+    gs = _roster("Will Baker", "Miguel Ortega")
+    assert chat_helpers._search_target("where is Miguel, will you check", gs) == "Miguel Ortega"
+    assert chat_helpers._search_target("where is will", gs) is None
+    assert chat_helpers._search_target("Where is Will?", gs) == "Will Baker"
+
+
+def test_search_target_is_the_earliest_named_in_the_message_not_the_roster_order():
+    gs = _roster("Miguel Ortega", "Ana Ruiz")
+    assert chat_helpers._search_target("where are Ana and Miguel?", gs) == "Ana Ruiz"
+    assert chat_helpers._search_target("where are Miguel Ortega and Ana?", gs) == "Miguel Ortega"
+
+
+def test_search_target_skips_evicted_houseguests():
+    gs = _roster("Miguel Ortega", "Ana Ruiz", evicted=("Miguel Ortega",))
+    assert chat_helpers._search_target("Where is Miguel Ortega?", gs) is None
+    assert chat_helpers._search_target("where are Miguel and Ana", gs) == "Ana Ruiz"
+
+
+def test_told_with_nobody_in_view_says_the_house_knows_and_invents_no_speaker():
+    sv = {"room": "backyard", "present": [], "nearby": [], "search": {"rooms": [], "houseguests": [
+        {"id": "npc:11", "name": "Jett Wooten", "status": "told", "room": "diary-room", "access": "closed", "fact": "diary room, door closed to the player - the house knows and anyone can say so"}]}}
+    d = chat_helpers._house_search_directive(sv, "Where is Jett?")
+    line = [l for l in d.split("\n") if l.startswith("- Jett Wooten")][0]
+    assert "common knowledge in the house" in line and "do NOT invent a speaker" in line and "diary room" in line
