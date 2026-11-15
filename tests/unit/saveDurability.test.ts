@@ -85,11 +85,14 @@ describe.each(["sync", "background"] as const)("E8 — saves are fsynced (%s mod
   it("does NOT pay a directory fsync on the request path of an ordinary per-turn save (F-EN-1 #1562)", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
     const store = make(dir);
+    // v1 of a NEW user also syncs the new directory entry (ORW-404 follow-up), so the ordinary per-turn
+    // save under test is v2, in the now-existing directory.
+    store.saveFor("u", snap("a"));
     calls.length = 0;
 
-    store.saveFor("u", snap("a")); // v1 — not a checkpoint boundary
+    store.saveFor("u", snap("b")); // v2 — not a checkpoint boundary
 
-    const rename = calls.findIndex((c) => c.startsWith("rename:") && c.endsWith("v000001.json"));
+    const rename = calls.findIndex((c) => c.startsWith("rename:") && c.endsWith("v000002.json"));
     const fsyncsAfterRename = calls.slice(rename + 1).filter((c) => c === "fsync");
     // sync mode: exactly ONE blocking fsync (the content one, before the rename). background: none.
     expect(calls.filter((c) => c === "fsync")).toHaveLength(mode === "sync" ? 1 : 0);
