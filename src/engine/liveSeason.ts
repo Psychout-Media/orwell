@@ -584,6 +584,8 @@ export interface LiveSeasonState {
    */
   /** ORW-466 (Ryne 2026-11-15): assigned beds - each houseguest's bed and the append-only claim history. A played game only; absent on older saves and headless games. */
   beds?: import("./beds").BedsState;
+  /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
+  houseTheme?: string;
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
   compIntent?: Intent;

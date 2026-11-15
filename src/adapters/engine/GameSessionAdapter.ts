@@ -264,6 +264,7 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
+import { roomLabel, themedRoomAliases } from "../../engine/roomLabels";
 import { BED_RULES, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, spotScore, swapBeds, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
@@ -5632,6 +5633,9 @@ export class GameSessionAdapter implements GameSession {
     this.noteBedChoice(beds, who, roomOfBed(bed), living);
   }
 
+  /** ORW-466 themes: what a room is called this season (its themed name), or the plain label without a theme. */
+  private roomName(room: Room): string { return roomLabel(room, this.live?.houseTheme); }
+
   /** ORW-466: who chose to room with whom is PUBLIC - a player-witnessed house fact (the bags on the beds are there for anyone to see), never the Vault. */
   private noteBedChoice(beds: BedsState, who: EntityId, room: Room, living: ReadonlySet<EntityId>, verb = "claims a bed in"): void {
     const mates = roommatesIn(beds, room, living).filter((m) => m !== who);
@@ -5639,7 +5643,7 @@ export class GameSessionAdapter implements GameSession {
     const pe = this.live?.premiereEntrance;
     const inside = pe && pe.stage === "entrances" ? pe.order.slice(0, pe.arrived) : [...living];
     const witness = [...new Set([PLAYER, who, ...inside.filter((id) => living.has(id))])];
-    this.onPlayerEvent?.(`${this.nameOf(who)} ${verb} ${roomDisplayName(room)}${withWhom}`, witness, "bed-claim");
+    this.onPlayerEvent?.(`${this.nameOf(who)} ${verb} ${this.roomName(room)}${withWhom}`, witness, "bed-claim");
   }
 
   /** ORW-466 slice 2: may the player claim a bed in their own words right now (`BED_RULES.playerClaimWindow`)? Only once they are inside the house. */
@@ -5662,7 +5666,9 @@ export class GameSessionAdapter implements GameSession {
     const beds = this.ensureBeds();
     if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
     const living = new Set(this.livingIds());
-    const rooms = BEDROOM_LAYOUT.map((r) => ({ room: r.room, names: bedroomNames(r.room, roomDisplayName(r.room)) }));
+    const theme = this.live?.houseTheme;
+    const aliases = themedRoomAliases(theme);
+    const rooms = BEDROOM_LAYOUT.map((r) => ({ room: r.room, names: [...new Set([...bedroomNames(r.room, roomDisplayName(r.room)), ...bedroomNames(r.room, roomLabel(r.room, theme)), ...aliases.filter(([, room]) => room === r.room).map(([a]) => a)])] }));
     const people = this.house.npcs.filter((n) => living.has(n.id)).map((n) => ({ id: n.id, names: [n.name, n.name.split(/\s+/)[0]!].filter((x) => x.length >= 2) }));
     const intent = parsePlayerBedIntent(text, rooms, people);
     if (!intent) return false;
@@ -5680,12 +5686,12 @@ export class GameSessionAdapter implements GameSession {
     if (room !== undefined) {
       const prefer = intent.kind === "claim" ? intent.prefer : undefined;
       const mine = beds.owner[PLAYER];
-      if (mine && roomOfBed(mine) === room && !bed && (!prefer || isDoubleSpot(mine) === (prefer === "double"))) { this.playerBedNote = `the player already has their bed in ${roomDisplayName(room)}`; return false; }
+      if (mine && roomOfBed(mine) === room && !bed && (!prefer || isDoubleSpot(mine) === (prefer === "double"))) { this.playerBedNote = `the player already has their bed in ${this.roomName(room)}`; return false; }
       bed ??= freeBedIn(beds, room, living, prefer);
-      if (!bed) { this.playerBedNote = `the player wanted a bed in ${roomDisplayName(room)}, but every spot there is taken (they can ask one of its owners to swap)`; return false; }
+      if (!bed) { this.playerBedNote = `the player wanted a bed in ${this.roomName(room)}, but every spot there is taken (they can ask one of its owners to swap)`; return false; }
       claimBed(beds, PLAYER, bed, day, "move-in", living);
       const mate = bedPartner(beds, PLAYER, living);
-      this.playerBedNote = `the player just claimed ${isDoubleSpot(bed) ? `half of a double${mate ? ` next to ${this.nameOf(mate)}` : ""}` : "a single bed"} in ${roomDisplayName(room)} (engine truth: voice it as theirs)`;
+      this.playerBedNote = `the player just claimed ${isDoubleSpot(bed) ? `half of a double${mate ? ` next to ${this.nameOf(mate)}` : ""}` : "a single bed"} in ${this.roomName(room)} (engine truth: voice it as theirs)`;
       this.noteBedChoice(beds, PLAYER, room, living);
       return true;
     }
@@ -5710,11 +5716,11 @@ export class GameSessionAdapter implements GameSession {
     if (!verdict.accept) {
       this.playerBedNote = verdict.vetoedBy
         ? `the player asked ${this.nameOf(owner)} to swap beds; ${this.nameOf(owner)} was willing, but ${this.nameOf(verdict.vetoedBy)}, who shares that double, said NO`
-        : `the player asked ${this.nameOf(owner)} to swap beds; ${this.nameOf(owner)} said NO and keeps their ${isDoubleSpot(theirBed) ? "half of a double" : "bed"} in ${roomDisplayName(ownRoom)} (engine truth: voice the refusal in their own way)`;
+        : `the player asked ${this.nameOf(owner)} to swap beds; ${this.nameOf(owner)} said NO and keeps their ${isDoubleSpot(theirBed) ? "half of a double" : "bed"} in ${this.roomName(ownRoom)} (engine truth: voice the refusal in their own way)`;
       return false;
     }
     if (!swapBeds(beds, PLAYER, owner, ownerTo, day, living)) return false;
-    this.playerBedNote = `the player asked ${this.nameOf(owner)} to swap beds and ${this.nameOf(owner)} said YES: the player now has ${this.nameOf(owner)}'s bed in ${roomDisplayName(ownRoom)}, and ${this.nameOf(owner)} moved to ${roomDisplayName(newRoom)}`;
+    this.playerBedNote = `the player asked ${this.nameOf(owner)} to swap beds and ${this.nameOf(owner)} said YES: the player now has ${this.nameOf(owner)}'s bed in ${this.roomName(ownRoom)}, and ${this.nameOf(owner)} moved to ${this.roomName(newRoom)}`;
     this.noteBedChoice(beds, owner, newRoom, living, "swaps beds with the player and moves to");
     this.noteBedChoice(beds, PLAYER, ownRoom, living, "takes a bed in");
     return true;
@@ -5735,11 +5741,11 @@ export class GameSessionAdapter implements GameSession {
       const free = freeBeds(beds, living).filter((b) => roomOfBed(b) === spec.room);
       const freeSingles = free.filter((b) => !isDoubleSpot(b)).length;
       const names = who.map((id) => { const p = bedPartner(beds, id, living); return p ? `${label(id)} (sharing a double with ${label(p)})` : label(id); });
-      const room = `${roomDisplayName(spec.room)} (${spec.singles} singles, ${spec.doubles} doubles)`;
+      const room = `${this.roomName(spec.room)} (${spec.singles} singles, ${spec.doubles} doubles)`;
       return `${room}: ${free.length > 0 ? `${free.length} of ${total} spots free (${freeSingles} single${freeSingles === 1 ? "" : "s"}, ${free.length - freeSingles} double ${free.length - freeSingles === 1 ? "half" : "halves"})` : "full"}${names.length ? `; sleeping there: ${names.join(", ")}` : "; nobody yet"}`;
     });
     const mine = beds.owner[PLAYER];
-    const own = mine ? `The player's bed is in ${roomDisplayName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
+    const own = mine ? `The player's bed is in ${this.roomName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
     return `${rooms.join("; ")}. ${own}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
   }
 

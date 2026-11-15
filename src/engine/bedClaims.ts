@@ -162,6 +162,8 @@ export function bedroomNames(room: Room, display: string): string[] {
   return [...new Set([d, room.replace(/-/g, " "), ...(idx ? [`bedroom ${idx}`, `room ${letter}`] : []), ...(ord ? [`${ord} bedroom`] : [])])].filter(Boolean);
 }
 
+/** Lowercase with accents dropped ("Séance" => "seance"), so a themed room name matches however the player types it. */
+const fold = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const findName = (clause: string, name: string): number => {
   const m = new RegExp(`\\b${esc(name)}\\b`).exec(clause);
@@ -184,15 +186,15 @@ export function parsePlayerBedIntent(
   const clauses = unquoted.match(/[^.!;\n]+[.!;\n?]*/g) ?? [];
   let out: PlayerBedIntent | null = null;
   for (const raw of clauses) {
-    const c = ` ${raw.toLowerCase().replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim()} `;
+    const c = ` ${fold(raw).replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim()} `;
     if (!BED_WORD.test(c) || HEDGE.test(c)) continue;
-    const named = people.map((p) => ({ id: p.id, at: Math.max(...p.names.map((n) => findName(c, n.toLowerCase()))), names: p.names })).filter((p) => p.at >= 0);
-    const possessed = named.find((p) => p.names.some((n) => new RegExp(`\\b${esc(n.toLowerCase())}'s\\s+(?:bed|bunk|spot)\\b`).test(c)));
+    const named = people.map((p) => ({ id: p.id, at: Math.max(...p.names.map((n) => findName(c, fold(n)))), names: p.names })).filter((p) => p.at >= 0);
+    const possessed = named.find((p) => p.names.some((n) => new RegExp(`\\b${esc(fold(n))}'s\\s+(?:bed|bunk|spot)\\b`).test(c)));
     if (possessed) { out = { kind: "swap", who: possessed.id }; continue; }
     if (SWAP_VERB.test(c) && named.length > 0) { out = { kind: "swap", who: named[0]!.id }; continue; }
     if (/\?\s*$/.test(raw.trim()) && !/^\s*(?:can|could|may) i (?:take|have|grab|claim)\b/.test(c.trim())) continue; // "is that bed free?" asks, "can I take it?" claims
     if (!CLAIM_VERB.test(c)) continue;
-    const room = rooms.find((r) => r.names.some((n) => findName(c, n) >= 0));
+    const room = rooms.find((r) => r.names.some((n) => findName(c, fold(n)) >= 0));
     const prefer = /\b(?:double|queen|king)\b/.test(c) ? "double" as const : /\bsingle\b/.test(c) ? "single" as const : undefined;
     if (room) { out = { kind: "claim", room: room.room, ...(prefer ? { prefer } : {}) }; continue; }
     const near = named.find((p) => NEAR.test(c.slice(0, p.at)));
