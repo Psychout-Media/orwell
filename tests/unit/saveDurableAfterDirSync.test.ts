@@ -81,3 +81,54 @@ describe("background save: the durable marker waits for the directory fsync", ()
     expect(Number(/, (\d+) unsynced/.exec(last)![1])).toBeGreaterThan(1050);
   });
 });
+
+describe("sync mode retries an owed directory sync on every save (follow-up to #2768, M2)", () => {
+  it("the first directory fsync fails, then succeeds: the marker stays put until the retry succeeds, then covers every save", () => {
+    let calls = 0;
+    let failFirst = true;
+    const store = new FileSaveStore(tmp(), {
+      fsyncMode: "sync", onError: () => {},
+      syncDirSync: () => { calls++; if (failFirst) { failFirst = false; throw Object.assign(new Error("EIO"), { code: "EIO" }); } },
+    });
+    store.saveFor("u", snap(1)); // new directory: dir sync fails (parent skipped? both attempted)
+    expect(store.durability().saveDurableVersion).toBe(0);
+    store.saveFor("u", snap(2)); // the owed directory is retried here, once
+    expect(store.durability().saveDurableVersion).toBe(2);
+    expect(calls).toBeGreaterThanOrEqual(3);
+  });
+
+  it("while every directory fsync keeps failing the marker never advances, with one attempt per owed directory per save", () => {
+    let calls = 0;
+    const store = new FileSaveStore(tmp(), {
+      fsyncMode: "sync", onError: () => {},
+      syncDirSync: () => { calls++; throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+    });
+    for (let i = 1; i <= 10; i++) store.saveFor("u", snap(i));
+    expect(store.durability().saveDurableVersion).toBe(0);
+    expect(calls).toBeGreaterThanOrEqual(10);
+    expect(calls).toBeLessThanOrEqual(30);
+  });
+});
+
+describe("a permanently failing directory fsync logs a rate-limited line (follow-up to #2768, M1)", () => {
+  it("logs the first failure, then at most one line per minute with a count", async () => {
+    let t = 0;
+    const lines: string[] = [];
+    const store = new FileSaveStore(tmp(), {
+      fsyncMode: "background", syncFile: async () => {}, nowMs: () => t, backlogAlarmMs: 1e12,
+      onError: (m: string) => { lines.push(m); },
+      syncDir: async () => { throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+    });
+    const dirLines = () => lines.filter((l) => l.includes("dirsync") || l.includes("parentsync"));
+    for (let i = 1; i <= 20; i++) { store.saveFor("u", snap(i)); await settle(); t += 100; }
+    expect(dirLines().length).toBeGreaterThanOrEqual(1);
+    expect(dirLines().length).toBeLessThanOrEqual(2); // dirsync + parentsync, first time only
+    const before = dirLines().length;
+    t += 61_000;
+    store.saveFor("u", snap(21)); await settle();
+    const after = dirLines();
+    expect(after.length).toBeGreaterThan(before);
+    expect(after.length).toBeLessThanOrEqual(before + 2);
+    expect(after[after.length - 1]).toMatch(/\d+ more since/);
+  });
+});

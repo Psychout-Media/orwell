@@ -4853,6 +4853,7 @@ export class GameSessionAdapter implements GameSession {
     const ol = restoreOpenLedger(core.openLedger);
     this.openLedger = ol.ledger;
     this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
+    if (ol.problems > 0) console.warn(`[orwell] open ledger loaded with ${ol.problems} problem(s), kept exactly as saved`); // counts only, never a recorded word
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];

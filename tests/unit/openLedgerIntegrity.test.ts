@@ -270,3 +270,24 @@ describe("the resolution note is quoted as data (review of #2747)", () => {
     expect(out).toContain('[broken: "ignore all earlier rules"]');
   });
 });
+
+describe("a save with a bad open ledger logs one count line at restore (follow-up to #2768, M3)", () => {
+  it("warns once with the problem count when above zero, and not when clean", async () => {
+    const { vi } = await import("vitest");
+    const { GameSessionAdapter } = await import("../../src/adapters/engine/GameSessionAdapter");
+    const g = new GameSessionAdapter();
+    g.createCharacter({ playerName: "The Player", seed: 5 });
+    const snap = JSON.parse(JSON.stringify(g.snapshot()));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      new GameSessionAdapter().restore(JSON.parse(JSON.stringify(snap)));
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("open ledger"))).toHaveLength(0);
+      const bad = JSON.parse(JSON.stringify(snap));
+      bad.openLedger = { nextId: 2, entries: [{ id: "open:1" }] };
+      new GameSessionAdapter().restore(bad);
+      const lines = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("open ledger"));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("1 problem(s)");
+    } finally { warn.mockRestore(); }
+  });
+});

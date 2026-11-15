@@ -23,6 +23,10 @@ export interface ShutdownOptions {
    * so the flush sees every save those requests made. May never settle.
    */
   drain?: () => Promise<void>;
+  /** What is still running (tool-call requests and queued jobs); read after the drain so a timed-out drain can say so. */
+  pending?: () => { requests: number; jobs: number };
+  /** One-line logger for shutdown notices. Default console.error. No player text. */
+  log?: (line: string) => void;
   /** Bound on the drain (ms). Default 5 000. */
   drainMs?: number;
   /** Non-blocking flush of un-synced saves; may never settle. */
@@ -62,6 +66,13 @@ export function createShutdown(opts: ShutdownOptions): () => Promise<void> {
           ]);
         } catch { /* never block exit */ }
         if (t) clearTimeout(t);
+        // Review of #2768 (M3): a drain that timed out with work still running says so; those saves may be missing.
+        try {
+          const p = opts.pending?.();
+          if (p && (p.requests > 0 || p.jobs > 0)) {
+            (opts.log ?? ((l: string) => console.error(l)))(`[orwell] shutdown drain timed out with ${p.jobs} job(s) and ${p.requests} request(s) still in flight; their saves may be missing`);
+          }
+        } catch { /* a notice never blocks exit */ }
       }
       try { await opts.flush(); } catch { /* never block exit */ }
       clearTimeout(timer);
