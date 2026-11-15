@@ -220,7 +220,7 @@ describe("slice 2: resolution", () => {
     const e = (g as unknown as Priv).openLedger.entries[0]!;
     expect(e).toMatchObject({ status: "broken", note: "she nominated the player anyway" });
     expect(typeof e.resolvedTurn).toBe("number");
-    expect(briefText(g)).toContain("[broken: she nominated the player anyway]");
+    expect(briefText(g)).toContain('[broken: "she nominated the player anyway"]') // the note is quoted as data (review of #2747);
     expect(g.openLedgerHere()).toEqual([]);
     expect(g.resolveOpenLedger({ entryId: id, status: "kept", note: "x" }).reason).toBe("already-resolved");
     expect(g.resolveOpenLedger({ entryId: "open:99", status: "kept", note: "x" }).reason).toBe("unknown");

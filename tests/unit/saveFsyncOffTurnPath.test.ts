@@ -347,7 +347,7 @@ describe("ORW-404 — failures inside the sync handlers", () => {
     } finally { process.off("unhandledRejection", onRej); }
   });
 
-  it("a directory fsync failure still marks the file durable and the directory sync is retried with the next save", async () => {
+  it("a directory fsync failure leaves the marker on the previous save (review of #2747) and the directory sync is retried with the next save", async () => {
     const dir = tmp();
     const errors: string[] = [];
     const dirCalls: string[] = [];
@@ -362,11 +362,12 @@ describe("ORW-404 — failures inside the sync handlers", () => {
     store.saveFor("u", snap(50)); // checkpoint: file sync then directory sync
     await settle();
     expect(dirCalls).toHaveLength(1);
-    expect(store.durability().saveDurableVersion, "the file is durable even though the directory sync failed").toBe(50);
+    expect(store.durability().saveDurableVersion, "not durable while its directory entry failed to sync").toBe(49);
     expect(errors.some((l) => l.includes("save.dirsync"))).toBe(true);
     store.saveFor("u", snap(51));
     await settle();
     expect(dirCalls, "retried with the next save").toHaveLength(2);
+    expect(store.durability().saveDurableVersion, "durable once the retried directory sync succeeded").toBe(51);
   });
 });
 

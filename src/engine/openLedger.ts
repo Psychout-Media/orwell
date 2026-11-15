@@ -116,7 +116,7 @@ export function recordOpenEntry(
   // An entry resolved a moment ago is still shown in the brief, so the narrator may repeat it word for word: that is a
   // recap, not a new statement. It counts as a duplicate for as long as the brief shows it; after that, saying it again is new.
   const recent = (e: OpenLedgerEntry): boolean =>
-    e.status !== "open" && typeof e.resolvedTurn === "number" && ctx.beatSeq - e.resolvedTurn <= OPEN_LEDGER_RESOLVED_BRIEF_BEATS;
+    e.status !== "open" && typeof e.resolvedTurn === "number" && ctx.beatSeq >= e.resolvedTurn && ctx.beatSeq - e.resolvedTurn <= OPEN_LEDGER_RESOLVED_BRIEF_BEATS;
   const dup = ledger.entries.find((e) => (e.status === "open" || recent(e)) && e.speaker === p.speaker && dupKey(e.speaker, partiesOf(e), e.text) === quoteHash);
   if (dup) return { ledger, outcome: "duplicate", id: dup.id };
   const openCount = ledger.entries.reduce((n, e) => n + (e.status === "open" ? 1 : 0), 0);
@@ -139,7 +139,7 @@ export function openLedgerRelevant(ledger: OpenLedger, hereIds: readonly string[
   const here = new Set(hereIds.filter((id) => id !== OPEN_LEDGER_PLAYER));
   const hits: Array<{ e: OpenLedgerEntry; here: string[]; i: number }> = [];
   ledger.entries.forEach((e, i) => {
-    if (e.status !== "open" && nowTurn !== undefined && !(typeof e.resolvedTurn === "number" && nowTurn - e.resolvedTurn <= OPEN_LEDGER_RESOLVED_BRIEF_BEATS)) return;
+    if (e.status !== "open" && nowTurn !== undefined && !(typeof e.resolvedTurn === "number" && nowTurn >= e.resolvedTurn && nowTurn - e.resolvedTurn <= OPEN_LEDGER_RESOLVED_BRIEF_BEATS)) return;
     const ids = [...partiesOf(e), ...(e.about ? [e.about] : [])].filter((id) => here.has(id));
     const unique = [...new Set(ids)];
     if (unique.length) hits.push({ e, here: unique, i });
@@ -188,7 +188,7 @@ export function openLedgerSection(
     const group = partiesOf(e).filter((id) => id !== e.speaker);
     const everyone = partiesOf(e);
     const plain = !e.about && !e.parties?.length && everyone.length === 2 && everyone.includes(OPEN_LEDGER_PLAYER);
-    const status = e.status === "open" ? "" : ` [${e.status}${e.note ? `: ${inline(e.note, true)}` : ""}]`;
+    const status = e.status === "open" ? "" : ` [${e.status}${e.note ? `: ${quoted(inline(e.note, true))}` : ""}]`;
     const unheard = unheardClause(e, hereIds, label);
     const kind = inline(e.kind) || "claim";
     if (plain) {
@@ -225,8 +225,9 @@ const STATUSES: readonly string[] = ["open", ...OPEN_LEDGER_RESOLUTIONS];
 
 /**
  * A saved entry is accepted only when every field it carries has its declared type (a `parties: {}` or a
- * non-string `about` used to pass and then threw inside `partiesOf` on the next brief). Fields a slice-1 save
- * never had (parties, about, note, resolvedTurn, and a missing status) stay optional, so an old save loads.
+ * non-string `about` used to pass and then threw inside `partiesOf` on the next brief). kind, room, turn and beatSeq
+ * are required (every slice-1 entry carried them). Fields a slice-1 save never had (parties, about, note,
+ * resolvedTurn, and a missing status) stay optional, so an old save loads.
  */
 function validEntry(e: unknown): e is OpenLedgerEntry {
   if (!e || typeof e !== "object" || Array.isArray(e)) return false;
@@ -236,7 +237,7 @@ function validEntry(e: unknown): e is OpenLedgerEntry {
     && typeof x.quoteHash === "string" && isStrings(x.witnesses)
     && (x.parties === undefined || isStrings(x.parties))
     && opt("about", "string") && opt("note", "string") && opt("resolvedTurn", "number")
-    && opt("kind", "string") && opt("room", "string") && opt("turn", "number") && opt("beatSeq", "number")
+    && typeof x.kind === "string" && typeof x.room === "string" && typeof x.turn === "number" && typeof x.beatSeq === "number"
     && (x.status === undefined || (typeof x.status === "string" && STATUSES.includes(x.status)));
 }
 
@@ -265,11 +266,17 @@ const IMMUTABLE_FIELDS = ["text", "speaker", "addressedTo", "kind", "turn", "bea
  * (kept, broken or withdrawn, with its note and turn). A resolved entry stays exactly as it was resolved.
  */
 export function openLedgerSuperset(earlier: OpenLedger, later: OpenLedger): boolean {
-  const byId = new Map(later.entries.map((e) => [e.id, e] as const));
+  const byId = new Map(later.entries.map((e, i) => [e.id, { e, i }] as const));
+  let lastAt = -1;
   return later.nextId >= earlier.nextId && earlier.entries.every((e) => {
-    const l = byId.get(e.id);
-    if (!l || !IMMUTABLE_FIELDS.every((k) => same(e[k], l[k]))) return false;
-    if (e.status !== "open") return l.status === e.status && same(e.note, l.note) && same(e.resolvedTurn, l.resolvedTurn);
+    const hit = byId.get(e.id);
+    if (!hit) return false;
+    const l = hit.e;
+    if (hit.i <= lastAt) return false; // the earlier entries keep their order: it decides the recency ranking in the brief
+    lastAt = hit.i;
+    if (!IMMUTABLE_FIELDS.every((k) => same(e[k], l[k]))) return false;
+    // A resolved entry stays as resolved; an entry still open carries no note or turn (only a resolution may add them).
+    if (e.status !== "open" || l.status === "open") return l.status === e.status && same(e.note, l.note) && same(e.resolvedTurn, l.resolvedTurn);
     return true;
   });
 }

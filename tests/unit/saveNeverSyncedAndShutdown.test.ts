@@ -202,11 +202,11 @@ describe("ORW-404 — durability backlog alarm and /health shape", () => {
 
 describe("review of #2732 — a checkpoint is not durable until its directory fsync succeeded", () => {
   const CP = 50;
-  const mk = (extra: Record<string, unknown>) => {
+  const mk = (extra: NonNullable<ConstructorParameters<typeof FileSaveStore>[1]>) => {
     const dir = tmp();
     const store = new FileSaveStore(dir, {
       fsyncMode: "background", syncFile: async () => {}, syncFileSync: () => {}, onError: () => {}, ...extra,
-    } as never);
+    });
     return { dir, store };
   };
 
@@ -270,16 +270,18 @@ describe("review of #2732 — a failing directory fsync for one user never stops
       const dir = tmp();
       const errors: string[] = [];
       const synced: string[] = [];
+      // Async mode: the background syncs stall until `flushing` is set, so ONLY flushDurableAsync (never the sync flush) can sync "good".
+      let flushing = false;
       const store = new FileSaveStore(dir, {
         fsyncMode: "background", syncFile: (p: string) => new Promise<void>(() => { void p; }), syncFileSync: (p: string) => { synced.push(p); },
         syncDir: async (p: string) => { if (p.includes(hex("bad"))) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
         syncDirSync: (p: string) => { if (p.includes(hex("bad"))) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
         onError: (m: string) => errors.push(m),
-        ...(mode === "async" ? { syncFile: async (p: string) => { synced.push(p); } } : {}),
-      } as never);
+        ...(mode === "async" ? { syncFile: (p: string) => (flushing ? (synced.push(p), Promise.resolve()) : new Promise<void>(() => {})) } : {}),
+      });
       for (let i = 1; i <= 50; i++) store.saveFor("bad", snap(i));
       for (let i = 1; i <= 50; i++) store.saveFor("good", snap(i));
-      if (mode === "sync") store.flushDurable(); else { await settle(); store.flushDurable(); await store.flushDurableAsync(1000); }
+      if (mode === "sync") store.flushDurable(); else { await settle(); flushing = true; await store.flushDurableAsync(300); }
       expect(synced.some((p) => p.includes(hex("good")))).toBe(true); // the other user was still flushed
       expect(errors.some((m) => m.includes("save.flush failed") || m.includes("dirsync failed"))).toBe(true);
       resetSaveSyncLimiterForTests();
@@ -289,10 +291,11 @@ describe("review of #2732 — a failing directory fsync for one user never stops
 
 describe("review of #2732 — unsynced tracking is bounded under a long stall", () => {
   it("1500 saves behind a stalled fsync keep the oldest age and a bounded list", () => {
-    const store = new FileSaveStore(tmp(), { fsyncMode: "background", syncFile: () => new Promise<void>(() => {}), syncDir: async () => {}, onError: () => {} } as never);
+    const store = new FileSaveStore(tmp(), { fsyncMode: "background", syncFile: () => new Promise<void>(() => {}), syncDir: async () => {}, onError: () => {} });
     for (let i = 1; i <= 1500; i++) store.saveFor("u", snap(i));
-    const st = (store as unknown as { states: Map<string, { unsynced: unknown[] }> }).states.values().next().value!;
+    const st = (store as unknown as { states: Map<string, { unsynced: { v: number }[] }> }).states.values().next().value!;
     expect(st.unsynced.length).toBeLessThanOrEqual(1000);
+    expect(st.unsynced[0], "the oldest entry (backlog age) is kept").toMatchObject({ v: 1 });
     expect(store.durability().saveUnsyncedUsers).toBe(1);
   });
 });
