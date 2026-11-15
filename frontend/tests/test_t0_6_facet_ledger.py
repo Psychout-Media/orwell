@@ -306,6 +306,46 @@ def test_transactional_guard_adopts_the_regenerate_when_it_lands_clean():
         "city taught them something new about performing for a crowd.")
 
 
+# ── ORW-464: a state per slot, distinct across the cast, on its own side stream ──────────────────
+
+def test_every_slot_gets_a_state_inside_its_region_and_a_cast_never_repeats_one():
+    for seed in range(60):
+        ledger = L.mint_facet_ledger(seed, 15)
+        states = [h["state"] for h in ledger]
+        assert all(h["state"] in L.REGION_STATES[h["region"]] for h in ledger), seed
+        assert len(set(states)) == 15, (seed, states)
+
+
+def test_dealing_the_state_moves_no_other_dealt_value():
+    import hashlib
+    import json
+    h = hashlib.sha256()
+    for seed in (1, 2, 3, 77, 2026, 4242):
+        for hand in L.mint_facet_ledger(seed, 15):
+            h.update(json.dumps({k: v for k, v in hand.items() if k not in ("state", "jobExamples")}, sort_keys=True).encode())
+    assert h.hexdigest() == "f821b75007415c00593bdc333ad2fca75ada950738ca8ec6ed5182323226df89"  # equal to the hash over the same hands on main
+
+
+def test_the_hand_names_the_state_and_the_taken_list_names_the_states_in_play():
+    ledger = L.mint_facet_ledger(5, 15)
+    assert f"in {ledger[0]['state']} ({ledger[0]['region']})" in L.render_hand(ledger[0])
+    taken = L.render_taken(ledger, exclude_index=0)
+    assert "home states taken:" in taken and ledger[0]["state"] not in taken.split("home states taken:")[1].split(".")[0]
+
+
+def test_a_card_that_already_has_a_hometown_gets_no_dealt_hometown_clause():
+    from src import orwell_cast_authoring as ca
+    ledger = L.mint_facet_ledger(5, 15)
+    hand = ledger[0]
+    assert "hometown:" in L.render_hand(hand) and "hometown:" not in L.render_hand(hand, hometown=False)
+    base = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30, "vocation": "welder"}
+    with_town = ca.build_authoring_messages({**base, "hometown": "Macon, Georgia"}, hand=hand)[-1]["content"]
+    without = ca.build_authoring_messages(base, hand=hand)[-1]["content"]
+    assert "hometown: " + hand["townSize"] not in with_town and "vocation family:" in with_town
+    assert "hometown: " + hand["townSize"] in without
+
+
+
 # ── ORW-480: three ordinary example jobs per slot, inside the family, distinct across the cast, on their own side stream ──
 
 def test_every_slot_gets_three_distinct_example_jobs_inside_its_family_and_no_other_value_moves():
@@ -318,7 +358,7 @@ def test_every_slot_gets_three_distinct_example_jobs_inside_its_family_and_no_ot
         assert len(examples) == len(set(examples)) and all(len(hand["jobExamples"]) == 3 for hand in ledger if hand["vocationFamily"] in L.FAMILY_JOBS)  # an outlier family has none
         assert all(set(hand["jobExamples"]) <= set(L.FAMILY_JOBS[hand["vocationFamily"]]) for hand in ledger if hand["vocationFamily"] in L.FAMILY_JOBS)
         for hand in ledger:
-            h.update(json.dumps({k: v for k, v in hand.items() if k != "jobExamples"}, sort_keys=True).encode())
+            h.update(json.dumps({k: v for k, v in hand.items() if k not in ("state", "jobExamples")}, sort_keys=True).encode())
     assert h.hexdigest() == "f821b75007415c00593bdc333ad2fca75ada950738ca8ec6ed5182323226df89"  # equal to the hash over the same hands on main
 
 
