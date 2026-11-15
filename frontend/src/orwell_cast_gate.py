@@ -100,8 +100,27 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
     return done
 
 
+_IRREGULAR_PLURAL = {"is": "are", "has": "have", "does": "do", "goes": "go", "was": "were"}
+
+
+def plural_verb(v: str):
+    """The plural form of a third-person singular verb ("stands" -> "stand"), or None when it cannot be done safely."""
+    w = v.lower()
+    if w in _IRREGULAR_PLURAL:
+        return _IRREGULAR_PLURAL[w]
+    if not re.fullmatch(r"[a-z]+s", w) or re.search(r"(?:ss|us|ous|ics)$", w) or len(w) < 4:
+        return None
+    if re.search(r"[^aeiou]ies$", w):
+        return w[:-3] + "y"
+    if re.search(r"(?:ch|sh|x|z|ss|o)es$", w):
+        return w[:-2]
+    return w[:-1]
+
+
 def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
-    """The card's own first name never rides in the on-camera line (it reaches the image provider): it becomes the pronoun."""
+    """The card's own first name never rides in the on-camera line (it reaches the image provider): it becomes the pronoun
+    (the possessive for "Name's"). For a they/them card the verb after it is made plural ("they stand"), or the safe wording
+    "the houseguest" is used when it cannot be."""
     phys = (profile or {}).get("physicalCharacteristics")
     cam = phys.get("onCamera") if isinstance(phys, dict) else None
     first = str((npc or {}).get("name") or "").split(" ")[0]
@@ -109,15 +128,35 @@ def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
         return False
     pin = str((npc or {}).get("genderPresentation") or "").lower()
     subj, poss = {"man": ("he", "his"), "woman": ("she", "her")}.get(pin, ("they", "their"))
+    plural = subj == "they"
     esc = re.escape(first)
-    new = re.sub(r"\b%s(?:'s|\u2019s)\b" % esc, poss, cam)
-    new = re.sub(r"(^|[.!?]\s+)%s\b" % esc, lambda m: m.group(1) + subj.capitalize(), new)
-    new = re.sub(r"\b%s\b" % esc, subj, new)
-    if new == cam:
+    out = re.sub(r"\b%s(?:'s|\u2019s)(?![^\W\d_])" % esc, poss, cam)
+    pat = re.compile(r"\b%s(?![^\W_-])" % esc)
+    for _ in range(20):
+        m = pat.search(out)
+        if not m:
+            break
+        head, rest = out[:m.start()], out[m.end():]
+        initial = head.strip() == "" or re.search(r"[.!?]\s+$", head) is not None
+        if not plural:
+            word = subj.capitalize() if initial else subj
+        else:
+            vm = re.match(r"^(\s+)((?:[A-Za-z]+ly\s+)?)([A-Za-z]+)", rest)
+            if vm is None:
+                word = "They" if initial else "they"
+            else:
+                pv = plural_verb(vm.group(3))
+                if pv is None:
+                    word = "The houseguest" if initial else "the houseguest"
+                else:
+                    word = "They" if initial else "they"
+                    rest = vm.group(1) + vm.group(2) + pv + rest[vm.end():]
+        out = head + word + rest
+    if out == cam:
         return False
-    if new[:1].islower():
-        new = new[:1].upper() + new[1:]
-    phys["onCamera"] = new
+    if out[:1].islower():
+        out = out[:1].upper() + out[1:]
+    phys["onCamera"] = out
     return True
 
 

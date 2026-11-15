@@ -194,8 +194,29 @@ function spotOf(onCamera: string): string | undefined {
 }
 
 /** A word run that already carries its own grammatical subject: ", she stands", ". He grins", "; her gaze stays". */
-const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:he|she|they|his|her|their)\s+[a-z]+/i;
+const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:he|she|they|his|her|their|the houseguest)\s+[a-z]+/i;
 const OPENS_WITH_SPOT_RE = /^(?:kitchen|living room|dining room|backyard|lounge|bedroom)\b/i;
+
+/** The plural form of a third-person singular verb ("stands" to "stand"), or undefined when it cannot be done safely. */
+export function pluralVerb(v: string): string | undefined {
+  const w = v.toLowerCase();
+  const irregular: Record<string, string> = { is: "are", has: "have", does: "do", goes: "go", was: "were" };
+  if (irregular[w] !== undefined) return irregular[w];
+  if (!/^[a-z]+s$/.test(w) || /(?:ss|us|ous|ics)$/.test(w) || w.length < 4) return undefined;
+  if (/[^aeiou]ies$/.test(w)) return w.slice(0, -3) + "y";
+  if (/(?:ch|sh|x|z|ss|o)es$/.test(w)) return w.slice(0, -2);
+  return w.slice(0, -1);
+}
+
+/** After a "they" that stands where a name was, the verb must agree ("they stand"); else the safe wording "the houseguest". */
+function theyThenVerb(rest: string): { text: string; ok: boolean } {
+  const m = /^(\s+)((?:[A-Za-z]+ly\s+)?)([A-Za-z]+)/.exec(rest);
+  if (m === null) return { text: rest, ok: true }; // "they," or "they." or end of text: nothing to agree
+  const pv = pluralVerb(m[3]!);
+  if (pv === undefined) return { text: rest, ok: false };
+  const keep = /^[A-Z]/.test(m[3]!) ? pv[0]!.toUpperCase() + pv.slice(1) : pv;
+  return { text: m[1]! + m[2]! + keep + rest.slice(m[0].length), ok: true };
+}
 
 /** The houseguest's own first name never reaches the image provider: it becomes the pronoun (or the possessive). */
 function dropOwnName(t: string, ownName: string | undefined, subj: string): string {
@@ -203,10 +224,22 @@ function dropOwnName(t: string, ownName: string | undefined, subj: string): stri
   if (first === "") return t;
   const esc = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const poss = subj === "He" ? "his" : subj === "She" ? "her" : "their";
-  return t
-    .replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, "gu"), poss)
-    .replace(new RegExp(`(^|[.!?]\\s+)${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (_m, pre: string) => `${pre}${subj}`)
-    .replace(new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, "gu"), subj.toLowerCase());
+  const plural = subj === "They";
+  let out = t.replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, "gu"), poss);
+  const re = new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, "u");
+  for (let guard = 0, m = re.exec(out); m !== null && guard < 20; guard++, m = re.exec(out)) {
+    const head = out.slice(0, m.index);
+    const initial = head.trim() === "" || /[.!?]\s+$/.test(head);
+    let rest = out.slice(m.index + m[0].length);
+    let word: string;
+    if (!plural) word = initial ? subj : subj.toLowerCase();
+    else {
+      const r = theyThenVerb(rest);
+      if (r.ok) { word = initial ? "They" : "they"; rest = r.text; } else word = initial ? "The houseguest" : "the houseguest";
+    }
+    out = head + word + rest;
+  }
+  return out;
 }
 
 /**
@@ -219,7 +252,7 @@ function dropOwnName(t: string, ownName: string | undefined, subj: string): stri
 function momentSentence(onCamera: string, subj: string, plural: boolean, ownName?: string): string {
   const t = dropOwnName(onCamera.trim(), ownName, subj);
   const be = plural ? "are" : "is";
-  if (/^(?:he|she|they|his|her|their)\b/i.test(t)) return sentence(upperFirst(t));
+  if (/^(?:he|she|they|his|her|their|the houseguest)\b/i.test(t)) return sentence(upperFirst(t));
   if (OWN_SUBJECT_RE.test(t)) return sentence(upperFirst(t));
   if (OPENS_WITH_SPOT_RE.test(t)) return sentence(`${subj} ${be} in the ${lowerFirst(t)}`);
   if (/^[A-Za-z-]+ing\b/.test(t) || /^(?:on|in|at|by|near|beside|against|under|over|inside|outside|behind|with)\b/i.test(t)) {

@@ -65,3 +65,21 @@ def test_the_gate_replaces_the_own_name_in_the_oncamera_line_with_the_pronoun():
         codes = gate.mend(prof, npc, [npc])
         assert prof["physicalCharacteristics"]["onCamera"] == want
         assert ("oncamera-name" in codes) == (cam != want)
+
+
+def test_a_they_card_gets_a_plural_verb_after_the_pronoun_or_the_safe_wording():
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "nonbinary", "age": 30}
+    cases = [
+        ("Namea stands in the kitchen, one hand flat on the counter.", "They stand in the kitchen, one hand flat on the counter."),
+        ("With a slow grin, Namea leans on the counter in the kitchen.", "With a slow grin, they lean on the counter in the kitchen."),
+        ("Namea is in the backyard, hands in pockets.", "They are in the backyard, hands in pockets."),
+        ("Namea quietly watches the room from the lounge.", "They quietly watch the room from the lounge."),
+        ("Namea carries a mug into the kitchen.", "They carry a mug into the kitchen."),
+        ("Namea has a mug in hand at the kitchen island.", "They have a mug in hand at the kitchen island."),
+        ("Namea sat at the kitchen island, chin lifted.", "The houseguest sat at the kitchen island, chin lifted."),
+        ("Namea's gaze stays level in the kitchen.", "Their gaze stays level in the kitchen."),
+    ]
+    for cam, want in cases:
+        prof = {"physicalCharacteristics": {"onCamera": cam}}
+        gate.mend(prof, npc, [npc])
+        assert prof["physicalCharacteristics"]["onCamera"] == want, cam

@@ -36,3 +36,26 @@ describe("ORW-441 momentSentence", () => {
     expect(moment("man", "Leaning on the counter in the kitchen.")).toContain("He is leaning on the counter in the kitchen.");
   });
 });
+
+describe("ORW-441 a they/them card: the verb after the pronoun agrees (review of #2781)", () => {
+  const nb = (cam: string): string => moment("nonbinary", cam);
+  it("the live nonbinary line and five more conjugate or fall back safely", () => {
+    expect(nb("Namea stands in the kitchen, one hand flat on the counter, the one who misses nothing.")).toContain("They stand in the kitchen");
+    expect(nb("With a slow grin, Namea leans on the counter in the kitchen.")).toContain("they lean on the counter");
+    expect(nb("Namea is in the backyard, hands in pockets.")).toContain("They are in the backyard");
+    expect(nb("Namea quietly watches the room from the lounge, chin lifted.")).toContain("They quietly watch the room");
+    expect(nb("Namea carries a mug into the kitchen, gaze level.")).toContain("They carry a mug");
+    expect(nb("Namea has a mug in hand at the kitchen island.")).toContain("They have a mug");
+    expect(nb("Namea's gaze stays level, one hand on a mug in the kitchen.")).toContain("Their gaze stays level");
+  });
+  it("falls back to 'the houseguest' when the verb cannot be conjugated safely", () => {
+    const t = nb("Namea, arms folded, in the kitchen, gaze level on the lens.");
+    expect(t).not.toMatch(/\bThey (?:is|stands|grins|leans)\b/);
+    const u = nb("Namea sat at the kitchen island, chin lifted.");
+    expect(u).toContain("The houseguest sat at the kitchen island");
+  });
+  it("he and she cards are unchanged by the plural handling", () => {
+    expect(moment("man", "Namea stands in the kitchen, arms folded.")).toContain("He stands in the kitchen");
+    expect(moment("woman", "With a grin, Namea leans on the counter in the kitchen.")).toContain("she leans on the counter");
+  });
+});
