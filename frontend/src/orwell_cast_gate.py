@@ -95,7 +95,30 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
     done = list(A.repair_story(profile, npc, cast))
+    if _drop_name_from_oncamera(profile, npc):
+        done.append("oncamera-name")
     return done
+
+
+def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
+    """The card's own first name never rides in the on-camera line (it reaches the image provider): it becomes the pronoun."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    cam = phys.get("onCamera") if isinstance(phys, dict) else None
+    first = str((npc or {}).get("name") or "").split(" ")[0]
+    if not (isinstance(cam, str) and first and re.search(r"\b%s\b" % re.escape(first), cam)):
+        return False
+    pin = str((npc or {}).get("genderPresentation") or "").lower()
+    subj, poss = {"man": ("he", "his"), "woman": ("she", "her")}.get(pin, ("they", "their"))
+    esc = re.escape(first)
+    new = re.sub(r"\b%s(?:'s|\u2019s)\b" % esc, poss, cam)
+    new = re.sub(r"(^|[.!?]\s+)%s\b" % esc, lambda m: m.group(1) + subj.capitalize(), new)
+    new = re.sub(r"\b%s\b" % esc, subj, new)
+    if new == cam:
+        return False
+    if new[:1].islower():
+        new = new[:1].upper() + new[1:]
+    phys["onCamera"] = new
+    return True
 
 
 # TWO TIERS (Kevin's coordinator, 2026-11-15). A season must never wait on a non-blocking code.
@@ -181,7 +204,7 @@ class SeasonGate:
                "subject": _subject(bio, card, cast),
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
-               "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:2]),
+               "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:3]),
                "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):

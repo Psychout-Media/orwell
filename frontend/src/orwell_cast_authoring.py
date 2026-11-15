@@ -83,7 +83,7 @@ PHOTO_SHEET_RULES = (
     + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
     "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
     "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
-    "or the way an OPENING PATTERN line in the prompt says. "
+    "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
 )
@@ -113,7 +113,7 @@ _SYSTEM = (
     "gibberish.\n"
     '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
     "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card; "
-    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one),\n"
+    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; do not put the person's name in it, and make it one complete phrase that reads as a sentence),\n"
     '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "

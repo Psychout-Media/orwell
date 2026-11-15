@@ -26,9 +26,9 @@ def _msg(taken):
 
 def test_the_user_prompt_carries_the_slot_pattern_and_the_openings_already_used():
     text = _msg({"vocations": [], "hometowns": [], "openings": ca.opening_pattern(2),
-                 "phrases": {"oncamera_openings": ["he stands", "she leans"], "identity_openers": ["a 21"]}})
+                 "phrases": {"oncamera_openings": ["he stands in", "she leans on"], "identity_openers": ["a 21"]}})
     assert "OPENING PATTERN for this card: identityConcept opens with where they come from" in text
-    assert "onCamera lines already open: he stands | she leans" in text and "identity lines already open: a 21" in text
+    assert "onCamera lines already open: he stands in | she leans on" in text and "identity lines already open: a 21" in text
 
 
 def test_a_prompt_without_the_new_taken_keys_is_unchanged():
@@ -42,4 +42,26 @@ def test_the_gate_reports_the_oncamera_openings_taken():
     prof = {"biography": "Namea welds boats and keeps lists of everything. He sleeps badly on Sundays.", "identityConcept": "Namea welds.",
             "physicalCharacteristics": {"onCamera": "He stands in the kitchen, arms folded."}}
     g.accept("npc:1", prof, npc, [npc])
-    assert g.taken_phrases("npc:2")["oncamera_openings"] == ["he stands"]
+    assert g.taken_phrases("npc:2")["oncamera_openings"] == ["he stands in"]
+
+
+def test_the_prompts_forbid_the_name_in_the_oncamera_and_identity_lines():
+    assert "Never use the houseguest's name in the onCamera line" in ca.PHOTO_SHEET_RULES
+    assert "do not put the person's name in it" in ca._SYSTEM
+
+
+def _card(cam):
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "woman", "age": 30}
+    prof = {"physicalCharacteristics": {"onCamera": cam}}
+    return npc, prof
+
+
+def test_the_gate_replaces_the_own_name_in_the_oncamera_line_with_the_pronoun():
+    for cam, want in (("With a knowing half-smile, Namea stands in the kitchen, hands in her pockets.", "With a knowing half-smile, she stands in the kitchen, hands in her pockets."),
+                      ("Namea leans on the counter in the kitchen.", "She leans on the counter in the kitchen."),
+                      ("Namea's gaze stays level in the kitchen.", "Her gaze stays level in the kitchen."),
+                      ("She stands in the kitchen.", "She stands in the kitchen.")):
+        npc, prof = _card(cam)
+        codes = gate.mend(prof, npc, [npc])
+        assert prof["physicalCharacteristics"]["onCamera"] == want
+        assert ("oncamera-name" in codes) == (cam != want)

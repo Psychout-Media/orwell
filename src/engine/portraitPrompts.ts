@@ -193,14 +193,39 @@ function spotOf(onCamera: string): string | undefined {
   return best?.name;
 }
 
-/** Make the moment a sentence with a subject: a line that opens with an -ing word or a place gets "He is" (or "They are") in front. */
-function momentSentence(onCamera: string, subj: string, plural: boolean): string {
-  const t = onCamera.trim();
-  if (/^(?:he|she|they|his|her|their)\b/i.test(t)) return sentence(t);
+/** A word run that already carries its own grammatical subject: ", she stands", ". He grins", "; her gaze stays". */
+const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:he|she|they|his|her|their)\s+[a-z]+/i;
+const OPENS_WITH_SPOT_RE = /^(?:kitchen|living room|dining room|backyard|lounge|bedroom)\b/i;
+
+/** The houseguest's own first name never reaches the image provider: it becomes the pronoun (or the possessive). */
+function dropOwnName(t: string, ownName: string | undefined, subj: string): string {
+  const first = (ownName ?? "").trim().split(/\s+/)[0] ?? "";
+  if (first === "") return t;
+  const esc = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const poss = subj === "He" ? "his" : subj === "She" ? "her" : "their";
+  return t
+    .replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, "gu"), poss)
+    .replace(new RegExp(`(^|[.!?]\\s+)${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (_m, pre: string) => `${pre}${subj}`)
+    .replace(new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, "gu"), subj.toLowerCase());
+}
+
+/**
+ * Make the moment a sentence with a subject. A line that already carries one (it opens with a pronoun, or has a
+ * ", she stands" / ". He grins" / ", her gaze stays" clause) is kept; an -ing or preposition opener gets "He is" in front;
+ * a spot word ("Backyard, perched ...") gets "He is in the"; any other fragment (the writer's new openings: "Hands loose
+ * at his sides ...", "Gaze straight into the lens ...", "A heavy mug in one hand ...") gets "He is photographed with".
+ * The card's own first name is replaced by the pronoun first (review of #2781).
+ */
+function momentSentence(onCamera: string, subj: string, plural: boolean, ownName?: string): string {
+  const t = dropOwnName(onCamera.trim(), ownName, subj);
+  const be = plural ? "are" : "is";
+  if (/^(?:he|she|they|his|her|their)\b/i.test(t)) return sentence(upperFirst(t));
+  if (OWN_SUBJECT_RE.test(t)) return sentence(upperFirst(t));
+  if (OPENS_WITH_SPOT_RE.test(t)) return sentence(`${subj} ${be} in the ${lowerFirst(t)}`);
   if (/^[A-Za-z-]+ing\b/.test(t) || /^(?:on|in|at|by|near|beside|against|under|over|inside|outside|behind|with)\b/i.test(t)) {
-    return sentence(`${subj} ${plural ? "are" : "is"} ${lowerFirst(t)}`);
+    return sentence(`${subj} ${be} ${lowerFirst(t)}`);
   }
-  return sentence(t);
+  return sentence(`${subj} ${be} photographed with ${lowerFirst(t)}`);
 }
 
 function fallbackPose(demeanor: string | undefined, plural: boolean): string {
@@ -268,7 +293,7 @@ export function buildPortraitPrompt(
   // 6 + 7. The moment and the room.
   const onCamera = clean(look?.onCamera);
   const spot = (onCamera !== "" ? spotOf(onCamera) : undefined) ?? FALLBACK_ROOMS[idHash % FALLBACK_ROOMS.length]!;
-  const momentLine = onCamera !== "" ? momentSentence(onCamera, pr.subj, pr.plural)
+  const momentLine = onCamera !== "" ? momentSentence(onCamera, pr.subj, pr.plural, name)
     : sentence(`${pr.subj} ${fallbackPose(demeanor, pr.plural)}, looking into the camera`);
   const settingLine = `Setting: the house ${spot}, softly out of focus behind ${pr.obj}.`;
 
