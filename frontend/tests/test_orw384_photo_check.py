@@ -445,6 +445,13 @@ def test_a_real_colour_after_an_accessory_word_is_kept_and_an_accent_is_not_the_
     assert not any("blond" in f for f in _hair("natural afro with a bright gold-blond top, neat"))
 
 
+def test_deep_is_not_a_colour_and_the_trivial_or_odd_phrases_are_fixed():
+    assert not any("deep" in f for f in _hair("glossy waves parted deep, full and neat over the shoulders"))
+    assert _hair("glossy waves parted deep, full and neat over the shoulders") == ["hair in waves"]
+    assert _hair("neat locs, tucked past the ears") == ["hair in locs"]  # "past the ear" is not a length worth a paid re-shoot
+    assert _hair("slicked back smooth and glossy") == ["hair slicked back"]
+
+
 def test_a_soft_cut_about_the_sides_is_not_a_whole_head_feature():
     assert _hair("tight natural coils with a fade at the sides") == ["hair in coils"]
     assert _hair("tight natural coils, a crop at the sides") == ["hair in coils"]

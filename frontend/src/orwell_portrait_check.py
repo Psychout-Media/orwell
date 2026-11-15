@@ -72,10 +72,10 @@ _HAIR_LENGTH_RE = re.compile(r"\b(?:buzzed|shaved|cropped|close-cropped|short|ch
 # ORW-460: only for a hair line the words above leave with NOTHING to check ("voluminous dark waves", "neat locs past the
 # shoulder", "a salt-and-pepper buzzcut"): the softer colour words, the other lengths and cuts, then the shape of the style.
 _SOFT_COLOUR_RE = re.compile(
-    r"\b(?:salt[- ]and[- ]pepper|dark|light|deep|ashy?|sandy|espresso|caramel|chocolate|mahogany|honey|golden|"
+    r"\b(?:salt[- ]and[- ]pepper|dark|light|ashy?|sandy|espresso|caramel|chocolate|mahogany|honey|golden|"
     r"magenta|pink|purple|violet|teal|cobalt|green|orange|blue)\b", re.I)
 _SOFT_LENGTH_RE = re.compile(
-    r"\b(?:chin[- ]length|jaw[- ]length|collar[- ]length|medium[- ]length|past (?:the |her |his |their )?(?:shoulders?|ears?)|"
+    r"\b(?:chin[- ]length|jaw[- ]length|collar[- ]length|medium[- ]length|past (?:the |her |his |their )?shoulders?|"
     r"to the collar|bald|lob|bob|pixie|buzz ?cut|crop|fade)\b", re.I)
 _HAIR_STYLE_RE = re.compile(
     r"\b(?:waves|wavy|curls|curly|coils|braids?|braided|locs|twist-out|ponytail|bun|afro|bangs|blowout|mohawk|straight|slicked back)\b", re.I)
@@ -138,7 +138,8 @@ def hair_features(clause: str) -> list:
     if not out:
         st = _HAIR_STYLE_RE.search(text)
         if st:
-            out.append(f"hair in {st.group(0).lower()}")
+            w = st.group(0).lower()
+            out.append(f"hair {w}" if w == "slicked back" else f"hair in {w}")
     return out
 
 
