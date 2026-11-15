@@ -44,6 +44,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "raiseSpectatorChoice", coveredBy: "advance", note: "AdvanceView" },
   { method: "cancelSelfEviction", coveredBy: "advance", note: "AdvanceView" },
   { method: "turnIn", coveredBy: "advance", note: "AdvanceView" },
+  { method: "nap", coveredBy: "advance", note: "NapView (0148: an in-fiction refusal line, the slept hours and the public whereabouts read - no rest number, no nap factor; asserted by tests/unit/playerNap.test.ts)" },
   { method: "hangOut", coveredBy: "advance", note: "HangOutView (swept by liveSentinel; same advance machinery)" },
   { method: "updateCasting", coveredBy: "advance", note: "pre-game casting status (no hidden state exists pre-game; liveSentinel sweeps it)" },
   { method: "runCompetition", coveredBy: "advance", note: "CompetitionResultView (liveSentinel sweeps per beat)" },

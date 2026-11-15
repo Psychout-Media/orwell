@@ -102,6 +102,13 @@ export const MESSAGES_PER_MORNING = Math.round((CLOCK.phaseStartsHour.afternoon 
  */
 export const SOCIETY_TICK_HOURS = 1.5;
 
+/**
+ * 0148 / ORW-417 (Ryne 2026-11-15): the player's daytime nap. Length 0.5-3h in 30-minute steps (default 1h); every `halvingHours` of nap halves the sleep deficit the competition reads
+ * (`0.5 ^ (hoursNappedToday / halvingHours)`), never to zero. `stepHours` is the clock granularity the nap is slept in (so an event coming due wakes the player on the dot).
+ * `seenReadThreat`: the one small bounded character-read a houseguest who SEES the player napping folds (threat down, competitive types only).
+ */
+export const NAP = { minHours: 0.5, maxHours: 3, defaultHours: 1, lengthStepHours: 0.5, halvingHours: 2, clockStepHours: 0.1, seenReadThreat: -0.03, competitiveStat: 0.65 } as const;
+
 // --- Bedtimes & the immediate (single-night) sleep debt -------------------------------------------
 
 export interface SleepConstants {

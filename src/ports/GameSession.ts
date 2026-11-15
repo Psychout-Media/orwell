@@ -537,6 +537,8 @@ export interface GameStateView {
    * Vault-free by construction — open-set flavor strings only, never numbers or hidden state.
    */
   notorietyLegend?: string[];
+  /** 0148: the one-shot "while you slept" read the narrator gets on the first prompt after a nap (Vault-free: where the player is, who is in the room, who came and went, the time of day). Absent otherwise. */
+  whileYouSlept?: string;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -2462,6 +2464,30 @@ export interface SubmitDecisionReq {
 /**
  * "Hang out until X" (PO 2026-11-04) - the player's safe fast-forward. Request: optional CAS token + beat cap (<= 8).
  */
+/** 0148 / ORW-417 - the player's nap. `hours` is 0.5-3 in 30-minute steps (rounded/clamped; default 1). Mutating: honours `expectedBeatSeq`, idempotent per `idempotencyKey`, like `turnIn`. */
+export interface NapReq {
+  hours?: number;
+  expectedBeatSeq?: number;
+  idempotencyKey?: string;
+}
+/** Why a nap was refused (nothing changed: the clock has not moved). */
+export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "already-asleep";
+export interface NapView {
+  /** false = refused, nothing changed: see `reason` + `why`. */
+  ok: boolean;
+  reason?: NapRefusal;
+  /** An in-fiction reason line for a refusal (voice it; never a number). */
+  why?: string;
+  /** In-game hours actually slept (0 on a refusal). */
+  slept: number;
+  /** Why the nap ended before the asked-for length, when it did. */
+  wokenBy?: "event" | "evening";
+  /** Vault-free: where the player slept and who is in the room (the open presence read). */
+  whereabouts?: WhereaboutsView | null;
+  timeOfDay?: string;
+  beatSeq: number;
+}
+
 export interface HangOutReq {
   expectedBeatSeq?: number;
   /** Cap on beats this call (1..8; default 8). */
@@ -2902,6 +2928,12 @@ export interface GameSession {
    * the engine decides the stop reason. Flag-gated (`ORWELL_HANGOUT`); off or clock-off => `{ ok:false }`, zero state change.
    */
   hangOut(req?: HangOutReq): HangOutView;
+  /**
+   * 0148 / ORW-417 (Ryne 2026-11-15) - the player's daytime nap: the clock advances by the slept span (cut at the start of the evening and at the moment a scheduled event comes due), the house lives it unseen, and every 2 hours
+   * of nap halve the sleep deficit the competition reads (never to zero). Allowed only in the morning/afternoon, in the house, awake. Refused (clock unmoved) during an event in session, a pending decision, the premiere, or from the
+   * evening on. Flag `ORWELL_NAP`; off => `{ ok:false, reason:"not-available" }`, zero state change.
+   */
+  nap(req?: NapReq): NapView;
   /**
    * The player makes a deal with a houseguest (0039) — a first-class tracked promise. Recorded as
    * a player-witnessed event (their knowledge); the engine reconciles it against later binding
