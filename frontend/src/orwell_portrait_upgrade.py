@@ -75,15 +75,19 @@ def _season_sig(state: dict) -> tuple:
 
 
 def stale_candidates(user, state: dict, manifest: dict) -> list:
-    """Stale houseguest ids in the CURRENT season's active house, player excluded."""
+    """Stale houseguest ids of the CURRENT season's cast, player excluded. Every NPC counts whatever
+    their status (evicted and jury faces still show, greyed, in the cast panel, dossier and chat), but
+    the people still in the house come first so the faces on screen change first."""
     from src import orwell_portraits as P
-    active = set()
+    rank = {}
     for hg in state.get("house") if isinstance(state.get("house"), list) else []:
-        if isinstance(hg, dict) and hg.get("name") and (hg.get("status") or "active") == "active":
-            active.add(P._safe_id(str(hg.get("id") or hg.get("name"))))
+        if isinstance(hg, dict) and hg.get("name"):
+            sid = P._safe_id(str(hg.get("id") or hg.get("name")))
+            rank[sid] = 0 if (hg.get("status") or "active") == "active" else 1
     pid = state.get("player") if isinstance(state.get("player"), dict) else {}
     player_ids = {P.PLAYER_PORTRAIT_ID, P._safe_id(str(pid.get("id") or "player"))}
-    return [sid for sid in P.stale_portrait_ids(manifest) if sid in active and sid not in player_ids]
+    stale = [sid for sid in P.stale_portrait_ids(manifest) if sid in rank and sid not in player_ids]
+    return sorted(stale, key=lambda sid: (rank[sid], sid))
 
 
 # ── the look writer (public fields only) ─────────────────────────────────────────────────────

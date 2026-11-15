@@ -52,14 +52,20 @@ describe("recordLookExtras", () => {
     expect(npc().character.physicalCharacteristics!.onCamera).toBeUndefined();
   });
 
-  it("the closed-facet (ink) guard keeps an un-granted dimension out", () => {
-    const { sb, id, npc } = setup();
-    const grantedInk = /tattoo|ink/i.test(JSON.stringify(npc().character.physicalCharacteristics));
-    const r = sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a sleeveless top showing a full tattoo sleeve", "jeans"], onCamera: "Chats in the kitchen." });
-    if (!grantedInk) {
-      expect(r.fields).not.toContain("wardrobe");
-      expect(npc().character.physicalCharacteristics!.wardrobe).toBeUndefined();
-    }
-    expect(r.fields).toContain("onCamera");
+  it("the closed-facet (ink) guard reverts a tattoo written into onCamera or wardrobe on a no-ink skeleton", () => {
+    const { sb } = setup();
+    const INK = /\btattoo|\bink(?:ed)?\b|\bblackwork\b|\bbody art\b|\b(?:full|half)[- ]sleeves?/i;
+    const npcs = sb.session.snapshot().house!.npcs;
+    const clean = npcs.find((n) => !INK.test(JSON.stringify(n.character.physicalCharacteristics)));
+    expect(clean, "the seeded cast has at least one houseguest with no ink in the skeleton").toBeDefined();
+    const id = clean!.id;
+    const bad = sb.session.recordLookExtras({ houseguestId: id, onCamera: "Shows off a tattoo in the kitchen." });
+    expect(bad).toMatchObject({ accepted: false, reason: "rejected-by-guard" });
+    const bad2 = sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a tank top, full tattoo sleeve visible", "jeans"], onCamera: "Chats in the kitchen." });
+    expect(bad2).toEqual({ accepted: true, fields: ["onCamera"] });
+    const p = sb.session.snapshot().house!.npcs.find((n) => n.id === id)!.character.physicalCharacteristics!;
+    expect(p.wardrobe).toBeUndefined();
+    expect(p.onCamera).toBe("Chats in the kitchen.");
+    expect(JSON.stringify(p)).not.toMatch(INK);
   });
 });

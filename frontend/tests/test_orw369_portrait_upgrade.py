@@ -260,3 +260,17 @@ def test_runs_as_a_background_task_off_the_request_path(monkeypatch):
     finally:
         loop.close()
     assert started is True and again is False and alive
+
+
+def test_evicted_and_jury_are_upgraded_too_but_after_the_house(season, monkeypatch):
+    state, d = season
+    log = []
+    _gen(monkeypatch, log)
+    state["house"] = [_card(1, status="evicted"), _card(2, status="jury"), _card(3)]
+    assert U.stale_candidates("u", state, P.load_manifest("u")) == ["npc_3", "npc_1", "npc_2"]
+    t = 0.0
+    _run(U.upgrade_tick("u", now=t))
+    for k in range(3):
+        assert _run(U.upgrade_tick("u", now=100.0 + 20 * k)) == "upgraded"
+    assert log == ["v2 prompt npc:3", "v2 prompt npc:1", "v2 prompt npc:2"]
+    assert _run(U.upgrade_tick("u", now=300.0)) == "done"
