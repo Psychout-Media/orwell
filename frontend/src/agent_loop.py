@@ -10041,14 +10041,14 @@ async def _stream_agent_loop_impl(
                                 or _is_nondiegetic_scene_text(_turn_narration)):
                             try:
                                 from src import orwell_room_canon as _rc
-                                await _rc.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                                await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _rc_e:
                                 logger.debug(f"[room-canon] skipped: {_rc_e}")
                             # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
                             # free text (engine-validated; fail-soft; same gating as the room canon above).
                             try:
                                 from src import orwell_open_ledger as _ol
-                                await _ol.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                                await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _ol_e:
                                 logger.debug(f"[open-ledger] skipped: {_ol_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
