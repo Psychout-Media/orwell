@@ -458,7 +458,7 @@ import { onNarrowChange } from './platform.js';
     "night": "🌙 Night", "late-night": "🌌 Late night",
   };
   // ORW-392: past 2am, before the house's wake-up call, the engine's `earlyMorning` flag turns "Late night" into "Early morning" (the mirror of it).
-  const todLabel = (t, early) => (t === "late-night" && early === true) ? "\u{1F305} Early morning" : (TOD_LABELS[t] || "");
+  const todLabel = (t, early) => ((t === "late-night" || t === "morning") && early === true) ? "\u{1F305} Early morning" : (TOD_LABELS[t] || "");
 
   // A3: announce only what CHANGED, in show terms — never a full re-read per poll.
   let _last = { phase: null, hoh: null, noms: null, veto: null, tod: null };
@@ -499,7 +499,7 @@ import { onNarrowChange } from './platform.js';
     const cur = {
       phase: phaseLabel(st.phase),
       hoh: names.hoh, noms: names.noms, veto: names.veto,
-      tod: (st.timeOfDay === "late-night" && st.earlyMorning === true ? "Early morning" : TOD_SPOKEN[st.timeOfDay]) || null,
+      tod: ((st.timeOfDay === "late-night" || st.timeOfDay === "morning") && st.earlyMorning === true ? "Early morning" : TOD_SPOKEN[st.timeOfDay]) || null,
     };
     if (_last.phase !== null) {
       if (cur.tod && _last.tod && cur.tod !== _last.tod) { msgs.push(cur.tod + "."); flashRow(el, "#os-tod"); }
@@ -847,7 +847,8 @@ import { onNarrowChange } from './platform.js';
   let _failures = 0;
   let _failSince = 0;       // ORW-406: when the current run of failed polls began (0 = healthy)
   let _staleCheck = null;
-  function _scheduleStaleCheck() { if (!_staleCheck) _staleCheck = setTimeout(() => { _staleCheck = null; refresh(); }, 10100 - (Date.now() - _failSince)); }
+  try { window.addEventListener('offline', () => { if (_shown) markStale(true); }); } catch (_) { /* no window (node test) */ }
+  function _scheduleStaleCheck() { if (!_staleCheck) _staleCheck = setTimeout(() => { _staleCheck = null; if ((typeof document !== 'undefined' && document.hidden) || !_failSince) return; refresh(); }, 10100 - (Date.now() - _failSince)); }
   function _pollDelay() { return Math.min(POLL_MS * Math.pow(2, _failures), 120000); }
 
   // 4.1.3: false = feed believed connected (the default). Announce on a genuine FLIP only.
@@ -887,7 +888,7 @@ import { onNarrowChange } from './platform.js';
       _failures += 1;
       if (!_failSince) _failSince = Date.now();
       // ORW-406: the amber "feed offline" dot waits out a release-sized gap (10 s); the last-known readout stays up either way.
-      if (_shown && Date.now() - _failSince >= 10000) markStale(true);
+      if (_shown && ((typeof navigator !== 'undefined' && !navigator.onLine) || Date.now() - _failSince >= 10000)) markStale(true);
       else if (_shown) _scheduleStaleCheck();
       else hidePanel();
       return;
@@ -914,6 +915,18 @@ import { onNarrowChange } from './platform.js';
       if (_catchupTimer) clearTimeout(_catchupTimer);
       _catchupTimer = setTimeout(() => refresh(want), 1000);
       return; // known-stale: don't paint; wait for the catch-up read to land
+    }
+    // review of #2648: /status and /state are two reads; the next-event label comes from /state's daySchedule, so when the two carry DIFFERENT beatSeq values a commit landed between them.
+    // Retry (bounded, same counter) and, once the retries are spent, drop the schedule line rather than print an event label beside a board from another beat.
+    const stBeat = Number(st && st.beatSeq), stateBeat = Number(st && st._state && st._state.beatSeq);
+    if (Number.isFinite(stBeat) && Number.isFinite(stateBeat) && stBeat !== stateBeat) {
+      if (_catchupTries < 3) {
+        _catchupTries += 1;
+        if (_catchupTimer) clearTimeout(_catchupTimer);
+        _catchupTimer = setTimeout(() => refresh(Math.max(stBeat, stateBeat)), 1000);
+        return;
+      }
+      st._state = Object.assign({}, st._state, { daySchedule: undefined });
     }
     render(st);
     _catchupTries = 0;

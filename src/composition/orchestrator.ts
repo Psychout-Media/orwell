@@ -234,6 +234,11 @@ export class Orchestrator {
     if (!this.baselines.has(user)) this.seedBaseline(user);
   }
 
+  /** Release only the non-degradation baseline (a full snapshot) of an LRU-unloaded sandbox; its next resume re-seeds it. */
+  dropBaseline(user: string): void {
+    this.baselines.delete(user);
+  }
+
   /** Per-user deterministic RNG stream (seed + user), created once and advanced across ticks. */
   private rngFor(user: string): SeededRandom {
     let r = this.rngs.get(user);
@@ -508,9 +513,11 @@ export class Orchestrator {
       try {
         for (let i = 0; i < n; i++) {
           this.advance(user, "offscreen-tick", { ...(i === 0 ? { baseline: candidate } : {}), supplementary: true, rng: new SeededRandom(hashSeed(`${this.seed}:${user}:nap-tick:${absNap ?? 0}:${i}`)) });
+          // A failed tick rolls the sandbox back to a FRESH session (napAsleep is memory-only, so it comes back cleared): re-acquire the current session and mark it asleep again before the next tick.
+          if (i + 1 < n) this.registry.sandboxFor(user).session.resumeNapTicks();
         }
       } finally {
-        session.endNapTicks(); // the sleeping player was out of the awake set for these ticks only
+        this.registry.sandboxFor(user).session.endNapTicks(); // the sleeping player was out of the awake set for these ticks only (on whichever session is current)
       }
       return;
     }

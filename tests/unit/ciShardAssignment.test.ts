@@ -109,6 +109,14 @@ describe("duration-aware shard assignment (ORW-218)", () => {
       expect(assignShards(legFiles, durations, 8).flat().length).toBe(legFiles.length);
     });
 
+    // review of #2713: the check above cannot fail for a missing entry (assignShards always places every file), so the median-weight rule is pinned directly on a controlled input.
+    it("a file with no entry weighs the MEDIAN of the known ones (controlled input, observable in the layout)", () => {
+      const known = { "x1.test.ts": 300_000, "x2.test.ts": 300_000, "x3.test.ts": 300_000 };
+      const legs = assignShards(["m1.test.ts", "m2.test.ts", "x1.test.ts", "x2.test.ts", "x3.test.ts"], known, 2);
+      // equal weights are ordered by name: m1 m2 x1 x2 x3 go to the lightest leg in turn. Weighed at ~0 instead, the x files would be placed first and both m files would pile onto one leg.
+      expect(legs).toEqual([["m1.test.ts", "x1.test.ts", "x3.test.ts"], ["m2.test.ts", "x2.test.ts"]]);
+    });
+
     it("the split is identical when run twice and every file is in exactly one of the eight legs", () => {
       const a = assignShards(legFiles, durations, 8);
       expect(assignShards(legFiles, durations, 8)).toEqual(a);

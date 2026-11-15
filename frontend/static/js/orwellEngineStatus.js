@@ -7,7 +7,7 @@
 //     corrupt-save 500 or a failing action). The player sees ONE production-voiced line either way;
 //     the raw tool name + backend error (the actionable operator detail) goes to console + OrwellReport
 //     (the /admin/status failure ring), never into the player-visible banner body (MICRO-14/15).
-// Fail-open (if its own fetch fails, it shows the warning), no deps beyond the notice kit.
+// Fail-open (if its own FRONT-END health fetch fails, it shows the warning once the 10 s release grace has passed; an engine outage the front end reports, and the browser's offline event, show at once), no deps beyond the notice kit.
 //
 // #642 (owner add-on): the banner is a first-class OrwellNotice kit consumer — a "system-notice"
 // kind at the "top-banner" placement, so it shares the kit's chrome, ONE dismiss affordance (the
@@ -66,9 +66,11 @@
   const GAP_GRACE_MS = 10000;
   let _gapSince = 0;       // when the current run of failed health fetches began (0 = healthy)
   let _gapTimer = null;    // re-probe at the end of the grace so a persisting gap shows without waiting a whole poll
+  // Monotonic clock: a wall-clock step back (NTP, VM resume) must not make a real outage look newer than it is and hold the banner back (review of #2719). `|| 1` keeps 0 meaning healthy.
+  function _monoNow() { try { return (typeof performance !== 'undefined' && performance.now) ? (performance.now() || 1) : Date.now(); } catch (_) { return Date.now(); } }
   function _gapQuiet() {
     // true = still inside the grace window: show nothing, and make sure we look again when it ends.
-    const now = Date.now();
+    const now = _monoNow();
     if (!_gapSince) _gapSince = now;
     const left = GAP_GRACE_MS - (now - _gapSince);
     if (left <= 0) return false;

@@ -1,5 +1,6 @@
 import { toolsFor, DEBUG_VAULT_TOOL_NAMES } from "../../surfaces/tools/registry";
 import { EngineRefusal } from "../../domain/errors";
+import { runInToolCall } from "../../ports/BeatCause";
 import type { OutwardChannel, ToolDescriptor } from "../../surfaces/tools/registry";
 import type { PlayerSurface } from "../../surfaces/player/PlayerSurface";
 import type { AdminPort } from "../../surfaces/admin/AdminPort";
@@ -17,7 +18,7 @@ import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq,
  * not debug Vault readers.
  * @see registry.ts INFRA_LEVERS — the same tools are excluded from `PLAYER_AGENT_LEVERS`.
  */
-export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest"]);
+export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest", "beatLog"]);
 /**
  * The engine's permissioned outward MCP API (0009). It mounts ONLY the
  * allowlisted tools for its channel, sources read/narrate tools from the visible
@@ -131,6 +132,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (cons["rationale"] !== undefined && typeof cons["rationale"] !== "string") refuse("consequence.rationale", "a string when present");
       }
       return;
+    case "beatLog":
+      // ORW-439: the caller's last-seen counter, required: a missing/non-numeric token would silently read as 0 and hide a gap.
+      if (typeof args["sinceBeatSeq"] !== "number" || !Number.isFinite(args["sinceBeatSeq"])) refuse("sinceBeatSeq", "a finite number");
+      return;
     case "whereabouts":
       // ORW-386: the optional house-search switch must be a boolean when present.
       if (args["search"] !== undefined && typeof args["search"] !== "boolean") refuse("search", "a boolean when present");
@@ -194,6 +199,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["maxBeats"] !== undefined && (typeof args["maxBeats"] !== "number" || !Number.isInteger(args["maxBeats"]) || args["maxBeats"] < 1)) {
         refuse("maxBeats", "a positive integer (capped at 8 by the engine)");
       }
+      if (args["maxMinutes"] !== undefined && (typeof args["maxMinutes"] !== "number" || !Number.isFinite(args["maxMinutes"]) || args["maxMinutes"] <= 0)) refuse("maxMinutes", "a positive number of in-game minutes (capped at 180 by the engine)");
+      if (args["untilBandEnd"] !== undefined && typeof args["untilBandEnd"] !== "boolean") refuse("untilBandEnd", "a boolean when present");
       return;
     case "moveTo":
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
@@ -329,7 +336,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       // a blank value (the seeded `vocation` stands) and keeps it in lockstep with the biography, so a
       // malformed value never fails the whole call.
       if (args["vocation"] !== undefined && typeof args["vocation"] !== "string") refuse("vocation", "a string when present");
-      // ORW-388: the optional REPAIRED identity concept — a string when present; the adapter folds it only onto an existing one.
+      // ORW-388: the optional writer-authored identity concept — a string when present; the adapter replaces a stored one or fills a missing one (ORW-431b), capped, single line, refused if it names the player.
       if (args["identityConcept"] !== undefined && typeof args["identityConcept"] !== "string") refuse("identityConcept", "a string when present");
       // The optional LLM-authored VOICE fingerprint (0084 / the expressive-e2e authoring widening) — an
       // object when present (a string/array where an object is expected is the R6 class that dies deep in
@@ -528,7 +535,8 @@ export class McpServer {
   async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     const seq = this.deps.beatSeqNow;
     const before = seq ? seq() : undefined;
-    const result = await this.dispatchTool(name, args);
+    // ORW-439 - the commit funnel reads this to name the tool behind each beat bump (diagnostic only; it changes no behaviour).
+    const result = await runInToolCall(name, () => this.dispatchTool(name, args));
     if (seq && before !== undefined && result !== null && typeof result === "object" && !Array.isArray(result) && Object.getPrototypeOf(result) === Object.prototype && !("beatSeq" in (result as Record<string, unknown>))) {
       const after = seq();
       if (after !== before) return { ...(result as Record<string, unknown>), beatSeq: after };
@@ -624,6 +632,9 @@ export class McpServer {
         return this.deps.session.stateDelta(
           typeof args["sinceBeatSeq"] === "number" ? args["sinceBeatSeq"] : 0,
         );
+      case "beatLog":
+        // ORW-439: which tool caused each beat bump after the caller's token (diagnostic read; tool names + counters + timestamps only).
+        return this.deps.session.beatLog(args["sinceBeatSeq"] as number);
       case "playerTagline":
         return this.deps.session.playerTagline();
       case "finaleView":
@@ -658,7 +669,7 @@ export class McpServer {
       case "nap":
         return this.deps.session.nap(args as { hours?: number; expectedBeatSeq?: number; idempotencyKey?: string });
       case "hangOut":
-        return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number });
+        return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number; maxMinutes?: number; untilBandEnd?: boolean });
       case "noteMessage":
         // Clock-per-message (Coordinator 2026-11-05): the FE announces each PLAYER MESSAGE once (idempotent per messageId); the announcement steps the in-game clock one message-step.
         return this.deps.session.noteMessage({ messageId: String(args["messageId"]) });

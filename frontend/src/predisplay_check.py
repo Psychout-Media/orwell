@@ -20,6 +20,7 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
+_STATE_FIELDS = ("asleep", "daySchedule")  # the only parts of the cached board the checks read
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
 FACT_SCHEDULE = "schedule-words"
@@ -111,7 +112,7 @@ def asleep_conflicts(text: str, asleep_names: Iterable[Any], *, in_quote: bool =
     for n in names:
         forms = [re.escape(f) for f in _name_forms(n)]
         alt = "(?:" + "|".join(forms) + ")"
-        if re.search(r"^[ \t]*@\[\s*" + alt + r"\s*\]\s*[\u2014\u2013-]", text, re.MULTILINE):
+        if re.search(r"^[ \t]*@\[\s*" + alt + r"\s*\]\s*[\u2014\u2013-]", outside, re.MULTILINE):  # review of #2728/#2700: a tag inside a quotation is not a speaker tag
             hits.append(str(n))
             continue
         subj = re.compile(r"(?<!\w)" + alt + r"(?!\w),?\s+(?i:(?:\w+ly\s+)?(?:" + _ACT_SRC + r")\b)")  # the NAME is case-sensitive; only the verb is not
@@ -160,22 +161,9 @@ def schedule_conflict(text: str, schedule: Any, *, in_quote: bool = False) -> Op
 
 
 def find_conflicts(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[str]":
-    """The hard-fact conflicts in `text` against the Vault-free `getGameState` dict. Returns fact ids, e.g. ["clock-time"]. Fail-open: any hiccup => []."""
-    try:
-        if not text or not isinstance(state, dict):
-            return []
-        out: "list[str]" = []
-        if asleep_conflicts(text, [a.get("name") for a in (state.get("asleep") or []) if isinstance(a, dict)], in_quote=in_quote):
-            out.append(FACT_ASLEEP)
-        if zero_clocks:
-            from src.zero_clocks import sentence_states_zero_clock_time_raw
-            if sentence_states_zero_clock_time_raw(text):
-                out.append(FACT_CLOCK)
-        if schedule_conflict(text, state.get("daySchedule"), in_quote=in_quote):
-            out.append(FACT_SCHEDULE)
-        return out
-    except Exception:  # failsoft-ok: a counter-only check; narration is never held on its own hiccup
-        return []
+    """The hard-fact conflicts in `text` against the Vault-free `getGameState` dict. Returns fact ids, e.g. ["clock-time"]. Fail-open: any hiccup => [].
+    Derived from `conflict_details` (review of #2723) so a hard fact is defined in one place."""
+    return [c.fact for c in conflict_details(text, state, zero_clocks=zero_clocks, in_quote=in_quote)]
 
 
 def correction_for(fact: str) -> str:
@@ -205,7 +193,7 @@ async def check_and_count(text: str, owner: Any, *, in_quote: bool = False) -> "
     try:
         from src import engine_read_cache
         from src.zero_clocks import zero_clocks_on
-        state = engine_read_cache.peek("getGameState", owner)
+        state = engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS)
         if state is None:
             return []
         facts = find_conflicts(text, state, zero_clocks=zero_clocks_on(), in_quote=in_quote)
@@ -272,7 +260,7 @@ def _parts(text: str) -> "list[str]":
 def _fresh_state(owner: Any):
     from src import engine_read_cache
     from src.zero_clocks import zero_clocks_on
-    return engine_read_cache.peek("getGameState", owner), zero_clocks_on()
+    return engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS), zero_clocks_on()
 
 
 def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False) -> "Optional[RewriteSplit]":

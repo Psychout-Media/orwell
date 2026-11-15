@@ -63,11 +63,29 @@ describe("ORW-388 recordCastProfile identityConcept", () => {
     expect(npc.character.identityConcept!.length).toBe(300);
   });
 
-  it("never invents one: a houseguest with no stored concept keeps none", () => {
+  it("ORW-431b: fills a card whose genesis identity was dropped, single line, capped, and reports the field", () => {
     const { s, hg, npc } = withConcept(undefined);
-    const res = s.recordCastProfile({ houseguestId: hg.id, identityConcept: "A brand new concept." });
+    const res = s.recordCastProfile({ houseguestId: hg.id, identityConcept: "A brand new\nconcept for a card with none." });
     expect(res.accepted).toBe(true);
+    expect(res.publicFields).toContain("identityConcept");
+    expect(npc.character.identityConcept).toBe("A brand new concept for a card with none.");
+    const { s: s2, hg: hg2, npc: npc2 } = withConcept(undefined);
+    s2.recordCastProfile({ houseguestId: hg2.id, identityConcept: "y".repeat(500) });
+    expect(npc2.character.identityConcept!.length).toBe(300);
+  });
+
+  it("ORW-431b: reports the field when the stored text already equals the sent one; a blank one is not stored", () => {
+    const { s, hg, npc } = withConcept("A calm baker who rises early.");
+    expect(s.recordCastProfile({ houseguestId: hg.id, identityConcept: "A calm baker who rises early." }).publicFields).toContain("identityConcept");
+    const res = s.recordCastProfile({ houseguestId: hg.id, identityConcept: "   \n " });
     expect(res.publicFields).not.toContain("identityConcept");
+    expect(npc.character.identityConcept).toBe("A calm baker who rises early.");
+  });
+
+  it("ORW-431b: a writer identity that names the player is refused and a card with none keeps none", () => {
+    const { s, hg, npc } = withConcept(undefined);
+    const res = s.recordCastProfile({ houseguestId: hg.id, identityConcept: "Obsessed with The Player." });
+    expect(res.accepted).toBe(false);
     expect(npc.character.identityConcept).toBeUndefined();
   });
 

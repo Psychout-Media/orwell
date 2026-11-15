@@ -41,6 +41,9 @@ SNAP=""; SNAPDIR=""
 # The snapshot lives in a temp DIRECTORY (SQLite also creates a journal beside it; a root-owned destination
 # would refuse that to the db owner). The directory is removed on exit.
 trap '[[ -n "$SNAPDIR" ]] && rm -rf --one-file-system -- "$SNAPDIR"' EXIT
+# A SIGKILL or power loss skips the EXIT trap and leaves a full database copy behind that retention (orwell-backup-*.tar.gz) never matches: sweep orphans of an earlier run first,
+# whether or not this run has a database to copy (a box that lost its app.db must not keep the stale copies forever). 60 minutes is far beyond a run (seconds), so a live snapshot is never swept.
+find "$DEST" -maxdepth 1 -type d -name '.app.db.snapshot.*' -mmin +60 -exec rm -rf --one-file-system -- {} + 2>/dev/null || true
 if [[ -f "$FE_DB" ]]; then
   command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to snapshot ${FE_DB}" >&2; exit 1; }
   SNAPDIR="$(mktemp -d "${DEST}/.app.db.snapshot.XXXXXX")"
@@ -67,9 +70,11 @@ if [r[0] for r in res] != ["ok"]:
   else
     python3 -I -c "$SNAPPY" "$FE_DB" "$SNAP" || { echo "ERROR: database snapshot failed; no backup written" >&2; exit 1; }
   fi
+  # sqlite3.connect() creates the copy with the caller's umask (0644 at 022) and tar records that mode: make it owner-only before archiving.
+  chmod 600 "$SNAP"
 fi
 TAR_ARGS=(-czf "$OUT" -C "$APP_DIR" --exclude='data/models'
-  --exclude='frontend/data/app.db' --exclude='frontend/data/app.db-wal' --exclude='frontend/data/app.db-shm')
+  --exclude='frontend/data/app.db' --exclude='frontend/data/app.db-journal' --exclude='frontend/data/app.db-wal' --exclude='frontend/data/app.db-shm')
 [[ -d "${APP_DIR}/data" ]] && TAR_ARGS+=(data)
 [[ -d "${APP_DIR}/frontend/data" ]] && TAR_ARGS+=(frontend/data)
 if [[ -n "$SNAP" ]]; then

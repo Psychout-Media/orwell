@@ -45,9 +45,9 @@ function play(seed: number, weeks: number) {
   let n = 0;
   for (let i = 0; i < 8000; i++) {
     const st = s.getGameState();
-    if ((st.week ?? 1) > weeks) break;
     const ds = st.daySchedule;
-    if (ds) observe(ds.next);
+    if (ds) observe(ds.next); // observe BEFORE the week limit: the transition that ends the last week must flush its open reads, or the last scheduled event goes unchecked
+    if ((st.week ?? 1) > weeks) break;
     if (ds && !st.pending) open.push({ next: ds.next, day: day(), tomorrow: ds.tomorrow === true });
     if (st.pending) { resolveLegally(s, st.pending); continue; }
     if (st.phase === "premiere" || (ds && ds.due)) {
@@ -73,6 +73,8 @@ describe("ORW-363 - the schedule says today or tomorrow, and it is right", () =>
     const tomorrow = checked.filter((r) => r.tomorrow), today = checked.filter((r) => !r.tomorrow);
     expect(tomorrow.length, "the evening/night after an event announces the next one for tomorrow").toBeGreaterThan(0);
     expect(today.length, "the morning of an event day announces it for today").toBeGreaterThan(0);
+    const lastEvent = checked[checked.length - 1]!;
+    expect(lastEvent.firedDay, "the final week's last transition was flushed and checked, not dropped by the week-limit break").toBeGreaterThanOrEqual(Math.max(...checked.map((r) => r.day)));
     for (const r of tomorrow) expect(r.firedDay, `${r.next} read on day ${r.day} as tomorrow`).toBeGreaterThan(r.day);
     for (const r of today) expect(r.firedDay, `${r.next} read on day ${r.day} as today`).toBe(r.day);
   }, 120_000);

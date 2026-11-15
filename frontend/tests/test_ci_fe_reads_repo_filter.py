@@ -13,6 +13,7 @@ CI = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
 
 # Build output and scratch dirs are not repo files (dist/ exists only after `npm run build`, e.g. on the runners, never in the fe-unit CI job).
 _TOPS = sorted(p.name for p in REPO.iterdir() if p.is_dir() and p.name not in ("frontend", "src", ".git", "node_modules", "dist", "coverage", "tmp", ".orwell-data"))
+_ROOT_FILES = sorted(p.name for p in REPO.iterdir() if p.is_file() and not p.name.startswith("."))
 _PART = r"[\"']([A-Za-z0-9_.-]+)[\"']"
 
 
@@ -60,6 +61,14 @@ def _paths_read_by_fe_tests() -> dict[str, set[str]]:
                 if (REPO / "/".join(parts[:k])).exists():
                     found.setdefault("/".join(parts[:k]), set()).add(t.name)
                     break
+        # review of #2709: two more shapes the scan above misses. A "../deploy/x.sh" path is relative to frontend/ (strip the ../), and a repo-ROOT file
+        # (package.json, CLAUDE.md, ...) has no top-level directory to anchor on, so it is matched when its name sits next to a repo root.
+        for m in re.finditer(rf"[\"'](?:\.\./)+((?:{top_alt})/[A-Za-z0-9_./-]*[A-Za-z0-9_-])", code):
+            found.setdefault(m.group(1), set()).add(t.name)
+        if _ROOT_FILES:
+            root_alt = "|".join(map(re.escape, _ROOT_FILES))
+            for m in re.finditer(rf"(?:\bREPO(?:_ROOT)?|\bROOT|parents\[2\])\s*\)?\s*[/,]\s*[\"']({root_alt})[\"']|[\"'](?:\.\./)+({root_alt})[\"']", code):
+                found.setdefault(m.group(1) or m.group(2), set()).add(t.name)
     return {p: who for p, who in found.items() if (REPO / p).exists()}  # a fixture naming a path that does not exist is not a read
 
 

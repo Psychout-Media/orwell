@@ -85,8 +85,10 @@ export interface Runtime {
   warmStatus(): { warmed: boolean; warmMs: number | null };
   /** ORW-404: the save-fsync backlog for `/health` (all zero when the store has none). */
   saveDurability(): SaveDurability;
-  /** ORW-404: shutdown flush — fsync the newest un-synced save of every user, bounded. Never throws. */
-  flushSaves(timeoutMs?: number): void;
+  /** ORW-404: mark the process as shutting down (one-way). The transport then refuses NEW tool calls with a retryable 503. */
+  beginShutdown(): void;
+  /** ORW-404: true once `beginShutdown` ran; read by the transport per request. */
+  isShuttingDown(): boolean;
   /** ORW-404: non-blocking shutdown flush; resolves by `timeoutMs` even if a sync never settles. Never rejects. */
   flushSavesAsync(timeoutMs?: number): Promise<void>;
   /** The in-game clock's LIVE state (runtime FE flip, else the env default) — reported on `/health`. */
@@ -159,8 +161,12 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // state outside the commit seam; re-seed the non-degradation baseline to the freshly-saved state so the
   // next player-turn commit isn't refused as a "degradation" against the stale floor baseline (the same
   // seedBaseline discipline a resume-from-disk uses — audit E6).
-  registry.setOnResume((user) => orchestrator.seedBaselineIfAbsent(user));
   registry.setOnBackgroundCommit((user) => orchestrator.seedBaseline(user));
+  // Every from-disk rebuild (boot warm-up, a request that arrives first, a resume after an LRU unload) re-baselines
+  // unconditionally: a baseline kept from a previous in-memory object graph is the stale case `seedBaseline`
+  // documents (review of #2747). The unload drops it, so an idle user pins no snapshot.
+  registry.setOnResume((user) => orchestrator.seedBaseline(user));
+  registry.setOnUnload((user) => orchestrator.dropBaseline(user));
   // God Mode can SEE sandbox health (B58/audit E5+E6): integrity, faults, the circuit state.
   registry.setHealthProvider((user) => orchestrator.sandboxHealth(user));
   // Preload saved users at boot (B60/audit E11): without this, every deploy froze each house until
@@ -172,7 +178,7 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     for (const user of saveStore?.listUsers?.() ?? []) {
       try {
         registry.sandboxFor(user);
-        orchestrator.seedBaseline(user);
+        orchestrator.seedBaselineIfAbsent(user); // the resume hook seeded it; do not export the save twice
       } catch { /* skip an unresumable save; the rest still boot */ }
     }
   };
@@ -187,7 +193,7 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
         await new Promise<void>((r) => setImmediate(r));
         try {
           registry.sandboxFor(user);
-          orchestrator.seedBaseline(user);
+          orchestrator.seedBaselineIfAbsent(user); // the resume hook seeded it; do not export the save twice
         } catch { /* skip an unresumable save; the rest still warm */ }
       }
     } finally {
@@ -197,10 +203,13 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // Default: resume eagerly (tests + every non-entrypoint caller keep the original behavior). The
   // entrypoint passes deferResume so it can bind /health + warm the embedder before resuming.
   if (!opts.deferResume) resumeSaved();
+  let shuttingDown = false;
   return {
     registry,
     orchestrator,
     clock,
+    beginShutdown: () => { shuttingDown = true; },
+    isShuttingDown: () => shuttingDown,
     knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
     resumeSaved,
     warmSaved,
@@ -208,10 +217,9 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective(),
     saveDurability: () => saveStore?.durability?.()
       ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false },
-    flushSaves: (timeoutMs) => { try { saveStore?.flushDurable?.(timeoutMs); } catch { /* never block exit */ } },
     flushSavesAsync: async (timeoutMs) => { try { await saveStore?.flushDurableAsync?.(timeoutMs); } catch { /* never block exit */ } },
   };
 }
 
 // ORW-404: the entrypoint composes the runtime only (audit E18), so the shutdown helper is re-exported here.
-export { createShutdown, DEFAULT_HARD_EXIT_MS } from "./shutdown";
+export { createShutdown, DEFAULT_HARD_EXIT_MS, DEFAULT_DRAIN_MS, DEFAULT_FLUSH_MS } from "./shutdown";

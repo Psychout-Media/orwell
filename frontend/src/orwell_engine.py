@@ -142,6 +142,11 @@ _REFUSED_TURN: dict = {}
 _MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "nap", "createCharacter", "noteMessage", "runCompetition"})
 
 
+def _is_structured_nap_refusal(name: str, data) -> bool:
+    """The engine answered a `nap` with ``{"ok": false, ...}``: refused, no state change."""
+    return name == "nap" and isinstance(data, dict) and data.get("ok") is False
+
+
 def _refusal_key(user) -> str:
     return user or "__anon__"
 
@@ -204,6 +209,68 @@ _RETRY_BACKOFF_S = 0.25      # base backoff; doubles each attempt (0.25s, 0.5s)
 # Gateway/proxy statuses that mean "the engine is momentarily unreachable behind the proxy", NOT a
 # real per-tool error (those carry a structured {"error": ...} body and become an EngineToolError).
 _TRANSIENT_STATUSES = frozenset({502, 503, 504})
+# ORW-404: the engine answers 503 {"code": "engine-restarting"} to NEW calls while it shuts down for a deploy.
+# That 503 is sent BEFORE any state change, so re-sending even a non-idempotent tool is safe. A restart takes a
+# few seconds (exit, boot, warm-up), far longer than the short blip retry above, so for THIS code only the call
+# keeps retrying for up to ~20 s total, waiting the engine's Retry-After (capped) between tries. A call with a
+# short timeout of its own (the framing / poll reads) never waits longer than that timeout: its budget is
+# min(20 s, its timeout). Past the budget it falls through to the normal "unreachable" path.
+_RESTART_WAIT_BUDGET_S = float(os.environ.get("ORWELL_ENGINE_RESTART_WAIT_S") or "20")
+_RESTART_RETRY_AFTER_CAP_S = 3.0   # longest single wait between restart retries
+_RESTART_RETRY_AFTER_DEFAULT_S = 1.0  # when the 503 carries no usable Retry-After
+_NEVER_SENT_RETRY_S = 1.0  # ORW-404: pause between tries while the engine refuses connections (no Retry-After exists)
+_monotonic = time.monotonic  # indirection so tests can drive a virtual clock
+# ORW-404: "the engine is DOWN, not restarting". A restart is short: the engine answers its restarting 503, exits,
+# boots and listens again within seconds. An OUTAGE is the engine not answering at all for longer than that. The
+# rule is about ELAPSED TIME, not about which call noticed: `_ENGINE_UNREACHABLE_SINCE` is the monotonic time of
+# the FIRST never-sent failure (refused / connect timeout) since the engine last answered anything, and ANY answer
+# clears it (a successful call, a structured tool error, the restarting 503, a successful health probe). Once the
+# engine has been unreachable for `_ENGINE_DOWN_AFTER_S` the outage is established: from then on a never-sent
+# error gets only the short retry (calls fail fast instead of each waiting its full budget) and does not arm the
+# "reconnecting" marker (the banner says down). Recovery needs no timer: the short retry still makes real
+# attempts, and the first answer clears the state.
+# - A short-budget call giving up (the 3 s framing read, the 8 s status poll) says nothing by itself: a 3 s read
+#   that fails during a 6 s restart must not make the rest of the turn fail fast. Only the elapsed time counts.
+# - A call that is ALREADY in its long wait when the outage becomes established finishes its own budget.
+# - The evidence goes stale. If nothing tried the engine for `_ENGINE_UNREACHABLE_STALE_S` after the last refusal
+#   (the player left, the page closed), nobody knows it stayed down, so the next refusal restarts the clock: a
+#   refusal from hours ago must not make the first call of a new session fail fast inside a restart.
+_ENGINE_DOWN_AFTER_S = float(os.environ.get("ORWELL_ENGINE_DOWN_AFTER_S") or "20")
+_ENGINE_UNREACHABLE_STALE_S = 300.0
+_ENGINE_UNREACHABLE_SINCE: float | None = None  # _monotonic() of the first never-sent failure since the last answer
+_ENGINE_UNREACHABLE_LAST: float | None = None   # _monotonic() of the most recent never-sent failure
+
+
+def _note_engine_unreachable() -> None:
+    """A connection was never established. Keeps the FIRST such moment since the engine last answered, unless the
+    previous refusal is so old that the unbroken outage is no longer known (then the clock restarts now)."""
+    global _ENGINE_UNREACHABLE_SINCE, _ENGINE_UNREACHABLE_LAST
+    now = _monotonic()
+    stale = _ENGINE_UNREACHABLE_LAST is not None and now - _ENGINE_UNREACHABLE_LAST > _ENGINE_UNREACHABLE_STALE_S
+    if _ENGINE_UNREACHABLE_SINCE is None or stale:
+        _ENGINE_UNREACHABLE_SINCE = now
+    _ENGINE_UNREACHABLE_LAST = now
+
+
+def _clear_engine_down() -> None:
+    """The engine answered something: it is listening, whatever it said."""
+    global _ENGINE_UNREACHABLE_SINCE, _ENGINE_UNREACHABLE_LAST
+    _ENGINE_UNREACHABLE_SINCE = None
+    _ENGINE_UNREACHABLE_LAST = None
+
+
+def _engine_down() -> bool:
+    """True once the engine has not answered for `_ENGINE_DOWN_AFTER_S` since its first refused connection:
+    a real outage, not a restart."""
+    return _ENGINE_UNREACHABLE_SINCE is not None and _monotonic() - _ENGINE_UNREACHABLE_SINCE >= _ENGINE_DOWN_AFTER_S
+
+
+def _restart_budget_s(timeout) -> float:
+    """The long-wait budget for a call: a plain number timeout caps it; None or anything else (e.g. a structured
+    httpx.Timeout) leaves the default budget."""
+    if isinstance(timeout, (int, float)) and not isinstance(timeout, bool):
+        return min(_RESTART_WAIT_BUDGET_S, timeout)
+    return _RESTART_WAIT_BUDGET_S
 _RECONNECTING_UNTIL = 0.0    # monotonic deadline; while now < this, a call is mid-retry
 _RECONNECTING_FOR_S = 8.0    # how long the soft state lingers after the last retry began
 
@@ -222,6 +289,43 @@ def reconnecting() -> bool:
     """True while the client is retrying a momentarily-unreachable engine — a soft, brief state the
     health banner renders as "reconnecting…" instead of a hard outage. A success clears it."""
     return time.monotonic() < _RECONNECTING_UNTIL
+
+
+def _restart_wait_s(exc: Exception) -> float | None:
+    """For the engine's "restarting" 503 return how long to wait before retrying (its Retry-After, capped);
+    None for anything else (every other error keeps the short retry)."""
+    if not (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 503):
+        return None
+    try:
+        body = exc.response.json()
+    except Exception:
+        return None
+    if not (isinstance(body, dict) and body.get("code") == "engine-restarting"):
+        return None
+    try:
+        wait = float(exc.response.headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        wait = _RESTART_RETRY_AFTER_DEFAULT_S
+    if wait != wait or wait <= 0:  # NaN / non-positive
+        wait = _RESTART_RETRY_AFTER_DEFAULT_S
+    return min(wait, _RESTART_RETRY_AFTER_CAP_S)
+
+
+# ORW-404: errors that PROVE the request never reached the engine (the connection was never established),
+# so re-sending is safe for ANY tool, mutating ones included. Deliberately NOT here: ReadError,
+# RemoteProtocolError, ReadTimeout, WriteError, a reset mid-response - those can happen after the engine
+# received (and maybe applied) the call, so they keep the short-blip retry exactly as before.
+_NEVER_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _long_wait_s(exc: Exception) -> float | None:
+    """How long to wait before the next try of the LONG restart wait, or None if this error does not get it:
+    the engine's restarting 503 (its Retry-After, capped) or a connection that was never established
+    (a flat 1 s - the engine is down between exit and boot)."""
+    wait = _restart_wait_s(exc)
+    if wait is None and isinstance(exc, _NEVER_SENT_ERRORS):
+        return _NEVER_SENT_RETRY_S
+    return wait
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -337,7 +441,11 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
             err = body.get("error")
         except Exception:
             err, body = None, None
-        if err is not None:
+        # ORW-404: a 503 with code "engine-restarting" is the engine refusing NEW work while it shuts down
+        # (nothing was applied). It is an OUTAGE, not an answer: fall through to raise_for_status so the
+        # retry loop treats it like a refused connection mid-restart and never records a failed turn.
+        restarting = r.status_code == 503 and isinstance(body, dict) and body.get("code") == "engine-restarting"
+        if err is not None and not restarting:
             # audit A-S5: carry the engine's STRUCTURED fields (`code`/`beatSeq`/`board`) through so
             # the stale-beat reconcile keys off a stable machine code, not the message prose. Absent
             # fields ⇒ None ⇒ the existing message-marker fallback still applies (byte-identical).
@@ -364,7 +472,11 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
     return data["result"]
 
 
-async def _post_tool(path: str, name: str, args: dict | None, user: str | None, timeout: float | None = None) -> dict:
+#: ORW-439: a QUIET (diagnostic) call is bounded by its own timeout; this is the default when the caller gives none.
+_QUIET_TIMEOUT_S = 2.0
+
+
+async def _post_tool(path: str, name: str, args: dict | None, user: str | None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """POST one tool call to the engine; shared by the player and admin channels.
 
     Raises :class:`EngineToolError` when the engine answers with a structured ``{"error": ...}`` body
@@ -383,15 +495,56 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
+    if quiet:
+        # ORW-439: a diagnostic read. ONE attempt, bounded by its own timeout, then raise: no retry, no restart wait, no reconnecting
+        # marker, no recorded/cleared banner error and no integrity-refusal bookkeeping - the player must never see an engine-error
+        # banner for (or lose a real error to) a call made only to explain a counter.
+        return await _post_tool_once(path, name, args, user, timeout if timeout is not None else _QUIET_TIMEOUT_S)
     # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
     # Other wider-timeout pollers keep retrying every transient kind.
-    tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
+    _tnum = timeout if isinstance(timeout, (int, float)) and not isinstance(timeout, bool) else None  # a structured httpx.Timeout is not comparable
+    tight = _tnum is not None and (_tnum <= _FRAMING_TIMEOUT or (name == "gameStatus" and _tnum <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
-    for attempt in range(_RETRY_ATTEMPTS + 1):
+    started = _monotonic()
+    # The budget bounds the WAITING between attempts; the last attempt can add up to one call timeout on top
+    # (e.g. a ConnectTimeout against a host that drops packets), so the total can exceed the budget by one attempt.
+    restart_budget = _restart_budget_s(timeout)
+    long_waiting = False  # this call has begun its own long wait: it finishes its budget even if the outage becomes established meanwhile
+    attempt = -1
+    while True:
+        attempt += 1
         try:
             data = await _post_tool_once(path, name, args, user, timeout)
         except Exception as e:
             last_exc = e
+            # ORW-404: the engine is restarting (503 sent before any state change): ride it out, bounded by the
+            # call's own time budget, and do NOT spend the short-blip attempts on it.
+            # ORW-404: the same wait (one shared budget) for a connection that was never established: the engine is
+            # DOWN between exit and boot, so calls are refused rather than answered 503.
+            wait = _long_wait_s(e)
+            never_sent = isinstance(e, _NEVER_SENT_ERRORS)
+            if never_sent:
+                _note_engine_unreachable()
+            elif isinstance(e, EngineToolError) or (isinstance(e, httpx.HTTPStatusError) and (wait is not None or e.response.status_code not in _TRANSIENT_STATUSES)):
+                # an ANSWER (a structured tool error, the recognized restarting 503, a non-gateway status): the engine is listening. A bare gateway 502/503/504 proves only that a proxy answered
+                # (review of #2744), so it must not restart the outage clock of an established outage
+                _clear_engine_down()
+            if wait is not None and never_sent and not long_waiting and _engine_down():
+                wait = None  # the outage is established: a refused connection fails fast (short retry below)
+            if wait is not None:
+                remaining = restart_budget - (_monotonic() - started)
+                attempt -= 1
+                if remaining > 0:
+                    long_waiting = True
+                    _mark_reconnecting()
+                    await asyncio.sleep(min(wait, remaining))
+                    continue
+                attempt = _RETRY_ATTEMPTS  # budget spent: straight to the unreachable path below
+                # Gave up. The banner must say down, not reconnecting, when this was a real outage or a call that
+                # waited the whole restart budget. A SHORT-budget call giving up mid-restart leaves the marker to
+                # its own expiry, so the banner does not flash red while the next call rides the restart out.
+                if _engine_down() or restart_budget >= _RESTART_WAIT_BUDGET_S:
+                    _clear_reconnecting()
             # A read/connect TIMEOUT on a tight framing call already waited its full budget — don't
             # retry it (the framing layer's fallback prompt takes over fast). Other transient kinds
             # (refused, 5xx, empty body) fail fast and are cheap to retry even on the framing path.
@@ -399,7 +552,9 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             retryable = _is_transient(e) and not (tight and timed_out)
             if attempt < _RETRY_ATTEMPTS and retryable:
                 # Momentary blip — note the soft reconnecting state and back off briefly before retry.
-                _mark_reconnecting()
+                # (A refused connection inside the down window is an outage, not a blip: do not re-arm the marker.)
+                if not (never_sent and _engine_down()):
+                    _mark_reconnecting()
                 await asyncio.sleep(_RETRY_BACKOFF_S * (2 ** attempt))
                 continue
             # Out of retries (or a non-transient failure): record the banner error and re-raise.
@@ -417,11 +572,10 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
         else:
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
-            if name in _MUTATING_OK_CLEARS:
+            _clear_engine_down()   # ... and the "unreachable since" stamp
+            if name in _MUTATING_OK_CLEARS and not _is_structured_nap_refusal(name, data):  # review of #2737: a refused nap changed nothing, so it must not clear the standing red
                 _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
-    # Unreachable (the loop either returns or raises), but keep the type-checker honest.
-    raise last_exc if last_exc else EngineToolError("engine call failed")
 
 
 
@@ -507,7 +661,7 @@ def _note_ledger_write(user: str | None, name: str, res) -> None:
         pass
 
 
-async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
+async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
 
@@ -520,20 +674,25 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    res = None
     if name not in engine_read_cache.PURE_READS:
         engine_read_cache.invalidate(user)  # ORW-166: a possible mutation starts - nothing cached for this user may be served or joined
     if name in _DISCLOSURE_TOOLS:
         _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
         try:
-            res = await _call_inner(name, args, user=user, timeout=timeout)
+            res = await (_call_inner(name, args, user=user, timeout=timeout, quiet=True) if quiet
+                         else _call_inner(name, args, user=user, timeout=timeout))
             if name not in engine_read_cache.PURE_READS:
-                _note_ledger_write(user, name, res)  # ORW-435: the single seam every FE-owned engine write passes through
+                # Deliberate trade-off (review of #2743): a write that TIMED OUT or failed client-side is NOT counted, although the engine may have applied it. Counting it would hide a real
+                # dropped fold behind a write that never landed; not counting errs toward the louder alarm (a false `sync:dropped-fold` that the ORW-439 beatLog explanation then classifies).
+                _note_ledger_write(user, name, res)  # ORW-435: the seam every FE-owned player-channel write passes through (`_admin_call` has its own, for the admin channel)
         finally:
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
                 engine_read_cache.invalidate(user)
-                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
+                if not _is_structured_nap_refusal(name, res):  # review of #2737: a refused nap is a no-op, not a mutation (a failed/timed-out call still counts: res is None)
+                    _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
@@ -550,10 +709,12 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
         raise
 
 
-async def _call_inner(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
+async def _call_inner(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """Invoke a player-channel tool over the engine's HTTP MCP transport, for `user`'s sandbox.
     `timeout` overrides the default for latency-sensitive FRAMING calls (C18: a hung engine must
     fail a turn's framing in ~2s, not stall it for the full default)."""
+    if quiet:
+        return await _post_tool("/player/call", name, args, user, timeout=timeout, quiet=True)
     return await _post_tool("/player/call", name, args, user, timeout=timeout)
 
 
@@ -1078,6 +1239,16 @@ async def state_delta(since_beat_seq: int | None = None, user: str | None = None
     return await _call("stateDelta", args, user=user)
 
 
+async def beat_log(since_beat_seq: int, user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-439 - which engine tool caused each beatSeq bump after `since_beat_seq`.
+
+    Returns ``{ beatSeq, bumps:[{seq, tool, at}], truncated }``: tool NAMES, counter values and timestamps only (the engine's diagnostic
+    ring; in memory there, never saved). A pure read: it commits and bumps nothing. An engine without the tool raises
+    :class:`EngineToolError`; the caller decides what that means (the sync ledger leaves its alarm as it was). QUIET: one attempt, no
+    retry or restart wait, and it never records, clears or marks anything the player's health banner reads."""
+    return await _call("beatLog", {"sinceBeatSeq": int(since_beat_seq)}, user=user, timeout=timeout, quiet=True)
+
+
 async def get_visible_state(user: str | None = None) -> dict:
     """The player's own visible projection: witnessed events + things they know for certain."""
     return await _call("getVisibleStateFor", {}, user=user)
@@ -1198,7 +1369,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1208,6 +1379,10 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["expectedBeatSeq"] = expected_beat_seq
     if max_beats is not None:
         args["maxBeats"] = max_beats
+    if max_minutes is not None:  # ORW-445: the player's own stated wait length (engine hard-caps at 180)
+        args["maxMinutes"] = max_minutes
+    if until_band_end:
+        args["untilBandEnd"] = True
     return await _call("hangOut", args, user=user)
 
 
@@ -1479,9 +1654,9 @@ async def knowledge_scope_manifest(user: str | None = None):
 
 async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
     """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
-    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those two cleaned fields into the
+    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those three cleaned fields into the
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
-    narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
+    narrator's appearance string. ``look["clear"]`` (a list of those three field names) clears stale fields. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
     for k in ("wardrobe", "onCamera", "photoHair"):
         if look.get(k):
@@ -1501,7 +1676,7 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
 
 async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
-    (``recordOpenLedger``). Sends exactly ``{text, speaker, addressedTo, kind}``; the engine re-validates, derives the
+    (``recordOpenLedger``). Sends ``{text, speaker, addressedTo, kind}`` plus, when present, ``parties`` (a group pact) and ``about`` (free text); the engine re-validates, derives the
     witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
     played games only; changes no relationship number."""
     args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}
@@ -1619,7 +1794,10 @@ async def _admin_call(name: str, args: dict | None = None, user: str | None = No
     outages propagate as httpx errors, and failures feed the visible health banner."""
     engine_read_cache.invalidate(user)  # ORW-166: an admin tool may mutate (override, reset...): never serve a cached read across it
     try:
-        return await _post_tool("/admin/call", name, args, user)
+        res = await _post_tool("/admin/call", name, args, user)
+        if name not in engine_read_cache.PURE_READS:
+            _note_ledger_write(user, name, res)  # review of #2743: the admin channel is a second engine write seam; a God Mode `advanceToFinale` bumps beatSeq like any FE-owned write (the ledger's own lists decide what counts)
+        return res
     finally:
         engine_read_cache.invalidate(user)
 
@@ -1847,8 +2025,11 @@ async def engine_health_detail() -> dict:
             break
         except Exception as e:  # failsoft-ok: expected-empty (this IS the health reporter — a probe failure is REPORTED as {ok:False,error} to the FE banner, not swallowed)
             last_exc = e
+            if isinstance(e, _NEVER_SENT_ERRORS):
+                _note_engine_unreachable()  # ORW-404: the probe alone (an idle player) also establishes an outage
             if attempt < _RETRY_ATTEMPTS and _is_transient(e):
-                _mark_reconnecting()
+                if not (isinstance(e, _NEVER_SENT_ERRORS) and _engine_down()):
+                    _mark_reconnecting()  # (not while a real outage is already established)
                 await asyncio.sleep(_RETRY_BACKOFF_S * (2 ** attempt))
                 continue
             # Connection refused / DNS / timeout after retries: the most common real failure
@@ -1857,6 +2038,7 @@ async def engine_health_detail() -> dict:
             break
     if detail.get("ok"):
         _clear_reconnecting()  # the engine answered — any reconnecting state is over
+        _clear_engine_down()   # ... and so is any outage (ORW-404)
     _ir = integrity_refusal(None) or next((integrity_refusal(k if k != "__anon__" else None) for k in list(_INTEGRITY_REFUSAL)), None)
     if _ir:
         detail["integrityRefusal"] = {  # ORW-321: RED - the engine's checkpoint is refusing turns (Vault-free: kinds + an invariant name)

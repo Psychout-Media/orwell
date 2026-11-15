@@ -121,3 +121,44 @@ def test_deferred_run_is_superseded_only_if_the_restart_marker_equals_head():
     assert m and "exit 0" not in m.group(1)
     chk = re.search(r'^if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\nfi\n', UPDATE, re.S | re.M).group(0)
     assert "update_restarted_sha_read" in chk and "exit 0" in chk
+
+
+def test_updater_waits_on_the_directory_the_front_end_publishes_to():
+    # review of #2686: frontend/src/turn_inflight.py publishes to ORWELL_INFLIGHT_DIR (else its data dir); the updater must watch the same file.
+    # review of #2749: match the assignment and the call argument themselves, not a word that also sits in a comment
+    # ORW-437 (#2766): the directory is read through `__envval`: ORWELL_INFLIGHT_DIR first, ORWELL_DATA_DIR_FE only when that is empty. The behaviour
+    # (order, spaces, quotes, env vs .env) is proven by test_updater_watches_the_directory_the_front_end_publishes_to in test_orw406_force_keeps_turn_wait.py.
+    first = re.search(r'^\s*INFLIGHT_DIR="\$\(__envval ORWELL_INFLIGHT_DIR\)"$', UPDATE, re.M)
+    second = re.search(r'^\s*\[\[ -n "\$INFLIGHT_DIR" \]\] \|\| INFLIGHT_DIR="\$\(__envval ORWELL_DATA_DIR_FE\)"$', UPDATE, re.M)
+    call = re.search(r'^\s*update_wait_for_no_turn "\$\{INFLIGHT_DIR:-[^"]*\}/turns-in-flight" "\$FORCE_NOW"', UPDATE, re.M)
+    assert first and second and call and first.start() < second.start() < call.start()
+
+
+def test_update_plus_reset_waits_for_warm_after_the_reset_owns_the_final_restart():
+    # review of #2720: the updater skips its warm wait under --no-restart, so the script that does the final restart must run it.
+    reset = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    assert "orwell-live-game.sh" in reset and "update_wait_for_warm" in reset
+    assert reset.index('do_svc start "$svc"') < reset.index("update_wait_for_warm \"http")
+
+
+def test_wait_loops_are_bounded_and_quiet_and_the_reset_records_the_marker():
+    live = (ROOT / "deploy" / "orwell-live-game.sh").read_text()
+    reset = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    # review of #2686: one line per 30 s and no sleep past the bound; #2720: probes capped by the remaining budget, no duplicate log append; #2702: the reset records HEAD.
+    assert "last_say" in live and "never sleep past the bound" in live
+    assert '--max-time "${2:-3}"' in live and "_warm_left" in live
+    assert '>>"$log"' not in live[live.index("update_wait_for_warm()"):live.index("update_wait_for_warm()") + 2500]
+    assert "update_restarted_sha_write" in reset
+
+
+def test_wait_for_no_turn_sleeps_no_longer_than_what_is_left():
+    import subprocess
+    script = f"""set -u; . '{ROOT}/deploy/orwell-live-game.sh'
+T=100; slept=''
+_update_defer_now() {{ echo $T; }}
+_update_defer_sleep() {{ slept="$slept $1"; T=$((T + $1)); }}
+update_turn_in_flight() {{ return 0; }}
+ORWELL_UPDATE_TURN_WAIT_SECONDS=3
+update_wait_for_no_turn /x >/dev/null; echo "SLEPT:$slept" """
+    out = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=20).stdout
+    assert "SLEPT: 2 1" in out, out   # 2 s, then only the 1 s that is left of the 3 s bound

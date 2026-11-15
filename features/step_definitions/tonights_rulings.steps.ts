@@ -49,8 +49,10 @@ Then("every narrator prompt names a part of the day and states no clock time", f
     const lines = p.split("\n");
     assert.ok(lines.some((l) => l.startsWith("- Part of the day: ")), "a prompt names no part of the day");
     assert.ok(!p.includes("- Clock: "), "a prompt still carries the clock line");
-    // the only clock-looking text allowed is the rule's own quoted counter-examples, which sit on the part-of-day line
-    assert.doesNotMatch(lines.filter((l) => !l.startsWith("- Part of the day: ")).join("\n"), CLOCK_TIME, "a prompt states a clock time");
+    // the only clock-looking text allowed is the rule's own quoted counter-examples on the part-of-day line: strip just the
+    // "quoted" spans there and scan everything else, the band line included (review of #2739)
+    const scanned = lines.map((l) => (l.startsWith("- Part of the day: ") ? l.replace(/"[^"]*"/g, "") : l)).join("\n");
+    assert.doesNotMatch(scanned, CLOCK_TIME, "a prompt states a clock time");
   }
 });
 
@@ -98,13 +100,14 @@ Then("every houseguest in the house is listed as one or the other", function () 
 });
 
 // --- 0078: headcounts include the player (ORW-376) ---------------------------------------------------------------------------------
-function seasonAt(pred: (s: GameSessionAdapter) => boolean): GameSessionAdapter {
+function seasonAt(pred: (s: GameSessionAdapter, startHouse: number) => boolean): GameSessionAdapter {
   for (let seed = 1; seed <= 40; seed++) {
     const s = new GameSessionRegistry().sandboxFor(`rulings-hc-${n++}`).session as GameSessionAdapter;
     s.createCharacter({ playerName: "The Player", seed });
+    const startHouse = s.livingIds().length;
     for (let i = 0; i < 4000; i++) {
       const v = s.advanceGame();
-      if (pred(s)) return s;
+      if (pred(s, startHouse)) return s;
       if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
       if (v.finished) break;
     }
@@ -116,8 +119,9 @@ Given("a season that has reached its nominations", function () {
   bag(this).s = seasonAt((s) => s.getGameState().phase === "nominations");
 });
 
-Given("a season that has reached an eviction vote", function () {
-  bag(this).s = seasonAt((s) => s.getGameState().pending?.kind === "eviction-vote");
+// After a real eviction, so a count fixed at the opening house size (or any constant) cannot pass: the house must already have shrunk.
+Given("a season that has reached an eviction vote after an eviction", function () {
+  bag(this).s = seasonAt((s, startHouse) => s.getGameState().pending?.kind === "eviction-vote" && s.livingIds().length < startHouse);
 });
 
 Then("the player's room count is the houseguests with them plus the player", function () {

@@ -13,12 +13,12 @@ Feature: Casual Assurances
     Then an open assurance exists from the promiser to the assured
 
   Scenario: A kept safe assurance keeps the assured off the block
-    Given an NPC HOH about to nominate a houseguest, who holds a "safe" assurance toward them that the HOH means to keep
+    Given an NPC HOH who has given a "safe" assurance to a houseguest and means to keep it, about to nominate them
     When nominations are decided
     Then the assured houseguest is not nominated
 
   Scenario: A broken assurance costs the assurer the assured's trust
-    Given an NPC HOH about to nominate a houseguest, who holds an open "safe" assurance toward them that the HOH will not keep
+    Given an NPC HOH who has given an open "safe" assurance to a houseguest and will not keep it, about to nominate them
     When the HOH nominates that houseguest
     Then the assurance resolves broken once
     And the assured remembers it and trusts the HOH less

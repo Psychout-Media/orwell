@@ -31,6 +31,22 @@ describe("ORW-401 relationship metering (played game)", () => {
     expect(steps[29]!).toBeGreaterThan(0); // no hard cap: the scene still moves it a little
   });
 
+  it("near an extreme a step TOWARD it is damped while a step away from it is not (same draw, controlled edge)", () => {
+    const stepFrom = (start: number, kind: "bonding" | "conflict"): number => {
+      const { core, cmd } = setup({ v: "d1:morning" });
+      core.relationships.edge(npc(1), PLAYER).affinity = start;
+      cmd.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc(1)], content: "a chat", kind });
+      return core.relationships.read(npc(1), PLAYER).signals.affinity - start;
+    };
+    const midUp = stepFrom(0.5, "bonding"), edgeUp = stepFrom(0.95, "bonding");
+    expect(midUp, "a bonding scene moves a mid edge up").toBeGreaterThan(0);
+    expect(edgeUp, "toward the extreme it is cut to a fraction").toBeLessThan(midUp * 0.5);
+    expect(edgeUp, "but never to zero (no hard cap)").toBeGreaterThan(0);
+    const midDown = stepFrom(0.5, "conflict"), edgeDown = stepFrom(0.95, "conflict");
+    expect(midDown).toBeLessThan(0);
+    expect(edgeDown, "a step back toward the middle from the extreme is undamped").toBeCloseTo(midDown, 6);
+  });
+
   it("a new window restores the full first-step effect", () => {
     const w = { v: "d1:morning" };
     const { edge, scene } = setup(w);

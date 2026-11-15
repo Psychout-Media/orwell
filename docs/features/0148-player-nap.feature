@@ -23,7 +23,7 @@ Feature: 0148 — the player's nap
   Scenario: A shorter nap helps less
     Given it is the morning
     When the player naps for 1 hour
-    Then the player's rest term is between half and the full amount it was before the nap
+    Then the player's rest term is about 71% of what it was before the nap
 
   Scenario: A night in bed resets the nap credit along with the night
     Given the player napped 2 hours today
@@ -41,7 +41,7 @@ Feature: 0148 — the player's nap
     Given it is late afternoon, one hour before the evening
     When the player naps for 3 hours
     Then the nap ended at the start of the evening
-    And the night has not ended: only going to bed ends it
+    And the player is still awake: only going to bed ends the night
 
   Scenario Outline: A nap is refused when it is not the player's time to sleep
     Given <situation>

@@ -71,5 +71,68 @@ def test_updater_wiring():
     i = UPDATE.index('systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"\n    fi')
     blk = UPDATE[i:UPDATE.index("update complete (")]
     assert "update_wait_for_warm" in blk and "/api/orwell/health" in blk and "/health" in blk
-    assert "|| true" in blk  # a warm-up problem can never fail the update
+    call = blk[blk.index("update_wait_for_warm "):blk.index("\n    fi", blk.index("update_wait_for_warm "))]  # the call itself, not an unrelated `|| true` earlier in the block
+    assert call.rstrip().endswith("|| true"), call  # a warm-up problem can never fail the update
     assert blk.index("update_restarted_sha_write") < blk.index("update_wait_for_warm") < blk.index("ops_progress_done")
+
+
+@needs_bash
+def test_line_is_written_once_when_stdout_is_the_log(tmp_path):
+    # The ops unit appends stdout INTO the ops log (>>); the helper must not append the same line a second time.
+    log = tmp_path / "ops-update.log"
+    script = harness(0, log)
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail; . '{LIB}'; {script}"], stdout=open(log, "a"),
+                       stderr=subprocess.PIPE, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert log.read_text().count("warm-up complete") == 1, log.read_text()
+
+
+@needs_bash
+@pytest.mark.parametrize("allowed,host", [("", ""), ("*", ""), ("game.example.com,www.example.com", "game.example.com"),
+                                          # Starlette matches "*.x" only for a subdomain, never the bare domain: probe a label in front of it
+                                          ("*.example.com", "probe.example.com"), ("*.example.com,game.example.com", "game.example.com"),
+                                          ("*,game.example.com", "game.example.com"), ('"game.example.com"', "game.example.com")])
+def test_probe_host_comes_from_allowed_hosts(allowed, host):
+    assert run(f"update_probe_host '{allowed}'") == host
+
+
+@needs_bash
+def test_front_end_probe_sends_the_pinned_host_header(tmp_path):
+    # With ALLOWED_HOSTS pinned, Host: 127.0.0.1 is rejected and the front end never looks ready: the probe must send the allowed Host.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    seen = tmp_path / "seen"
+    (bindir / "curl").write_text(f'#!/bin/bash\necho "$@" >> "{seen}"\necho \'{{"ok":true,"warmed":true,"engine":true}}\'\n')
+    (bindir / "curl").chmod(0o755)
+    out = run("update_wait_for_warm 'http://127.0.0.1:1/health' 'http://127.0.0.1:2/api/orwell/health' '' 'game.example.com'",
+              env={"PATH": f"{bindir}:{os.environ['PATH']}"})
+    assert "warm-up complete" in out
+    lines = seen.read_text().splitlines()
+    assert any("Host: game.example.com" in l and ":2/" in l for l in lines)
+    assert not any("Host:" in l and ":1/" in l for l in lines)
+
+
+def test_both_callers_pass_the_allowed_host():
+    oobe = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    assert "update_probe_host" in oobe and "update_probe_host" in UPDATE
+
+
+def test_reset_waits_for_warm_only_when_a_service_was_started():
+    oobe = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    i = oobe.index("type update_wait_for_warm")
+    cond = oobe[oobe.rindex("\n", 0, i):i]
+    assert "${#STARTED[@]} -gt 0" in cond
+
+
+@needs_bash
+@pytest.mark.parametrize("script,env_setup", [("orwell-update.sh", "ENV_FILE=/dev/null"), ("orwell-oobe-reset.sh", "env_val() { :; }")])
+def test_probe_host_call_survives_an_old_installed_helper(script, env_setup):
+    # An old installed helper has no update_probe_host: the new script must carry on with no Host header, not print "command not found".
+    src = (ROOT / "deploy" / script).read_text()
+    line = next(l for l in src.splitlines() if "declare -F update_probe_host" in l).strip().rstrip("|| true").strip().rstrip("\\").strip()
+    expr = line[line.index('"$(!'):line.rindex(')"') + 2]
+    old_helper = "update_wait_for_no_turn() { :; }"
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail; {old_helper}; {env_setup}; ALLOWED_HOSTS=game.example.com; echo \"HOST=[{expr}]\""],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "command not found" not in r.stderr, r.stderr
+    assert "HOST=[]" in r.stdout

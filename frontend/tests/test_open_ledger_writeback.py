@@ -39,14 +39,14 @@ def test_writes_exactly_four_fields():
     sent = []
 
     async def llm(_m):
-        return 'hmm {"entries":[{"text":"I will never vote you out","speaker":"npc:3","addressedTo":["player"],"kind":"promise"}]}'
+        return 'hmm {"entries":[{"text":"she will never put the player on the block","speaker":"npc:3","addressedTo":["player"],"kind":"promise"}]}'
 
     async def write(p):
         sent.append(p)
         return {"accepted": True, "entryId": "open:1"}
 
     assert run(ol.capture_open_ledger(NARR, PRESENT, llm, write)) == 1
-    assert sent == [{"text": "I will never vote you out", "speaker": "npc:3", "addressedTo": ["player"], "kind": "promise"}]
+    assert sent == [{"text": "she will never put the player on the block", "speaker": "npc:3", "addressedTo": ["player"], "kind": "promise"}]
     assert set(sent[0]) == {"text", "speaker", "addressedTo", "kind"}
 
 
@@ -191,7 +191,7 @@ def test_resolution_failure_does_not_lose_the_entries_and_no_open_list_means_no_
     async def broken(_p):
         raise RuntimeError("engine down")
 
-    assert run(ol.capture_open_ledger(NARR, TWO, llm, write, None, [{"id": "open:1", "text": "t"}], broken)) == 0
+    assert run(ol.capture_open_ledger(NARR, TWO, llm, write, None, [{"id": "open:1", "text": "t"}], broken)) == 1  # review of #2721: the accepted entry still counts when a resolve fails
 
 
 def test_engine_wrappers_dispatch_the_slice2_tools(monkeypatch):
@@ -221,3 +221,124 @@ def test_the_loop_feeds_the_canon_and_ledger_hooks_the_player_visible_narration(
     calls = re.findall(r"await (_ol|_rc)\.after_turn\(([^,]+),", src)
     assert {c[0] for c in calls} == {"_ol", "_rc"}
     assert all(arg.strip() == "_turn_narration_visible" for _who, arg in calls), calls
+
+
+def test_orw437_open_ledger_here_is_a_pure_read_so_it_does_not_invalidate_the_cache():
+    """review of #2721: a read counted as a mutation sends a spurious game-updated ping and drops the read cache every turn."""
+    from src import engine_read_cache
+    assert "openLedgerHere" in engine_read_cache.PURE_READS
+
+
+def test_orw437_same_words_from_two_speakers_are_two_entries_and_one_failing_write_keeps_the_rest():
+    """review of #2721: the dedupe key is (speaker, text); one write raising does not discard the others or the count."""
+    present = [{"id": "npc:3", "name": "A"}, {"id": "npc:4", "name": "B"}]
+    reply = ('{"entries":[{"text":"I will keep you safe","speaker":"npc:3","addressedTo":["player"],"kind":"oath"},'
+             '{"text":"I will keep you safe","speaker":"npc:4","addressedTo":["player"],"kind":"oath"},'
+             '{"text":"I will keep you safe","speaker":"npc:3","addressedTo":["player"],"kind":"dup"}],"resolutions":[]}')
+    sent = []
+
+    async def llm(messages):
+        return reply
+
+    async def write(entry):
+        sent.append(entry["speaker"])
+        if entry["speaker"] == "npc:3":
+            raise RuntimeError("engine hiccup")
+        return {"accepted": True}
+
+    assert run(ol.capture_open_ledger(NARR, present, llm, write)) == 1
+    assert sent == ["npc:3", "npc:4"]
+
+
+def test_entry_with_no_houseguest_is_dropped():
+    # ORW-437 (review of #2692): player to player, or a player entry with no addressee, involves nobody in the house
+    raw = {"entries": [
+        {"text": "a", "speaker": "player", "addressedTo": [], "kind": "k"},
+        {"text": "b", "speaker": "player", "addressedTo": ["player"], "kind": "k"},
+        {"text": "c", "speaker": "npc:3", "addressedTo": [], "kind": "k"},
+    ]}
+    assert [e["text"] for e in ol.clean_entries(raw, {"npc:3"})] == ["c"]
+
+
+# ---------------- review fixes: loud refusal when full, fence, deals, engine flag ----------------
+
+def _entries_llm(n):
+    texts = ["alpha one", "beta two", "gamma three"][:n]
+
+    async def llm(_m):
+        items = ",".join('{"text":"%s","speaker":"npc:3","addressedTo":["player"],"kind":"k"}' % t for t in texts)
+        return '{"entries":[%s]}' % items
+    return llm
+
+
+def test_full_refusal_is_recorded_loudly_once_per_turn(monkeypatch):
+    from src import log_rings
+    seen = []
+    monkeypatch.setattr(log_rings, "record_soft_failure", lambda cls, exc, **kw: seen.append((cls, kw)))
+
+    async def full(_p):
+        return {"accepted": False, "reason": "full"}
+
+    assert run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(3), full, owner="u1")) == 0
+    assert [c for c, _ in seen] == ["open-ledger:full"]  # three refusals, ONE record
+    assert seen[0][1].get("user") == "u1"
+    assert not seen[0][1].get("corrected"), "nothing corrected the refusal: the admin disposition must read 'uncorrected'"
+
+
+def test_other_refusals_and_acceptances_do_not_record_full(monkeypatch):
+    from src import log_rings
+    seen = []
+    monkeypatch.setattr(log_rings, "record_soft_failure", lambda cls, exc, **kw: seen.append(cls))
+
+    async def other(_p):
+        return {"accepted": False, "reason": "not-present"}
+
+    async def ok(_p):
+        return {"accepted": True}
+
+    run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(2), other))
+    run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(2), ok))
+    assert seen == []
+
+
+def test_prompt_is_behind_the_untrusted_fence_and_leaves_deals_out():
+    from src.agent_loop import _EXTRACTION_UNTRUSTED_FENCE
+    prompts = []
+
+    async def llm(m):
+        prompts.append(m[0]["content"])
+        return '{"entries":[]}'
+
+    async def write(_p):
+        return {"accepted": True}
+
+    run(ol.capture_open_ledger(NARR, PRESENT, llm, write))
+    assert prompts[0].startswith(_EXTRACTION_UNTRUSTED_FENCE)
+    assert "recorded elsewhere as a deal" in prompts[0]
+
+
+def test_after_turn_stands_down_when_the_engine_has_the_ledger_off(monkeypatch):
+    from src import orwell_engine as oe
+    from src import orwell_show_brief as sb
+    monkeypatch.setattr(sb, "show_brief_enabled", lambda: True)
+    called = []
+
+    async def boom(*a, **k):
+        called.append(1)
+        return None
+
+    monkeypatch.setattr(oe, "whereabouts", boom)
+
+    async def none(*a, **k):
+        return []
+
+    monkeypatch.setattr(oe, "open_ledger_here", none)
+    monkeypatch.setitem(oe._ENGINE_FLAGS, "openLedger", False)
+    assert run(ol.after_turn(NARR, "u", "http://x", "m", {})) == 0
+    assert called == []  # no extraction, not even the presence read
+    monkeypatch.setitem(oe._ENGINE_FLAGS, "openLedger", True)
+    run(ol.after_turn(NARR, "u", "http://x", "m", {}))
+    assert called == [1]  # flag on: it carries on
+    monkeypatch.delitem(oe._ENGINE_FLAGS, "openLedger")
+    run(ol.after_turn(NARR, "u", "http://x", "m", {}))
+    assert called == [1, 1]  # flag unknown: fail open

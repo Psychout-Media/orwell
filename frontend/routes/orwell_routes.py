@@ -455,6 +455,17 @@ async def _capture_season_outcome(user: Optional[str]) -> bool:
         return False
 
 
+def _roster_story_flags(hg: dict) -> dict:
+    """`storyMissing` (blank biography or identity, or genesis's draft) and `lookMissing` (a photo-sheet look field absent; non-blocking, only the look backfill reads it)."""
+    # An entry that carries any story key is a full card even without a look block (the key is then None); a thin stub with none stays unflagged.
+    full = {**hg, "physicalCharacteristics": hg.get("physicalCharacteristics")} if ("biography" in hg or "identityConcept" in hg) else hg
+    story = orwell_cast_authoring.card_missing_story(full)
+    out = {"storyMissing": True} if story else {}
+    if not story and orwell_cast_authoring.card_missing_story(full, look=True):
+        out["lookMissing"] = True
+    return out
+
+
 def _roster_cards(state: dict, user: Optional[str]) -> list:
     """The Vault-free roster cards (0051) from the engine's public projection: id, name,
     status, isPlayer, the persisted portrait ref (or null), and the engine's deep-profile
@@ -489,6 +500,9 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": False,
             "portrait": orwell_portraits.portrait_ref(user, hid),
             "authored": bool(hg.get("authored")),
+            # ORW-438: the roster card is thin (no biography text), so the story check runs here on the FULL state card and rides as booleans the backfill reads
+            # (the ONE story mechanism). A house entry with no look block still counts as a full card, so the key is normalised to None before the check.
+            **_roster_story_flags(hg),
             # ORW-343: the engine's last-seen mood WORD (active houseguests the player has shared a room with); carried only when it is a short string, so nothing else can ride this field.
             **({"lastSeenMood": hg["lastSeenMood"]} if isinstance(hg.get("lastSeenMood"), str) and 0 < len(hg["lastSeenMood"]) <= 40 else {}),
         })
@@ -802,7 +816,14 @@ _PERSONA_FIELDS = (
 
 
 def _public_persona(card: dict) -> dict:
-    return {k: card.get(k) for k in _PERSONA_FIELDS if card.get(k) not in (None, "")}
+    out = {k: card.get(k) for k in _PERSONA_FIELDS if card.get(k) not in (None, "")}
+    # ORW-438: genesis writes its first biography without the houseguest's name ("Runs compliance for a regional credit
+    # union..."). While the engine marks the stored biography as that draft (`biographyDraft`), it is not shown; the
+    # card keeps its identity line and structured facts, and the real biography appears when the writer's lands.
+    bio = out.get("biography")
+    if isinstance(bio, str) and orwell_cast_authoring.is_genesis_draft_biography(card):
+        out.pop("biography", None)
+    return out
 
 
 def _public_ref(r) -> dict:

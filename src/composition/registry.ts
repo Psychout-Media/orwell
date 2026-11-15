@@ -839,6 +839,7 @@ export class GameSessionRegistry {
       // rev; a later resume rebuilds the sandbox (rev bumps) and re-exports fresh.
       this.snapshotCache.delete(next[0]);
       this.rev.delete(next[0]);
+      try { this.onUnload?.(next[0]); } catch { /* releasing a baseline never breaks the unload */ }
     }
   }
 
@@ -904,9 +905,12 @@ export class GameSessionRegistry {
   restore(user: string, snap: SessionSnapshot): UserSandbox {
     // G12: the rolled-back graph's queued soul-index work dies with it — the clean rebuild
     // below re-floods the shared lane from the snapshot, breathing (one embed per macrotask).
-    this.sandboxes.get(user)?.engine.soul.discardPending();
+    const priorSession = this.sandboxes.get(user);
+    priorSession?.engine.soul.discardPending();
     const sb = buildUserSandbox(user);
     importSnapshot(sb, snap);
+    // ORW-439 - the diagnostic bump log survives the rebuild, minus any bump above the restored counter (a refused commit's bump was rolled back).
+    if (priorSession) sb.session.adoptBeatLog(priorSession.session.beatLogEntries());
     this.wireHooks(user, sb);
     this.sandboxes.set(user, sb);
     this.bumpRev(user); // R3 — the sandbox object graph was replaced; any cached export is stale
@@ -979,6 +983,12 @@ export class GameSessionRegistry {
   private onResume?: (user: string) => void;
   setOnResume(fn: (user: string) => void): void {
     this.onResume = fn;
+  }
+
+  /** Unload hook (review of #2747): an LRU-unloaded sandbox's non-degradation baseline (a full snapshot) is released with it. */
+  private onUnload?: (user: string) => void;
+  setOnUnload(fn: (user: string) => void): void {
+    this.onUnload = fn;
   }
 
   setOnBackgroundCommit(fn: (user: string) => void): void {

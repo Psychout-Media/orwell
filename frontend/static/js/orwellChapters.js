@@ -238,7 +238,7 @@ export function installLiveGuard(getCurrentSessionId) {
     for (const m of muts) {
       for (const n of m.addedNodes) {
         if (n && n.nodeType === 1 && n.classList && n.classList.contains('msg') && !(n.dataset && n.dataset.fromHistory)) {
-          try { window.__guardTrigger = (n.outerHTML || '').slice(0, 300) + ' | box.children=' + box.children.length; } catch (_) {}
+          try { window.__guardTrigger = { cls: String(n.className || '').slice(0, 120), id: n.id || '', clientMsgId: (n.dataset && n.dataset.clientMsgId) || '', mid: (n.dataset && (n.dataset.mid || n.dataset.messageId)) || '', children: box.children.length }; } catch (_) {}  // bounded identifiers only: serializing the live subtree (outerHTML) blocks the UI on a large reply (review of #2679)
           setView(sid, 'current');
           return;
         }

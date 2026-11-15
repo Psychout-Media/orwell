@@ -87,16 +87,29 @@ def test_a_name_alone_in_the_message_injects_nothing():
     assert _recall_msgs(out) == []
 
 
-def test_a_name_that_is_also_a_stop_word_still_counts_toward_the_score():
-    """review of #2703: a houseguest called "Will" must contribute to the score though `will` is a stop word."""
-    rows = [_row("system", "base"), _row("user", "Will said the lighthouse key is under the flowerpot"),
-            _row("assistant", "Will nodded at the lighthouse key", 1)]
+def test_a_name_that_is_also_a_stop_word_still_counts_toward_the_score(monkeypatch):
+    """review of #2703: a houseguest whose name is also a stop word must contribute to the score. (Roles only: the stop-word set is extended with a role label, so no real name is needed.)"""
+    monkeypatch.setattr(tr, "_STOP", tr._STOP | {"role"})
+    rows = [_row("system", "base"), _row("user", "Role said the lighthouse key is under the flowerpot"),
+            _row("assistant", "Role nodded at the lighthouse key", 1)]
     for i in range(10):
         rows += [_row("user", f"x{i}"), _row("assistant", f"y{i}", 3)]
-    rows.append(_row("user", "what did Will say about the lighthouse key?"))
+    rows.append(_row("user", "what did Role say about the lighthouse key?"))
     view = dc.apply_prompt_view(rows, LEDGER)
-    assert _recall_msgs(tr.apply_recall(rows, view, names=["Will"]))
+    assert _recall_msgs(tr.apply_recall(rows, view, names=["Role"]))
     assert _recall_msgs(tr.apply_recall(rows, view, names=[])) == []
+
+
+def test_orw437_a_possessive_name_counts_toward_the_score(monkeypatch):
+    """review of #2745: raw-token matching missed "Role's" (tokenized `role's`) in the query. Two shared content words alone score 2 (< MIN_SCORE), so the name must carry the rest."""
+    monkeypatch.setattr(tr, "_STOP", tr._STOP | {"role"})
+    rows = [_row("system", "base"), _row("user", "Role said the lighthouse key is under the flowerpot"),
+            _row("assistant", "Role nodded at the lighthouse key", 1)]
+    for i in range(10):
+        rows += [_row("user", f"x{i}"), _row("assistant", f"y{i}", 3)]
+    rows.append(_row("user", "the lighthouse key, Role's?"))
+    view = dc.apply_prompt_view(rows, LEDGER)
+    assert _recall_msgs(tr.apply_recall(rows, view, names=["Role"]))
 
 
 def test_an_injected_line_in_old_chat_is_never_a_system_message():
@@ -121,3 +134,15 @@ def test_no_story_block_runs_the_lookup_and_returns_the_view():
     rows = _history() + [_row("user", "Where was that lighthouse key hidden?")]
     view = [m for m in rows if not str(m.get("content", "")).startswith("filler")]  # a distinct list with no [Story so far]
     assert view is not rows and tr.apply_recall(rows, view) is view
+
+
+def test_orw437_the_recall_survives_the_game_turn_trim_when_the_prompt_is_over_budget():
+    """review of #2745: the recall is user-role, so `_trim_preserving_system` saw it as the OLDEST droppable turn and cut it before any real turn. It is now `_protected` (the agent loop strips the key before the request)."""
+    from src.context_compactor import trim_for_context
+    _rows, view, out = _run("Where was that lighthouse key hidden again?")
+    rec = _recall_msgs(out)[0]
+    assert rec.get("_protected") is True
+    padded = out[:-1] + [{"role": "user", "content": "filler " * 400}] * 6 + out[-1:]
+    trimmed = trim_for_context(padded, context_length=3000, reserve_tokens=512, preserve_system=True)
+    assert len(trimmed) < len(padded), "the budget really forced a trim"
+    assert any(m is rec for m in trimmed), "the recall excerpt was trimmed away"

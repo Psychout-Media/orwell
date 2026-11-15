@@ -29,6 +29,7 @@ describe("ORW-400 recap gossip markers", () => {
     const recap = i.buildRecapForDay(1);
     expect(recap.surfaced.join("|")).not.toMatch(/#\d+/);
     expect(recap.surfaced).toHaveLength(1);
+    expect((i.live.dayLedger ?? []).some((d: { tier: string; day: number }) => d.tier === "day" && d.day === 1), "the day-1 ledger entry was written (else the marker check below is vacuous)").toBe(true);
     const ledger = (i.live.dayLedger ?? []).flatMap((d: { events: string[] }) => d.events).join("|");
     expect(ledger).not.toMatch(/#\d+/);
   });
@@ -42,6 +43,16 @@ describe("ORW-400 day roll leftovers", () => {
     i.live.timeOfDay = "night";
     session.turnIn();
     expect([...(i.presenceTenure?.values() ?? [])].every((n: number) => n === 0)).toBe(true);
+    expect(i.convoPartners).toBeNull();
+  });
+
+  it("a day rolled inside a one-commit mutation (advance) resets tenure by the time the commit lands, not at a later persist", () => {
+    const { i } = rig(44, []);
+    i.presenceTenure = new Map([["npc:1", 27]]);
+    i.convoPartners = { ids: ["npc:1"], tick: i.presenceTickCount };
+    i.live.dayNumber = (i.live.dayNumber ?? 1) + 1; // the production schedule rolled the day
+    i.inOneCommit(() => { i.persist(); return { beatSeq: 0 }; });
+    expect(i.presenceTenure.get("npc:1")).toBe(0);
     expect(i.convoPartners).toBeNull();
   });
 

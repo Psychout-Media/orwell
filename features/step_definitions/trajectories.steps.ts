@@ -33,6 +33,7 @@ interface TWorld {
   twA?: EntityId;
   twB?: EntityId;
   twTraj?: Trajectory;
+  twSignals?: Parameters<typeof deriveTrajectory>[0];
   twTrajMixed?: Trajectory;
   twNatures?: { off: string[]; on: string[] };
   twDraws?: { off: number[]; on: number[] };
@@ -187,24 +188,27 @@ Then("the momentum is high", function (this: BbWorld) {
 
 // === Rule: the engine owns momentum; the model only proposes shape ======================================
 
-Given("a cooler-shaped fold lands between two houseguests", function (this: BbWorld) {
+Given("a cooler-shaped fold signal sequence between two houseguests", function (this: BbWorld) {
   // ORW-335: reworded from "the player records a scene ... proposes a cooler consequence shape": the trajectory layer reads only
   // off-screen NPC-to-NPC folds (orchestrator -> recordTrajectoryFold); a player scene's consequence descriptor does NOT feed it (not built).
   // The model proposes the DIRECTION (cooler) — a souring/cooling-shaped fold. It proposes NO magnitude;
-  // the engine owns it. A "cooler" shape lands a negative bond delta with a little threat (the engine's own
+  // the engine owns it. A "cooler" shape lands a negative bond delta with no threat delta (the engine's own
   // bounded amount), exactly like the `cooler` consequence direction (`CONSEQUENCE_DIRECTION_IMPACTS`).
-  tw(this).twTraj = deriveTrajectory([{ bondDelta: -0.105, threatDelta: 0.03, betrayal: false },
-    { bondDelta: -0.105, threatDelta: 0.03, betrayal: false }], undefined);
+  tw(this).twSignals = [{ bondDelta: -0.105, threatDelta: 0, betrayal: false },
+    { bondDelta: -0.105, threatDelta: 0, betrayal: false }];
 });
 
-When("the engine folds the scene and updates the trajectory", function () { /* folded above (deriveTrajectory over the fold signals) */ });
+When("the trajectory is derived from those signals", function (this: BbWorld) {
+  // deriveTrajectory is the pure function the engine fold calls
+  tw(this).twTraj = deriveTrajectory(tw(this).twSignals!, undefined);
+});
 
 Then("the trajectory direction reflects the proposed shape", function (this: BbWorld) {
   // A cooler shape ⇒ the arc is falling (cooling or souring), never warming.
   assert.ok(["cooling", "souring"].includes(tw(this).twTraj!.phase), `cooler shape ⇒ falling arc (${tw(this).twTraj!.phase})`);
 });
 
-Then("the momentum magnitude is the engine's own bounded, seeded amount", function (this: BbWorld) {
+Then("the momentum magnitude is the engine's own bounded amount", function (this: BbWorld) {
   // The magnitude comes from the engine's constants (buildRate × consistency), NOT from any model number.
   assert.ok(tw(this).twTraj!.momentum > 0 && tw(this).twTraj!.momentum <= 1, "bounded, engine-derived");
 });
