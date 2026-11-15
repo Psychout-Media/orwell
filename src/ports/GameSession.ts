@@ -616,6 +616,8 @@ export interface GameStateView {
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
+  /** ORW-443: the approach cap withheld a houseguest this turn (played games only; absent otherwise). Narration-only; carries no count. */
+  approachHeld?: true;
   daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3 };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
