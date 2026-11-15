@@ -259,3 +259,26 @@ describe("review of #2732 — shutdown quiesces before it flushes", () => {
     expect(o2).toEqual(["flush", "exit"]);
   });
 });
+
+describe("review of #2732 — a failing directory fsync for one user never stops the flush of the others", () => {
+  it("sync and async flush both continue to the next user, report the failure, and never throw", async () => {
+    for (const mode of ["sync", "async"] as const) {
+      const dir = tmp();
+      const errors: string[] = [];
+      const synced: string[] = [];
+      const store = new FileSaveStore(dir, {
+        fsyncMode: "background", syncFile: (p: string) => new Promise<void>(() => { void p; }), syncFileSync: (p: string) => { synced.push(p); },
+        syncDir: async (p: string) => { if (p.includes(hex("bad"))) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+        syncDirSync: (p: string) => { if (p.includes(hex("bad"))) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+        onError: (m: string) => errors.push(m),
+        ...(mode === "async" ? { syncFile: async (p: string) => { synced.push(p); } } : {}),
+      } as never);
+      for (let i = 1; i <= 50; i++) store.saveFor("bad", snap(i));
+      for (let i = 1; i <= 50; i++) store.saveFor("good", snap(i));
+      if (mode === "sync") store.flushDurable(); else { await settle(); store.flushDurable(); await store.flushDurableAsync(1000); }
+      expect(synced.some((p) => p.includes(hex("good")))).toBe(true); // the other user was still flushed
+      expect(errors.some((m) => m.includes("save.flush failed") || m.includes("dirsync failed"))).toBe(true);
+      resetSaveSyncLimiterForTests();
+    }
+  });
+});

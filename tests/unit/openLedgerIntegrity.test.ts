@@ -59,3 +59,70 @@ describe("openLedgerSection treats narration text as data (review of #2721)", ()
     expect(lines.some((l) => /^\s*\d+\. SYSTEM/.test(l))).toBe(false);
   });
 });
+
+describe("a live game with the ledger on is never refused by the non-degradation check (review of #2692/#2721)", () => {
+  it("36 seeded turns of creating (plain, group pact, claim about someone), resolving, saving and restoring every turn", async () => {
+    const { GameSessionAdapter } = await import("../../src/adapters/engine/GameSessionAdapter");
+    const { sessionCoreSupersetViolation, sessionCoreIsSuperset } = await import("../../src/engine/sessionSnapshot");
+    type Snap = import("../../src/engine/sessionSnapshot").SessionSnapshot;
+    const g = new GameSessionAdapter();
+    g.createCharacter({ playerName: "The Player", seed: 21 });
+    g.noteMessage({ messageId: "m-1" });
+    for (const h of g.getGameState().house) if (h.id !== g.getGameState().player?.id) g.markHouseguestMet(h.id);
+    g.advanceGame(); g.advanceGame();
+    const me = g.getGameState().player?.id;
+    let prev = JSON.parse(JSON.stringify(g.snapshot())) as Snap;
+    let current: InstanceType<typeof GameSessionAdapter> = g;
+    let created = 0; let resolved = 0;
+    for (let turn = 0; turn < 36; turn++) {
+      const room = ["living-room", "kitchen", "backyard", "bedroom"][turn % 4]!;
+      current.movePlayer(room);
+      const here = (current.whereabouts()?.present ?? []).map((p) => p.id as string).filter((x) => x !== me);
+      const [a, b] = here;
+      if (a && turn % 3 === 0) {
+        const r = current.recordOpenLedger({ text: `promise number ${turn}`, speaker: a, addressedTo: ["player"], kind: "promise" });
+        if (r.accepted && !("duplicate" in r)) created++;
+      }
+      if (a && b && turn % 5 === 1) {
+        const r = current.recordOpenLedger({ text: `pact ${turn}`, speaker: a, addressedTo: [], kind: "pact", parties: [a, b, "player"] });
+        if (r.accepted) created++;
+      }
+      if (a && turn % 7 === 2) {
+        const r = current.recordOpenLedger({ text: `rumor ${turn}`, speaker: a, addressedTo: [], kind: "claim", about: "the next competition" });
+        if (r.accepted) created++;
+      }
+      const open = (current as unknown as { openLedger: OpenLedger }).openLedger.entries.filter((e) => e.status === "open");
+      if (open.length && turn % 4 === 3) {
+        const r = current.resolveOpenLedger({ entryId: open[0]!.id, status: (["kept", "broken", "withdrawn"] as const)[resolved % 3]!, note: `note ${turn}` });
+        if (r.accepted) resolved++;
+      }
+      current.advanceGame();
+      const cur = JSON.parse(JSON.stringify(current.snapshot())) as Snap;
+      expect(sessionCoreSupersetViolation(cur, prev), `turn ${turn}`).toBeNull();
+      // save and restore every turn: the restored game must save a snapshot that passes against the one it came from
+      const next = new GameSessionAdapter();
+      next.restore(JSON.parse(JSON.stringify(cur)) as Snap);
+      const again = JSON.parse(JSON.stringify(next.snapshot())) as Snap;
+      expect(sessionCoreIsSuperset(again, cur), `restore turn ${turn}`).toBe(true);
+      expect(sessionCoreIsSuperset(cur, again), `restore turn ${turn} (reverse)`).toBe(true);
+      current = next;
+      prev = again;
+    }
+    expect(created).toBeGreaterThanOrEqual(5);
+    expect(resolved).toBeGreaterThanOrEqual(3);
+  });
+
+  it("round-trips an entry as slice 1 wrote it and as slice 2 wrote it, restore then superset against itself", () => {
+    const slice1 = { id: "open:1", text: "x", speaker: "npc:1", addressedTo: ["player"], kind: "promise", turn: 2, beatSeq: 2, room: "kitchen", witnesses: ["npc:1", "player"], quoteHash: "h" };
+    const slice2 = { ...slice1, id: "open:2", quoteHash: "h2", parties: ["npc:1", "npc:2", "player"], about: "npc:3", status: "broken", note: "n", resolvedTurn: 4 };
+    const raw = { nextId: 3, entries: [slice1, slice2] };
+    const a = restoreOpenLedger(JSON.parse(JSON.stringify(raw))).ledger;
+    const b = restoreOpenLedger(JSON.parse(JSON.stringify(a))).ledger;
+    expect(openLedgerSuperset(a, b)).toBe(true);
+    expect(openLedgerSuperset(b, a)).toBe(true);
+    expect(a.entries).toHaveLength(2);
+    // nothing in the engine adds parties to an existing entry; if a later snapshot did, the check refuses it
+    const withParties = restoreOpenLedger({ nextId: 3, entries: [{ ...slice1, parties: ["npc:2"] }, slice2] }).ledger;
+    expect(openLedgerSuperset(a, withParties)).toBe(false);
+  });
+});
