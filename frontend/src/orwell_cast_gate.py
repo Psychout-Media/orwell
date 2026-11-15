@@ -166,6 +166,7 @@ class SeasonGate:
     def __init__(self, user: Optional[str] = None):
         self.user = user
         self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
+        self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
         self.codes: dict = {}
         self.registry: dict = {}
 
@@ -188,6 +189,20 @@ class SeasonGate:
                 self.count([code])
         self.registry[hid] = rec
 
+    def repeats(self, hid: str, profile: dict, npc: dict, cast) -> dict:
+        """Which cast-level repetition this card would add against the cards already accepted: {"identity": opening,
+        "oncamera": ending} (only the keys that repeat). Pure; earlier cards only, so only a LATER card is ever named."""
+        card = _merged(profile, npc)
+        phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+        ident_open = " ".join(_norm(card.get("identityConcept")).split()[:2])
+        oncam_end = " ".join(_norm(phys.get("onCamera")).split()[-3:])
+        out = {}
+        if ident_open and any(r.get("ident_open") == ident_open for o, r in self.registry.items() if o != hid):
+            out["identity"] = ident_open
+        if oncam_end and any(r.get("oncam_end") == oncam_end for o, r in self.registry.items() if o != hid):
+            out["oncamera"] = oncam_end
+        return out
+
     def taken_phrases(self, hid: str) -> dict:
         """What earlier cards in this cast already use, for the next writer's prompt (writer-side repetition fix)."""
         out = {"oncamera_endings": [], "identity_openers": [], "marks": []}
@@ -202,14 +217,71 @@ class SeasonGate:
     def summary_line(self) -> str:
         per = ",".join(f"{k}={v}" for k, v in sorted(self.codes.items())) or "none"
         return (f"[cast-gate] season line: checked={self.checked} repaired={self.repaired} "
-                f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per}")
+                f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
+                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed}")
 
     def log_summary(self) -> None:
         if self.checked:
             logger.info(self.summary_line())
 
 
-RewriteFn = Callable[[dict, list], Awaitable[Optional[dict]]]
+RewriteFn = Callable[..., Awaitable[Optional[dict]]]
+
+
+def repetition_message(repeats: dict, taken: dict) -> str:
+    """The one-field rewrite ask: name the phrasing to avoid and the openings or endings the other cards already use."""
+    parts = []
+    if "identity" in repeats:
+        used = "; ".join(f'"{x}"' for x in (taken.get("identity_openers") or [])[:8])
+        parts.append(f'the identityConcept opens with "{repeats["identity"]}", which another card in this cast already opens with'
+                     f" (openings taken: {used}); open it a different way")
+    if "oncamera" in repeats:
+        used = "; ".join(f'"{x}"' for x in (taken.get("oncamera_endings") or [])[:8])
+        parts.append(f'the physicalCharacteristics.onCamera line ends "{repeats["oncamera"]}", which another card already ends with'
+                     f" (endings taken: {used}); end it a different way")
+    return ("Only this repeats across the cast: " + " and ".join(parts) + ". Write the COMPLETE JSON object again with the same "
+            "person: same name, pronouns, age, voice, biography and look; change nothing except the wording named above.")
+
+
+async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn, hid: str) -> None:
+    """At most ONE re-write of the repeated field(s) of a LATER card (the first card to use a phrasing keeps it), inside the
+    gate's budget. Only identityConcept and physicalCharacteristics.onCamera can change, and only when the new text passes
+    the whole gate and no longer repeats; otherwise the card ships as it is, still carrying the non-blocking code."""
+    rep = gate.repeats(hid, profile, npc, cast)
+    if not rep:
+        return
+    gate.rep_rewritten += 1
+    try:
+        fresh = await rewrite_fn(npc, ["rep"], message=repetition_message(rep, gate.taken_phrases(hid)))
+    except Exception as e:  # failsoft-ok: a failed re-write leaves the card as it is
+        logger.warning(f"[cast-gate] repetition re-write call failed for {hid}: {type(e).__name__}")
+        return
+    if not isinstance(fresh, dict):
+        return
+    new_ident = fresh.get("identityConcept")
+    new_phys = fresh.get("physicalCharacteristics")
+    new_cam = new_phys.get("onCamera") if isinstance(new_phys, dict) else None
+    # each repeated field is judged on its own: kept only when the new text passes the whole gate and no longer repeats
+    for key, ok in (("identity", isinstance(new_ident, str) and new_ident.strip()),
+                    ("oncamera", isinstance(new_cam, str) and new_cam.strip())):
+        if key not in rep or not ok:
+            continue
+        cand = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
+        if key == "identity":
+            cand["identityConcept"] = new_ident
+        else:
+            base = cand.get("physicalCharacteristics")
+            base = dict(base) if isinstance(base, dict) else dict((npc or {}).get("physicalCharacteristics") or {})
+            base["onCamera"] = new_cam
+            cand["physicalCharacteristics"] = base
+        mend(cand, npc, cast)
+        if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):
+            continue
+        if key in gate.repeats(hid, cand, npc, cast):
+            continue  # it still repeats: that field ships as it is (fail open, the code is counted as before)
+        profile.clear()
+        profile.update(cand)
+        gate.rep_fixed += 1
 
 
 async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn: Optional[RewriteFn]):
@@ -243,6 +315,10 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
             mend(merged, npc, cast)
             profile.clear()
             profile.update(merged)
+        codes = card_codes(profile, npc, cast, gate.registry)
+    if (rewrite_fn is not None and tries < GATE_REWRITE_BOUND and not any(is_blocking(c) for c in codes)
+            and not (npc or {}).get("met") and not (npc or {}).get("introduced")):
+        await _repetition_rewrite(gate, profile, npc, cast, rewrite_fn, hid)
         codes = card_codes(profile, npc, cast, gate.registry)
     blocking = [c for c in codes if is_blocking(c)]
     soft = [c for c in codes if not is_blocking(c)]
