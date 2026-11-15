@@ -123,7 +123,7 @@ export class EngineCommandsAdapter implements EngineCommands {
   private foldBeatKey = "";
   private readonly foldCounts = new Map<string, number>();
   /**
-   * ORW-401 (played games only): when wired, the window is the in-game day + part of day (`null` ⇒ clock off ⇒
+   * ORW-401 (played games, player edges only): when wired, the window is the in-game day + part of day (`null` ⇒ clock off ⇒
    * the legacy beat-keyed hard cap above). Folds are never refused; the nth fold on a directed edge in a window
    * is scaled by METER_RATIO^(n-1) so a window's total has a fixed ceiling. Counts persist via `foldMeterState`.
    */
@@ -616,7 +616,7 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** ORW-401: wire the in-game window key (day + part of day); `null` from it ⇒ legacy behaviour. */
   setFoldWindowProvider(fn: () => string | null): void {
     this.foldWindowProvider = fn;
-    this.rel?.setFoldMeter((from, to) => (this.foldWindowProvider?.() == null ? null : (this.meterPending.get(`${from}->${to}`) ?? 1)));
+    this.rel?.setFoldMeter((from, to) => (this.foldWindowProvider?.() == null || (from !== PLAYER && to !== PLAYER) ? null : (this.meterPending.get(`${from}->${to}`) ?? 1)));
   }
 
   /** ORW-401: the persisted per-window counts (a restart must not refill them). Opaque counts only. */
@@ -635,7 +635,6 @@ export class EngineCommandsAdapter implements EngineCommands {
     const mk = this.foldWindowProvider?.() ?? null;
     if (mk !== null) {
       if (mk !== this.meterKey) { this.meterKey = mk; this.meterCounts.clear(); }
-      return;
     }
     const key = this.currentBeatKey();
     if (key !== this.foldBeatKey) {
@@ -650,7 +649,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    */
   private spendFoldBudget(from: EntityId, initiator: EntityId): boolean {
     const pair = `${from}->${initiator}`;
-    if (this.foldWindowProvider?.() != null) {
+    if (this.foldWindowProvider?.() != null && (from === PLAYER || initiator === PLAYER)) { // player edges only: NPC-to-NPC house life keeps the legacy cap
       const n = this.meterCounts.get(pair) ?? 0;
       this.meterCounts.set(pair, n + 1);
       this.meterPending.set(pair, Math.pow(METER_RATIO, n));
