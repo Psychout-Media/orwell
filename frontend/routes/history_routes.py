@@ -255,6 +255,8 @@ def setup_history_routes(session_manager) -> APIRouter:
                         await asyncio.to_thread(_bsp.save_now)
                 except Exception as _fold_e:
                     logger.warning(f"Discarding staged fold on truncate failed {session_id}: {_fold_e}")
+                    from src import log_rings
+                    log_rings.record_soft_failure("history:truncate-fold-discard-failed", _fold_e)
             return {"status": "ok", "kept": keep_count, "truncated": result}
         except HTTPException:
             raise

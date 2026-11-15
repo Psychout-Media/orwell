@@ -66,7 +66,7 @@ def test_counter_is_plain_not_a_health_event_and_text_untouched(monkeypatch):
     seen = []
     monkeypatch.setattr(lr, "record_soft_failure", lambda cls, exc, **kw: seen.append(cls))
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: STATE)
     monkeypatch.setattr("src.zero_clocks.zero_clocks_on", lambda: True)
     pc.PREDISPLAY_COUNTS.clear()
     got = asyncio.new_event_loop().run_until_complete(pc.check_and_count('Sleeper says, "It\'s 8:15." The nominations are tonight.', "u"))
@@ -84,7 +84,7 @@ def test_check_never_fetches_engine_state_and_skips_without_a_cached_state(monke
         await asyncio.sleep(30)
     monkeypatch.setattr(orwell_engine, "get_game_state_polled", slow)
     monkeypatch.setattr(orwell_engine, "get_game_state", slow)
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: None)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: None)
     got = asyncio.new_event_loop().run_until_complete(asyncio.wait_for(pc.check_and_count("Sleeper Role walks in.", "u"), 1))
     assert got == [] and called == []
 
@@ -133,7 +133,7 @@ def test_orw437_a_speaker_tag_inside_a_quotation_is_not_an_asleep_conflict():
 def test_orw437_repeated_matches_of_one_fact_count_once(monkeypatch):
     """review of #2682: several clock / asleep / schedule matches in one text are ONE count per fact."""
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: STATE)
     monkeypatch.setattr("src.zero_clocks.zero_clocks_on", lambda: True)
     pc.PREDISPLAY_COUNTS.clear()
     text = "Sleeper walks in. Sleeper sits down. It is 8:15, then 9:40. The nominations are tonight. The nominations start this evening."

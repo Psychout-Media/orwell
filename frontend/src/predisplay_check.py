@@ -20,6 +20,7 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
+_STATE_FIELDS = ("asleep", "daySchedule")  # the only parts of the cached board the checks read
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
 FACT_SCHEDULE = "schedule-words"
@@ -192,7 +193,7 @@ async def check_and_count(text: str, owner: Any, *, in_quote: bool = False) -> "
     try:
         from src import engine_read_cache
         from src.zero_clocks import zero_clocks_on
-        state = engine_read_cache.peek("getGameState", owner)
+        state = engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS)
         if state is None:
             return []
         facts = find_conflicts(text, state, zero_clocks=zero_clocks_on(), in_quote=in_quote)
@@ -259,7 +260,7 @@ def _parts(text: str) -> "list[str]":
 def _fresh_state(owner: Any):
     from src import engine_read_cache
     from src.zero_clocks import zero_clocks_on
-    return engine_read_cache.peek("getGameState", owner), zero_clocks_on()
+    return engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS), zero_clocks_on()
 
 
 def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False) -> "Optional[RewriteSplit]":

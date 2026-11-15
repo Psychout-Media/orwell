@@ -39,7 +39,7 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
     if flag is not None:
         monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", flag)
     monkeypatch.setattr(ti, "get_tool_index", lambda: None)
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: state)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: state)
     monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     async def fake_status(user=None):
@@ -263,7 +263,7 @@ def test_failed_continuation_ends_at_the_last_whole_sentence(monkeypatch):
 def test_split_names_the_fact_and_keeps_whole_sentences(monkeypatch):
     from src import predisplay_check as pc
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: STATE)
     monkeypatch.setattr("src.zero_clocks.zero_clocks_on", lambda: True)
     sp = pc.split_at_first_conflict(CLEAN_A + "The nominations are tonight. " + TAIL, "u")
     assert sp.keep == CLEAN_A and sp.withheld.startswith("The nominations are tonight.")
@@ -277,7 +277,7 @@ def test_split_names_the_fact_and_keeps_whole_sentences(monkeypatch):
 def test_split_is_none_without_fresh_state_and_never_raises(monkeypatch):
     from src import predisplay_check as pc
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: None)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: None)
     assert pc.split_at_first_conflict(BAD, "u") is None
     monkeypatch.setattr(erc, "peek", lambda *a, **k: 1 / 0)
     assert pc.split_at_first_conflict(BAD, "u") is None
@@ -310,7 +310,7 @@ def test_quote_state_carries_across_chunks():
 def test_the_check_and_the_rewrite_both_honour_a_carried_quote(monkeypatch):
     from src import predisplay_check as pc
     from src import engine_read_cache as erc
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: STATE)
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
     pc.PREDISPLAY_COUNTS.clear()
     text = "The nominations are tonight, I'm telling you.\" "

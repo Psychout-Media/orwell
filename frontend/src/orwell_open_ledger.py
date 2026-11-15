@@ -166,6 +166,8 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
                 res = await write(entry)
             except Exception as e:
                 logger.debug(f"[open-ledger] write skipped: {e}")
+                from src import log_rings
+                log_rings.record_soft_failure("open-ledger:write-failed", e)
                 continue
             if isinstance(res, dict) and res.get("accepted") is True:
                 accepted += 1
@@ -175,6 +177,8 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
                     res = await resolve(r)
                 except Exception as e:
                     logger.debug(f"[open-ledger] resolve skipped: {e}")
+                    from src import log_rings
+                    log_rings.record_soft_failure("open-ledger:resolve-failed", e)
                     continue
                 if isinstance(res, dict) and res.get("accepted") is True:
                     accepted += 1
