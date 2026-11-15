@@ -358,7 +358,6 @@ NAP_MSG_RE = re.compile(r"(?i)\b(?:take|taking|have|grab) (?:a |an )?(?:nap|lie[
 BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
 
 
-<<<<<<< HEAD
 _NUMW = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
 _NUM = r"(\d{1,2}|" + "|".join(sorted(_NUMW, key=len, reverse=True)) + r")"
 # the whole house named outright: "N of us left / still in the house", "N houseguests remain", "all N of us"
@@ -384,11 +383,11 @@ def headcount_claims(text):
         else: continue
         out.append((sev, n, m.group(0).strip() + (house_words or ""), bool(house_words)))
     return out
-=======
+
+
 def draw_voiced(text):
     """The reply voices the veto chip draw (the ceremony that sanctions about an hour of clock, and the C2 check)."""
     return bool(re.search(r"(?i)veto", text or "") and re.search(r"(?i)draw|chip|pull|playing for", text or ""))
->>>>>>> origin/main
 
 
 def abs_hours(label):
