@@ -244,6 +244,6 @@ def test_house_rooms_mirror_the_engine_floor_plan():
     # Keep the FE room list in lockstep with src/domain/house.ts HOUSE_ROOMS — a drift means the
     # extraction would reject a real room (or relay a bogus one the engine no-ops).
     assert set(al._HOUSE_ROOMS) == {
-        "kitchen", "living-room", "backyard", "bedroom-a", "bedroom-b",
-        "hoh-room", "bathroom", "storage-room", "diary-room",
+        "kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b",
+        "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room",
     }

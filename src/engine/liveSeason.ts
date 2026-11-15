@@ -906,6 +906,12 @@ export interface LiveSeasonState {
    * before this field, and always absent in a headless sim ⇒ byte-identical there.
    */
   dailyRecapDay?: number;
+  /**
+   * ORW-401 follow-up - overnight drift (played games): the player's edges' feelings [trust, affinity, threat] as they stood at the last night roll, keyed `from->to`,
+   * so the next roll can tell which edges moved during the day (those do not drift), plus the last day rolled (a re-read never drifts twice). Numbers only; absent on older saves and in a headless sim.
+   */
+  feelRef?: Record<string, [number, number, number]>;
+  feelDriftDay?: number;
   dailyRecapLog?: DailyRecapEntry[];
   /**
    * ORW-271 — the append-only per-night DAY LEDGER (never trimmed, never overwritten except a day's own
