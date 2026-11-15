@@ -201,8 +201,8 @@ def test_orw387_prose_callers_send_no_response_format(monkeypatch):
     prose = _run(ca._resolve_llm_fn("u", json_mode=False))
     assert _run(prose(msgs)) == "a quiet day"
     structured = _run(ca._resolve_llm_fn("u"))
-    _run(structured(msgs))
-    assert seen == [None, {"type": "json_object"}]                    # the default stays structured
+    _run(structured([{"role": "user", "content": "Reply with one JSON object."}]))
+    assert seen == [None, {"type": "json_object"}]                    # a JSON prompt stays structured
 
 
 def test_orw387_condense_resolves_a_prose_fn(monkeypatch):

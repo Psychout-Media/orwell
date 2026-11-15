@@ -885,6 +885,8 @@ export function updateSessionCostUI() {
  * arg: it becomes the PRIMARY stamp and the real wall clock is demoted to the hover
  * `title` (kept as metadata on `dataset.wallClock`). Absent/blank moment (pre-game /
  * casting) ⇒ the neutral wall-clock stamp (prior behavior). */
+// ORW-379: zero clocks => the real wall time is never shown (not as a stamp, not in the hover).
+export function zeroClocksOn() { return !!(document.body && document.body.hasAttribute('data-zero-clocks')); }
 export function roleTimestamp(when, moment) {
   const ts = document.createElement('span');
   ts.className = 'role-timestamp';
@@ -899,11 +901,9 @@ export function roleTimestamp(when, moment) {
     // In-world moment leads; the wall clock is demoted to hover/metadata.
     ts.textContent = moment.trim();
     ts.classList.add('role-timestamp-moment');
-    ts.title = d.toLocaleString();
-    ts.dataset.wallClock = wall;
+    if (!zeroClocksOn()) { ts.title = d.toLocaleString(); ts.dataset.wallClock = wall; }
   } else {
-    ts.textContent = wall;
-    ts.title = d.toLocaleString();
+    if (!zeroClocksOn()) { ts.textContent = wall; ts.title = d.toLocaleString(); }  // ORW-379: no real time in a played game
   }
   return ts;
 }
