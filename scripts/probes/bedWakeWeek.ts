@@ -35,7 +35,8 @@ async function main() {
     const mcp = reg.resolver()("player", user);
     const call = async <T>(n: string, a: Record<string, unknown> = {}): Promise<T> => (await mcp.callTool(n, a)) as T;
     // A read-only TEST seam on the hidden sleep state (as in tests/unit): the probe never writes it and prints it only to this console.
-    type Sleep = { lastSleepDepth?: number; playerFatigue?: number };
+    type Sleep = { lastSleepDepth?: number; playerFatigue?: number; napHoursToday?: number };
+    const napDays = new Set<number>();
     const live = async (): Promise<Sleep> => ((await reg.sandboxFor(user)) as unknown as { session: { live?: Sleep } }).session.live ?? {};
     let lastInHouse: number | null = null;
     const weekStart: Record<number, number> = {}; // the first day each week was seen on (information: how long a week runs in days)
@@ -144,6 +145,26 @@ async function main() {
         const st0 = await call<State>("getGameState");
         // Only a MORNING/AFTERNOON hold is waited out: an evening hold names tomorrow's event (e.g. 780 minutes), and waiting it out kept the player up all night
         // without a bed (4 nights in 2600 messages, never past Week 1). From the evening on, the hold is a bed.
+        if ((st0.timeOfDay === "morning" || st0.timeOfDay === "afternoon") && st0.dayNumber && st0.dayNumber % 2 === 1 && !napDays.has(st0.dayNumber)) {
+          // 0148 nap lines, once on every other day, in a daytime hold (an event is coming: it should wake the player on the dot).
+          napDays.add(st0.dayNumber);
+          const h0 = depthOf(st0.clockLabel), credit0 = (await live()).napHoursToday ?? 0;
+          const nv = await call<{ ok: boolean; slept: number; wokenBy?: string; reason?: string }>("nap", { hours: 2, idempotencyKey: `${user}-nap-${st0.dayNumber}` });
+          const st1 = await call<State>("getGameState"); const h1 = depthOf(st1.clockLabel), credit1 = (await live()).napHoursToday ?? 0;
+          const moved = h0 && h1 ? Math.round((((h1.h - h0.h) % 24 + 36) % 24 - 12) * 100) / 100 : NaN; // a nap is at most a few hours: fold the two clock scales (an early-morning hour reads 24+) into -12..12
+          if (st0.earlyMorning) rec("nap: refused in the early-morning band (ORW-451)", !nv.ok, `seed ${seed} day ${st0.dayNumber}: a nap at ${st0.clockLabel} was accepted`);
+          if (!nv.ok) {
+            rec(`INFO nap refused (${nv.reason})`, true, "");
+            rec("nap: a refused nap leaves the clock and the nap credit as they were", moved === 0 && credit1 === credit0, `seed ${seed} day ${st0.dayNumber}: ${nv.reason}, clock moved ${moved}h, credit ${credit0} -> ${credit1}`);
+          } else {
+            rec("nap: the clock moves by exactly the time slept, never more than asked", Math.abs(moved - nv.slept) < 0.02 && nv.slept <= 2 + 1e-9, `seed ${seed} day ${st0.dayNumber}: slept ${nv.slept}h, clock moved ${moved}h`);
+            rec("nap: the slept time is added to today's nap credit", Math.abs(credit1 - credit0 - nv.slept) < 0.01, `seed ${seed} day ${st0.dayNumber}: slept ${nv.slept}, credit ${credit0} -> ${credit1}`);
+            if (!nv.wokenBy) rec("nap: an unbroken nap sleeps the full length", Math.abs(nv.slept - 2) < 0.01, `seed ${seed} day ${st0.dayNumber}: slept ${nv.slept}h of 2 with no wake reason`);
+            if (nv.wokenBy === "event") rec("nap: an event always wakes the player - it is due when they wake", st1.daySchedule?.due === true, `seed ${seed} day ${st0.dayNumber}: woken by an event at ${st1.clockLabel}, schedule ${JSON.stringify(st1.daySchedule)}`);
+            rec(`INFO nap woken by ${nv.wokenBy ?? "nothing (full length)"}`, true, "");
+          }
+          continue;
+        }
         if (st0.timeOfDay === "morning" || st0.timeOfDay === "afternoon") { for (let k = 0; k < Math.ceil(adv.held.minutesUntil / 5) + 1 && k < 300; k++) await note(); continue; }
       }
       // A held advance: bed at this night's chosen hour (time passes by messages until then), from the night period on (the bedtime gate).
@@ -182,7 +203,8 @@ async function main() {
         const sl = await live(), meterAfter = sl.playerFatigue ?? 0;
         rec("sleep debt: the engine records the bed hour as the night's last-awake hour", typeof sl.lastSleepDepth === "number" && Math.abs(sl.lastSleepDepth - b.h) < 0.09, `seed ${seed} night ${nights}: bed ${b.h.toFixed(2)}h, recorded ${sl.lastSleepDepth}`);
         const debt = sleepDeficitForBedHour(sl.lastSleepDepth ?? b.h);
-        rec("sleep debt: none for a bed by midnight, some for a bed after", b.h <= 24 ? debt === 0 : debt > 0, `seed ${seed} night ${nights}: bed ${b.h.toFixed(2)}h -> debt ${debt.toFixed(3)}`);
+        const recH = sl.lastSleepDepth ?? b.h; // branch on the hour the engine recorded (the label rounds to the minute)
+        rec("sleep debt: none for a bed by midnight, some for a bed after", recH <= 24 ? debt === 0 : debt > 0, `seed ${seed} night ${nights}: bed ${b.h.toFixed(2)}h -> debt ${debt.toFixed(3)}`);
         if (sl.playerFatigue !== undefined) {
           rec("sleep debt: the multi-night meter moves once, at the bed", meterAfter !== meterBefore || (debt === 0 && meterBefore === 0), `seed ${seed} night ${nights}: meter ${meterBefore.toFixed(3)} -> ${meterAfter.toFixed(3)}`);
           if (debt > meterBefore) rec("sleep debt: a night later than the running meter raises it", meterAfter > meterBefore, `seed ${seed} night ${nights}: debt ${debt.toFixed(3)}, meter ${meterBefore.toFixed(3)} -> ${meterAfter.toFixed(3)}`);
