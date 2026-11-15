@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname, basename } from "node:path";
 
 /** ORW-403 — backup takes a verified consistent copy of the live WAL database. */
 const SCRIPT = join(process.cwd(), "deploy", "orwell-backup.sh");
@@ -70,5 +70,23 @@ describe("orwell-backup.sh database snapshot (ORW-403)", () => {
     expect(r.stderr.length).toBeGreaterThan(30);
     const out = join(root, "out");
     expect(existsSync(out) ? readdirSync(out).filter((f) => f.endsWith(".tar.gz")) : []).toEqual([]);
+  });
+
+  it("takes the snapshot inside its own temp directory (SQLite needs a journal beside it) and removes it", () => {
+    const data = join(root, "app", "frontend", "data");
+    mkdirSync(data, { recursive: true });
+    const db = join(data, "app.db");
+    spawnSync("python3", ["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table t(v)'); c.commit()", db]);
+    const bin = join(root, "pybin"); mkdirSync(bin);
+    const real = spawnSync("bash", ["-c", "command -v python3"], { encoding: "utf8" }).stdout.trim();
+    const log = join(root, "snap-path.log");
+    writeFileSync(join(bin, "python3"), `#!/bin/bash\nprintf '%s\\n' "\${@: -1}" >> '${log}'\nexec '${real}' "$@"\n`, { mode: 0o755 });
+    const r = run({ PATH: `${bin}:${process.env.PATH}` });
+    expect(r.status, r.stderr).toBe(0);
+    const snap = readFileSync(log, "utf8").trim();
+    expect(dirname(snap)).not.toBe(join(root, "out"));
+    expect(dirname(dirname(snap))).toBe(join(root, "out"));
+    expect(basename(dirname(snap))).toMatch(/^\.app\.db\.snapshot\./);
+    expect(readdirSync(join(root, "out")).filter((f) => f.startsWith(".app.db.snapshot"))).toEqual([]);
   });
 });
