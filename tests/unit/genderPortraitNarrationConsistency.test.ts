@@ -356,14 +356,14 @@ describe("#1326 — the PLAYER's own pronouns, captured at casting, are voiced i
     expect(prompt).toContain("they/them");
   });
 
-  it("an unanswered player pronoun question omits the clause entirely — no forced 'unconfirmed' fallback", () => {
+  it("an unanswered player pronoun question omits the pronoun clause — no forced 'unconfirmed' fallback (it says the gender is unstated instead)", () => {
     const s = new GameSessionAdapter();
     const view = s.createCharacter({
       playerName: "The Player", backstory: "a life", motivation: "to win", personaArchetype: "persona-role-fixture",
     });
     expect(view.player!.genderPresentation).toBeUndefined();
     const prompt = s.getMomentPrompt({}).systemPrompt;
-    // The player's own line names them but carries no gender-guidance clause at all (unlike an NPC,
+    // The player's own line names them but carries no pronoun/"(use ...)" clause (unlike an NPC,
     // whose roster line always carries the explicit "unconfirmed" fallback).
     const playerLine = prompt.split("\n").find((l) => l.includes("You are playing as:"));
     expect(playerLine).toBeDefined();
