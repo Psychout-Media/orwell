@@ -130,13 +130,14 @@ def test_journald_restarted_only_when_dropin_changed():
 
 # ── review of #2702: a superseded deferred run waits for the lock instead of exiting 75 ──
 
-def _lock_fn_script(tmp_path, waited, wait_s):
+def _lock_fn_script(tmp_path, superseded, wait_s, waited=0):
     body = re.search(r"^acquire_update_lock\(\) \{.*?^\}\n", UPDATE, re.S | re.M).group(0)
     return textwrap.dedent(f"""
         set -u
         APP_DIR='{tmp_path}'
         UPDATE_LOCK='{tmp_path}/u.lock'
         __UD_WAITED={waited}
+        __UD_SUPERSEDED={superseded}
         export ORWELL_UPDATE_LOCK_WAIT={wait_s}
         unset ORWELL_UPDATE_LOCK_FD
         {body}
@@ -180,3 +181,35 @@ def test_a_superseded_deferred_run_gives_up_after_the_bounded_wait(tmp_path):
         assert r.returncode == 75
     finally:
         holder.kill()
+
+
+@needs_bash
+def test_only_a_run_that_really_deferred_is_marked_as_waited(tmp_path):
+    # review of #2689: --force / an idle game / no signal must keep the full update, so they must not set the flag the under-lock "already done" check reads.
+    flag = LOOP.replace('echo "RC=$rc', 'echo "DEFERRED=$UPDATE_WAIT_DEFERRED RC=$rc')
+    def run(idle, force, on_sleep=":"):
+        ops = tmp_path / "ops"; ops.mkdir(exist_ok=True)
+        env = {"ORWELL_UPDATE_ROOT_CONF": str(tmp_path / "none.conf")}
+        return bash(flag.format(run=tmp_path / "run", on_sleep=on_sleep, idle=idle, ops=ops, force=force), env).stdout
+    assert "DEFERRED=0 RC=0" in run(idle=5000, force=0)
+    assert "DEFERRED=0 RC=0" in run(idle=30, force=1)
+    assert "DEFERRED=1 RC=0" in run(idle=30, force=0, on_sleep='[[ $T -ge 1000180 ]] && IDLE=2000 || true')
+
+
+@needs_bash
+def test_a_normal_or_merely_waited_run_refuses_a_held_lock_at_once(tmp_path):
+    # reviewer of #2746: __UD_WAITED is set on every run that passed the idle guard; only a SUPERSEDED run may wait for the lock.
+    holder = _hold_lock(tmp_path, 15)
+    try:
+        import time
+        for waited in (0, 1):
+            t0 = time.time()
+            r = subprocess.run(["bash", "-c", _lock_fn_script(tmp_path, 0, 30, waited=waited)], capture_output=True, text=True, timeout=30)
+            assert r.returncode == 75 and "ACQUIRED" not in r.stdout, (waited, r.stdout, r.stderr)
+            assert time.time() - t0 < 5, "a plain concurrent run must refuse immediately, not wait"
+    finally:
+        holder.kill()
+
+
+def test_only_the_superseded_path_sets_the_lock_wait_flag():
+    assert len(re.findall(r"__UD_SUPERSEDED=1(?=\n)", UPDATE)) == 1 and "__ud_rc=0; __ud_superseded=1; __UD_SUPERSEDED=1" in UPDATE

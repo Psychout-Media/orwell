@@ -183,8 +183,7 @@ Returns the box to a fresh first-run state — every game sandbox (saves, souls,
 layer) **and** the whole front-end store (accounts, chats/sessions, memory, MCP configs, uploads,
 **every cast portrait / avatar / headshot**, presets, and every other user setting) — while
 **keeping your LLM credentials**: the **API keys** + the **provider endpoint**. The **selected
-models reset to the OOB defaults** (the ADR 0016 two-tier pair: narrator `z-ai/glm-4.7` + utility
-`qwen/qwen3.6-flash` on OpenRouter, portrait `gemini-3.1-flash-image`) — a stale/placeholder pick
+models reset to the OOB defaults** (narrator and utility `deepseek-flash` on DeepSeek's own API, portrait `openai/gpt-image-2.6-sunburst` on OpenRouter; ADR 0016 as amended, and `frontend/scripts/oobe_reset.py` is the source of truth) — a stale/placeholder pick
 never rides across a reset (issue #860).
 Run it either **on the Proxmox host** (it bridges into the LXC, like `orwell-update.sh`) or
 **inside the container as root**:

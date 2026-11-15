@@ -1692,6 +1692,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     // ORW-293: chosen HERE, after the 120 ms fade, not when the history arrived. A week picked during the fade used to be painted over by the rows chosen before
     // the pick (Week 2 drawn back over Week 1 - main red at d1dbc361).
     if (!isOC) msgHistory = _chapterRows(id, msgHistory);
+    else _chapterRows(id, []); // review of #2651: an OpenClaw session has no weeks, but the empty-history path of rowsFor clears the previous chat's chapter bar and history button
 
     // Suppress per-message entrance animations during bulk history render
     if (chatHistory) chatHistory.classList.add('no-animate');

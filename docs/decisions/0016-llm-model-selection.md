@@ -188,7 +188,7 @@ API), and **persisted stores keep whatever they carry** — nothing is migrated 
 
 **Config + one transport route; the engine/closed set is untouched.** Kevin's decision (2026-11-14): switch
 portraits from Nano Banana (`google/gemini-3.1-flash-image`) to OpenAI GPT Image 2.6 Sunburst
-(`openai/gpt-image-2.6-sunburst`), first for portraits on the public text-to-image arena at medium quality,
+(`openai/gpt-image-2.6-sunburst`), for ALL generated portraits (the one image route, `frontend/src/orwell_portraits.py`), at medium quality,
 which is the `image_quality` default. `DEFAULT_SETTINGS.image_model` now carries it.
 
 - **Route:** OpenRouter serves this model on its Image API only (`POST {base}/images`, no chat-completions
@@ -202,7 +202,6 @@ which is the `image_quality` default. `DEFAULT_SETTINGS.image_model` now carries
 - **Spend:** `usage.cost` goes to the token ledger (call class `portrait`, provider `openrouter`); missing usage counts as 0.
 - **Fallback:** a non-200, empty data, missing/undecodable b64 or an exception (timeout included) records
   `gpt-image-failed` with the reason (it shows red as before), then that one portrait is made with the first
-  resolvable `IMAGE_AUTODETECT_CANDIDATES` entry (Gemini) on the chat route. One fallback attempt, no loop,
-  so no houseguest is left without a photo.
+  resolvable `IMAGE_AUTODETECT_CANDIDATES` entry (Gemini) on the chat route. One best-effort fallback attempt, no loop: it can still return nothing (the chat route may answer without an image, or fail), in which case the houseguest keeps the failed marker.
 - **Rollout / rollback:** the prompt is unchanged, so existing portraits are not re-shot. Roll back by setting
   `image_model` to `google/gemini-3.1-flash-image`. Live behaviour is verified by the first real portraits after deploy.

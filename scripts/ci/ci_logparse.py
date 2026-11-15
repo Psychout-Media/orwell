@@ -28,7 +28,8 @@ import sys
 TS = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 PYTEST_HEADER = re.compile(r"^_{3,} (.+?) _{3,}$")
-PYTEST_FAILED = re.compile(r"^FAILED (\S+?)(?: - (.*))?$")
+PYTEST_FAILED = re.compile(r"^(?:FAILED|ERROR) (\S+?)(?: - (.*))?$")  # an `ERROR tests/x.py::test_y - ...` summary line (a setup/teardown error) names the test like FAILED does
+PYTEST_SECTION = re.compile(r"^=+ (?:FAILURES|ERRORS) =+$")
 VITEST_FAIL = re.compile(r"^\s*FAIL\s+(\S.*)$")
 VITEST_ERR = re.compile(r"^(\w*(?:Error|Exception)\b.*)$")
 CUCUMBER_SCENARIO = re.compile(r"^\d+\) Scenario(?: Outline)?: (.*?)(?: # \S+)?$")
@@ -66,14 +67,14 @@ def parse_failures(log: str) -> dict[str, list[str]]:
     in_cucumber = False
     cuke_step_seen = False
     for i, ln in enumerate(lines):
-        if re.match(r"^=+ FAILURES =+$", ln):
+        if PYTEST_SECTION.match(ln):  # setup/teardown errors live in the ERRORS section, headed `____ ERROR at setup of test_x ____`
             in_pytest = True
             continue
         if in_pytest and re.match(r"^=+ .* =+$", ln):
             in_pytest = False
         m = PYTEST_HEADER.match(ln)
         if m and in_pytest:
-            add_test(m.group(1))
+            add_test(re.sub(r"^ERROR at (?:setup|teardown) of ", "", m.group(1)))
             continue
         if in_pytest and ln.startswith("E  "):
             add_err(ln[1:])
@@ -145,8 +146,11 @@ def load_flakes(path: str) -> list[str]:
 
 
 def is_known_flake(test: str, known: list[str]) -> bool:
-    """A failing test is a known flake when a listed id equals it or is contained in it (a bare name matches a full node id)."""
-    return any(k == test or k in test for k in known)
+    """A failing test is a known flake when a listed id equals it, or equals its node-name component (a bare name matches a full node id), with or without a parameter suffix.
+    Not a substring match: a listed `test_x` must never cover `test_x_but_longer` (review of #2698)."""
+    name = test.split("::")[-1]
+    base = name.split("[", 1)[0]
+    return any(k == test or k == name or k == base or test.startswith(k + "[") for k in known)
 
 
 def all_known_flakes(tests: list[str], known: list[str]) -> bool:

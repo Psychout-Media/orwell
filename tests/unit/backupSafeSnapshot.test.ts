@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, readdirSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 
@@ -88,5 +88,24 @@ describe("orwell-backup.sh database snapshot (ORW-403)", () => {
     expect(dirname(dirname(snap))).toBe(join(root, "out"));
     expect(basename(dirname(snap))).toMatch(/^\.app\.db\.snapshot\./);
     expect(readdirSync(join(root, "out")).filter((f) => f.startsWith(".app.db.snapshot"))).toEqual([]);
+  });
+  it("sweeps an orphan snapshot of an earlier killed run, leaves the journal out, and archives the database owner-only (review of #2681, #2702)", () => {
+    const data = join(root, "app", "frontend", "data");
+    mkdirSync(data, { recursive: true });
+    const db = join(data, "app.db");
+    spawnSync("python3", ["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table t(v)'); c.commit()", db]);
+    writeFileSync(join(data, "app.db-journal"), ""); // an empty journal is not hot, so the read-only snapshot still opens
+    const out = join(root, "out"); mkdirSync(out);
+    const orphan = join(out, ".app.db.snapshot.ORPHAN1"); mkdirSync(orphan);
+    writeFileSync(join(orphan, "app.db"), "full copy left by a SIGKILL");
+    const old = new Date(Date.now() - 3 * 3600 * 1000);
+    utimesSync(orphan, old, old);
+    const r = spawnSync("bash", ["-c", `umask 022; exec bash '${SCRIPT}' '${out}'`], { env: { ...process.env, APP_DIR: join(root, "app") }, encoding: "utf8" });
+    expect(r.status, r.stderr).toBe(0);
+    expect(existsSync(orphan)).toBe(false);
+    const arch = readdirSync(out).find((f) => f.endsWith(".tar.gz"))!;
+    expect(spawnSync("tar", ["-tzf", join(out, arch)], { encoding: "utf8" }).stdout).not.toMatch(/app\.db-journal/);
+    const listing = spawnSync("tar", ["-tvzf", join(out, arch)], { encoding: "utf8" }).stdout.split("\n").find((l) => /frontend\/data\/app\.db$/.test(l))!;
+    expect(listing.slice(0, 10)).toBe("-rw-------");
   });
 });

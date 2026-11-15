@@ -22,8 +22,8 @@
 // (the visible attribution) + the public roster card (id/name/status/portrait — the same card
 // every cast surface renders). Portraits are PRIMARY (owner ruling); the designed monogram is
 // the no-photo fallback only; small faces take the kit's tight face-weighted crop
-// (`ow-mono-crop`). The face is decorative chrome (~24px, rounded like .odec-face), aria-hidden,
-// and (ORW-359) a tap target only when it resolves to a roster houseguest.
+// (`ow-mono-crop`). The face is decorative chrome (~24px, rounded like .odec-face): aria-hidden decoration,
+// EXCEPT (ORW-359) a face that resolves to a roster houseguest, which is a tap target (role="button", tabIndex=0).
 //
 // NON-GAME build: hard-gated on body[data-game-build] (the M2-7 pattern) — the observer bails,
 // no face is ever inserted, and the injected CSS is scoped under body[data-game-build], so the
@@ -52,8 +52,8 @@
     s.id = "ow-chatfaces-css";
     s.textContent =
       // The face holder slots into the .role flex row (style.css: display:flex; gap:6px),
-      // sized with the kit's small-chip family (.odec-face is 22px/r6) and NEVER the tap
-      // target (the role label keeps its own hit area; the face is pointer-inert).
+      // sized with the kit's small-chip family (.odec-face is 22px/r6) and (unless it resolves to a roster houseguest, ORW-359) NOT the tap
+      // target (the role label keeps its own hit area; an unresolved face is pointer-inert).
       "body[data-game-build] #chat-history .msg > .role .ow-chatface {" +
       "  width: 24px; height: 24px; border-radius: 7px; overflow: hidden;" +
       "  flex: 0 0 auto; display: inline-block; position: relative; pointer-events: none; }" +

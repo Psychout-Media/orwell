@@ -233,19 +233,20 @@ ops_log_invocation() {
   } >> "$log" 2>/dev/null || true
 }
 ops_log_invocation "$@"
-__UD_WAITED=0
+__UD_WAITED=0; __UD_SUPERSEDED=0
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
-  __ud_rc=0
+  __ud_rc=0; __ud_superseded=0
   update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
   if [[ $__ud_rc -eq 10 ]]; then
     # ORW-398/406: a later run went ahead. It may have FAILED and reverted, so do not assume it did this update:
     # the under-lock check below exits only if HEAD is at the requested ref AND the services were restarted on it.
     echo "==> a later update run went ahead; checking under the lock that it finished this update"
-    __ud_rc=0
+    __ud_rc=0; __ud_superseded=1; __UD_SUPERSEDED=1
   fi
   [[ $__ud_rc -eq 0 ]] || exit "$__ud_rc"
-  # A run that waited and then woke must not redo work another run finished (checked after the lock, below).
-  __UD_WAITED=1
+  # A run that actually waited (or was superseded) must not redo work another run finished (checked after the lock, below). A run that never deferred
+  # (--force, an idle game, no signal) keeps the full update and reconcile even when HEAD already equals the target (review of #2689).
+  if [[ "${UPDATE_WAIT_DEFERRED:-0}" == 1 || $__ud_superseded -eq 1 ]]; then __UD_WAITED=1; fi
 fi
 
 # ── ONE shared lock for every run in this tree: the web Update, Update + Reset, a manual update,
@@ -272,11 +273,11 @@ acquire_update_lock() {
   command -v flock >/dev/null 2>&1 || { echo "ERROR: flock (util-linux) is required to serialize updates." >&2; exit 1; }
   exec {ORWELL_UPDATE_LOCK_FD}>>"$UPDATE_LOCK" \
     || { echo "ERROR: cannot open the update lock ${UPDATE_LOCK}." >&2; exit 1; }
-  # A deferred run that was told a later run went ahead (__UD_WAITED=1) must WAIT for that run to finish: the under-lock check below then decides whether
+  # A deferred run that was told a later run went ahead (__UD_SUPERSEDED=1: the rc-10 path only, never a run that merely waited or never deferred) must WAIT for that run to finish: the under-lock check below then decides whether
   # the later run really did this update. Failing fast here (75) would drop the update if the later run failed and reverted (review of #2702).
   # Every other run stays non-blocking. The wait is bounded (ORWELL_UPDATE_LOCK_WAIT seconds, default 3600).
   local _flock_args=(-n)
-  if [[ "${__UD_WAITED:-0}" == 1 ]]; then
+  if [[ "${__UD_SUPERSEDED:-0}" == 1 ]]; then
     local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
     [[ "$_w" =~ ^[0-9]+$ ]] || _w=3600
     _flock_args=(-w "$_w")
@@ -1644,7 +1645,9 @@ else
   if true; then
     # ORW-406: --force still waits for the turn (bounded); only --force-now skips it.
     if type update_wait_for_no_turn >/dev/null 2>&1; then
-      update_wait_for_no_turn "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/turns-in-flight" "$FORCE_NOW"
+      # The same directory the front end publishes to (frontend/src/turn_inflight.py: ORWELL_INFLIGHT_DIR, else its data dir); the service's .env is read when the updater's own environment lacks it.
+      INFLIGHT_DIR="${ORWELL_INFLIGHT_DIR:-$(sed -n 's/^ORWELL_INFLIGHT_DIR=//p' "$ENV_FILE" 2>/dev/null | tail -n1 | tr -d '"'"'"' ')}"
+      update_wait_for_no_turn "${INFLIGHT_DIR:-${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}}/turns-in-flight" "$FORCE_NOW"
     fi
     ops_progress_step 4 "restarting services"
     if [[ "$RESTART_SCOPE" == frontend ]]; then

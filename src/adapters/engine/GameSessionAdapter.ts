@@ -3457,10 +3457,14 @@ export class GameSessionAdapter implements GameSession {
       target.character.biography = req.biography;
       publicFields.push("biography");
     }
-    // ORW-388: the repaired identity concept replaces the stored one only (never creates one), single line, capped.
-    if (typeof req.identityConcept === "string" && target.character.identityConcept !== undefined) {
+    // ORW-388 / ORW-431b: the writer's identity concept becomes the card's identity: it replaces a stored one, and fills a card whose genesis
+    // draft was dropped (genesis strips an identity that repeats a hidden element), since the writer runs after every pin and the gate has
+    // checked it. Same guards either way: one line, capped at 300, public text only, refused whole above when it names the player.
+    // "identityConcept" is listed in publicFields whenever the card now HOLDS the writer's text (new, replaced or already equal), so the front
+    // end can verify what the engine stored instead of assuming it.
+    if (typeof req.identityConcept === "string") {
       const repaired = req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300);
-      if (repaired.length > 0 && repaired !== target.character.identityConcept) {
+      if (repaired.length > 0) {
         target.character.identityConcept = repaired;
         publicFields.push("identityConcept");
       }

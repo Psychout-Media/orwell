@@ -59,14 +59,15 @@ def test_stale_beat_retry_block_exists(chat_source):
     # The stale-beat guard must be the FIRST check in the catch block
     assert "err.code === \"stale-beat\"" in body, \
         "stale-beat error code check must exist in the catch block"
-    assert "sendTurn(" in body, \
+    assert "sendTurn" in body, \
         "the retry path must call sendTurn"
     # The retry must carry _finalMsgWithInject
     assert "_finalMsgWithInject" in body, \
         "the retry must re-send the original message (_finalMsgWithInject)"
     # No explicit expectedBeatSeq in the retry — sendTurn defaults to lastBeatSeq()
     # Find the retry sendTurn call and check expectedBeatSeq: (property, not comment) is NOT there
-    retry_send = body[body.find("await window.OrwellWs.sendTurn({"):body.find("});", body.find("await window.OrwellWs.sendTurn("))]
+    _call = "await (window.OrwellWs.sendTurnWhenLive || window.OrwellWs.sendTurn)({"  # ORW-437: the retry uses the reconnect-aware wrapper (falls back to sendTurn)
+    retry_send = body[body.find(_call):body.find("});", body.find(_call))]
     # Check for actual property key (with colon), ignoring comments with the word
     assert "expectedBeatSeq:" not in retry_send, \
         "the retry sendTurn must NOT pass expectedBeatSeq (uses lastBeatSeq() as default)"
@@ -77,7 +78,7 @@ def test_retry_bounded_once(chat_source):
     # Count occurrences of sendTurn inside the catch: one original (the outer try) and one in the retry.
     # The original sendTurn is in the try block, not the catch. Inside the catch we only expect one.
     # Count "sendTurn(" calls that are inside the catch
-    send_calls_in_catch = body.count("sendTurn(")
+    send_calls_in_catch = body.count("(window.OrwellWs.sendTurnWhenLive || window.OrwellWs.sendTurn)(") + body.count("window.OrwellWs.sendTurn(")  # ORW-437: the wrapper form counts as the one retry call
     assert send_calls_in_catch == 1, \
         f"retry must call sendTurn exactly once (found {send_calls_in_catch} calls in catch)"
     # No loop structure around the retry

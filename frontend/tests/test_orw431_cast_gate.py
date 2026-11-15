@@ -365,3 +365,84 @@ def test_a_rewrite_keeps_the_first_drafts_look_subfields_it_omitted():
                 "physicalCharacteristics": {"hair": "short"}}
     got, left = _go(G.run_gate(G.SeasonGate("u"), first, npc, [npc], rewrite))
     assert got is not None and got["physicalCharacteristics"].get("wardrobe") == LOOK["wardrobe"]
+
+# ---- ORW-431b: an authored card never has an empty identity line --------------------------------------------
+class _Engine:
+    """A stub engine that mirrors the real write-back: it stores the writer's identity only when `keep_identity`, and reports
+    "identityConcept" in publicFields only when the card holds it. `stored` is what the card shows afterwards."""
+    def __init__(self, keep_identity=True, keep_for=None):
+        self.stored, self.writes, self.keep, self.keep_for = {}, {}, keep_identity, keep_for
+
+    async def write(self, profile):
+        hid = profile["houseguestId"]
+        self.writes[hid] = self.writes.get(hid, 0) + 1
+        fields = ["biography"]
+        if profile.get("identityConcept") and (self.keep if self.keep_for is None else hid in self.keep_for):
+            self.stored[hid] = profile["identityConcept"]
+            fields.append("identityConcept")
+        return {"accepted": True, "publicFields": fields, "hiddenFields": []}
+
+
+def _blank_cast():
+    cast = [npc_of("npc:5", "Samir Nesbitt", "man", 23), npc_of("npc:6", "Thomas Sizemore", "man", 41)]
+    for n in cast:
+        n["identityConcept"] = ""  # genesis dropped the draft (it repeated a hidden element)
+    return cast
+
+
+async def _run_engine(cast, engine):
+    async def llm(messages):
+        hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+        bio = CARDS[n_name(hid, cast)]["biography"]
+        return profile_json(bio, identityConcept=f"A dependable {n_name(hid, cast).split()[0]}-sized presence who keeps the house steady.")
+    return await ca.author_cast(cast, llm, engine.write, user="t431b")
+
+
+def n_name(hid, cast):
+    return next(n["name"] for n in cast if n["id"] == hid)
+
+
+def test_writer_identity_reaches_cards_whose_genesis_identity_is_empty():
+    cast, eng = _blank_cast(), _Engine()
+    assert _go(_run_engine(cast, eng)) == 2
+    assert set(eng.stored) == {"npc:5", "npc:6"} and all(v.strip() for v in eng.stored.values())
+
+
+def test_a_dropped_identity_is_blocking_and_the_card_is_left_not_authored():
+    cast, eng = _blank_cast(), _Engine(keep_identity=False)
+    done = []
+    assert _go(run_with_cb(cast, eng, done)) == 0
+    assert done == [] and eng.writes["npc:5"] == 1 + gate.GATE_REWRITE_BOUND
+
+
+async def run_with_cb(cast, eng, done):
+    async def llm(messages):
+        hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+        return profile_json(CARDS[n_name(hid, cast)]["biography"], identityConcept="A dependable presence who keeps the house steady.")
+    return await ca.author_cast(cast, llm, eng.write, user="t431b", on_authored=done.append)
+
+
+def test_identity_dropped_once_is_retried_then_accepted():
+    cast = _blank_cast()
+    eng = _Engine()
+    seen = {"n": 0}
+    orig = eng.write
+
+    async def flaky(profile):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return {"accepted": True, "publicFields": ["biography"], "hiddenFields": []}
+        return await orig(profile)
+    done = []
+
+    async def llm(messages):
+        hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+        return profile_json(CARDS[n_name(hid, cast)]["biography"], identityConcept="A dependable presence who keeps the house steady.")
+    assert _go(ca.author_cast(cast[:1], llm, flaky, user="t431b", on_authored=done.append)) == 1
+    assert done == ["npc:5"] and eng.stored["npc:5"]
+
+
+def test_a_stub_reply_without_publicfields_is_not_read_as_a_drop():
+    assert not ca._identity_dropped({"identityConcept": "A line that is long enough."}, {"accepted": True})
+    assert ca._identity_dropped({"identityConcept": "A line that is long enough."}, {"accepted": True, "publicFields": []})
+    assert not ca._identity_dropped({"biography": "x"}, {"accepted": True, "publicFields": []})

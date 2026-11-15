@@ -2220,6 +2220,14 @@ LlmFn = Callable[[Union[str, list[dict]]], Awaitable[str]]
 WriteFn = Callable[[dict], Awaitable[dict]]
 
 
+def _identity_dropped(profile: dict, res) -> bool:
+    """ORW-431b: True when the writer sent an identityConcept and the engine's reply says the card does not hold it. A reply that
+    carries no `publicFields` list (a stub, an older engine) says nothing, so it is not read as a drop."""
+    ident = (profile or {}).get("identityConcept")
+    fields = res.get("publicFields") if isinstance(res, dict) else None
+    return bool(isinstance(ident, str) and ident.strip() and isinstance(fields, list) and "identityConcept" not in fields)
+
+
 async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                       on_authored: Optional[Callable[[str], None]] = None,
                       *, concurrency: int = _AUTHOR_CONCURRENCY,
@@ -2767,6 +2775,41 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # FEPY-5 (#621): a rejected/odd write-back was silently dropped here — already logged inside
             # `_write_with_retries`; the seeded floor still stands (best-effort, never aborts).
             return 0
+        # ORW-431b: verify what the engine STORED. A card is never accepted as authored with an empty identity line: the engine
+        # reports "identityConcept" in `publicFields` when the card now holds the writer's text. If the writer sent one and the
+        # engine did not keep it, that is the gate's blocking `identity-missing`: re-write within the gate's bound, else the card is
+        # left not authored (an empty identity makes `card_missing_story` true, so the background backfill takes it again).
+        if _gate_on and _identity_dropped(profile, res):
+            for _try in range(_gate.GATE_REWRITE_BOUND):
+                _fresh = None
+                try:
+                    _fresh = await _gate_rewrite(npc, ["identity-missing"])
+                except Exception as e:  # failsoft-ok: a failed re-write is a failed attempt, never an abort
+                    logger.warning(f"[cast-gate] identity re-write call failed for {hid}: {type(e).__name__}")
+                if isinstance(_fresh, dict):
+                    _merged_p = {**profile, **{k: v for k, v in _fresh.items() if v not in (None, "", [], {})}}
+                    _gate.mend(_merged_p, npc)
+                    profile.clear()
+                    profile.update(_merged_p)
+                if any(_gate.is_blocking(c) for c in _gate.card_codes(profile, npc, cast, season_gate.registry)):
+                    continue  # the re-write must pass the same gate before it is written
+                res = await _write_with_retries(profile, hid)
+                if not (isinstance(res, dict) and res.get("accepted")):
+                    return 0
+                if not _identity_dropped(profile, res):
+                    break
+            else:
+                floor_below += 1
+                season_gate.failing += 1
+                logger.warning(f"[cast-gate] {hid} left not authored: identity-missing (the engine did not store it)")
+                try:
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "cast-gate:failed", f"card {hid} failed the final gate: identity-missing - left not authored",
+                        corrected="left-unauthored", user=user, houseguest=hid)
+                except Exception:  # pragma: no cover - the health record must never break authoring
+                    pass
+                return 0
         # The write-back landed. Keep the authored card so the post-pass can see the sheet; the per-NPC
         # completion signal (the portrait gate, #7) fires after the photo-sheet de-duplication pass below.
         _phys = profile.get("physicalCharacteristics")
