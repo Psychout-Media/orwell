@@ -218,25 +218,37 @@ export class FileSaveStore implements UserSaveStore {
     const t0 = stallTimer.now();
     const json = JSON.stringify(snapshot);
     const t1 = stallTimer.now();
-    const fd = openSync(tmp, "w");
     let t2 = t1;
     let t3 = t1;
+    let tClose = t1;
+    let t4 = t1;
+    let failed = false;
     try {
-      writeSync(fd, json, null, "utf8");
-      t2 = stallTimer.now();
-      // ORW-404: the content fsync is the step that froze a turn for 32 s on a stalled shared disk.
-      // Default (background): skip it here — the file is renamed complete (process-crash safe) and a
-      // background fsync hardens it afterwards. `ORWELL_SAVE_FSYNC=sync` keeps today's blocking fsync.
-      if (!background) fsyncSync(fd);
-      t3 = stallTimer.now();
+      const fd = openSync(tmp, "w");
+      try {
+        writeSync(fd, json, null, "utf8");
+        t2 = stallTimer.now();
+        // ORW-404: the content fsync is the step that froze a turn for 32 s on a stalled shared disk.
+        // Default (background): skip it here — the file is renamed complete (process-crash safe) and a
+        // background fsync hardens it afterwards. `ORWELL_SAVE_FSYNC=sync` keeps today's blocking fsync.
+        if (!background) fsyncSync(fd);
+        t3 = stallTimer.now();
+      } finally {
+        closeSync(fd);
+        tClose = stallTimer.now();
+      }
+      renameSync(tmp, file);
+      t4 = stallTimer.now();
+    } catch (e) {
+      failed = true;
+      throw e;
     } finally {
-      closeSync(fd);
+      // Review of #2691: a save that fails after blocking is still recorded (with a failure marker), and the
+      // close is its own phase so a close stall is not billed to the rename.
+      stallTimer.record("save.persist", stallTimer.now() - t0, failed ? { chars: json.length, failed: 1 } : { chars: json.length }, {
+        serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, close: tClose - t3, rename: failed ? 0 : t4 - tClose,
+      });
     }
-    renameSync(tmp, file);
-    const t4 = stallTimer.now();
-    stallTimer.record("save.persist", t4 - t0, { chars: json.length }, {
-      serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, rename: t4 - t3,
-    });
     const st = this.stateFor(dir, existing, background);
     st.latest = version;
     const isCheckpoint = version % FileSaveStore.CHECKPOINT_EVERY === 0;
@@ -253,10 +265,12 @@ export class FileSaveStore implements UserSaveStore {
       // `prune` keeps in the long-tail archive). Content fsync + atomic rename already guarantee a
       // truncated file can NEVER win. Owner-sanctioned in #1562.
       if (isCheckpoint) {
+        const td = stallTimer.now();
         try {
           const dirFd = openSync(dir, "r");
           try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
         } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+        stallTimer.record("save.dirsync", stallTimer.now() - td, { version }); // review of #2691: the checkpoint directory flush is its own phase
       }
       st.durable = version;
       st.unsynced = [];
