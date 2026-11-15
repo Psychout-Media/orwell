@@ -11903,7 +11903,9 @@ export class GameSessionAdapter implements GameSession {
       let slept = 0;
       let wokenBy: "event" | "evening" | undefined;
       while (slept + 1e-9 < want) {
-        const step = Math.min(NAP.clockStepHours, want - slept);
+        // Clamp the step to the exact time left before a scheduled event (same night-gate rule as milestoneDue), so the wake lands ON the dot and no time past it counts as slept.
+        const untilEvent = hoursUntilDue(live);
+        const step = Math.min(NAP.clockStepHours, want - slept, untilEvent !== null && untilEvent > 1e-9 ? untilEvent : Infinity);
         advanceClockPerMessage(live, step);
         slept += step;
         if (milestoneDueOf(live) && (live.nightDepth ?? 0) < eveningStart - 1e-6) { wokenBy = "event"; break; } // an evening milestone is also the evening cut: that wake is "evening", never "event"

@@ -5,6 +5,7 @@ import { PLAYER_TOOLS, PLAYER_AGENT_LEVERS } from "../../src/surfaces/tools/regi
 import { BASE_GAME_MASTER_PROMPT } from "../../src/engine/momentPrompts";
 import { restDeficitForDepth, phaseForHour } from "../../src/engine/timeOfDay";
 import { napFactor } from "../../src/engine/liveSeason";
+import { hoursUntilDue } from "../../src/engine/daySchedule";
 import { NAP } from "../../src/engine/sleepConstants";
 import { priv, setup, at, quiet } from "../support/napWorld";
 import type { NapView } from "../../src/ports/GameSession";
@@ -90,6 +91,16 @@ describe("0148 - the nap lever: waking", () => {
     near(priv(s).live.napHoursToday!, 1);
     expect((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(true);
   });
+  it("a nap steps to the event's exact hour: a wake 0.03h before it sleeps 0.03h, not a whole 0.1h step", () => {
+    const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === false && quiet(x) && priv(x).live.beat === "veto-competition");
+    const l = priv(s).live;
+    const exactDue = l.nightDepth + hoursUntilDue(l as unknown as Parameters<typeof hoursUntilDue>[0])!;
+    at(s, exactDue - 0.03);
+    const r = s.nap({ hours: 3 });
+    expect(r.wokenBy).toBe("event");
+    near(r.slept, 0.03);
+    near(hourOf(s), exactDue);
+  });
   it("a nap never runs into the night: cut at the start of the evening, the night has not ended", () => {
     const { s } = setup(3, (x) => quiet(x) && ["nominations", "veto-ceremony", "eviction"].includes(priv(x).live.beat!));
     at(s, 15);
@@ -139,9 +150,13 @@ describe("0148 - the nap lever: refusals leave the clock unmoved", () => {
     unchanged(s, () => s.nap({ hours: 1 }), "premiere");
   });
   it("an event that is due right now", () => {
-    const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === true && !priv(x).live.competition && !priv(x).live.ceremony && !priv(x).live.pending && (priv(x).live.dayNumber ?? 1) >= 3);
-    if ((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due !== true) return;
-    const l = priv(s).live; l.timeOfDay = "afternoon";
+    // Build the due state directly (no seed search): a quiet day-3+ morning world parked on a milestone beat, the clock set to that milestone's own hour.
+    const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === false && quiet(x) && priv(x).live.beat === "veto-competition");
+    const l = priv(s).live;
+    const exactDue = l.nightDepth + hoursUntilDue(l as unknown as Parameters<typeof hoursUntilDue>[0])!;
+    l.nightDepth = exactDue; l.timeOfDay = phaseForHour(exactDue); // the milestone's hour: due, and still before the evening
+    expect(["morning", "afternoon"], "setup reached a nap-eligible phase").toContain(l.timeOfDay);
+    expect((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due, "the engine reads this state as event-due").toBe(true);
     unchanged(s, () => s.nap({ hours: 1 }), "event-due");
   });
   it("the flag off: refused as not available, nothing changes", () => {
