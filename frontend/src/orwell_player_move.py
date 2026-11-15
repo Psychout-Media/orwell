@@ -55,6 +55,6 @@ async def resolve_player_move_before_narrator(text: Any, user: Optional[str], cl
             from src import log_rings
             log_rings.record_soft_failure("player-move:resolve-failed", exc,
                                           corrected="the post-reply move belt stays the fallback", user=user)
-        except Exception:
+        except Exception:  # failsoft-ok: the recorder itself is down; the failure was already WARN-logged below
             logger.warning("[orwell] intent-first move failed (fail-soft): %s", exc)
         return None
