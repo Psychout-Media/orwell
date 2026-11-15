@@ -81,7 +81,8 @@ export function isLateNight(phase: TimeOfDay): boolean {
 
 /** Project a clock-HOUR (8..32) onto the public 5-phase band. Clamps to the day's bounds. */
 export function phaseForHour(hour: number): TimeOfDay {
-  const h = clamp(hour, WAKE_HOUR, DAY_END_HOUR - 0.0001);
+  // ORW-445: the clock accrues in 5-minute float steps (11.999999999999 prints as "12:00pm" yet is < 12): snap float drift (1e-6h, the milestoneDue tolerance) so the phase agrees with the label.
+  const h = clamp(Math.round(hour * 1e6) / 1e6, WAKE_HOUR, DAY_END_HOUR - 0.0001);
   const p = CLOCK.phaseStartsHour;
   if (h < p.afternoon) return "morning";
   if (h < p.evening) return "afternoon";
