@@ -21,8 +21,13 @@ def _rewrite_on(monkeypatch):
     """The rewrite ships OFF by default; these tests exercise it, so turn it on (a test that needs it off sets the flag itself)."""
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
 
-def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408"):
-    """Returns (emitted_text, continuation_calls, stored_round_texts, n_rounds)."""
+def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None):
+    """Returns (emitted_text, continuation_calls, stored_round_texts, n_rounds). `extra` (a dict) is filled with: runs (tool blocks executed), chunks (every raw SSE chunk), cont_kwargs,
+    and may carry `redo_delay_s` (the stubbed continuation takes that long)."""
+    extra = extra if extra is not None else {}
+    extra.setdefault("runs", [])
+    extra.setdefault("chunks", [])
+    extra.setdefault("cont_kwargs", [])
     from src import agent_loop as al
     from src import orwell_engine as oe
     from src import engine_read_cache as erc
@@ -49,6 +54,8 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
         sc = scripts.pop(0) if scripts else {"deltas": ["done."]}
         for d in sc.get("deltas", []):
             yield f'data: {json.dumps({"delta": d})}\n\n'
+        if sc.get("stall_s"):
+            await asyncio.sleep(sc["stall_s"])
         if sc.get("calls"):
             yield f'data: {json.dumps({"type": "tool_calls", "calls": sc["calls"]})}\n\n'
         yield "data: [DONE]\n\n"
@@ -58,13 +65,17 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
 
     async def fake_llm(*a, **k):
         msgs = k.get("messages") or (a[2] if len(a) > 2 else [])
-        if any(m.get("role") == "system" and "CONTINUITY CORRECTION" in str(m.get("content")) for m in msgs):
+        if any("CONTINUITY CORRECTION" in str(m.get("content")) for m in msgs):
             cont_calls.append(msgs)
+            extra["cont_kwargs"].append(k)
+            if extra.get("redo_delay_s"):
+                await asyncio.sleep(extra["redo_delay_s"])
             return redo
         return ""
     monkeypatch.setattr(lc, "llm_call_async", fake_llm)
 
     async def fake_exec(block, **kw):
+        extra["runs"].append(block.tool_type)
         return block.tool_type, {"output": "{}", "exit_code": 0}
     monkeypatch.setattr(al, "execute_tool_block", fake_exec)
 
@@ -90,6 +101,7 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
         chunks = asyncio.get_event_loop().run_until_complete(go())
     finally:
         ch._LAST_FRAMED_BEAT_KEY.pop(owner, None)
+    extra["chunks"] = chunks
     emitted = ""
     for c in chunks:
         if c.startswith("data: ") and "[DONE]" not in c:
@@ -106,7 +118,7 @@ def test_conflicting_sentence_is_never_emitted_and_one_continuation_is_made(monk
     assert TAIL.strip() not in emitted, "the rest of the original stream is never shown"
     assert emitted.strip() == (CLEAN_A + REDO).strip()
     assert len(cont) == 1
-    sysmsg = [m for m in cont[0] if m["role"] == "system"][-1]["content"]
+    sysmsg = cont[0][-1]["content"]
     assert "Sleeper Role is asleep and cannot speak or act" in sysmsg
     assert {"role": "assistant", "content": CLEAN_A.strip()} in [{**m, "content": m["content"].strip()} for m in cont[0] if m["role"] == "assistant"]
 
@@ -152,12 +164,87 @@ def test_round_with_tool_markup_in_the_stream_is_skipped_safely(monkeypatch):
     assert cont == []
 
 
-def test_native_tool_call_after_a_withheld_sentence_is_still_made(monkeypatch):
+def test_native_tool_call_after_a_withheld_sentence_runs_and_no_continuation_is_made(monkeypatch):
     calls = [{"name": "advanceGame", "arguments": "{}"}]
+    extra = {}
     emitted, cont, stored, n_rounds = _drive(
-        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "calls": calls}, {"deltas": ["The morning moves on."]}], redo=REDO.strip())
-    assert len(cont) == 1 and "Sleeper Role says" not in emitted
-    assert n_rounds >= 2, "the round's native tool call still ran and the loop went on to the next round"
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "calls": calls}, {"deltas": ["The morning moves on."]}], redo=REDO.strip(), extra=extra)
+    assert cont == [], "a round with a tool call is never continued: the call would be dropped or the scene narrated twice"
+    assert "Sleeper Role says" not in emitted and TAIL.strip() not in emitted
+    assert emitted.startswith(CLEAN_A.strip()) and REDO.strip() not in emitted
+    assert n_rounds >= 2 and extra["runs"], "the round's native tool call still ran and the loop went on to the next round"
+    assert stored[0] == CLEAN_A.strip()
+
+
+def test_text_protocol_tool_call_in_the_discarded_tail_still_runs_once(monkeypatch):
+    extra = {}
+    call = '<tool_call><invoke name="bash"><parameter name="command">echo hi</parameter></invoke></tool_call>'
+    emitted, cont, stored, n_rounds = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL, call]}, {"deltas": ["The morning moves on."]}], redo=REDO.strip(), extra=extra)
+    assert cont == [], "the discarded tail opened a tool call: no continuation"
+    assert extra["runs"] == ["bash"], "the call after the withheld sentence ran exactly once, not dropped"
+    assert "Sleeper Role says" not in emitted and TAIL.strip() not in emitted and "tool_call" not in emitted
+    assert stored[0] == CLEAN_A.strip() and n_rounds >= 2
+
+
+def test_multi_sentence_quoted_line_is_not_read_as_narration(monkeypatch):
+    # the schedule fact: the second sentence of one quoted line arrives as its own chunk, with no opening quote
+    quoted = ['Someone whispers, "Nobody\'s safe. ', 'The nominations are tonight, I\'m telling you." ', "The kettle clicks off. "]
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": quoted}], redo="X")
+    assert cont == [] and emitted == "".join(quoted) and stored[0] == emitted.strip()
+
+
+def test_dialogue_about_a_sleeper_across_chunks_is_not_a_conflict(monkeypatch):
+    quoted = ['Other says, "I heard it too. ', 'Sleeper Role walks in late every single night, did you notice?" ', "Nobody answers. "]
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": quoted}], redo="X")
+    assert cont == [] and emitted == "".join(quoted)
+
+
+def test_a_conflict_after_the_quote_closes_is_still_withheld(monkeypatch):
+    deltas = ['Other says, "Nobody\'s safe. ', 'Not tonight, anyway." ', "Sleeper Role walks in. ", TAIL]
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": deltas}], redo=REDO.strip())
+    assert len(cont) == 1 and "Sleeper Role walks" not in emitted and emitted.strip().endswith(REDO.strip())
+
+
+def test_the_wait_after_a_withhold_is_bounded_and_the_reply_ends_at_the_last_whole_sentence(monkeypatch):
+    from src import agent_loop as al
+    monkeypatch.setattr(al, "_PD_DRAIN_WAIT_S", 0.4)
+    monkeypatch.setattr(al, "_PD_BEAT_S", 0.1)
+    extra = {}
+    emitted, cont, stored, _ = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "stall_s": 30}], redo=REDO.strip(), extra=extra)
+    assert cont == [], "the stream never finished, so a tool call can not be ruled out: no continuation"
+    assert emitted.strip() == CLEAN_A.strip() and stored[0] == emitted.strip()
+    assert any(c.startswith(": keepalive") for c in extra["chunks"]), "the player's connection is kept alive while the stream is drained"
+
+
+def test_the_continuation_is_capped_and_keeps_the_connection_alive(monkeypatch):
+    from src import agent_loop as al
+    monkeypatch.setattr(al, "_PD_BEAT_S", 0.1)
+    extra = {"redo_delay_s": 0.45}
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL]}], redo=REDO.strip(), extra=extra)
+    k = extra["cont_kwargs"][0]
+    assert k["timeout"] <= 20 and k["max_tokens"] <= 700
+    assert sum(1 for c in extra["chunks"] if c.startswith(": keepalive")) >= 2
+    assert emitted.strip() == (CLEAN_A + REDO).strip()
+
+
+def test_a_redo_that_restarts_the_scene_does_not_repeat_what_was_shown(monkeypatch):
+    redo = CLEAN_A + REDO
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL]}], redo=redo.strip())
+    assert emitted.count(CLEAN_A.strip()) == 1
+    assert emitted.strip() == (CLEAN_A + REDO).strip() and stored[0] == emitted.strip()
+
+
+def test_stored_text_is_cut_to_the_emitted_text_even_when_a_guard_rewrote_the_sentence(monkeypatch):
+    # a guard rewrites the sentence in the live stream but its change never reaches the raw round buffer: the withheld sentence can not be found there
+    from src import agent_loop as al
+    real_scrub = al._scrub_game_leak
+    monkeypatch.setattr(al, "_scrub_game_leak", lambda t, *a, **k: real_scrub(t, *a, **k).replace(" says,", " said,"))
+    monkeypatch.setattr(al, "_mirror_wall_drop", lambda rr, before, after, **k: rr)
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL]}], redo=REDO.strip())
+    assert len(cont) == 1 and "Sleeper" not in emitted
+    assert stored[0] == emitted.strip() and "Sleeper" not in stored[0]
 
 
 def test_no_fresh_engine_state_skips(monkeypatch):
@@ -204,3 +291,82 @@ def test_the_rewrite_is_off_unless_asked_for(monkeypatch):
     assert pc.predisplay_rewrite_enabled() is False
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
     assert pc.predisplay_rewrite_enabled() is True
+
+
+# ── pure helpers: the review findings ────────────────────────────────────────────────────────────
+def test_quote_state_carries_across_chunks():
+    from src import predisplay_check as pc
+    assert pc.quote_open_after('He says, "Nobody\'s safe. ') is True
+    assert pc.quote_open_after("The nominations are tonight.\" ", True) is False
+    assert pc.quote_open_after("\u201cOne. Two. ") is True and pc.quote_open_after("Three.\u201d", True) is False
+    sched = {"next": "nominations", "tomorrow": True}
+    assert pc.schedule_conflict("The nominations are tonight, I'm telling you.", sched) is not None
+    assert pc.schedule_conflict("The nominations are tonight, I'm telling you.\"", sched, in_quote=True) is None
+    assert pc.asleep_conflicts("Sleeper Role walks in late.", ["Sleeper Role"], in_quote=True) == []
+    assert pc.asleep_conflicts("Sleeper Role walks in late.", ["Sleeper Role"]) == ["Sleeper Role"]
+
+
+def test_the_check_and_the_rewrite_both_honour_a_carried_quote(monkeypatch):
+    from src import predisplay_check as pc
+    from src import engine_read_cache as erc
+    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0: STATE)
+    monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
+    pc.PREDISPLAY_COUNTS.clear()
+    text = "The nominations are tonight, I'm telling you.\" "
+    assert asyncio.get_event_loop().run_until_complete(pc.check_and_count(text, "u", in_quote=True)) == []
+    assert pc.split_at_first_conflict(text, "u", in_quote=True) is None
+    assert pc.drop_conflicting_sentences(text, "u", in_quote=True) == (text, [])
+    assert pc.split_at_first_conflict(text, "u") is not None
+
+
+def test_asleep_names_match_case_sensitively_and_as_whole_words():
+    from src import predisplay_check as pc
+    for name in ("Will", "Mark", "Grace", "Joy"):
+        assert pc.asleep_conflicts(f"She {name.lower()} come back later.", [name]) == []
+        assert pc.asleep_conflicts("She will come back, and mark my words, she grins.", [name]) == []
+        assert pc.asleep_conflicts(f"{name} walks into the kitchen.", [name]) == [name]
+    assert pc.asleep_conflicts("Willow walks into the kitchen.", ["Will"]) == []
+
+
+def test_schedule_check_wants_the_event_itself_placed_today():
+    from src import predisplay_check as pc
+    def sc(ev):
+        return {"next": ev, "tomorrow": True}
+    # generic strategy talk is not the event
+    assert pc.schedule_conflict("They talk strategy about the veto this afternoon.", sc("veto-competition")) is None
+    assert pc.schedule_conflict("They wonder how they'll vote tonight.", sc("eviction")) is None
+    assert pc.schedule_conflict("Other hopes to win comp this afternoon.", sc("hoh-competition")) is None
+    assert pc.schedule_conflict("They plan the nominations tomorrow, then relax tonight.", sc("nominations")) is None
+    # the event itself, placed today
+    assert pc.schedule_conflict("The veto competition is this afternoon.", sc("veto-competition"))
+    assert pc.schedule_conflict("The eviction happens tonight.", sc("eviction"))
+    assert pc.schedule_conflict("The HOH competition starts this morning.", sc("hoh-competition"))
+    assert pc.schedule_conflict("Tonight is the veto ceremony.", sc("veto-ceremony"))
+    assert pc.schedule_conflict("The nominations are tonight.", sc("nominations"))
+
+
+def test_continuation_ends_with_the_exact_tail_and_is_robust_to_tool_history():
+    from src import predisplay_check as pc
+    shown = "A" * 300 + " The kitchen is quiet. "
+    hist = [{"role": "system", "content": "narrator"}, {"role": "user", "content": "I wait."},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "advanceGame", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "content": "{\"ok\": true}"},
+            {"role": "assistant", "content": "Ok.", "tool_calls": [{"id": "c2"}]}]
+    msgs = pc.continuation_messages(hist, shown, [pc.Conflict(pc.FACT_ASLEEP, "Sleeper Role")])
+    assert msgs[-1]["role"] == "user" and msgs[-2] == {"role": "assistant", "content": shown}
+    tail = shown.rstrip()[-200:]
+    assert tail in msgs[-1]["content"] and ("A" * 250) not in msgs[-1]["content"]
+    assert "Do NOT restart" in msgs[-1]["content"] and "repeat" in msgs[-1]["content"]
+    assert not any(m.get("tool_calls") or m.get("role") == "tool" for m in msgs)
+    assert any(m["role"] == "user" and "[Tool execution results]" in m["content"] and "ok" in m["content"] for m in msgs)
+    assert hist[2].get("tool_calls") and hist[3]["role"] == "tool", "the caller's history is not mutated"
+
+
+def test_leading_sentences_that_repeat_the_shown_tail_are_dropped():
+    from src import predisplay_check as pc
+    shown = "Someone laughs. The kitchen is quiet. "
+    assert pc.drop_repeated_prefix("The kitchen is quiet. Everyone keeps low.", shown) == "Everyone keeps low."
+    assert pc.drop_repeated_prefix("Someone laughs.  \u201cThe kitchen is  quiet.\u201d A door closes.", shown) == "A door closes."
+    assert pc.drop_repeated_prefix("A door closes. The kitchen is quiet.", shown) == "A door closes. The kitchen is quiet.", "only LEADING repeats are dropped"
+    assert pc.drop_repeated_prefix("The kitchen is quiet.", shown) == ""
+    assert pc.drop_repeated_prefix("New line.", "") == "New line."

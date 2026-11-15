@@ -7084,21 +7084,74 @@ _SCENE_CUTAWAY_LINE = (
     "they do when the control room isn't ready to show you the next moment. Give it a beat and pick the "
     "scene back up."
 )
+_PD_DRAIN_WAIT_S = 8.0  # ORW-408: after a withhold, the longest the rest of the ORIGINAL stream is read (the player sees nothing meanwhile)
+_PD_REDO_TIMEOUT_S = 20  # ORW-408: the continuation call's wall-clock ceiling
+_PD_REDO_MAX_TOKENS = 700  # ORW-408: enough for the rest of one reply
+_PD_BEAT_S = 2.0  # ORW-408: how often a keepalive comment goes out while the player waits
+_PD_KEEPALIVE = ": keepalive\n\n"  # the same SSE comment line the chat route sends before the first token
+
+
+async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None):
+    """ORW-408: pass the model stream through unchanged until `armed()` (a sentence was withheld); from then on read it for at most `wait_s`, yielding a keepalive comment every `beat_s`
+    while nothing arrives, and on the deadline stop (`drain["timed_out"] = True`). Cancelling the pending read does not hurt the chunks already processed."""
+    wait_s = _PD_DRAIN_WAIT_S if wait_s is None else wait_s
+    beat_s = _PD_BEAT_S if beat_s is None else beat_s
+    it = stream.__aiter__()
+    deadline = None
+    try:
+        while True:
+            if deadline is None and armed():
+                deadline = time.monotonic() + wait_s
+            if deadline is None:
+                try:
+                    chunk = await it.__anext__()
+                except StopAsyncIteration:
+                    return
+                yield chunk
+                continue
+            nxt = asyncio.ensure_future(it.__anext__())
+            while True:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    drain["timed_out"] = True
+                    nxt.cancel()
+                    try:
+                        await nxt
+                    except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read; the round ends at the kept text)
+                        pass
+                    return
+                done, _ = await asyncio.wait({nxt}, timeout=min(beat_s, left))
+                if done:
+                    break
+                yield _PD_KEEPALIVE
+            try:
+                chunk = nxt.result()
+            except StopAsyncIteration:
+                return
+            yield chunk
+    finally:
+        try:
+            await it.aclose()
+        except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
+            pass
+
+
 async def _predisplay_redo_text(messages, shown: str, split, endpoint_url, model, headers, max_tokens, owner) -> str:
-    """ORW-408: the ONE quiet continuation. Non-streaming call over the turn's messages + the text already shown this round (assistant partial) + a short system
-    correction naming the fact. Returns the text to feed through the guard chain, led by a space when it joins shown text. "" on any failure (the reply then simply
-    ends at the last whole sentence shown: never mid-sentence). Never raises."""
+    """ORW-408: the ONE quiet continuation. Non-streaming, tool-free call (20 s ceiling, one reply's worth of tokens) over the turn's messages + the text already shown this round
+    (assistant partial) + a final user message that quotes the exact tail shown and says to continue from it. Leading sentences that repeat the shown tail are dropped. Returns the text to
+    feed through the guard chain, led by a space when it joins shown text. "" on any failure (the reply then simply ends at the last whole sentence shown: never mid-sentence). Never raises."""
     try:
         from src.llm_core import llm_call_async
-        from src.predisplay_check import continuation_messages
+        from src.predisplay_check import continuation_messages, drop_repeated_prefix
         msgs = continuation_messages(messages, shown, split.conflicts)
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers, temperature=0.7,
-                                   max_tokens=max_tokens, timeout=60, user=_meter_user(owner))
+                                   max_tokens=max(64, min(int(max_tokens or _PD_REDO_MAX_TOKENS), _PD_REDO_MAX_TOKENS)),
+                                   timeout=_PD_REDO_TIMEOUT_S, user=_meter_user(owner))
         raw = raw or ""
         op = tool_call_opener_index(raw)
         if op >= 0:
             raw = raw[:op]
-        text = _MOVE_THINK_RE.sub("", strip_tool_blocks(raw)).strip()
+        text = drop_repeated_prefix(_MOVE_THINK_RE.sub("", strip_tool_blocks(raw)).strip(), shown).strip()
         if not text:
             return ""
         return (" " + text) if (shown or "").strip() and not shown[-1:].isspace() else text
@@ -7111,6 +7164,21 @@ async def _predisplay_redo_text(messages, shown: str, split, endpoint_url, model
         except Exception:  # failsoft-ok: orw408-telemetry-of-telemetry
             pass
         return ""
+
+
+async def _pd_redo_with_keepalive(*args):
+    """ORW-408: run `_predisplay_redo_text` while yielding keepalive comments; the last item yielded is ("redo", text)."""
+    task = asyncio.ensure_future(_predisplay_redo_text(*args))
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=_PD_BEAT_S)
+            if done:
+                break
+            yield (_PD_KEEPALIVE, None)
+        yield ("", task.result())
+    finally:
+        if not task.done():
+            task.cancel()
 
 
 def _scene_cut_retry_directive(scene_broken: bool, retry_used: bool, shown_text: str, owner) -> "Optional[str]":
@@ -8252,6 +8320,7 @@ async def _stream_agent_loop_impl(
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
+        _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
         native_tool_calls = []  # populated if model uses function calling
         # Reset doc streaming state per round
         _doc_acc = ""
@@ -8597,7 +8666,8 @@ async def _stream_agent_loop_impl(
         # complementary cap for the rare stream that trickles bytes forever and
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
-        async for chunk in _narrator_stream_with_outage_pause(
+        _pd_drain = {"timed_out": False}
+        async for chunk in _pd_bounded_stream(_narrator_stream_with_outage_pause(
             _candidates,
             _volatile_tail_wire(messages) if (game_mode == "game" and _volatile_tail_enabled()) else messages,
             owner=_force_owner,
@@ -8611,7 +8681,10 @@ async def _stream_agent_loop_impl(
             pin_provider=(_pin_threshold > 0 and last_round_input_tokens >= _pin_threshold),
             provider_opts=_provider_opts,
             tool_choice=_forced_tool_choice,  # #1154: None on ordinary turns ⇒ byte-identical
-        ):
+        ), lambda: _pd_rw_pending is not None, _pd_drain):
+            if chunk == _PD_KEEPALIVE:  # ORW-408: the player is waiting on a withheld sentence; keep the connection alive
+                yield chunk
+                continue
             if time.time() > _round_deadline:
                 logger.warning(f"[agent] round {round_num} stream exceeded wall-clock deadline; cutting off")
                 break
@@ -8747,7 +8820,8 @@ async def _stream_agent_loop_impl(
                             # CLEANED narration. Buffer to a sentence boundary so we judge whole
                             # sentences, then emit the clean part.
                             if _pd_rw_pending is not None:
-                                continue  # ORW-408: a sentence was withheld; the rest of this stream is never shown (events like tool_calls/usage still processed)
+                                _pd_tail += data["delta"]  # ORW-408: never shown; kept only to see whether it opens a tool call (events like tool_calls/usage are still processed)
+                                continue
                             round_response += data["delta"]
                             # DSML/tool-call OPENER guard: once raw tool markup begins in the visible
                             # stream, stop emitting visible content for the round (the post-round
@@ -8818,14 +8892,16 @@ async def _stream_agent_loop_impl(
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state)
                                     try:  # ORW-408: count (never alter) narration that contradicts an engine hard fact; the rewrite needs a held-back reply (see src/predisplay_check.py)
                                         from src.predisplay_check import check_and_count as _pd_check
-                                        await _pd_check(_guarded.text, owner)
+                                        from src.predisplay_check import quote_open_after as _pd_qopen
+                                        _pd_inq = _pd_qopen(_round_emitted_text)  # a quote opened by an earlier chunk of this round is still open
+                                        await _pd_check(_guarded.text, owner, in_quote=_pd_inq)
                                     except Exception:  # failsoft-ok: counter only
                                         pass
                                     if (not _pd_rewrite_used and _guarded_text and not _scene_broken and not _visible_halted
-                                            and not native_tool_calls and tool_call_opener_index(round_response) < 0):
+                                            and tool_call_opener_index(round_response) < 0):
                                         try:  # ORW-408: withhold the first sentence that contradicts an engine hard fact (nothing emitted yet); fail-open => emitted as today
                                             from src.predisplay_check import split_at_first_conflict as _pd_split_fn
-                                            _pd_split = _pd_split_fn(_guarded_text, owner)
+                                            _pd_split = _pd_split_fn(_guarded_text, owner, in_quote=_pd_qopen(_round_emitted_text))
                                         except Exception:  # failsoft-ok: orw408-split-call
                                             _pd_split = None
                                         if _pd_split is not None:
@@ -8842,12 +8918,9 @@ async def _stream_agent_loop_impl(
                                     if not _scene_broken:
                                         round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
                                     if _pd_rw_pending is not None:
-                                        # ORW-408: stored text must equal what was shown: remove the withheld sentence and the unjudged tail from the raw round buffer.
-                                        _wi = round_response.rfind(_pd_rw_pending.sentence)
-                                        if _wi >= 0:
-                                            round_response = round_response[:_wi]
-                                        elif _game_buf and round_response.rfind(_game_buf) >= 0:
-                                            round_response = round_response[:round_response.rfind(_game_buf)]
+                                        # ORW-408: stored text must equal what was shown: cut the raw round buffer to exactly the emitted text (the earlier emitted text + the kept prefix of this chunk),
+                                        # never by searching for the withheld sentence (a guard may have rewritten it, leaving it in the stored text).
+                                        round_response = _round_emitted_text + (_guarded_text or "")
                                         _game_buf = ""
                                     _round_emitted_text += _guarded_text or ""
                                     if _guarded_text:
@@ -8971,14 +9044,29 @@ async def _stream_agent_loop_impl(
             # Intercept [DONE] — don't forward until all rounds finish
 
         if _pd_rw_pending is not None:
-            # ORW-408: ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
-            _redo = await _predisplay_redo_text(messages, _round_emitted_text, _pd_rw_pending, endpoint_url, model, headers,
-                                                _effective_max_tokens, owner)
-            _pd_rw_pending = None
-            if _redo:
-                round_response += _redo
-                _game_buf = _redo
-                _pd_rw_cont = True
+            _pd_all_tail = _pd_rw_pending.withheld + _pd_tail
+            _pd_op = tool_call_opener_index(_pd_all_tail)
+            if native_tool_calls or _pd_op >= 0 or _pd_drain["timed_out"]:
+                # ORW-408: the round carries (or may carry) tool calls: NO continuation. The narration ends at the kept prefix; the native calls run as they would have, and a text-protocol
+                # call from the discarded tail is put back onto the raw round text so it is parsed and run once (the narration before it stays unshown, so nothing is narrated twice).
+                logger.info("[predisplay-rewrite] no continuation: native_calls=%d tail_opener=%s drain_timed_out=%s", len(native_tool_calls), _pd_op >= 0, _pd_drain["timed_out"])
+                if _pd_op >= 0:
+                    round_response += _pd_all_tail[_pd_op:]
+                _pd_rw_pending = None
+            else:
+                # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
+                _redo = ""
+                async for _pd_beat, _pd_val in _pd_redo_with_keepalive(
+                        messages, _round_emitted_text, _pd_rw_pending, endpoint_url, model, headers, _effective_max_tokens, owner):
+                    if _pd_beat:
+                        yield _pd_beat
+                    else:
+                        _redo = _pd_val or ""
+                _pd_rw_pending = None
+                if _redo:
+                    round_response += _redo
+                    _game_buf = _redo
+                    _pd_rw_cont = True
         # Flush the scrub buffer: emit the trailing (possibly unterminated) sentence, cleaned, so
         # nothing the round produced is left unshown or leaks through.
         if _scrub_active and _game_buf:
@@ -9037,7 +9125,8 @@ async def _stream_agent_loop_impl(
                 if _pd_rw_cont:
                     try:  # ORW-408: the redo still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
-                        _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner)
+                        from src.predisplay_check import quote_open_after as _pd_qopen2
+                        _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner, in_quote=_pd_qopen2(_round_emitted_text))
                     except Exception:  # failsoft-ok: orw408-drop-call
                         _pd_kept, _pd_dropped = _guarded_text, []
                     for _pd_d in _pd_dropped:
