@@ -3,7 +3,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { resolvePending } from "../../features/support/answerPending";
 import { roomOfBed, type BedsState } from "../../src/engine/beds";
-import { pickBedFor, type BedReader } from "../../src/engine/bedClaims";
+import { pickBedFor, bedmateShare, type BedReader } from "../../src/engine/bedClaims";
 import { roomDisplayName } from "../../src/domain/house";
 
 /** ORW-466 slice 2 - the move-in day bed pick: NPCs claim as they walk in (crowd / personality / luck), the player claims in their own words before the narrator writes, a taken bed is a swap
@@ -42,8 +42,20 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     const state: BedsState = { owner: { x1: "bedroom-a#1", x2: "bedroom-a#2", x3: "bedroom-a#3", y1: "bedroom-b#1" }, claims: [] };
     const inHouse = new Set(["x1", "x2", "x3", "y1", "social", "private"]);
     const reader = (social: number): BedReader => ({ stats: () => ({ social, mental: 0.5 }), warmth: () => 0 });
-    expect(roomOfBed(pickBedFor(state, "social", inHouse, reader(0.95), () => 0)!)).toBe("bedroom-a");
-    expect(roomOfBed(pickBedFor(state, "private", inHouse, reader(0.05), () => 0)!)).toBe("bedroom-c");
+    const pick = (who: string, r: BedReader) => pickBedFor(state, who, inHouse, r, bedmateShare(r, 0.25), () => 0)!;
+    expect(roomOfBed(pick("social", reader(0.95)))).toBe("bedroom-a");
+    expect(roomOfBed(pick("private", reader(0.05)))).toBe("bedroom-c");
+  });
+
+  it("half of a double: the would-be bedmate weighs far more than the room - a mild liking shares the double, a mild dislike takes a single elsewhere", () => {
+    const state: BedsState = { owner: { mate: "bedroom-b#d1:1" }, claims: [] };
+    const inHouse = new Set(["mate", "fond", "cold"]);
+    const reader = (w: number): BedReader => ({ stats: () => ({ social: 0.5, mental: 0.5 }), warmth: () => w });
+    const pick = (who: string, r: BedReader) => pickBedFor(state, who, inHouse, r, bedmateShare(r, 0.25), () => 0)!;
+    expect(pick("fond", reader(0.15)), "a mild liking is enough to share the double").toBe("bedroom-b#d1:2");
+    const cold = pick("cold", reader(-0.1));
+    expect(cold, "a mild dislike keeps them out of that double").not.toBe("bedroom-b#d1:2");
+    expect(roomOfBed(cold), "and out of that room").not.toBe("bedroom-b");
   });
 
   it("the player's claim in their own words lands in the engine before the narrator writes, and the narrator's BEDS line says so", () => {
@@ -54,7 +66,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     expect(roomOfBed(liveOf(s).beds!.owner["player"]!)).toBe(room);
     const prompt = s.getMomentPrompt({}).systemPrompt;
     expect(prompt).toContain("- BEDS (engine truth");
-    expect(prompt).toContain(`the player just claimed a bed in ${roomDisplayName(room)}`);
+    expect(prompt).toMatch(new RegExp(`the player just claimed (?:a single bed|half of a double)[^.]* in ${roomDisplayName(room)}`));
   });
 
   it("a taken bed: the owner refuses a swap when they don't like the player and accepts when they do", () => {
@@ -70,6 +82,23 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
       expect(beds.owner[owner] === theirs).toBe(!yes);
       expect(s.getMomentPrompt({}).systemPrompt).toContain(yes ? "said YES" : "said NO");
     }
+  });
+
+  it("a half-double swap needs only that spot owner's yes: the other half's sleeper has no veto (BED_RULES.halfDoublePartnerVeto false)", () => {
+    const s = premiere();
+    walkIn(s);
+    const beds = liveOf(s).beds!;
+    const [a, b] = Object.keys(beds.owner).filter((id) => id !== "player");
+    // seat the two in one double (trading spots with whoever held those halves)
+    const seat = (who: string, spot: string) => { const held = Object.keys(beds.owner).find((o) => beds.owner[o] === spot); if (held && held !== who) beds.owner[held] = beds.owner[who]!; beds.owner[who] = spot; };
+    seat(a!, "bedroom-c#d1:1"); seat(b!, "bedroom-c#d1:2");
+    relOf(s).edge(a!, b!).affinity = 0.25;
+    relOf(s).edge(a!, "player").affinity = 0.95; // the spot's owner likes the player
+    relOf(s).edge(b!, "player").affinity = 0; // the other half does not
+    s.resolvePlayerMove({ text: `Could I swap beds with ${nameOf(s, a!)}?` });
+    expect(beds.owner["player"], "the player is in the double now").toBe("bedroom-c#d1:1");
+    expect(beds.owner[b!], "the other half keeps their spot").toBe("bedroom-c#d1:2");
+    expect(beds.owner[a!]).not.toBe("bedroom-c#d1:1");
   });
 
   it("a player who never picks gets the last free bed at their first bedtime", () => {

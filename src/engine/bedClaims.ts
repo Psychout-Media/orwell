@@ -5,7 +5,10 @@
  *   who already sleeps there (how they feel about them: first impressions, pre-show ties) and their own nature (a social houseguest likes a busy room, a private one a quiet room; a
  *   strategic one leans harder on being near people they want close), plus a little luck from a side stream (`bedPickNoise`).
  * - The player claims in their own words, resolved in the engine BEFORE the narrator writes (the ORW-419 seam): `parsePlayerBedIntent`.
- * - A taken bed: the player may ask the owner to swap; the owner decides from how they feel about the player and how much they cared about their bed (`decideSwap`).
+ * - Doubles (Ryne: "there could definitely be doubles in the mix"; the layout and spot ids are the Auditor's, `beds.ts`): everyone claims ONE SPOT; for half of a double the bedmate counts far more
+ *   than the room - a strong pull toward someone they like, a stronger aversion to someone they don't (`BED_RULES.bedmatePull` / `bedmateAversion`), and sharing a bed at all has a bar to clear.
+ * - A taken bed: the player may ask the owner to swap; the owner decides from how they feel about the player and how much they cared about their spot (`decideSwap`). Half of a double: only the
+ *   spot's owner decides; the other half's sleeper has no veto (`BED_RULES.halfDoublePartnerVeto`).
  * - A player who never picks gets the bed left over at their first bedtime (`BED_RULES.leftoverAtFirstBedtime`, applied in the adapter's `bedThePlayer`).
  *
  * Every rule Ryne has not answered yet (Q3 6/5/5 singles lives in `BEDROOM_LAYOUT`; Q4 leftover; Q5 swaps / when a free bed may be taken) is DATA in `BED_RULES`, so an answer is a one-line change.
@@ -13,7 +16,7 @@
 import type { EntityId } from "../domain/ids";
 import type { Room } from "../domain/house";
 import { BEDROOM_LAYOUT, type BedroomSpec } from "./data/bedrooms";
-import { BED_CROWD_PULL, NOISE_WEIGHT, claimBed, freeBeds, roomOfBed, roommatesIn, type BedId, type BedsState } from "./beds";
+import { BED_CROWD_PULL, EMPTY_DOUBLE_PENALTY, NOISE_WEIGHT, SHARE_DOUBLE_AT, pickSpot, bedOfSpot, claimBed, freeBeds, isDoubleSpot, roomOfBed, roommatesIn, type BedId, type BedsState } from "./beds";
 
 /** The open answers (design note, questions 4 and 5) and the pick's weights, as data. */
 export const BED_RULES = {
@@ -26,6 +29,13 @@ export const BED_RULES = {
   /** Q5: the owner says yes when (affinity to the player above a stranger's) - SWAP_CARE_WEIGHT * (how much more they want their room than the one they would get) >= this. */
   swapAcceptAbove: 0.05,
   swapCareWeight: 1,
+  /** Half of a double - the `share` handed to the Auditor's `pickSpot` (shares only above SHARE_DOUBLE_AT 0.65 on the affinity scale): a stranger's level plus the would-be bedmate's warmth times this
+   *  (a liked bedmate pulls hard: with 3, affinity about 0.39 or more is enough to share)... */
+  bedmatePull: 3,
+  /** ...and times this for a bedmate they are cold to (aversion is stronger than pull, so that half ranks below a single and an empty double). */
+  bedmateAversion: 6,
+  /** Q5 (doubles): swapping into or out of half of a double needs only the spot owner's yes. true: the other half's sleeper must also be warm to the player. */
+  halfDoublePartnerVeto: false,
   /** How much an NPC's warmth to a room's sleepers counts (per sleeper, on affinity above a stranger's); a strategic nature (mental over social) multiplies it up to 2x. */
   tieWeight: 1,
 } as const;
@@ -46,36 +56,67 @@ export function bedRoomScore(who: EntityId, mates: readonly EntityId[], r: BedRe
   return crowd + ties;
 }
 
-/** The bed `who` would pick now: the first free bed in the room they read best (+ a little luck). Undefined when every bed is taken. Changes nothing. */
+/** How much `who` would share a double with `other` (the `share` for `pickSpot`, on the affinity scale): the bedmate counts far more than the room, both ways. */
+export function bedmateShare(r: BedReader, baseline: number): (who: EntityId, other: EntityId) => number {
+  return (who, other) => { const w = r.warmth(who, other); return baseline + (w >= 0 ? BED_RULES.bedmatePull : BED_RULES.bedmateAversion) * w; };
+}
+
+/** Who sleeps in the other half of `spot`'s double (in the house, not `who`), if anyone. */
+export function otherHalf(state: BedsState, spot: BedId, inHouse: ReadonlySet<EntityId>, who?: EntityId): EntityId | undefined {
+  if (!isDoubleSpot(spot)) return undefined;
+  const bed = bedOfSpot(spot);
+  return Object.entries(state.owner).find(([o, s]) => o !== who && inHouse.has(o) && s !== spot && bedOfSpot(s) === bed)?.[0];
+}
+
+/**
+ * How much `who` wants this sleeping spot: the room (who else sleeps there, their nature) plus, for half of a double, the bedmate on the `share` scale (above SHARE_DOUBLE_AT draws them in, below
+ * it pushes them off - the bedmate weighs far more than the room). `away` = sleepers to leave out (a swap's other party). No luck.
+ */
+export function spotScore(state: BedsState, who: EntityId, spot: BedId, inHouse: ReadonlySet<EntityId>, r: BedReader, share: (who: EntityId, other: EntityId) => number, away: ReadonlySet<EntityId> = new Set()): number {
+  const mates = roommatesIn(state, roomOfBed(spot), inHouse).filter((m) => m !== who && !away.has(m));
+  let v = bedRoomScore(who, mates, r);
+  if (isDoubleSpot(spot)) {
+    const mate = otherHalf(state, spot, inHouse, who);
+    v += mate === undefined || away.has(mate) ? -EMPTY_DOUBLE_PENALTY : share(who, mate) - SHARE_DOUBLE_AT;
+  }
+  return v;
+}
+
+/**
+ * The spot `who` would pick now: in each room with a free spot, the spot the Auditor's `pickSpot` gives them (`share` decides half a double vs a single); the room is read by its sleepers and
+ * that spot's bedmate (`spotScore`) plus a little luck. Undefined when every spot is taken. Changes nothing.
+ */
 export function pickBedFor(
-  state: BedsState, who: EntityId, inHouse: ReadonlySet<EntityId>, r: BedReader,
+  state: BedsState, who: EntityId, inHouse: ReadonlySet<EntityId>, r: BedReader, share: (who: EntityId, other: EntityId) => number,
   noise: (who: EntityId, room: Room) => number, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT,
 ): BedId | undefined {
-  const free = freeBeds(state, inHouse, layout);
   let best: { bed: BedId; v: number } | undefined;
   for (const spec of layout) {
-    const bed = free.find((b) => roomOfBed(b) === spec.room);
-    if (!bed) continue;
-    const mates = roommatesIn(state, spec.room, inHouse).filter((m) => m !== who);
-    const v = bedRoomScore(who, mates, r) + NOISE_WEIGHT * noise(who, spec.room);
-    if (!best || v > best.v) best = { bed, v };
+    const spot = pickSpot(state, who, spec.room, inHouse, share, layout);
+    if (!spot) continue;
+    const v = spotScore(state, who, spot, inHouse, r, share) + NOISE_WEIGHT * noise(who, spec.room);
+    if (!best || v > best.v) best = { bed: spot, v };
   }
   return best?.bed;
 }
 
-/** The first free bed in `room`, or undefined when it is full. */
-export function freeBedIn(state: BedsState, room: Room, inHouse: ReadonlySet<EntityId>, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT): BedId | undefined {
-  return freeBeds(state, inHouse, layout).find((b) => roomOfBed(b) === room);
+/** The player's spot in `room`: the kind they asked for when free ("double" / "single"), else a single first (no stranger's double half unasked), else any free spot. Undefined when the room is full. */
+export function freeBedIn(state: BedsState, room: Room, inHouse: ReadonlySet<EntityId>, prefer?: "single" | "double", layout: readonly BedroomSpec[] = BEDROOM_LAYOUT): BedId | undefined {
+  const free = freeBeds(state, inHouse, layout).filter((b) => roomOfBed(b) === room);
+  const kind = (d: boolean) => free.find((b) => isDoubleSpot(b) === d);
+  return (prefer === "double" ? kind(true) : kind(false)) ?? free[0];
 }
 
 /**
  * The owner's answer to the player's swap ask. `ownerRoom` is the room they sleep in now, `theirNewRoom` the room they would move to (the player's bed's room, or the best free bed's).
  * Care = how much more they want their own room than the new one (0 when it is the same room: only the spot changes).
  */
-export function decideSwap(owner: EntityId, player: EntityId, care: number, r: BedReader): { accept: boolean; care: number; warmth: number } {
+export function decideSwap(owner: EntityId, player: EntityId, care: number, r: BedReader, halfPartner?: EntityId): { accept: boolean; care: number; warmth: number; vetoedBy?: EntityId } {
   const warmth = r.warmth(owner, player);
   const c = Math.max(0, care);
-  return { accept: BED_RULES.swapsAllowed && warmth - BED_RULES.swapCareWeight * c >= BED_RULES.swapAcceptAbove, care: c, warmth };
+  const yes = BED_RULES.swapsAllowed && warmth - BED_RULES.swapCareWeight * c >= BED_RULES.swapAcceptAbove;
+  if (yes && BED_RULES.halfDoublePartnerVeto && halfPartner !== undefined && r.warmth(halfPartner, player) < BED_RULES.swapAcceptAbove) return { accept: false, care: c, warmth, vetoedBy: halfPartner };
+  return { accept: yes, care: c, warmth };
 }
 
 /**
@@ -99,7 +140,7 @@ export function swapBeds(state: BedsState, player: EntityId, owner: EntityId, ow
 // ---- the player's own words -------------------------------------------------------------------------------------------------------------------------------
 
 export type PlayerBedIntent =
-  | { kind: "claim"; room: Room }
+  | { kind: "claim"; room: Room; prefer?: "single" | "double" }
   /** a bed near this houseguest (their room) */
   | { kind: "near"; who: EntityId }
   /** ask this houseguest to swap beds (or take their bed) */
@@ -151,7 +192,8 @@ export function parsePlayerBedIntent(
     if (/\?\s*$/.test(raw.trim()) && !/^\s*(?:can|could|may) i (?:take|have|grab|claim)\b/.test(c.trim())) continue; // "is that bed free?" asks, "can I take it?" claims
     if (!CLAIM_VERB.test(c)) continue;
     const room = rooms.find((r) => r.names.some((n) => findName(c, n) >= 0));
-    if (room) { out = { kind: "claim", room: room.room }; continue; }
+    const prefer = /\b(?:double|queen|king)\b/.test(c) ? "double" as const : /\bsingle\b/.test(c) ? "single" as const : undefined;
+    if (room) { out = { kind: "claim", room: room.room, ...(prefer ? { prefer } : {}) }; continue; }
     const near = named.find((p) => NEAR.test(c.slice(0, p.at)));
     if (near) out = { kind: "near", who: near.id };
   }
