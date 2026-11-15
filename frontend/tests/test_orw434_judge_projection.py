@@ -298,3 +298,12 @@ def test_a_guard_down_turn_that_advanced_time_defers_without_the_time_block(monk
     assert len(entries) == 2
     assert "time" not in entries[0]["projection"] and entries[0]["projection"]["board"] == {"week": 1}
     assert entries[1]["projection"]["time"]["partOfDay"] == "morning"
+
+
+def test_a_board_without_a_sleep_fact_publishes_no_asleep_field(monkeypatch):
+    """review of #2741: `asleep: []` for a board that says nothing about sleep read as proof that everyone is awake."""
+    _zero_clocks(monkeypatch, True)
+    _patch_reads(monkeypatch, gs={"week": 1, "phase": "hoh", "timeOfDay": "night", "whereabouts": {"room": "kitchen"}})
+    assert "asleep" not in _run(_faith_build_projection("u1"))["time"]
+    _patch_reads(monkeypatch, gs={"week": 1, "phase": "hoh", "timeOfDay": "night", "whereabouts": {"room": "kitchen"}, "asleep": []})
+    assert _run(_faith_build_projection("u1"))["time"]["asleep"] == []

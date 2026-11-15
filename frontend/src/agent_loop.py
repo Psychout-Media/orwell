@@ -4335,7 +4335,8 @@ def _faith_time_block(gs: dict) -> dict:
         out["nextEvent"] = ev
     if b.location:
         out["playerRoom"] = b.location
-    out["asleep"] = list(b.asleep)
+    if isinstance(gs, dict) and isinstance(gs.get("asleep"), list):
+        out["asleep"] = list(b.asleep)  # review of #2741: only when the board carries the fact; an absent roster must not read as "everyone is awake"
     return out
 
 
