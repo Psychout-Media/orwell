@@ -11,6 +11,7 @@ import collections
 import collections.abc
 import json
 import os
+import functools
 import re
 import time
 import logging
@@ -5732,17 +5733,20 @@ _TOOL_MARKUP_SAFE_TAG_RE = re.compile(
 )
 
 
-_COMBINED_CUT_RES: dict = {}
 _OPENING_PUNCT = "([{\u201c\u2018"
+
+
+@functools.lru_cache(maxsize=8)
+def _combined_cut_re(rx):
+    """The run form of a cut pattern (a regex cache: not per-owner state)."""
+    return re.compile("(?:" + rx.pattern + ")+", rx.flags)
 
 
 def _cut_markup_keeping_one_space(rx, text: str) -> str:
     """Remove every `rx` match (each already swallows the spaces around it). One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a
     word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet."), and never right after an opening bracket or quote ("(<tool result>word" stays "(word"). Matches that touch each
     other are cut as ONE run, so two placeholders in a row leave one space, not two (reviews of #2803)."""
-    combined = _COMBINED_CUT_RES.get(rx)
-    if combined is None:
-        combined = _COMBINED_CUT_RES[rx] = re.compile("(?:" + rx.pattern + ")+", rx.flags)
+    combined = _combined_cut_re(rx)
 
     def repl(m) -> str:
         i = m.start() - 1
