@@ -155,7 +155,13 @@ class Chat:
             prev = sig
             if stable >= 3: break
         bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
-        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": "\n".join(x["txt"] for x in new), "settled": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit}
+        # The footer (copy / retry actions) is added when the bubble is finalized; give a late one a few more seconds before calling the bubble unfinalized.
+        for _ in range(8):
+            if not new or new[-1]["done"]: break
+            self.page.wait_for_timeout(2000); bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
+        text = "\n".join(x["txt"] for x in new)
+        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": text, "settled": bool(new) and bool(text.strip()) and not self.page.evaluate(BUSY_JS),
+                "finalized": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit}
 
 
 def main():
@@ -188,7 +194,7 @@ def main():
                 names_ |= {x.get("name") for x in (r_.get("present") or []) if isinstance(x, dict)}
             return sorted(n for n in names_ if n)
         ent = (eng.call("premiereIntros") or {}).get("entrance") or {} if st.get("phase") == "premiere" else {}
-        t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"],
+        t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"], "finalized": r.get("finalized"),
              "room_start": room_of(st0), "room_end": sorted(set(room_of(st)) | set(ent.get("arrivedNames") or [])), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
              "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
@@ -256,6 +262,7 @@ def score(turns, checks, check, turn_limit):
         lab = t["label"]
         if lab.endswith("-card"): continue  # a decision-card click (live_week) is not a chat turn: no bubble, no scene, by design
         check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
+        if t.get("finalized") is False and t["settled"]: check(f"T1c-finalized[{lab}]", False, "the reply arrived but its bubble never got its footer (copy / retry actions): an unfinalized live holder", "warn")
         short_ok = lab.startswith("early-ask")  # a one-line deflection of an out-of-schedule request is legitimate; still reported
         shell = SHELL_RE.search(t["text"])
         check(f"T2-real-scene[{lab}]", not shell and (len(t["text"]) >= 200 or short_ok), f"{len(t['text'])} chars" + (" (guard shell text)" if shell else ""))
