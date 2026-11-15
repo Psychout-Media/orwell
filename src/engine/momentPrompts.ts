@@ -1487,7 +1487,8 @@ export function renderGameContext(view: GameStateView): string {
     `- You are playing as: ${view.player.name}${ceremonyMark(view.player.id)}.` +
       (view.player.genderPresentation
         ? ` They present as ${genderPresentationPhrase(view.player.genderPresentation)} (use ${pronounsFor(view.player.genderPresentation)}) — never infer their gender/pronouns from their name.`
-        : ""),
+        // ORW-444: none recorded = the player's gender is UNSTATED; houseguests/narration must not assign one (no "man"/"he"/"the woman"), and must not flip it later.
+        : ` Their gender is unstated: address them as "you"; no gendered nouns or pronouns for them, and never guess from their name.`),
     `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
     "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
     "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",

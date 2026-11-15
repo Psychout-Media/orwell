@@ -369,6 +369,17 @@ describe("#1326 — the PLAYER's own pronouns, captured at casting, are voiced i
     expect(playerLine).toBeDefined();
     expect(playerLine).not.toContain(UNCONFIRMED_GENDER_CLAUSE);
     expect(playerLine).not.toContain("(use ");
+    // ORW-444: ...but it DOES say the gender is unstated, so nobody assigns one.
+    expect(playerLine).toContain("gender is unstated");
+  });
+
+  it("ORW-444: the unstated-gender line is absent when the player's presentation is set", () => {
+    const s = new GameSessionAdapter();
+    s.updateCasting({ genderPresentation: "woman" });
+    s.createCharacter({ playerName: "The Player", backstory: "a life", motivation: "to win", personaArchetype: "persona-role-fixture" });
+    const playerLine = s.getMomentPrompt({}).systemPrompt.split("\n").find((l) => l.includes("You are playing as:"))!;
+    expect(playerLine).toContain("(use ");
+    expect(playerLine).not.toContain("gender is unstated");
   });
 
   it("a garbled genderPresentation value is validated away, never stored raw (mirrors archetype)", () => {

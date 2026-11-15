@@ -96,7 +96,7 @@ export function hangOutBedtime(hour: number, awakeNpcs: number, nightStartHour =
 export function hangOutStopLine(r: Pick<HangOutResult, "stopReason" | "detail">): string {
   const d = r.detail ?? {};
   switch (r.stopReason) {
-    case "event-due": return "Production is calling everyone: the scheduled event is on now.";
+    case "event-due": return "The house is being called together.";
     case "pulled": return d.by === "diary-room" ? "You are called to the Diary Room." : "Production pulls you aside.";
     case "npc-approach": return `${d.npc ?? "A housemate"} comes over to talk to you.`;
     case "observed": {
