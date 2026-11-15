@@ -56,7 +56,7 @@ describe("re-shard wiring", () => {
     const gate = job("ci-gate");
     expect(gate).toMatch(/needs:\n(?:\s+- [\w-]+\n)*\s+- bdd\n/);
     expect(gate).toContain("bdd=${{ needs.bdd.result }}");
-    expect(gate).toContain('test|bdd|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;');
+    expect(gate).toContain('test|bdd|test-unit|coverage) echo "$ENGINE" ;;');
     expect(gate).toMatch(/needs:\n(?:\s+- [\w-]+\n)*\s+- fast-checks\n/);
   });
 

@@ -339,7 +339,7 @@ export const GENESIS_ACCENT_FRACTION: { min: number; max: number } = { min: 0.2,
  * seeded, deterministic LOOK LANE per slot — a small minority of slots (`GENESIS_INK_MIN`..`+SPAN`)
  * are the cast's visibly-tattooed contingent (a real BB cast has ~2-4/16), every other slot is
  * explicitly no-visible-ink and carries a suggested distinguishing feature drawn from a wide pool
- * (scars / freckles / glasses / jewelry / teeth / nothing-notable). Dealt on its own dedicated
+ * (freckles / glasses / jewelry / dimples / nothing-notable; ORW-388: no scars, birthmarks or teeth, the portrait cannot hold them). Dealt on its own dedicated
  * side-stream (`:genesis:looks` — the #338 RNG-isolation lesson), mirrored byte-for-byte by the FE.
  * Steering only (open set — the model may write the feature in its own words); never a validator.
  */
@@ -347,12 +347,12 @@ export const GENESIS_INK_MIN = 2;
 export const GENESIS_INK_SPAN = 2; // 2-4 visibly-tattooed slots per cast
 export const GENESIS_LOOK_FEATURES: readonly string[] = [
   "wire-rimmed glasses",
-  "a faint scar with a story behind it",
+  "high cheekbones",
   "freckles",
-  "a gap-toothed grin",
-  "a birthmark",
+  "a strong jawline",
+  "thick expressive eyebrows",
   "deep dimples",
-  "a chipped front tooth",
+  "bright, wide-set eyes",
   "a distinctive piece of everyday jewelry",
   "laugh lines",
   "a beauty mark",

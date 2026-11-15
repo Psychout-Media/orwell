@@ -6,7 +6,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -198,6 +198,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "moveTo":
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       return;
+    case "resolvePlayerMove":
+      if (!isStr(args["text"])) refuse("text", "a non-empty string (the player's own message)");
+      guardSyncFields(true); // optional expectedBeatSeq + idempotencyKey
+      return;
     case "noteMessage":
       if (!isStr(args["messageId"])) refuse("messageId", "a non-empty string (the player message's stable id)");
       return;
@@ -325,6 +329,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       // a blank value (the seeded `vocation` stands) and keeps it in lockstep with the biography, so a
       // malformed value never fails the whole call.
       if (args["vocation"] !== undefined && typeof args["vocation"] !== "string") refuse("vocation", "a string when present");
+      // ORW-388: the optional REPAIRED identity concept — a string when present; the adapter folds it only onto an existing one.
+      if (args["identityConcept"] !== undefined && typeof args["identityConcept"] !== "string") refuse("identityConcept", "a string when present");
       // The optional LLM-authored VOICE fingerprint (0084 / the expressive-e2e authoring widening) — an
       // object when present (a string/array where an object is expected is the R6 class that dies deep in
       // the fold). Its field-level shape (whole-or-nothing, bounded strings) is validated inside the
@@ -377,6 +383,21 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["onCamera"] !== undefined && typeof args["onCamera"] !== "string") refuse("onCamera", "a string when present");
       if (args["photoHair"] !== undefined && typeof args["photoHair"] !== "string") refuse("photoHair", "a string when present");
       if (args["clear"] !== undefined && !Array.isArray(args["clear"])) refuse("clear", "an array when present");
+      return;
+    case "recordOpenLedger":
+      // ORW-407: shape guard only; the engine re-validates every field and rejects extra keys.
+      if (!isStr(args["text"])) refuse("text", "the narrated words (string)");
+      if (!isStr(args["speaker"])) refuse("speaker", "a speaker id (string)");
+      if (!Array.isArray(args["addressedTo"])) refuse("addressedTo", "an array of ids");
+      if (!isStr(args["kind"])) refuse("kind", "a free-text kind (string)");
+      if (args["parties"] !== undefined && !Array.isArray(args["parties"])) refuse("parties", "an array of ids when present");
+      if (args["about"] !== undefined && !isStr(args["about"])) refuse("about", "free text when present");
+      return;
+    case "resolveOpenLedger":
+      // ORW-407 slice 2: shape guard only; the engine re-validates.
+      if (!isStr(args["entryId"])) refuse("entryId", "an open-ledger entry id (string)");
+      if (!isStr(args["status"])) refuse("status", "kept, broken or withdrawn");
+      if (!isStr(args["note"])) refuse("note", "a free-text note (string)");
       return;
     case "recordRoomCanon":
       // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
@@ -547,6 +568,12 @@ export class McpServer {
       case "recordLookExtras":
         // ORW-369: store the two look fields for one existing houseguest, nothing else. Public fields only.
         return this.deps.session.recordLookExtras(args as unknown as RecordLookExtrasReq);
+      case "recordOpenLedger":
+        return this.deps.session.recordOpenLedger(args as unknown as RecordOpenLedgerReq);
+      case "resolveOpenLedger":
+        return this.deps.session.resolveOpenLedger(args as unknown as ResolveOpenLedgerReq);
+      case "openLedgerHere":
+        return this.deps.session.openLedgerHere();
       case "recordRoomCanon":
         // ORW-223: record a narrated room feature as canon (Vault-free; never an event, outcome or secret).
         return this.deps.session.recordRoomCanon(args as unknown as RecordRoomCanonReq);
@@ -699,6 +726,13 @@ export class McpServer {
           String(args["room"] ?? ""),
           typeof args["expectedBeatSeq"] === "number" ? args["expectedBeatSeq"] : undefined,
         );
+      case "resolvePlayerMove":
+        // ORW-419 - the FE-driven intent-first move (infra lever; the engine resolves the player's own words before the narrator).
+        return this.deps.session.resolvePlayerMove({
+          text: String(args["text"]),
+          ...(typeof args["expectedBeatSeq"] === "number" ? { expectedBeatSeq: args["expectedBeatSeq"] } : {}),
+          ...(typeof args["idempotencyKey"] === "string" && args["idempotencyKey"] !== "" ? { idempotencyKey: args["idempotencyKey"] } : {}),
+        });
       case "moveHouseguest":
         // ADR 0009 — record a narrated NPC relocation (open-set; legal-only). Vault-free result.
         return this.deps.session.recordHouseguestMove(String(args["id"] ?? ""), String(args["room"] ?? ""));

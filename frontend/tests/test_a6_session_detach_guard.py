@@ -26,7 +26,6 @@ Run: cd frontend && .venv/bin/python -m pytest tests/test_a6_session_detach_guar
 """
 
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -176,12 +175,7 @@ def test_enter_key_empty_composer_does_not_bare_newchat_under_game_build():
 # Runtime — drive the REAL handlers in headless chromium with /api/orwell/state stubbed.
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 def _boot(env, port):
@@ -191,14 +185,14 @@ def _boot(env, port):
         stdout=open(f"/tmp/fe-a6-{port}.log", "w"), stderr=subprocess.STDOUT,
     )
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             raise RuntimeError(f"uvicorn exited early; see /tmp/fe-a6-{port}.log")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             return proc, base
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     proc.terminate()
     raise RuntimeError("server never became ready")
 

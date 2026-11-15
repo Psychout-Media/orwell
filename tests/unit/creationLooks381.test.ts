@@ -129,7 +129,7 @@ describe("ORW-381 no main-stream draw moved", () => {
       const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: v.biography, physicalCharacteristics: 0 }]));
       all += JSON.stringify([npcs, pub, l.hidden, l.threads]);
     }
-    expect(createHash("sha256").update(all).digest("hex")).toBe("0f66a3cd6e2760296d059db5a9f599b984d924d9a84a64cb4fd149b8aa3fb879");
+    expect(createHash("sha256").update(all).digest("hex")).toBe("567b5c2cd595d656482c18379e7b719ab67d9c22264e90edef15afbd0c7feb40"); // ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
   });
 });
 

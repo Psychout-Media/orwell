@@ -31,7 +31,6 @@ Run: cd frontend && .venv/bin/python -m pytest tests/test_971_sendbutton_and_986
 """
 
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -39,6 +38,8 @@ import time
 import urllib.request
 
 import pytest
+
+from _settle import app_ready
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -142,12 +143,7 @@ def test_all_inprogress_spinner_sites_route_through_helper():
 # Runtime — drive the REAL helpers in headless chromium (LLM-stub-blind paths).
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 def _boot(env, port):
@@ -157,14 +153,14 @@ def _boot(env, port):
         stdout=open(f"/tmp/fe-971-{port}.log", "w"), stderr=subprocess.STDOUT,
     )
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             raise RuntimeError(f"uvicorn exited early; see /tmp/fe-971-{port}.log")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             return proc, base
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     proc.terminate()
     raise RuntimeError("server never became ready")
 
@@ -203,7 +199,7 @@ def _new_page(pw, app):
         pytest.skip(f"chromium unavailable: {e}")
     page = browser.new_page()
     page.goto(app + "/", wait_until="load", timeout=30000)
-    page.wait_for_timeout(3500)  # module graph + async init
+    app_ready(page, names=("chatModule", "sessionModule"))
     return browser, page
 
 

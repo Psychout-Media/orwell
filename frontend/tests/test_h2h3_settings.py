@@ -32,6 +32,8 @@ import urllib.request
 
 import pytest
 
+from _ports import free_port
+
 from _settings_open import open_settings_deterministically
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -175,7 +177,7 @@ def test_appearance_card_order_css_no_longer_counts_a_theme_card():
 # test's _boot() connect to the WRONG (h2b-seeded) app — so the convergence/select-population waits
 # below could never satisfy this test's assertions and time out (a flake that compounded the orphan-
 # scrim lockup these two gates were diagnosed under). A separate port removes the cross-test race.
-PORT = int(os.environ.get("ORWELL_H2H3_PORT", "8968"))
+PORT = free_port()  # ORW-414: a kernel-assigned free port per process (was a fixed default), so two browser tests can run at once
 
 
 def _boot(env):
@@ -186,14 +188,14 @@ def _boot(env):
         stdout=open(f"/tmp/fe-h2h3-{PORT}-{os.getpid()}.log", "w"), stderr=subprocess.STDOUT,
     )
     base = f"http://127.0.0.1:{PORT}"
-    for _ in range(60):
+    for _ in range(300):  # ORW-414: poll every 0.2 s (same 60 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             pytest.fail(f"uvicorn exited early; see /tmp/fe-h2h3-{PORT}-{os.getpid()}.log")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             return proc, base
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     proc.terminate()
     pytest.fail("front-end never became ready")
 
@@ -208,8 +210,12 @@ def test_runtime_image_options_are_a_subset_of_chat_options():
         pytest.skip("playwright not installed")
     import httpx
 
+    # ORW-414: this stack gets its OWN data dir (settings.json, sessions, game-session binding), so it never touches the shared frontend/data
+    # and can run beside another browser test.
+    fe_data = tempfile.mkdtemp(prefix="orwell-h2h3-data-")
     env = dict(
         os.environ,
+        ORWELL_DATA_DIR_FE=fe_data,
         ORWELL_GAME_BUILD="1",
         AUTH_ENABLED="false",
         LOCALHOST_BYPASS="true",
@@ -219,7 +225,7 @@ def test_runtime_image_options_are_a_subset_of_chat_options():
     # Snapshot the shared data/settings.json BY FILE — the endpoint POST
     # auto-writes default_endpoint_id into it, and the settings POST API is
     # admin-gated even with auth disabled, so an API-level restore can't work.
-    settings_path = os.path.join(FRONTEND, "data", "settings.json")
+    settings_path = os.path.join(fe_data, "settings.json")
     settings_before = None
     if os.path.exists(settings_path):
         with open(settings_path, "rb") as f:

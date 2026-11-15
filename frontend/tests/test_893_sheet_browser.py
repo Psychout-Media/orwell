@@ -25,10 +25,12 @@ import threading
 
 import pytest
 
+from _ports import free_port
+
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC = os.path.join(FRONTEND, "static")
 
-_PORT = int(os.environ.get("ORWELL_893_PORT", "8798"))
+_PORT = free_port()  # ORW-414: a kernel-assigned free port per process (was a fixed default), so two browser tests can run at once
 
 PHONE = {"width": 390, "height": 844}
 DESKTOP = {"width": 1280, "height": 800}

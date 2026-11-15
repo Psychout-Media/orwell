@@ -18,12 +18,13 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "fast-checks", "test", "bdd", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
-const HEAVY_TIER = ["bdd", "coverage-shard", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
   const env = {
     ...process.env,
+    REUSE: "false", PROVED_BY: "",
     ENGINE: "true", HEAVY: "true", DEPLOY: "true", FRONTEND: "true", FE_RENDER: "true", FULL: String(full), ...filters,
     RESULTS: JOBS.map((j) => `${j}=${results[j] ?? "success"}`).join(" "),
   };
@@ -76,7 +77,7 @@ describe("ci-gate (two-tier CI)", () => {
 
 describe("ci.yml wiring (two-tier CI)", () => {
   it("every heavy-tier job is gated on the full tier", () => {
-    for (const job of ["bdd", "heavy-sims", "coverage", "coverage-shard", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["bdd", "heavy-sims", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m, job).toBeTruthy();
       expect(m![1], job).toContain("needs.changes.outputs.full == 'true'");
@@ -112,5 +113,51 @@ describe("ci.yml wiring (two-tier CI)", () => {
     expect(yml).not.toContain("ready_for_review]");
     expect(yml).toMatch(/merge_group:\n    types: \[checks_requested\]/);
     expect(yml).toMatch(/push:\n    branches: \[main\]/);
+  });
+});
+
+describe("result reuse (ORW-413 PR 2)", () => {
+  const PROOF = "https://github.com/Psychout-Media/orwell/actions/runs/123456";
+  const allSkipped = Object.fromEntries(JOBS.filter((j) => j !== "changes").map((j) => [j, "skipped"]));
+  it("a reused run, every other job skipped on purpose, passes and names the run that proved the tree", () => {
+    const r = gate(true, allSkipped, { REUSE: "true", PROVED_BY: PROOF });
+    expect(r.rc).toBe(0);
+    expect(r.out).toContain(`reused: this exact tree already passed the full suite in ${PROOF}`);
+  });
+  it("a reused run still fails if any job failed or was cancelled (a reuse run cannot hide one)", () => {
+    expect(gate(true, { ...allSkipped, "fe-unit": "failure" }, { REUSE: "true", PROVED_BY: PROOF }).rc).toBe(1);
+    expect(gate(true, { ...allSkipped, bdd: "cancelled" }, { REUSE: "true", PROVED_BY: PROOF }).rc).toBe(1);
+  });
+  it("fails closed: skipped jobs with no named proof are NOT accepted, and `changes` must have passed", () => {
+    expect(gate(true, allSkipped, { REUSE: "true", PROVED_BY: "" }).rc).toBe(1);
+    expect(gate(true, { ...allSkipped, changes: "failure" }, { REUSE: "true", PROVED_BY: PROOF }).rc).toBe(1);
+  });
+  it("the reuse flag must be exactly true or false", () => {
+    const r = gate(true, allSkipped, { REUSE: "", PROVED_BY: PROOF });
+    expect(r.rc).toBe(1);
+    expect(r.out).toContain("changes output 'reuse'");
+  });
+  it("the marker is keyed by the tested tree and the workflow hash, read only on pull requests, written only by record-proof after a passing, non-reused run", () => {
+    expect(yml).toContain("key=ci-proof-v1-$tree-$wf");
+    expect(yml).toContain("tree=\"$(git rev-parse 'HEAD^{tree}')\"");
+    expect(yml).toMatch(/name: restore the proof marker \(pull requests only\)\n\s+id: proof\n\s+if: github\.event_name == 'pull_request'\n\s+uses: actions\/cache\/restore@v4/);
+    const rp = yml.slice(yml.indexOf("\n  record-proof:\n"));
+    expect(rp).toContain("if: needs.ci-gate.result == 'success' && needs.changes.outputs.reuse != 'true' && github.event_name == 'pull_request'");
+    expect(rp).toContain("uses: actions/cache/save@v4");
+    expect(yml.match(/actions\/cache\/save@v4/g)).toHaveLength(1);
+    // the verdict trusts nothing but an exact three-line marker
+    expect(yml).toContain('[ "$l2" = "$TREE" ] && [ "$l3" = "$WF" ]');
+  });
+  it("every heavy job (all but changes and ci-gate) skips when the proof is reused", () => {
+    for (const job of ["fast-checks", "test", "bdd", "test-unit", "heavy-sims", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-browser-tests", "fe-browser", "fe-perf-report", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+      const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
+      expect(m![1], job).toContain("needs.changes.outputs.reuse != 'true'");
+    }
+  });
+  it("the heavy-sim legs cache their verdict by the hash of src/ and the sim tests, and save only when the job succeeded", () => {
+    const j = yml.slice(yml.indexOf("\n  heavy-sims:\n"), yml.indexOf("\n  coverage:\n"));
+    expect(j).toContain("hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**'");
+    expect(j).toContain("uses: actions/cache@v4");
+    expect(j).not.toContain("actions/cache/save");
   });
 });
