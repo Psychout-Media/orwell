@@ -1416,7 +1416,17 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
     # byte-identical to the stale one, so with `Cache-Control: private, max-age=86400` a browser
     # that cached the old face keeps showing it while a fresh session fetches the re-shot one.
     replaced_in_place = target.exists()
-    target.write_bytes(png)
+    # ORW-369: an atomic swap (temp file + rename) so a reader never sees a half-written face while
+    # the background upgrader replaces a live one.
+    _tmp = d / f".{filename}.{secrets.token_hex(4)}.tmp"
+    try:
+        _tmp.write_bytes(png)
+        os.replace(_tmp, target)
+    finally:
+        try:
+            _tmp.unlink()
+        except OSError:
+            pass
     manifest = load_manifest(user)
     entry = {"file": filename, "name": name, "source": source}
     if fingerprint:
@@ -1771,7 +1781,7 @@ async def generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
 
 
 async def generate_and_store(prompts: list, user: Optional[str], *, record_beats: bool = True,
-                             force_ids: Optional[list] = None) -> dict:
+                             force_ids: Optional[list] = None, silent: bool = False) -> dict:
     """Generate + persist a cast portrait set from the engine's `portraitPrompts`.
 
     `prompts` is the engine's ``[{houseguestId, name, prompt}]``. Returns a small summary
@@ -1787,6 +1797,10 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     it skips silently and the game is unaffected. After a portrait is shown for the first time
     we record it as a player-witnessed beat via the engine (recorded-or-it-didn't-happen),
     unless `record_beats` is False.
+
+    `silent` (ORW-369, the background upgrader): a quiet single-face run. No L15 progress record (the
+    cast panel's "generating" UI never lights), no last-run verdict, no look-alike pass; the swap
+    still pushes the one WS arrival edge so open pages refetch the new face.
     """
     if not isinstance(prompts, list) or not prompts:
         return {"generated": 0, "skipped": 0, "total": 0}
@@ -1900,7 +1914,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             elif (stored_fp and cur_fp and stored_fp != cur_fp
                     and not _entry_version_stale(stored)):
                 to_generate += 1
-    if to_generate:
+    if to_generate and not silent:
         _progress_start(user, to_generate)
 
     for entry in prompts:
@@ -2027,7 +2041,8 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 log_attempt(str(hid), True, None, duration_ms)
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
-                _progress_tick(user)  # L15: one more face landed — the panel sees the live count move
+                if not silent:
+                    _progress_tick(user)  # L15: one more face landed — the panel sees the live count move
                 _push_portrait_arrival(user)  # WS push edge: refresh the (poll-stood-down) cast panel now
                 newly_shown.append((str(hid), f"/api/orwell/portrait/{_safe_id(hid)}"))
             except Exception as e:
@@ -2043,7 +2058,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     # detect near-duplicate faces across the cast (from the structured, Vault-free prompt facets)
     # and regenerate the offenders with enforced variety, bounded by a retry cap. Best-effort:
     # any failure leaves the as-generated set intact. Skipped when nothing new generated.
-    if generated:
+    if generated and not silent:
         try:
             dedup = await dedupe_lookalikes(prompts, user)
             if dedup.get("regenerated"):
@@ -2057,11 +2072,13 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the L17 distinctness pass is a refinement; the as-generated cast portraits stand)
             logger.info("[portraits] L17 distinctness pass failed: %s", e)
 
-    _progress_finish(user)  # L15: the run is done — the panel drops to the idle cadence
+    if not silent:
+        _progress_finish(user)  # L15: the run is done — the panel drops to the idle cadence
     if generated:  # only when the run actually landed a face — no spurious cast-panel refetch
         _push_portrait_arrival(user)  # WS push edge: final reconcile (dedupe regens + completion)
     # M1-9: stamp the run's honest verdict (a 0-of-N run flips the panel/admin to "failing").
-    _note_last_run(user, generated=generated, skipped=skipped, total=len(prompts))
+    if not silent:
+        _note_last_run(user, generated=generated, skipped=skipped, total=len(prompts))
 
     if record_beats and newly_shown:
         await _record_image_beats(newly_shown, user, metered_ids=reshoot_ids)

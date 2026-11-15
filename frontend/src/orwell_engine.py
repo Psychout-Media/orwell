@@ -1442,6 +1442,18 @@ async def knowledge_scope_manifest(user: str | None = None):
     return await _call("knowledgeScopeManifest", {}, user=user)
 
 
+async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
+    """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
+    pieces) and ``onCamera`` line through the look-only engine tool. Merges only those two cleaned fields into the
+    public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
+    narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
+    args = {"houseguestId": houseguest_id}
+    for k in ("wardrobe", "onCamera"):
+        if look.get(k):
+            args[k] = look[k]
+    return await _call("recordLookExtras", args, user=user)
+
+
 async def record_room_canon(room_id: str, feature: str, user: str | None = None) -> dict:
     """ORW-223 (Showrunner memory, canon ledger v1): write ONE narrated texture feature of a room BACK to the engine as
     append-only canon (``recordRoomCanon``). Sends exactly ``{roomId, feature}``; the engine re-validates the room, the

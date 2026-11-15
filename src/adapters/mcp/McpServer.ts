@@ -6,7 +6,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -361,6 +361,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (!isStr((p as Record<string, unknown>)["houseguestId"])) refuse("profile.houseguestId", "a houseguest id (string)");
       }
       return;
+    case "recordLookExtras":
+      // ORW-369: look-only write-back; shape guard only, the engine cleans, clamps and guards.
+      if (!isStr(args["houseguestId"])) refuse("houseguestId", "a houseguest id (string)");
+      if (args["wardrobe"] !== undefined && !Array.isArray(args["wardrobe"])) refuse("wardrobe", "an array when present");
+      if (args["onCamera"] !== undefined && typeof args["onCamera"] !== "string") refuse("onCamera", "a string when present");
+      return;
     case "recordRoomCanon":
       // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
       // the length and every content rule, and rejects extra keys.
@@ -527,6 +533,9 @@ export class McpServer {
         // floor / name validators / closed hidden-element kinds / tie-graph sanity / hidden-weight stripping) and
         // fold the committed skeleton onto the pre-warmed cast. Structured Vault-free violations out; pre-game only.
         return this.deps.session.recordCastGenesis(args as unknown as RecordCastGenesisReq);
+      case "recordLookExtras":
+        // ORW-369: store the two look fields for one existing houseguest, nothing else. Public fields only.
+        return this.deps.session.recordLookExtras(args as unknown as RecordLookExtrasReq);
       case "recordRoomCanon":
         // ORW-223: record a narrated room feature as canon (Vault-free; never an event, outcome or secret).
         return this.deps.session.recordRoomCanon(args as unknown as RecordRoomCanonReq);
