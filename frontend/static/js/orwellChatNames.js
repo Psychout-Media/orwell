@@ -277,6 +277,8 @@
         attributes: true, attributeFilter: ["class"],
       });
     } catch (_) { /* sweep-only */ }
+    // ORW-437: the roster cache just (re)filled: link the rows that waited for it
+    if (window.OrwellMonogram && typeof window.OrwellMonogram.onRosterCache === "function") window.OrwellMonogram.onRosterCache(sweep);
     sweep();
     setTimeout(sweep, 1600);
     setTimeout(sweep, 4500);
@@ -284,7 +286,7 @@
 
   function resweepSoon() { sweep(); setTimeout(sweep, 1200); }
   window.addEventListener("orwell:gamechanged", resweepSoon);
-  window.addEventListener("orwell:rostercache", sweep); // ORW-437: the roster cache just (re)filled: link the rows that waited for it
+
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });
   else boot();

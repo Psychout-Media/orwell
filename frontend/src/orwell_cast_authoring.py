@@ -3302,7 +3302,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
     # Only the DEFAULT sink mutates the LIVE cast; a `write` override targets the next-season
     # holding store (which deliberately does not touch the live board), so don't push for it.
     is_live_write = write is None
-    written = await author_cast(cast, llm_fn, write or _write, on_authored, user=owner, seed=seed, live_look_sink=is_live_write)
+    written = await author_cast(cast, llm_fn, write or _write, on_authored, user=owner, seed=seed, **({} if is_live_write else {"live_look_sink": False}))
     # #617: enrichment landed on the live game — push a server-side "game-updated" so open pages
     # reconcile now instead of waiting for the next poll. Best-effort/fail-soft.
     if written and is_live_write:

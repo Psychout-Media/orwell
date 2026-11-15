@@ -29,8 +29,8 @@
       "#" + WIN_ID + " .opv-body { display: flex; justify-content: center; }" +
       // The kit caps .ow-body at min(70dvh, 560px) and scrolls past it; the viewer lifts that cap and
       // sizes a SQUARE image to fit the viewport, so the whole photo is visible (object-fit: contain).
-      // ORW-437: not in sheet mode (phones): the kit's sheet scroll containment must keep winning there.
-      "#" + WIN_ID + ":not(.ow-sheet-mode) .ow-body { max-height: none; overflow: visible; }" +
+      // ORW-437: the window is created with sheet:false (below), so this override never meets the phone sheet's scroll containment.
+      "#" + WIN_ID + " .ow-body { max-height: none; overflow: visible; }" +
       "#" + WIN_ID + " .opv-img { display: block; aspect-ratio: 1 / 1; height: auto;" +
       "  width: min(92vw, 1024px, calc(100dvh - 190px)); max-width: 100%; max-height: none;" +
       "  object-fit: contain; border-radius: 10px; }" +
@@ -39,7 +39,7 @@
       '<div class="opv-body"><img class="opv-img" id="opv-img" alt=""></div>';
     _win = window.OrwellWindowKit.create({
       id: WIN_ID, title: "Photo", role: "dialog", modal: true, slot: "top-center",
-      persistLayout: false, minimizable: false, dockable: false, resizable: false,
+      persistLayout: false, sheet: false, minimizable: false, dockable: false, resizable: false,
       draggable: false, closable: true, focus: true, content,
       onClose: () => { _win = null; },
     });
