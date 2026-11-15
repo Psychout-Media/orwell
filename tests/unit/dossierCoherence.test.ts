@@ -386,7 +386,7 @@ describe("portrait pins gender to the facet, never to contradictory prose (S4a)"
       "editorial studio portrait, soft key light",
     );
     // The SUBJECT line carries the pinned 'man' phrase, not the prose's 'her'.
-    expect(result.prompt).toContain(genderPresentationPhrase("man"));
-    expect(result.prompt).not.toContain(genderPresentationPhrase("woman"));
+    expect(result.prompt).toContain("28-year-old man");
+    expect(result.prompt).not.toContain("woman");
   });
 });

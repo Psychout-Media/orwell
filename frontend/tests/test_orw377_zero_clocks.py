@@ -68,7 +68,7 @@ def test_tool_output_the_model_reads_has_the_band_not_the_clock(setting):
     from src.zero_clocks import scrub_tool_output
     raw = json.dumps({"clockLabel": "4:15am, Day 5", "timeOfDay": "late-night", "daySchedule": {"next": "x", "minutesUntil": 45, "due": False}, "nested": [{"clockLabel": "3:05pm, Day 2"}]})
     out = scrub_tool_output(raw)
-    assert "small hours, Day 5" in out and "afternoon, Day 2" in out and "minutesUntil" not in out and not CLOCK_RE.search(out)
+    assert "early morning, Day 5" in out and "afternoon, Day 2" in out and "minutesUntil" not in out and not CLOCK_RE.search(out)
     setting["v"] = False
     assert scrub_tool_output(raw) == raw
 
@@ -81,7 +81,7 @@ def test_format_tool_result_applies_the_scrub(setting):
     assert "9:40am, Day 1" in format_tool_result("status", res)
 
 
-@pytest.mark.parametrize("label,band", [("4:15am, Day 4", "small hours"), ("1:00am, Day 2", "late night"), ("6:30am, Day 2", "early morning"), ("3:20pm, Day 3", "afternoon"),
+@pytest.mark.parametrize("label,band", [("4:15am, Day 4", "early morning"), ("1:00am, Day 2", "late night"), ("1:59am, Day 2", "late night"), ("2:00am, Day 2", "early morning"), ("6:30am, Day 2", "early morning"), ("7:59am, Day 2", "early morning"), ("8:00am, Day 2", "morning"), ("3:20pm, Day 3", "afternoon"),
                                         ("9:10pm, Day 3", "night"), ("5:00pm, Day 1", "evening"), ("12:15pm, Day 1", "midday"), ("9:40am, Day 1", "morning")])
 def test_band_label_mirrors_the_engine_bands(label, band):
     from src.zero_clocks import band_label
@@ -92,7 +92,7 @@ def test_turn_in_note_and_reground_quote_the_band(setting):
     from src import agent_loop as al
     out = json.dumps({"status": {"timeOfDay": "morning", "clockLabel": "4:15am, Day 4"}})
     note = al._bedtime_direct_note(out)
-    assert "small hours, Day 4" in note and not CLOCK_RE.search(note)
+    assert "early morning, Day 4" in note and not CLOCK_RE.search(note)
     setting["v"] = False
     assert "4:15am, Day 4" in al._bedtime_direct_note(out)
 

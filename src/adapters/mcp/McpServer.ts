@@ -131,6 +131,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (cons["rationale"] !== undefined && typeof cons["rationale"] !== "string") refuse("consequence.rationale", "a string when present");
       }
       return;
+    case "whereabouts":
+      // ORW-386: the optional house-search switch must be a boolean when present.
+      if (args["search"] !== undefined && typeof args["search"] !== "boolean") refuse("search", "a boolean when present");
+      return;
     case "getMomentPrompt": {
       // Showrunner memory — the OPTIONAL Show Brief request (ORWELL_SHOW_BRIEF on the FE). Shape-guard only; the
       // engine re-validates every field and builds the brief from its own Vault-free view. Absent ⇒ unchanged.
@@ -367,6 +371,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["houseguestId"])) refuse("houseguestId", "a houseguest id (string)");
       if (args["wardrobe"] !== undefined && !Array.isArray(args["wardrobe"])) refuse("wardrobe", "an array when present");
       if (args["onCamera"] !== undefined && typeof args["onCamera"] !== "string") refuse("onCamera", "a string when present");
+      if (args["photoHair"] !== undefined && typeof args["photoHair"] !== "string") refuse("photoHair", "a string when present");
+      if (args["clear"] !== undefined && !Array.isArray(args["clear"])) refuse("clear", "an array when present");
       return;
     case "recordRoomCanon":
       // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
@@ -680,7 +686,7 @@ export class McpServer {
       case "socialInitiatives":
         return this.deps.session.socialInitiatives();
       case "whereabouts":
-        return this.deps.session.whereabouts();
+        return this.deps.session.whereabouts(args["search"] === true ? { search: true } : undefined); // ORW-386: the house search rides the same read
       case "moveTo":
         // 0065 Part A — optional expectedBeatSeq CAS token rides the args.
         return this.deps.session.movePlayer(

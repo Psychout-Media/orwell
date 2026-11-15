@@ -26,9 +26,7 @@ def band_for_minutes(minute_of_day: int) -> str:
     h = (minute_of_day % 1440) / 60.0
     if h < 2:
         return "late night"
-    if h < 5:
-        return "small hours"
-    if h < 8:
+    if h < 8:  # ORW-392: early morning runs from 2am to the house's wake-up call (the old "small hours" band is gone)
         return "early morning"
     if h < 11.5:
         return "morning"
@@ -50,7 +48,7 @@ def _minutes(h: int, m: int, ap: str) -> int:
 
 
 def band_label(label: Any) -> Optional[str]:
-    """"4:15am, Day 5" -> "small hours, Day 5"; None when it is not an engine clock label."""
+    """"4:15am, Day 5" -> "early morning, Day 5"; None when it is not an engine clock label."""
     mm = _LABEL_RE.match(label) if isinstance(label, str) else None
     if not mm:
         return None

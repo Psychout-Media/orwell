@@ -47,6 +47,9 @@ YESTERDAY_HEADER = "Engine record of yesterday"
 HEAL_DAYS_PER_RUN = 3       # ORW-387: earlier closed days with no (or an error-shaped) summary re-authored per run
 _HEAL_TRIES_MAX = 3         # per (user, day) per process, so a provider that keeps failing is not asked every turn
 
+HEAL_DAYS_PER_RUN = 3       # ORW-387: earlier closed days with no (or an error-shaped) summary re-authored per run
+_HEAL_TRIES_MAX = 3         # per (user, day) per process, so a provider that keeps failing is not asked every turn
+
 _IN_FLIGHT: set = set()
 _HEAL_TRIES: dict = {}
 

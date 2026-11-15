@@ -1,39 +1,42 @@
-# spec-only: BUILT (retrospective, 2026-11-11) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0143 - Casual Assurances. Roles only.
+# Executable spec - BUILT (retrospective, 2026-11-11); BDD-gated in cucumber.cjs (ORW-385). Feature 0143 - Casual Assurances. Roles only.
+# Steps: features/step_definitions/casual_assurances.steps.ts. Recording goes through McpServer.callTool; the nomination,
+# ballot and week-roll scenarios play a REAL seeded game through the live adapter and compare one engine snapshot played twice
+# (a control without the assurance, a branch with it).
 
 Feature: Casual Assurances
 
   Retrospective scenarios describing the shipped behavior.
 
   Scenario: A promise made in a scene is recorded
-    Given the assurances flag is on and a scene in which a houseguest tells another "you're safe with me"
+    Given the assurances flag is on and a scene in which the player tells a houseguest "you're safe with me"
     When the scene is recorded with that assurance
     Then an open assurance exists from the promiser to the assured
 
   Scenario: A kept safe assurance keeps the assured off the block
-    Given the HOH holds a kept "safe" assurance toward a houseguest and two other legal choices remain
+    Given an NPC HOH about to nominate a houseguest, who holds a "safe" assurance toward them that the HOH means to keep
     When nominations are decided
     Then the assured houseguest is not nominated
 
   Scenario: A broken assurance costs the assurer the assured's trust
-    Given the HOH holds an open "safe" assurance toward a houseguest
+    Given an NPC HOH about to nominate a houseguest, who holds an open "safe" assurance toward them that the HOH will not keep
     When the HOH nominates that houseguest
     Then the assurance resolves broken once
     And the assured remembers it and trusts the HOH less
-    And no number is shown to the player
+    And no assurance or number is shown to the player
 
   Scenario: A sealed ballot never names the voter
-    Given a houseguest holds an open "vote" assurance toward a nominee
+    Given a houseguest holds an open "vote" assurance toward a nominee they are about to vote out, with a witness who heard it
     When the houseguest votes that nominee out on a secret ballot
     Then the assurance resolves broken in the engine
     And nothing the assured or a witness holds names the voter
     And the memory and trust cost is shared equally across every possible voter
 
   Scenario: The HOH tie-break stays attributed
-    Given an eviction vote is tied and the HOH breaks it against an assured nominee
+    Given an eviction vote is tied and the HOH, who holds an open "safe" assurance toward a nominee, is about to break it against them
     When the break is recorded
     Then the HOH is named as the breaker, because that act is public
 
   Scenario: Open assurances lapse
-    Given an open assurance older than the horizon
+    Given an open assurance older than the horizon and a fresh one
     When the week advances
-    Then it is marked lapsed and no longer binds
+    Then the old one is marked lapsed and no longer binds, and the fresh one stays open
