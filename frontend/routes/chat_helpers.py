@@ -670,8 +670,8 @@ def hang_out_intent(player_msg) -> bool:
 
 
 # review of #2688: the ENGINE's own player-facing stop line for `event-due` (src/engine/hangOut.ts hangOutStopLine) is appended to the steer too; it must be reconciled with the FE template.
-_ENGINE_EVENT_DUE_STOP_LINE = "Production is calling everyone: the scheduled event is on now."
-_ENGINE_EVENT_NOT_DUE_STOP_LINE = "Production has not called the scheduled event yet: nobody is gathered and nothing has started."
+_ENGINE_EVENT_DUE_STOP_LINE = "The house is being called together."  # ORW-444 wording (src/engine/hangOut.ts)
+_ENGINE_EVENT_NOT_DUE_STOP_LINE = "The house has not been called together yet: nobody is gathered and nothing has started."
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
@@ -2625,6 +2625,18 @@ _SENTENCE_UNIT_RE = re.compile(r"[^\n]*?(?:[.!?]+(?:\*\*|[\"\u201d\u2019*_)\]])*
 # At most this many sentences are dropped per turn before the scene is cut whole after all: a scene where MANY sentences carry the claim is a fabricated
 # scene, not one early sentence in a sound one (the stream is screened chunk by chunk, so the count is kept per turn).
 _EARLY_DROP_BUDGET = 2
+# ORW-429: the sentence drop must leave a REAL scene. Rule: when the original text is a scene (>= _EARLY_DROP_SCENE_MIN_CHARS) and the kept text is under
+# _EARLY_DROP_FLOOR_CHARS characters or under 1/_EARLY_DROP_FLOOR_FRACTION of the original, the drop has gutted it (a 1,540-char scene shown as "The room is waiting on her.")
+# and the pre-ORW-373 whole-scene cut + re-ground stands instead of showing the stub. Shorter chunks (a stream chunk that is only the claim) keep the rewrite.
+_EARLY_DROP_SCENE_MIN_CHARS = 400
+_EARLY_DROP_FLOOR_CHARS = 200
+_EARLY_DROP_FLOOR_FRACTION = 3
+
+
+def _early_drop_leaves_a_stub(original: str, kept: str) -> bool:
+    """ORW-429: True when dropping the early-claim sentences from a scene-sized `original` leaves less than a real scene (see the floor constants above). Pure."""
+    o, k = len((original or "").strip()), len((kept or "").strip())
+    return o >= _EARLY_DROP_SCENE_MIN_CHARS and (k < _EARLY_DROP_FLOOR_CHARS or k * _EARLY_DROP_FLOOR_FRACTION < o)
 _EARLY_DROPS: dict = {}
 
 
@@ -2748,6 +2760,21 @@ _PRESENT_NOMINATION_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nomin
 _NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
 
 
+# ORW-429: talk of WORRY about the block / the vote ("nervous about the vote", "afraid of going up", "scared of being on the block", "who will be nominated", "dreading the nominations") is not a
+# nomination being made. A sentence counts as worry only when the cue sits BEFORE the nomination wording, so "X nominates Y. Everyone is nervous." still flags the first sentence.
+_NOM_WORRY_RE = re.compile(
+    r"\b(?:nervous|nervously|afraid|worr(?:y|ies|ied|ying)|anxious|anxiety|scared|fear(?:s|ed|ing)?|dread(?:s|ed|ing)?|uneasy|on edge|panick\w*|wonder(?:s|ed|ing)?|"
+    r"(?:who|whom|which of (?:us|them))\s+(?:\w+\s+){0,2}?(?:will|would|might|may|could|is going to|are going to|'ll)|"
+    r"(?:will|going to|gonna|about to|might|may|could)\s+be\s+(?:the\s+)?(?:next\s+)?(?:nominated|up|on the block|put)|next\s+(?:to|up)\s+(?:go|for)|"
+    r"(?:about|of)\s+(?:the\s+|this\s+)?(?:vote|block|nominations?|eviction)|(?:of|about)\s+(?:\w+\s+){0,2}?going\s+up\b)",
+    re.IGNORECASE,
+)
+
+
+# ORW-429: an explicit nomination ACT stays a claim even after a worry word in the same sentence ("Nervous, Hoh Person nominates Nom Alpha").
+_NOM_EXPLICIT_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|has nominated|have nominated|had nominated)\b|\bnominated\s+(?:@|[A-Z])")
+
+
 def _nomination_claims_all_hypothetical(text: str) -> bool:
     """ORW-10 (live replay 7): every sentence that talks about a nomination / being 'on the block' sits in a conditional or hypothetical ("If it got to that, and you were on the block, and I had the power ...") - speculation
     in dialogue, never a committed-nomination claim. True only when EVERY matching sentence carries a hypothetical marker before the claim."""
@@ -2756,7 +2783,7 @@ def _nomination_claims_all_hypothetical(text: str) -> bool:
         return False
     for sent in hits:
         m = _CLAIM_NOMINATED_RE.search(sent)
-        if not _NOM_HYPOTHETICAL_RE.search(sent[:m.start() + 1]):
+        if not _NOM_HYPOTHETICAL_RE.search(sent[:m.start() + 1]) and not (_NOM_WORRY_RE.search(sent[:m.end()]) and not _NOM_EXPLICIT_ACT_RE.search(sent)):
             return False
     return True
 
@@ -5830,9 +5857,12 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             _res = drop_early_claim_sentences(text, before, live)
             _st = _EARLY_DROPS.get(_dkey)
             if not _st or _st["before"] is not before:
-                _st = _EARLY_DROPS[_dkey] = {"before": before, "n": 0}
-            if _res is not None and _st["n"] + _res[1] <= _EARLY_DROP_BUDGET and not _narration_claims_outcome(_res[0], before, live):
+                _st = _EARLY_DROPS[_dkey] = {"before": before, "n": 0, "orig": 0, "kept": 0}
+            # ORW-429: the stub rule is judged on the claim chunks' RUNNING totals this turn (the stream is screened chunk by chunk), not one chunk.
+            _orig_tot, _kept_tot = _st.get("orig", 0) + len(text.strip()), _st.get("kept", 0) + (len(_res[0].strip()) if _res else 0)
+            if _res is not None and _st["n"] + _res[1] <= _EARLY_DROP_BUDGET and not _early_drop_leaves_a_stub("x" * _orig_tot, "x" * _kept_tot) and not _narration_claims_outcome(_res[0], before, live):
                 _st["n"] += _res[1]
+                _st["orig"], _st["kept"] = _orig_tot, _kept_tot
                 _SCENE_REWRITE[_dkey] = _res[0]
                 logger.warning("[orwell] scene circuit-breaker: early ceremony claim - dropped the sentence(s) only, scene kept for user=%s (%s)", user, next((m for m in _EARLY_CLAIM_MARKERS if m in directive), "?"))
                 return None
@@ -5927,7 +5957,7 @@ def _unbacked_outcome_absent(text: str, live: dict) -> Optional[str]:
         return any(_committed_claim(rx, t) for rx in regexes)
     if _claims(_CLAIM_NEW_HOH_RE, _CLAIM_SELF_HOH_WIN_RE) and not live.get("hoh"):
         return "a HEAD OF HOUSEHOLD win (no Head of Household reigns yet)"
-    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []):
+    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []) and not _nomination_claims_all_hypothetical(t):  # ORW-429: worry about the block is not a nomination here either
         return "a NOMINATION (no houseguest is on the block yet)"
     if _claims(_CLAIM_VETO_WINNER_RE, _CLAIM_SELF_VETO_WIN_RE) and not live.get("vetoHolder"):
         return "a POWER OF VETO win (no one holds the veto yet)"

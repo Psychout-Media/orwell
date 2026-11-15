@@ -16,6 +16,7 @@ type S = {
   presence: Map<EntityId, string>;
   soulObj(id: EntityId): Soul | undefined;
   persist(): void;
+  inOneCommit<T extends { beatSeq: number }>(fn: () => T): T;
   setMoodCueEnabled(on: boolean): void;
   seenMoods: Map<EntityId, string> | null;
   live: { evictionOrder: EntityId[] };
@@ -58,6 +59,15 @@ describe("the cast card shows the mood word as the player last saw it (ORW-343)"
     expect(card(holder).lastSeenMood).not.toBe(first);
   });
 
+  it("ORW-437: a turn that commits once (inOneCommit defers every interior persist) still captures the moods seen in it", () => {
+    const { s, holder, card, setMood } = game();
+    setMood(holder, 0.9);
+    s.presence.set(holder, "kitchen");
+    expect(s.seenMoods, "nothing captured yet").toBeNull();
+    s.inOneCommit(() => { s.persist(); s.persist(); return { beatSeq: 0 }; }); // the whole turn is deferred to the single tail commit
+    expect(s.seenMoods?.get(holder), "captured by the deferred tail").toBeDefined();
+    expect(card(holder).lastSeenMood).toBe(s.seenMoods?.get(holder));
+  });
   it("a houseguest the player has not shared a room with has no cue, even after others do", () => {
     const { s, holder, other, card } = game();
     s.presence.set(holder, "kitchen");

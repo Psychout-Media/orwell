@@ -131,9 +131,10 @@ def test_orw437_the_engines_real_part_line_with_a_day_suffix_is_unified():
 def test_orw437_the_engines_own_event_due_stop_line_is_reconciled_when_not_due():
     """review of #2688: a real event-due result also carries the engine's `stopLine` ("...the scheduled event is on now."), which the steer quotes."""
     board = _board("2:00pm, Day 2", "afternoon", {"next": "hoh-competition", "phase": "evening", "due": False})
-    res = {"stopReason": "event-due", "minutes": 60, "stopLine": "Production is calling everyone: the scheduled event is on now."}
+    res = {"stopReason": "event-due", "minutes": 60, "stopLine": "The house is being called together."}
     steer = ch._reconcile_hang_out_steer(ch._hang_out_steer(res), board)
-    assert "is on now" not in steer and "calling everyone" not in steer, steer
+    assert "is on now" not in steer and "calling everyone" not in steer and "being called together" not in steer, steer
+    assert "has not been called together yet" in steer, steer
     due = {**board, "daySchedule": {**board["daySchedule"], "due": True}}
     raw = ch._hang_out_steer(res)
     assert ch._reconcile_hang_out_steer(raw, due) == raw

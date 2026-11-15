@@ -142,6 +142,14 @@ Feature: In-game time of day and the nightly sleep economy
     Then the status says early morning
     And at 1am the status does not say early morning
 
+  # ORW-441 (#2756): the same label after an EARLY BED - a player who wakes before the house (bed + 8 hours, ORW-114) is in the early morning too.
+  Scenario: Early morning - a player who wakes before the house after an early bed is in the early morning until the house's wake-up
+    Given a started season whose in-game clock is running
+    When the player goes to bed early in the evening
+    Then the player wakes before the house's wake-up
+    And the status and the game state say early morning
+    And once the house is up the status no longer says early morning
+
   Scenario: The status lists who is awake and available, not only who is asleep
     Given a started season whose in-game clock is running
     When the night has thinned the house
