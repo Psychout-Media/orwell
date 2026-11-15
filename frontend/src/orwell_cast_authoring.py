@@ -1775,7 +1775,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
     # model sharpens the brief; the ink budget is fixed (and the engine's write-back backstop holds it).
     skeleton = {
         k: npc.get(k)
-        for k in ("name", "age", "vocation", "hometown", "archetype", "demeanor", "presentation", "appearance", "ethnicity", "genderPresentation", "voice", "physicalCharacteristics")
+        for k in ("name", "age", "vocation", "hometown", "archetype", "demeanor", "presentation", "appearance", "ethnicity", "genderPresentation", "voice", "physicalCharacteristics", "background", "identityConcept")  # ORW-431: the earlier writer's text is shown as fact to keep
         if npc.get(k) is not None
     }
     gp = npc.get("genderPresentation")
@@ -1823,6 +1823,13 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             parts.append(f"occupations already cast: {', '.join(jobs)}")
         if towns:
             parts.append(f"hometowns already cast: {', '.join(towns)}")
+        ph = taken.get("phrases") if isinstance(taken.get("phrases"), dict) else {}
+        if ph.get("oncamera_endings"):
+            parts.append("onCamera lines already end: " + " | ".join(ph["oncamera_endings"]))
+        if ph.get("identity_openers"):
+            parts.append("identity lines already open: " + " | ".join(ph["identity_openers"]))
+        if ph.get("marks"):
+            parts.append("distinguishing marks already used (every mark is unique in the cast): " + " | ".join(ph["marks"]))
         if parts:
             taken_rule = ("\nCAST-WIDE TAKEN LIST (the other houseguests occupy this ground — do NOT "
                           "duplicate it or drift this houseguest toward it): " + "; ".join(parts) + ".")
@@ -1835,6 +1842,8 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         f"{pronoun_rule}"
         f"{hand_rule}"
         f"{taken_rule}\n"
+        f"The skeleton's background and identityConcept are FACTS about {name}: the biography must agree with them "
+        f"(same job, same years of service, same workplace) and may add to them, never contradict them.\n"
         f"The biography is about {name} and no one else: write it about {name} by that exact name (or by role), "
         f"and never give them any other first name.\n"
         f"Write {name}'s secret bible as JSON now — their own independent life, no protagonist."
@@ -2167,6 +2176,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("vocation")],
             "hometowns": [n.get("hometown") for n in (cast or [])
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("hometown")],
+            **({"phrases": season_gate.taken_phrases(hid)} if season_gate.registry else {}),
         }
     # #1057: SERIALIZE the engine write-back. The per-NPC recordCastProfile write-backs collide on the
     # orchestrator integrity checkpoint when they run concurrently (the live-verify's 3 `degradation`
@@ -2192,6 +2202,10 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     facet_stripped = 0      # T0-6: NPCs whose biography was dropped after a failed dealt-facet regenerate
     voice_repaired = 0      # ORW-184: NPCs whose authored voice was mended per field (flag on)
     ukey = _safe_user(user)  # M1-10: the give-up ledger scope
+    from src import orwell_cast_gate as _gate  # ORW-431: the one gate at the end
+    _gate_on = _gate.gate_enabled()
+    season_gate = _gate.SeasonGate(user)
+    gate_lock = asyncio.Lock()  # the cross-cast registry is checked and filled one card at a time
 
     async def _call_with_retries(npc: dict, hid: str):
         """Issue the authoring call(s) for one NPC and return its parsed profile (or None).
@@ -2577,9 +2591,24 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                         f"({', '.join(applied)}) — look-fallback")
             # ORW-388: whatever the retry did not clear is mended deterministically (the biography here, and the card's
             # identityConcept, which genesis wrote and no retry can rewrite). Codes and the id only in the log.
-            repaired = repair_story(profile, npc)
+            repaired = [] if _gate_on else repair_story(profile, npc)  # ORW-431: the gate below mends (and counts) it
             if repaired:
                 logger.warning(f"[cast-authoring] repaired the story text of {hid} ({', '.join(repaired)}) — story-repair")
+            # ORW-431: THE ONE GATE at the end. The final card (roster card + this profile) must be complete and
+            # consistent in every public text; mended, re-written (bounded) or left NOT authored. Codes only in logs.
+            if _gate_on:
+                async def _gate_rewrite(_npc, _codes):
+                    if _given_up(ukey, hid):
+                        return None
+                    _spend_attempt(ukey, hid)
+                    _msgs = build_authoring_messages(_npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
+                    _t = await llm_fn(_msgs + [{"role": "user", "content": _gate.rewrite_message(_codes)}])
+                    return parse_authored_profile(_t or "", hid)
+                async with gate_lock:
+                    _gated, _left = await _gate.run_gate(season_gate, profile, npc, cast, _gate_rewrite)
+                if _gated is None:
+                    floor_below += 1
+                    return 0
             # #1057: the write-back is SERIALIZED + degradation-retried (it must not run concurrently
             # against the orchestrator integrity checkpoint).
             res = await _write_with_retries(profile, hid)
@@ -2602,6 +2631,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
 
     results = await asyncio.gather(*[_author_one(npc) for npc in (cast or [])])
     written = sum(results)
+    season_gate.log_summary()  # ORW-431 C: one line per season, counts and codes only
     # ORW-380: the photo-sheet de-duplication post-pass, then the per-NPC completion signals.
     if len(authored_cards) > 1:
         try:
