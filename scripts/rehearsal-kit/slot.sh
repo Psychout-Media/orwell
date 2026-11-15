@@ -22,7 +22,7 @@ export RIG_SLOT RIG_ENGINE_PORT RIG_FE_PORT RIG_BASE RIG_ENGINE_URL RIG_RUN_PTR 
 
 # Write the resolved values for a run directory (the scripts copied there source it).
 rig_write_slot_env() { # $1 = run dir
-  { for v in RIG_SLOT RIG_ENGINE_PORT RIG_FE_PORT RIG_BASE RIG_ENGINE_URL RIG_RUN_PTR RIG_LOCK RIG_STATE_DIR RIG_SUFFIX RIG_RUN_PREFIX RIG_PLAYTEST_DIR WT; do printf '%s=%q\n' "$v" "${!v}"; done; } > "$1/slot.env"
+  { for v in RIG_SLOT RIG_ENGINE_PORT RIG_FE_PORT RIG_BASE RIG_ENGINE_URL RIG_RUN_PTR RIG_LOCK RIG_STATE_DIR RIG_SUFFIX RIG_RUN_PREFIX RIG_PLAYTEST_DIR WT KIT; do printf '%s=%q\n' "$v" "${!v}"; done; } > "$1/slot.env"
 }
 
 # Slot 1's worktree is the established rehearsal tree and is never created or altered here. Any other slot gets its OWN git worktree, sharing node_modules and the front-end venv READ-ONLY

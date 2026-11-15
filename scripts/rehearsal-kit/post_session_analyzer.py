@@ -16,17 +16,28 @@ APP = "/opt/orwell"
 READ_ONLY_PREFIXES = ("journalctl ", "cat ", "stat ", "ls ")
 
 
+HOST_RE = re.compile(r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9._-]*$")   # never a leading '-': ssh would parse it as an option (ProxyCommand etc.)
+WHEN_RE = re.compile(r"^\d{4}-\d\d-\d\d \d\d:\d\d$")
+SAFE_PATH_RE = re.compile(r"^[A-Za-z0-9_./-]+$")
+
+
 def ssh_read(host, cmd, binary=False, timeout=180):
     """Run ONE read-only command on the box. The allow-list is enforced here, in code."""
+    if not HOST_RE.match(host or ""):
+        raise SystemExit(f"refusing an invalid --ssh host: {host!r}")
     if not cmd.startswith(READ_ONLY_PREFIXES) or any(ch in cmd for ch in ";&|><`$\n"):
         raise SystemExit(f"refusing non-read-only/complex command: {cmd!r}")
-    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host, cmd], capture_output=True, timeout=timeout)
+    r = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", host, cmd], capture_output=True, timeout=timeout)
     if r.returncode != 0:
         return None
     return r.stdout if binary else r.stdout.decode("utf-8", "replace")
 
 
 def pull(host, since, until, dest, app=APP):
+    if not WHEN_RE.match(since or "") or (until and not WHEN_RE.match(until)):   # the exact datetime format only: a quote or an option can never ride into the remote command
+        raise SystemExit("--since/--until must be exactly 'YYYY-MM-DD HH:MM'")
+    if not SAFE_PATH_RE.match(app or ""):
+        raise SystemExit(f"refusing an unsafe --app path: {app!r}")
     os.makedirs(dest, exist_ok=True)
     got = {}
     for unit, name in (("orwell-frontend", "fe.log"), ("orwell-engine", "engine.log")):
@@ -171,6 +182,34 @@ GUARD_LINES = (
     ("pre-emission met-everyone guard skipped", "pre-emission met-everyone guard errored (failed open)", "skipped"),
     ("pre-emission nominee guard skipped", "pre-emission nominee guard errored (failed open)", "skipped"),
     ("scene circuit-breaker skipped", "scene circuit-breaker errored (failed open)", "skipped"),
+    ('A50: replaced', 'A50: replaced', 'fired'),
+    ('sentence-guard emptied', 'sentence-guard emptied', 'fired'),
+    ('pre-emission guard HELD an unbacked-morning claim for user=', 'pre-emission guard HELD an unbacked-morning claim', 'fired'),
+    ('pre-emission guard HELD a house-awake claim for user=', 'pre-emission guard HELD a house-awake claim', 'fired'),
+    ('pre-emission guard HELD a misstated clock time for user=', 'pre-emission guard HELD a misstated clock time', 'fired'),
+    ('pre-emission guard HELD a headcount for user=', 'pre-emission guard HELD a headcount', 'fired'),
+    ('pre-emission guard HELD an engine-count claim for user=', 'pre-emission guard HELD an engine-count claim', 'fired'),
+    ('pre-emission unbacked-morning guard skipped for user=', 'pre-emission unbacked-morning guard skipped', 'skipped'),
+    ('pre-emission house-awake guard skipped for user=', 'pre-emission house-awake guard skipped', 'skipped'),
+    ('pre-emission clock-time guard skipped for user=', 'pre-emission clock-time guard skipped', 'skipped'),
+    ('pre-emission headcount guard skipped for user=', 'pre-emission headcount guard skipped', 'skipped'),
+    ('pre-resolve held for user=', 'pre-resolve held', 'fired'),
+    ('scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept for user=', 'scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept', 'fired'),
+    ('scene circuit-breaker: early ceremony claim - dropped the sentence(s) only, scene kept for user=', 'scene circuit-breaker: early ceremony claim - dropped the sentence(s) only, scene kept', 'fired'),
+    ('scene circuit-breaker cut streak=', 'scene circuit-breaker cut streak=', 'fired'),
+    ('approach-held steer framing skipped for user=', 'approach-held steer framing skipped', 'skipped'),
+    ('scene-check: dropped the record, codes=', 'scene-check: dropped the record, codes=', 'fired'),
+    ('auto-move-npc: dropped unrequested arrival of', 'auto-move-npc: dropped unrequested arrival of', 'fired'),
+    ('ORW-321 advance belts stand down: a recent integrity refusal holds (user=', 'ORW-321 advance belts stand down: a recent integrity refusal holds (user=', 'fired'),
+    ('silent advanceGame HELD by the engine', 'silent advanceGame HELD by the engine', 'fired'),
+    ('headcount guard: premiere_intros lookup failed user=', 'headcount guard: premiere_intros lookup failed user=', 'fired'),
+    ('engine-count guard: whereabouts lookup failed user=', 'engine-count guard: whereabouts lookup failed user=', 'fired'),
+    ('phantom-finale guard skipped for user=', 'phantom-finale guard skipped', 'skipped'),
+    ('role-claim guard skipped for user=', 'role-claim guard skipped', 'skipped'),
+    ('faith-guard-down grounding check skipped', 'faith-guard-down grounding check skipped', 'skipped'),
+    ('faith-guard-down arm-escalation skipped', 'faith-guard-down arm-escalation skipped', 'skipped'),
+    ('beatLog unavailable; dropped-fold alarm unchanged', 'beatLog unavailable; dropped-fold alarm unchanged', 'fired'),
+    ('faith-guard-down reground-check skipped', 'faith-guard-down reground-check skipped', 'skipped'),
 )
 GUARD_CLASS_TAG = re.compile(r"class=([A-Za-z0-9+\-]+)")  # A77: the class tag now on the pre-emission and desync lines
 

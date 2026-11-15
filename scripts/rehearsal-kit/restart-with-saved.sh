@@ -2,7 +2,8 @@
 # usage: restart-with-saved.sh <SAVED_DIR>  - stop the freshly staged engine+FE of the current run, restore a saved engine-data/ and frontend/data/ into it, start both again (same env as stage2.sh).
 set -euo pipefail
 . "$(dirname "$(readlink -f "$0")")/slot.sh"   # slot values (a run dir carries its own slot.env)
-SAVED=$1; RUN=$(cat $RIG_RUN_PTR)
+SAVED=${1:-}; RUN=$(cat $RIG_RUN_PTR)
+[ -d "$SAVED/engine-data" ] && [ -d "$SAVED/fedata" ] || { echo "FATAL: $SAVED must contain engine-data/ and fedata/ - nothing was stopped or removed" >&2; exit 2; }   # validate BEFORE killing or deleting anything
 kill $(cat $RUN/engine.pid) $(cat $RUN/fe.pid) 2>/dev/null || true; sleep 2
 rm -rf $RUN/engine-data $WT/frontend/data
 cp -a $SAVED/engine-data $RUN/engine-data; cp -a $SAVED/fedata $WT/frontend/data
@@ -21,5 +22,5 @@ PY
   [ "$RIG_SLOT" = 1 ] || export PYTHONDONTWRITEBYTECODE=1
   export AUTH_ENABLED=false ORWELL_ENGINE_MCP_URL=$RIG_ENGINE_URL ORWELL_ENGINE_TOKEN=rehlocal ORWELL_GAME_BUILD=1
   nohup .venv/bin/python3 -m uvicorn app:app --host 127.0.0.1 --port $RIG_FE_PORT > $RUN/fe.log 2>&1 & echo $! > $RUN/fe.pid )
-for i in $(seq 1 40); do curl -s -o /dev/null --max-time 10 $RIG_BASE/api/orwell/status && break; sleep 2; done
-echo restarted
+ready=0; for i in $(seq 1 40); do curl -sf -o /dev/null --max-time 10 $RIG_BASE/api/orwell/status && { ready=1; break; }; sleep 2; done
+[ "$ready" = 1 ] && echo restarted || { echo "FATAL: front end did not come back - see $RUN/fe.log" >&2; exit 1; }

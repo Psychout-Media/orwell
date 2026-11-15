@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import argparse, json, re, sys, time
 
-from live_short import clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
+from live_short import slot_default, clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
 
 CARD = """() => { const d=document.querySelector('#orwell-decision-card'); if(!d) return null;
   return {title:(d.querySelector('.odec-title')||{}).innerText||'', opts:[...d.querySelectorAll('.odec-opt')].map(o=>o.innerText.trim()), hasText:!!d.querySelector('textarea')}; }"""
@@ -29,6 +29,15 @@ SOCIAL = [
 GO = ["I'm ready. Let's go.", "Okay, I'm in. Start it.", "Let's do this, I'm ready to play."]
 BED = ["It's late and I'm exhausted. I say goodnight and go to bed.", "I head to my bunk and turn in for the night.", "I go to sleep. Goodnight, everyone."]
 GOODBYE = "I'll miss you all. Play your own games, and good luck."
+
+
+def simplest_option(opts):
+    """The index of the simplest legal option, or None. An evicted player skips to the finale (the run is about the season, not a spectator tour): skip gets its OWN pass over every option, so the
+    order the engine lists them in ("Keep watching" before "Skip ahead") never decides it."""
+    for pat in (r"(?i)\bskip\b", r"(?i)\bcompete\b", r"(?i)do not use|don'?t use|not use|keep"):
+        hit = next((i for i, o in enumerate(opts) if re.search(pat, o)), None)
+        if hit is not None: return hit
+    return None
 
 
 class _Resume(Exception):
@@ -48,10 +57,8 @@ class Week(Chat):
         if "veto" in title and mine is not None: pick = [mine]  # the runner is a player, not a saboteur: a nominee who holds the veto uses it on themselves (two runs lost the player in week 1 to "Don't use the veto")
         elif "nominat" in title and len(opts) > 1: pick = [0, 1]
         else:
-            for i, o in enumerate(opts):
-                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour). Checked FIRST: "Keep watching" used to win and the run sat in Watch mode
-                if re.search(r"(?i)\bcompete\b", o): pick = [i]; break
-                if re.search(r"(?i)do not use|don'?t use|not use|keep", o): pick = [i]; break
+            hit = simplest_option(opts)
+            if hit is not None: pick = [hit]
         btns = self.page.query_selector_all("#orwell-decision-card .odec-opt")
         for i in pick:
             if i < len(btns): btns[i].click(); self.page.wait_for_timeout(150)
@@ -111,14 +118,14 @@ def names(lst): return [x.get("name") for x in (lst or []) if isinstance(x, dict
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
-    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=None)
+    ap.add_argument("--engine", default=None); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
     ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
     ap.add_argument("--resume", action="store_true", help="attach to the game already running on the rig (no casting, no Week 1 checks) and play on with --season")
     ap.add_argument("--stop-after-week", type=int, default=0, help="with --season: stop once this week has ended (0 = play to the finale)")
     ap.add_argument("--max-turns-total", type=int, default=400); ap.add_argument("--max-turns-per-week", type=int, default=90)
-    a = ap.parse_args()
+    a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     from playwright.sync_api import sync_playwright
     eng = Engine(a.engine, a.token); turns, checks, facts = [], [], {"phases": []}
     if a.resume:
