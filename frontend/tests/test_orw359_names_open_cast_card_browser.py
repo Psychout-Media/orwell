@@ -192,6 +192,7 @@ def test_names_and_faces_open_the_right_cast_card(fe):
             _dossier_name(page)
             page.wait_for_selector("#orwell-dossier .od-portrait button.od-photo-btn", timeout=5000)
             w, hh = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
+            print("DIAG", page.evaluate("""(() => { const q = (s) => document.querySelector(s); const r = (e) => { if (!e) return null; const b = e.getBoundingClientRect(); const c = getComputedStyle(e); return {w: b.width, h: b.height, x: b.x, y: b.y, width: c.width, maxW: c.maxWidth, display: c.display, tr: c.transform, anim: c.animationName, ar: c.aspectRatio, fs: c.flexShrink}; }; return {portrait: r(q('#orwell-dossier .od-portrait')), head: r(q('#orwell-dossier .od-head')), dossier: r(q('#orwell-dossier')), win: r(q('#orwell-dossier').closest('.ow-window, [role=dialog]')), body: r(q('#orwell-dossier').parentElement), vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, zoom: getComputedStyle(document.documentElement).zoom, fontSize: getComputedStyle(document.documentElement).fontSize}; })()"""))  # ORW-437 TEMP diagnostic
             assert w >= 280 and hh >= 280 and abs(w - hh) <= 2, (w, hh)
             assert page.get_attribute("#orwell-dossier .od-portrait button.od-photo-btn", "aria-label") == "View photo of Marcus Bell"
             page.click("#orwell-dossier .od-portrait button.od-photo-btn")
