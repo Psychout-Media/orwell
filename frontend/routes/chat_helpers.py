@@ -6208,6 +6208,21 @@ def _sentence_has_unbacked_morning_claim(text: str) -> bool:
     return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
 
 
+async def _status_with_clock_label(user, status: dict) -> dict:
+    """`status` with the engine's `clockLabel` (and nothing else changed). `gameStatus` carries no `clockLabel` - only the `getGameState` projection does (review of #2735) - so when it is
+    missing the clock-bearing projection (the <=400 ms cached poll copy) is read. Fail-open: any hiccup returns `status` as it was."""
+    if not isinstance(status, dict) or status.get("clockLabel"):
+        return status
+    try:
+        from src import orwell_engine
+        gs = await orwell_engine.get_game_state(user=user)
+        if isinstance(gs, dict) and gs.get("clockLabel"):
+            return {**status, **{k: gs[k] for k in ("clockLabel", "asleep") if k in gs and (k not in status or k == "clockLabel")}}
+    except Exception as e:
+        logger.debug("[orwell] clock projection unavailable for user=%s: %s", user, _exc_detail(e))
+    return status
+
+
 async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
     """ORW-310 mid-stream screen: HOLD (return False) a sentence asserting the morning/next day arrived while
     the engine clock still reads evening/night/late-night; else EMIT (True). Stashes a next-turn re-ground when
@@ -6219,6 +6234,7 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
+        status = await _status_with_clock_label(user, status)
         tod = str(status.get("timeOfDay") or "").strip().lower()
         lab = status.get("clockLabel")
         # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
@@ -6276,15 +6292,7 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
-        if not status.get("clockLabel"):
-            # review of #2735: `gameStatus` carries no `clockLabel` (only the `getGameState` projection does), and an early wake is banded
-            # "morning" without `earlyMorning`, so read the clock-bearing projection (the framing read) before deciding.
-            try:
-                gs = await orwell_engine.get_game_state(user=user)
-                if isinstance(gs, dict):
-                    status = {**status, **{k: gs[k] for k in ("clockLabel", "asleep") if k in gs and (k not in status or k == "clockLabel")}}
-            except Exception as e:
-                logger.debug("[orwell] house-awake guard: clock projection unavailable for user=%s: %s", user, _exc_detail(e))
+        status = await _status_with_clock_label(user, status)
         lab = status.get("clockLabel")
         if not (_clock_is_before_house_wake(lab) or status.get("earlyMorning") is True):
             return True
@@ -6327,7 +6335,7 @@ async def screen_streamed_clock_time(user, sentence: str) -> bool:
         if not m or not _sentence_has_in_the_clock_claim(sentence):
             return True
         from src import orwell_engine
-        status = await orwell_engine.game_status(user=user)
+        status = await _status_with_clock_label(user, await orwell_engine.game_status(user=user))
         lab = status.get("clockLabel") if isinstance(status, dict) else None
         mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
         if not mm:
