@@ -570,6 +570,8 @@ export interface SessionSnapshot extends SessionCore {
    * snapshot itself is ENGINE-ONLY (see above), so carrying Vault content here crosses no wall.
    */
   vault?: HiddenRecord[];
+  /** ORW-401: the per-window relationship-fold counts (played games), so a restart does not refill them. Counts only. */
+  foldMeter?: { key: string; counts: Record<string, number> };
 }
 
 export function cloneSession<T>(value: T): T {

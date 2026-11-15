@@ -1483,10 +1483,12 @@ async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     return await _call("recordOpenLedger", args, user=user)
 
 
-async def whereabouts(user: str | None = None):
+async def whereabouts(user: str | None = None, search: bool = False):
     """The Vault-free presence read (0049): the player's room, who is in it, and who is in each
-    ADJACENT room — names only, never motives or non-adjacent rooms. ``None`` pre-game."""
-    return await _call("whereabouts", {}, user=user)
+    ADJACENT room — names only, never motives or non-adjacent rooms. ``None`` pre-game.
+    ORW-386: ``search=True`` adds the house search (each houseguest's room + whether the player can walk in,
+    or that they are asleep); the argument is sent only when true, so every other caller is unchanged."""
+    return await _call("whereabouts", {"search": True} if search else {}, user=user)
 
 
 async def move_to(room: str, expected_beat_seq: int | None = None, user: str | None = None):

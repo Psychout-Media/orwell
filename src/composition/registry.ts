@@ -119,6 +119,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // no-op) unless the master clock is running, social fatigue is on, AND the initiator is tired — so a
   // clock-off / rested game is byte-identical, and no number ever crosses to the player.
   commands.setFatigueValence((id) => session.socialFoldValence(id));
+  // ORW-401: played games meter relationship folds per in-game day + part of day (shrinking, no hard cap).
+  commands.setFoldWindowProvider(() => session.foldWindowKey());
   // #1318 — a recorded player↔NPC scene registers a GENUINE premiere hot read, so the asymmetric first-
   // power gate unlocks on real engagement rather than a name merely name-dropped in the move-in narration
   // (which only the FE regex belt marks, meet-list-only). The session no-ops this outside the premiere.
@@ -496,6 +498,7 @@ function exportSnapshot(sb: UserSandbox): SessionSnapshot {
     knowledge: sb.engine.knowledge.serialize(),
     // The Vault's hidden records (B53/audit I7) — sealed twists et al. survive a restart too.
     vault: sb.engine.vault.readHidden(),
+    ...(sb.commands.foldMeterState() ? { foldMeter: sb.commands.foldMeterState() } : {}),
   };
 }
 
@@ -540,6 +543,7 @@ function importSnapshot(sb: UserSandbox, snap: SessionSnapshot): void {
   // no concrete `as InMemory*` cast — a relational adapter (SQLite) satisfies the same resume path.
   for (const e of snap.events) sb.engine.events.restoreRecord(e); // ids/ts/hidden preserved exactly
   sb.engine.relationships.load(snap.relationships);
+  sb.commands.restoreFoldMeter(snap.foldMeter);
   if (snap.knowledge) sb.engine.knowledge.load(snap.knowledge);
   for (const r of snap.vault ?? []) sb.engine.vault.writeHidden(r); // the producer's secrets resume sealed
   // 0065 Part E — the events are now loaded: seed the delta ring's BASELINE at the resumed beatSeq so the

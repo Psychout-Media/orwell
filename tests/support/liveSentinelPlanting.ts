@@ -150,6 +150,7 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
 export const args = (name: string, seed: number): Record<string, unknown> => {
   switch (name) {
     case "getMomentPrompt": return { moment: "nominations" };
+    case "whereabouts": return { search: true }; // ORW-386: the sweep reads the house search too (a superset of the plain read)
     case "getVisibleStateFor": return { entity: PLAYER };
     case "renderScene": return { mode: "scene" };
     case "socialRead": return { houseguest: npc(1) };
