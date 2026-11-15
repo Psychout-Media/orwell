@@ -7,6 +7,7 @@
  */
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
+import { answerPending } from "../../features/support/answerPending";
 import { wakeHourAfterBed, sleepDeficitForBedHour } from "../../src/engine/timeOfDay";
 
 const MESSAGES = Number(process.argv[2] ?? 1300), SEEDS = Number(process.argv[3] ?? 12), FIRST = Number(process.argv[4] ?? 1); // argv[4]: the first seed (to split a sweep over processes)
@@ -37,6 +38,7 @@ async function main() {
     type Sleep = { lastSleepDepth?: number; playerFatigue?: number };
     const live = async (): Promise<Sleep> => ((await reg.sandboxFor(user)) as unknown as { session: { live?: Sleep } }).session.live ?? {};
     let lastInHouse: number | null = null;
+    const weekStart: Record<number, number> = {}; // the first day each week was seen on (information: how long a week runs in days)
     // Headcount -1: when the number of people in the house changes, it drops by exactly one (one eviction at a time) and the stated house count follows.
     const checkEviction = async (where: string): Promise<void> => {
       const st = await call<State & { house?: Array<{ status?: string }>; player?: { status?: string } }>("getGameState");
@@ -63,9 +65,16 @@ async function main() {
         const npcsIn = ((st as State & { house?: Array<{ id: string; status?: string }> }).house ?? []).filter((r) => r.status === "active").length;
         if (st.phase !== "premiere") rec("N7 awake + asleep = everyone in the house", awake.size + asleep.size === npcsIn, `seed ${seed} ${where}: ${awake.size} awake + ${asleep.size} asleep vs ${npcsIn} houseguests in`);
       }
-      const mo = (st as State & { moment?: string }).moment;
-      const mw = typeof mo === "string" ? /Week (\d+)/.exec(mo) : null;
-      if (mw && typeof st.week === "number" && st.week > 0) rec("W10 the week in the moment label = the engine week", Number(mw[1]) === st.week, `seed ${seed} ${where}: moment "${mo}" vs week ${st.week}`);
+      // W10: every week number the player's surfaces state agrees - the game state, the status panel, and each "Week N" in the narrator's moment prompt.
+      // (The old check read `moment`, which is the beat name and never carries a week, so it never fired.)
+      if (typeof st.week === "number" && st.week > 0 && typeof st.dayNumber === "number" && weekStart[st.week] === undefined) weekStart[st.week] = st.dayNumber;
+      if (typeof st.week === "number" && st.week > 0) {
+        const gs = await call<{ week?: number }>("gameStatus");
+        rec("W10 the status panel's week = the game state's week", gs.week === st.week, `seed ${seed} ${where}: status week ${gs.week} vs state week ${st.week}`);
+        const mp = await call<{ systemPrompt?: string }>("getMomentPrompt", {});
+        const stated = [...(mp.systemPrompt ?? "").matchAll(/\bWeek (\d+)\b/g)].map((m) => Number(m[1]));
+        if (stated.length) rec("W10 every 'Week N' in the narrator prompt = the game state's week", stated.every((w) => w === st.week), `seed ${seed} ${where}: prompt says week ${[...new Set(stated)].join("/")} vs state week ${st.week}`);
+      }
       const house = st.whereabouts?.counts?.house;
       const full = st as State & { house?: Array<{ status?: string }>; player?: { status?: string } };
       if (typeof house === "number" && st.phase !== "premiere" && Array.isArray(full.house)) {
@@ -76,9 +85,12 @@ async function main() {
     };
 
     let lastHoh: string | null = null, hohWeek = 0;
+    // A staged ceremony (e.g. the eviction reveal, one ballot per advance) is driven every message, as the narrator advances it each turn; at the probe's usual
+    // one-advance-per-12-messages pace a 14-ballot reveal took the whole night.
+    let ceremonyOpen = false; const ceremonyBedTried = new Set<number>();
     for (let i = 0; i < MESSAGES; i++) {
       await note();
-      if (i % 12 !== 11) continue;
+      if (i % 12 !== 11 && !ceremonyOpen) continue;
       {
         const gs = await call<{ hoh?: { id?: string } | null; week?: number; whereabouts?: { houseEvent?: { kind?: string; competing?: Array<{ id: string }> } } }>("getGameState");
         const he = gs.whereabouts?.houseEvent;
@@ -89,19 +101,44 @@ async function main() {
       }
       const adv = (await call<{ pending?: { kind: string; options?: Array<{ id: string }> }; held?: { next?: string; minutesUntil?: number } }>("advanceGame"));
       await checkEviction(`message ${i}`);
-      if (adv.pending) {
-        const k = adv.pending.kind, o = (j: number) => adv.pending!.options?.[j]?.id;
-        try {
-          await call("submitDecision", (k === "nominations" ? { kind: k, choice: [o(0), o(1)] } : k === "veto-decision" ? { kind: k, use: false } : k === "comp-intent" || k === "comp-round" ? { kind: k, intent: "compete" } : { kind: k, choice: o(0), vote: o(0) }) as never);
-        } catch { /* a closed-set pick this driver cannot answer is skipped; the next advance re-offers it */ }
+      ceremonyOpen = !!(adv as { ceremony?: unknown }).ceremony && !adv.pending && !adv.held;
+      if (process.env.BWW_DEBUG) { const g = await call<State>("getGameState"); console.log(`#${i} ${g.clockLabel} wk${g.week} ${g.phase} ${g.timeOfDay} pend=${adv.pending?.kind ?? "-"} held=${adv.held ? JSON.stringify(adv.held) : "-"}`); }
+      if (adv.pending?.kind === "ceremony-step") { // a watch step: the engine wants it answered with advanceGame, not submitDecision
+        for (let k = 0; k < 40; k++) { const nx = await call<{ pending?: { kind: string } }>("advanceGame"); if (nx.pending?.kind !== "ceremony-step") break; }
+        await checkEviction(`message ${i} (ceremony)`);
         continue;
       }
-      if (!adv.held) continue;
+      if (adv.pending) {
+        // The shared BDD answerer covers every pending kind (the old inline one could not answer the player's own exit interview, so an evicted player froze the game).
+        const req = answerPending(adv.pending as never);
+        if (req) { try { await call("submitDecision", req as never); } catch (e) { rec("probe: every pending decision is answerable", false, `seed ${seed} message ${i}: ${adv.pending.kind} refused: ${String(e).slice(0, 120)}`); } }
+        else await call("advanceGame");
+        continue;
+      }
+      if (!adv.held) {
+        // An idle NIGHT (nothing held, nothing pending - e.g. eviction night after the ceremony) is also a bed, as a real player says goodnight; without this the
+        // probe stayed up until the night ran out at 8am. Only while the player is still in the house (an evictee has no bed to go to).
+        const st0 = await call<State & { player?: { status?: string } }>("getGameState");
+        if (!((st0.timeOfDay === "night" || st0.timeOfDay === "late-night") && st0.player?.status === "active")) continue;
+        if (ceremonyOpen) {
+          // INFO (needs a ruling, not pass/fail): what a goodnight does in the middle of an open ceremony, once per week. The bed is real if it goes through.
+          if (!ceremonyBedTried.has(st0.week ?? 0)) {
+            ceremonyBedTried.add(st0.week ?? 0);
+            const tb = await call<{ held?: unknown }>("turnIn", { idempotencyKey: `${user}-cer-${st0.week}` });
+            const st1 = await call<State>("getGameState");
+            rec("INFO a goodnight during an open ceremony is held (refused)", !!tb.held, `seed ${seed} week ${st0.week}: bed at ${st0.clockLabel} went through mid-ceremony, woke ${st1.clockLabel}, phase ${st1.phase}`);
+            if (!tb.held) nights++;
+          }
+          continue;
+        }
+      }
       // A DAYTIME "not due yet" hold names the event and the minutes until it: let that time pass (going to bed instead skipped the event's day, so the game
       // never left Week 1). Only a night hold (or a hold with nothing named) is a bed.
-      if (adv.held.next && adv.held.next !== "bedtime" && typeof adv.held.minutesUntil === "number" && adv.held.minutesUntil > 0) {
+      if (adv.held?.next && adv.held.next !== "bedtime" && typeof adv.held.minutesUntil === "number" && adv.held.minutesUntil > 0) {
         const st0 = await call<State>("getGameState");
-        if (st0.timeOfDay !== "night" && st0.timeOfDay !== "late-night") { for (let k = 0; k < Math.ceil(adv.held.minutesUntil / 5) + 1 && k < 300; k++) await note(); continue; }
+        // Only a MORNING/AFTERNOON hold is waited out: an evening hold names tomorrow's event (e.g. 780 minutes), and waiting it out kept the player up all night
+        // without a bed (4 nights in 2600 messages, never past Week 1). From the evening on, the hold is a bed.
+        if (st0.timeOfDay === "morning" || st0.timeOfDay === "afternoon") { for (let k = 0; k < Math.ceil(adv.held.minutesUntil / 5) + 1 && k < 300; k++) await note(); continue; }
       }
       // A held advance: bed at this night's chosen hour (time passes by messages until then), from the night period on (the bedtime gate).
       const target = BED_HOURS[nights % BED_HOURS.length]!;
@@ -123,6 +160,7 @@ async function main() {
         const dayB = (await call<State>("getGameState")).clockLabel;
         rec("N3 a repeated bed (same key) replays and never rolls a second day", JSON.stringify(ti2) === JSON.stringify(ti) && dayA === dayB, `seed ${seed} night ${nights}: clock ${dayA} -> ${dayB}, same view ${JSON.stringify(ti2) === JSON.stringify(ti)}`);
       }
+      if (process.env.BWW_DEBUG) console.log(`   turnIn at ${before.clockLabel} (${before.timeOfDay}) -> ${ti.held ? "HELD " + JSON.stringify(ti.held) : "slept"}`);
       if (ti.held) { await note(); continue; } // not bedtime yet (the gate): the next held advance tries again
       nights++;
       const after = await call<State>("getGameState");
@@ -167,7 +205,7 @@ async function main() {
         rec("W1 eviction night ended on the player's bed (no HOH on the eviction night)", !before.hoh, `seed ${seed} night ${nights}: HOH already crowned before the bed`);
       }
     }
-    console.log(`seed ${seed}: ${nights} nights, last week ${(await call<State>("getGameState")).week}`);
+    { const fin = await call<State & { player?: { status?: string } }>("getGameState"); console.log(`seed ${seed}: ${nights} nights, last week ${fin.week}, day ${fin.dayNumber}, player ${fin.player?.status ?? "?"}; weeks start on days ${Object.entries(weekStart).map(([w, d]) => `W${w}:D${d}`).join(" ")}`); }
   }
   console.log(`\nORW-433 bed / wake / week crossover, ${SEEDS} seeds x ${MESSAGES} messages:`);
   for (const [id, r] of R) console.log(`${r.fail.length ? "FAIL" : "PASS"}  ${id}: ${r.pass} ok, ${r.fail.length} failed${r.fail.length ? "  e.g. " + r.fail.slice(0, 3).join(" | ") : ""}`);
