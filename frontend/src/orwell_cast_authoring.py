@@ -61,7 +61,8 @@ _SYSTEM = (
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
-    '"distinguishingMark", "ageLook", "style" } — short phrases; this single facet is what BOTH '
+    '"distinguishingMark", "ageLook", "style", "wardrobe", "onCamera" } — short phrases (wardrobe is an '
+    "array, onCamera a short prose line); this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
     "background) — never a generic default; vary it widely across the cast. When the skeleton shows a "
@@ -71,7 +72,22 @@ _SYSTEM = (
     "mark, the style, or the biography) — only a small minority of a real cast is visibly inked, and "
     "the casting office already decided who. A distinguishingMark is usually minor or absent: a scar, "
     "a birthmark, freckles, glasses, jewelry, a gap-toothed grin — or plain \"none notable\"; never "
-    "default to a tattoo,\n"
+    "default to a tattoo, "
+    "STYLE: the skeleton's presentation is this person's style FAMILY. Write \"style\" INSIDE that "
+    "family, as THIS person would wear it given their age, job and hometown; never blend in another "
+    "family (no rocker edge layered over bohemian). "
+    "WARDROBE: 2-3 specific clothing or accessory pieces in that family (each under 60 characters), "
+    "with no visible words, logos, band names or brand names. "
+    "ONCAMERA: 1-2 sentences of VISIBLE personality drawn from their story, demeanor and voice "
+    "(register, rhythm, energy, directness, humor, signature): posture, gaze, expression, grooming, one "
+    "telling clothing detail, and ONE spot in the house from: kitchen, living room, dining room, "
+    "backyard, lounge, a bedroom. Only what a camera can see; no plot, no other people, no text; at "
+    "most 240 characters. Example: \"leans toward the lens like he's about to cut in, brows up "
+    "mid-joke, a smirk that undercuts whatever he just said; shirt buttoned to the collar, apron "
+    "folded neat over one shoulder; at the kitchen counter.\" "
+    "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
+    "hair under 35 unless it is written as dyed. BUILD COHERENCE: heightBuild must not combine "
+    "opposites (for example broad-shouldered with willowy),\n"
     '  "voice": the houseguest\'s IDIOLECT — how THIS person talks, all season: { "register", '
     '"rhythm", "energy", "directness", "humor", "stressTell", "signature", "lexicon", "catchphrases" }. '
     'The first six are SHORT dial phrases (e.g. register "folksy", rhythm "rambling", humor "dry", '
@@ -906,6 +922,133 @@ def facet_hand_conflicts(profile: dict, npc: dict) -> list:
     return out
 
 
+# ---------------------------------------------------------------------------------------------------
+# ORW-360: the look accept path. The checks run on the authored physicalCharacteristics after the identity
+# lint; one strict retry names the problem(s); after the retry still fails each axis falls back (hair and
+# build to the seeded brief, style to the family sample and wardrobe omitted, onCamera omitted). Nothing here
+# ever logs the authored text: only the houseguest id and the reason code.
+# ---------------------------------------------------------------------------------------------------
+_GRAY_HAIR_RE = re.compile(r"\b(?:gr[ae]y(?:ing)?|silver|salt[- ]and[- ]pepper|white[- ]haired)\b", re.I)
+_DYED_RE = re.compile(r"\b(?:dyed|bleached|platinum)\b", re.I)
+_GRAY_HAIR_MIN_AGE = 35
+_BROAD_WORDS = ("broad-shouldered", "stocky", "heavyset", "burly", "thick")
+_SLIGHT_WORDS = ("willowy", "slight", "petite", "lanky", "reedy", "slender")
+_BROAD_RE = re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _BROAD_WORDS), re.I)
+_SLIGHT_RE = re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _SLIGHT_WORDS), re.I)
+_TALL_RE = re.compile(r"\btall\b", re.I)
+_PETITE_RE = re.compile(r"\bpetite\b", re.I)
+_WARDROBE_TEXT_RE = re.compile(
+    r"\blogos?\b|\blettering\b|\blettered\b|\bslogans?\b|\bprinted (?:words?|text|lettering)\b"
+    r"|\bwords?\b|\btext\b|[\"\u201c\u201d]", re.I)
+# A short list of common band and brand names (not exhaustive: the prompt carries the rule, this is the net).
+_BAND_BRAND_NAMES = (
+    "def leppard", "metallica", "nirvana", "ramones", "ac/dc", "ac-dc", "led zeppelin", "pink floyd",
+    "the clash", "misfits", "slayer", "megadeth", "guns n' roses", "iron maiden", "black sabbath",
+    "nike", "adidas", "puma", "reebok", "gucci", "supreme", "carhartt", "levi's", "levis", "vans",
+    "converse", "patagonia", "harley", "rolex", "birkenstock", "ray-ban", "dr. martens", "doc martens",
+    "louis vuitton", "chanel", "prada", "champion", "yeezy", "jordans", "under armour", "north face",
+    "lululemon", "hollister", "abercrombie", "burberry", "versace", "off-white", "stussy", "timberland",
+)
+_BAND_BRAND_RE = re.compile(
+    r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
+_ONCAMERA_MAX = 240
+_SPOT_PATTERNS = (
+    ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
+    ("dining room", re.compile(r"\bdining room\b", re.I)), ("backyard", re.compile(r"\bback ?yard\b", re.I)),
+    ("lounge", re.compile(r"\blounge\b", re.I)), ("bedroom", re.compile(r"\bbedrooms?\b", re.I)),
+)
+
+_LOOK_PROBLEM_TEXT = {
+    "gray-hair-young": "hair reads gray/silver/salt-and-pepper for someone under 35 (write it as dyed, or pick a natural colour that fits their age)",
+    "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
+    "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
+    "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
+    "oncamera-shape": "onCamera must be at most 240 characters and name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
+}
+
+_LOOK_RETRY_TAIL = (
+    " Rewrite the COMPLETE JSON object now with those look fields fixed and everything else as before. "
+    "Only the JSON object — start with '{', end with '}', no prose, no markdown, no fences."
+)
+
+
+def look_retry_message(problems: list) -> str:
+    """The strict retry text naming each look problem (reuses the strict JSON-only instruction)."""
+    named = "; ".join(f"{p}: {_LOOK_PROBLEM_TEXT[p]}" for p in problems)
+    return (f"{_STRICT_RETRY} Your profile's look failed these checks: {named}.{_LOOK_RETRY_TAIL}")
+
+
+def _age_of(npc: dict):
+    try:
+        a = (npc or {}).get("age")
+        return int(a) if a is not None and not isinstance(a, bool) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def look_problems(profile: dict, npc: dict) -> list:
+    """The look-check reason codes the authored ``physicalCharacteristics`` trips ([] when clean or when
+    there is no facet). The optional wardrobe/onCamera are checked only when present (absent = omitted,
+    ORW-361 then uses its fallback lines). Vault-free: codes only, never the authored text."""
+    from src.orwell_style_families import families_mentioned, family_for_label
+    pc = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return []
+    out = []
+    age = _age_of(npc)
+    hair = str(pc.get("hair") or "")
+    if age is not None and age < _GRAY_HAIR_MIN_AGE and _GRAY_HAIR_RE.search(hair) and not _DYED_RE.search(hair):
+        out.append("gray-hair-young")
+    hb = str(pc.get("heightBuild") or "")
+    if (_BROAD_RE.search(hb) and _SLIGHT_RE.search(hb)) or (_TALL_RE.search(hb) and _PETITE_RE.search(hb)):
+        out.append("build-contradiction")
+    wardrobe = pc.get("wardrobe")
+    items = [str(x) for x in wardrobe] if isinstance(wardrobe, list) else []
+    fam = family_for_label(str((npc or {}).get("presentation") or ""))
+    if fam is not None:
+        mentioned = families_mentioned(str(pc.get("style") or "") + " " + " ".join(items))
+        if fam["id"] not in mentioned and any(m != fam["id"] for m in mentioned):
+            out.append("style-wrong-family")
+    if "wardrobe" in pc and (
+            not isinstance(wardrobe, list) or not 2 <= len(items) <= 3
+            or any(len(i) > 60 or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
+        out.append("wardrobe-shape")
+    if "onCamera" in pc:
+        oc = str(pc.get("onCamera") or "")
+        spots = {name for name, rx in _SPOT_PATTERNS if rx.search(oc)}
+        if len(oc) > _ONCAMERA_MAX or len(spots) != 1:
+            out.append("oncamera-shape")
+    return out
+
+
+def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
+    """After the strict retry still fails: hair and build fall back to the seeded brief's value for that
+    axis; style falls back to the family sample and wardrobe is omitted; onCamera is omitted. Mutates
+    ``profile`` in place; returns the reason codes applied."""
+    from src.orwell_style_families import family_for_label
+    pc = profile.get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return []
+    seeded = (npc or {}).get("physicalCharacteristics")
+    seeded = seeded if isinstance(seeded, dict) else {}
+    for code in problems:
+        if code == "gray-hair-young" and seeded.get("hair"):
+            pc["hair"] = str(seeded["hair"])
+        elif code == "build-contradiction" and seeded.get("heightBuild"):
+            pc["heightBuild"] = str(seeded["heightBuild"])
+        elif code == "style-wrong-family":
+            fam = family_for_label(str((npc or {}).get("presentation") or ""))
+            if fam is not None:
+                pc["style"] = fam["sample"]
+            pc.pop("wardrobe", None)
+        elif code == "wardrobe-shape":
+            pc.pop("wardrobe", None)
+        elif code == "oncamera-shape":
+            pc.pop("onCamera", None)
+    return list(problems)
+
+
+
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
                              hand: Optional[dict] = None) -> list[dict]:
     """The producer prompt for ONE houseguest. Seeds the LLM with the houseguest's PUBLIC skeleton
@@ -1111,6 +1254,17 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
     if isinstance(phys, dict):
         facet = {k: str(phys[k]).strip() for k in _PHYS_KEYS if isinstance(phys.get(k), (str, int)) and str(phys.get(k)).strip()}
         if len(facet) == len(_PHYS_KEYS):  # the facet is the text↔image source of truth — only write it whole
+            # ORW-360: the two OPTIONAL look fields ride along when present (never required, never a gate).
+            # Forwarded raw-ish (cleaned strings, no clamping) so the accept path can check them; the engine
+            # clamps again at the recordCastProfile boundary.
+            wd = phys.get("wardrobe")
+            if isinstance(wd, list):
+                wd_clean = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()]
+                if wd_clean:
+                    facet["wardrobe"] = wd_clean
+            oc = phys.get("onCamera")
+            if isinstance(oc, str) and oc.strip():
+                facet["onCamera"] = " ".join(oc.split())
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -1688,6 +1842,27 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                 if len(profile) <= 1:
                     floor_below += 1
                     return 0
+            # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
+            problems = look_problems(profile, npc)
+            if problems:
+                logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
+                _spend_attempt(ukey, hid)
+                try:
+                    look_messages = build_authoring_messages(npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
+                    look_text = await llm_fn(look_messages + [
+                        {"role": "user", "content": look_retry_message(problems)}])
+                    look_profile = parse_authored_profile(look_text or "", hid)
+                except Exception as e:
+                    logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
+                    look_profile = None
+                if (look_profile is not None and not look_problems(look_profile, npc)
+                        and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
+                    profile = look_profile
+                else:
+                    applied = apply_look_fallbacks(profile, npc, problems)
+                    logger.warning(
+                        f"[cast-authoring] look fell back to the seeded brief for {hid} after the retry "
+                        f"({', '.join(applied)}) — look-fallback")
             # #1057: the write-back is SERIALIZED + degradation-retried (it must not run concurrently
             # against the orchestrator integrity checkpoint).
             res = await _write_with_retries(profile, hid)
