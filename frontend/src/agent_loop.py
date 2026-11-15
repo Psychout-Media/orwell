@@ -8350,6 +8350,11 @@ async def _stream_agent_loop_impl(
             _ledger_beat_seq_before = _ch_baseline.last_beat_seq(owner)
         except Exception:
             pass
+        try:
+            from src import orwell_sync_ledger as _led_begin
+            _led_begin.begin_turn(owner)  # ORW-435: writes from here to record_turn are inside this turn's own beat movement
+        except Exception:
+            pass
     if _is_live_game and owner:
         try:
             from routes import chat_helpers as _ch_ledger

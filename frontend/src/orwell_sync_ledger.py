@@ -140,6 +140,28 @@ _LAST_BEAT_AFTER: dict[str, int] = {}
 # from the unexplained gap. A genuinely unrecorded move still exceeds the allowance and still fires.
 _PENDING_FE_WRITES: dict[str, int] = {}
 
+# ── ORW-435: count FE-owned writes at the ONE engine dispatch seam (`orwell_engine._call`) ──
+# ORW-150 counted two named writers (noteMessage, the E22 fallback fold) by hand at their call sites. Live play still fired
+# `sync:dropped-fold` ~31 times in ~65 turns: the deferred scene fold settled at the start of a turn (a `recordInteraction`
+# between two ledgered windows) was never counted, and nothing guarantees the next writer would be. `note_engine_write` is
+# now called from the dispatch seam for EVERY engine call, so a writer is counted by construction unless it is known not to
+# bump beatSeq. The window: a write inside a ledgered turn (`begin_turn` .. `record_turn`) is already inside that turn's
+# beatSeqBefore->After movement and is NOT an allowance for the next gap.
+_IN_TURN: set[str] = set()
+
+#: Engine calls that are NOT reads but do not bump beatSeq: the "backgroundPersist" enrichments (durable save, no commit, no beatSeq
+#: bump - GameSessionAdapter `backgroundPersist`), plus the non-PURE_READS read tools. Everything else that is not a pure read
+#: (engine_read_cache.PURE_READS) is assumed to commit and bump. tests/test_orw435 cross-checks the record* names against the engine source.
+NON_BUMPING_WRITES = frozenset({
+    "recordRoomCanon", "recordOpenLedger", "resolveOpenLedger", "recordDaySummary", "recordLookExtras", "recordNpcTraits",
+    "recordNpcReflections", "recordHouseCulture", "recordWorldSnapshot", "recordCastProfile", "recordCastIdentity",
+    "recordProducerProfile", "recordCompetitionFiction", "recordOffscreenSceneTexture",
+    # reads that are not in the read cache's PURE_READS
+    "getOffscreenSceneSkeletons", "dayLedger", "openLedgerHere", "recallSceneMemories", "seasonRetrospective", "sealedFromHouse",
+    "knowledgeScopeManifest", "producerVault", "premiereIntros", "finaleView", "getPortraitPrompt", "sandboxHealth",
+    "inspectNonVaultState", "getBehavioralFlags", "playerTagline", "worldSnapshotView",
+})
+
 # ── ORW-186: belt telemetry from turns that are never ledgered (casting) ──
 # Belt / forced-choice counts buffer per user and drain at the next `record_turn`. Casting turns are never
 # ledgered, so their counts (a casting-record belt, a voiced re-ground) landed on the FIRST GAME turn's row and
@@ -389,6 +411,46 @@ def note_fe_write(user: str | None, n: Any = 1) -> None:
         pass
 
 
+def begin_turn(user: str | None) -> None:
+    """ORW-435 - mark the start of a ledgered live-game turn (call where the turn's beatSeqBefore baseline is read). Writes the FE
+    dispatches until `record_turn` are inside that turn's own beat movement and are not counted as between-turn writes. Never raises."""
+    try:
+        with _LOCK:
+            _IN_TURN.add(_key(user))
+    except Exception:  # pragma: no cover - defence in depth
+        pass
+
+
+def _wrote(name: str, result: Any) -> bool:
+    """Did this engine call commit (bump beatSeq)? A refused / no-op / duplicate answer committed nothing."""
+    if name in NON_BUMPING_WRITES:
+        return False
+    if isinstance(result, dict):
+        if result.get("accepted") is False:
+            return False
+        if result.get("status") in ("noop", "illegal"):
+            return False
+        move = result.get("playerMove")
+        if "playerMove" in result and not isinstance(move, dict):
+            return False  # resolvePlayerMove found no clear move: nothing committed
+    return True
+
+
+def note_engine_write(user: str | None, name: str, result: Any = None) -> None:
+    """ORW-435 - called from the ONE engine dispatch seam after a non-read engine call LANDED. Counts it as an FE-owned beatSeq
+    write unless it is known not to bump (NON_BUMPING_WRITES), the engine reported it a no-op/refusal, or it ran inside a
+    ledgered turn. Vault-free: only the tool NAME is looked at. Never raises."""
+    try:
+        k = _key(user)
+        with _LOCK:
+            if k in _IN_TURN:
+                return
+        if _wrote(str(name), result):
+            note_fe_write(user)
+    except Exception:  # pragma: no cover - defence in depth
+        pass
+
+
 def _drain_pending_fe_writes(user_key: str) -> int:
     with _LOCK:
         return _PENDING_FE_WRITES.pop(user_key, 0) or 0
@@ -401,6 +463,8 @@ def park_pending_unledgered_turn(user: str | None) -> None:
     Never raises."""
     try:
         k = _key(user)
+        with _LOCK:
+            _IN_TURN.discard(k)
         belts = _drain_pending_belts(k)
         forced = _drain_pending_forced(k)
         _drain_pending_stale(k)
@@ -550,6 +614,8 @@ def record_turn(
     Errors are swallowed: ledgering must never hurt the app."""
     try:
         k = _key(user)
+        with _LOCK:
+            _IN_TURN.discard(k)  # ORW-435: the turn window closes here; later FE writes are between-turn writes
         # RC6 (write-durability): retain the DRAINED buffers so a failed durable write can RESTORE
         # them. `_drain_pending_belts` / `_drain_pending_stale` / `_drain_pending_forced` POP their
         # in-memory buffers here, but the persist below (`atomic_write_json`) can still raise — if it
