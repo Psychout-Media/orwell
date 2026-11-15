@@ -30,6 +30,10 @@ export const HOUSE_LIFE = {
   ritualPull: 0.3,
   /** Chance a showmance pair spends a free hour together when both are around. */
   romanceChance: 0.5,
+  /** ORW-466 slice 4: at night, the chance a free houseguest with an awake roommate ends the day with them in their own bedroom (bed talk, or a squabble if they rub each other wrong). */
+  roommateNightPull: 0.5,
+  /** ORW-466 slice 4: when they do, the chance it is their double-bed partner (the closest roommate tie) rather than whichever roommate they warm to most. */
+  bedPartnerPull: 0.6,
   /** Base chance a free hour with someone they don't warm to turns into a chore fight (scaled by dislike, temper and mood; ORW-324). */
   frictionChance: 0.33,
   /** ORW-324: affinity below this counts as dislike for friction (was 0.3: friction only between enemies made the house 99% friendly). */

@@ -170,6 +170,11 @@ export interface HourView {
   hour: number;
   /** True while a competition is running: public reactions only. */
   inCompetition: boolean;
+  /** ORW-466 slice 4 (assigned beds): the room they sleep in (the HOH room for the HOH), their roommates and the one who shares their double. All absent in a game without beds (headless,
+   *  calibration), which keeps that game's house life exactly as before. */
+  bedroom?: Room;
+  roommates?: readonly EntityId[];
+  bedPartner?: EntityId;
   /** ORW-329: people they avoid in free time (an ex from before the show). A goal step may still seek them out. */
   avoid?: readonly EntityId[];
   /** The candor of the holder's speech (from REASONS candor tables, passed by the caller), 0..1. */
@@ -334,8 +339,10 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const habit = v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);
   if (habit) {
     const k = HABIT_ACTION[habit].action;
-    const spot = ACTIONS[k].place;
-    const company = spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
+    // ORW-466 slice 4: a night owl's bed talk is with their roommates, in their own bedroom; a napper naps in their own bed.
+    const ownBed = v.bedroom && (k === "bed-talk" || k === "nap") ? v.bedroom : undefined;
+    const spot = ownBed ?? ACTIONS[k].place;
+    const company = ownBed ? (k === "nap" ? [] : (v.roommates ?? []).filter((p) => pool.includes(p) && !avoid.has(p))) : spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
     const max = ACTIONS[k].partners.max;
     return finish({ kind: k, with: company.slice(0, max), ...(spot ? { place: spot } : {}) });
   }
@@ -343,8 +350,21 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     const friend = byScore(here, (p) => v.affinity.get(p) ?? 0)[0];
     return finish(friend && (v.affinity.get(friend) ?? 0) > 0.55 ? { kind: "homesick-talk", with: [friend] } : { kind: roll("vent") < 0.5 ? "vent-in-diary-room" : "mull", with: [] });
   }
+  // ORW-466 slice 4 (roommate life): at night the house drifts back to the bedrooms. A free houseguest with an awake roommate often ends the day with them in their own room, their double-bed
+  // partner most of all: late-night bed talk, or a squabble when the two rub each other wrong (the same friction rule as anywhere). Who sleeps where was the houseguest's own choice on move-in day.
+  if (v.bedroom && (v.timeOfDay === "night" || v.timeOfDay === "late-night")) {
+    const roomies = (v.roommates ?? []).filter((p) => pool.includes(p) && !avoid.has(p));
+    if (roomies.length > 0 && roll("roommate") < HOUSE_LIFE.roommateNightPull) {
+      const mate = v.bedPartner && roomies.includes(v.bedPartner) && roll("bedmate") < HOUSE_LIFE.bedPartnerPull
+        ? v.bedPartner
+        : byScore(roomies, (p) => (v.affinity.get(p) ?? 0.4) + roll(`roomie:${p}`) * 0.3)[0]!;
+      const sore = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+      const rub = sore > 0 && roll("roomie-friction") < HOUSE_LIFE.frictionChance * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
+      return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
+    }
+  }
   const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3)[0];
-  if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [] });
+  if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
   const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
   const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
