@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 
 /** ORW-369: the look-only write-back for a running season. */
@@ -124,5 +125,36 @@ describe("ORW-380 clear", () => {
     expect(p.onCamera).toBeUndefined();
     expect(p.wardrobe).toEqual(["a grey cardigan", "dark jeans"]);
     expect(sb.session.recordLookExtras({ houseguestId: id, clear: ["onCamera"] })).toMatchObject({ accepted: false });
+  });
+});
+
+describe("ORW-437 recordCastProfile keeps what it omits, and renames the prose with the name", () => {
+  it("a profile write-back without wardrobe, onCamera and photoHair keeps the stored ones", () => {
+    const { sb, id, npc } = setup();
+    sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], onCamera: "She sits in the lounge.", photoHair: "a neat low bun" });
+    const base = { ...(npc().character.physicalCharacteristics as object) } as Record<string, unknown>;
+    delete base.wardrobe; delete base.onCamera; delete base.photoHair;
+    const res = sb.session.recordCastProfile({ houseguestId: id, physicalCharacteristics: base as never });
+    expect(res.accepted).toBe(true);
+    const p = npc().character.physicalCharacteristics as { wardrobe?: string[]; onCamera?: string; photoHair?: string };
+    expect(p.wardrobe).toEqual(["a grey cardigan", "dark jeans"]);
+    expect(p.onCamera).toBe("She sits in the lounge.");
+    expect(p.photoHair).toBe("a neat low bun");
+  });
+
+  it("a name-only profile update on the warmed cast carries into the stored prose and demeanor", () => {
+    const sess = new GameSessionAdapter();
+    const warm = sess.preSeedCast({ seed: 7 });
+    const hg = warm.house[0]!;
+    const old = hg.name.split(" ")[0]!;
+    const cast = (sess as unknown as { prewarm: { npcs: { id: string; name: string; character: Record<string, unknown> }[] } }).prewarm;
+    const n = cast.npcs.find((x) => x.id === hg.id)!;
+    n.character.biography = `${old} grew up near the water. ${old} fixes boats.`;
+    n.character.demeanor = `${old} stays calm`;
+    const res = sess.recordCastProfile({ houseguestId: hg.id, name: "Zephyra Quillon" });
+    expect(res.publicFields).toContain("name");
+    expect(n.name).toBe("Zephyra Quillon");
+    expect(n.character.biography).toBe("Zephyra grew up near the water. Zephyra fixes boats.");
+    expect(n.character.demeanor).toBe("Zephyra stays calm");
   });
 });
