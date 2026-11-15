@@ -250,14 +250,15 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
 
     // Consumer #2 — the portrait prompt: built from the SAME facet (the live cast portrait path).
     const pp = game.getPortraitPrompt(npc.id as EntityId)!;
-    expect(pp.prompt).toContain(npc.physicalCharacteristics!.hair);
+    expect(pp.prompt).toContain(npc.physicalCharacteristics!.skinTone); // the hair line is trimmed and neatened in v3
     expect(pp.prompt).toContain(npc.physicalCharacteristics!.heightBuild);
 
     // The hinge: the EXACT physical clause the portrait builds is present verbatim in the narrator
     // context — there is one description, voiced once and pictured once, never two that can diverge.
     // ORW-361: the portrait line drops the mark (said once, faint, on its own line) and keeps the rest.
     const f = npc.physicalCharacteristics!;
-    expect(pp.prompt).toContain([f.heightBuild, f.skinTone, f.hair, f.facialFeatures, f.ageLook].join(", "));
+    // ORW-380: the portrait line is "skin, build, face" (+ age-look unless it says worn); hair has its own line.
+    expect(pp.prompt).toContain([f.skinTone, f.heightBuild, f.facialFeatures].join(", "));
     expect(ctx).toContain(sharedLook);
   });
 
