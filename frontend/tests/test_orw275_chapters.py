@@ -101,6 +101,14 @@ from test_p0h_day1_clock_e2e import _session  # noqa: E402
 pytestmark_browser = pytest.mark.browser
 
 
+def _select(page, sid):
+    """Open a chat the way the sidebar does, WITHOUT awaiting selectSession's promise (ORW-293, the 'Execution context was destroyed' flake): these tests mock
+    /api/history with page.route, and when that intercepted fetch is still pending the unsettled promise can be garbage-collected under load. Playwright then
+    reports any such protocol error as 'Execution context was destroyed, most likely because of a navigation' (no navigation happened: Chrome logged no
+    destroyed context and no second page load, 1 in 14 runs on the runner). The callers wait on the rendered chat, which is the contract."""
+    page.evaluate("(id) => { if (window.sessionModule) { window.sessionModule.selectSession(id); } }", sid)
+
+
 @pytest.mark.browser
 def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
@@ -115,7 +123,7 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
         page.goto(_stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
-        page.evaluate("(id) => window.sessionModule ? window.sessionModule.selectSession(id) : null", sid)
+        _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
         txt = lambda: page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")  # noqa: E731
         page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 3", timeout=15000)
@@ -150,7 +158,7 @@ def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack)
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
         page.goto(_stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
-        page.evaluate("(id) => window.sessionModule ? window.sessionModule.selectSession(id) : null", sid)
+        _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
         page.wait_for_selector(".ow-week-card", timeout=15000)
         card = page.inner_text(".ow-week-card")
@@ -216,7 +224,7 @@ def test_orw161_a_long_chat_renders_its_newest_rows_and_reveals_earlier_ones_on_
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
         page.goto(_stack["fe"] + "/", wait_until="load")
         page.wait_for_timeout(2500)
-        page.evaluate("(id) => window.sessionModule ? window.sessionModule.selectSession(id) : null", sid)
+        _select(page, sid)
         page.wait_for_selector("#orwell-history-more", timeout=15000)
         count = lambda: page.evaluate("() => document.querySelectorAll('#chat-history .msg[data-from-history]').length")  # noqa: E731
         page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 50", timeout=15000)
