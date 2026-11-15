@@ -158,6 +158,24 @@
           text-align: center; cursor: pointer; border-radius: 10px; padding: .1rem;
           transition: background-color .15s ease;
         }
+        /* ORW-359: the small expand button in the photo's top-right corner (opens the full-size
+           viewer without opening the dossier). The button is the 44px tap target; the visible
+           chip inside it is smaller. */
+        #orwell-cast .oc-hg { position: relative; }
+        #orwell-cast .oc-expand {
+          position: absolute; top: 2px; right: 2px; z-index: 2; width: 44px; height: 44px;
+          min-width: 44px; min-height: 44px; padding: 0; margin: 0; border: 0; background: transparent;
+          display: flex; align-items: flex-start; justify-content: flex-end; cursor: zoom-in;
+          color: #fff; -webkit-tap-highlight-color: transparent;
+        }
+        #orwell-cast .oc-expand[hidden] { display: none; }
+        #orwell-cast .oc-expand .oc-expand-chip {
+          width: 26px; height: 26px; margin: 5px; border-radius: 8px; display: flex;
+          align-items: center; justify-content: center; background: rgba(0,0,0,.55);
+          box-shadow: 0 0 0 1px rgba(255,255,255,.35);
+        }
+        #orwell-cast .oc-expand:hover .oc-expand-chip { background: rgba(0,0,0,.75); }
+        #orwell-cast .oc-expand:focus-visible { outline: 2px solid var(--ow-ios-blue, #0a84ff); outline-offset: -2px; border-radius: 10px; }
         #orwell-cast .oc-hg:hover, #orwell-cast .oc-hg:focus-visible {
           background: rgba(255,255,255,.06);
         }
@@ -451,6 +469,7 @@
     // the same src is never re-assigned, so a loaded face never reloads.
     entry.portrait = url || null;
     entry.holder.textContent = "";
+    if (entry.expandBtn) entry.expandBtn.hidden = !url; // ORW-359: nothing to enlarge without a photo
     // J2-15: until a portrait (0051) backfills, a single shared 👤 silhouette made the
     // "meet 15 distinct people" payoff read as interchangeable placeholders. Render a
     // per-houseguest monogram instead — the name's initial over a deterministic tint
@@ -586,11 +605,19 @@
     moodEl.className = "oc-mood";
     setMood(moodEl, hg.lastSeenMood);
     card.appendChild(holder);
+    // ORW-359: the expand button. Its own tap opens the full-size photo viewer and is stopped
+    // here, so a plain tile tap (anywhere else) still opens the dossier.
+    const expandBtn = document.createElement("button");
+    expandBtn.type = "button";
+    expandBtn.className = "oc-expand";
+    expandBtn.hidden = true;
+    expandBtn.innerHTML = "<span class='oc-expand-chip' aria-hidden='true'><svg width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='15 3 21 3 21 9'/><polyline points='9 21 3 21 3 15'/><line x1='21' y1='3' x2='14' y2='10'/><line x1='3' y1='21' x2='10' y2='14'/></svg></span>";
+    card.appendChild(expandBtn);
     card.appendChild(nameEl);
     card.appendChild(statusEl);
     card.appendChild(moodEl);
     const entry = {
-      el: card, holder, nameB, statusEl, moodEl,
+      el: card, holder, nameB, statusEl, moodEl, expandBtn,
       id: cardKey(hg),
       name: hg.name == null ? "" : String(hg.name),
       status: hg.status || "active",
@@ -610,7 +637,15 @@
     };
     card.addEventListener("click", openDossier);
     card.addEventListener("keydown", (e) => {
+      if (e.target !== card) return; // ORW-359: Enter/Space on the nested expand button is its own
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDossier(); }
+    });
+    const syncExpandLabel = () => expandBtn.setAttribute("aria-label", "View photo of " + (entry.name || "houseguest"));
+    syncExpandLabel();
+    entry.syncExpandLabel = syncExpandLabel;
+    expandBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (window.OrwellPortraitViewer) window.OrwellPortraitViewer.open(entry.id, expandBtn, { name: entry.name, portrait: entry.portrait, status: entry.status });
     });
     // First paint of a brand-new card: no fade — the fade marks a portrait ARRIVING
     // on a card the player is already looking at.
@@ -632,6 +667,7 @@
     if (name !== entry.name) {
       entry.name = name; entry.nameB.textContent = name;
       entry.el.setAttribute("aria-label", "Open " + (name || "houseguest") + "'s dossier");
+      if (entry.syncExpandLabel) entry.syncExpandLabel();
     }
     const url = hg.portrait || null;
     if (url !== entry.portrait) setPortrait(entry, url, !!url); // the stream moment

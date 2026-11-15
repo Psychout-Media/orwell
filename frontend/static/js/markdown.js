@@ -1087,8 +1087,13 @@ function _speakerChipHtml(id, name) {
     }
   } catch (_) { face = ''; }
   if (!face) face = `<span class="ow-speaker-chip-ini">${escapeHtml(_speakerInitials(nm))}</span>`;
+  // ORW-359: the chip carries the id as data-hg (the chat's delegated click opens the dossier);
+  // an unresolved speaker has no roster id, so it stays inert.
+  const _seed = _resolveSpeakerSeed(id, nm);
+  const rid = _seed && _seed !== nm ? _seed : null; // seed === name means the roster could not resolve it
   const idAttr = id ? ` data-hg-id="${escapeHtml(String(id))}"` : '';
-  return `<span class="ow-speaker-chip"${idAttr} data-hg-name="${safe}" title="${safe}" `
+  const hgAttr = rid ? ` data-hg="${escapeHtml(String(rid))}"` : '';
+  return `<span class="ow-speaker-chip"${idAttr}${hgAttr} data-hg-name="${safe}" title="${safe}" `
     + `aria-label="${safe}" role="img">${face}</span>`;
 }
 
@@ -1362,7 +1367,7 @@ export function restoreSpeakerChips(html, chips, ctx) {
     // so the sentence it started stays complete. Bold-name-pass chips (#1638) never set
     // showName: their `**Name**` is still in the prose.
     const label = c.showName
-      ? `<strong class="ow-speaker-name">${escapeHtml(String(c.name || '').trim())}</strong>${c.colon ? ':' : ''} `
+      ? `<strong class="ow-speaker-name"${(() => { const nm = String(c.name || '').trim(); const sd = _resolveSpeakerSeed(c.id, nm); return sd && sd !== nm ? ` data-hg="${escapeHtml(String(sd))}"` : ''; })()}>${escapeHtml(String(c.name || '').trim())}</strong>${c.colon ? ':' : ''} `
       : '';
     return _speakerChipHtml(c.id, c.name) + label;
   };
