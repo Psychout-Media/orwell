@@ -216,6 +216,39 @@ def test_the_card_prompt_and_scene_setting_are_not_ballots():
         assert not out, f"must pass: {t!r} -> {out}"
 
 
+# ORW-372: a nominee's name as a VOCATIVE opening a spoken line is not a ballot readout (real rehearsal 2026-11-15 shapes, roles for names)
+VOCATIVE_LINES = [
+    '@[Other Delta] "Nom Alpha. Before you go in \u2014 nothing heavy. I\'m not going to be the person who keeps you up."',   # another HG addressing a nominee
+    '@[Vetoer Gamma] "Nom Beta. Good \u2014 you\'re still up." He glances once at Other Delta, then back.',
+    '@[Other Delta] "Nom Alpha." Other Delta says it sharp and short, and then catches himself. "Nom Alpha, buddy, sit down."',  # closed quote + dialogue tag
+    '"Nom Beta. I\'ve been doing this work a long time."',
+]
+
+
+@pytest.mark.parametrize("line", VOCATIVE_LINES)
+def test_a_vocative_opening_a_longer_line_is_not_a_ballot_readout(line):
+    kept, out, _ = stripped(line + "\n", ev_sig())
+    assert not [o for o in out if "ballot" in o["reason"]], f"must pass: {line!r} -> {out}"
+    assert kept == line + "\n"
+
+
+@pytest.mark.parametrize("line", [
+    '@[Hoh Person] "Nom Alpha."\n\nThe name lands.',                 # standalone, closed, newline
+    '"Nom Beta."\nThe room holds its breath.',
+    '"Nom Alpha." The host turns the next ballot over.',              # closing wrapper + narration that is not a dialogue tag
+    '@[Hoh Person] "Nom Alpha."',
+])
+def test_a_standalone_bare_name_reveal_line_is_still_stripped_before_any_ballot(line):
+    kept, out, _ = stripped(line + "\n", ev_sig())
+    assert [o for o in out if "ballot" in o["reason"]], f"must strip: {line!r}"
+
+
+def test_vocative_lines_behave_as_before_once_ballots_are_revealed():
+    s = sig(phase="eviction", nomNames=["Nom Alpha", "Nom Beta"], evictionBallots=3, pending=None)
+    for line in VOCATIVE_LINES + ['@[Hoh Person] "Nom Alpha."']:
+        assert not [o for o in stripped(line + "\n", s)[1] if "ballot" in o["reason"]]
+
+
 def test_a_bare_name_line_is_not_a_ballot_outside_the_eviction_phase():
     kept, out, _ = stripped('@[Hoh Person] "Nom Alpha."\n', sig(phase="veto-competition", evictionBallots=0))
     assert not out
