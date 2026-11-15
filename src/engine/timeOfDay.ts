@@ -362,7 +362,8 @@ export function clockBandFor(hour: number): ClockBand {
 
 /** "late night, Day 5": the band plus the day, with no minutes (the zero-clocks counterpart of `formatClockLabel`). */
 export function formatClockBandLabel(hour: number, day?: number): string {
-  return `${clockBandFor(hour)}${day === undefined ? "" : `, Day ${Math.max(1, Math.floor(day))}`}`;
+  // Round to the same whole minute `formatClockLabel` shows, so the band and the scrubbed clock label never disagree for the seconds around a boundary (11:59:40 reads 12:00pm, so it is already the afternoon).
+  return `${clockBandFor(Math.round(hour * 60) / 60)}${day === undefined ? "" : `, Day ${Math.max(1, Math.floor(day))}`}`;
 }
 
 /**

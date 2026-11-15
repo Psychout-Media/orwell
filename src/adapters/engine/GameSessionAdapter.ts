@@ -802,9 +802,9 @@ const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
  * outcome-neutral by construction — which is exactly why it ships behind its own flag, gated by the
  * calibration heavy-sims (juryReach / gradient / UAT run ON) rather than an on/off SHA256 identity.
  *
- * WITH IT UNSET (the default), `scheduleStoryThreads` never re-orders (it iterates the unchanged derive
- * order) ⇒ the seeded `juryReach`/gradient/UAT spine is BYTE-IDENTICAL to today AND to Phase-1 (proven by
- * `showrunnerReweight.test.ts`'s off-vs-today SHA256, on top of the still-green `showrunnerOutcomeNeutral`).
+ * WITH IT DISABLED (`ORWELL_SHOWRUNNER_REWEIGHT=0`/`false`/`off`; unset now means ON), `scheduleStoryThreads` never re-orders (it iterates the unchanged derive
+ * order) ⇒ the seeded `juryReach`/gradient/UAT spine is BYTE-IDENTICAL to the pre-reweight model AND to Phase-1 (proven by
+ * `showrunnerReweight.test.ts`'s off-vs-today SHA256, on top of the still-green `showrunnerOutcomeNeutral`). That byte-identical claim holds ONLY while it is disabled.
  * The reweight IMPLIES note composition (you cannot re-weight without a note): when ON it composes notes
  * itself, so `ORWELL_SHOWRUNNER_REWEIGHT=1` alone yields the full arc-pacing showrunner. Read once at
  * module load (like the sibling flags), with a PROCESS-GLOBAL static override (mirroring `secretPacing` /
@@ -5373,6 +5373,12 @@ export class GameSessionAdapter implements GameSession {
     return overlay;
   }
 
+  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
+  foldWindowKey(): string | null {
+    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
+    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
+  }
+
   /**
    * The houseguests still AWAKE right now (ADR 0006 — the diegetic bound, the SOCIAL half of the sleep
    * economy). When the clock is running, anyone past their character-driven bedtime has turned in for
@@ -5384,12 +5390,6 @@ export class GameSessionAdapter implements GameSession {
    * reads no soul/Vault number.
    */
   /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
-  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
-  foldWindowKey(): string | null {
-    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
-    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
-  }
-
   awakeIds(): ReadonlySet<EntityId> | null {
     return this.awakeNow();
   }

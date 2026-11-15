@@ -14,7 +14,7 @@ import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
 import type { HiddenRecord } from "../ports/VaultStore";
-import type { AdvanceView } from "../ports/GameSession";
+import type { AdvanceView, PlayerMoveView } from "../ports/GameSession";
 import type { PersistedCanon } from "../domain/canon";
 import { canonSupersetProblems, restoreCanon } from "./canonLedger";
 import { openLedgerSuperset, restoreOpenLedger, type OpenLedger } from "./openLedger";
@@ -220,7 +220,7 @@ export interface SessionCore {
   /** Room tenure — ticks each houseguest has held their current room (L21/L24). Absent on older saves (reseeded on the next tick). */
   presenceTenure?: Record<EntityId, number>;
   /** ORW-419 - the player's own engine-resolved move this turn ({from,to} or {refused,reason}); room ids + words only. Absent when none. Per-turn projection state: exempt from the non-degradation counts. */
-  playerMove?: { from?: string; to?: string; refused?: true; reason?: string };
+  playerMove?: PlayerMoveView;
   /**
    * The presence-tick COUNTER (L21/L24). Movement randomness rides a DEDICATED stream forked off the
    * game seed + this counter — never the orchestrator's shared per-user stream — so personality-weighted
