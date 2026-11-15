@@ -18,8 +18,9 @@ export interface BedClaim {
   readonly who: EntityId;
   readonly bed: BedId;
   readonly day: number;
-  /** move-in: claimed on move-in day in entrance order; leftover: the spot left over at the player's first bedtime (they never picked one). */
-  readonly why: "move-in" | "leftover";
+  /** move-in: claimed on move-in day in entrance order; leftover: the spot left over at the player's first bedtime (they never picked one); swap: traded with the spot's owner, who agreed;
+   *  move: a later move into a free spot (a goal, a falling-out, an evictee's empty bed). */
+  readonly why: "move-in" | "leftover" | "swap" | "move";
 }
 
 export interface BedsState {
@@ -27,6 +28,8 @@ export interface BedsState {
   owner: Record<EntityId, BedId>;
   /** Every claim, in order. Append-only. */
   claims: BedClaim[];
+  /** ORW-466 slice 3: evictees whose empty spot the house has noticed (a public event, once each). Append-only; absent until the first eviction. */
+  noticedEmpty?: EntityId[];
 }
 
 export const roomOfBed = (spot: BedId): Room => spot.slice(0, spot.lastIndexOf("#")) as Room;
