@@ -35,9 +35,9 @@ export interface FileSaveStoreOptions {
   syncFile?: (path: string) => Promise<void>;
   /** Async fsync of a directory (background mode). */
   syncDir?: (path: string) => Promise<void>;
-  /** Blocking fsync of a file (shutdown flush). */
+  /** Blocking fsync of a file (the synchronous flush). */
   syncFileSync?: (path: string) => void;
-  /** Blocking fsync of a directory (shutdown flush). */
+  /** Blocking fsync of a directory (`ORWELL_SAVE_FSYNC=sync` mode only). */
   syncDirSync?: (path: string) => void;
   /** Monotonic-ish ms clock for backlog age and the flush deadline. */
   nowMs?: () => number;
@@ -66,10 +66,15 @@ interface DirState {
   bootVersions: Set<number> | null;
   /** Save times of versions newer than `durable`, oldest first (backlog age). */
   unsynced: { v: number; t: number }[];
-  /** A checkpoint rename happened since the last directory fsync. */
+  /** A directory entry in this user's dir is not yet fsynced (a checkpoint rename, or the first save after boot). */
   dirDirty: boolean;
-  /** Bumped on every checkpoint rename; a directory fsync clears `dirDirty` only if no newer checkpoint landed since it started. */
-  dirGen: number;
+  /** This user's directory was created by this process: the PARENT (data dir) entry for it is not yet fsynced. */
+  parentDirty: boolean;
+  /** Bumped every time a dir/parent flag is (re)set; a sync clears its flag only if no newer mark arrived meanwhile. */
+  dirSeq: number;
+  parentSeq: number;
+  /** The running background sync (file + directory syncs), so the shutdown flush can await it. */
+  syncing: Promise<void> | null;
   /** Last time the backlog alarm fired for this user (null = never). */
   lastAlarmAt: number | null;
   /** The no-synced-save cap warning was already logged for this user. */
@@ -117,7 +122,7 @@ export function resetSaveSyncLimiterForTests(): void {
   limiter.queue.length = 0;
 }
 
-function defaultSyncFileSync(path: string): void {
+function defaultSyncDirSync(path: string): void {
   const fd = openSync(path, "r");
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
@@ -152,8 +157,8 @@ export class FileSaveStore implements UserSaveStore {
       ?? ((process.env.ORWELL_SAVE_FSYNC ?? "").trim().toLowerCase() === "sync" ? "sync" : "background");
     this.syncFile = opts.syncFile ?? defaultSyncFile;
     this.syncDir = opts.syncDir ?? defaultSyncFile;
-    this.syncFileSync = opts.syncFileSync ?? defaultSyncFileSync;
-    this.syncDirSync = opts.syncDirSync ?? defaultSyncFileSync;
+    this.syncFileSync = opts.syncFileSync ?? defaultSyncDirSync; // the same open+fsync+close works for a file
+    this.syncDirSync = opts.syncDirSync ?? defaultSyncDirSync;
     this.nowMs = opts.nowMs ?? (() => performance.now());
     this.onError = opts.onError ?? ((l) => console.error(l));
     this.backlogAlarmMs = opts.backlogAlarmMs ?? 60_000;
@@ -190,6 +195,11 @@ export class FileSaveStore implements UserSaveStore {
   /** Save versions present in `dir`, descending. Quarantined (`.corrupt`) files no longer match. */
   private versionsDescending(dir: string): number[] {
     if (!existsSync(dir)) return [];
+    return this.versionsPresent(dir);
+  }
+
+  /** Same, for a directory the caller knows exists (the save path just created it): no existence stat. */
+  private versionsPresent(dir: string): number[] {
     const versions: number[] = [];
     for (const file of readdirSync(dir)) {
       const m = /^v(\d+)\.json$/.exec(file);
@@ -204,8 +214,11 @@ export class FileSaveStore implements UserSaveStore {
 
   saveFor(user: string, snapshot: SessionSnapshot): void {
     const dir = this.userDir(user);
+    // existsSync only the first time this process sees the directory: later saves skip the extra stat.
+    const firstSaveSinceBoot = !this.states.has(dir);
+    const dirIsNew = firstSaveSinceBoot && !existsSync(dir);
     mkdirSync(dir, { recursive: true });
-    const existing = this.versionsDescending(dir);
+    const existing = this.versionsPresent(dir);
     const version = (existing[0] ?? 0) + 1;
     const file = this.fileFor(dir, version);
     // Atomic + DURABLE write (audit E2 + E8): a crash mid-write must never leave a truncated file as
@@ -217,7 +230,13 @@ export class FileSaveStore implements UserSaveStore {
     const tmp = `${file}.tmp`;
     const background = this.fsyncMode === "background";
     const t0 = stallTimer.now();
-    const json = JSON.stringify(snapshot);
+    let json: string;
+    try {
+      json = JSON.stringify(snapshot);
+    } catch (e) {
+      this.firstWriteFailed(dir, dirIsNew, background);
+      throw e;
+    }
     const t1 = stallTimer.now();
     let t2 = t1;
     let t3 = t1;
@@ -242,6 +261,7 @@ export class FileSaveStore implements UserSaveStore {
       t4 = stallTimer.now();
     } catch (e) {
       failed = true;
+      this.firstWriteFailed(dir, dirIsNew, background); // ORW-404: a failed first write still owes its new directory a sync
       throw e;
     } finally {
       // Review of #2691: a save that fails after blocking is still recorded (with a failure marker), and the
@@ -255,7 +275,14 @@ export class FileSaveStore implements UserSaveStore {
     const isCheckpoint = version % FileSaveStore.CHECKPOINT_EVERY === 0;
     if (background) {
       // The directory fsync (amortized to checkpoints, F-EN-1 #1562) rides the background sync too.
-      if (isCheckpoint) { st.dirDirty = true; st.dirGen++; }
+      // ORW-404 follow-up: a cadence is only acceptable for a directory that already exists durably. The
+      // first version file this process writes in a directory, and a brand-new user directory (whose own
+      // entry in the data dir is also unsynced), are hardened here too, off the request path.
+      if (isCheckpoint || firstSaveSinceBoot) this.markDirDirty(st);
+      // The parent entry for a user directory is flagged once per user per boot (not only when THIS process
+      // created it): a restart between the first save and its parent sync leaves an existing directory that
+      // the next boot would otherwise never re-harden.
+      if (dirIsNew || firstSaveSinceBoot) this.markParentDirty(st);
       // Bounded (review of #2732): a long stall must not grow this per save. Only the OLDEST entry (backlog age) and a count matter, so beyond the cap the newest slot is overwritten.
       if (st.unsynced.length >= FileSaveStore.UNSYNCED_TRACK_MAX) st.unsynced[st.unsynced.length - 1] = { v: version, t: this.nowMs() };
       else st.unsynced.push({ v: version, t: this.nowMs() });
@@ -267,13 +294,17 @@ export class FileSaveStore implements UserSaveStore {
       // power loss; amortized to the periodic checkpoint cadence (the same CHECKPOINT_EVERY boundary
       // `prune` keeps in the long-tail archive). Content fsync + atomic rename already guarantee a
       // truncated file can NEVER win. Owner-sanctioned in #1562.
-      if (isCheckpoint) {
+      // ORW-404 follow-up: a brand-new user directory also syncs its own entry and the data dir's entry
+      // for it, synchronously (this mode's contract), so a new game's folder survives a power cut.
+      const dirsToSync: string[] = [];
+      if (isCheckpoint || dirIsNew) dirsToSync.push(dir);
+      if (dirIsNew) dirsToSync.push(this.dataDir);
+      if (dirsToSync.length > 0) {
         const td = stallTimer.now();
-        try {
-          const dirFd = openSync(dir, "r");
-          try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
-        } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
-        stallTimer.record("save.dirsync", stallTimer.now() - td, { version }); // review of #2691: the checkpoint directory flush is its own phase
+        for (const d of dirsToSync) {
+          try { this.syncDirSync(d); } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+        }
+        stallTimer.record("save.dirsync", stallTimer.now() - td, { version }); // review of #2691: the directory flush is its own phase
       }
       st.durable = version;
       st.unsynced = [];
@@ -285,12 +316,34 @@ export class FileSaveStore implements UserSaveStore {
     this.prune(dir, version, st);
   }
 
+  private markDirDirty(st: DirState): void { st.dirDirty = true; st.dirSeq++; }
+  private markParentDirty(st: DirState): void { st.parentDirty = true; st.parentSeq++; }
+
+  /**
+   * A first write threw after the directory was created: its entry in the data dir is still unsynced and no
+   * save will ever follow to carry it. Flag the parent and sync it once in the background (best-effort).
+   */
+  private firstWriteFailed(dir: string, dirIsNew: boolean, background: boolean): void {
+    if (!dirIsNew || !background) return;
+    const st = this.stateFor(dir, [], background);
+    this.markParentDirty(st);
+    // The directory itself is also unsynced and, now that a state exists, the next save sees neither "first
+    // save since boot" nor "directory is new": flag it so that save (or the shutdown flush) syncs it.
+    this.markDirDirty(st);
+    const seq = st.parentSeq;
+    try {
+      void this.syncDir(this.dataDir)
+        .then(() => { if (st.parentSeq === seq) st.parentDirty = false; })
+        .catch(() => { /* stays flagged for the shutdown flush / next save */ });
+    } catch { /* a sync that throws before returning a promise must not replace the save's own error; the flag stays set */ }
+  }
+
   private stateFor(dir: string, existing: number[], background: boolean): DirState {
     let st = this.states.get(dir);
     if (!st) {
       st = {
         latest: existing[0] ?? 0, durable: 0, pending: null, inFlight: null, queued: false,
-        unsynced: [], dirDirty: false, dirGen: 0, bootVersions: null, lastAlarmAt: null, capWarned: false,
+        unsynced: [], dirDirty: false, parentDirty: false, dirSeq: 0, parentSeq: 0, syncing: null, bootVersions: null, lastAlarmAt: null, capWarned: false,
       };
       this.states.set(dir, st);
       if (existing.length > 0 && background) {
@@ -335,13 +388,15 @@ export class FileSaveStore implements UserSaveStore {
     }
     st.pending = null;
     st.inFlight = v;
-    // dirDirty stays set until a directory fsync SUCCEEDS (a shutdown flush must still see it while this sync is in flight).
+    // The flags stay SET while the sync runs: they are cleared only once the directory/parent sync has
+    // SUCCEEDED (and no newer mark arrived), so a shutdown flush mid-sync still sees them owed.
     const dirToo = st.dirDirty;
-    const gen = st.dirGen;
-    this.syncOne(dir, st, v, dirToo, gen)
+    const parentToo = st.parentDirty;
+    st.syncing = this.syncOne(dir, st, v, dirToo, parentToo, st.dirSeq, st.parentSeq)
       .catch((e: unknown) => this.reportFailure(v, e))
       .finally(() => {
         st.inFlight = null;
+        st.syncing = null;
         this.releaseSlot(epoch, extra);
         this.kick(dir, st); // the newest save that landed meanwhile, behind other waiting users
         drainSyncQueue();
@@ -349,7 +404,7 @@ export class FileSaveStore implements UserSaveStore {
       .catch(() => { /* terminal: nothing here may become an unhandled rejection */ });
   }
 
-  private async syncOne(dir: string, st: DirState, v: number, dirToo: boolean, gen: number): Promise<void> {
+  private async syncOne(dir: string, st: DirState, v: number, dirToo: boolean, parentToo: boolean, dirSeq: number, parentSeq: number): Promise<void> {
     const t0 = stallTimer.now();
     try {
       await this.syncFile(this.fileFor(dir, v));
@@ -368,10 +423,21 @@ export class FileSaveStore implements UserSaveStore {
     if (dirToo) {
       try {
         await this.syncDir(dir);
-        if (st.dirGen === gen) st.dirDirty = false;
+        if (st.dirSeq === dirSeq) st.dirDirty = false;
       } catch (e) {
         try {
           this.onError(`[orwell] save.dirsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
+        } catch { /* ignore */ }
+      }
+    }
+    // The new directory's own entry lives in the data dir: sync that after the directory itself.
+    if (parentToo) {
+      try {
+        await this.syncDir(this.dataDir);
+        if (st.parentSeq === parentSeq) st.parentDirty = false;
+      } catch (e) {
+        try {
+          this.onError(`[orwell] save.parentsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
         } catch { /* ignore */ }
       }
     }
@@ -451,7 +517,7 @@ export class FileSaveStore implements UserSaveStore {
    */
   async flushDurableAsync(timeoutMs = 10_000): Promise<void> {
     const todo = [...this.states.entries()]
-      .filter(([, st]) => st.latest > 0 && (st.latest > st.durable || st.dirDirty))
+      .filter(([, st]) => st.syncing !== null || st.dirDirty || st.parentDirty || (st.latest > 0 && st.latest > st.durable))
       .sort((x, y) => this.backlogOf(y[1]) - this.backlogOf(x[1]));
     if (todo.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -464,16 +530,38 @@ export class FileSaveStore implements UserSaveStore {
       while (next < todo.length) {
         const [dir, st] = todo[next++]!;
         try {
-          await this.syncFile(this.fileFor(dir, st.latest));
-          if (st.dirDirty) {
-            // The checkpoint is not durable until its directory entry is: a failed directory fsync leaves dirDirty set and the marker unmoved.
-            const gen = st.dirGen;
-            await this.syncDir(dir);
-            if (st.dirGen === gen) st.dirDirty = false;
+          // A background sync already running for this user is awaited at the end (the overall deadline
+          // bounds it). The dir/parent flags stay set until a directory sync SUCCEEDS, so whatever that
+          // sync has not finished is still owed here and is done now, concurrently with it.
+          const running = st.syncing;
+          if (st.latest <= 0) {
+            // No version file exists (a failed first write) but a directory sync may still be owed.
+            if (st.dirDirty) { const sq = st.dirSeq; try { await this.syncDir(dir); if (st.dirSeq === sq) st.dirDirty = false; } catch { /* best-effort */ } }
+            if (st.parentDirty) { const sq = st.parentSeq; try { await this.syncDir(this.dataDir); if (st.parentSeq === sq) st.parentDirty = false; } catch { /* best-effort */ } }
+            if (running) { try { await running; } catch { /* handled inside */ } }
+            continue;
           }
-          this.markDurable(dir, st, st.latest);
+          if (st.latest <= st.durable && !st.dirDirty && !st.parentDirty) {
+            if (running) { try { await running; } catch { /* handled inside */ } }
+            continue;
+          }
+          await this.syncFile(this.fileFor(dir, st.latest));
+          // The save is not durable until its directory entries are (review of #2732): a failed directory fsync
+          // leaves its flag set and the marker unmoved. BOTH entries are attempted: one failing must not skip
+          // the other (the user directory's own entry and its entry in the data dir are separate syncs).
+          let entriesOk = true;
+          if (st.dirDirty) {
+            const sq = st.dirSeq;
+            try { await this.syncDir(dir); if (st.dirSeq === sq) st.dirDirty = false; } catch (e) { entriesOk = false; this.reportFlushFailure(e); }
+          }
+          if (st.parentDirty) {
+            const sq = st.parentSeq;
+            try { await this.syncDir(this.dataDir); if (st.parentSeq === sq) st.parentDirty = false; } catch (e) { entriesOk = false; this.reportFlushFailure(e); }
+          }
+          if (entriesOk) this.markDurable(dir, st, st.latest);
+          if (running) { try { await running; } catch { /* handled inside */ } }
         } catch (e) {
-          try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
+          this.reportFlushFailure(e);
         }
       }
     };
@@ -486,33 +574,44 @@ export class FileSaveStore implements UserSaveStore {
   }
 
   /**
-   * Shutdown flush (ORW-404): synchronously fsync the newest version of every user with an un-synced
-   * save, so a deploy-time restart is fully durable. Bounded: no NEW sync is started once `timeoutMs`
+   * Synchronous flush (ORW-404): fsync the newest version of every user with an un-synced save or an owed
+   * directory sync. The shutdown path uses `flushDurableAsync` (non-blocking, so the hard-exit timer can
+   * fire); this one stays for callers that must not yield. Bounded: no NEW sync is started once `timeoutMs`
    * has elapsed (a single in-progress fsync cannot be interrupted). Never throws.
    */
   flushDurable(timeoutMs = 10_000): void {
     const deadline = this.nowMs() + timeoutMs;
     for (const [dir, st] of this.states) {
-      if (st.latest <= st.durable && !st.dirDirty) continue;
+      if (st.latest <= st.durable && !st.dirDirty && !st.parentDirty) continue;
       if (this.nowMs() >= deadline) {
         try { this.onError("[orwell] save.flush deadline reached; remaining saves not fsynced"); } catch { /* ignore */ }
         return;
       }
       try {
-        this.syncFileSync(this.fileFor(dir, st.latest));
-        if (st.dirDirty) { this.syncDirSync(dir); st.dirDirty = false; }
-        this.markDurable(dir, st, st.latest);
-        st.pending = null;
+        if (st.latest > 0) this.syncFileSync(this.fileFor(dir, st.latest));
+        // Both directory entries are attempted; the marker moves only when neither is still owed.
+        let entriesOk = true;
+        if (st.dirDirty) { try { this.syncDirSync(dir); st.dirDirty = false; } catch (e) { entriesOk = false; this.reportFlushFailure(e); } }
+        if (st.parentDirty) { try { this.syncDirSync(this.dataDir); st.parentDirty = false; } catch (e) { entriesOk = false; this.reportFlushFailure(e); } }
+        if (st.latest > 0 && entriesOk) {
+          this.markDurable(dir, st, st.latest);
+          st.pending = null;
+        }
       } catch (e) {
-        try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
+        this.reportFlushFailure(e);
       }
     }
+  }
+
+  /** One log line for a failed flush step. Never throws. */
+  private reportFlushFailure(e: unknown): void {
+    try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
   }
 
   /** Bounded retention (B58/audit E4): keep the recent window + the newest periodic checkpoints. */
   private prune(dir: string, latest: number, st: DirState): void {
     const keep = new Set<number>();
-    const existing = this.versionsDescending(dir);
+    const existing = this.versionsPresent(dir);
     // ORW-404: always keep the highest EXISTING version <= durable (the newest fully synced save),
     // never delete a version whose fsync is in flight, and keep everything that was on disk at boot
     // until one fsync has completed.
