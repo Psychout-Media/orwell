@@ -282,6 +282,7 @@ def test_full_refusal_is_recorded_loudly_once_per_turn(monkeypatch):
     assert run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(3), full, owner="u1")) == 0
     assert [c for c, _ in seen] == ["open-ledger:full"]  # three refusals, ONE record
     assert seen[0][1].get("user") == "u1"
+    assert not seen[0][1].get("corrected"), "nothing corrected the refusal: the admin disposition must read 'uncorrected'"
 
 
 def test_other_refusals_and_acceptances_do_not_record_full(monkeypatch):

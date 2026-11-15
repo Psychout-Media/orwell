@@ -69,7 +69,7 @@ def _record_full(user: Optional[str]) -> None:
     stable id, so it shows on the admin status page. Called at most once per turn."""
     from src import log_rings
     log_rings.record_soft_failure("open-ledger:full", RuntimeError("the engine refused an open-ledger write: full"),
-                                  corrected="the entry was not kept; resolve or withdraw old ones", user=user)
+                                  user=user)  # review of #2759: nothing corrected the refusal, so no `corrected=`: the admin disposition reads "uncorrected"
 
 
 # ── grounding: is an extracted entry really in the narration? ────────────────────────────────────────────────────────────
