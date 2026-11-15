@@ -38,7 +38,7 @@ SKELETON_LOOK = {  # the dealt hand: no visible ink anywhere
     "facialFeatures": "sharp jaw", "distinguishingMark": "none notable", "ageLook": "early thirties",
     "style": "understated",
 }
-NPC = {"id": "npc:1", "genderPresentation": "woman", "age": 31, "vocation": "pastry chef",
+NPC = {"id": "npc:1", "biography": "A seeded floor biography that the engine keeps when the writer omits its own.", "genderPresentation": "woman", "age": 31, "vocation": "pastry chef",
        "physicalCharacteristics": SKELETON_LOOK}
 
 INKED_BIO = ("She runs the early shift at a bakery and has a full sleeve tattoo of wheat stalks. She keeps her "
