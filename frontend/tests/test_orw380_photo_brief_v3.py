@@ -171,7 +171,7 @@ def test_writer_input_carries_name_gender_and_taken_and_no_vault_field():
 def test_write_photo_sheet_retries_once_with_the_taken_list_then_falls_back():
     card = _npc("man", name="Dev Rao")
     card["id"] = "npc:9"
-    taken = {"mainPieces": ["a leather jacket"], "spots": {"kitchen": 3}}
+    taken = {"mainPieces": ["a leather jacket"], "spots": {"kitchen": 2}}
     replies = [
         {"wardrobe": ["a leather jacket", "dark jeans"], "photoHair": "a messy bun", "onCamera": "She stands in the kitchen."},
         {"wardrobe": ["a leather jacket", "dark jeans"], "photoHair": "a neat low bun", "onCamera": "He stands in the kitchen."},
@@ -381,3 +381,44 @@ def test_holding_store_run_never_writes_the_live_cast(monkeypatch):
     n = _run(ca.run_authoring(cast, "u", None, holding, seed=1))
     assert n == 3 and len(held) == 3          # all three duplicate the same leather jacket: the pass WOULD fire live
     assert live_looks == []                   # but a holding-store run never touches the live cast
+
+
+# ---- ORW-437 review: more checker rules ----------------------------------------------------------------------
+
+def test_a_full_spot_is_oncamera_taken_and_falls_back_to_no_oncamera():
+    card = _npc("man", name="Dev Rao")
+    full = {"mainPieces": [], "spots": {"kitchen": 3}}
+    sheet = {"wardrobe": ["a navy blazer", "dark jeans"], "photoHair": "a neat low bun", "onCamera": "He stands in the kitchen."}
+    assert ca.sheet_problems(sheet, card, full) == ["oncamera-taken"]
+    assert ca.sheet_problems(sheet, card, {"mainPieces": [], "spots": {"kitchen": 2}}) == []
+    assert "onCamera" not in ca.sheet_fallbacks(sheet, card, ["oncamera-taken"])
+
+
+def test_photohair_pronouns_and_they_for_a_man_or_woman_are_rejected():
+    man, woman = _npc("man", name="Dev Rao"), _npc("woman", name="Ann Lee")
+    s = {"photoHair": "a low bun she ties herself"}
+    assert "pronoun-mismatch" in ca.sheet_problems(s, man)
+    assert "pronoun-mismatch" in ca.sheet_problems({"onCamera": "They stand in the lounge."}, man)
+    assert "pronoun-mismatch" in ca.sheet_problems({"onCamera": "They stand in the lounge."}, woman)
+    nb = _npc("nonbinary", name="Kit Rao")
+    assert "pronoun-mismatch" not in ca.sheet_problems({"onCamera": "They stand in the lounge."}, nb)
+
+
+def test_a_raised_first_call_resends_the_original_messages_not_an_empty_problem_list():
+    card = _npc("man", name="Dev Rao")
+    sent = []
+
+    async def llm(msgs):
+        sent.append(msgs)
+        if len(sent) == 1:
+            raise RuntimeError("provider down")
+        return json.dumps({"wardrobe": ["a navy blazer", "dark jeans"], "photoHair": "a neat low bun", "onCamera": "He stands in the kitchen."})
+
+    fields, codes = _run(ca.write_photo_sheet(card, None, llm))
+    assert codes == [] and fields and len(sent) == 2
+    assert sent[1] == sent[0] and "failed these checks: ." not in json.dumps(sent[1])
+
+
+def test_wrangler_is_a_brand():
+    card = _npc("man", name="Dev Rao")
+    assert "wardrobe-shape" in ca.sheet_problems({"wardrobe": ["a Wrangler shirt", "dark jeans"]}, card)

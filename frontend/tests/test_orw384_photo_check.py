@@ -358,3 +358,39 @@ def test_upgrade_reshoot_is_checked_and_reuses_the_old_face_on_the_fix(env):
     assert "Fix in this version" in env.shots[1][0] and "Fix in this version" not in env.shots[0][0]
     assert P.portrait_file("u", "npc:1").read_bytes() == b"PNG2"
     assert _manifest()[P._safe_id("npc:1")]["check"] == {"ok": True, "problems": [], "reshot": True}
+
+
+# ---- ORW-437 review of #2677 and #2731 -----------------------------------------------------------------------
+
+def test_a_reply_without_a_dollar_cost_is_ledgered_with_an_estimate(env):
+    env.replies = [_Resp(200, {"choices": [{"message": {"content": json.dumps({"problems": []})}}], "model": "deepseek-flash",
+                               "usage": {"prompt_tokens": 900000, "completion_tokens": 12000}})]
+    _store()
+    rows = [e for e in ledger.get_recent("u", 50) if e["callClass"] == "portrait-check"]
+    assert len(rows) == 1 and rows[0]["cost"] > 0 and rows[0].get("costEstimated") is True
+
+
+def test_a_persisted_string_false_disables_the_check(env):
+    for off in ("false", "False", "0", "off"):
+        env.settings["portrait_check_enabled"] = off
+        assert C.check_enabled("u") is False
+    env.settings["portrait_check_enabled"] = "true"
+    assert C.check_enabled("u") is True
+
+
+def test_a_verdict_of_only_unknown_codes_skips_the_check_instead_of_passing_the_photo(env):
+    env.replies = [_reply(["made-up-code"])]
+    assert _run(C.check_portrait(b"PNG", {}, "u")) is None
+    env.replies = [_reply(["not-one-person", "made-up-code"])]  # a known code beside an unknown one still counts
+    assert _run(C.check_portrait(b"PNG", {}, "u"))["problems"] == ["not-one-person"]
+
+
+def test_hair_colour_and_length_are_read_from_the_hair_clause_in_any_order():
+    pr = "Waist-up portrait of a 30-year-old woman. Hair: tight black curls. Setting: the house kitchen"
+    assert "black hair" in C.visible_features(pr)
+    pr2 = "Waist-up portrait of a 30-year-old woman. Hair: shoulder-length waves, jet black. Setting: the house kitchen"
+    f = C.visible_features(pr2)
+    assert "jet black hair" in f and "shoulder-length hair" in f
+    assert C.visible_features("Hair: a neat low bun. Setting: x") == []
+    assert "short dark brown hair" not in C.visible_features("a woman with short brown hair")  # older wording still parses
+    assert "short hair" in C.visible_features("a woman with short hair")

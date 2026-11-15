@@ -77,7 +77,7 @@ Feature: 0090 — Per-archetype voice (the cast reads as different people)
       Then every houseguest's voice fingerprint matches across the two casts
       And their voiced confessional phrasing matches across the two casts
 
-    Scenario: With no voice fingerprints, the seeded game is byte-identical
+    Scenario: With no voice fingerprints, confessionals fall back to the templated phrasing and the seeded outcome is unchanged
       Given the same seeded seasons with and without the houseguests' voice fingerprints
       Then the engine-authored confessional prose without voices falls back to its templated phrasing
       And the seeded competition and jury outcome is unchanged

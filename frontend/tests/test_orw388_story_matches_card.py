@@ -220,3 +220,36 @@ def test_genesis_look_features_have_no_scar_birthmark_chipped_or_tooth_gap_and_m
     assert py == _ts_list("GENESIS_LOOK_FEATURES")
     for f in py:
         assert not re.search(r"scar|birthmark|chipped|gap-?tooth", f, re.I), f
+
+
+# ---- ORW-437 review of #2716 ---------------------------------------------------------------------------------
+
+def test_they_verbs_goes_becomes_go():
+    assert ca._they_verbs("They goes home and they echoes it.") == "They go home and they echo it."
+
+
+def test_a_short_sleeve_shirt_is_not_a_tattoo():
+    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 30,
+           "physicalCharacteristics": {"hair": "short", "style": "casual", "wardrobe": ["a short-sleeve shirt"]}}
+    assert ca.story_missing_features("Dev has a tattoo on his arm.", {}, npc) == ["tattoo"]
+
+
+def test_a_feature_the_author_removed_is_not_kept_consistent_by_the_seeded_facet():
+    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 30,
+           "physicalCharacteristics": {"distinguishingMark": "a tattoo on the forearm"}}
+    profile = {"physicalCharacteristics": {"distinguishingMark": "none notable", "style": "casual"}}
+    assert ca.story_missing_features("Dev has a tattoo on his arm.", profile, npc) == ["tattoo"]
+    assert ca.story_missing_features("Dev has a tattoo on his arm.", {}, npc) == []
+
+
+def test_at_age_nineteen_is_a_past_event_and_another_persons_age_is_not_rewritten():
+    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 34}
+    assert ca.story_age_conflict("At age 19, he left home.", npc) is False
+    assert ca.story_age_conflict("Dev is aged 40 and proud.", npc) is True
+    assert ca.story_age_conflict("His rival Marcus, 45, never lets it go.", npc) is False
+
+
+def test_a_sentence_opened_by_another_name_is_not_the_houseguests_pronoun_error():
+    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 34}
+    assert ca.pronoun_conflict_sentences("Dana trusted her gut.", npc) == []
+    assert ca.pronoun_conflict_sentences("Fiercely loyal, she never quits.", npc) == [0]

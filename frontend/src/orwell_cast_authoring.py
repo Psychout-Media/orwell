@@ -1022,10 +1022,15 @@ _BAND_BRAND_NAMES = (
     "converse", "patagonia", "harley", "rolex", "birkenstock", "ray-ban", "dr. martens", "doc martens",
     "louis vuitton", "chanel", "prada", "champion", "yeezy", "jordans", "under armour", "north face",
     "lululemon", "hollister", "abercrombie", "burberry", "versace", "off-white", "stussy", "timberland",
+    "wrangler", "ariat", "stetson", "new balance", "columbia", "hanes", "fila", "asics", "hurley", "quiksilver",
+    "oakley", "nautica", "ralph lauren", "tommy hilfiger", "calvin klein", "uniqlo", "dickies",
+    "russell athletic", "fruit of the loom", "zara", "h&m", "fendi", "dior", "hermes", "tiffany",
+    "canada goose", "arc'teryx", "arcteryx", "salomon", "crocs", "skechers", "hoka", "saucony",
 )
 _BAND_BRAND_RE = re.compile(
     r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
 _ONCAMERA_MAX = 240
+_SPOT_MAX = 3  # at most this many houseguests share one house spot in their on-camera moment
 _PHOTOHAIR_MAX = 90
 _SPOT_PATTERNS = (
     ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
@@ -1039,8 +1044,9 @@ _ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*someone (?:who|you|t
 _PHOTOHAIR_BANNED_RE = re.compile(
     r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _PHOTOHAIR_BANNED_WORDS), re.I)
 _PRONOUN_CONTRADICTIONS = {
-    "man": re.compile(r"\b(?:she|her|hers|herself)\b", re.I),
-    "woman": re.compile(r"\b(?:he|him|his|himself)\b", re.I),
+    # ORW-437: man/woman also reject they/them (a sheet line is about ONE person and the prompt pins he/him or she/her).
+    "man": re.compile(r"\b(?:she|her|hers|herself|they|them|their|theirs|themselves)\b", re.I),
+    "woman": re.compile(r"\b(?:he|him|his|himself|they|them|their|theirs|themselves)\b", re.I),
     "nonbinary": re.compile(r"\b(?:he|him|his|himself|she|her|hers|herself)\b", re.I),
 }
 _PIECE_CUT_RE = re.compile(r"\s+(?:with|over|in|and|on|under|featuring|paired)\b|[,;(]", re.I)
@@ -1104,8 +1110,9 @@ _LOOK_PROBLEM_TEXT = {
     "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
     "oncamera-shape": "onCamera must name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
     "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
-    "pronoun-mismatch": "a pronoun in onCamera or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
+    "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
     "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
+    "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
     "wardrobe-taken": "the MAIN (first) wardrobe piece repeats one already taken in this cast; choose a different garment",
 }
 
@@ -1167,8 +1174,11 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             out.append("oncamera-scene")
         elif len(oncamera_spots(oc)) != 1:
             out.append("oncamera-shape")
+        elif isinstance(taken, dict) and (taken.get("spots") or {}).get(next(iter(oncamera_spots(oc))), 0) >= _SPOT_MAX:
+            out.append("oncamera-taken")  # ORW-437: that house spot already holds three houseguests
     gender = (npc or {}).get("genderPresentation")
     if gender and (pronoun_mismatch(str(pc.get("onCamera") or ""), gender)
+                   or pronoun_mismatch(str(pc.get("photoHair") or ""), gender)
                    or pronoun_mismatch(" ".join(items), gender)):
         out.append("pronoun-mismatch")
     if "photoHair" in pc and photohair_is_messy(str(pc.get("photoHair") or "")):
@@ -1209,12 +1219,14 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             pc.pop("wardrobe", None)
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
-        elif code in ("oncamera-shape", "oncamera-scene"):
+        elif code in ("oncamera-shape", "oncamera-scene", "oncamera-taken"):
             pc.pop("onCamera", None)
         elif code == "pronoun-mismatch":
             gender = (npc or {}).get("genderPresentation")
             if pronoun_mismatch(str(pc.get("onCamera") or ""), gender):
                 pc.pop("onCamera", None)
+            if pronoun_mismatch(str(pc.get("photoHair") or ""), gender):
+                pc.pop("photoHair", None)
             if pronoun_mismatch(" ".join(str(x) for x in (pc.get("wardrobe") or []) if isinstance(pc.get("wardrobe"), list)), gender):
                 pc.pop("wardrobe", None)
         elif code == "photohair-messy":
@@ -1266,7 +1278,7 @@ _FEATURES = {
     "tooth-gap": (re.compile(r"\b(?:gap-?toothed|gappy|gap[- ]tooth(?:ed)?|(?:a |the )?gap (?:in|between) (?:her|his|their|the) (?:front )?teeth|tooth gap)\b", re.I),
                   re.compile(r"\bgap|diastema", re.I)),
     "tattoo": (re.compile(r"\b(?:tattoo(?:s|ed)?|inked|ink(?:ed)? (?:sleeve|forearm|arm)s?)\b", re.I),
-               re.compile(r"\btattoo|\bink(?:ed)?\b|\bsleeve", re.I)),
+               re.compile(r"\btattoo|\bink(?:ed)?\b|\b(?:full|half)[- ]sleeves?(?!\s+(?:tee|t-?shirt|shirt|top|blouse|sweater|kurta)s?\b)", re.I)),  # ORW-437: a "short-sleeve shirt" is not a tattoo
     "glasses": (re.compile(r"\b(?:(?:wire|horn|round|thick|black|tortoiseshell)[- ]?(?:rimmed|framed)? ?glasses|glasses|spectacles|eyeglasses|bespectacled)\b", re.I),
                 re.compile(r"glasses|spectacles|eyeglasses|bespectacled|frames\b", re.I)),
     "scar": (re.compile(r"\bscars?\s+(?:above|across|on|over|under|along|through|beside|near)\b|\ban?\s+(?:[\w-]+\s+)?scar\b", re.I), re.compile(r"\bscar", re.I)),
@@ -1289,10 +1301,14 @@ _FEATURE_NOUN_CLAUSE = {
 def _look_text(profile: dict, npc: dict) -> str:
     """Every public look string the card will carry: the authored facet over the seeded one, plus the narrator's appearance line."""
     parts = []
-    for src in ((npc or {}).get("physicalCharacteristics"), (profile or {}).get("physicalCharacteristics")):
-        if isinstance(src, dict):
-            for v in src.values():
-                parts.extend(str(x) for x in v) if isinstance(v, list) else parts.append(str(v))
+    # ORW-437: the authored facet REPLACES the seeded one on the card, so it alone is read when present (a feature the
+    # author removed must not be kept "consistent" by the seeded block); the seeded facet stands in when none was authored.
+    authored = (profile or {}).get("physicalCharacteristics")
+    seeded = (npc or {}).get("physicalCharacteristics")
+    src = authored if isinstance(authored, dict) and authored else seeded
+    if isinstance(src, dict):
+        for v in src.values():
+            parts.extend(str(x) for x in v) if isinstance(v, list) else parts.append(str(v))
     parts.append(str((npc or {}).get("appearance") or ""))
     return " ".join(parts)
 
@@ -1328,6 +1344,13 @@ def _plainly_the_houseguest(sentence: str, npc: dict, *, names: bool = True) -> 
     if not names:
         return True
     own = {w.lower() for k in ("name", "hometown", "vocation") for w in re.findall(r"[A-Za-z']+", str((npc or {}).get(k) or ""))}
+    # ORW-437: a sentence OPENED by another person's name ("Dana trusted her gut.") is about them, not the houseguest.
+    lead = re.match(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(?:\s+[A-Z][a-z]+)?\s+([a-z]+)", sentence)
+    if lead:
+        low = lead.group(1).lower()
+        if (low not in own and low not in _NOT_A_NAME and lead.group(2) not in _NOT_A_VERB
+                and not low.endswith(("ing", "ly"))):
+            return False
     for m in _NAMED_PERSON_RE.finditer(sentence):
         if m.start() > 0 and m.group(0).lower() not in own and m.group(0) != "Orwell":
             return False
@@ -1377,6 +1400,8 @@ def _they_verbs(text: str) -> str:
             new = verb
         elif lv.endswith("ies") and len(lv) > 4:
             new = verb[:-3] + "y"
+        elif lv.endswith("oes"):
+            new = verb[:-2]  # ORW-437: "goes" -> "go", "echoes" -> "echo" (never "goe")
         elif re.search(r"(?:ch|sh|ss|x|z)es$", lv):
             new = verb[:-2]
         else:
@@ -1395,6 +1420,22 @@ def pronoun_conflict_sentences(text: str, npc: dict) -> list:
     return [i for i in range(0, len(parts), 2) if rx.search(parts[i]) and _plainly_the_houseguest(parts[i], npc)]
 
 
+_NAME_BEFORE_AGE_RE = re.compile(r"(?<![\w])([A-Z][a-z]{2,})(?:\s+[A-Z][a-z]+)?,?\s*(?:\(|aged?\s+|an?\s+)?$")
+_PLACE_PREP_RE = re.compile(r"\b(?:in|from|of|to|near|at|around|outside|across|born)\s+$", re.I)
+
+
+def _age_after_other_name(sentence: str, start: int, npc: dict) -> bool:
+    """True when the age number at `start` directly follows a capitalised name that is not the houseguest's own and is
+    not a place ("Marcus, 45" or "Dana (45"): that is another person's age, never rewritten to the card's."""
+    before = sentence[max(0, start - 48):start]
+    m = _NAME_BEFORE_AGE_RE.search(before)
+    if not m or m.start() == 0 and start - 48 <= 0 and sentence[:m.start(1)].strip() == "":
+        return False  # a sentence-opening word is not read as a name here
+    if m.group(1).lower() in _own_words(npc):
+        return False
+    return not _PLACE_PREP_RE.search(before[:m.start(1)])
+
+
 def _wrong_age_spans(text: str, npc: dict) -> list:
     """(start, end) of each stated-age number that is not the card age. Only sentences about no one else are read: a
     "12-year-old niece" or "her 52-year-old mother" is another person's age. A stated age under 18 is never a houseguest's."""
@@ -1408,7 +1449,11 @@ def _wrong_age_spans(text: str, npc: dict) -> list:
         if i % 2 == 0 and _plainly_the_houseguest(part, npc, names=False):
             for rx in _AGE_FORMS:
                 out += [(pos + m.start(1), pos + m.end(1)) for m in rx.finditer(part)
-                        if int(m.group(1)) != age and int(m.group(1)) >= 18]
+                        if int(m.group(1)) != age and int(m.group(1)) >= 18
+                        # ORW-437: "At age 19, she left home" is a past life event, read only inside the "at N" window;
+                        # and an age right after another person's capitalised name ("Marcus, 45") is theirs.
+                        and not (part[:m.start()].rstrip().lower().endswith("at") and abs(int(m.group(1)) - age) > _AT_AGE_WINDOW)
+                        and not _age_after_other_name(part, m.start(), npc)]
             out += [(pos + m.start(2), pos + m.end(2)) for m in _AT_AGE_RE.finditer(part)
                     if int(m.group(2)) != age and abs(int(m.group(2)) - age) <= _AT_AGE_WINDOW]
         pos += len(part)
@@ -1438,7 +1483,7 @@ def story_missing_features(text: str, profile: dict, npc: dict) -> list:
 # sentence and a verb follows. The check fires only when the houseguest's own first name never appears in the text
 # and the same other name opens the first sentence or two or more sentences. A relative or boss named in passing
 # is never a subject-opener, so it is left alone.
-_SUBJECT_RE = re.compile(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(?:['\u2019]s)?\s+([a-z]+)")
+_SUBJECT_RE = re.compile(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(['\u2019]s)?(?:\s+[A-Z][a-z]+)?\s+([a-z]+)")  # ORW-437: group 2 = possessive, optional surname
 _NOT_A_VERB = frozenset({"and", "or", "but", "of", "in", "on", "at", "to", "from", "for", "with", "the", "a", "an",
                          "who", "whose", "which", "that", "as", "by", "than", "nor", "so", "if", "into", "over"})
 _NOT_A_NAME = frozenset(w.lower() for w in (
@@ -1447,7 +1492,7 @@ _NOT_A_NAME = frozenset(w.lower() for w in (
     "Also Her His Its Our Your Whenever Behind Beyond Across Along Among Around Beneath Despite Instead Meanwhile "
     "Nobody Everyone Someone Anyone Nothing Something Everything Today Tonight Yesterday Often Sometimes Lately "
     "Recently Eventually Still Later Soon Now Here Over Under With Without From Into Upon Within Beside Besides "
-    "Orwell Sunday Monday Tuesday Wednesday Thursday Friday Saturday January February March April June July August "
+    "May Orwell Sunday Monday Tuesday Wednesday Thursday Friday Saturday January February March April June July August "
     "September October November December Off-camera Fresh Quiet Soft Gentle Sharp Warm Cool Quick Steady Young Older "
     "Small Large Little Early Late Good Great Real Free Open Private Public Single Double Second Third First Last "
     "Next Both Neither Either Another Other Such What Which Whoever Whatever Whichever However Still Yet Perhaps "
@@ -1488,8 +1533,10 @@ def _subject_names(text: str, npc: dict, cast=None) -> dict:
         m = _SUBJECT_RE.match(part)
         if not m:
             continue
-        tok, nxt = m.group(1), m.group(2)
+        tok, nxt = m.group(1), m.group(3)
         low = tok.lower()
+        if m.group(2):
+            continue  # ORW-437: "Nia's bakery" is a possessive, never the sentence's subject
         if nxt in _NOT_A_VERB or low in _NOT_A_NAME or low in own:
             continue
         if low.endswith("ing") and len(low) > 5:
@@ -1526,6 +1573,8 @@ def repair_story_name(text: str, npc: dict, cast=None) -> str:
     out = text
     own_first = _first_name(npc)
     for tok in _subject_names(text, npc, cast):
+        # ORW-437: a wrong FULL name ("Nia Smith grew up") is swapped whole, so the card's first name never trails a stray surname
+        out = re.sub(r"\b%s(?:\s+[A-Z][a-z]+)?\b(?=['\u2019]s\b|\s+[a-z])" % re.escape(tok), own_first, out)
         out = re.sub(r"\b%s\b" % re.escape(tok), own_first, out)
     return out
 
@@ -1741,7 +1790,8 @@ async def write_photo_sheet(card: dict, taken: Optional[dict], llm_fn: LlmFn) ->
     fields: dict = {}
     problems: list = []
     for attempt in (0, 1):
-        msgs = messages if attempt == 0 else messages + [
+        # ORW-437: the strict retry names real problems; after a RAISED first call there are none, so resend the original.
+        msgs = messages if attempt == 0 or not problems else messages + [
             {"role": "user", "content": look_retry_message(problems, taken)}]
         try:
             text = await llm_fn(msgs)
@@ -1781,7 +1831,7 @@ async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
         piece = (mine["mainPieces"] or [None])[0]
         spot = next(iter(mine["spots"]), None)
         piece_dup = piece is not None and main_piece_key(piece) in {main_piece_key(x) for x in taken["mainPieces"]}
-        spot_full = spot is not None and taken["spots"].get(spot, 0) >= 3
+        spot_full = spot is not None and taken["spots"].get(spot, 0) >= _SPOT_MAX
         offender = bool(piece_dup or spot_full)
         if offender:
             try:
@@ -2650,11 +2700,14 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                 _spend_attempt(ukey, hid)
                 try:
                     look_messages = build_authoring_messages(npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
+                    # ORW-437: the first draft rides along as the assistant turn, so the retry FIXES it (the accepted voice and
+                    # hidden storyline stay) instead of replacing it with a fresh draft.
                     look_text = await llm_fn(look_messages + [
+                        {"role": "assistant", "content": json.dumps(profile, ensure_ascii=False)},
                         {"role": "user", "content": look_retry_message(problems)}])
                     look_profile = parse_authored_profile(look_text or "", hid)
                 except Exception as e:
-                    logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
+                    logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: look-retry-call-failed ({type(e).__name__})")
                     look_profile = None
                 if (look_profile is not None and not look_problems(look_profile, npc)
                         and not story_problems(look_profile, npc, cast) and not _no_bio(look_profile)
