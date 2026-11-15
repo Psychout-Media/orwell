@@ -647,7 +647,7 @@ _SYSTEM = (
     '  "demeanor": a short phrase for how they carry themselves (e.g. "warm but guarded").\n'
     '  "background": a short phrase of life context.\n'
     '  "biography": a 2-3 sentence presentable backstory (their life outside the house), written with NO pronouns '
-    "for the houseguest (their gender is pinned in a later step; use the name or the role), no stated age, and no face or body features.\n"
+    "and NO given name for the houseguest (their gender is pinned in a later step and the name can change with it; use the role, never a first name for them), no stated age, and no face or body features.\n"
     '  "appearance": a short concrete phrase describing their look, written with NO pronouns and NO gendered words '
     "(their gender is pinned in a later step, so \"her hazel eyes\" / \"his jaw\" would contradict it; say \"hazel eyes\", \"a square jaw\") and consistent "
     "with the casting card's look line — the ink budget and any suggested feature are fixed inputs.\n"
@@ -674,7 +674,7 @@ _SYSTEM = (
     "IDENTITY COHERENCE (HARD): a houseguest's gender and exact age are fixed in LATER steps and are NOT passed back "
     "to you, so anything you write about them now that names either can contradict the card. Give them a name and an "
     "appearance that fit, and write the identity, biography, appearance and secrets with NO gendered pronouns for the "
-    "houseguest (use the name or the role; a relative may take their own pronoun) and NO stated number of years. Keep "
+    "houseguest and NO first name for them (the name can change when the gender is pinned; use the role; a relative may take their own pronoun and name) and NO stated number of years. Keep "
     "their life story consistent with their age band (do not write 'spent thirty years' or 'grandmother' for someone in "
     "their twenties), and keep their stated occupation the same throughout (the biography and secrets must not name a "
     "different job than the vocation).\n"

@@ -319,6 +319,7 @@ import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
+import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
@@ -3669,7 +3670,7 @@ export class GameSessionAdapter implements GameSession {
       // off the name and leave the portrait rendering the name's gender). The given-name token is swapped to
       // the final presentation, surname kept, so name + portrait + narration read the same gender. (The
       // display name lives on the Houseguest wrapper — `n.name` — not on the static Character.)
-      if (pub.name !== undefined) n.name = pub.name;
+      if (pub.name !== undefined) this.renameHouseguest(n, pub.name);
       if (proposed[n.id]) applied++;
     }
 
@@ -3836,7 +3837,7 @@ export class GameSessionAdapter implements GameSession {
       used.delete(given); // free the wrong-gender given before picking its replacement
       const next = pickGivenNameFor(gender, rng, used);
       used.add(next);
-      n.name = parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next;
+      this.renameHouseguest(n, parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next);
     }
   }
 
@@ -7353,7 +7354,23 @@ export class GameSessionAdapter implements GameSession {
       used.delete(given); // free the colliding given before picking the replacement
       const next = pickGivenNameFor(g, rng, used);
       used.add(next);
-      n.name = parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next;
+      this.renameHouseguest(n, parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next);
+    }
+  }
+
+  /**
+   * ORW-430: change a houseguest's display name AND carry the change into the public prose written around the old
+   * given name (genesis writes the name, identity and first biography together; a later gender or cross-season
+   * re-pick must not leave a biography about "Nia" on Samir's card). Public text only; a no-op when the given name
+   * did not change or the prose never used it.
+   */
+  private renameHouseguest(n: { name: string; character: Character }, next: string): void {
+    const prior = n.name;
+    n.name = next;
+    const c = n.character;
+    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation"] as const) {
+      const v = c[k];
+      if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
   }
 
