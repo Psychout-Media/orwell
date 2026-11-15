@@ -5,6 +5,7 @@
 set -euo pipefail
 KIT=$(cd "$(dirname "$0")" && pwd); . "$KIT/slot.sh"   # RIG_SLOT (default 1) decides every port and path; see slot.sh
 [ "$RIG_SLOT" = 1 ] || { if ss -ltn | grep -qE ":$RIG_ENGINE_PORT\b|:$RIG_FE_PORT\b"; then echo "FATAL: ports $RIG_ENGINE_PORT/$RIG_FE_PORT are busy - another run holds rig slot $RIG_SLOT; not staging" >&2; exit 1; fi; }
+. "$KIT/env_override.sh"; rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1   # a bad override fails HERE, before the checkout and the build
 git -C /home/ryne/orwell fetch -q origin
 rig_ensure_worktree || exit 1
 git -C $WT checkout -q -f --detach origin/${STAGE_REF:-main}
@@ -26,7 +27,7 @@ sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
   . deploy/orwell-env-defaults.sh
   eval "$(orwell_optin_env_defaults $RUN/engine-data | sed 's/^/export /')"
   # RIG_ENV_OVERRIDE="ORWELL_X=0 ORWELL_Y=1": applied AFTER the deploy defaults, so a proof run can stage a known-bad build with one flag flipped (ORW-109).
-  . "$KIT/env_override.sh"; rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1
+  rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
   export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE=/home/ryne/orwell/.orwell-data/models
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid

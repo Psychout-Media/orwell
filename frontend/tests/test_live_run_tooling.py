@@ -63,9 +63,16 @@ def test_the_veto_draw_allowance_needs_a_reply_that_voices_the_draw():
     assert not [c for k, c in r.items() if k.startswith("K1-no-skipped-time")][0]["ok"], "an hour of unexplained time still fails"
 
 
-@pytest.mark.parametrize("bad", ["Noon arrives and the kitchen is loud.", "At midnight the house goes quiet.", "By 8:15 the kitchen is full."])
-def test_noon_and_midnight_are_clock_times(bad):
+@pytest.mark.parametrize("bad", ["By noon the kitchen is loud.", "At midnight the house goes quiet.", "It's noon and nobody has eaten.", "It is almost midnight.", "Lunch at noon sharp.",
+                                 "Nobody stays up past midnight.", "By 8:15 the kitchen is full."])
+def test_a_noon_or_midnight_time_phrase_is_a_clock_time(bad):
     assert not _score([_turn("premiere-1", bad)])["T13-zero-clocks[premiere-1]"]["ok"], bad
+
+
+@pytest.mark.parametrize("fine", ["Noon sun hits the kitchen.", "Midnight snack, anyone?", "She wears the midnight-blue dress.", "A high noon standoff at the pool table.",
+                                  "The noon-day heat is heavy.", "Morning light, Day 2."])
+def test_noon_and_midnight_as_plain_words_are_not_clock_times(fine):
+    assert _score([_turn("premiere-1", fine)])["T13-zero-clocks[premiere-1]"]["ok"], fine
 
 
 class _Page:
@@ -105,10 +112,15 @@ def test_the_coverage_list_follows_whether_the_crossover_ran():
 def test_a_bad_env_override_entry_fails_loudly():
     ok = _sh(f'. "{KIT}/env_override.sh"; rig_apply_env_override "ORWELL_A=0 ORWELL_B=1"; echo "$ORWELL_A$ORWELL_B"')
     assert ok.returncode == 0 and ok.stdout.strip() == "01"
-    for bad in ("ORWELL_A=0 ORWEL_B=1", "ORWELL_A", "orwell_a=1", "ORWELL_=1x ORWELL A=1"):
-        r = _sh(f'. "{KIT}/env_override.sh"; rig_apply_env_override "{bad}"')
-        assert r.returncode == 1 and "FATAL" in r.stderr, bad
-    assert 'rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1' in (KIT / "stage2.sh").read_text()
+    for bad in ("ORWELL_A=0 ORWEL_B=1", "ORWELL_A", "orwell_a=1", "ORWELL_=1x ORWELL A=1", "ORWELL_A=0,ORWELL_B=1", "ORWELL_A=0;ORWELL_B=1", "ORWELL_A=x_ORWELL_B=1"):
+        for fn in ("rig_validate_env_override", "rig_apply_env_override"):
+            r = _sh(f'. "{KIT}/env_override.sh"; {fn} "{bad}"')
+            assert r.returncode == 1 and "FATAL" in r.stderr, (fn, bad)
+    assert _sh(f'. "{KIT}/env_override.sh"; rig_validate_env_override "ORWELL_A=a,b ORWELL_B=0"').returncode == 0, "a comma that is not followed by another ORWELL_ assignment is a value"
+    src = (KIT / "stage2.sh").read_text()
+    # the validation runs before anything is checked out or built
+    assert src.index('rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1') < src.index("git -C /home/ryne/orwell fetch") < src.index("npm run build")
+    assert 'rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1' in src
 
 
 # ── scripts/live-run/run_short.sh helpers ──────────────────────────────────────────────────────────────────────────────

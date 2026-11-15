@@ -322,8 +322,8 @@ def main():
     sys.exit(1 if hard else 0)
 
 
-# T13: a clock time the player can read ("8:15", "8:15pm", "9 am", "nine o'clock", "noon"/"midnight" said as a time). Parts of the day are allowed.
-ZERO_CLOCK_RE = re.compile(r"(?i)\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+o'?clock\b|\b(?:noon|midnight)\b")
+# T13: a clock time the player can read ("8:15", "8:15pm", "9 am", "nine o'clock", "noon"/"midnight" only in a time phrase: "at/by/until noon", "it's midnight", "noon sharp"; not "Midnight snack", "the midnight-blue dress" or "high noon"). Parts of the day are allowed.
+ZERO_CLOCK_RE = re.compile(r"(?i)\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+o'?clock\b|\b(?:at|by|until|till|past|after|before|around)\s+(?:noon|midnight)\b|\bit(?:'s| is)\s+(?:almost |nearly |just |about )?(?:noon|midnight)\b|\b(?:noon|midnight)\s+sharp\b")
 NAP_MSG_RE = re.compile(r"(?i)\b(?:take|taking|have|grab) (?:a |an )?(?:nap|lie[- ]down|rest)\b")
 BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
 
