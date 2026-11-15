@@ -213,6 +213,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "recordNpcReflections": return { reflections: [{ id: npc(1), night: 1, reflection: "I lay awake thinking about the week." }] };
     case "recordHouseCulture": return { spots: [{ room: "backyard", nickname: "the Deck" }], runningJoke: "the missing spatula" };
     case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
+    case "recordLookExtras": return { houseguestId: npc(1), wardrobe: ["a plain grey cardigan", "dark jeans"], onCamera: "Laughs easily in the kitchen." };
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes
     // voiced prose — content-only. Point it at the real sentinel-bearing hidden event so the sweep

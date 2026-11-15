@@ -293,12 +293,29 @@ def _is_bare_names(unit: str, roster: Iterable[str]) -> bool:
     return not re.sub(r"[\s.,;:!?\-—–()\[\]]+", "", s)
 
 
+_CLOSERS = "*_\"“”‘’`"
+_DIALOGUE_TAG_RE = re.compile(r"^(?:he|she|they|it)\b|^(?:[A-Z][\w'’-]+\s+){1,3}(?:says?|said|asks?|asked|adds?|added|murmurs?|snaps?|laughs?|calls?|whispers?|tells?|tips?|looks?|turns?|nods?|shrugs?)\b")
+
+
+def _is_vocative_opening(tail: str) -> bool:
+    """ORW-372: True when a bare-name unit is only the OPENING of a spoken line ("Rowan. Before you go in — ..." / '"Roman." Jack says it sharp'),
+    not a ballot read aloud. `tail` is the rest of the same physical line after the unit. A genuine readout ends at the name: the quote closes and
+    the line ends ('"Rowan."' + newline, or closing wrapper + narration that is not a dialogue tag)."""
+    t = tail.lstrip(" \t")
+    if not t.strip(_CLOSERS + " \t\r"):
+        return False  # nothing else on the line: the name stands alone
+    if t[0] not in _CLOSERS:
+        return True  # speech continues inside the same quote: the name addresses someone
+    rest = t.lstrip(_CLOSERS + " \t")
+    return bool(_DIALOGUE_TAG_RE.match(rest))  # '"Roman." Jack says it...' — a dialogue tag after a vocative
+
+
 def _matches_any(name: str, candidates: Iterable[Optional[str]]) -> bool:
     n = (name or "").strip().lower()
     return any(c and str(c).strip().lower() == n for c in candidates)
 
 
-def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, carried: "set[str] | None" = None) -> Optional[str]:
+def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, carried: "set[str] | None" = None, tail: str = "") -> Optional[str]:
     """A short reason when this unit asserts a role the engine did not commit to the person it is bound to, else None."""
     phase = str(sig.get("phase") or "").lower()
     if not instances and not carried and not phase.startswith(_BALLOT_PHASES):
@@ -326,7 +343,7 @@ def judge(unit: str, instances: "list[dict]", roster: "list[str]", sig: dict, ca
         if _non_assertive(s, 0, 0):
             continue
         by_role.setdefault(role, []).extend(n for n, _a, _b in spans)  # the continuation half: the whole unit is the answer
-    if "ballot" not in by_role and phase.startswith(_BALLOT_PHASES) and _is_bare_names(unit, sig.get("nomNames") or []):
+    if "ballot" not in by_role and phase.startswith(_BALLOT_PHASES) and _is_bare_names(unit, sig.get("nomNames") or []) and not _is_vocative_opening(tail):
         by_role["ballot"] = [n for n, _a, _b in spans]
     if by_role.get("ballot") and phase.startswith(_BALLOT_PHASES) and sig.get("evictionBallots") == 0:
         return "ballot readout before the engine revealed any ballot (the player's vote is not yet cast)"
@@ -366,7 +383,10 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
         kept: "list[str]" = []
         stripped: "list[dict]" = []
         drop_closers = False
+        offset = 0
         for orig, unit in split_units(text):
+            tail = text[offset + len(orig):].split("\n", 1)[0]  # ORW-372: the rest of this physical line (vocative-vs-readout)
+            offset += len(orig)
             if drop_closers and unit.strip() and not _strip_wrappers(unit).strip():
                 # the stripped unit's own closing quotes/asterisks (`"**`) — a whole mirror part, never left dangling. Reported so the
                 # raw round buffer drops it too (the caller mirrors every reported unit).
@@ -380,7 +400,7 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
             names = names_in(unit, roster, sig.get("playerName"))
             starts_cont = bool(re.match(r"^[\s*_\"“”‘’`]*" + _ELL, unit))
             carried = set(carry["roles"]) if (carry["ttl"] > 0 and (starts_cont or names)) else set()
-            reason = judge(unit, inst, roster, sig, carried) if names else None
+            reason = judge(unit, inst, roster, sig, carried, tail) if names else None
             if reason:
                 stripped.append({"unit": orig, "roles": sorted({c["role"] for c in inst} | carried), "reason": reason})
                 if starts_cont or names:

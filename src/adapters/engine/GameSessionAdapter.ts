@@ -14,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -216,6 +216,8 @@ function sameIds(a: readonly EntityId[], b: readonly EntityId[]): boolean {
 function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
+import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -3276,6 +3278,21 @@ export class GameSessionAdapter implements GameSession {
     if (!ctx) return { accepted: false, publicFields: [], hiddenFields: [], reason: "no game started" };
     const target = ctx.npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, publicFields: [], hiddenFields: [], reason: "unknown houseguest" };
+
+    // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
+    // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
+    if (req.physicalCharacteristics !== undefined) {
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown };
+      const wardrobe = cleanWardrobe(rawWardrobe);
+      const onCamera = cleanOnCamera(rawOnCamera);
+      req = {
+        ...req,
+        physicalCharacteristics: {
+          ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
+        },
+      };
+    }
 
     // Validate — non-player-mirroring (L28 + the anti-sycophancy mandate #3): the cast is INDEPENDENT
     // of the player, so NEITHER the authored PUBLIC material NOR the hidden STORYLINE material (secrets,
@@ -14447,6 +14464,32 @@ export class GameSessionAdapter implements GameSession {
     };
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { accepted: true, source: "web_search" };
+  }
+
+  /** ORW-369: look-only write-back (wardrobe + onCamera for one existing houseguest); see the port. */
+  recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
+    if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
+    const target = this.house.npcs.find((n) => n.id === req.houseguestId);
+    if (!target) return { accepted: false, fields: [], reason: "unknown-houseguest" };
+    const prior = target.character.physicalCharacteristics;
+    if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
+    const wardrobe = cleanWardrobe(req.wardrobe);
+    const onCamera = cleanOnCamera(req.onCamera);
+    if (wardrobe === undefined && onCamera === undefined) return { accepted: false, fields: [], reason: "nothing-valid" };
+    const playerName = (this.house.player.name ?? "").trim();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""}`.toLowerCase();
+    if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
+    // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}) };
+    const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
+    const fields: string[] = [];
+    const next = { ...prior };
+    if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
+    if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
+    if (fields.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
+    target.character.physicalCharacteristics = next; // only the two keys differ; appearance / every other field untouched
+    this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    return { accepted: true, fields };
   }
 
   /**

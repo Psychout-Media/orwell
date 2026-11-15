@@ -64,8 +64,22 @@ export interface PublicAppearanceFacets {
 
 import {
   EXPRESSION_VARIANTS, FRAMING_VARIANTS, BACKDROP_VARIANTS,
-  FACIAL_STRUCTURE_VARIANTS, LIGHTING_VARIANTS,
+  FACIAL_STRUCTURE_VARIANTS, LIGHTING_VARIANTS, STYLE_ANCHOR_VARIANTS, WORN_TEXTURE_VARIANTS,
+  LEGACY_STYLE_ANCHOR_VARIANTS,
 } from "./imageConstants";
+
+/**
+ * ORW-361: the two wardrobe/on-camera fields ORW-360 adds to the facet. Read through this local type
+ * (defensively) so this prompt works before and after that card lands; absent fields fall back.
+ */
+type PortraitLook = PhysicalCharacteristics & { wardrobe?: readonly string[]; onCamera?: string };
+
+/** Ages the skin only when the written age-look says so. */
+const WORN_AGE_LOOK = /\b(weathered|worn|lived-in|sun-creased|craggy|rough|tired|haggard|older than)\b/i;
+
+const FRAME_RULES = "The only person in the frame. No text, logos, badges or screens, and no photos on the walls. At home in the Orwell house, not at work";
+
+const isRealMark = (m: string | undefined): m is string => !!m && m.trim() !== "" && !/^none\b/i.test(m.trim());
 
 /**
  * Compose the structured physical facet into a single rich appearance clause (L29). Skips a
@@ -160,94 +174,75 @@ export function buildPortraitPrompt(
 ): PortraitPromptResult {
   const { appearance, age, presentation, physicalCharacteristics, ethnicity, genderPresentation, demeanor,
     identityConcept, vocation } = facets;
+  const look = physicalCharacteristics as PortraitLook | undefined;
+  const wardrobe = Array.isArray(look?.wardrobe)
+    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => w.trim()).filter((w) => w !== "")
+    : [];
+  const onCamera = typeof look?.onCamera === "string" ? look.onCamera.trim() : "";
+  const writtenFace = typeof look?.facialFeatures === "string" && look.facialFeatures.trim() !== "";
+  // Older saves stored the anchor with the real show name in it; never send that to a provider.
+  // A stored pre-ORW-361 anchor maps to its new anchor by index (its skin cues would age the person);
+  // any other stored anchor only gets the show name swapped.
+  const legacyIdx = LEGACY_STYLE_ANCHOR_VARIANTS.indexOf(styleAnchor as typeof LEGACY_STYLE_ANCHOR_VARIANTS[number]);
+  const anchor = legacyIdx >= 0 ? STYLE_ANCHOR_VARIANTS[legacyIdx]! : styleAnchor.replace(/Big Brother/g, "Orwell");
   const shot = fnv1a(`${houseguestId}|${styleAnchor}`);
   const expression = EXPRESSION_VARIANTS[shot % EXPRESSION_VARIANTS.length]!;
   const framing = FRAMING_VARIANTS[(shot >>> 8) % FRAMING_VARIANTS.length]!;
   const backdrop = BACKDROP_VARIANTS[(shot >>> 16) % BACKDROP_VARIANTS.length]!;
   const facialStructure = FACIAL_STRUCTURE_VARIANTS[(shot >>> 24) % FACIAL_STRUCTURE_VARIANTS.length]!;
-  // #1317: a SECOND hash-seeded pick — same fnv1a discipline, salted off the first hash rather than a
-  // shared/external stream — so lighting draws from fresh bits instead of reusing the (already fully
-  // spoken-for) low 32 bits of `shot`. Still pure + deterministic per (houseguestId, styleAnchor); no
-  // rng is consumed from any shared stream.
+  // #1317: a SECOND hash-seeded pick off the first hash, so lighting draws from fresh bits.
   const shot2 = fnv1a(`${shot}|v2`);
   const lighting = LIGHTING_VARIANTS[shot2 % LIGHTING_VARIANTS.length]!;
-  // L29: prefer the STRUCTURED facet (distinct faces, one source of truth with the narration); fall
-  // back to the prose `appearance` for pre-0058 saves that never seeded a facet. This EXACT string
-  // (`physicalFacetToAppearance(physicalCharacteristics)`) is the one the narrator context ALSO voices
-  // verbatim (`momentOrchestration.test.ts` L29) — never altered here.
-  const physical = physicalCharacteristics ? physicalFacetToAppearance(physicalCharacteristics) : appearance;
-  // #1317 Fix C (closes the #1140 deferral): a SEPARATE gendered build/hair clause, hash-seeded per
-  // subject — the stored facet itself stays gender-neutral and untouched (byte-stable, 0007/0031); this
-  // additive clause is the only place the extra cue rides (see `genderedBuildHairClause` above).
-  const genderedStyling = physicalCharacteristics
-    ? genderedBuildHairClause(physicalCharacteristics, genderPresentation, shot)
-    : undefined;
-  // #1317 (root cause 4) — the strongest per-subject differentiator, restated near the END of the
-  // prompt (the composition re-weight below leads with it too): most image models over-weight both
-  // the first AND the last tokens, so repeating the one clause that most distinguishes this face from
-  // the rest of the cast at the close counters the shared style anchor's dominance in the middle.
-  const distinguishingMark = physicalCharacteristics?.distinguishingMark;
-  const hasMark = distinguishingMark && !/^none\b/i.test(distinguishingMark.trim());
-  const distinctiveClose = physicalCharacteristics
-    ? `${facialStructure}${hasMark ? `, ${distinguishingMark}` : ""}`
-    : physical;
-  const styleLine = physicalCharacteristics?.style
-    ? `${presentation}, ${physicalCharacteristics.style}`
-    : presentation;
-  // 0063 + #1140 Fix B: build a SUBJECT line that reflects the unique person — how they present + their
-  // heritage (an authentic, accurate likeness, never a caricature) + age. The skin tone in `physical` is
-  // already grounded in this same heritage, so the description is internally consistent and dignified.
-  //
-  // De-bias the NAME: lead with the GENDER phrase (the directive cue), not the bare proper noun. A NAME can
-  // read gendered to an image model (a unisex/flipped/AI-overridden name like "Marlon" on a woman), and if
-  // it's the FIRST/strongest token the model renders the NAME's gender, contradicting the stored facet. So
-  // the gender phrase comes FIRST, the name trails as a plain identification tag, and the directive phrase
-  // is REPEATED right after the name so the cue still flanks it. The engine carries `genderPresentation` for
-  // the whole cast, so the lead phrase is effectively always present (the `if` only guards a legacy absence).
+  // The anchor's own index picks its parallel worn-texture cue; an old stored anchor falls back to a hash pick.
+  const anchorIdx = STYLE_ANCHOR_VARIANTS.indexOf(anchor as typeof STYLE_ANCHOR_VARIANTS[number]);
+  const wornTexture = WORN_TEXTURE_VARIANTS[anchorIdx >= 0 ? anchorIdx : shot2 % WORN_TEXTURE_VARIANTS.length]!;
+  const isWorn = !!look && WORN_AGE_LOOK.test(look.ageLook ?? "");
+  const skinLine = isWorn ? wornTexture : "natural, healthy skin with real texture";
+  // L29: the written facet AUTHORS the physical line. `physicalFacetToAppearance` (the narrator's
+  // verbatim string) is unchanged; the portrait line is built separately: no mark, no style.
+  const physical = look
+    ? [look.heightBuild, look.skinTone, look.hair, look.facialFeatures, look.ageLook]
+      .filter((x) => typeof x === "string" && x.trim() !== "").join(", ")
+    : appearance;
+  // #1317 Fix C: a SEPARATE gendered build/hair clause (additive; the stored facet stays neutral).
+  const genderedStyling = look ? genderedBuildHairClause(look, genderPresentation, shot) : undefined;
+  const mark = look?.distinguishingMark;
+  const hasMark = isRealMark(mark);
+  // Clothing: written wardrobe, else the written style, else the legacy presentation. Never two styles.
+  const clothingLine = wardrobe.length > 0
+    ? `Wearing: ${wardrobe.join(", ")}`
+    : `Presentation style: ${look?.style ? look.style : presentation}`;
   const genderPhrase = genderPresentation ? genderPresentationPhrase(genderPresentation) : undefined;
+  // The gender phrase leads, the name trails (de-bias, #1140); the age is explicit (ORW-361).
   const subjectParts: string[] = [];
   if (genderPhrase) subjectParts.push(genderPhrase);
-  subjectParts.push(`${age} years old`);
+  subjectParts.push(`${genderPhrase ? "" : "a person "}who looks exactly ${age} years old`);
   if (ethnicity) subjectParts.push(`of ${ethnicity} heritage`);
-  // The name LAST, as a plain identifier. Bundle-audit fix (2026-07-13, owner-ruled): the #1140 form
-  // re-stated the gender cue in a parenthetical after the name ("named X (a woman (feminine
-  // presentation))"), but the gender phrase ALWAYS leads the subject clause above (pushed first the
-  // moment `genderPresentation` is set — which the engine carries for the whole cast), so the
-  // parenthetical was a pure in-line duplicate. It rides plain: the lead phrase already flanks the
-  // name from the front, and the #1317 `Build & hair styling:` clause carries per-facet gender cues
-  // further down the prompt. (A legacy no-gender card emits this same plain form — byte-identical to
-  // before the #1140 parenthetical, and to the dedup guard this replaced, which was unreachable
-  // because the lead phrase is unconditionally present whenever it is defined.)
   subjectParts.push(`named ${name}`);
-  // 0063: the observable DEMEANOR colors the EXPRESSION line — the face matches the personality (a blunt
-  // person reads guarded, a warm one reads open) instead of every portrait sharing one default affect.
   const expressionLine = demeanor ? `${expression}, ${demeanor}` : expression;
-  // #1317 (root cause 1 — composition re-weight): the ~24-word shared style anchor used to lead the
-  // prompt, dominating the token budget before any subject-specific content appeared. Distinguishing
-  // clauses (identity, then the physical facet, then presentation) now come FIRST; the shared anchor is
-  // KEPT (never trimmed — every anchor still appears in full, `buildPortraitPrompt`'s Vault-free-anchor
-  // callers still find it verbatim) but MOVED past them, and the strongest per-subject differentiator is
-  // restated once more at the very end (`distinctiveClose`) so it lands on both the primacy AND recency
-  // positions a subject-agnostic anchor used to monopolize alone.
+  const closeLine = look
+    ? (writtenFace ? `Distinctive look: ${look.facialFeatures}`
+      : `Distinctive look: ${facialStructure}`)
+    : `Distinctive look: ${physical}`;
   const prompt = [
     `Subject: ${subjectParts.join(", ")}`,
     `Physical appearance: ${physical}`,
-    // #1317 Fix C — additive only: present iff a gender + a structured facet are both available;
-    // absent entirely (byte-identical to pre-#1317) otherwise.
     ...(genderedStyling ? [`Build & hair styling: ${genderedStyling}`] : []),
-    `Presentation style: ${styleLine}`,
-    // The AUTHORED storyline facets (2026-07-13) — the strongest per-subject aesthetic signals, so
-    // they ride BEFORE the shared season anchor (the #1317 composition re-weight: subject-specific
-    // content leads, the anchor follows). Additive only: a floor cast without them is byte-identical.
-    ...(identityConcept ? [`Character: ${identityConcept} — reflect this in wardrobe, grooming, and attitude`] : []),
+    ...(hasMark ? [`Mark (subtle: faint, small and long-healed, never a fresh wound, bruise or stain): ${mark}`] : []),
+    clothingLine,
+    // The authored story sentence stays unless an on-camera line replaces it.
+    ...(!onCamera && identityConcept ? [`Character: ${identityConcept} — reflect this in wardrobe, grooming, and attitude`] : []),
     ...(vocation ? [`Occupation: ${vocation}`] : []),
-    styleAnchor,
-    `Facial structure: ${facialStructure}`,
-    `Expression: ${expressionLine}`,
+    anchor,
+    FRAME_RULES,
+    `Skin: ${skinLine}`,
+    ...(look && writtenFace ? [] : [`Facial structure: ${facialStructure}`]),
+    ...(onCamera ? [] : [`Expression: ${expressionLine}`]),
     `Lighting: ${lighting}`,
     `Framing: ${framing}`,
-    `Setting: ${backdrop}`,
-    `Distinctive look: ${distinctiveClose}`,
+    ...(onCamera ? [] : [`Setting: ${backdrop}`]),
+    ...(onCamera ? [] : [closeLine]),
+    ...(onCamera ? [`On camera: ${onCamera}`] : []),
   ].join(". ");
 
   return { houseguestId, name, prompt };
