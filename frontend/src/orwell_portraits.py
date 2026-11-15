@@ -1346,6 +1346,47 @@ def _prompt_fingerprint(prompt: Optional[str]) -> Optional[str]:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+# ORW-361: the version of the engine's portrait PROMPT wording. A stored entry shot under an older
+# wording (promptVersion below this; missing counts as 1) is NEVER re-shot by the fingerprint path and
+# keeps its old version: the new wording changes every fingerprint, so comparing them is meaningless.
+# Only a portrait actually shot with the new prompt records PORTRAIT_PROMPT_VERSION (new seasons,
+# missing faces, a forced single re-shoot). A background upgrader (ORW-369) walks `stale_portrait_ids`
+# and re-shoots one houseguest at a time through `generate_and_store(..., force_ids=[id])`.
+PORTRAIT_PROMPT_VERSION = 2
+
+
+def _entry_prompt_version(entry) -> int:
+    """The prompt version a manifest entry was shot under (missing or malformed ⇒ 1)."""
+    try:
+        v = int(entry.get("promptVersion", 1)) if isinstance(entry, dict) else 1
+    except (TypeError, ValueError):
+        return 1
+    return v if v >= 1 else 1
+
+
+def _entry_version_stale(entry) -> bool:
+    """True when the stored entry was shot under an older prompt wording than the current one."""
+    return isinstance(entry, dict) and _entry_prompt_version(entry) < PORTRAIT_PROMPT_VERSION
+
+
+def stale_portrait_ids(manifest: dict) -> list:
+    """Houseguest ids (manifest keys, as stored) whose portrait was shot under an older prompt
+    version. The player's own uploaded photo is never listed. Sorted, for a stable walk."""
+    return sorted(
+        str(k) for k, e in (manifest or {}).items()
+        if _entry_version_stale(e) and e.get("source") != "upload")
+
+
+def _stamp_version_one(user: Optional[str], sid: str) -> None:
+    """Record promptVersion 1 explicitly on an old entry that lacks it (fingerprint, image untouched)."""
+    manifest = load_manifest(user)
+    stored = manifest.get(sid)
+    if isinstance(stored, dict) and "promptVersion" not in stored:
+        stored["promptVersion"] = 1
+        manifest[sid] = stored
+        _save_manifest(user, manifest)
+
+
 def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: str,
                     source: str = "generated", fingerprint: Optional[str] = None,
                     ref_clean: Optional[bool] = None) -> str:
@@ -1380,6 +1421,7 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
     entry = {"file": filename, "name": name, "source": source}
     if fingerprint:
         entry["fingerprint"] = fingerprint
+    entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
     if source == "reference" and ref_clean:
         entry["refClean"] = True
     manifest[_safe_id(houseguest_id)] = entry
@@ -1728,12 +1770,18 @@ async def generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
     return {"generated": made} if made else {"generated": 0, "reason": "generation failed — see the portrait log"}
 
 
-async def generate_and_store(prompts: list, user: Optional[str], *, record_beats: bool = True) -> dict:
+async def generate_and_store(prompts: list, user: Optional[str], *, record_beats: bool = True,
+                             force_ids: Optional[list] = None) -> dict:
     """Generate + persist a cast portrait set from the engine's `portraitPrompts`.
 
     `prompts` is the engine's ``[{houseguestId, name, prompt}]``. Returns a small summary
     ``{generated, skipped, total}``. Idempotent: a houseguest whose portrait already exists
     on disk is NOT regenerated (generate-once-per-season; served from disk on restart).
+
+    `force_ids` (ORW-361, for the ORW-369 upgrader): houseguest ids to RE-SHOOT now even though a
+    face is on disk, from the prompt passed for them. The old file is replaced only after the new
+    image is generated successfully (a failed generation leaves it in place); the entry records the
+    current PORTRAIT_PROMPT_VERSION. Example: ``await generate_and_store([entry], user, force_ids=["npc:3"])``.
 
     Best-effort throughout: never raises. When generation is unavailable (no model / disabled)
     it skips silently and the game is unaffected. After a portrait is shown for the first time
@@ -1777,6 +1825,12 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     # BEFORE the availability gate, so it works even with no image model. Priority: the finalized
     # studio/exact pick (final.png) → an 'exact' upload (cropped) → the persisted account avatar
     # (a returning player keeps their face). Any of these writes the player portrait locked.
+    forced = {_safe_id(str(i)) for i in (force_ids or [])}
+
+    def _sid_forced(hid, stored) -> bool:
+        return (_safe_id(str(hid)) in forced and isinstance(stored, dict)
+                and stored.get("source") != "upload")
+
     intake = load_player_intake(user)
     chosen = _read_intake_final(user)
     if not chosen and intake and intake.get("mode") == "exact":
@@ -1841,7 +1895,10 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             stored = load_manifest(user).get(_safe_id(str(hid)))
             stored_fp = stored.get("fingerprint") if isinstance(stored, dict) else None
             cur_fp = _prompt_fingerprint(str(entry.get("prompt")))
-            if stored_fp and cur_fp and stored_fp != cur_fp:
+            if _sid_forced(hid, stored):
+                to_generate += 1
+            elif (stored_fp and cur_fp and stored_fp != cur_fp
+                    and not _entry_version_stale(stored)):
                 to_generate += 1
     if to_generate:
         _progress_start(user, to_generate)
@@ -1884,7 +1941,17 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         if portrait_file(user, hid) is not None:
             stored = load_manifest(user).get(_safe_id(str(hid)))
             stored_fp = stored.get("fingerprint") if isinstance(stored, dict) else None
-            if stored_fp and fp and stored_fp != fp:
+            if _sid_forced(hid, stored):
+                # ORW-361: an explicit single re-shoot (the upgrader). Falls through to regenerate;
+                # the file is replaced only after the new image succeeds, stamped with the new version.
+                reshoot_ids.add(_safe_id(str(hid)))
+            elif _entry_version_stale(stored):
+                # ORW-361: shot under an older prompt wording — its fingerprint is not comparable.
+                # Leave it alone: no re-shoot, no fingerprint or version change (v1 recorded explicitly).
+                _stamp_version_one(user, _safe_id(str(hid)))
+                skipped += 1
+                continue
+            elif stored_fp and fp and stored_fp != fp:
                 # Facet changed → stale face → fall through and re-shoot from the new prompt. This
                 # is a RE-generation, so the engine will METER its beat — mark it for the budget
                 # pre-check (S8) so a re-shoot burst can never over-fire into the per-turn cap.
@@ -2431,7 +2498,9 @@ def kickoff_authored_reshoot(hid, user: Optional[str]) -> bool:
                 except Exception:  # failsoft-ok: handled-by-terminal (orwell_engine._call already recorded record_io(ok=False) RED; this is only a staleness probe — None skips the discard optimization, backfill_missing below re-fetches)
                     p = None
                 cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
-                if cur_fp and entry.get("fingerprint") != cur_fp:
+                if cur_fp and _entry_version_stale(entry):
+                    pass  # ORW-361: older prompt wording, never a fingerprint re-shoot (ORW-369 upgrades it)
+                elif cur_fp and entry.get("fingerprint") != cur_fp:
                     logger.info("[portraits] ADR 0013: %s's stored face predates its authored "
                                 "identity — discarding and re-shooting from the authored prompt", sid)
                     discard_portraits(user, [str(hid)])
@@ -2894,6 +2963,7 @@ async def _heal_stale_authored_faces(user: Optional[str], cards: list) -> int:
     if fp_candidates and _STALE_AUTHORED_SEEN.get(safe) != authored_count:
         fp_stale = []
         engine_ok = True
+        manifest_now = load_manifest(user)
         for hid, stored_fp in fp_candidates:
             try:
                 p = await orwell_engine.get_portrait_prompt(hid, user=user)
@@ -2901,6 +2971,8 @@ async def _heal_stale_authored_faces(user: Optional[str], cards: list) -> int:
                 engine_ok = False  # engine trouble — verify nothing this sweep, try again next
                 break
             cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
+            if cur_fp and _entry_version_stale(manifest_now.get(_safe_id(str(hid)))):
+                continue  # ORW-361: older prompt wording, never a fingerprint re-shoot
             if cur_fp and cur_fp != stored_fp:
                 fp_stale.append(hid)
         if engine_ok:
