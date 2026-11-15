@@ -134,3 +134,41 @@ update_wait_for_no_turn() {{ echo "OLD-HELPER-WAITED $#"; }}
     assert ("OLD-HELPER-WAITED" in r.stdout) is waits
     if not waits:
         assert "--force-now" in r.stdout
+
+
+def _watched_dir(tmp_path, env_text, env=None):
+    """Run the updater's turn-wait block against a stub helper; return the turns-in-flight path it watches."""
+    blk = _restart_block()
+    i = blk.index("if type update_wait_for_no_turn")
+    wait = blk[i:blk.index('ops_progress_step 4 "restarting services"')]
+    envf = tmp_path / ".env"
+    envf.write_text(env_text)
+    full = {k: v for k, v in os.environ.items() if not k.startswith("ORWELL_")}
+    full.update(env or {})
+    r = subprocess.run(["bash", "-c", f"""set -euo pipefail
+FORCE_NOW=0; ENV_FILE='{envf}'; APP_DIR='/app'
+update_wait_for_no_turn() {{ echo "WATCH=$1"; }}
+{wait}
+"""], capture_output=True, text=True, timeout=30, env=full)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.split("WATCH=", 1)[1].strip()
+
+
+@needs_bash
+@pytest.mark.parametrize("env_text,env,expected", [
+    ("ORWELL_INFLIGHT_DIR=/var/lib/orwell data\n", None, "/var/lib/orwell data/turns-in-flight"),
+    ("ORWELL_INFLIGHT_DIR=\"/var/lib/orwell data\"\n", None, "/var/lib/orwell data/turns-in-flight"),
+    ("ORWELL_DATA_DIR_FE='/srv/fe'\n", None, "/srv/fe/turns-in-flight"),
+    ("ORWELL_DATA_DIR_FE=/srv/fe\nORWELL_INFLIGHT_DIR=/srv/sig\n", None, "/srv/sig/turns-in-flight"),
+    ("", {"ORWELL_DATA_DIR_FE": "/env/fe"}, "/env/fe/turns-in-flight"),
+    ("", None, "/app/frontend/data/turns-in-flight"),
+])
+def test_updater_watches_the_directory_the_front_end_publishes_to(tmp_path, env_text, env, expected):
+    assert _watched_dir(tmp_path, env_text, env) == expected
+
+
+@pytest.mark.parametrize("name", ["ORWELL_UPDATE_TURN_WAIT_SECONDS", "ORWELL_UPDATE_WARM_WAIT_SECONDS", "ORWELL_UPDATE_LOCK_WAIT"])
+def test_host_bridge_forwards_the_wait_bounds(name):
+    # the host-to-container bridge forwards digits-only tunables; a bound set on the host must reach the container run
+    m = re.search(r"for __k in ([A-Z_ ]+); do", UPDATE)
+    assert m and name in m.group(1).split()

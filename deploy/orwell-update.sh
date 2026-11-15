@@ -175,7 +175,7 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   [[ $FORCE_NOW -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force-now"
   # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
   FWD_LG=""
-  for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS; do
+  for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS ORWELL_UPDATE_TURN_WAIT_SECONDS ORWELL_UPDATE_WARM_WAIT_SECONDS ORWELL_UPDATE_LOCK_WAIT; do
     [[ "${!__k:-}" =~ ^[0-9]+$ ]] && FWD_LG="${FWD_LG} ${__k}='${!__k}'"
   done
   FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
@@ -1646,7 +1646,16 @@ else
     # ORW-406: --force still waits for the turn (bounded); only --force-now skips it.
     if type update_wait_for_no_turn >/dev/null 2>&1; then
       # The same directory the front end publishes to (frontend/src/turn_inflight.py: ORWELL_INFLIGHT_DIR, else its data dir); the service's .env is read when the updater's own environment lacks it.
-      INFLIGHT_DIR="${ORWELL_INFLIGHT_DIR:-$(sed -n 's/^ORWELL_INFLIGHT_DIR=//p' "$ENV_FILE" 2>/dev/null | tail -n1 | tr -d '"'"'"' ')}"
+      # Mirrors the front end's order: ORWELL_INFLIGHT_DIR, else ORWELL_DATA_DIR_FE (frontend/src/constants.py DATA_DIR), else its data dir.
+      # Only the surrounding blanks and quotes come off the .env value: a path with a space inside stays whole.
+      __envval() {
+        local v="${!1:-}"
+        [[ -n "$v" ]] || v="$(sed -n "s/^$1=[[:space:]]*//p" "$ENV_FILE" 2>/dev/null | tail -n1 || true)"
+        v="${v%"${v##*[![:space:]]}"}"; v="${v#[\"\']}"; v="${v%[\"\']}"
+        printf '%s' "$v"
+      }
+      INFLIGHT_DIR="$(__envval ORWELL_INFLIGHT_DIR)"
+      [[ -n "$INFLIGHT_DIR" ]] || INFLIGHT_DIR="$(__envval ORWELL_DATA_DIR_FE)"
       # The helper sourced at the top may be the OLDER installed copy (a host-pushed first update runs the new script
       # against the pre-update /opt/orwell helper), whose one-argument form ignores $2. So --force-now is decided HERE, never left to the helper.
       if [[ $FORCE_NOW -eq 1 ]]; then
