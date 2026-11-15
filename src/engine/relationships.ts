@@ -331,6 +331,23 @@ export class RelationshipModel {
     }
   }
 
+  /**
+   * ORW-401 follow-up: pull the feelings (trust, affinity, threat) of every edge `eligible` accepts a proportion `rate`
+   * of the way back to the baseline. Proportional ⇒ never crosses the baseline. No rng, no disposition scaling; the
+   * evidence signals (alignment, confidence, reliability) are untouched. Opt-in: nothing calls it in a headless run.
+   */
+  driftTowardBaseline(rate: number, eligible: (from: EntityId, to: EntityId) => boolean): void {
+    const base = this.constants.baseline;
+    const r = clamp(rate);
+    for (const [k, e] of this.edges) {
+      const [from, to] = k.split("->") as [EntityId, EntityId];
+      if (!eligible(from, to)) continue;
+      e.trust += (base.trust - e.trust) * r;
+      e.affinity += (base.affinity - e.affinity) * r;
+      e.threat += (base.threat - e.threat) * r;
+    }
+  }
+
   /** Plain-data snapshot of every directed edge — graded signals only, NEVER a stored label. */
   serialize(): { edges: Array<{ from: EntityId; to: EntityId } & EdgeSignals> } {
     const edges: Array<{ from: EntityId; to: EntityId } & EdgeSignals> = [];
