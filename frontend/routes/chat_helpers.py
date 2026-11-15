@@ -561,6 +561,8 @@ def clear_social_runway(user) -> None:
     _RUNWAY_LAST_DONE.pop(key, None)  # #1127: forget the lingered-through marker on reset/end
     _DAY_BREAK_STEER.pop(key, None)   # P1-2: a reset also drops a pending day-break steer
     _SCHEDULE_STEER.pop(key, None)
+    _SCHEDULE_ARM.pop(key, None)
+    _TURN_SCHEDULE_ARM.pop(key, None)
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
@@ -627,11 +629,13 @@ _ENGINE_EVENT_NOT_DUE_STOP_LINE = "Production has not called the scheduled event
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
-def _reconcile_hang_out_steer(steer: str, game_state) -> str:
+def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
     """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
     owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
-    from routes.briefing import build_briefing
-    if steer and build_briefing(game_state).due is False:  # ORW-409: due-ness is the briefing's fact
+    if briefing is None:  # a caller with no turn briefing (tests, one-off use) builds from the board it has
+        from routes.briefing import build_briefing
+        briefing = build_briefing(game_state)
+    if steer and briefing.due is False:  # ORW-409: due-ness is the briefing's fact
         return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE).replace(_ENGINE_EVENT_DUE_STOP_LINE, _ENGINE_EVENT_NOT_DUE_STOP_LINE)
     return steer
 
@@ -798,7 +802,7 @@ def note_premiere_turn(user, game_state) -> None:
         if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
             _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
             if _PREMIERE_CLOCK_HOLD[key]:
-                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds, briefing=_briefing_of(game_state))
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds)
             return
         _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
@@ -7263,11 +7267,18 @@ def _join_names(names: list) -> str:
 _PRESENCE_MOVE_MAX_NAMES = 4
 
 
-def _render_presence_movement(prev: Optional[dict], cur: Optional[dict]) -> Optional[str]:
+def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefing=None) -> Optional[str]:
     """A 'someone came/went' cue from two beat signatures, or None when there is nothing to voice
-    (no prior signature, the player changed rooms, or the room's company is unchanged)."""
+    (no prior signature, the player changed rooms, or the room's company is unchanged).
+    ORW-409: the BEFORE side stays the previous turn's signature (a difference needs the old state); the AFTER side (room and who is there) is the turn's briefing when it has a room.
+    A sleeper is never on the ARRIVED side or "here now" (the awake list). A houseguest who WAS awake here and is now in the asleep set gets their own clause, "has gone to sleep": that is the one
+    statement the board supports in every case (they may have left the room or fallen asleep in it), and it keeps their exit beat."""
     if not isinstance(prev, dict) or not isinstance(cur, dict):
         return None
+    asleep: set = set()
+    if briefing is not None and briefing.location:
+        cur = {"room": briefing.location, "present": list(briefing.awake_present)}
+        asleep = set(briefing.asleep)
     pr, cr = prev.get("room"), cur.get("room")
     if not pr or not cr or pr != cr:
         return None  # player moved (or room unknown) — the cast change isn't NPC drift; stay quiet
@@ -7279,9 +7290,12 @@ def _render_presence_movement(prev: Optional[dict], cur: Optional[dict]) -> Opti
         return None
     room_label = str(cr).replace("-", " ")
     parts: list[str] = []
-    if departed:
-        verb = "has" if len(departed) == 1 else "have"
-        parts.append(f"{_join_names(departed)} {verb} left the {room_label}")
+    left_awake = [n for n in departed if n not in asleep]
+    now_asleep = [n for n in departed if n in asleep]
+    if left_awake:
+        parts.append(f"{_join_names(left_awake)} {'has' if len(left_awake) == 1 else 'have'} left the {room_label}")
+    if now_asleep:
+        parts.append(f"{_join_names(now_asleep)} {'has' if len(now_asleep) == 1 else 'have'} gone to sleep")
     if arrived:
         verb = "has" if len(arrived) == 1 else "have"
         parts.append(f"{_join_names(arrived)} {verb} come into the {room_label}")
@@ -7380,13 +7394,13 @@ async def _maybe_delta_line(user, last_seen_beat_seq) -> Optional[str]:
         return None
 
 
-def _audit_framed_briefing(user, messages) -> None:
+def _audit_framed_briefing(user, messages, briefing=None) -> None:
     """ORW-409: debug-log + soft-fail counter for any contradiction between the blocks of the final briefing. Report-only, fail-open; ORWELL_BRIEFING_AUDIT=0 turns it off."""
     if os.getenv("ORWELL_BRIEFING_AUDIT", "1") == "0":
         return
     try:
         from routes.briefing_audit import audit_briefing
-        for c in audit_briefing(messages):
+        for c in audit_briefing(messages, briefing if briefing is not None else turn_briefing(user)):
             logger.debug("[orwell] briefing conflict (%s): %s", c["fact"], c["detail"])
             record_soft_failure(f"briefing-conflict:{c['fact']}", ValueError(c["detail"]), corrected="none:report-only", user=user)
     except Exception as e:
@@ -7406,6 +7420,91 @@ def _briefing_of(game_state):
     except Exception as e:
         record_soft_failure("briefing:build-failed", e, corrected="old-path")
         return None
+
+
+_TURN_BRIEFING: dict = {}  # runway key -> the framed turn's ONE briefing (built after the turn's engine writes; replaced only by a post-turnIn rebuild)
+
+
+def frame_briefing(user, game_state):
+    """ORW-409: build THE briefing of this framed turn, exactly once, from the board the prompt is assembled on (after the hang-out and pre-resolve writes), and cache it for the rest of the turn
+    (`turn_briefing`). None when it cannot be built: every block then keeps its own old path."""
+    b = _briefing_of(game_state)
+    key = _runway_key(user)
+    if b is None:
+        _TURN_BRIEFING.pop(key, None)
+    else:
+        _TURN_BRIEFING[key] = b
+    return b
+
+
+def turn_briefing(user):
+    """The briefing `frame_briefing` built for the turn in flight, or None."""
+    return _TURN_BRIEFING.get(_runway_key(user))
+
+
+def set_turn_briefing(user, briefing) -> None:
+    """Replace the cached briefing after a LATER engine write in the same turn (the player's turnIn) rebuilt it from a fresh board."""
+    if briefing is not None:
+        _TURN_BRIEFING[_runway_key(user)] = briefing
+
+
+_SCHEDULE_CUE_RE = re.compile(r"^(?:PRODUCTION GIVES NOTICE|PRODUCTION CALLS EVERYONE)\b")
+
+
+_SCHEDULE_ARM: dict = {}       # runway key -> {"event", "day", "resolved"} of the notice / call armed this turn (stored next to `_SCHEDULE_STEER`, never encoded in its text)
+_TURN_SCHEDULE_ARM: dict = {}  # runway key -> the same marker, kept for the framed turn after the steer was consumed (the post-turnIn rebuild reconciles against it)
+
+
+def _arm_marker(ds, game_state) -> dict:
+    """The structured identity of the event a notice / call is armed for: the milestone key, the in-game day that occurrence falls on (None when unknown), and whether the engine resolved it this turn."""
+    dn = game_state.get("dayNumber") if isinstance(game_state, dict) else None
+    dn = dn if isinstance(dn, int) and not isinstance(dn, bool) and dn > 0 else None
+    return {"event": str((ds or {}).get("next") or ""), "day": None if dn is None else dn + (1 if (ds or {}).get("tomorrow") else 0), "resolved": False}
+
+
+def _arm_schedule_steer(key, text: str, ds, game_state) -> None:
+    _SCHEDULE_STEER[key] = text
+    _SCHEDULE_ARM[key] = _arm_marker(ds, game_state)
+
+
+def _mark_schedule_arm_resolved(key) -> None:
+    """The pre-resolve advanced the board this turn: a notice / call armed before it is about an event the engine has now resolved or moved on from."""
+    if key in _SCHEDULE_ARM:
+        _SCHEDULE_ARM[key]["resolved"] = True
+
+
+def turn_schedule_arm(user):
+    """The marker of the notice / call consumed by the framed turn in flight, or None."""
+    return _TURN_SCHEDULE_ARM.get(_runway_key(user))
+
+
+def _same_occurrence(arm: dict, b) -> bool:
+    """The briefing's next event is the very occurrence the cue was armed for: same milestone key, and the same in-game day when both are known (a repeated milestone, e.g. the three-part final HOH, keeps its key)."""
+    if not arm.get("event") or arm.get("event") != b.next_event:
+        return False
+    b_day = None if b.day is None else b.day + (1 if b.next_day == "tomorrow" else 0)
+    return arm.get("day") is None or b_day is None or arm.get("day") == b_day
+
+
+def _reconcile_schedule_steer(steer: str, b, arm=None, after_turn_in: bool = False) -> str:
+    """ORW-409: the production warning ("about to be called") and call ("production calls everyone") cues were armed from the board BEFORE the turn's later writes. `arm` is the structured marker stored with the
+    cue (`_arm_marker`): the event id, the day it falls on and whether the engine resolved it this turn. A cue whose event the engine resolved this turn is NEVER swapped. A cue is swapped for the not-due line only
+    when the final briefing's next event is the SAME occurrence, it is not due, and it is tomorrow (a notice) or not due at all (a call). Other paragraphs are untouched. No marker or no schedule facts => unchanged.
+    `after_turn_in` (the morning rebuild): a cue the morning schedule no longer supports (a different event or occurrence is next and the event is not due now) is dropped rather than left; one whose event is due now is kept."""
+    if not steer or b is None or b.due is None or not isinstance(arm, dict) or arm.get("resolved"):
+        return steer
+    out = []
+    for para in steer.split("\n\n"):
+        if _SCHEDULE_CUE_RE.match(para):
+            if _same_occurrence(arm, b):
+                if b.due is False and (para.startswith("PRODUCTION CALLS") or b.next_day == "tomorrow"):
+                    label = _MOMENT_PHASE_LABELS.get(b.next_event) or b.next_event.replace("-", " ")
+                    para = (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {b.when('later today')} and it is not that time yet. It is NOT on now: "
+                            "do NOT narrate it starting, a result, or anyone being called to it.")
+            elif after_turn_in and not (b.next_event == arm.get("event") and b.due is True):
+                continue  # the morning schedule says another event (or another occurrence) is next and this one is not due now: the cue is last night's news
+        out.append(para)
+    return "\n\n".join(out)
 
 
 def _runway_sig(game_state: dict) -> str:
@@ -7453,16 +7552,24 @@ def _interruption_steer(game_state) -> str:
 _PRODUCTION_WARN_MINUTES = 30
 
 
-def _production_warning_steer(phase: str, minutes: int) -> str:
-    """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only."""
+def _production_warning_steer(phase: str, minutes: int, briefing=None) -> str:
+    """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only.
+    ORW-409: the event and the minutes come from the briefing's schedule facts when it has them (`phase` / `minutes` only without one)."""
+    if briefing is not None and briefing.next_event:
+        phase = briefing.next_event
+        if briefing.minutes_until is not None:
+            minutes = briefing.minutes_until
     label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
     _away = "a few minutes away" if _zc_on() else f"roughly {int(minutes)} in-game minutes away"  # ORW-377: no minutes count under zero clocks
     return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called ({_away}). Let the house feel it: a voice or a bell from production, "
             "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
 
 
-def _production_call_steer(phase: str) -> str:
-    """The one-turn cue when a scheduled event comes due WHILE the player is mid-conversation: production calls everyone, the person they were talking to turns toward the call."""
+def _production_call_steer(phase: str, briefing=None) -> str:
+    """The one-turn cue when a scheduled event comes due WHILE the player is mid-conversation: production calls everyone, the person they were talking to turns toward the call.
+    ORW-409: the event is the briefing's next event when it has one (`phase` only without one)."""
+    if briefing is not None and briefing.next_event:
+        phase = briefing.next_event
     label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
     return (f"PRODUCTION CALLS EVERYONE - it is time for the {label}. The player was mid-conversation: whoever they were talking to turns toward the call in character, and the whole house "
             "gathers. Voice the interruption and the gathering; the engine resolves the event itself, so do NOT invent its outcome.")
@@ -7875,15 +7982,17 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         if isinstance(_ds, dict) and "due" in _ds and not game_state.get("eviction"):
             _hkey = _runway_key(user)
             _hsig, _hn = _PRODUCTION_HOLD.get(_hkey, (None, 0))
+            from routes.briefing import Briefing as _Briefing
+            _arm_b = _Briefing.from_schedule(_ds)  # ORW-409: the schedule facts of the board this pre-resolve holds (no second board build; the turn's one full briefing is built once after the writes)
             if _hsig != sig:
                 _hn = 0
             if not _ds.get("due"):
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
-                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")), briefing=_briefing_of(game_state))
+                    _arm_schedule_steer(_hkey, _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")), briefing=_arm_b), _ds, game_state)
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
-                        _SCHEDULE_STEER[_hkey] = _production_warning_steer(str(_ds.get("next") or phase), _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
+                        _arm_schedule_steer(_hkey, _production_warning_steer(phase, _mins, briefing=_arm_b), _ds, game_state)  # A7: the notice replaces the plain not-yet cue inside the last half hour
                     logger.info("[orwell] production holds %s for user=%s - not due yet (message %d/%d); the house stays social", phase, user, _hn + 1, _PRODUCTION_HOLD_CAP)
                     return _hold_for_social(game_state)
                 logger.warning("[orwell] production hold cap (%d messages) reached at %s for user=%s - the clock is not bringing the event in; releasing it", _PRODUCTION_HOLD_CAP, phase, user)
@@ -7894,7 +8003,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     pass
             elif not ready and _comp_hops == 0:
                 # A7: the event came due while the player was still talking (no readiness cue) - production calls everyone; narrate the interruption.
-                _SCHEDULE_STEER[_hkey] = _production_call_steer(phase)
+                _arm_schedule_steer(_hkey, _production_call_steer(phase, briefing=_arm_b), _ds, game_state)
             _PRODUCTION_HOLD.pop(_hkey, None)
             ready = True            # due (or released): resolve it now - the runway/readiness holds below must not delay a scheduled event
             _RUNWAY_LEFT[_hkey] = 0
@@ -8011,6 +8120,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
         clear_engine_held(user)  # ORW-97: a real beat walked
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
+        _mark_schedule_arm_resolved(_runway_key(user))  # ORW-409: a notice / call armed above is now about an event the engine advanced: the final-briefing reconcile must never swap it
         stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says
         # comp-intent (player in the field — engine pauses, never auto-decides), or resolve an NPC beat.
         # Observability (CLAUDE.md: "when debugging 'the game won't advance', look here"): the
@@ -8397,6 +8507,7 @@ async def apply_game_framing(
         # fetched exactly as before and nothing is stashed; on ⇒ the same call also carries the optional `brief` request
         # and the engine returns this turn's brief, stashed (by session) for build_chat_context's terminal append.
         from src import orwell_show_brief as _show_brief
+        _b409 = frame_briefing(user, game_state)  # ORW-409: THE briefing of this turn, built once, after every engine write above and before any block below is assembled
         _brief_on = _show_brief.show_brief_enabled()
         try:
             if _brief_on:
@@ -8406,8 +8517,7 @@ async def apply_game_framing(
             else:
                 mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
-            try:  # ORW-409: the part of the day is stated once, from the briefing (the engine's "Time of day" line restates it)
-                _b409 = _briefing_of(game_state)
+            try:  # ORW-409: the part of the day is stated once, from the turn's briefing (the engine's "Time of day" line restates it)
                 if _b409 is not None:
                     gm_prompt = _unify_part_of_day(gm_prompt, _b409)
                     mp = {**mp, "systemPrompt": gm_prompt} if isinstance(mp, dict) and mp.get("systemPrompt") else mp
@@ -8558,7 +8668,7 @@ async def apply_game_framing(
         # `_LAST_BEAT_SIG[user]` was just refreshed to THIS turn's signature above, so diff against the
         # previous one captured at the top of the turn. Only fires on an unchanged player room.
         try:
-            _move_line = _render_presence_movement(_prev_presence_sig, _LAST_BEAT_SIG.get(_desync_key(user)))
+            _move_line = _render_presence_movement(_prev_presence_sig, _LAST_BEAT_SIG.get(_desync_key(user)), briefing=_b409)
             if _move_line:
                 gm_prompt = gm_prompt + "\n\n" + _move_line
         except Exception as e:
@@ -8582,13 +8692,18 @@ async def apply_game_framing(
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:
-                gm_prompt = gm_prompt + "\n\n" + _reconcile_hang_out_steer(_ho_steer, game_state)
+                gm_prompt = gm_prompt + "\n\n" + _reconcile_hang_out_steer(_ho_steer, game_state, briefing=_b409)
         except Exception as e:
             logger.warning("[orwell] hang-out steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _sched_steer = _SCHEDULE_STEER.pop(_runway_key(user), None)
+            _sched_arm = _SCHEDULE_ARM.pop(_runway_key(user), None)
+            if _sched_arm and _sched_steer:
+                _TURN_SCHEDULE_ARM[_runway_key(user)] = _sched_arm
+            else:
+                _TURN_SCHEDULE_ARM.pop(_runway_key(user), None)
             if _sched_steer:
-                gm_prompt = gm_prompt + "\n\n" + _sched_steer
+                gm_prompt = gm_prompt + "\n\n" + _reconcile_schedule_steer(_sched_steer, _b409, _sched_arm)
         except Exception as e:
             logger.warning("[orwell] schedule steer framing skipped for user=%s: %s", _gkey, e)
         try:
@@ -8627,7 +8742,7 @@ async def apply_game_framing(
             preface[0]["content"] = gm_prompt + "\n\n" + preface[0]["content"]
         else:
             preface.insert(0, {"role": "system", "content": gm_prompt})
-        _audit_framed_briefing(user, preface)
+        _audit_framed_briefing(user, preface, briefing=_b409)  # the turn's own briefing, not the per-user cache a second tab could have replaced
     else:
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again

@@ -8,6 +8,7 @@ Under the zero-clocks setting no clock number is ever produced: the part of day 
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -31,7 +32,14 @@ class Briefing:
     location: str = ""
     present: tuple = ()
     asleep: tuple = ()
-    commitments: tuple = ()      # open promises: reserved for the open-ledger context line (not on main yet)
+    commitments: tuple = ()      # open promises: reserved. The commitments the narrator sees are rendered by the ENGINE's own brief (ORW-407); the front end builds no prompt line for them
+    day: Optional[int] = None    # the in-game day number (`dayNumber`); None when the clock is dormant
+    minutes_until: Optional[int] = None  # whole in-game minutes to the next event (`daySchedule.minutesUntil`); never spoken under zero clocks
+
+    @property
+    def awake_present(self) -> tuple:
+        """Who is in the player's room AND awake: a sleeper is never "present" for a block that has them come, go or talk."""
+        return tuple(n for n in self.present if n not in self.asleep)
 
     def when(self, default: str) -> str:
         """The in-fiction "when" of the next event: "tomorrow <part>" / "this <part>"; `default` when the schedule names no part."""
@@ -45,7 +53,9 @@ class Briefing:
         if not isinstance(ds, dict):
             return cls()
         due = ds.get("due") if isinstance(ds.get("due"), bool) else None
-        return cls(next_event=str(ds.get("next") or ""), next_day="tomorrow" if ds.get("tomorrow") else "today", next_part=str(ds.get("phase") or ""), due=due)
+        mu = ds.get("minutesUntil")
+        mu = mu if isinstance(mu, int) and not isinstance(mu, bool) else None
+        return cls(next_event=str(ds.get("next") or ""), next_day="tomorrow" if ds.get("tomorrow") else "today", next_part=str(ds.get("phase") or ""), due=due, minutes_until=mu)
 
 
 def _part_of_day(board: dict, zero_clocks: bool) -> str:
@@ -66,10 +76,12 @@ def build_briefing(board: Any, zero_clocks: Optional[bool] = None) -> Briefing:
         from src.zero_clocks import zero_clocks_on
         zero_clocks = zero_clocks_on()
     sched = Briefing.from_schedule(board.get("daySchedule"))
+    dn = board.get("dayNumber")
     w = board.get("whereabouts") if isinstance(board.get("whereabouts"), dict) else {}
     return Briefing(
         part_of_day=_part_of_day(board, bool(zero_clocks)),
-        next_event=sched.next_event, next_day=sched.next_day, next_part=sched.next_part, due=sched.due,
+        next_event=sched.next_event, next_day=sched.next_day, next_part=sched.next_part, due=sched.due, minutes_until=sched.minutes_until,
+        day=dn if isinstance(dn, int) and not isinstance(dn, bool) and dn > 0 else None,
         location=str(w.get("room") or ""), present=_names(w.get("present")), asleep=_names(board.get("asleep")),
     )
 
@@ -87,3 +99,13 @@ def unify_part_of_day_lines(prompt: str, b: Briefing) -> str:
         return prompt
     out = prompt[:pod.start()] + pod.group(1) + b.part_of_day + pod.group(2) + prompt[pod.end():]
     return re.sub(r"^- Time of day:[^\n]*\n", "", out, count=1, flags=re.MULTILINE)
+
+
+_MOVE_CUE_RE = re.compile(r"\n*MOVEMENT IN THE ROOM[^\n]*(?:\n(?!\n)[^\n]*)*")
+
+
+def drop_movement_cue(prompt: str) -> str:
+    """Remove the "MOVEMENT IN THE ROOM" cue. After a turnIn it is stale by construction: it describes a change that happened before the player slept, and the morning block already says who is there."""
+    if not isinstance(prompt, str):
+        return prompt
+    return _MOVE_CUE_RE.sub("", prompt, count=1)

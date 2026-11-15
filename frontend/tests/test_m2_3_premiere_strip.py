@@ -390,7 +390,9 @@ def test_orw392_the_hud_says_early_morning_past_2am_before_the_wake_up_call():
     assert _node_eval(snippet, 'todLabel("late-night", true)').endswith("Early morning")
     assert _node_eval(snippet, 'todLabel("late-night")').endswith("Late night")
     assert _node_eval(snippet, 'todLabel("late-night", false)').endswith("Late night")
-    assert _node_eval(snippet, 'todLabel("morning", true)').endswith("Morning")  # the flag only ever renames the late-night phase
+    assert _node_eval(snippet, 'todLabel("morning", true)').endswith("Early morning")  # ORW-441: woken early after an early bed the phase is "morning" (clock 2-8am)
+    assert _node_eval(snippet, 'todLabel("morning", false)').endswith("Morning") and not _node_eval(snippet, 'todLabel("morning")').endswith("Early morning")
+    assert _node_eval(snippet, 'todLabel("afternoon", true)').endswith("Afternoon")  # the flag never renames any other phase
     nightstatus = _read(PANEL.replace("orwellStatusPanel.js", "orwellNightStatus.js"))
     assert "state.earlyMorning === true" in nightstatus and "Early morning" in nightstatus
 
