@@ -1,0 +1,17 @@
+{
+  "_note": "Correct biographies (they agree with the card) that the season-start validator must never flag or clear. Shared by the TypeScript test; the front end's rule is tested in frontend/tests/test_orw430_bio_names_the_card.py.",
+  "cases": [
+    {"name": "woman, father and brother named with their own pronouns", "gender": "woman", "age": 22, "vocation": "diner server",
+     "biography": "Her father ran the Macon diner where he taught her to carry four plates. Her brother still cooks there and his pancakes are famous. She now waits tables at the same counter."},
+    {"name": "man, sister at the kitchen table (live Thomas Sizemore text)", "gender": "man", "age": 25, "vocation": "tree-service climber and sawyer",
+     "biography": "Thomas grew up climbing the white pines and hemlocks around Ellijay before he ever drew a paycheck for it. When he isn't forty feet up a spar, he's at his sister's kitchen table helping her study for her real estate exam."},
+    {"name": "woman, diner open thirty years (a thing's span)", "gender": "woman", "age": 22, "vocation": "diner server",
+     "biography": "She waits tables at a Macon diner that has been open thirty years and knows every regular by their order. She keeps the whole counter laughing."},
+    {"name": "woman, all 22 years of her life", "gender": "woman", "age": 22, "vocation": "nurse",
+     "biography": "She has lived in Macon all 22 years of her life and plans to nurse there until she is old. Her mornings start at the hospital cafeteria."},
+    {"name": "woman, relative's span ('her father worked twenty-five years')", "gender": "woman", "age": 22, "vocation": "nurse",
+     "biography": "Her father worked thirty years at the paper mill and never missed a shift. She became a nurse because of the nights he spent on the floor of the ER."},
+    {"name": "woman 38, plausible twelve years on the job", "gender": "woman", "age": 38, "vocation": "court clerk",
+     "biography": "Mariana has spent twelve years in the Los Angeles County court system and knows every judge by their coffee order. She runs the clerk's counter on the fourth floor."}
+  ]
+}

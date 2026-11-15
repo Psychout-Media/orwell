@@ -119,5 +119,5 @@ def test_deferred_run_is_superseded_only_if_the_restart_marker_equals_head():
     # rc 10 (the token changed) must not exit by itself: the failed superseding run may have reverted.
     m = re.search(r'if \[\[ \$__ud_rc -eq 10 \]\]; then(.*?)\n  fi', UPDATE, re.S)
     assert m and "exit 0" not in m.group(1)
-    chk = re.search(r'if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\nfi\n', UPDATE, re.S).group(0)
+    chk = re.search(r'^if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\nfi\n', UPDATE, re.S | re.M).group(0)
     assert "update_restarted_sha_read" in chk and "exit 0" in chk
