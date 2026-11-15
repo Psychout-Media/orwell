@@ -69,7 +69,9 @@
     content.innerHTML = `
       <style>
         #orwell-dossier { width: min(360px, 92vw); }
-        #orwell-dossier .od-head { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; margin-bottom: .5rem; }
+        /* ORW-437: the kit's viewport re-clamp measures the window's max-content width. The 100%-wide photo contributes nothing to it, so a short
+           dossier measured ~240 px and was shrunk to that, leaving a 216 px photo. The head holds the window's own width, so the photo keeps it. */
+        #orwell-dossier .od-head { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; margin-bottom: .5rem; min-width: calc(min(360px, 92vw) - 25px); }
         /* ORW-359: the photo is shown large, full width, square, above the name. When a photo
            exists it is a button that opens the full-size viewer (no right-click needed). */
         #orwell-dossier .od-portrait {

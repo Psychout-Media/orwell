@@ -270,7 +270,6 @@ def test_tile_expand_button_opens_only_the_viewer(fe):
             browser.close()
 
 
-@pytest.mark.flaky(reruns=0)
 def test_phone_width_has_no_sideways_scroll_and_keyboard_only_path(fe):
     sync_api = pytest.importorskip("playwright.sync_api")
     with sync_api.sync_playwright() as p:
@@ -288,13 +287,11 @@ def test_phone_width_has_no_sideways_scroll_and_keyboard_only_path(fe):
                 page.wait_for_timeout(1200)  # let the window animation and the photo settle
                 page.screenshot(path=os.path.join(SHOTS, "after-phone-412-dossier-large-photo.png"), timeout=90000)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no sideways scroll with the dossier open"
+            # ORW-437: the kit re-clamps every open window whenever a top banner appears or the viewport changes (a banner can arrive at any moment in CI).
+            # That pass must never shrink the dossier below the width its large photo needs; fire it on purpose so the result no longer depends on timing.
+            page.evaluate("window.dispatchEvent(new CustomEvent('orwell:banner-inset')); window.dispatchEvent(new Event('resize'))")
+            frames(page, 6)
             w, hh = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
-            _diag = page.evaluate("""(() => { const out = []; let e = document.querySelector('#orwell-dossier .od-portrait');
-              while (e && e !== document.documentElement) { const r = e.getBoundingClientRect(), c = getComputedStyle(e);
-                out.push([e.tagName + (e.id ? '#' + e.id : '') + '.' + (e.className || '').toString().slice(0, 60), Math.round(r.left*100)/100, Math.round(r.top*100)/100, r.width, r.height, c.width, c.maxWidth, c.position, c.display, e.style.cssText.slice(0, 120)]); e = e.parentElement; }
-              return {vw: innerWidth, vh: innerHeight, dpr: devicePixelRatio, ls: Object.keys(localStorage).map(k => k + '=' + localStorage.getItem(k).slice(0, 80)), seed: JSON.stringify(window._orwellLayoutSeed || null), chain: out}; })()""")
-            if w < 280:
-                raise AssertionError("TEMPDIAG " + json.dumps(_diag))
             assert w >= 280 and hh >= 280 and abs(w - hh) <= 2, (w, hh)
             page.wait_for_selector("#orwell-dossier .od-portrait button.od-photo-btn", timeout=5000)
             page.focus("#orwell-dossier .od-portrait button.od-photo-btn")
