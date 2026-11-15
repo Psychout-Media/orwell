@@ -272,6 +272,7 @@ class SeasonGate:
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
                "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:3]),
+               "hair_open": " ".join(_norm(phys.get("photoHair")).split()[:2]),
                "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
@@ -298,11 +299,11 @@ class SeasonGate:
 
     def taken_phrases(self, hid: str) -> dict:
         """What earlier cards in this cast already use, for the next writer's prompt (writer-side repetition fix)."""
-        out = {"oncamera_endings": [], "oncamera_openings": [], "identity_openers": [], "marks": []}
+        out = {"oncamera_endings": [], "oncamera_openings": [], "photohair_openings": [], "identity_openers": [], "marks": []}
         for o, r in self.registry.items():
             if o == hid:
                 continue
-            for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
+            for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("photohair_openings", "hair_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
                 if r.get(key) and r[key] not in out[k]:
                     out[k].append(r[key])
         return {k: v for k, v in out.items() if v}

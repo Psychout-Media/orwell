@@ -123,3 +123,15 @@ def test_an_everyday_word_given_name_keeps_its_case_rule():
     prof = {"physicalCharacteristics": {"onCamera": "She may lean on the counter while May stands by the door."}}
     gate.mend(prof, may, [may])
     assert prof["physicalCharacteristics"]["onCamera"] == "She may lean on the counter while she stands by the door."
+
+
+def test_photohair_openings_already_used_reach_the_next_writers_prompt():
+    g = gate.SeasonGate("t")
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30}
+    prof = {"biography": "Namea welds boats and keeps lists of everything. He sleeps badly on Sundays.", "identityConcept": "Namea welds.",
+            "physicalCharacteristics": {"photoHair": "close cropped and neat, edges crisp for the shoot"}}
+    g.accept("npc:1", prof, npc, [npc])
+    ph = g.taken_phrases("npc:2")
+    assert ph["photohair_openings"] == ["close cropped"]
+    text = _msg({"vocations": [], "hometowns": [], "phrases": ph})
+    assert "photoHair lines already open: close cropped" in text
