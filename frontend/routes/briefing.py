@@ -119,9 +119,20 @@ def movement_sets(text: str):
     return left, came
 
 
+_MOVE_CUE_RE = re.compile(r"\n*MOVEMENT IN THE ROOM[^\n]*(?:\n(?!\n)[^\n]*)*")
+
+
+def drop_movement_cue(prompt: str) -> str:
+    """Remove the "MOVEMENT IN THE ROOM" cue. After a turnIn it is stale by construction: it describes a change that happened before the player slept, and the morning block already says who is there."""
+    if not isinstance(prompt, str):
+        return prompt
+    return _MOVE_CUE_RE.sub("", prompt, count=1)
+
+
 def drop_stale_movement(prompt: str, b: Briefing) -> str:
     """The "who walked in / left" cue is a difference computed BEFORE the turn's later writes. When the turn's final briefing contradicts it (someone it says left is in the room, someone it says came in is
-    not there or is asleep) it describes a room that no longer exists (the morning after a turnIn): drop that one cue, the engine's "With you" line states the room as it is. Unchanged without a location."""
+    not there or is asleep, or the room it names is not the player's room) it describes a room that no longer exists: drop that one cue, the engine's "With you" line states the room as it is.
+    Unchanged without a location."""
     if not isinstance(prompt, str) or not b.location:
         return prompt
     sets = movement_sets(prompt)
@@ -129,6 +140,10 @@ def drop_stale_movement(prompt: str, b: Briefing) -> str:
         return prompt
     left, came = sets
     here = set(b.awake_present)
-    if not ((left & here) or (came - here)):
+    from routes.briefing_audit import _LEFT_RE, _MOVE_ROOM_RE  # the audit's own cue-room parser
+    mv = _LEFT_RE.search(prompt)
+    rooms = {r.strip().lower().replace(" ", "-") for r in _MOVE_ROOM_RE.findall(mv.group(1))} if mv else set()
+    wrong_room = bool(rooms) and rooms != {b.location.lower()}
+    if not ((left & here) or (came - here) or wrong_room):
         return prompt
-    return re.sub(r"\n*MOVEMENT IN THE ROOM[^\n]*(?:\n(?!\n)[^\n]*)*", "", prompt, count=1)
+    return drop_movement_cue(prompt)

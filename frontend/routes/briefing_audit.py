@@ -14,11 +14,11 @@ _DUE_NOW_RE = re.compile(r"production is calling everyone|production calls every
 _IMMINENT_RE = re.compile(r"production gives notice|is about to be called", re.IGNORECASE)
 _NOT_DUE_RE = re.compile(r"production hasn'?t called|is not due until", re.IGNORECASE)
 _WITH_RE = re.compile(r"^\s*With you:\s*(.+?)\.?\s*$", re.IGNORECASE | re.MULTILINE)
-_LEFT_RE = re.compile(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*)")
+_LEFT_RE = re.compile(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*?)(?:\.\s+Voice it as a natural beat|$)", re.MULTILINE)  # the clauses only: the cue's own instruction sentence holds a ";" that must not be read as a clause
 _ASLEEP_RE = re.compile(r"Still asleep \(\d+\):\s*(.+?)\.\s", re.IGNORECASE)
 _INTERRUPT_RE = re.compile(r"AN INTERRUPTION \(engine-decided\):\s*(.+?) steps into")
 _ROOM_RE = re.compile(r"^\s*Your room: the ([A-Za-z -]+?) \(", re.MULTILINE)
-_MOVE_ROOM_RE = re.compile(r"(?:left|come into) the ([A-Za-z -]+?)(?:;|\.\s|$)")
+_MOVE_ROOM_RE = re.compile(r"(?:left|come into) the ([A-Za-z -]+?)(?:;|\.\s|\s\(|$)")
 _DAY_RE = re.compile(r"-\s*Clock:[^\n]*?\bDay (\d+)", re.IGNORECASE)
 
 
@@ -108,6 +108,8 @@ def _audit_against(t: str, parts: set, b) -> list:
         days = set(_DAY_RE.findall(t))
         if days and days != {str(b.day)}:
             out.append({"fact": "day", "detail": f"a block's day differs from the briefing's ({b.day})"})
+    # The engine's "With you" line lists AWAKE people only (src/engine/momentPrompts.ts:1280-1296 renders `whereabouts.present`, which the adapter builds with the awake filter at
+    # src/adapters/engine/GameSessionAdapter.ts:5761-5765); sleepers are named by the front end's own "Still asleep" line. So it is compared with the awake set, never with everyone in the room.
     here = {n.lower() for n in b.awake_present}
     wm = _WITH_RE.search(t)
     if wm and not wm.group(1).lower().startswith("no one"):

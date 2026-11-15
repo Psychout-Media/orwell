@@ -1,5 +1,5 @@
 """ORW-409 slice 3: the remaining hard-fact blocks (production notice / call, who walked in or left, the post-turnIn morning room) take their facts from the turn's ONE briefing, which is built once per
-framed turn. Roles only. "BEFORE" lengths were measured on origin/main by assembling the same scenario with the old call forms (`briefing=None` forms are byte-identical to main)."""
+framed turn. Roles only. Prompt-length claims compare the reconciled prompt with the SAME scenario built with the steer un-reconciled (no marker armed), never a hard-coded number."""
 import asyncio
 import importlib
 
@@ -30,51 +30,109 @@ def _msgs(*blocks):
     return [{"role": "system", "content": "\n\n".join(blocks)}]
 
 
-# ---- scenario 1: night, the next event is tomorrow; the notice armed before the final board must not call it imminent -------------------------------------------------------------
-def _night_scenario():
-    pre = {"next": "nominations", "phase": "night", "due": False, "minutesUntil": 25}              # the schedule when the cue was armed
-    final = _board("night", {"next": "nominations", "phase": "morning", "due": False, "tomorrow": True})   # the board the prompt is framed on
+# ---- the production notice / call reconcile, driven through the real `apply_game_framing` ---------------------------------------------------------------------------------------------
+def _social(ds, tod="evening", day=2, label="7:00pm, Day 2"):
+    b = _board(tod, ds, day=day, label=label)
+    b.update(phase="social", moment="social", week=1)
+    return b
+
+
+def _armed(user, text, pre_ds, pre_day=2):
+    key = ch._runway_key(user)
+    ch._arm_schedule_steer(key, text, pre_ds, {"dayNumber": pre_day})
+
+
+def _framed(monkeypatch, user, steer, pre_ds, final, pre_day=2, marked=True):
+    """The framed prompt for `user` with `steer` armed from `pre_ds`; `marked=False` stores the steer WITHOUT its marker (the un-reconciled form the old code produced)."""
+    _reset(user)
+    if marked:
+        _armed(user, steer, pre_ds, pre_day)
+    else:
+        ch._SCHEDULE_STEER[ch._runway_key(user)] = steer
+    return _frame(monkeypatch, [final], user)[0]["content"]
+
+
+def test_night_notice_is_not_imminent_when_the_event_is_tomorrow(monkeypatch):
+    pre = {"next": "nominations", "phase": "morning", "due": False, "tomorrow": True, "minutesUntil": 25}
+    final = _social({"next": "nominations", "phase": "morning", "due": False, "tomorrow": True}, tod="night", label="11:30pm, Day 2")
     armed = ch._production_warning_steer("nominations", 25, briefing=Briefing.from_schedule(pre))
-    return final, armed
+    old = _framed(monkeypatch, "u409n1", armed, pre, final, marked=False)
+    new = _framed(monkeypatch, "u409n2", armed, pre, final)
+    b = ch.turn_briefing("u409n2")
+    assert "GIVES NOTICE" in old and "GIVES NOTICE" not in new and "tomorrow morning" in new
+    assert [c["fact"] for c in audit_briefing([{"role": "system", "content": old}], b)] == ["event-due"], "the un-reconciled cue contradicts the briefing"
+    assert audit_briefing([{"role": "system", "content": new}], b) == []
+    assert len(new) <= len(old)
 
 
-def test_night_notice_is_not_imminent_when_the_event_is_tomorrow():
-    final, armed = _night_scenario()
-    b = build_briefing(final, zero_clocks=True)
-    old = _msgs(_ctx("night", "Houseguest A"), armed)
-    assert [c["fact"] for c in audit_briefing(old, b)] == ["event-due"], "the unreconciled cue contradicts the briefing"
-    new = _msgs(_ctx("night", "Houseguest A"), ch._reconcile_schedule_steer(armed, b))
-    assert audit_briefing(new, b) == []
-    assert "tomorrow morning" in new[0]["content"] and "GIVES NOTICE" not in new[0]["content"]
-    assert len(new[0]["content"]) <= len(old[0]["content"]) <= BEFORE_NIGHT
+def test_call_for_the_event_still_pending_and_not_due_is_swapped(monkeypatch):
+    pre = {"next": "nominations", "phase": "night", "due": True, "minutesUntil": 0}
+    final = _social({"next": "nominations", "phase": "night", "due": False}, tod="night", label="11:30pm, Day 2")
+    call = ch._production_call_steer("nominations", briefing=Briefing.from_schedule(pre))
+    old = _framed(monkeypatch, "u409c1", call, pre, final, marked=False)
+    new = _framed(monkeypatch, "u409c2", call, pre, final)
+    assert "PRODUCTION CALLS EVERYONE" in old and "PRODUCTION CALLS EVERYONE" not in new and "NOT on now" in new
+    assert audit_briefing([{"role": "system", "content": new}], ch.turn_briefing("u409c2")) == []
+    assert len(new) <= len(old)
 
 
-def test_night_call_for_the_event_still_pending_and_not_due_is_swapped_not_kept():
-    final, _ = _night_scenario()
-    b = build_briefing(final, zero_clocks=True)
-    call = ch._production_call_steer("nominations", briefing=Briefing(next_event="nominations"))
-    out = ch._reconcile_schedule_steer(call, b)
-    assert "PRODUCTION CALLS EVERYONE" not in out and "NOT on now" in out
-    assert audit_briefing(_msgs(_ctx("night", "Houseguest A"), out), b) == []
-
-
-# ---- scenario 4: an ordinary evening, the event is due now: the call still fires (no regression) -----------------------------------------------------------------------------------
-def test_evening_event_due_now_keeps_the_call_steer():
-    board = _board("evening", {"next": "veto-competition", "phase": "evening", "due": True, "minutesUntil": 0}, label="7:00pm, Day 2")
-    b = build_briefing(board, zero_clocks=True)
-    call = ch._production_call_steer("veto-competition", briefing=Briefing.from_schedule(board["daySchedule"]))
+def test_evening_event_due_now_keeps_the_call_steer(monkeypatch):
+    pre = {"next": "veto-competition", "phase": "evening", "due": True, "minutesUntil": 0}
+    final = _social(pre)
+    call = ch._production_call_steer("veto-competition", briefing=Briefing.from_schedule(pre))
     assert call == ch._production_call_steer("veto-competition"), "same words as before for the same event"
-    assert ch._reconcile_schedule_steer(call, b) == call
-    msgs = _msgs(_ctx("evening", "Houseguest A"), call)
-    assert audit_briefing(msgs, b) == []
-    assert len(msgs[0]["content"]) <= BEFORE_EVENING
+    old = _framed(monkeypatch, "u409e1", call, pre, final, marked=False)
+    new = _framed(monkeypatch, "u409e2", call, pre, final)
+    assert call in new and new == old
+    assert audit_briefing([{"role": "system", "content": new}], ch.turn_briefing("u409e2")) == []
 
 
-def test_call_for_an_event_the_engine_already_resolved_is_kept():
-    # the pre-resolve fired the due event; the final board's NEXT event is a later one that is not due: the call is still true ("this just happened")
-    b = build_briefing(_board("evening", {"next": "nominations", "phase": "morning", "due": False, "tomorrow": True}), zero_clocks=True)
-    call = ch._production_call_steer("veto-competition")
+def test_a_cue_for_another_occurrence_of_the_same_event_is_kept_at_framing(monkeypatch):
+    # armed for the nominations of day 2; the final board's nominations is day 4: not the occurrence the cue was about, so it is not rewritten
+    pre = {"next": "nominations", "phase": "night", "due": True}
+    final = _social({"next": "nominations", "phase": "morning", "due": False, "tomorrow": True}, day=3)
+    call = ch._production_call_steer("nominations", briefing=Briefing.from_schedule(pre))
+    assert call in _framed(monkeypatch, "u409o1", call, pre, final, pre_day=2)
+
+
+def test_a_cue_for_a_different_event_than_the_next_one_is_kept_at_framing(monkeypatch):
+    # armed for the veto competition (not marked resolved); the final board's next event is the nominations, same day, not due: not the event the cue was about
+    pre = {"next": "veto-competition", "phase": "evening", "due": True}
+    final = _social({"next": "nominations", "phase": "night", "due": False})
+    call = ch._production_call_steer("veto-competition", briefing=Briefing.from_schedule(pre))
+    assert call in _framed(monkeypatch, "u409d1", call, pre, final)
+
+
+def test_repeated_milestone_after_the_engine_resolved_part_one_keeps_the_call(monkeypatch):
+    # the three-part final HOH repeats the `hoh-competition` milestone: part 1 comes due, the call is armed, the pre-resolve advances part 1; the refetched board's next event is
+    # `hoh-competition` AGAIN (part 2), not due. Text matching used to swap the call for "hasn't called it yet" while the part-1 competition scene was still in the prompt.
+    user = "u409rep"
+    _reset(user)
+    due = {"started": True, "phase": "hoh-competition", "moment": "hoh-competition", "week": 1, "dayNumber": 4, "timeOfDay": "evening", "clockLabel": "7:00pm, Day 4", "asleep": [],
+           "whereabouts": {"room": "backyard", "present": [{"name": "Houseguest A"}]}, "daySchedule": {"next": "hoh-competition", "phase": "evening", "due": True, "minutesUntil": 0}}
+    part2 = dict(due, daySchedule={"next": "hoh-competition", "phase": "night", "due": False, "minutesUntil": 90})
+    adv = {"event": {"beat": "comp-elimination", "content": "Houseguest A wins part 1 of the final Head of Household"}}
+    out = _frame(monkeypatch, [due, part2], user, advance=adv, phase="hoh-competition", player_msg="hello")[0]["content"]
+    assert ch.turn_briefing(user).due is False and ch.turn_briefing(user).next_event == "hoh-competition"
+    assert "PRODUCTION CALLS EVERYONE" in out and "HASN'T CALLED IT YET" not in out and "THE COMPETITION" in out
+    assert ch.turn_schedule_arm(user)["resolved"] is True
+
+
+def test_a_repeated_milestone_not_resolved_this_turn_is_still_swapped(monkeypatch):
+    # same key, same day, nothing resolved: the not-due swap still fires (the marker, not the text, decides)
+    pre = {"next": "hoh-competition", "phase": "evening", "due": True}
+    final = _social({"next": "hoh-competition", "phase": "night", "due": False})
+    call = ch._production_call_steer("hoh-competition", briefing=Briefing.from_schedule(pre))
+    assert "NOT on now" in _framed(monkeypatch, "u409rs", call, pre, final)
+
+
+def test_reconcile_without_a_marker_or_with_a_resolved_marker_never_changes_the_steer():
+    b = Briefing(next_event="nominations", due=False, next_day="tomorrow", next_part="morning", day=2)
+    call = ch._production_call_steer("nominations")
     assert ch._reconcile_schedule_steer(call, b) == call
+    assert ch._reconcile_schedule_steer(call, b, {"event": "nominations", "day": 3, "resolved": True}) == call
+
+
 
 
 def test_notice_and_call_follow_the_briefing_not_the_old_arguments():
@@ -111,7 +169,7 @@ def test_morning_after_turn_in_drops_the_stale_movement_cue():
     fixed = drop_stale_movement(stale[0]["content"], b)
     assert "MOVEMENT IN THE ROOM" not in fixed and "With you: Houseguest A, Houseguest B." in fixed
     assert audit_briefing(_msgs(fixed), b) == []
-    assert len(fixed) <= len(stale[0]["content"]) <= BEFORE_MORNING
+    assert len(fixed) < len(stale[0]["content"])
 
 
 def test_a_movement_cue_the_final_board_still_supports_is_kept():
@@ -176,30 +234,38 @@ def test_hang_out_stop_reads_the_passed_briefing():
 
 
 # ---- one briefing per framed turn ---------------------------------------------------------------------------------------------------------------------------------------------------
-def _frame(monkeypatch, board_seq, user):
+def _frame(monkeypatch, board_seq, user, advance=None, phase="social", player_msg=None, band=None):
     monkeypatch.setattr("src.settings.game_build_enabled", lambda: True)
     boards = list(board_seq)
 
     async def status(user=None):
-        return {"phase": "social", "pending": None}
+        return {"phase": phase, "pending": None}
 
     async def no_advance(expected_beat_seq=None, idempotency_key=None, user=None):
-        return None
+        return advance
 
     async def state(user=None, **kw):
         return dict(boards.pop(0) if len(boards) > 1 else boards[0])
 
     async def moment(m, user=None, **_kw):
-        return {"systemPrompt": "GAME CONTEXT:" + _ctx("evening", "Houseguest A")}
+        return {"systemPrompt": "GAME CONTEXT:" + _ctx(band or str(boards[-1].get("timeOfDay") or "evening").replace("-", " "), "Houseguest A")}
 
     monkeypatch.setattr(orwell_engine, "game_status", status)
     monkeypatch.setattr(orwell_engine, "advance_game", no_advance)
     monkeypatch.setattr(orwell_engine, "get_game_state", state)
     monkeypatch.setattr(orwell_engine, "get_moment_prompt", moment)
     preface = []
-    _e, active, _f = _run(ch.apply_game_framing(preface, user, False, session_id="s-" + user))
+    _e, active, _f = _run(ch.apply_game_framing(preface, user, False, session_id="s-" + user, player_msg=player_msg))
     assert active is True
     return preface
+
+
+def _reset(user):
+    ch.clear_social_runway(user)
+    ch._TURN_BRIEFING.pop(ch._runway_key(user), None)
+    ch._LAST_FRAMED_MOMENT_VOLATILE.pop(user, None)
+    ch._COMP_PAUSED.pop(ch._runway_key(user), None)
+    ch.event_pause_clear(user)
 
 
 def test_the_briefing_is_built_once_per_framed_turn(monkeypatch):
@@ -265,7 +331,179 @@ def test_post_turn_in_rebuild_replaces_the_cached_briefing(monkeypatch):
     ch._TURN_BRIEFING.pop(ch._runway_key(owner), None)
 
 
-# Prompt length BEFORE (origin/main): the same scenario assembled with the pre-change call forms and no reconcile, measured by running it against a checkout of origin/main.
-BEFORE_NIGHT = 513    # measured: /tmp checkout of the branch base commit (ff4e89e3), same scenario, old call forms
-BEFORE_EVENING = 519
-BEFORE_MORNING = 507
+# ---- the morning after a turnIn, through the real `_refresh_context_after_turn_in` -----------------------------------------------------------------------------------------------------------
+def _morning_refresh(monkeypatch, user, steer, pre_ds, morning, extra="", pre_day=2, resolve=False):
+    """Frame a night turn with `steer` armed (real `apply_game_framing`), then run the real turnIn refresh against the `morning` board; returns (messages, system content)."""
+    from src import agent_loop as al
+    final = _social({"next": pre_ds["next"], "phase": pre_ds.get("phase", "night"), "due": bool(pre_ds.get("due"))}, tod="night", label="11:30pm, Day 2")
+    _reset(user)
+    _armed(user, steer + ("\n\n" + extra if extra else ""), pre_ds, pre_day)
+    if resolve:
+        ch._mark_schedule_arm_resolved(ch._runway_key(user))
+    msgs = _frame(monkeypatch, [final], user)
+
+    async def fake_mp(moment=None, user=None, timeout=None, brief=None):
+        return {"systemPrompt": "GAME CONTEXT:" + _ctx("morning", "Houseguest A", room=morning["whereabouts"]["room"])}
+
+    async def fake_state(user=None, **kw):
+        return morning
+
+    monkeypatch.setattr(orwell_engine, "get_moment_prompt", fake_mp)
+    monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    assert _run(al._refresh_context_after_turn_in(msgs, user, "{}")) is True
+    return msgs, msgs[0]["content"]
+
+
+def _morning(ds, room="kitchen", present=("Houseguest A",)):
+    return _board("morning", ds, room=room, present=present, label="8:00am, Day 3", day=3)
+
+
+def test_turn_in_drops_a_notice_when_another_event_is_next_in_the_morning(monkeypatch):
+    pre = {"next": "nominations", "phase": "night", "due": False, "minutesUntil": 25}
+    notice = ch._production_warning_steer("nominations", 25, briefing=Briefing.from_schedule(pre))
+    morning = _morning({"next": "veto-competition", "phase": "afternoon", "due": False})
+    msgs, content = _morning_refresh(monkeypatch, "u409t1", notice, pre, morning)
+    assert "GIVES NOTICE" not in content and "HASN'T CALLED" not in content
+    assert audit_briefing(msgs, ch.turn_briefing("u409t1")) == []
+
+
+def test_turn_in_keeps_the_notice_when_the_event_is_due_now_in_the_morning(monkeypatch):
+    pre = {"next": "nominations", "phase": "night", "due": False, "minutesUntil": 25}
+    notice = ch._production_warning_steer("nominations", 25, briefing=Briefing.from_schedule(pre))
+    morning = _morning({"next": "nominations", "phase": "morning", "due": True})
+    _msgs_, content = _morning_refresh(monkeypatch, "u409t2", notice, pre, morning)
+    assert notice in content and "HASN'T CALLED" not in content
+
+
+def test_turn_in_never_swaps_a_call_the_engine_resolved_this_turn(monkeypatch):
+    pre = {"next": "hoh-competition", "phase": "night", "due": True}
+    call = ch._production_call_steer("hoh-competition", briefing=Briefing.from_schedule(pre))
+    morning = _morning({"next": "hoh-competition", "phase": "evening", "due": False}, room="kitchen")
+    morning["dayNumber"] = 2   # the same day: the repeated milestone is next again
+    _msgs_, content = _morning_refresh(monkeypatch, "u409t3", call, pre, morning, resolve=True)
+    assert call in content and "HASN'T CALLED" not in content
+
+
+def test_turn_in_swaps_a_call_for_the_same_pending_occurrence_that_is_not_due(monkeypatch):
+    pre = {"next": "nominations", "phase": "morning", "due": True, "tomorrow": True}     # armed for day 3's nominations
+    call = ch._production_call_steer("nominations", briefing=Briefing.from_schedule(pre))
+    morning = _morning({"next": "nominations", "phase": "afternoon", "due": False})        # day 3, same event, not due
+    _msgs_, content = _morning_refresh(monkeypatch, "u409t4", call, pre, morning)
+    assert "PRODUCTION CALLS EVERYONE" not in content and "NOT on now" in content
+
+
+def test_turn_in_keeps_the_other_paragraphs_of_the_steer(monkeypatch):
+    pre = {"next": "nominations", "phase": "night", "due": False, "minutesUntil": 25}
+    notice = ch._production_warning_steer("nominations", 25, briefing=Briefing.from_schedule(pre))
+    morning = _morning({"next": "veto-competition", "phase": "afternoon", "due": False})
+    _msgs_, content = _morning_refresh(monkeypatch, "u409t5", notice, pre, morning, extra="THE COMPETITION - a scene steer.")
+    assert "GIVES NOTICE" not in content and "THE COMPETITION - a scene steer." in content
+
+
+def _night_kitchen_cue(user):
+    _reset(user)
+    cue = ch._render_presence_movement({"room": "kitchen", "present": ["Houseguest A", "Houseguest B"]}, {"room": "kitchen", "present": ["Houseguest A"]})
+    return cue
+
+
+def test_turn_in_drops_a_movement_cue_that_names_last_nights_room(monkeypatch):
+    # B left the kitchen at night; the player turns in and wakes in the bedroom where B is not: the people check alone kept the cue
+    cue = _night_kitchen_cue("u409m1")
+    b = build_briefing(_morning(None, room="bedroom", present=("Houseguest A",)), zero_clocks=True)
+    text = _ctx("morning", "Houseguest A", room="bedroom") + "\n\n" + cue
+    assert "MOVEMENT IN THE ROOM" not in drop_stale_movement(text, b), "the cue's room is not the player's room"
+    from src import agent_loop as al
+    user = "u409m2"
+    _reset(user)
+    ch._LAST_FRAMED_MOMENT_VOLATILE[user] = _ctx("night", "Houseguest A")
+
+    async def fake_mp(moment=None, user=None, timeout=None, brief=None):
+        return {"systemPrompt": "GAME CONTEXT:" + _ctx("morning", "Houseguest A", room="bedroom")}
+
+    async def fake_state(user=None, **kw):
+        return _morning(None, room="bedroom", present=("Houseguest A",))
+
+    monkeypatch.setattr(orwell_engine, "get_moment_prompt", fake_mp)
+    monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    msgs = [{"role": "system", "content": "GAME CONTEXT:" + _ctx("night", "Houseguest A") + "\n\n" + cue}]
+    assert _run(al._refresh_context_after_turn_in(msgs, user, "{}")) is True
+    assert "MOVEMENT IN THE ROOM" not in msgs[0]["content"]
+    assert audit_briefing(msgs, ch.turn_briefing(user)) == []
+
+
+def test_turn_in_drops_a_night_arrival_who_is_still_there(monkeypatch):
+    # an arrival the morning board still shows is last night's news: the people check kept it, the turn-in rebuild drops it
+    cue = ch._render_presence_movement({"room": "kitchen", "present": ["Houseguest A"]}, {"room": "kitchen", "present": ["Houseguest A", "Houseguest B"]})
+    assert "Houseguest B has come into the kitchen" in cue
+    b = build_briefing(_morning(None, present=("Houseguest A", "Houseguest B")), zero_clocks=True)
+    text = _ctx("morning", "Houseguest A, Houseguest B") + "\n\n" + cue
+    assert drop_stale_movement(text, b) == text, "the people check alone keeps it"
+    from src import agent_loop as al
+    user = "u409m3"
+    _reset(user)
+    ch._LAST_FRAMED_MOMENT_VOLATILE[user] = _ctx("night", "Houseguest A")
+
+    async def fake_mp(moment=None, user=None, timeout=None, brief=None):
+        return {"systemPrompt": "GAME CONTEXT:" + _ctx("morning", "Houseguest A, Houseguest B")}
+
+    async def fake_state(user=None, **kw):
+        return _morning(None, present=("Houseguest A", "Houseguest B"))
+
+    monkeypatch.setattr(orwell_engine, "get_moment_prompt", fake_mp)
+    monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    msgs = [{"role": "system", "content": "GAME CONTEXT:" + _ctx("night", "Houseguest A") + "\n\n" + cue}]
+    assert _run(al._refresh_context_after_turn_in(msgs, user, "{}")) is True
+    assert "MOVEMENT IN THE ROOM" not in msgs[0]["content"]
+
+
+def test_turn_in_failure_leaves_the_content_and_the_cached_briefing_untouched(monkeypatch):
+    from src import agent_loop as al
+    user = "u409x"
+    _reset(user)
+    old_b = Briefing(day=1)
+    ch.set_turn_briefing(user, old_b)
+    ch._LAST_FRAMED_MOMENT_VOLATILE[user] = _ctx("night", "Houseguest A")
+
+    async def fake_mp(moment=None, user=None, timeout=None, brief=None):
+        return {"systemPrompt": "GAME CONTEXT:" + _ctx("morning", "Houseguest A")}
+
+    async def fake_state(user=None, **kw):
+        return _morning(None)
+
+    def boom(*a, **k):
+        raise RuntimeError("reconcile failed")
+
+    monkeypatch.setattr(orwell_engine, "get_moment_prompt", fake_mp)
+    monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)
+    monkeypatch.setattr(ch, "_reconcile_schedule_steer", boom)
+    before = "GAME CONTEXT:" + _ctx("night", "Houseguest A")
+    msgs = [{"role": "system", "content": before}]
+    assert _run(al._refresh_context_after_turn_in(msgs, user, "{}")) is False
+    assert msgs[0]["content"] == before and ch.turn_briefing(user) is old_b
+
+
+# ---- a houseguest who was here and has gone to bed keeps an exit beat ------------------------------------------------------------------------------------------------------------------
+def test_a_houseguest_who_turned_in_keeps_an_exit_beat_and_is_never_present_or_arriving():
+    prev = {"room": "kitchen", "present": ["Houseguest A", "Houseguest B"]}
+    cur = {"room": "kitchen", "present": ["Houseguest B"]}
+    b = Briefing(location="kitchen", present=("Houseguest B",), asleep=("Houseguest A",))
+    cue = ch._render_presence_movement(prev, cur, briefing=b)
+    assert "Houseguest A has left the kitchen (turned in for the night)" in cue
+    assert "come into" not in cue and "show them heading out or arriving" in cue
+    msgs = [{"role": "system", "content": _ctx("night", "Houseguest B", asleep="- Still asleep (1): Houseguest A. They are NOT awake.\n") + "\n\n" + cue}]
+    assert audit_briefing(msgs, build_briefing(_board("night", None, present=("Houseguest B",), asleep=("Houseguest A",)), zero_clocks=True)) == []
+    assert drop_stale_movement(msgs[0]["content"], b) == msgs[0]["content"], "a sleeper-departure cue is not stale"
+
+
+def test_a_sleeper_who_left_alongside_an_awake_leaver_is_split_in_the_cue():
+    prev = {"room": "kitchen", "present": ["Houseguest A", "Houseguest B", "Houseguest C"]}
+    cue = ch._render_presence_movement(prev, {"room": "kitchen", "present": ["Houseguest C"]}, briefing=Briefing(location="kitchen", present=("Houseguest C",), asleep=("Houseguest A",)))
+    assert "Houseguest B has left the kitchen;" in cue and "Houseguest A has left the kitchen (turned in for the night)" in cue
+
+
+# ---- the audit compares the engine's "With you" line (awake people only) with the awake set -------------------------------------------------------------------------------------------------
+def test_a_correct_prompt_with_a_sleeper_in_the_room_raises_no_presence_report():
+    b = Briefing(location="bedroom", present=("Houseguest A", "Houseguest B"), asleep=("Houseguest B",))
+    asleep = "- Still asleep (1): Houseguest B. They are NOT awake in this scene.\n"
+    assert audit_briefing(_msgs(_ctx("early morning", "Houseguest A (lingering, 3 turns)", room="bedroom", asleep=asleep)), b) == []
+    assert [c["fact"] for c in audit_briefing(_msgs(_ctx("early morning", "Houseguest A, Houseguest B", room="bedroom", asleep=asleep)), b)].count("presence") == 1

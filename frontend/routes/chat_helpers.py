@@ -561,6 +561,8 @@ def clear_social_runway(user) -> None:
     _RUNWAY_LAST_DONE.pop(key, None)  # #1127: forget the lingered-through marker on reset/end
     _DAY_BREAK_STEER.pop(key, None)   # P1-2: a reset also drops a pending day-break steer
     _SCHEDULE_STEER.pop(key, None)
+    _SCHEDULE_ARM.pop(key, None)
+    _TURN_SCHEDULE_ARM.pop(key, None)
     _PRODUCTION_HOLD.pop(key, None)
     _PREMIERE_MSGS.pop(key, None)
     _PREMIERE_CLOCK_HOLD.pop(key, None)
@@ -7234,13 +7236,14 @@ _PRESENCE_MOVE_MAX_NAMES = 4
 def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefing=None) -> Optional[str]:
     """A 'someone came/went' cue from two beat signatures, or None when there is nothing to voice
     (no prior signature, the player changed rooms, or the room's company is unchanged).
-    ORW-409: the BEFORE side stays the previous turn's signature (a difference needs the old state); the AFTER side (room and who is there) is the turn's briefing when it has a room,
-    and a sleeper is on neither side (a sleeping houseguest never "comes in" or "has left" as a person the narrator may voice)."""
+    ORW-409: the BEFORE side stays the previous turn's signature (a difference needs the old state); the AFTER side (room and who is there) is the turn's briefing when it has a room.
+    A sleeper is never on the ARRIVED side or "here now" (the awake list), but a houseguest who WAS here and has since turned in is still on the LEFT side, stated as having turned in."""
     if not isinstance(prev, dict) or not isinstance(cur, dict):
         return None
+    asleep: set = set()
     if briefing is not None and briefing.location:
         cur = {"room": briefing.location, "present": list(briefing.awake_present)}
-        prev = {**prev, "present": [n for n in (prev.get("present") or []) if n not in briefing.asleep]}
+        asleep = set(briefing.asleep)
     pr, cr = prev.get("room"), cur.get("room")
     if not pr or not cr or pr != cr:
         return None  # player moved (or room unknown) — the cast change isn't NPC drift; stay quiet
@@ -7252,9 +7255,10 @@ def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefin
         return None
     room_label = str(cr).replace("-", " ")
     parts: list[str] = []
-    if departed:
-        verb = "has" if len(departed) == 1 else "have"
-        parts.append(f"{_join_names(departed)} {verb} left the {room_label}")
+    for group, tail in (([n for n in departed if n not in asleep], ""), ([n for n in departed if n in asleep], " (turned in for the night)")):
+        if group:
+            verb = "has" if len(group) == 1 else "have"
+            parts.append(f"{_join_names(group)} {verb} left the {room_label}{tail}")
     if arrived:
         verb = "has" if len(arrived) == 1 else "have"
         parts.append(f"{_join_names(arrived)} {verb} come into the {room_label}")
@@ -7353,13 +7357,13 @@ async def _maybe_delta_line(user, last_seen_beat_seq) -> Optional[str]:
         return None
 
 
-def _audit_framed_briefing(user, messages) -> None:
+def _audit_framed_briefing(user, messages, briefing=None) -> None:
     """ORW-409: debug-log + soft-fail counter for any contradiction between the blocks of the final briefing. Report-only, fail-open; ORWELL_BRIEFING_AUDIT=0 turns it off."""
     if os.getenv("ORWELL_BRIEFING_AUDIT", "1") == "0":
         return
     try:
         from routes.briefing_audit import audit_briefing
-        for c in audit_briefing(messages, turn_briefing(user)):
+        for c in audit_briefing(messages, briefing if briefing is not None else turn_briefing(user)):
             logger.debug("[orwell] briefing conflict (%s): %s", c["fact"], c["detail"])
             record_soft_failure(f"briefing-conflict:{c['fact']}", ValueError(c["detail"]), corrected="none:report-only", user=user)
     except Exception as e:
@@ -7410,24 +7414,58 @@ def set_turn_briefing(user, briefing) -> None:
 _SCHEDULE_CUE_RE = re.compile(r"^(?:PRODUCTION GIVES NOTICE|PRODUCTION CALLS EVERYONE)\b")
 
 
-def _reconcile_schedule_steer(steer: str, b) -> str:
-    """ORW-409: the production warning ("about to be called") and call ("production calls everyone") cues were armed from the board BEFORE the turn's later writes. If the turn's final briefing says THE SAME event is
-    not due and is tomorrow (a notice), or not due at all (a call), the cue would tell the narrator the event is imminent / on now while the schedule says it is not: swap THAT paragraph for the not-due steer.
-    A cue the final board still supports (due now, due soon today, or about an event the engine has since resolved) is left byte-for-byte. Other paragraphs (competition scene, veto draw) are untouched. No schedule facts => unchanged."""
-    if not steer or b is None or b.due is None:
+_SCHEDULE_ARM: dict = {}       # runway key -> {"event", "day", "resolved"} of the notice / call armed this turn (stored next to `_SCHEDULE_STEER`, never encoded in its text)
+_TURN_SCHEDULE_ARM: dict = {}  # runway key -> the same marker, kept for the framed turn after the steer was consumed (the post-turnIn rebuild reconciles against it)
+
+
+def _arm_marker(ds, game_state) -> dict:
+    """The structured identity of the event a notice / call is armed for: the milestone key, the in-game day that occurrence falls on (None when unknown), and whether the engine resolved it this turn."""
+    dn = game_state.get("dayNumber") if isinstance(game_state, dict) else None
+    dn = dn if isinstance(dn, int) and not isinstance(dn, bool) and dn > 0 else None
+    return {"event": str((ds or {}).get("next") or ""), "day": None if dn is None else dn + (1 if (ds or {}).get("tomorrow") else 0), "resolved": False}
+
+
+def _arm_schedule_steer(key, text: str, ds, game_state) -> None:
+    _SCHEDULE_STEER[key] = text
+    _SCHEDULE_ARM[key] = _arm_marker(ds, game_state)
+
+
+def _mark_schedule_arm_resolved(key) -> None:
+    """The pre-resolve advanced the board this turn: a notice / call armed before it is about an event the engine has now resolved or moved on from."""
+    if key in _SCHEDULE_ARM:
+        _SCHEDULE_ARM[key]["resolved"] = True
+
+
+def turn_schedule_arm(user):
+    """The marker of the notice / call consumed by the framed turn in flight, or None."""
+    return _TURN_SCHEDULE_ARM.get(_runway_key(user))
+
+
+def _same_occurrence(arm: dict, b) -> bool:
+    """The briefing's next event is the very occurrence the cue was armed for: same milestone key, and the same in-game day when both are known (a repeated milestone, e.g. the three-part final HOH, keeps its key)."""
+    if not arm.get("event") or arm.get("event") != b.next_event:
+        return False
+    b_day = None if b.day is None else b.day + (1 if b.next_day == "tomorrow" else 0)
+    return arm.get("day") is None or b_day is None or arm.get("day") == b_day
+
+
+def _reconcile_schedule_steer(steer: str, b, arm=None, after_turn_in: bool = False) -> str:
+    """ORW-409: the production warning ("about to be called") and call ("production calls everyone") cues were armed from the board BEFORE the turn's later writes. `arm` is the structured marker stored with the
+    cue (`_arm_marker`): the event id, the day it falls on and whether the engine resolved it this turn. A cue whose event the engine resolved this turn is NEVER swapped. A cue is swapped for the not-due line only
+    when the final briefing's next event is the SAME occurrence, it is not due, and it is tomorrow (a notice) or not due at all (a call). Other paragraphs are untouched. No marker or no schedule facts => unchanged.
+    `after_turn_in` (the morning rebuild): a cue the morning schedule no longer supports (a different event or occurrence is next and the event is not due now) is dropped rather than left; one whose event is due now is kept."""
+    if not steer or b is None or b.due is None or not isinstance(arm, dict) or arm.get("resolved"):
         return steer
     out = []
     for para in steer.split("\n\n"):
-        m = _SCHEDULE_CUE_RE.match(para)
-        if m:
-            is_call = para.startswith("PRODUCTION CALLS")
-            label = _MOMENT_PHASE_LABELS.get(b.next_event) or b.next_event.replace("-", " ")
-            # a call armed for an event the engine has since RESOLVED (the schedule moved on to a later event) is a true "this just happened" cue: only the event still pending and not due is stale
-            same_event = bool(b.next_event) and f"the {label}" in para
-            stale = same_event and b.due is False and (is_call or b.next_day == "tomorrow")
-            if stale:
-                para = (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {b.when('later today')} and it is not that time yet. It is NOT on now: "
-                        "do NOT narrate it starting, a result, or anyone being called to it.")
+        if _SCHEDULE_CUE_RE.match(para):
+            if _same_occurrence(arm, b):
+                if b.due is False and (para.startswith("PRODUCTION CALLS") or b.next_day == "tomorrow"):
+                    label = _MOMENT_PHASE_LABELS.get(b.next_event) or b.next_event.replace("-", " ")
+                    para = (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {b.when('later today')} and it is not that time yet. It is NOT on now: "
+                            "do NOT narrate it starting, a result, or anyone being called to it.")
+            elif after_turn_in and not (b.next_event == arm.get("event") and b.due is True):
+                continue  # the morning schedule says another event (or another occurrence) is next and this one is not due now: the cue is last night's news
         out.append(para)
     return "\n\n".join(out)
 
@@ -7914,10 +7952,10 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if not _ds.get("due"):
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
-                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")), briefing=_arm_b)
+                    _arm_schedule_steer(_hkey, _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")), briefing=_arm_b), _ds, game_state)
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
-                        _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins, briefing=_arm_b)  # A7: the notice replaces the plain not-yet cue inside the last half hour
+                        _arm_schedule_steer(_hkey, _production_warning_steer(phase, _mins, briefing=_arm_b), _ds, game_state)  # A7: the notice replaces the plain not-yet cue inside the last half hour
                     logger.info("[orwell] production holds %s for user=%s - not due yet (message %d/%d); the house stays social", phase, user, _hn + 1, _PRODUCTION_HOLD_CAP)
                     return _hold_for_social(game_state)
                 logger.warning("[orwell] production hold cap (%d messages) reached at %s for user=%s - the clock is not bringing the event in; releasing it", _PRODUCTION_HOLD_CAP, phase, user)
@@ -7928,7 +7966,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     pass
             elif not ready and _comp_hops == 0:
                 # A7: the event came due while the player was still talking (no readiness cue) - production calls everyone; narrate the interruption.
-                _SCHEDULE_STEER[_hkey] = _production_call_steer(phase, briefing=_arm_b)
+                _arm_schedule_steer(_hkey, _production_call_steer(phase, briefing=_arm_b), _ds, game_state)
             _PRODUCTION_HOLD.pop(_hkey, None)
             ready = True            # due (or released): resolve it now - the runway/readiness holds below must not delay a scheduled event
             _RUNWAY_LEFT[_hkey] = 0
@@ -8045,6 +8083,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
         clear_engine_held(user)  # ORW-97: a real beat walked
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
+        _mark_schedule_arm_resolved(_runway_key(user))  # ORW-409: a notice / call armed above is now about an event the engine advanced: the final-briefing reconcile must never swap it
         stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says
         # comp-intent (player in the field — engine pauses, never auto-decides), or resolve an NPC beat.
         # Observability (CLAUDE.md: "when debugging 'the game won't advance', look here"): the
@@ -8621,8 +8660,13 @@ async def apply_game_framing(
             logger.warning("[orwell] hang-out steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _sched_steer = _SCHEDULE_STEER.pop(_runway_key(user), None)
+            _sched_arm = _SCHEDULE_ARM.pop(_runway_key(user), None)
+            if _sched_arm and _sched_steer:
+                _TURN_SCHEDULE_ARM[_runway_key(user)] = _sched_arm
+            else:
+                _TURN_SCHEDULE_ARM.pop(_runway_key(user), None)
             if _sched_steer:
-                gm_prompt = gm_prompt + "\n\n" + _reconcile_schedule_steer(_sched_steer, _b409)
+                gm_prompt = gm_prompt + "\n\n" + _reconcile_schedule_steer(_sched_steer, _b409, _sched_arm)
         except Exception as e:
             logger.warning("[orwell] schedule steer framing skipped for user=%s: %s", _gkey, e)
         try:
@@ -8661,7 +8705,7 @@ async def apply_game_framing(
             preface[0]["content"] = gm_prompt + "\n\n" + preface[0]["content"]
         else:
             preface.insert(0, {"role": "system", "content": gm_prompt})
-        _audit_framed_briefing(user, preface)
+        _audit_framed_briefing(user, preface, briefing=_b409)  # the turn's own briefing, not the per-user cache a second tab could have replaced
     else:
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again
