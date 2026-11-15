@@ -54,3 +54,15 @@ def test_viewer_script_is_loaded_before_the_cast():
     html = (JS.parent / "index.html").read_text(encoding="utf-8")
     assert html.index("orwellPortraitViewer.js") > html.index("orwellDossier.js")
     assert "orwellChatNames.js" in html
+
+
+def test_inline_name_links_are_exempt_from_the_44px_touch_floor():
+    """A name inside a sentence is role=button but is an INLINE target (WCAG 2.5.5 / 2.5.8 inline exception). Without `tap-exempt` the responsive
+    matrix's touch sweep (it matches `[role=button]`) fails every phone viewport with "touch: 'Kevin' 32x14" whenever a roster name is in the prose
+    (fe-responsive on #2705 and #2715, 2026-11-15)."""
+    s = _r("orwellChatNames.js")
+    made = [ln for ln in s.splitlines() if "ow-name-link" in ln and ("classList.add(" in ln or "className =" in ln)]
+    assert len(made) == 3, made
+    assert all("tap-exempt" in ln for ln in made), made
+    matrix = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "responsive_matrix.py").read_text(encoding="utf-8")
+    assert "e.classList.contains('tap-exempt')" in matrix and "[role=button]" in matrix
