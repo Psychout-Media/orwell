@@ -24,20 +24,22 @@ set -u
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PARSE="python3 -I $HERE/ci_logparse.py"
 FLAKES="$HERE/known-flakes.txt"
-R=Psychout-Media/orwell; pr=""; merge=0; mins=120; only_run=""
+R=Psychout-Media/orwell; pr=""; merge=0; mins=120; only_run=""; run_set=0; last_rid=""
 while [ $# -gt 0 ]; do
   case $1 in
     -h|--help) usage; exit 0 ;;
     --merge) merge=1 ;;
     --minutes) shift; mins=${1:-}; ;;
     --repo) shift; R=${1:-} ;;
-    --run) shift; only_run=${1:-} ;;
+    --run) shift; only_run=${1:-}; run_set=1 ;;
     -*) echo "unknown option $1" >&2; usage >&2; exit 64 ;;
     *) pr=$1 ;;
   esac; shift
 done
 case $pr in ''|*[!0-9]*) echo "need a PR number" >&2; usage >&2; exit 64 ;; esac
 case $mins in ''|*[!0-9]*) echo "--minutes needs a number" >&2; exit 64 ;; esac
+# --run must be a numeric run id: an empty value would silently switch a read-only replay into live mode (re-runs, merge), a bad one would poll until the deadline.
+if [ "$run_set" = 1 ]; then case $only_run in ''|*[!0-9]*) echo "--run needs a numeric run id" >&2; exit 64 ;; esac; fi
 POLL=${WATCH_PR_POLL:-30}
 deadline=$(( $(date +%s) + mins*60 )); reruns=0; floor_attempt=0
 declare -A seen=()      # job ids already analysed
@@ -90,6 +92,8 @@ while :; do
   else run=$(gh run list -R "$R" --branch "$br" --workflow CI --limit 30 --json databaseId,status,headSha,createdAt \
         --jq "[.[]|select(.headSha==\"$head\")]|sort_by(.createdAt)|last // empty" 2>/dev/null); fi
   rid=$(jq -r '.databaseId // empty' <<<"${run:-null}")
+  # a new head has a new run: its first attempt must not be measured against the previous run's attempt floor
+  if [ -n "$rid" ] && [ "$rid" != "$last_rid" ]; then floor_attempt=0; last_rid=$rid; fi
   if [ -n "$rid" ]; then
     rj=$(gh run view "$rid" -R "$R" --json status,attempt,jobs 2>/dev/null) || { sleep "$POLL"; continue; }
     rst=$(jq -r .status <<<"$rj"); att=$(jq -r .attempt <<<"$rj")
@@ -124,17 +128,22 @@ while :; do
         sleep "$POLL"; continue
       fi
       gate=$(jq -r '[.jobs[]|select(.name=="ci-gate")|.conclusion]|first // "none"' <<<"$rj")
-      if [ "$gate" = success ]; then
+      # a green gate with a recorded flake or cancellation (a non-blocking job such as a11y-matrix) is not done: the re-run below runs first
+      if [ "$gate" = success ] && [ "${#flakejobs[@]}" -eq 0 ] && [ "${#cancelled[@]}" -eq 0 ]; then
         if [ "$dr" = true ]; then say "ci-gate is green but PR #$pr is a draft (reruns $reruns)"; exit 5; fi
         if [ "$merge" = 1 ]; then
           if out=$(gh pr merge "$pr" -R "$R" --squash --match-head-commit "$head" 2>&1); then say "MERGED PR #$pr (head ${head:0:10}, run $rid, reruns $reruns)"; exit 0
-          else say "MERGE FAILED PR #$pr: $out"; exit 2; fi
+          else
+            case $out in *onflict*) say "PR #$pr has a MERGE CONFLICT with main (found at merge time): rebase it. $out"; exit 3 ;; esac
+            say "MERGE FAILED PR #$pr: $out"; exit 2
+          fi
         fi
         say "ci-gate GREEN for PR #$pr (head ${head:0:10}, run $rid, reruns $reruns)"; exit 0
       fi
       if [ "${#flakejobs[@]}" -gt 0 ] || [ "${#cancelled[@]}" -gt 0 ]; then
         if [ "$reruns" -lt 3 ]; then
-          reruns=$((reruns+1)); gh run rerun "$rid" -R "$R" --failed >/dev/null 2>&1
+          reruns=$((reruns+1))
+          if ! rrout=$(gh run rerun "$rid" -R "$R" --failed 2>&1); then say "RE-RUN REJECTED by GitHub for run $rid: $rrout (re-run it by hand: gh run rerun $rid -R $R --failed)"; exit 2; fi
           say "re-run $reruns of 3 of run $rid (flakes: $(names "${!flakejobs[@]}")cancelled: $(names "${!cancelled[@]}"))"
           floor_attempt=$att; flakejobs=(); cancelled=(); sleep "$POLL"; continue
         fi

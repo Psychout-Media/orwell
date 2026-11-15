@@ -35,8 +35,8 @@ Today the bedtime gate refuses any turn-in in the morning or afternoon. So once 
    - If the multi-night fatigue meter is on, the same factor applies to the deficit it feeds into today's comps. The meter's own history is not rewritten.
    - Hidden: nothing player-facing carries the number or the factor.
 4. **Events always wake you.** If a scheduled milestone (`daySchedule.due`) comes due mid-nap, the nap ends there: production wakes the player and the event proceeds as normal. Only the time actually slept counts toward rule 3. Napping the morning of a comp is allowed and is a real strategy.
-5. **The house keeps living.** The elapsed hours are lived exactly as the player's own turns would live them: hour-by-hour house life for the awake houseguests, using the existing per-turn off-screen machinery over the slept span. The player witnesses none of it. Anything they learn later comes only through the normal pathways (told, overheard, seen).
-6. **Seen napping.** Houseguests who enter or are in the bedroom while the player sleeps witness a public fact: "the player was napping in the afternoon".
+5. **The house keeps living.** The elapsed hours are lived exactly as the player's own turns would live them: hour-by-hour house life for the awake houseguests, using the per-turn off-screen society tick, NOT the overnight catch-up path (that path suppresses sleeping scenes and caps the elapsed ticks). The nap has its own daytime policy (`consumeNapHours` in `src/composition/orchestrator.ts`): one tick per society-tick hours slept, at least one, capped at `EXTRA_TICK_CAP + 1`, each on its own seeded side stream so the shared stream the competition and vote spine reads is untouched. The player witnesses none of it. Anything they learn later comes only through the normal pathways (told, overheard, seen).
+6. **Seen napping.** Houseguests who enter or are in the bedroom while the player sleeps witness a public fact: "the player was napping in the morning" or "in the afternoon", whichever phase the nap started in (a morning nap is allowed).
    - Each reads it through their own character, as one small bounded fold. Competitive or strategic types read it as checked-out or soft (a small threat-down); easygoing types barely react.
    - No number is shown. It can come up in their talk like any witnessed fact.
 7. **Waking up.** The narrator gets a short Vault-free "while you slept" view: where the player is, who is in the room now, who has come and gone (presence deltas), and what time of day it is now. It voices only that. It never invents what happened off-screen.
@@ -46,7 +46,7 @@ Today the bedtime gate refuses any turn-in in the morning or afternoon. So once 
 
 - **Engine:** a `nap({hours})` player lever. It returns `{ slept, wokenBy?: "event" | "evening", whereabouts }`.
   - It is Vault-free and idempotent per `idempotencyKey`, and honours `expectedBeatSeq`, like `turnIn`.
-  - Live state gains `napHoursToday` (reset by `turnIn`), persisted.
+  - Live state gains an OPTIONAL `napHoursToday`: absent until the first nap, set only by a nap (so a game that never naps, and the flag-off path, serialize exactly as before), and reset by `turnIn` AND by the 8am calendar-day transition (`src/engine/liveSeason.ts`), so a player who stays awake through the day change does not keep yesterday's credit.
   - `playerRestDeficit` reads it.
   - Flag `ORWELL_NAP`, default ON (built means on). Off means byte-identical: the lever refuses with "not available".
 - **Front end:** it is a model lever named in the narrator prompt, so it needs the five-place FE wiring (tool schema, tags and keep set, engine wrapper, dispatch, `do_nap`) plus a diegetic beat label.

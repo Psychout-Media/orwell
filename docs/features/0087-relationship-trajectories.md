@@ -16,8 +16,8 @@
 > byte-identical with trajectories alone disabled; (2) recency window 4 folds, momentum building per
 > consistent fold and **spiking on betrayal**, decaying at the 0026 neglect cadence; (3) a tight,
 > momentum-scaled tilt cap (≤60% of a nature's own weight at full momentum) so off-arc beats stay
-> possible (criterion 2); (4) **`NPC→player` trajectories YES** — engine-computed, behavior-only, never
-> shown (the directed `recordTrajectoryFold` keys any `a→b` pair, the player included); the player's read
+> possible (criterion 2); (4) **`NPC→player` trajectories: keyed, but NOT fed today** — the directed `recordTrajectoryFold` keys any `a→b` pair, the player included, but only off-screen NPC↔NPC scenes call it (`src/composition/orchestrator.ts`); player-witnessed scenes do not update trajectories, so an NPC→player arc stays at `steady` until that feed is built (deferred). Engine-computed, behavior-only, never
+> shown; the player's read
 > of any NPC stays purely human-driven; (5) trajectories do **not** feed 0086 drives yet (a later pass —
 > this feature only exposes the layer).
 > **Depends on:** 0002 (the relationship model — the directed graded edges a trajectory rides on),
