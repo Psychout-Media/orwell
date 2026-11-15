@@ -263,6 +263,7 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { moveInBeds, claimBed, freeBeds, sleepRoomOf, BED_CROWD_PULL, type BedsState } from "../../engine/beds";
 import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
@@ -5596,22 +5597,62 @@ export class GameSessionAdapter implements GameSession {
       .map((id) => ({ id, name: this.nameOf(id) }));
   }
 
-  /** ORW-383: OFF by default. Seating the asleep in bedrooms at wake clumps the house into three rooms and moves the seeded house-life mix about 4 points (bonding 44.9 -> 41.0 on the mix guard's seeds), which is the owner's agreed mix to re-agree, not mine; so it waits for that call. */
-  private sleepersInBedEnabled = process.env.ORWELL_SLEEPERS_IN_BED === "1";
-  setSleepersInBedEnabled(on: boolean): void { this.sleepersInBedEnabled = on; }
   /**
-   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
-   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom. Called ONLY from `turnIn` (the player's own wake); the bitter-end clock wrap and `crossToNextDay` do not seat anyone (review of #2678: left for Ryne on ORW-437, the flag is still off pending the mix re-agreement).
+   * ORW-466 (Ryne 2026-11-15: "most people would have an assigned bed... every house guest is choosing which bed they would like to sleep in for the season"): each houseguest's bed, claimed on
+   * move-in day in entrance order (early arrivals first, as on the show). The player is skipped here and picks for themselves (until that lever lands, they get the bed left over at their first
+   * bedtime - `bedThePlayer`). A PLAYED game only: a headless or calibration game never assigns beds, so its seeded outcomes stay exactly as they were. Each NPC reads a room by who is already in it
+   * (their feeling for them: first impressions, pre-show ties) and their own nature (a social houseguest likes a busy room, a private one a quiet room), plus a little luck from a side stream; within the room they share half of a double only with someone they really like, else take a single
+   * (`${seed}:beds:...`) so no shared roll moves. Supersedes the ORW-383 "sleepers in bed" setting (an arbitrary room per houseguest), which is deleted.
    */
-  private seatInBedrooms(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
-    if (!into || !this.sleepersInBedEnabled) return;
-    const beds: Room[] = ["bedroom-a", "bedroom-b", "bedroom-c"];
-    // Index in the cast roster (it never shrinks), not the living roster: an eviction must not shift anyone else's bed.
-    const order = this.house ? this.house.npcs.map((n) => n.id) : this.presenceActive();
+  private ensureBeds(): BedsState | undefined {
+    const s = this.live;
+    if (!s || !this.house || s.playedGame !== true) return undefined;
+    if (s.beds) return s.beds;
+    const order = s.premiereEntrance?.order ?? [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+    const seed = this.gameSeed ?? 0;
+    s.beds = moveInBeds(
+      order,
+      (who, _room, mates) => {
+        const crowd = (this.statsOf(who).social - 0.5) * BED_CROWD_PULL * mates.length; // social likes company, private likes quiet
+        const ties = mates.reduce((t, m) => t + Math.max(0, this.rel.edge(who, m).affinity - 0.5), 0); // drawn to people they already like
+        return crowd + ties;
+      },
+      (who, room) => new SeededRandom(hashSeed(`${seed}:beds:${who}:${room}`)).next(),
+      (who, other) => this.rel.edge(who, other).affinity, // half of a double only next to someone they really like (beds.ts SHARE_DOUBLE_AT)
+      { skip: new Set([PLAYER]), day: s.dayNumber ?? 1 },
+    );
+    return s.beds;
+  }
+
+  /** ORW-466: the player's bed - the bed left over at their first bedtime if they never picked one (as on the show) - and the player in it (the HOH room for the HOH). Inside a commit only. */
+  private bedThePlayer(): void {
+    const beds = this.ensureBeds();
+    if (!beds || !this.presence || !this.live) return;
+    if (!beds.owner[PLAYER]) {
+      const inHouse = new Set(this.livingIds());
+      const left = freeBeds(beds, inHouse)[0];
+      if (left) claimBed(beds, PLAYER, left, this.live.dayNumber ?? 1, "leftover", inHouse);
+    }
+    const room = sleepRoomOf(beds, PLAYER, this.live.hoh);
+    if (room && this.presence.get(PLAYER) !== room) {
+      this.presence.set(PLAYER, room);
+      this.presenceBase?.set(PLAYER, room);
+      (this.presenceTenure ??= new Map()).set(PLAYER, 0);
+      this.sendOccupancy = null;
+    }
+  }
+
+  /**
+   * ORW-466 - sleepers sleep in their OWN bed: the HOH in the HOH room, everyone else in their bed's room. NPCs only (the player is `bedThePlayer`), on the PLAYER-FACING occupancy (`presence`; the
+   * calibration-neutral base the society pairs on is untouched and already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom. A played game only.
+   */
+  private seatInOwnBeds(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
+    const beds = this.ensureBeds();
+    if (!into || !beds) return;
     for (const id of ids) {
       if (id === PLAYER || !into.has(id)) continue;
-      const room = beds[Math.max(0, order.indexOf(id)) % beds.length]!;
-      if (into.get(id) !== room) { into.set(id, room); this.presenceTenure?.set(id, 0); }
+      const room = sleepRoomOf(beds, id, this.live?.hoh);
+      if (room && into.get(id) !== room) { into.set(id, room); this.presenceTenure?.set(id, 0); }
     }
   }
 
@@ -5762,7 +5803,7 @@ export class GameSessionAdapter implements GameSession {
       if (notHere?.has(id)) { houseguests.push({ id, name, status: "arriving", fact: "has not walked into the house yet (still to enter at the premiere)" }); continue; }
       const where = gathered ? myRoom : this.presence!.get(id);
       if (awake && !awake.has(id)) {
-        houseguests.push(where && where.startsWith("bedroom-")
+        houseguests.push(where && (where.startsWith("bedroom-") || where === "hoh-room")
           ? { id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` }
           : { id, name, status: "asleep", fact: "asleep, in bed" });
         continue;
@@ -11829,7 +11870,8 @@ export class GameSessionAdapter implements GameSession {
       // skipped). No-op unless the flag + in-game clock are live ⇒ byte-identical off. Records Vault-only.
       this.sweepDailyConfessionals(closingDay);
       playerTurnIn(this.live!, PLAYER);
-      { const up = this.awakeNow(); if (up) this.seatInBedrooms(this.presenceActive().filter((id) => !up.has(id))); } // ORW-383: whoever is still asleep when the player wakes is in a bed, not where the evening left them
+      this.bedThePlayer(); // ORW-466: the player sleeps (and wakes) in their own bed - the HOH room for the HOH
+      { const up = this.awakeNow(); if (up) this.seatInOwnBeds(this.presenceActive().filter((id) => !up.has(id))); } // ORW-466: whoever is still asleep when the player wakes is in their own bed
       this.accrueNightFatigue(); // the player chose bed — a genuine night-end; accrue before clearing conflicts
       this.rollNightConflicts();
       this.persist();
@@ -11857,6 +11899,7 @@ export class GameSessionAdapter implements GameSession {
       const live = this.live!;
       const n = (live.hangOutCount ?? 0) + 1;
       live.hangOutCount = n;
+      delete live.approachHeld; // ORW-452: per-turn, same lifecycle as the conversation tick (a wait with no capped approach clears the last turn's hold)
       const rng = new SeededRandom(hashSeed(`hangout:${this.gameSeed ?? ""}:${n}`));
       const day = live.dayNumber ?? 1;
       const evicted = new Set(live.evictionOrder ?? []);
@@ -11892,7 +11935,8 @@ export class GameSessionAdapter implements GameSession {
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc, hit.desire, hit.capped);
-            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
+            if (hit.capped) { if (live.playedGame === true) live.approachHeld = true; return null; } // ORW-423: the want is spent (3 h cooldown), the player is not stopped; ORW-452: narration-only held flag, as the conversation tick
+            delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
@@ -11980,9 +12024,9 @@ export class GameSessionAdapter implements GameSession {
     if (live.pending) return refuse("decision-pending", "Something needs the player's answer first; it is not the moment to lie down.");
     if (this.houseEventInSession()) return refuse("event-in-session", "The whole house is gathered for an event right now; the player cannot slip away to sleep.");
     if (live.playerRetired) return refuse("already-asleep", "The player is already asleep.");
-    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
-    // ORW-451: woken before the house after an early bed (phase "morning", clock 2am up to the wake-up - the early-morning band, ORW-441): a nap is a DAYTIME nap (0148), so this is refused like the night.
+    // ORW-451 (checked before the phase gate, so a player still up at 3am in the late-night phase gets this reason too): woken before the house after an early bed (phase "morning", clock 2am up to the wake-up - the early-morning band, ORW-441): a nap is a DAYTIME nap (0148), so this is refused like the night.
     if (isEarlyMorning(live.nightDepth)) return refuse("early-morning", "It is still the early morning and the house is asleep; the day has not started yet, so this is no time for a nap.");
+    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
@@ -11994,7 +12038,9 @@ export class GameSessionAdapter implements GameSession {
       const here = this.presence!.get(me) ?? null;
       const bedrooms: readonly Room[] = ["bedroom-a", "bedroom-b", "bedroom-c", "hoh-room"];
       let dest: Room;
-      if (live.hoh === me) dest = "hoh-room";
+      const ownRoom = sleepRoomOf(this.ensureBeds(), me, live.hoh); // ORW-466: the player's own bed (the HOH room for the HOH)
+      if (ownRoom) dest = ownRoom;
+      else if (live.hoh === me) dest = "hoh-room";
       else if (here !== null && bedrooms.includes(here)) dest = here;
       else { const r = resolveRoom("bedroom", here); dest = r.kind === "ok" ? r.room : r.kind === "ambiguous" ? r.candidates[0]! : "bedroom-a"; }
       if (here !== dest) {
