@@ -378,7 +378,7 @@ update_turn_in_flight() {
 # Wait (bounded) until no turn is in flight. $1 = signal file. Bound: ORWELL_UPDATE_TURN_WAIT_SECONDS
 # (default 120, clamped 1..300). Always returns 0: after the bound the update proceeds.
 update_wait_for_no_turn() {
-  local f="$1" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now
+  local f="$1" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
   [[ "$max" =~ ^[0-9]+$ ]] || max=120
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
@@ -389,15 +389,20 @@ update_wait_for_no_turn() {
       echo "==> a turn is still in flight after ${max}s — restarting anyway."
       return 0
     fi
-    echo "==> a turn is in flight — waiting for it to finish before restarting (up to ${max}s)."
-    _update_defer_sleep 2
+    if (( (now - start) / 30 != last_say )); then   # the first pass, then at most every 30 s (not a line per 2 s)
+      last_say=$(( (now - start) / 30 ))
+      echo "==> a turn is in flight — waiting for it to finish before restarting (up to ${max}s)."
+    fi
+    left=$(( max - (now - start) )); nap=2; (( left < nap )) && nap=$left; (( nap < 1 )) && nap=1   # never sleep past the bound
+    _update_defer_sleep "$nap"
   done
   return 0
 }
 
 # ── ORW-406 slice 3: warm before reporting the update complete ───────────────────────────────────────────
 # _update_probe <url>: print the body of a loopback GET, or nothing (seam for tests).
-_update_probe() { curl -fsS --noproxy '*' --max-time 3 "$1" 2>/dev/null || true; }
+# $2 = the most seconds this probe may take (default 3): the warm wait passes what is left of its own bound.
+_update_probe() { curl -fsS --noproxy '*' --max-time "${2:-3}" "$1" 2>/dev/null || true; }
 
 # update_wait_for_warm <engine /health url or ""> <front-end health url or ""> [<ops log>]
 # After the restart, poll (bounded by ORWELL_UPDATE_WARM_WAIT_SECONDS, default 60, clamped 1..300) until the
@@ -410,30 +415,31 @@ update_wait_for_warm() {
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
   start="$(_update_defer_now)"
+  _warm_left() { local l=$(( max - ($(_update_defer_now) - start) )); (( l < 1 )) && l=1; (( l > 3 )) && l=3; echo "$l"; }
   local eng_done=0 fe_done=0
   [[ -z "$eng" ]] && eng_done=1
   [[ -z "$fe" ]] && fe_done=1
   while :; do
     if (( ! eng_done )); then
-      body="$(_update_probe "$eng")"
+      body="$(_update_probe "$eng" "$(_warm_left)")"
       if [[ "$body" == *'"ok":true'* ]] && { [[ "$body" == *'"warmed":true'* ]] || [[ "$body" != *'"warmed"'* ]]; }; then
         eng_done=1
         warm_ms="$(sed -n 's/.*"warmMs":\([0-9]*\).*/\1/p' <<<"$body")"
       fi
     fi
     if (( eng_done && ! fe_done )); then
-      body="$(_update_probe "$fe")"
+      body="$(_update_probe "$fe" "$(_warm_left)")"
       [[ "$body" == *'"engine":true'* || "$body" == *'"engine": true'* ]] && fe_done=1
     fi
     now="$(_update_defer_now)"
     if (( eng_done && fe_done )); then
       msg="==> warm-up complete after $((now - start))s${warm_ms:+ (engine reported ${warm_ms}ms)}; the new build is ready for traffic."
-      echo "$msg"; [[ -n "$log" ]] && { echo "$msg" >>"$log" 2>/dev/null || true; }
+      echo "$msg"   # stdout already lands in the ops update log (the unit's redirect); a second explicit append duplicated the line
       return 0
     fi
     if (( now - start >= max )); then
       msg="==> warm-up not confirmed after ${max}s (engine_ready=${eng_done} frontend_ready=${fe_done}) - continuing; the first turn may be slow."
-      echo "$msg"; [[ -n "$log" ]] && { echo "$msg" >>"$log" 2>/dev/null || true; }
+      echo "$msg"
       return 0
     fi
     _update_defer_sleep 2

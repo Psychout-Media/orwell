@@ -494,6 +494,8 @@ if [[ "$RESTART" -eq 1 && "$have_systemd" -eq 1 ]]; then
       systemctl is-active --quiet "$svc" || START_FAILED+=("$svc")
     done
   fi
+  # The reset did the final restart (Update + Reset passes --no-restart to the updater): record the build the services now run, so the next update scopes its restart from it (review of #2702).
+  if [[ "$DRY_RUN" -eq 0 && ${#START_FAILED[@]} -eq 0 ]] && type update_restarted_sha_write >/dev/null 2>&1; then update_restarted_sha_write "$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null || true)"; fi
   if [[ "$DRY_RUN" -eq 0 && ${#START_FAILED[@]} -eq 0 ]] && type update_wait_for_warm >/dev/null 2>&1; then
     WARM_ENG_PORT="$(env_val ORWELL_ENGINE_PORT || true)"; WARM_FE_PORT="$(env_val ORWELL_PORT || true)"
     [[ "$WARM_ENG_PORT" =~ ^[0-9]+$ ]] || WARM_ENG_PORT=8765

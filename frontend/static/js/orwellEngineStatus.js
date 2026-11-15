@@ -66,9 +66,11 @@
   const GAP_GRACE_MS = 10000;
   let _gapSince = 0;       // when the current run of failed health fetches began (0 = healthy)
   let _gapTimer = null;    // re-probe at the end of the grace so a persisting gap shows without waiting a whole poll
+  // Monotonic clock: a wall-clock step back (NTP, VM resume) must not make a real outage look newer than it is and hold the banner back (review of #2719). `|| 1` keeps 0 meaning healthy.
+  function _monoNow() { try { return (typeof performance !== 'undefined' && performance.now) ? (performance.now() || 1) : Date.now(); } catch (_) { return Date.now(); } }
   function _gapQuiet() {
     // true = still inside the grace window: show nothing, and make sure we look again when it ends.
-    const now = Date.now();
+    const now = _monoNow();
     if (!_gapSince) _gapSince = now;
     const left = GAP_GRACE_MS - (now - _gapSince);
     if (left <= 0) return false;
