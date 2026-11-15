@@ -337,13 +337,22 @@ export const FATIGUE_WEIGHT = FATIGUE.weight;
  * ORW-377 (zero clocks in the house) - the part of the day the NARRATOR hears instead of a clock time: the real show's house has no clocks, so people say "the small hours", never "3:15am". PRESENTATION ONLY:
  * a pure read of the engine clock hour (`live.nightDepth`: 8 = 8am, 24 = midnight, 27.08 = ~3am the next night); no rule, rest term, schedule or seeded roll reads it. Eight spoken bands.
  */
-export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "evening" | "night" | "late night" | "small hours";
+export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "evening" | "night" | "late night";
+
+/**
+ * ORW-392 (Ryne: "if you are up before the morning period starts, when everyone has to be awake, the tool shows 'early morning' - a mirror of late night"): the clock hour (24 = midnight) where
+ * LATE NIGHT hands over to EARLY MORNING. Late night is midnight to 2am; early morning runs from 2am to the house's wake-up call (`WAKE_HOUR`, the morning band). The old "small hours" band is gone.
+ */
+export const EARLY_MORNING_START_HOUR = 26;
+/** Is this engine clock hour (the `nightDepth` scale: 8 = 8am ... 24 = midnight ... 31.9 = 7:54am) in the early-morning band? Pure. */
+export function isEarlyMorning(hour: number | undefined): boolean {
+  return typeof hour === "number" && hour >= EARLY_MORNING_START_HOUR && hour < WAKE_HOUR + 24;
+}
 
 export function clockBandFor(hour: number): ClockBand {
   const h = ((hour % 24) + 24) % 24;
-  if (h < 2) return "late night";
-  if (h < 5) return "small hours";
-  if (h < 8) return "early morning";
+  if (h < EARLY_MORNING_START_HOUR - 24) return "late night";
+  if (h < WAKE_HOUR) return "early morning";
   if (h < 11.5) return "morning";
   if (h < 13.5) return "midday";
   if (h < 16) return "afternoon";

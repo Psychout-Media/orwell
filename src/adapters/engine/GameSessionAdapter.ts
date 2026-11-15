@@ -1,10 +1,11 @@
 import { liveHouseEvent } from "../../engine/houseEvent";
+import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -217,7 +218,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -279,7 +280,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -506,6 +507,8 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
 const DAY_LEDGER_TEXT_CHARS = 900;
+/** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
+const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -3282,14 +3285,16 @@ export class GameSessionAdapter implements GameSession {
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
     if (req.physicalCharacteristics !== undefined) {
-      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, ...rest } = req.physicalCharacteristics as
-        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown };
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown };
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
+      const photoHair = cleanPhotoHair(rawPhotoHair);
       req = {
         ...req,
         physicalCharacteristics: {
           ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
+          ...(photoHair !== undefined ? { photoHair } : {}),
         },
       };
     }
@@ -4757,9 +4762,12 @@ export class GameSessionAdapter implements GameSession {
    */
   private rebuildSoulIndex(): void {
     if (!this.house || !this.soul) return;
+    const t0 = stallTimer.now();
+    let notes = 0;
     for (const hg of [this.house.player, ...this.house.npcs]) {
-      for (const note of hg.soul.memory) this.soul.recordToSoul(hg.id, note);
+      for (const note of hg.soul.memory) { this.soul.recordToSoul(hg.id, note); notes++; }
     }
+    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes });
   }
 
   /** Engine/loop-internal: record the public ceremony facts the status panel projects. */
@@ -4808,7 +4816,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [] } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -5517,9 +5525,11 @@ export class GameSessionAdapter implements GameSession {
    * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house`). `voters` only on
    * eviction night: the living house minus the HOH and the nominees (distinct, so a nominee who is also the HOH is not taken off twice).
    */
-  private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number } {
+  private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number; asleep?: number } {
     const living = this.livingIds();
-    const out: { room: number; others: number; house: number; voters?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
+    const out: { room: number; others: number; house: number; voters?: number; asleep?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
+    const asleep = this.asleepNpcs(); // ORW-386: the narrator's "N asleep" is checked against this same number the HUD list carries (absent with the clock off)
+    if (asleep) out.asleep = asleep.length;
     if (this.phase === "eviction") {
       const off = new Set<EntityId>([...(this.ceremony.hoh ? [this.ceremony.hoh] : []), ...this.ceremony.nominees]);
       out.voters = living.filter((id) => !off.has(id)).length;
@@ -5527,7 +5537,61 @@ export class GameSessionAdapter implements GameSession {
     return out;
   }
 
-  whereabouts(): WhereaboutsView | null {
+  /**
+   * ORW-386 - can the player walk into `room` right now? The HOH room is the Head of Household's own room: a door that stays shut to anyone else (the player included,
+   * unless the player holds the crown). The diary room is its own beat, never a walk-in. Every other room is open.
+   */
+  private roomAccessFor(room: Room, me: EntityId): "open" | "closed" {
+    if (room === "diary-room") return "closed";
+    if (room === "hoh-room" && this.ceremony.hoh !== me) return "closed";
+    return "open";
+  }
+
+  /**
+   * ORW-386 - the house search (a read-side projection, no rng, no fold): every living houseguest in the house exactly once - the room they are in and whether the player can
+   * walk in, or that they are asleep. A room and an access word only (what a person could learn walking the house), never an activity, a companion or a number about anyone.
+   * `gathered` = a whole-house event is on (everyone is in the player's room).
+   */
+  private houseSearchView(me: EntityId, myRoom: Room, gathered: boolean): HouseSearchView {
+    const awake = this.awakeNow();
+    const notHere = this.notYetArrived();
+    const houseguests: HouseSearchEntry[] = [];
+    const byRoom = new Map<Room, NamedRef[]>();
+    for (const id of this.presenceActive()) {
+      if (id === me) continue;
+      const name = this.nameOf(id);
+      // The staged premiere entrances hide the houseguests who have not walked in yet from EVERY room (A9), while the house count still includes them: say so, so a search never reads "nowhere".
+      if (notHere?.has(id)) { houseguests.push({ id, name, status: "arriving", fact: "has not walked into the house yet (still to enter at the premiere)" }); continue; }
+      const where = gathered ? myRoom : this.presence!.get(id);
+      if (awake && !awake.has(id)) {
+        houseguests.push(where && where.startsWith("bedroom-")
+          ? { id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` }
+          : { id, name, status: "asleep", fact: "asleep, in bed" });
+        continue;
+      }
+      if (!where) continue; // never expected (every active houseguest is seated); the invariant test pins it
+      const access = this.roomAccessFor(where, me);
+      const label = roomDisplayName(where);
+      houseguests.push(where === myRoom
+        ? { id, name, status: "here", room: where, access, fact: `here with you in the ${label}` }
+        : { id, name, status: "awake", room: where, access, fact: access === "closed" ? `${label}, door closed` : `${label}, open - the player can walk in` });
+      (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
+    }
+    const asleep = this.asleepNpcs();
+    return {
+      houseguests,
+      ...(asleep ? { asleepCount: asleep.length } : {}),
+      rooms: [...byRoom].map(([room, present]) => ({ room, access: this.roomAccessFor(room, me), present })),
+    };
+  }
+
+  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null {
+    const v = this.whereaboutsBase();
+    if (!v || !opts?.search || !this.house) return v;
+    return { ...v, search: this.houseSearchView(this.house.player.id, v.room as Room, !!v.houseEvent) };
+  }
+
+  private whereaboutsBase(): WhereaboutsView | null {
     if (!this.house || !this.presence) return null;
     this.gatherForCeremony();
     const me = this.house.player.id;
@@ -5686,6 +5750,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.trackedSightings || !this.presence) return [];
     const me = this.house?.player.id;
     const myRoom = me ? this.presence.get(me) : undefined;
+    const awake = this.awakeNow();
     const out: Array<{ id: EntityId; sighting: TrackedSighting; age: number; stale: boolean }> = [];
     for (const [id, s] of [...this.trackedSightings]) {
       const age = this.presenceTickCount - s.tick;
@@ -5694,6 +5759,7 @@ export class GameSessionAdapter implements GameSession {
       // room) ⇒ the closed-door belief is resolved by direct observation; drop it.
       const live = this.presence.get(id);
       if (myRoom && live && (live === myRoom || areVisible(myRoom, live))) { this.trackedSightings.delete(id); continue; }
+      if (awake && !awake.has(id)) continue; // ORW-386: someone who has turned in is in bed, not behind the door the player last saw them go into (kept, not deleted: it is read again when they wake)
       out.push({ id, sighting: s, age, stale: age >= PRIVACY.staleAfterTicks });
     }
     return out;
@@ -10136,6 +10202,7 @@ export class GameSessionAdapter implements GameSession {
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
+      if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
     }
@@ -11337,6 +11404,8 @@ export class GameSessionAdapter implements GameSession {
     const text = String(req.text ?? "")
       .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
     if (!text) return { accepted: false, reason: "empty" };
+    if (DAY_SUMMARY_ERROR_TEXT.test(text)) return { accepted: false, reason: "error-text" };
+    const stale = (t?: string) => !t || DAY_SUMMARY_ERROR_TEXT.test(t); // a stored error (a save from before ORW-387) may be replaced once
     const day = Math.trunc(req.day);
     if (req.tier === "week") {
       const [a, b] = req.coversDays ?? [day, day];
@@ -11345,7 +11414,7 @@ export class GameSessionAdapter implements GameSession {
       if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
       const existing = ledger.find((d) => d.tier === "week" && d.day === day);
       if (existing) {
-        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+        if (stale(existing.text)) existing.text = text; // idempotent: the first authored text stands (never overwritten)
       } else {
         ledger.push({
           day, tier: "week", coversDays: [from, to], text,
@@ -11356,7 +11425,7 @@ export class GameSessionAdapter implements GameSession {
     } else {
       const entry = ledger.find((d) => d.tier === "day" && d.day === day);
       if (!entry) return { accepted: false, reason: "unknown-day" };
-      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+      if (stale(entry.text)) entry.text = text; // idempotent: the first authored text stands
     }
     this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
     return { accepted: true };
@@ -11473,9 +11542,10 @@ export class GameSessionAdapter implements GameSession {
       const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
+        // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
         hoursUntilEvent: () => {
-          const m = nextMilestone(live);
-          return m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
+          const mins = minutesUntilDue(live);
+          return mins === null ? null : mins / 60;
         },
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
@@ -14495,7 +14565,7 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, source: "web_search" };
   }
 
-  /** ORW-369: look-only write-back (wardrobe + onCamera for one existing houseguest); see the port. */
+  /** ORW-369: look-only write-back (wardrobe + onCamera + photoHair for one existing houseguest); see the port. */
   recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
     if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
     const target = this.house.npcs.find((n) => n.id === req.houseguestId);
@@ -14504,21 +14574,30 @@ export class GameSessionAdapter implements GameSession {
     if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
     const wardrobe = cleanWardrobe(req.wardrobe);
     const onCamera = cleanOnCamera(req.onCamera);
-    if (wardrobe === undefined && onCamera === undefined) return { accepted: false, fields: [], reason: "nothing-valid" };
+    const photoHair = cleanPhotoHair(req.photoHair);
+    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair"] as const;
+    const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
+    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
     const playerName = (this.house.player.name ?? "").trim();
-    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""}`.toLowerCase();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
-    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}) };
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}) };
     const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
     const fields: string[] = [];
     const next = { ...prior };
     if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
     if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
-    if (fields.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
-    target.character.physicalCharacteristics = next; // only the two keys differ; appearance / every other field untouched
+    if (photoHair !== undefined && guarded.photoHair === photoHair) { next.photoHair = photoHair; fields.push("photoHair"); }
+    // ORW-380: `clear` removes an old field the new writer left out (a stale scene-like line must not ship in the v3 prompt).
+    const cleared: string[] = [];
+    for (const c of clear) {
+      if (!fields.includes(c) && next[c] !== undefined) { delete next[c]; cleared.push(c); }
+    }
+    if (fields.length === 0 && cleared.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
+    target.character.physicalCharacteristics = next; // only the look keys differ; appearance / every other field untouched
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
-    return { accepted: true, fields };
+    return { accepted: true, fields, ...(cleared.length > 0 ? { cleared } : {}) };
   }
 
   /**
@@ -14973,7 +15052,7 @@ export class GameSessionAdapter implements GameSession {
       whereabouts: this.whereabouts(),
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
       ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1), dayNumber: this.live.dayNumber ?? 1 } : {}), // P0: the exact clock the narrator must use; ORW-345: + the day number the FE stamps on each saved row
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
