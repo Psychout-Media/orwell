@@ -395,7 +395,7 @@ jobs:
           node-version: 22
           cache: npm
       # ORW-413 PR 2: a heavy leg plays FIXED seeds through src/ and its own test files, so its verdict is a function of those inputs. A green leg leaves a marker keyed by the hash of
-      # everything it reads (src/, the uat/property/calibration/support tests, the package files, the vitest config, tsconfig, the env-defaults script) plus the leg name (a changed leg script list or UAT_TIMEOUT_SCALE needs a bumped `heavy-proof-v1`);
+      # everything it reads (src/, the uat/property/calibration/support tests, the package files, the dependency patches (npm ci applies them in postinstall), the cucumber support code the UATs import, the vitest config, tsconfig, the env-defaults script) plus the leg name (a changed leg script list or UAT_TIMEOUT_SCALE needs a bumped `heavy-proof-v1`);
       # a run whose inputs hash the same (a tests/unit-only change on main, a re-run, a CI-only change) skips the sims. The marker is saved by this step's post action only when the
       # whole job succeeded (never for a failed leg); a changed hash, or a bumped `heavy-proof-v1`, replays them. Entries from main are visible to every PR.
       - name: heavy-sim proof (a hit means the same inputs already passed)
@@ -403,7 +403,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .heavy-proof
-          key: heavy-proof-v1-${{ matrix.leg }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
+          key: heavy-proof-v1-${{ matrix.leg }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'features/support/**', 'patches/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'vitest.sequencer.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
       - if: steps.heavyproof.outputs.cache-hit != 'true'
         run: npm ci
       # ORW-229: NO automatic retry here. The heavy sims play fixed seeds, so a retry could only hide a real failure, never fix a flake (docs/CI.md).
