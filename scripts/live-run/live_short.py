@@ -122,7 +122,13 @@ class Engine:
                 elif k == "replacement": d["replacement"] = o[0]
                 else: d["vote"] = o[0] if o else "a"
                 self.call("submitDecision", d); continue
-            if a.get("held") or not a.get("event"): self.sleep_through_night(f"{tag}-{i}")
+            h = a.get("held")
+            # A DAYTIME "not due yet" hold names the event and the minutes until it: let that time pass (sleeping instead skipped the event's day, night after
+            # night - a live run sat in the premiere until Day 43). Anything else (a night hold, nothing happening) is a bed, as before.
+            if isinstance(h, dict) and h.get("next") not in (None, "bedtime") and isinstance(h.get("minutesUntil"), int) and h["minutesUntil"] > 0:
+                self.to_just_before_due(f"{tag}-{i}-due")
+                for k in range(3): self.call("noteMessage", {"messageId": f"{tag}-{i}-due-x{k}"})
+            elif h or not a.get("event"): self.sleep_through_night(f"{tag}-{i}")
         return False
 
 
