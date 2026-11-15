@@ -346,7 +346,9 @@ export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "
 export const EARLY_MORNING_START_HOUR = 26;
 /** Is this engine clock hour (the `nightDepth` scale: 8 = 8am ... 24 = midnight ... 31.9 = 7:54am) in the early-morning band? Pure. */
 export function isEarlyMorning(hour: number | undefined): boolean {
-  return typeof hour === "number" && hour >= EARLY_MORNING_START_HOUR && hour < WAKE_HOUR + 24;
+  if (typeof hour !== "number") return false;
+  // ORW-441: the clock reads on TWO scales. Still up past midnight it runs 24-32 (the late-night phase); after an early bed the night rolls and the player wakes at bed+8h on the 0-24 scale (4:55am = 4.9, phase "morning").
+  return (hour >= EARLY_MORNING_START_HOUR && hour < WAKE_HOUR + 24) || (hour >= EARLY_MORNING_START_HOUR - 24 && hour < WAKE_HOUR);
 }
 
 export function clockBandFor(hour: number): ClockBand {

@@ -1294,7 +1294,7 @@ export interface PublicGameStatus {
    * the time-of-day HUD renders; Vault-free; absent pre-game / when the clock isn't running.
    */
   timeOfDay?: string;
-  /** ORW-392: present (true) while `timeOfDay` is "late-night" but the clock is past 2am, before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
+  /** ORW-392: present (true) while `timeOfDay` is "late-night" or "morning" but the clock is between 2am and the 8am wake-up call (a late-night player, or one woken early after an early bed), before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
   earlyMorning?: true;
   /** ORW-115 (Ryne: "Time of day only"): the in-game DAY number the HUD shows beside the time of day ("Morning, Day 1") - the same day as `GameStateView.clockLabel`. Public; present only while the clock runs. */
   dayNumber?: number;
@@ -1392,6 +1392,11 @@ export interface DeltaEventView {
  *  - an EMPTY delta (`events: []`, `changes` absent, `finishedChanged` false) — `sinceBeatSeq` equals
  *    the current `beatSeq`: nothing has committed since ("since last turn: nothing committed").
  */
+/** ORW-439 - one beat-counter bump and the tool that caused it ("outside-a-tool-call" when no tool call was running). */
+export interface BeatBumpEntry { seq: number; tool: string; at: number }
+/** ORW-439 - the `beatLog` read: the current counter, the bumps after the caller's token, and whether the ring still reaches back that far. */
+export interface BeatLogView { beatSeq: number; bumps: BeatBumpEntry[]; truncated: boolean }
+
 export interface StateDeltaView {
   /** The current committed beat counter (what the caller should re-ground its last-seen token to). */
   beatSeq: number;
@@ -2648,11 +2653,11 @@ export interface RecordCastProfileReq {
   /** A real multi-sentence backstory (the presentable parts). */
   biography?: string;
   /**
-   * ORW-388: a REPAIRED freeform identity concept. Genesis writes `identityConcept` once, before the card's gender,
-   * exact age and look are final; the authoring accept path mends a contradiction in it (a wrong pronoun, a wrong
-   * age, a look feature the look lacks, "Big Brother") and sends the mended text here. Folded ONLY onto a houseguest
-   * that already has an identityConcept (a repair, never an invention), capped at 300 characters, and the WHOLE profile is refused
-   * (`accepted: false`, nothing persisted: biography, secrets and voice included) when it names the player. Absent ⇒ the stored identity concept stands.
+   * ORW-388 / ORW-431b: the authoring writer's identity concept, the card's one-line identity. Genesis writes `identityConcept` once, before
+   * the card's gender, exact age and look are final (and drops it when it repeats a hidden element); the writer, which runs after every pin,
+   * owns the line and sends it here. It REPLACES a stored identity and FILLS a card that has none, as one line capped at 300 characters, and
+   * is refused (the whole call) when it names the player. `publicFields` lists "identityConcept" whenever the card now holds the sent text, so
+   * the caller can verify it was stored. Absent ⇒ the stored identity concept stands.
    */
   identityConcept?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
@@ -2951,6 +2956,11 @@ export interface GameSession {
    * delta. A pure READ (never mutates / commits); safe to poll.
    */
   stateDelta(sinceBeatSeq: number): StateDeltaView;
+  /**
+   * ORW-439 - which tool caused each beat-counter bump after `sinceBeatSeq` (diagnostic; in memory only, never saved). A pure READ:
+   * it never commits, bumps or saves. Carries tool names, counter values and timestamps only - no arguments, no game state.
+   */
+  beatLog(sinceBeatSeq: number): BeatLogView;
   /** The managed system prompt to inject for the current (or requested) moment. */
   getMomentPrompt(req: MomentPromptReq): MomentPromptView;
   /**

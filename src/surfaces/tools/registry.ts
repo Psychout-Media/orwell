@@ -240,6 +240,9 @@ const INFRA_LEVERS: ReadonlySet<string> = new Set(["getMomentPrompt", "endOfSess
   // drop a houseguest voicing a fact no pathway gave them), NOT a game-driving lever — so it stays OUT
   // of the base prompt's lever manifest, exactly like `sealedFromHouse`.
   "knowledgeScopeManifest",
+  // ORW-439: `beatLog` is a DIAGNOSTIC read for the front end's sync ledger (which tool caused each beat-counter bump). Tool
+  // names, counters and timestamps only; not a game-driving lever, so it stays OUT of the base prompt's lever manifest.
+  "beatLog",
   // BE-103: `worldSnapshotView` is the read counterpart of the FE-driven `recordWorldSnapshot` write-
   // back (0062) — background flavor context, not a game-driving decision lever the GM model pulls — so
   // it stays OUT of the base prompt's lever manifest, exactly like `recordWorldSnapshot` itself.

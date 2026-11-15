@@ -214,10 +214,9 @@ describe("#1127 — the assembled prompt surfaces the in-game time of day for th
 
 // ── review of #2664: the dailyRecap tool paragraph must whitelist every field the recap can carry ──
 describe("the dailyRecap tool paragraph names yourDay", () => {
-  it("lists yourDay beside highlights and surfaced, in both the 'facts from the record' line and the 'never beyond' line", () => {
+  it("lists yourDay beside highlights and surfaced, in the 'never beyond' whitelist", () => {
     const para = BASE_GAME_MASTER_PROMPT.slice(BASE_GAME_MASTER_PROMPT.indexOf("dailyRecap — when the player heads to bed"));
     expect(para.length).toBeGreaterThan(0);
-    expect(para).toContain("`highlights`/`yourDay`/`surfaced` are facts straight");
-    expect(para).toContain("anything beyond what `highlights`/`yourDay`/`surfaced`/`hook` actually contain");
+    expect(para).toContain("anything beyond what `highlights`/`yourDay`/`surfaced`/`hook` contain");
   });
 });

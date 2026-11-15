@@ -458,7 +458,7 @@ import { onNarrowChange } from './platform.js';
     "night": "🌙 Night", "late-night": "🌌 Late night",
   };
   // ORW-392: past 2am, before the house's wake-up call, the engine's `earlyMorning` flag turns "Late night" into "Early morning" (the mirror of it).
-  const todLabel = (t, early) => (t === "late-night" && early === true) ? "\u{1F305} Early morning" : (TOD_LABELS[t] || "");
+  const todLabel = (t, early) => ((t === "late-night" || t === "morning") && early === true) ? "\u{1F305} Early morning" : (TOD_LABELS[t] || "");
 
   // A3: announce only what CHANGED, in show terms — never a full re-read per poll.
   let _last = { phase: null, hoh: null, noms: null, veto: null, tod: null };
@@ -499,7 +499,7 @@ import { onNarrowChange } from './platform.js';
     const cur = {
       phase: phaseLabel(st.phase),
       hoh: names.hoh, noms: names.noms, veto: names.veto,
-      tod: (st.timeOfDay === "late-night" && st.earlyMorning === true ? "Early morning" : TOD_SPOKEN[st.timeOfDay]) || null,
+      tod: ((st.timeOfDay === "late-night" || st.timeOfDay === "morning") && st.earlyMorning === true ? "Early morning" : TOD_SPOKEN[st.timeOfDay]) || null,
     };
     if (_last.phase !== null) {
       if (cur.tod && _last.tod && cur.tod !== _last.tod) { msgs.push(cur.tod + "."); flashRow(el, "#os-tod"); }
