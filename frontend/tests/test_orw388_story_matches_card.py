@@ -249,6 +249,16 @@ def test_at_age_nineteen_is_a_past_event_and_another_persons_age_is_not_rewritte
     assert ca.story_age_conflict("His rival Marcus, 45, never lets it go.", npc) is False
 
 
+def test_that_and_what_are_not_the_word_at_and_a_name_opening_a_sentence_is_another_persons_age():
+    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 34}
+    # "that 52-year-old" ends in the letters "at" but is not "at 52": a wrong age after it is still a conflict
+    assert ca.story_age_conflict("He is that 52-year-old who never sleeps.", npc) is True
+    assert ca.story_age_conflict("At 52, he left home.", npc) is False
+    # a sentence that opens with another person's name and age is theirs, not the houseguest's
+    assert ca.story_age_conflict("Marcus aged 45 never lets it go.", npc) is False
+    assert ca.story_age_conflict("Aged 45, he never lets it go.", npc) is True
+
+
 def test_a_sentence_opened_by_another_name_is_not_the_houseguests_pronoun_error():
     npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 34}
     assert ca.pronoun_conflict_sentences("Dana trusted her gut.", npc) == []

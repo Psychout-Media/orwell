@@ -1452,6 +1452,7 @@ def pronoun_conflict_sentences(text: str, npc: dict) -> list:
 
 
 _NAME_BEFORE_AGE_RE = re.compile(r"(?<![\w])([A-Z][a-z]{2,})(?:\s+[A-Z][a-z]+)?,?\s*(?:\(|aged?\s+|an?\s+)?$")
+_AGE_OPENERS = {"aged", "age", "now", "still", "just", "nearly", "almost", "only", "already", "barely", "turning", "over", "under", "about"}
 _PLACE_PREP_RE = re.compile(r"\b(?:in|from|of|to|near|at|around|outside|across|born)\s+$", re.I)
 
 
@@ -1460,8 +1461,12 @@ def _age_after_other_name(sentence: str, start: int, npc: dict) -> bool:
     not a place ("Marcus, 45" or "Dana (45"): that is another person's age, never rewritten to the card's."""
     before = sentence[max(0, start - 48):start]
     m = _NAME_BEFORE_AGE_RE.search(before)
-    if not m or m.start() == 0 and start - 48 <= 0 and sentence[:m.start(1)].strip() == "":
-        return False  # a sentence-opening word is not read as a name here
+    if not m:
+        return False
+    # A sentence-opening word that is no name ("Aged 45 she moved", "Now 45") is the houseguest's own age; a sentence
+    # opened by a name ("Marcus aged 45") is that person's, unless it is the card's own (review of #2748).
+    if m.group(1).lower() in _AGE_OPENERS and sentence[:m.start(1)].strip() == "":
+        return False
     if m.group(1).lower() in _own_words(npc):
         return False
     return not _PLACE_PREP_RE.search(before[:m.start(1)])
@@ -1483,7 +1488,7 @@ def _wrong_age_spans(text: str, npc: dict) -> list:
                         if int(m.group(1)) != age and int(m.group(1)) >= 18
                         # ORW-437: "At age 19, she left home" is a past life event, read only inside the "at N" window;
                         # and an age right after another person's capitalised name ("Marcus, 45") is theirs.
-                        and not (part[:m.start()].rstrip().lower().endswith("at") and abs(int(m.group(1)) - age) > _AT_AGE_WINDOW)
+                        and not (re.search(r"\bat$", part[:m.start()].rstrip(), re.I) and abs(int(m.group(1)) - age) > _AT_AGE_WINDOW)
                         and not _age_after_other_name(part, m.start(), npc)]
             out += [(pos + m.start(2), pos + m.end(2)) for m in _AT_AGE_RE.finditer(part)
                     if int(m.group(2)) != age and abs(int(m.group(2)) - age) <= _AT_AGE_WINDOW]
