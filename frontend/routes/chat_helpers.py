@@ -663,11 +663,21 @@ _PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
-def _premiere_not_yet_steer() -> str:
-    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call, this afternoon - never on demand."""
-    return ("PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for this afternoon and it is not that time yet. The player cannot start, skip to or "
-            "move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
-            "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
+def _schedule_when(scheduled_phase: str, tomorrow: bool, default: str) -> str:
+    """ORW-394: the in-fiction "when" for an event not yet called: "tomorrow <part of day>" when the engine's schedule says tomorrow, "this <part of day>" when it is today."""
+    if tomorrow:
+        return f"tomorrow {scheduled_phase}" if scheduled_phase else "tomorrow"
+    return f"this {scheduled_phase}" if scheduled_phase else default
+
+
+def _premiere_not_yet_steer(ds: Optional[dict] = None) -> str:
+    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call - never on demand.
+    ORW-394: with the engine clock live (`ds` = the board's daySchedule) the when comes from the schedule (never "this afternoon" when it is not today); without it, the premiere morning's "this afternoon"."""
+    ds = ds if isinstance(ds, dict) else {}
+    when = _schedule_when(str(ds.get("phase") or ""), bool(ds.get("tomorrow")), "this afternoon") if ds else "this afternoon"
+    return (f"PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for {when} and it is not that time yet. The player cannot start, skip to or "
+            f"move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
+            f"hasn't called it yet - it will be {when}; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
 _PREMIERE_CLOCK_STARTED: set = set()  # runway keys whose first day-schedule board (the premiere's day-break) already armed its narration steer
@@ -778,7 +788,7 @@ def note_premiere_turn(user, game_state) -> None:
         if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
             _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
             if _PREMIERE_CLOCK_HOLD[key]:
-                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds)
             return
         _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
@@ -7150,10 +7160,12 @@ def _runway_sig(game_state: dict) -> str:
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
-def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
-    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only."""
-    label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
-    when = f"this {scheduled_phase}" if scheduled_phase else "later today"
+def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False) -> str:
+    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only.
+    ORW-394: the event is labelled from the engine's schedule (`daySchedule.next`) when given - not the game phase, which can still be the previous event's - and says "tomorrow" when the schedule does."""
+    event = next_beat or phase
+    label = _MOMENT_PHASE_LABELS.get(event) or event.replace("-", " ")
+    when = _schedule_when(scheduled_phase, tomorrow, "later today")
     return (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {when} and it is not that time yet. The player cannot start, skip to or move it. "
             f"Keep this scene social. If they ask for it, let a houseguest or the house itself say production hasn't called it yet (it is {when}); "
             "do NOT narrate the event starting, a result, or anyone being called to it.")
@@ -7612,7 +7624,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if not _ds.get("due"):
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
-                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""))
+                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")))
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
                         _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
