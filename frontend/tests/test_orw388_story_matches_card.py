@@ -219,7 +219,7 @@ def test_genesis_look_features_have_no_scar_birthmark_chipped_or_tooth_gap_and_m
     py = list(G.GENESIS_LOOK_FEATURES)
     assert py == _ts_list("GENESIS_LOOK_FEATURES")
     for f in py:
-        assert not re.search(r"scar|birthmark|chipped|gap-?tooth", f, re.I), f
+        assert not re.search(r"scar|birthmark|chipped|gap-?tooth|tooth gap|gap[- ]tooth|gap (?:in|between) .*teeth|diastema", f, re.I), f  # ORW-437: every phrasing the authoring regex knows
 
 
 # ---- ORW-437 review of #2716 ---------------------------------------------------------------------------------

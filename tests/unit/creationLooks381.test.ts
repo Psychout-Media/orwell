@@ -119,7 +119,7 @@ describe("ORW-381 side stream draws", () => {
 });
 
 describe("ORW-381 no main-stream draw moved", () => {
-  it("the cast (names, ages, stats), hidden profiles and threads are byte-identical to before ORW-381 (hash taken on origin/main 0697c631)", () => {
+  it("the cast (names, ages, stats), hidden profiles and threads are unchanged by the look deal (hash re-pinned at ORW-388 when only appearance TEXT changed)", () => {
     // Everything except the seven physical look fields, over six seeds. The look deal runs on its own side
     // stream, so this hash was identical before and after the change.
     let all = "";
@@ -130,6 +130,15 @@ describe("ORW-381 no main-stream draw moved", () => {
       all += JSON.stringify([npcs, pub, l.hidden, l.threads]);
     }
     expect(createHash("sha256").update(all).digest("hex")).toBe("567b5c2cd595d656482c18379e7b719ab67d9c22264e90edef15afbd0c7feb40"); // ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
+    // ORW-437: the draw-moved guarantee itself, asserted: the same cast with the look TEXT blanked (appearance and the facet).
+    let blanked = "";
+    for (const seed of [1, 2, 3, 77, 2026, 4242]) {
+      const { npcs } = generateHouse(new SeededRandom(seed));
+      const l = generateCastDeepLayer(seed, npcs);
+      const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: v.biography, physicalCharacteristics: 0 }]));
+      blanked += JSON.stringify([npcs.map((n) => ({ ...n, character: { ...n.character, appearance: "" } })), pub, l.hidden, l.threads]);
+    }
+    expect(createHash("sha256").update(blanked).digest("hex")).toBe("e58eb520f90f63421044381b5c518418e7ebf9cde230d5b44b0efef7ffe290a7");
   });
 });
 
@@ -256,6 +265,10 @@ describe("ORW-381 build leans to the physical stat", () => {
     expect(json).not.toMatch(/\b(physical|mental|social)"\s*:\s*[0-9.]+/);
     expect(json).not.toMatch(/\d\.\d/);
     expect(json).not.toMatch(/"(stats|band|buildBand|fitness)"/i);
+    const prompts = JSON.stringify(warm.portraitPrompts ?? []);  // ORW-437: the prompts too, not only the house
+    expect(prompts.length).toBeGreaterThan(2);
+    expect(prompts).not.toMatch(/\b(physical|mental|social)\\?"\s*:\s*[0-9.]+/);
+    expect(prompts).not.toMatch(/"(stats|band|buildBand|fitness)"/i);
     const view = new GameSessionAdapter().createCharacter({ playerName: "The Player", seed: 8123 });
     const hv = JSON.stringify(view.house);
     expect(hv).not.toMatch(/"(stats|buildBand|fitnessBand|band)"/i);

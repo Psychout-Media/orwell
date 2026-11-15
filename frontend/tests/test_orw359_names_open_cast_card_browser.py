@@ -159,7 +159,9 @@ def test_names_and_faces_open_the_right_cast_card(fe):
             linked = page.evaluate("[...document.querySelectorAll('#r1 .ow-name-link')].map(e => e.textContent + '>' + e.dataset.hg)")
             assert "Priya Nair>npc:4" in linked and "Dana Cho>npc:3" in linked and "Marcus>npc:2" in linked, linked
             assert not any(x.startswith("Dana>") for x in linked), "an ambiguous first name stays plain text"
-            assert not any(x.startswith("Marcus>") and "ville" in x for x in linked)
+            # ORW-437: a partial match inside "Marcusville" would leave a link whose next sibling text starts with "ville"
+            assert page.evaluate("[...document.querySelectorAll('#r1 .ow-name-link')].filter(e => (e.nextSibling && e.nextSibling.textContent || '').startsWith('ville')).length") == 0
+            assert "Marcusville" in page.evaluate("document.getElementById('r1').textContent"), "the fixture really holds the longer word"
             assert page.evaluate("document.querySelector('#r1 #code1').querySelector('.ow-name-link')") is None, "code is skipped"
             assert page.evaluate("document.querySelector('#r1 #link1').querySelector('.ow-name-link')") is None, "links are skipped"
             assert page.evaluate("document.getElementById('p2').textContent") .count("Priya Nair's plan") == 1, "the text is untouched ('s stays outside)"

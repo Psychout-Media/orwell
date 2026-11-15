@@ -82,7 +82,7 @@
           position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; min-width: 0; padding: 0; margin: 0;
           border: 0; background: transparent; cursor: zoom-in; font: inherit; color: inherit; border-radius: inherit;
         }
-        #orwell-dossier .od-portrait > button.od-photo-btn:focus-visible { outline: 2px solid var(--ow-ios-blue, #0a84ff); outline-offset: 2px; }
+        #orwell-dossier .od-portrait > button.od-photo-btn:focus-visible { outline: 2px solid var(--ow-ios-blue, #0a84ff); outline-offset: -3px; box-shadow: inset 0 0 0 5px rgba(255,255,255,.55); }
         #orwell-dossier .od-portrait img.od-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; }
         #orwell-dossier .od-portrait .ow-mono-face { display: block; width: 100%; height: 100%; }
         #orwell-dossier .od-portrait.od-evicted img, #orwell-dossier .od-portrait.od-evicted .ow-mono-svg { filter: grayscale(1); }
@@ -273,7 +273,11 @@
   // the designed monogram stays the no-photo fallback (and the broken-photo fallback).
   function renderPortrait(el, data) {
     const old = el.querySelector("#od-portrait");
+    // ORW-437: every refresh re-renders; keep the node (and the photo button's focus) when nothing about the portrait changed.
+    const sig = [data.id, data.status, data.portrait || "", data.name || ""].join("|");
+    if (old && old.dataset.sig === sig) return;
     const fresh = document.createElement("div");
+    fresh.dataset.sig = sig;
     fresh.id = "od-portrait";
     fresh.className = "od-portrait" + (data.status === "evicted" ? " od-evicted" : "");
     const monogram = () => window.OrwellMonogram ? window.OrwellMonogram.face({

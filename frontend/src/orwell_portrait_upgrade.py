@@ -185,8 +185,15 @@ async def rewrite_sheet(user, sid: str, card: dict, state: dict, st: dict, stale
 def _full_generation_running(user) -> bool:
     from src import orwell_portraits as P
     rec = P._GEN_PROGRESS.get(P._safe_user(user))
+    # ORW-437: a stale heartbeat (a crashed run that never cleared its record) must not block this user's upgrader forever;
+    # `_INFLIGHT` below stays the authoritative live-generation check.
     if isinstance(rec, dict) and rec.get("active"):
-        return True
+        try:
+            fresh = (time.time() - float(rec.get("updatedAt", 0))) <= P._GEN_PROGRESS_STALE_S
+        except (TypeError, ValueError):
+            fresh = False
+        if fresh:
+            return True
     return bool(P._INFLIGHT.get(P._safe_user(user)))
 
 
@@ -197,6 +204,10 @@ def _portrait_cost_since(user, since_ms: int) -> float:
                    if e.get("callClass") == "portrait" and int(e.get("ts") or 0) >= since_ms)
     except Exception:
         return 0.0
+
+
+class _PipelineFailure(RuntimeError):
+    """A failure `generate_and_store` already recorded RED (ORW-437): the upgrader must not record it a second time."""
 
 
 async def shoot_one(user, sid: str, card: dict) -> bool:
@@ -213,7 +224,10 @@ async def shoot_one(user, sid: str, card: dict) -> bool:
     stored = P.load_manifest(user).get(P._safe_id(sid))
     if isinstance(stored, dict) and not P._entry_version_stale(stored):
         return True
-    raise RuntimeError(P.last_gen_error_class(user, sid) or "generation-failed")
+    cls = P.last_gen_error_class(user, sid)
+    if cls:
+        raise _PipelineFailure(cls)
+    raise RuntimeError("generation-failed")
 
 
 async def upgrade_one(user, sid: str, card: dict, state: Optional[dict] = None, st: Optional[dict] = None,
@@ -265,18 +279,19 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
         return "waiting"
     if _full_generation_running(user) or not P.image_generation_available(user):
         return "waiting"
-    if P.billing_breaker_open():  # ORW-397: the provider refused billing/auth; wait for the hourly re-probe
+    host = await P.image_provider_host(user)  # ORW-437: only THIS user's provider host gates this user's upgrades
+    if P.billing_breaker_open(host=host):  # ORW-397: the provider refused billing/auth; wait for the hourly re-probe
         return "waiting"
     ready = [c for c in cands if st["retry_at"].get(c, 0.0) <= now]
     if not ready:
         return "waiting"
     live = await game_is_live()
-    solo = live or st["rate_limited"] or P.billing_breaker_probing()  # ORW-397: one probe call
+    solo = live or st["rate_limited"] or P.billing_breaker_probing(host=host)  # ORW-397: one probe call
     width = 1 if solo else P.portrait_parallel(user)
     batch = ready[:width]
     if st["started_at"] is None:
         st["started_at"] = int(time.time() * 1000)
-    gap = GAP_S if live else 0.0
+    gap = GAP_S if (live or st["rate_limited"]) else 0.0  # ORW-437: a 429 keeps the breathing gap (the pre-ORW-378 15 s)
     _BUSY.add(safe)
     try:
         # ORW-380: the photo sheets are written ONE houseguest at a time (each one's `taken` lists need the
@@ -325,8 +340,10 @@ def _note_failure(user, safe: str, sid: str, st: dict, now: float, gap: float, e
     st["next_ok_at"] = now + gap
     if P.is_rate_limited(reason):  # ORW-378: the rest of this season's upgrade goes one at a time
         st["rate_limited"] = True
+        st["next_ok_at"] = now + max(gap, GAP_S)  # ORW-437: ...and the provider gets the full gap before the next attempt
     P._note_gen_error("portrait-upgrade-failed", reason)
-    P._note_generation_failure(user, sid, f"portrait-upgrade-failed: {reason}")
+    if not isinstance(e, _PipelineFailure):  # the pipeline already recorded its own failure RED
+        P._note_generation_failure(user, sid, f"portrait-upgrade-failed: {reason}")
     logger.info("[portrait-upgrade] %s failed for %s (%s); old photo kept, retry in %.0fs",
                 sid, safe, reason, retry_wait_s(n))
 

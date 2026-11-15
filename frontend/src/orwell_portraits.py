@@ -1106,15 +1106,42 @@ def _provider_host(url: Optional[str]) -> str:
     return (urlparse(str(url or "")).hostname or "unknown").lower()
 
 
-def billing_breaker_open(now: Optional[float] = None) -> bool:
-    """True while any provider breaker is open and its re-probe time has not come."""
+def _breakers_for(host: Optional[str]) -> list:
+    """The breaker records to consult: the one for `host`, or every one when the host is unknown (None)."""
+    if host:
+        b = _BILLING_BREAKER.get(host)
+        return [b] if b else []
+    return list(_BILLING_BREAKER.values())
+
+
+def billing_breaker_open(now: Optional[float] = None, host: Optional[str] = None) -> bool:
+    """True while a provider breaker is open and its re-probe time has not come. `host` (ORW-437) narrows it to that
+    provider host, so an outage on one provider never pauses a user whose images come from another."""
     now = time.monotonic() if now is None else now
-    return any(now < b["opened_at"] + BILLING_REPROBE_S for b in _BILLING_BREAKER.values())
+    return any(now < b["opened_at"] + BILLING_REPROBE_S for b in _breakers_for(host))
 
 
-def billing_breaker_probing(now: Optional[float] = None) -> bool:
+def billing_breaker_probing(now: Optional[float] = None, host: Optional[str] = None) -> bool:
     """True when a breaker is open but its hour is up, so the next call is the single re-probe."""
-    return bool(_BILLING_BREAKER) and not billing_breaker_open(now)
+    return bool(_breakers_for(host)) and not billing_breaker_open(now, host)
+
+
+async def image_provider_host(user: Optional[str]) -> Optional[str]:
+    """The provider host this user's next portrait would go to (their image model, else the first auto-detected one), or
+    None when it cannot be resolved (callers then treat every breaker as relevant). Never raises."""
+    try:
+        from src.ai_interaction import _resolve_model, IMAGE_AUTODETECT_CANDIDATES
+        _enabled, model_spec, _q = _image_settings(user)
+        specs = [model_spec] if model_spec and _is_image_model(model_spec) else list(IMAGE_AUTODETECT_CANDIDATES)
+        for spec in specs:
+            try:
+                url, _m, _h = await asyncio.to_thread(_resolve_model, spec, owner=user or None)
+            except Exception:  # failsoft-ok: capability-probe (an unresolvable candidate is skipped)
+                continue
+            return _provider_host(url)
+    except Exception:  # failsoft-ok: best-effort-gate (unknown host => the gate stays host-agnostic)
+        return None
+    return None
 
 
 def _breaker_allows(host: str) -> bool:
@@ -1713,7 +1740,8 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
     entry = {"file": filename, "name": name, "source": source}
     if fingerprint:
         entry["fingerprint"] = fingerprint
-    entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
+    if source != "upload":  # ORW-437: a literal upload was made by no prompt, so it carries no prompt version
+        entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
     if source == "reference" and ref_clean:
         entry["refClean"] = True
     if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
@@ -2324,7 +2352,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         source = "reference" if ref else "generated"
 
         _consume_gen_error(); _consume_gen_detail()  # clear any stale reason/detail
-        _CURRENT_HID.set(sid)  # ORW-389: provider log lines name this houseguest
+        _hid_token = _CURRENT_HID.set(sid)  # ORW-389: provider log lines name this houseguest (reset in the finally, ORW-437)
         # #998: CLAIM the id immediately before the (slow) generate, release in `finally` after the
         # write/failure — an overlapping run that reaches the in-flight check above now skips it,
         # so each id is generated exactly once even while its image is in flight (not yet on disk).
@@ -2370,6 +2398,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 png, check_meta = await _portrait_check_pass(png, str(prompt), user, ref, retry_of=_retry_of, upgrade=_upgrade_ref)
                 if check_meta is not None and _retry_of is not None:
                     check_meta["retry"] = _safe_int(_retry_of.get("checkRetries"), 0) + 1
+                duration_ms = int((time.monotonic() - t0) * 1000)  # ORW-437: the log's duration includes the check and any re-shoot
             try:
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
@@ -2389,6 +2418,10 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 skipped += 1
         finally:
             _INFLIGHT.get(_safe_user(user), set()).discard(sid)
+            try:
+                _CURRENT_HID.reset(_hid_token)
+            except (ValueError, RuntimeError):  # failsoft-ok: a token from another context; the value dies with the task
+                pass
 
     results = await asyncio.gather(*[_one(e) for e in prompts], return_exceptions=True)
     for r in results:
@@ -2417,7 +2450,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
 
     if not silent:
         _progress_finish(user)  # L15: the run is done — the panel drops to the idle cadence
-    if generated:  # only when the run actually landed a face — no spurious cast-panel refetch
+    if generated and not silent:  # only when a visible run landed a face (a silent upgrade already pushed per entry, ORW-437)
         _push_portrait_arrival(user)  # WS push edge: final reconcile (dedupe regens + completion)
     # M1-9: stamp the run's honest verdict (a 0-of-N run flips the panel/admin to "failing").
     if not silent:

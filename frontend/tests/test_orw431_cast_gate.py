@@ -225,9 +225,9 @@ def test_stale_genesis_identity_without_a_writer_one_is_mended_by_name():
     prof = {"biography": CARDS["Thomas Sizemore"]["biography"].replace("Thomas", "Samir")}
     assert any(c.startswith("identity-") for c in gate.card_codes(prof, npc, [npc]))
     n, w, _ = _go(run([npc], lambda h, i: profile_json(prof["biography"])))
-    if n:
-        assert "Nia" not in w["npc:5"].get("identityConcept", "Samir") and not any(
-            c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
+    assert n == 1  # ORW-437: the card is written (a refusal must not let this test pass without checking the mend)
+    assert "Nia" not in w["npc:5"].get("identityConcept", "") and not any(
+        c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
 
 
 # ---- the worst case: one card never gets onCamera and never gets a biography --------------------------------

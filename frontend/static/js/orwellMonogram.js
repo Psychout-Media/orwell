@@ -315,6 +315,8 @@
           if (hg.name) _idByName[String(hg.name).trim().toLowerCase()] = String(hg.id);
         }
       }
+      // ORW-437: tell the name-link pass the cache is filled (it left rows unmarked while the roster was empty).
+      try { window.dispatchEvent(new CustomEvent("orwell:rostercache")); } catch (_) { /* non-browser harness */ }
     } catch (_) { /* fail open — every consumer keeps rendering the monogram fallback */ }
   }
   if (typeof window !== "undefined") {

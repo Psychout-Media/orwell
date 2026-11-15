@@ -29,7 +29,8 @@
       "#" + WIN_ID + " .opv-body { display: flex; justify-content: center; }" +
       // The kit caps .ow-body at min(70dvh, 560px) and scrolls past it; the viewer lifts that cap and
       // sizes a SQUARE image to fit the viewport, so the whole photo is visible (object-fit: contain).
-      "#" + WIN_ID + " .ow-body { max-height: none; overflow: visible; }" +
+      // ORW-437: not in sheet mode (phones): the kit's sheet scroll containment must keep winning there.
+      "#" + WIN_ID + ":not(.ow-sheet-mode) .ow-body { max-height: none; overflow: visible; }" +
       "#" + WIN_ID + " .opv-img { display: block; aspect-ratio: 1 / 1; height: auto;" +
       "  width: min(92vw, 1024px, calc(100dvh - 190px)); max-width: 100%; max-height: none;" +
       "  object-fit: contain; border-radius: 10px; }" +
@@ -54,6 +55,7 @@
     if (!card || !card.portrait) return false;
     const w = ensureWindow();
     w.open(opener);
+    if (opener) w.opener = opener; // ORW-437: a retarget of the open viewer must return focus to the LATEST opener
     const el = document.getElementById(WIN_ID);
     if (!el) return false;
     const name = card.name || "Houseguest";
@@ -62,6 +64,8 @@
     const img = el.querySelector("#opv-img");
     img.alt = name;
     img.classList.toggle("opv-evicted", card.status === "evicted");
+    // ORW-437: a stale or broken portrait URL must not leave a modal holding a broken image: close the viewer.
+    img.onerror = () => { img.onerror = null; try { w.close(); } catch (_) { /* already closed */ } };
     img.src = card.portrait;
     if (w.raise) w.raise();
     return true;

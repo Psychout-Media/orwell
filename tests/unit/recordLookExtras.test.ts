@@ -85,7 +85,7 @@ describe("ORW-380 photoHair", () => {
 
   it("travels with the other two fields and shows on the public card", () => {
     const { sb, id } = setup();
-    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan"], onCamera: "She sits in the lounge.", photoHair: "a glossy low bun" }))
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], onCamera: "She sits in the lounge.", photoHair: "a glossy low bun" }))
       .toEqual({ accepted: true, fields: ["wardrobe", "onCamera", "photoHair"] });
     const card = sb.session.getGameState().house.find((h) => h.id === id)!;
     expect((card.physicalCharacteristics as { photoHair?: string }).photoHair).toBe("a glossy low bun");

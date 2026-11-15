@@ -51,13 +51,13 @@ def problems_in_words(codes: list) -> str:
 
 
 # ── facts from the public portrait brief ─────────────────────────────────────────────────────
-_GENDER_WORDS = {"man": "man", "woman": "woman", "boy": "boy", "girl": "girl"}
+_GENDER_WORDS = {"man": "man", "woman": "woman", "boy": "boy", "girl": "girl", "nonbinary": "nonbinary"}
 
 
 _FEATURE_RES = (
     ("glasses", r"\b(?:glasses|spectacles|eyeglasses)\b"), ("nose stud or ring", r"\bnose (?:stud|ring|piercing)\b"),
     ("piercings", r"\b(?:lip|brow|eyebrow|septum|ear) (?:ring|stud|piercing)s?\b|\bhoops?\b|\bearrings?\b"),
-    ("beard", r"\bbeard\b"), ("moustache", r"\bmou?stache\b"), ("stubble", r"\bstubble\b"), ("goatee", r"\bgoatee\b"),
+    ("beard", r"\bbeard\b"), ("moustache", r"\bm(?:ou|u)stache\b"), ("stubble", r"\bstubble\b"), ("goatee", r"\bgoatee\b"),
     ("hair colour", r"\b(?:black|dark brown|light brown|brown|blond|blonde|red|auburn|ginger|grey|gray|silver|white|platinum) hair\b"),
     ("hair length", r"\b(?:buzzed|shaved|cropped|short|shoulder-length|long|waist-length)(?: [a-z]+)? hair\b"),
 )
@@ -100,7 +100,7 @@ def facts_from_prompt(prompt: str) -> dict:
     m = re.search(r"\b(\d{1,3})-year-old\b", prompt) or re.search(r"\blooks exactly (\d{1,3}) years old\b", prompt)
     if m:
         facts["age"] = int(m.group(1))
-    m = re.search(r"\b\d{1,3}-year-old\s+[A-Za-z' -]{0,60}?\b(man|woman|boy|girl)\b", prompt)
+    m = re.search(r"\b\d{1,3}-year-old\s+[A-Za-z' -]{0,60}?\b(man|woman|boy|girl|nonbinary)\b", prompt)  # ORW-437: the brief says "nonbinary person with a soft androgynous look"
     if m:
         facts["gender"] = _GENDER_WORDS[m.group(1)]
     else:

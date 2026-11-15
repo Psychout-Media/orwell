@@ -94,11 +94,15 @@ def test_429_drops_rest_of_run_to_one_at_a_time(env, monkeypatch):
 
     async def fake(prompt, user, reference_png=None, keep_identity=True):
         calls["n"] += 1
-        live2["n"] += 1
-        live2["max"] = max(live2["max"], live2["n"])
+        idx = calls["n"]
+        late = idx > 3  # ORW-437: the first batch of 3 was already in flight; only the calls AFTER it must be serial
+        if late:
+            live2["n"] += 1
+            live2["max"] = max(live2["max"], live2["n"])
         await asyncio.sleep(0.05)
-        live2["n"] -= 1
-        if calls["n"] == 1:
+        if late:
+            live2["n"] -= 1
+        if idx == 1:
             P._note_gen_error("http-429")
             return None
         return b"x"
@@ -106,8 +110,8 @@ def test_429_drops_rest_of_run_to_one_at_a_time(env, monkeypatch):
     monkeypatch.setattr(P, "_generate_one", fake)
     P.PORTRAITS_DIR = env / "p2"
     _run(P.generate_and_store(_prompts(12)[:9], "u2", record_beats=False))
-    assert live2["max"] <= 3
     assert calls["n"] == 9
+    assert live2["max"] == 1  # after the 429, strictly one at a time (a regression to 3-wide would read 3)
 
 
 # ── the upgrader ──────────────────────────────────────────────────────────────────────────

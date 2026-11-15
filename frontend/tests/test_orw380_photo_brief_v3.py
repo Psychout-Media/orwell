@@ -284,7 +284,7 @@ def _author_npc(i):
 
 def test_author_cast_dedupes_then_fires_on_authored_after_the_pass():
     pieces = {1: "a leather jacket", 2: "a leather jacket", 3: "a green parka", 4: "a navy blazer", 5: "a cream cardigan"}
-    spots = {1: "kitchen", 2: "kitchen", 3: "kitchen", 4: "kitchen", 5: "backyard"}
+    spots = {1: "kitchen", 2: "kitchen", 3: "kitchen", 4: "kitchen", 5: "kitchen"}  # ORW-437: a 4th and a 5th kitchen, so the pass must rewrite both
     events, writes, looks = [], [], []
 
     def profile(i):
@@ -318,7 +318,7 @@ def test_author_cast_dedupes_then_fires_on_authored_after_the_pass():
     n = _run(ca.author_cast(cast, llm, write_fn, on_authored=lambda h: events.append(("shoot", h)), look_write_fn=write_look))
     assert n == 5
     rewrites = [e for e in events if e[0] == "rewrite"]
-    assert rewrites and looks and set(looks) <= {"npc:2", "npc:4", "npc:5"}
+    assert rewrites and set(looks) == {"npc:2", "npc:5"}  # npc:2 repeats a piece (and moves to the lounge); npc:5 is then the 4th kitchen
     first_shoot = next(i for i, e in enumerate(events) if e[0] == "shoot")
     assert all(e[0] == "rewrite" for e in events[:first_shoot])         # portraits are requested after the pass
     assert sorted(e[1] for e in events if e[0] == "shoot") == [f"npc:{i}" for i in range(1, 6)]
@@ -422,3 +422,25 @@ def test_a_raised_first_call_resends_the_original_messages_not_an_empty_problem_
 def test_wrangler_is_a_brand():
     card = _npc("man", name="Dev Rao")
     assert "wardrobe-shape" in ca.sheet_problems({"wardrobe": ["a Wrangler shirt", "dark jeans"]}, card)
+
+
+def test_dedupe_updates_the_callers_card_so_the_post_pass_sees_the_stored_sheet():
+    cards = [_cast_card(1, "a leather jacket", "kitchen"), _cast_card(2, "a leather jacket", "backyard")]
+
+    async def llm(msgs):
+        return json.dumps({"wardrobe": ["a rust corduroy blazer", "dark jeans"], "photoHair": "a neat low bun",
+                           "onCamera": "She sits in the lounge, chin on fist, eyes on the camera, the one who misses nothing."})
+
+    async def write_look(hid, fields):
+        return {"accepted": True}
+
+    assert _run(ca.dedupe_photo_sheets(cards, llm, write_look)) == 1
+    assert cards[1]["physicalCharacteristics"]["wardrobe"][0] == "a rust corduroy blazer"
+    assert cards[1]["physicalCharacteristics"]["photoHair"] == "a neat low bun"
+    assert not ca.look_fields_missing(cards[1]["physicalCharacteristics"])
+
+
+def test_identity_concept_over_250_characters_is_not_accepted():
+    ok = "A quiet organiser who reads a room before speaking up and keeps the peace."
+    assert ca.parse_authored_profile(json.dumps({"biography": "x" * 90 + ". " + "y" * 20 + ".", "identityConcept": ok}), "npc:1").get("identityConcept") == ok
+    assert "identityConcept" not in ca.parse_authored_profile(json.dumps({"biography": "x" * 90 + ". " + "y" * 20 + ".", "identityConcept": "z" * 280}), "npc:1")

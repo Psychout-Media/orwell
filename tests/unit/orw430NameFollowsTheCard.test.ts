@@ -10,7 +10,10 @@ const BIO = "Nia grew up helping at the family funeral home in Converse. Off the
 describe("ORW-430 renameGivenNameInProse", () => {
   it("swaps the old first name, whole word and possessive, and leaves a different name that merely starts with it", () => {
     expect(renameGivenNameInProse("Nia's mother knew Niall.", "Nia Nesbitt", "Samir Nesbitt")).toBe("Samir's mother knew Niall.");
-    expect(renameGivenNameInProse(BIO, "Nia Nesbitt", "Samir Nesbitt")).toContain("Samir grew up");
+    // ORW-437: the whole renamed text, so a hyphenated different name ("Nia-Lee") can never be rewritten unnoticed
+    expect(renameGivenNameInProse(BIO, "Nia Nesbitt", "Samir Nesbitt")).toBe(
+      "Samir grew up helping at the family funeral home in Converse. Off the clock Samir sings alto, and her sister Nia-Lee watches.");
+    expect(renameGivenNameInProse("D'Nia met Nia-Lee and Nia.", "Nia Nesbitt", "Samir Nesbitt")).toBe("D'Nia met Nia-Lee and Samir.");
   });
   it("is a no-op when the first name did not change (a surname-only change) or the prose never used it", () => {
     expect(renameGivenNameInProse(BIO, "Nia Nesbitt", "Nia Brandt")).toBe(BIO);

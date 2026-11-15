@@ -405,3 +405,9 @@ def test_a_forced_upgrade_check_reshoot_keeps_the_upgrade_identity_prefix(env):
     assert env.shots[0][0].startswith(P.UPGRADE_IDENTITY_PREFIX)          # the first upgrade shot
     assert env.shots[1][0].startswith(P.UPGRADE_IDENTITY_PREFIX)          # the fix re-shoot too (ORW-437)
     assert "Fix in this version" in env.shots[1][0]
+
+
+def test_nonbinary_and_mustache_are_read_from_the_brief():
+    nb = "Waist-up portrait of a 30-year-old West African nonbinary person with a soft androgynous look. Hair: short dark curls. Wearing a grey hoodie."
+    assert C.facts_from_prompt(nb)["gender"] == "nonbinary" and "Stated gender presentation: nonbinary" in C.facts_block(C.facts_from_prompt(nb))
+    assert "moustache" in C.visible_features("a man with a mustache") and "moustache" in C.visible_features("a man with a moustache")

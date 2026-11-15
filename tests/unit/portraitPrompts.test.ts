@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPortraitPrompt, buildCastPortraitPrompts, trimWrittenHair, signatureMarkClause } from "../../src/engine/portraitPrompts";
+import { buildPortraitPrompt, buildCastPortraitPrompts, trimWrittenHair, signatureMarkClause, stripWornWords, legacyAppearance } from "../../src/engine/portraitPrompts";
 import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS } from "../../src/engine/imageConstants";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
@@ -242,8 +242,6 @@ describe("0051 — recordImageBeat (recorded or it didn't happen; player-witness
   });
 });
 
-/** ORW-361 — portrait prompt v2: explicit age, written face, faint mark, wardrobe/on-camera, frame rules. */
-
 /** ORW-380: photo brief v3. One paragraph in a fixed order; three fixtures (full sheet, none, legacy). */
 describe("ORW-380 — portrait photo brief v3", () => {
   const anchor = STYLE_ANCHOR_VARIANTS[4]!;
@@ -430,5 +428,23 @@ describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prom
     expect(after).toContain("faded grey hoodie");
     expect(after).toContain("a neat low bun");
     expect(after).toContain("Setting: the house kitchen");
+  });
+});
+
+
+describe("ORW-437 — portrait text cleaning", () => {
+  it("removing a worn word never leaves a dangling and/or", () => {
+    expect(stripWornWords("rugged and tall")).toBe("tall");
+    expect(stripWornWords("tall and rugged")).toBe("tall");
+    expect(stripWornWords("a rough or worn denim jacket")).toBe("a denim jacket");
+    expect(stripWornWords("tall and lean")).toBe("tall and lean");
+  });
+  it("a compound mark keeps its signature parts when another part is not sent", () => {
+    expect(signatureMarkClause("a tattoo and a chipped tooth")).toBe("A tattoo.");
+    expect(signatureMarkClause("a thin scar, and a nose stud")).toBe("A nose stud.");
+    expect(signatureMarkClause("a scar and a burn")).toBe("");
+  });
+  it("only the hair clause of a legacy appearance is cut at 'usually / that / by / until'", () => {
+    expect(legacyAppearance("long hair that frays by noon, a warm smile that lights a room")).toBe("long hair, a warm smile that lights a room");
   });
 });

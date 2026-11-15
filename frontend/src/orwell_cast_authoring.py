@@ -321,9 +321,9 @@ async def resolve_authoring_llm_fn(owner: Optional[str], *,
     routing (still at the authoring temperature). Every call flows through the module-level
     `_resolve_llm_fn`, so tests that stub it keep intercepting the authoring path.
 
-    ``json_mode`` (ORW-387): True (the default, byte-identical) requests ``response_format=json_object``. A caller whose
-    prompt asks for plain PROSE must pass False: a strict provider (DeepSeek) answers HTTP 400 to json_object when the
-    prompt never says "json".
+    This resolver always requests ``response_format=json_object`` (it takes no ``json_mode`` argument). A caller whose
+    prompt asks for plain PROSE (a strict provider such as DeepSeek answers HTTP 400 to json_object when the prompt
+    never says "json") uses `resolve_prose_llm_fn`, which calls `_resolve_llm_fn(json_mode=False)` (ORW-387).
 
     ``min_output_tokens`` (2026-07-13 genesis-cap fix): a per-call-family FLOOR on the resolved
     output cap — the full-cast genesis SKETCH passes ``GENESIS_SKETCH_MIN_OUTPUT_TOKENS`` because
@@ -1847,7 +1847,8 @@ async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
                     if isinstance(res, dict) and res.get("accepted"):
                         merged = {k: v for k, v in phys.items() if k not in clear}
                         merged.update(fields)
-                        card = {**card, "physicalCharacteristics": merged}
+                        card["physicalCharacteristics"] = merged  # ORW-437: in place, so the caller's post-pass check sees the stored sheet
+                        card = {**card}
                         phys = merged
                         rewritten += 1
                         logger.info(f"[cast-authoring] photo sheet rewritten for {card['id']} (de-duplication)")
@@ -2066,7 +2067,7 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
     # (genesis's was written before the name, gender and age were settled and is never shown once this lands).
     if isinstance(obj.get("identityConcept"), str):
         ic = " ".join(obj["identityConcept"].split())
-        if 12 <= len(ic) <= 300:
+        if 12 <= len(ic) <= 250:  # ORW-437: the prompt promises "under 250 characters"
             out["identityConcept"] = ic
     # The PUBLIC occupation (#849) — forwarded so the engine keeps it in lockstep with the biography and
     # re-grounds the hidden stakes off the job the player will infer. A blank / runaway value is dropped
