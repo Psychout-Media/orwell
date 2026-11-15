@@ -23180,5 +23180,4 @@ button.ow-history-more {
   background: color-mix(in srgb, var(--accent) 14%, var(--bg)); color: var(--fg); border-bottom: 1px solid var(--accent);
 }
 
-/* ORW-379: zero clocks in the house - a bubble stamp that is only a real wall time is hidden; the in-world moment stamp stays. */
-body[data-zero-clocks] .role-timestamp:not(.role-timestamp-moment) { display: none; }
+body[data-zero-clocks] .role-timestamp:not(.role-timestamp-moment){display:none}
