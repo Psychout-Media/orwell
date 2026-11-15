@@ -494,7 +494,10 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
    * most recent in-world moment already on screen instead of the wall clock; a reply that never settles (interrupted, stopped, dropped) then
    * keeps an in-world stamp, not "11:06 PM". message_saved still overwrites it with the exact moment. No game bubble yet (casting, chat mode)
    * => the neutral wall-clock span, exactly as before. */
+  // ORW-379: zero clocks => no real wall time on screen (safe where there is no body, e.g. unit harnesses).
+  function _zeroClocks() { try { return !!(document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks')); } catch (_) { return false; } }
   function _stampSpanHtml(wallClock) {
+    try { if (document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks')) wallClock = ''; } catch (_) {}
     try {
       var moments = document.querySelectorAll('#chat-history .role-timestamp-moment');
       var last = moments.length ? (moments[moments.length - 1].textContent || '').trim() : '';
@@ -521,15 +524,15 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
       if (typeof moment === 'string' && moment.trim()) {
         span.textContent = moment.trim();
         span.classList.add('role-timestamp-moment');
-        if (haveWall) {
+        if (haveWall && !_zeroClocks()) {
           span.title = d.toLocaleString();
           span.dataset.wallClock = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
         return;
       }
-      if (!haveWall) return;
+      if (!haveWall || _zeroClocks()) return;  // ORW-379
       span.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      span.title = d.toLocaleString();
+      if (!_zeroClocks()) span.title = d.toLocaleString();
     } catch (_) {}
   }
 
