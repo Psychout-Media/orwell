@@ -354,14 +354,6 @@ def kickoff_after_turn_in(owner, result) -> None:
         pass
 
 
-def _record_heal_failure(kind: str, err) -> None:
-    try:
-        from src import log_rings
-        log_rings.record_soft_failure(kind, err, corrected="the engine floor stands for that day")
-    except Exception:  # failsoft-ok: recorder-self
-        pass
-
-
 def kickoff_heal(owner, ledger: list) -> None:
     """ORW-387: if a closed day has no real summary, re-author it in the background from the stored history (bounded
     tries per process). Called from the prompt view; never blocks a turn, never raises."""
@@ -383,7 +375,11 @@ def kickoff_heal(owner, ledger: list) -> None:
                 await run_condense(owner, day)
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[day-condense] heal task failed: %s", e)
-                _record_heal_failure("day-condense:heal-failed", e)
+                try:
+                    from src import log_rings
+                    log_rings.record_soft_failure("day-condense:heal-failed", e, corrected="the engine floor stands for that day")
+                except Exception:  # failsoft-ok: recorder-self
+                    pass
             finally:
                 _IN_FLIGHT.discard(k)
 
@@ -393,4 +389,8 @@ def kickoff_heal(owner, ledger: list) -> None:
             _IN_FLIGHT.discard(k)
     except Exception as e:  # fail-soft: healing must never hurt a turn
         logger.warning("[day-condense] heal kickoff failed: %s", e)
-        _record_heal_failure("day-condense:heal-kickoff-failed", e)
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="the engine floor stands for that day")
+        except Exception:  # failsoft-ok: recorder-self
+            pass
