@@ -108,3 +108,21 @@ def test_orw259_busy_selector_matches_the_apps_real_streaming_mode():
         busy = _load(name).BUSY_JS
         assert 'data-mode=\\"streaming\\"' in busy or 'data-mode="streaming"' in busy, name
         assert "stop" not in busy and "cancel" not in busy, name
+
+
+def test_t13_zero_clocks_fails_a_clock_time_and_passes_a_part_of_the_day():
+    # ORW-377 (Ryne): the house has no clocks. The bubble's own "07:41 PM" header stamp is not the narration and is ignored.
+    for bad in ("By 8:15 the kitchen is full.", "She says she'll be up at 9 am.", "Nobody sleeps before ten o'clock."):
+        assert not _score([_turn("premiere-1", bad)])["T13-zero-clocks[premiere-1]"]["ok"], bad
+    for ok in ("Production 07:41 PM\nLate night settles over the kitchen.", "Morning light, Day 2.", "The afternoon drags; nobody hums ten amps of anything."):
+        assert _score([_turn("premiere-1", ok)])["T13-zero-clocks[premiere-1]"]["ok"], ok
+
+
+def test_the_report_carries_the_pass_bar_header_and_what_was_not_covered(tmp_path):
+    import json
+    (tmp_path / "meta.json").write_text(json.dumps({"sha": "abc12345", "ref": "main", "cap": "0.5", "model": "m"}))
+    (tmp_path / "spend.json").write_text(json.dumps({"usd_estimate": 0.12}))
+    ls.write(str(tmp_path), [], [], None)
+    md = (tmp_path / "report.md").read_text()
+    assert "`abc12345`" in md and "UTC" in md and "Arizona" in md and "$0.12 of a $0.5 cap" in md
+    assert "Checked against the Live Run Pass Bar" in md and "T13 zero clocks" in md and "Not covered by the short tier" in md

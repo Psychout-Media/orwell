@@ -199,6 +199,8 @@ def main():
             st = eng.call("getGameState"); facts_clock = st.get("clockLabel") or ""
             check("D1-day-one-not-skipped", "Day 1" in facts_clock, f"after the premiere the clock reads {facts_clock!r} (must still be Day 1: the night is the player's)")
             ent = (eng.call("premiereIntros") or {}).get("entrance") or {}
+            # T12 (Ryne, ORW-368): every houseguest gives their champagne toast before the premiere ends; a short run that passes through the premiere checks it.
+            check("T12-every-toast", ent.get("stage") in (None, "done") and not ent.get("toastRemaining"), f"entrance stage {ent.get('stage')!r}, toasts remaining {ent.get('toastRemaining')!r}")
             check("A1-all-arrived", ent.get("insideCount") == ent.get("total") and (ent.get("total") or 0) >= 2, f"entrance {ent.get('insideCount')} of {ent.get('total')} inside at the end of the premiere")
             global CAST
             CAST = list(ent.get("arrivedNames") or [])
@@ -223,6 +225,8 @@ def main():
     sys.exit(1 if hard else 0)
 
 
+# T13: a clock time the player can read ("8:15", "8:15pm", "9 am", "nine o'clock", "noon"/"midnight" said as a time). Parts of the day are allowed.
+ZERO_CLOCK_RE = re.compile(r"(?i)\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+o'?clock\b")
 BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
 
 
@@ -248,6 +252,11 @@ def score(turns, checks, check, turn_limit):
         m = LEAK_RE.search(t["text"]); check(f"T3-no-machinery[{lab}]", not m, f"leak: {m.group(0)!r}" if m else "clean")
         check(f"T4-latency[{lab}]", t["secs"] <= turn_limit, f"{t['secs']}s (warn > {turn_limit}s)", "warn")
         check(f"T5-latency-hard[{lab}]", t["secs"] <= 240, f"{t['secs']}s (fail > 240s)")
+        # T13 zero clocks (Ryne, ORW-377): a reply names the part of the day, never a clock time. The bubble's own header stamp is stripped first (that is ORW-379's
+        # territory, not the narration's).
+        _zc_body = re.sub(r"\b\d{1,2}:\d{2}\s*[AP]M\b", " ", t["text"])
+        zc = ZERO_CLOCK_RE.search(_zc_body)
+        check(f"T13-zero-clocks[{lab}]", not zc, f"clock time in the reply: {zc.group(0)!r}" if zc else "no clock time")
         # The bubble's own header stamp ("Production 03:57 PM") is the wall clock of the chat row, not a claim about the game: strip it before looking for a clock claim.
         body = re.sub(r"\b\d{1,2}:\d{2}\s*[AP]M\b", " ", t["text"], flags=re.I)
         eh = clock_hour(t.get("clock")); cm = re.search(r"\b(\d{1,2}):(\d{2})\b(?!\s*(?:am|pm))", body, flags=re.I) if eh is not None else None
@@ -325,11 +334,39 @@ def score(turns, checks, check, turn_limit):
     check("C2-draw-voiced", any(re.search(r"(?i)veto", t["text"]) and re.search(r"(?i)draw|chip|pull|playing for", t["text"]) for t in draw), "a veto-morning reply voices the draw")
 
 
+# The vault note "Live Run Pass Bar" (the Auditor's) numbers the checks; the short tier's own ids map onto it here.
+BAR_MAP = [("T1 real scene", {"T2", "T2b"}), ("T5 message answered", {"T1"}), ("T6 no machinery", {"T3"}), ("T9 time is honest", {"K1", "D1", "C3"}),
+           ("T12 every houseguest toasts", {"T12"}), ("T13 zero clocks", {"T13"}), ("run level: reaches its end", {"G1", "G2"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
+NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden information, T8 choices through the card, T10 invented confession: read by hand from the transcript",
+               "T15 the awake list, T18 naps, T20 early sleepers wake alone: need the full week or the widget",
+               "T16 headcounts, T17 a recap every bedtime, T19 the engine moves the player first: not automated in the short tier yet",
+               "eviction night and the finale: the short tier stops at the Week 1 veto morning"]
+
+
+def _header(run_dir, turns):
+    """The pass bar's report header: build, flags, time (UTC and Arizona), model, turns, spend. Each piece is read from what run_short.sh left in the run dir."""
+    import datetime
+    def _j(n):
+        try:
+            return json.load(open(f"{run_dir}/{n}"))
+        except Exception:  # an absent file just leaves that line out
+            return {}
+    meta, spend, health = _j("meta.json"), _j("spend.json"), _j("health.json")
+    now = datetime.datetime.now(datetime.timezone.utc); az = now - datetime.timedelta(hours=7)
+    flags = health.get("flags") or {}
+    on = sorted(k for k, v in flags.items() if v is True) if isinstance(flags, dict) else []
+    return [f"- Build: `{meta.get('sha', '?')}` ({meta.get('ref', 'main')}); flags on: {', '.join(on) or 'n/a'}",
+            f"- When: {now:%Y-%m-%d %H:%M} UTC / {az:%H:%M} Arizona; tier: short; model: {meta.get('model', '?')}",
+            f"- Spend: ${spend.get('usd_estimate', '?')} of a ${meta.get('cap', '?')} cap", ""]
+
+
 def write(run_dir, turns, checks, error):
     hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]; warn = [c for c in checks if not c["ok"] and c["severity"] == "warn"]
     verdict = "COULD NOT RUN" if error else ("FAIL" if hard else "PASS")
     json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
-    L = [f"# Live run (short tier) - {verdict}", "", f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
+    L = [f"# Live run (short tier) - {verdict}", ""] + _header(run_dir, turns) + [f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
+    L += ["## Checked against the Live Run Pass Bar", ""] + [f"- {bar}: {', '.join(sorted({c['id'].split('[')[0] for c in checks if c['id'].split('[')[0].split('-')[0] in ids})) or '-'}" for bar, ids in BAR_MAP] + [""]
+    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in NOT_COVERED] + [""]
     if hard or warn:
         L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
     L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]
