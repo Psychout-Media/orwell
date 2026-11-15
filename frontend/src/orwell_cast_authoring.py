@@ -109,6 +109,8 @@ _SYSTEM = (
     "cast; do NOT rename or re-invent them. ONLY when the skeleton carries no name, supply a realistic, "
     "common, pronounceable FIRST and LAST name (two words), diverse and ordinary, NEVER invented/fantasy/"
     "gibberish.\n"
+    '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
+    "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card),\n"
     '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
@@ -1590,7 +1592,7 @@ def repair_story(profile: dict, npc: dict) -> list:
         if fixed != bio:
             profile["biography"] = fixed
             done.append("biography")
-    ident = (npc or {}).get("identityConcept")
+    ident = profile.get("identityConcept") or (npc or {}).get("identityConcept")  # ORW-431: the writer's own, else genesis's
     if isinstance(ident, str) and ident.strip():
         fixed = repair_story_text(ident, profile, npc)
         if fixed != ident:
@@ -1945,6 +1947,12 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
                 f"[cast-authoring] biography below floor for {houseguest_id} "
                 f"({len(bio)} chars, {len(_SENTENCE_TERMINATORS.findall(bio))} sentence(s)) — "
                 "omitting so the seeded floor stands")
+    # ORW-431 A: the writer, which runs after every pin and sees the final card, owns the one-line identityConcept too
+    # (genesis's was written before the name, gender and age were settled and is never shown once this lands).
+    if isinstance(obj.get("identityConcept"), str):
+        ic = " ".join(obj["identityConcept"].split())
+        if 12 <= len(ic) <= 300:
+            out["identityConcept"] = ic
     # The PUBLIC occupation (#849) — forwarded so the engine keeps it in lockstep with the biography and
     # re-grounds the hidden stakes off the job the player will infer. A blank / runaway value is dropped
     # (the engine then leaves the seeded vocation — and its keyed stakes — untouched). Single line only.

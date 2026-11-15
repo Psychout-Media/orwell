@@ -204,3 +204,23 @@ def test_cast_repetition_is_reported_and_the_next_writer_is_told_what_is_taken(c
     t = g.taken_phrases("npc:9")
     user = ca.build_authoring_messages(cast[0], taken={"phrases": t})[1]["content"]
     assert "every mark is unique" in user and "pale knuckle scar" in user
+
+
+# ---- A: the writer owns identityConcept; genesis's stale one is replaced, never shown --------------------
+def test_writer_identity_concept_replaces_genesis_stale_one():
+    npc = npc_of("npc:5", "Samir Nesbitt", "man", 23, ident="Nia is a soft-spoken apprentice who reads a room and floats through every alliance.")
+    cast = [npc]
+    n, w, _ = _go(run(cast, lambda h, i: profile_json(
+        CARDS["Samir Nesbitt"]["biography"], identityConcept="A soft-spoken funeral apprentice who reads a room before he speaks.")))
+    assert n == 1 and w["npc:5"]["identityConcept"].startswith("A soft-spoken funeral apprentice")
+    assert "Nia" not in w["npc:5"]["biography"]
+
+
+def test_stale_genesis_identity_without_a_writer_one_is_mended_by_name():
+    npc = npc_of("npc:5", "Samir Nesbitt", "man", 23, ident="Nia is a soft-spoken apprentice. She reads a room before anyone else does.")
+    prof = {"biography": CARDS["Thomas Sizemore"]["biography"].replace("Thomas", "Samir")}
+    assert any(c.startswith("ident-") for c in gate.card_codes(prof, npc, [npc]))
+    n, w, _ = _go(run([npc], lambda h, i: profile_json(prof["biography"])))
+    if n:
+        assert "Nia" not in w["npc:5"].get("identityConcept", "Samir") and not any(
+            c.startswith("ident-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
