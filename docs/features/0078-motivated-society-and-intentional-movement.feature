@@ -74,3 +74,13 @@ Feature: 0078 — Motivated off-screen society & intentional movement
       When one passive season is played to completion on the current model
       Then it yields a well-formed outcome the band gate can score
       And the floor demands every crowned passive season be earned on the public comp record
+
+  # ORW-376 (Ryne, 2026-11-15: houseguests "typically refer to the number of NPCs in a room, not including the player").
+  Scenario: The engine's headcounts include the player
+    Given a season that has reached its nominations
+    Then the player's room count is the houseguests with them plus the player
+    And the house count is everyone still in the game, the player included
+
+  Scenario: On eviction night the voter count is the real one, not a fixed number
+    Given a season that has reached an eviction vote
+    Then the voter count is the house minus the HOH and the two nominees
