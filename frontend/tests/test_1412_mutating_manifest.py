@@ -85,6 +85,8 @@ READ_ONLY_TOOLS = frozenset({
     "recordProducerProfile",
     # ORW-223: `recordRoomCanon` is an FE-driven write-back of narrated room texture into the canon ledger; the status HUD never renders it.
     "recordRoomCanon",
+    # ORW-407: `recordOpenLedger` is an FE-driven write-back of a narrated commitment/claim; the status HUD never renders it.
+    "recordOpenLedger",
     # ORW-369: the look-only write-back (wardrobe + onCamera of one houseguest); the status HUD never renders it.
     "recordLookExtras",
 })

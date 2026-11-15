@@ -1474,6 +1474,15 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
     return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
 
 
+async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
+    """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
+    (``recordOpenLedger``). Sends exactly ``{text, speaker, addressedTo, kind}``; the engine re-validates, derives the
+    witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
+    played games only; changes no relationship number."""
+    args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}
+    return await _call("recordOpenLedger", args, user=user)
+
+
 async def whereabouts(user: str | None = None, search: bool = False):
     """The Vault-free presence read (0049): the player's room, who is in it, and who is in each
     ADJACENT room — names only, never motives or non-adjacent rooms. ``None`` pre-game.
