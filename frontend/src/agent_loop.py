@@ -3166,10 +3166,7 @@ _MOVE_TOOLS = {"moveTo"}
 _MAX_MOVE_NUDGES_PER_TURN = 1  # at most one auto-move per finishing turn
 # The canonical house floor plan (mirrors src/domain/house.ts HOUSE_ROOMS). The engine no-ops an
 # unknown room; matching here keeps the extraction honest and the pre-filter cheap.
-_HOUSE_ROOMS = (
-    "kitchen", "living-room", "backyard", "bedroom-a", "bedroom-b",
-    "hoh-room", "bathroom", "storage-room", "diary-room",
-)
+from src.house_rooms import HOUSE_ROOMS as _HOUSE_ROOMS  # ORW-418: the engine's own list (no copy here)
 # A deliberately BROAD pre-filter — movement language is varied ("I head to the kitchen", "let's go
 # out back", "I wander into the living room", "walk over to the bedroom", "step into the bathroom").
 # A missed signal means a lost move (the immersion bug); a false hit only costs a rare extraction
@@ -3303,7 +3300,7 @@ def _player_move_instructions() -> str:
         "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
         'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
         '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
-        "\"lounge\"/\"couch\" → living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."
+        "\"couch\" → living-room, \"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."
     )
 
 
@@ -3537,8 +3534,8 @@ def _npc_move_instructions() -> str:
         f"Room ids: {rooms}.\n"
         "Include a houseguest ONLY when the scene clearly walks THEM to that room (\"Marcus "
         "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
-        "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"lounge\"/\"couch\" "
-        "→ living-room, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
+        "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"couch\" → living-room, "
+        "\"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
         'If no houseguest clearly moved, reply {"moves":[]}.'
     )
 
