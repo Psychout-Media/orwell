@@ -636,6 +636,7 @@
  "test_orw148_one_entrance_per_turn.py": 0.1,
  "test_orw150_186_sync_ledger_false_positives.py": 0.1,
  "test_orw151_153_playtest_hotfixes.py": 0.1,
+ "test_orw154_low_power_browser.py": 150.0,
  "test_orw155_bubble_blur_budget.py": 0.1,
  "test_orw156_stream_render_cost.py": 0.1,
  "test_orw157_observer_storm.py": 0.1,
