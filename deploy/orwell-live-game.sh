@@ -278,3 +278,53 @@ _update_defer_abort() {
 }
 _update_defer_now() { date +%s; }
 _update_defer_sleep() { sleep "$1" & wait $!; }   # `wait` so a trapped INT/TERM/HUP fires at once, not after the sleep
+
+# ── ORW-406: restart only what changed, and swap between turns ───────────────────────────────────────────
+# update_restart_scope <newline-separated changed paths> -> none | frontend | both
+#   none      every changed path is under frontend/static/ (the app serves static files with no-cache
+#             revalidation, ETag from mtime, so the new files are picked up with no restart and no version bump)
+#   frontend  every changed path is under frontend/ (the engine bundle and its deps are untouched)
+#   both      anything else (src/, package*.json, deploy/, units, ...) or an empty/unknown list: the old behaviour
+update_restart_scope() {
+  local paths="$1" p scope=none n=0
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    n=$((n + 1))
+    case "$p" in
+      frontend/static/*) ;;
+      frontend/*) [[ "$scope" == none ]] && scope=frontend ;;
+      *) echo both; return 0 ;;
+    esac
+  done <<<"$paths"
+  (( n > 0 )) || { echo both; return 0; }
+  echo "$scope"
+}
+
+# 0 when the front end's turns-in-flight file says one or more turns are running, else 1. A missing, unreadable,
+# symlinked or malformed file means "no turn" (fail open): the wait below is bounded anyway.
+update_turn_in_flight() {
+  local f="$1" v
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 1
+  v="$(timeout 5 head -c 16 "$f" 2>/dev/null | tr -d ' \r\n' || true)"
+  [[ "$v" =~ ^[0-9]+$ ]] && (( 10#$v > 0 ))
+}
+
+# Wait (bounded) until no turn is in flight. $1 = signal file. Bound: ORWELL_UPDATE_TURN_WAIT_SECONDS
+# (default 120, clamped 1..300). Always returns 0: after the bound the update proceeds.
+update_wait_for_no_turn() {
+  local f="$1" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now
+  [[ "$max" =~ ^[0-9]+$ ]] || max=120
+  (( max = 10#$max, max < 1 )) && max=1
+  (( max > 300 )) && max=300
+  start="$(_update_defer_now)"
+  while update_turn_in_flight "$f"; do
+    now="$(_update_defer_now)"
+    if (( now - start >= max )); then
+      echo "==> a turn is still in flight after ${max}s — restarting anyway."
+      return 0
+    fi
+    echo "==> a turn is in flight — waiting for it to finish before restarting (up to ${max}s)."
+    _update_defer_sleep 2
+  done
+  return 0
+}

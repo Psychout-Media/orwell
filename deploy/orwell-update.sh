@@ -1577,10 +1577,29 @@ if [[ "$NO_RESTART" -eq 1 ]]; then
   trap - EXIT
   ops_progress_done "updated — handing off to the reset for the final restart"
 else
-  echo "==> restart services (${ENGINE_SVC}, ${FRONTEND_SVC})"
-  ops_progress_step 4 "restarting services"
-  systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
-  trap - EXIT
-  ops_progress_done "updated — services restarting"
+  # ORW-406: restart only what changed, and swap between turns.
+  RESTART_SCOPE=both
+  if type update_restart_scope >/dev/null 2>&1; then
+    RESTART_SCOPE="$(update_restart_scope "$(git -C "$APP_DIR" diff --name-only "$PREV_SHA" HEAD 2>/dev/null || true)")"
+  fi
+  if [[ "$RESTART_SCOPE" == none ]]; then
+    echo "==> only front-end static files changed — no restart needed (they are served with revalidation)."
+    trap - EXIT
+    ops_progress_done "updated — no restart needed"
+  else
+    if [[ "$FORCE" != 1 ]] && type update_wait_for_no_turn >/dev/null 2>&1; then
+      update_wait_for_no_turn "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/turns-in-flight"
+    fi
+    ops_progress_step 4 "restarting services"
+    if [[ "$RESTART_SCOPE" == frontend ]]; then
+      echo "==> restart ${FRONTEND_SVC} only (the engine is unchanged)"
+      systemctl restart "$FRONTEND_SVC"
+    else
+      echo "==> restart services (${ENGINE_SVC}, ${FRONTEND_SVC})"
+      systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
+    fi
+    trap - EXIT
+    ops_progress_done "updated — services restarting"
+  fi
 fi
 echo "==> update complete ($(git -C "$APP_DIR" rev-parse --short HEAD)); previous build kept for --rollback."

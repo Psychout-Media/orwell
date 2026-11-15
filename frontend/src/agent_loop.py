@@ -1846,7 +1846,37 @@ _BEDTIME_DIRECT_NOTE = (
     "Voice the night passing and the new morning ONLY from that result and the current game context - never invent what it did not hand you, and do not call turnIn again.")
 
 
-def _bedtime_direct_note(turn_in_output) -> str:
+def _bedtime_tool_message(turn_in_output) -> str:
+    """ORW-382 - the tool message the narrator sees after the FE runs the player's turnIn directly. The engine appends `dailyRecap` LAST in the result, and the old 4000-char cut dropped it whenever the
+    status was large, so the "day in review" never reached the model. Lead with the recap (compact JSON), then the rest, cut at the same bound. Unreadable output => the plain cut (byte-identical)."""
+    raw = str(turn_in_output)
+    try:
+        data = json.loads(raw)
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        if isinstance(rec, dict):
+            rest = {k: v for k, v in data.items() if k != "dailyRecap"}
+            head = json.dumps({"dailyRecap": rec}, ensure_ascii=False)
+            return (head + "\n" + json.dumps(rest, ensure_ascii=False))[:6000]
+    except Exception:
+        pass
+    return raw[:4000]
+
+
+def _bedtime_recap_directive(turn_in_output) -> str:
+    """ORW-382 (Ryne, 11-15: the day in review "between going to sleep and waking, almost as if you're like dreaming"): when the turnIn result carries a `dailyRecap` with anything in it, tell the narrator to voice it
+    BEFORE the new morning - on every bedtime, the premiere night included. Empty/absent recap => '' (nothing to voice; never invent one)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        if isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced")):
+            return (" The result carries a `dailyRecap`: BEFORE the new morning, voice it as a short dreamlike day-in-review as the player drifts off to sleep - only the facts in its highlights / yourDay / surfaced, "
+                    "never a list, never anything it does not contain.")
+    except Exception:
+        pass
+    return ""
+
+
+def _bedtime_clock_note(turn_in_output) -> str:
     """ORW-355 - `_BEDTIME_DIRECT_NOTE` plus the engine's own clock from the turnIn result: an EVENING bed wakes the player at bed+8h (e.g. 4:15am), not at 8am, so the narrator must voice THAT hour, never a
     morning the clock has not reached. No readable clock => the plain note (byte-identical)."""
     try:
@@ -1863,6 +1893,11 @@ def _bedtime_direct_note(turn_in_output) -> str:
     except Exception:
         pass
     return _BEDTIME_DIRECT_NOTE
+
+
+def _bedtime_direct_note(turn_in_output) -> str:
+    """The production note for a directly-run turnIn: the ORW-355 clock note plus the ORW-382 day-in-review directive (empty when the recap has nothing in it)."""
+    return _bedtime_clock_note(turn_in_output) + _bedtime_recap_directive(turn_in_output)
 
 
 def _bedtime_board_allows(status) -> bool:
@@ -5658,7 +5693,7 @@ async def _knowledge_wall_guard(text: str, owner) -> str:
         return text
 
 
-async def _presence_wall_guard(text: str, owner) -> str:
+async def _presence_wall_guard(text: str, owner, alt_state=None) -> str:
     """A2 (#1726) — the PRE-EMISSION structural presence guard, a location analog of
     `_knowledge_wall_guard` above. Drops any sentence that stages a houseguest the engine places
     off-scene or already-evicted as present/acting in the player's room — the empirically load-bearing
@@ -5670,6 +5705,8 @@ async def _presence_wall_guard(text: str, owner) -> str:
         return text
     try:
         from routes import chat_helpers
+        if alt_state is not None:
+            return await chat_helpers.screen_presence_wall(owner, text, alt_state=alt_state)
         return await chat_helpers.screen_presence_wall(owner, text)
     except Exception:
         return text
@@ -8086,6 +8123,9 @@ async def _stream_agent_loop_impl(
     # `truncated` Continue affordance so a cut-off reply doesn't just stop mid-sentence with no signal.
     _round_finish_reason = None
 
+    _pre_bed_state = None  # ORW-395: the board as it stood BEFORE the FE-run belt turnIn (the presence wall accepts either set that turn)
+    _first_stream_round = 1  # ORW-395: the belt's own round shifts the first narration round to 2
+    _belt_own_round = False
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None
         round_response = ""
@@ -8401,21 +8441,26 @@ async def _stream_agent_loop_impl(
                         _rejecter_fallback_sent.add("turnIn")
                         _direct_applied = False
                         try:
+                            try:  # ORW-395: who was in the room BEFORE turnIn moved the board to morning
+                                _pre_bed_state = await _oe_bt.get_game_state(user=_force_owner)
+                            except Exception:
+                                _pre_bed_state = None
                             _bt_block = ToolBlock("turnIn", "{}")
                             yield f'data: {json.dumps({"type": "tool_start", "tool": "turnIn", "command": "{}", "round": round_num})}\n\n'
                             _bt_desc, _bt_result = await execute_tool_block(
                                 _bt_block, session_id=session_id, disabled_tools=disabled_tools,
                                 tool_policy=tool_policy, owner=owner, workspace=workspace)
                             _bt_out = (_bt_result.get("output") or _bt_result.get("error") or "") if isinstance(_bt_result, dict) else ""
-                            _bt_out = str(_bt_out)[:4000]
+                            _bt_out = str(_bt_out)
                             yield f'data: {json.dumps({"type": "tool_output", "tool": "turnIn", "command": "{}", "output": "", "exit_code": _bt_result.get("exit_code") if isinstance(_bt_result, dict) else None})}\n\n'
                             tool_events.append({"round": round_num, "tool": "turnIn", "command": "{}", "output": "", "exit_code": (_bt_result or {}).get("exit_code")})
                             _direct_applied = _turn_in_applied(_bt_result)
+                            _belt_own_round = True  # ORW-395: the chip is drawn with ITS round's text; close this round so it sits ABOVE the morning narration
                             if _direct_applied:
                                 _bt_call_id = f"call_{round_num}_bedtime"
                                 messages.append({"role": "assistant", "content": None, "tool_calls": [
                                     {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
-                                messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bt_out}\n```"})
+                                messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bedtime_tool_message(_bt_out)}\n```"})
                                 messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out)})
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
@@ -8427,6 +8472,15 @@ async def _stream_agent_loop_impl(
                             _note_belt(owner, "forced-tool-fallback-line:turnIn")
             except Exception as _bt_err:
                 logger.warning(f"[orwell] ORW-310 bedtime force skipped: {_bt_err}")
+            if _belt_own_round:
+                # ORW-395 (1): same as between ordinary tool rounds - an empty text round, then the next round carries the narration.
+                _belt_own_round = False
+                _first_stream_round = round_num + 1
+                if not _direct_applied:
+                    _pre_bed_state = None
+                round_texts.append("")
+                yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
+                continue
 
         # Primary target + any configured fallback models. stream_llm_with_fallback
         # only switches on a pre-content failure, so streamed output is never
@@ -8443,7 +8497,7 @@ async def _stream_agent_loop_impl(
             owner=_force_owner,
             temperature=temperature,
             max_tokens=_effective_max_tokens,  # ADR 0010 #1: admin-editable per-class output cap
-            prompt_type=prompt_type if round_num == 1 else None,
+            prompt_type=prompt_type if round_num == _first_stream_round else None,
             tools=all_tool_schemas if all_tool_schemas else None,
             timeout=agent_stream_timeout,
             policy=_token_policy,
@@ -8653,7 +8707,7 @@ async def _stream_agent_loop_impl(
                                     round_response = _mirror_confession_replace(round_response, _cf_ops)
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
-                                    _guarded_text = await _presence_wall_guard(_guarded_text, owner)
+                                    _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state)
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
                                     # survives into the persisted/reload text or a post-turn belt.
@@ -8829,7 +8883,7 @@ async def _stream_agent_loop_impl(
                 round_response = _mirror_confession_replace(round_response, _cf_ops)
                 _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                 _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
-                _guarded_text = await _presence_wall_guard(_guarded_text, owner)
+                _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state)
                 # Greptile P1 (#1746): mirror any DROP back into the raw round buffer (see
                 # `_mirror_wall_drop`'s docstring) so a phantom sentence never survives into the
                 # persisted/reload text or a post-turn belt.
