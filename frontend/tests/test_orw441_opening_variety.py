@@ -99,3 +99,15 @@ def test_they_guard_for_s_adverbs_and_a_comma_after_the_name():
         prof = {"physicalCharacteristics": {"onCamera": cam}}
         gate.mend(prof, npc, [npc])
         assert prof["physicalCharacteristics"]["onCamera"] == want, cam
+
+
+def test_photohair_openings_already_used_reach_the_next_writers_prompt():
+    g = gate.SeasonGate("t")
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30}
+    prof = {"biography": "Namea welds boats and keeps lists of everything. He sleeps badly on Sundays.", "identityConcept": "Namea welds.",
+            "physicalCharacteristics": {"photoHair": "close cropped and neat, edges crisp for the shoot"}}
+    g.accept("npc:1", prof, npc, [npc])
+    ph = g.taken_phrases("npc:2")
+    assert ph["photohair_openings"] == ["close cropped"]
+    text = _msg({"vocations": [], "hometowns": [], "phrases": ph})
+    assert "photoHair lines already open: close cropped" in text
