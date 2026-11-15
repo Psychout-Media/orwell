@@ -7811,6 +7811,7 @@ async def _stream_agent_loop_impl(
                 _ledger_dc = await _oe_dc.day_ledger(user=owner)
                 if _ledger_dc:
                     messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
+                    orwell_day_condense.kickoff_heal(owner, _ledger_dc)  # ORW-387: a closed day with no real summary is re-authored in the background
         except Exception as _e_dc:
             logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
 

@@ -2223,7 +2223,7 @@ export interface RecordDaySummaryReq {
 export interface RecordDaySummaryResult {
   accepted: boolean;
   /** Why not accepted (absent when accepted). */
-  reason?: "absent" | "unknown-day" | "empty";
+  reason?: "absent" | "unknown-day" | "empty" | "error-text";
 }
 
 export interface DailyRecapView {
