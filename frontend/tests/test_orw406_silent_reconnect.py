@@ -108,7 +108,7 @@ const fs = require("node:fs");
 const src = fs.readFileSync(process.argv[1], "utf8");
 function assert(c, m) { if (!c) { throw new Error("ASSERT: " + m); } }
 process.on("unhandledRejection", (e) => { console.error("UNHANDLED:", e); process.exit(1); });
-let now = 1000000; Date.now = () => now;
+let now = 1000000; Date.now = () => now; Object.defineProperty(globalThis, 'performance', { value: { now: () => now }, configurable: true }); // ORW-437: the gap clock is monotonic (performance.now)
 const timers = []; global.setTimeout = (fn, ms) => { timers.push({ fn, at: now + ms }); return timers.length; };
 global.clearTimeout = () => {}; global.setInterval = () => 0; global.clearInterval = () => {};
 let shows = 0; let hides = 0; let mode = "502";

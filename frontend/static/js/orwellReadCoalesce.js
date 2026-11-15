@@ -18,6 +18,7 @@
   function pathOf(u) {
     try { return new URL(u, window.location.href).pathname; } catch (_) { return ""; }
   }
+  var PENDING_MAX_MS = 15000;
   window.fetch = function (input, init) {
     var isStr = typeof input === "string";
     var u = isStr ? input : ((input && input.url) || "");
@@ -32,7 +33,8 @@
     var now = Date.now(), hit = cache[u];
     // ORW-396: a request still PENDING is always joined, however old - re-issuing after TTL_MS while the engine is slow
     // only stacks more load on it. The TTL ages a SETTLED result only.
-    if (!hit || (hit.done && now - hit.t > TTL_MS)) {
+    // review of #2684: a request pending for longer than PENDING_MAX_MS is probably a dead socket, so later reads stop joining it (they would otherwise hang until a write clears the cache).
+    if (!hit || (hit.done && now - hit.t > TTL_MS) || (!hit.done && now - hit.t > PENDING_MAX_MS)) {
       var p = realFetch(input, init);
       hit = cache[u] = { p: p, t: now, done: false };
       var mine = hit;
