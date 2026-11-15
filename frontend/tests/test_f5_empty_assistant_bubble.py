@@ -1,6 +1,6 @@
 """F-5 / N-10 (playtest blocker) - a finished turn must never leave a header-only (empty) assistant bubble.
 
-Evidence: /home/ryne/orwell-playtest/run-20261103-1447/shots/t015.png and run-20261103-0520/shots/t021.png - an empty "Production
+Evidence: <rig>/orwell-playtest/run-20261103-1447/shots/t015.png and run-20261103-0520/shots/t021.png - an empty "Production
 HH:MM" bubble (header, no text, no actions) sits directly above the real reply, on (nearly) every turn of the game phase. The empty
 bubble is a holder that mounted for a pure-tool / pre-resolved round and was never filled; coalescing un-hides it at `agent_step`.
 
