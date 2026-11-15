@@ -59,6 +59,24 @@
 
   let _lastReason = "";
 
+  // ORW-406 slice 2 (non-interrupting releases): a front-end restart blips every request for ~5-8 s. A gap that short is not an
+  // outage the player should see, so a FRONT-END failure (non-ok / network error on the health fetch) shows the banner only once it
+  // has lasted GAP_GRACE_MS; the first success clears the clock. An ENGINE outage the front end itself reports (200 + engine:false)
+  // and the browser's own offline event stay immediate - those are real, not a release.
+  const GAP_GRACE_MS = 10000;
+  let _gapSince = 0;       // when the current run of failed health fetches began (0 = healthy)
+  let _gapTimer = null;    // re-probe at the end of the grace so a persisting gap shows without waiting a whole poll
+  function _gapQuiet() {
+    // true = still inside the grace window: show nothing, and make sure we look again when it ends.
+    const now = Date.now();
+    if (!_gapSince) _gapSince = now;
+    const left = GAP_GRACE_MS - (now - _gapSince);
+    if (left <= 0) return false;
+    if (!_gapTimer) _gapTimer = setTimeout(() => { _gapTimer = null; refresh(); }, left + 50);
+    return true;
+  }
+  function _gapClear() { _gapSince = 0; if (_gapTimer) { clearTimeout(_gapTimer); _gapTimer = null; } }
+
   // MICRO-14/15/16 — the outage copy stays an HONEST signal but in ONE production voice: no bare
   // "engine"/"app"/"game service" nouns (register break, I9), and NEVER a raw tool name or backend
   // error string in the player-visible body (the sharpest leak — a `recordInteraction: <stack>` in a
@@ -131,7 +149,8 @@
     if (_isOffline()) { show("down", _OFFLINE_TITLE, _OFFLINE_BODY); return; }
     try {
       const r = await fetch("/api/orwell/health", { credentials: "same-origin" });
-      if (!r.ok) { show("down", _OUTAGE_TITLE, _OUTAGE_BODY); return; }
+      if (!r.ok) { if (_gapQuiet()) return; show("down", _OUTAGE_TITLE, _OUTAGE_BODY); return; }
+      _gapClear();
       const d = await r.json();
       const busy = !!(d && d.busy === "creating"); // G8: createCharacter in flight
       const reconnecting = !!(d && d.reconnecting); // Issue 1: transient outage being retried
@@ -157,6 +176,7 @@
       if (_isOffline()) { show("down", _OFFLINE_TITLE, _OFFLINE_BODY); return; }
       // The FE route itself failed — surface the most likely truth rather than going silent.
       if (window.OrwellReport) window.OrwellReport.fail("engine-status", "health-fetch", _); // G11: fail open, never silent
+      if (_gapQuiet()) return; // ORW-406: a release-sized gap shows nothing (the failure above is still recorded)
       show("down", _OUTAGE_TITLE, _OUTAGE_BODY);
     }
   }
