@@ -6214,12 +6214,12 @@ def _sentence_has_unbacked_morning_claim(text: str) -> bool:
 
 async def _status_with_clock_label(user, status: dict) -> dict:
     """`status` with the engine's `clockLabel` (and nothing else changed). `gameStatus` carries no `clockLabel` - only the `getGameState` projection does (review of #2735) - so when it is
-    missing the clock-bearing projection (the <=400 ms cached poll copy) is read. Fail-open: any hiccup returns `status` as it was."""
+    missing the clock-bearing projection is read FRESH (`get_game_state`: test_orw166 forbids poll-cache reads in this module, which also serves the framing path). Fail-open: any hiccup returns `status` as it was."""
     if not isinstance(status, dict) or status.get("clockLabel"):
         return status
     try:
         from src import orwell_engine
-        gs = await orwell_engine.get_game_state_polled(user=user)
+        gs = await orwell_engine.get_game_state(user=user)
         if isinstance(gs, dict) and gs.get("clockLabel"):
             return {**status, **{k: gs[k] for k in ("clockLabel", "asleep") if k in gs and (k not in status or k == "clockLabel")}}
     except Exception as e:
