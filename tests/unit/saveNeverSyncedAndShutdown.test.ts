@@ -213,11 +213,14 @@ describe("review of #2732 — a checkpoint is not durable until its directory fs
   it("flushDurable: a failing directory fsync leaves the checkpoint un-durable and retries", async () => {
     let dirFail = true;
     const dirCalls: number[] = [];
-    const { store } = mk({
+    // Counts syncs of the USER directory (the checkpoint's entry). The data dir's entry for a user directory
+    // is a separate sync (ORW-404 follow-up) and is not what this test is about.
+    const h: { dir: string; store: FileSaveStore } = mk({
       syncFile: () => new Promise<void>(() => {}), // the background fsync never settles: only the flush can make it durable
       syncDir: async () => { throw Object.assign(new Error("EIO"), { code: "EIO" }); },
-      syncDirSync: () => { dirCalls.push(1); if (dirFail) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+      syncDirSync: (p: string) => { if (p === h.dir) return; dirCalls.push(1); if (dirFail) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
     });
+    const { store } = h;
     for (let i = 1; i <= CP; i++) store.saveFor("u", snap(i));
     await settle();
     store.flushDurable();
@@ -232,10 +235,11 @@ describe("review of #2732 — a checkpoint is not durable until its directory fs
   it("flushDurable still syncs the directory while a background directory fsync is in flight", async () => {
     let release: () => void = () => {};
     const dirCallsSync: number[] = [];
-    const { store } = mk({
+    const h: { dir: string; store: FileSaveStore } = mk({
       syncDir: () => new Promise<void>((res) => { release = res; }),
-      syncDirSync: () => { dirCallsSync.push(1); },
+      syncDirSync: (p: string) => { if (p !== h.dir) dirCallsSync.push(1); }, // the user directory only (see above)
     });
+    const { store } = h;
     for (let i = 1; i <= CP; i++) store.saveFor("u", snap(i));
     await settle(); // background sync reached its (stalled) directory fsync
     store.flushDurable();
