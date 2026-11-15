@@ -59,7 +59,7 @@ describe("getMomentPrompt with zeroClocks", () => {
       for (let i = 0; i < 70; i++) {
         s.getMomentPrompt(zc ? { zeroClocks: true } : {}); // the narrator's read each step; must change nothing
         const r = i % 3 === 0 ? s.advanceGame() : (s.advanceClockPerConversation(), null);
-        const v = s.view();
+        const v = s.getGameState() as unknown as Record<string, unknown>; // the public read (the adapter's `view()` is private)
         trace.push({ i, nd: live(s).nightDepth, day: live(s).dayNumber, tod: v.timeOfDay, label: v.clockLabel, ds: v.daySchedule, phase: v.phase, ev: r && (r as { event?: unknown }).event, held: r && (r as { held?: unknown }).held });
       }
       return JSON.stringify({ trace, snap: s.snapshot().live });
