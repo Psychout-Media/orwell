@@ -6,7 +6,7 @@
    "field": "vocation",
    "multi": false,
    "cap": {
-    "share": 0.14,
+    "share": 0.13,
     "min": 2
    },
    "note": "job sector; no sector on more than 2 of 15 (3 for the wide ones, see per-value caps)",
@@ -25,13 +25,13 @@
       "caregiver",
       "home health",
       "cna",
-      "pharmac",
+      "pharmac*",
       "dentist",
       "dental",
       "hygienist",
       "therapist",
       "surgeon",
-      "veterinar",
+      "veterinar*",
       "police",
       "officer",
       "deputy",
@@ -57,14 +57,14 @@
     "office-admin": {
      "words": [
       "office manager",
-      "administrat",
+      "administrat*",
       "receptionist",
       "secretary",
       "clerk",
       "accountant",
       "bookkeep",
       "paralegal",
-      "hr ",
+      "hr",
       "human resources",
       "insurance",
       "banker",
@@ -93,7 +93,7 @@
      "words": [
       "coach",
       "trainer",
-      "athlet",
+      "athlet*",
       "fitness",
       "gym",
       "yoga",
@@ -130,7 +130,7 @@
       "mechanic",
       "carpenter",
       "tree",
-      "landscap",
+      "landscap*",
       "construction",
       "roofer",
       "driver",
@@ -193,17 +193,17 @@
       "developer",
       "programmer",
       "analyst",
-      "data ",
+      "data",
       "scientist",
       "researcher",
-      "it ",
+      "it",
       "network",
       "software",
       "chemist",
       "biologist",
       "lab",
-      "statistic",
-      "geolog"
+      "statistic*",
+      "geolog*"
      ]
     },
     "sales-business": {
@@ -286,7 +286,8 @@
       "laptop",
       "headphones",
       "earbuds",
-      "camera"
+      "film camera",
+      "polaroid"
      ]
     },
     "bag": {
@@ -381,11 +382,11 @@
      "words": [
       "smile",
       "smiling",
-      "grin",
+      "grin*",
       "grinning",
       "smirk",
-      "laugh",
-      "beam",
+      "laugh*",
+      "beam*",
       "half-smile"
      ]
     },
@@ -556,7 +557,7 @@
     },
     "leaning": {
      "words": [
-      "lean",
+      "lean*",
       "leaning",
       "against the",
       "propped",
@@ -893,7 +894,9 @@
       "floral"
      ]
     }
-   }
+   },
+   "scope": "first-item",
+   "rule": "earliest"
   }
  },
  "unreal-clothes": {
@@ -1002,5 +1005,6 @@
   "gown",
   "bodysuit",
   "cargos"
- ]
+ ],
+ "_matching": "A word matches as a whole word (an optional plural s/es allowed) anywhere in the field text, case-insensitive; a word ending in * is a stem (matches the start of a word). single kinds take the first value in table order that matches, else 'fallback'; multi kinds take every value that matches; colour (scope first-item, rule earliest) reads only the first wardrobe item and takes the value whose word comes earliest; role (rule head-noun) is the last word of the job title. A value's own cap overrides the kind cap; cap(n) = max(min, ceil(share*n))."
 }
