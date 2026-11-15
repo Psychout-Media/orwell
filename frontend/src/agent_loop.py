@@ -4555,6 +4555,15 @@ def _faith_defer_retro(owner, narration, projection, beat_before, context) -> No
         _faith_record_retro_dropped(owner, dropped.get("beat_before"))   # …so attribute ITS beat, not the new one.
 
 
+def _faith_without_time(proj):
+    """ORW-434: the projection without its `time` block (a NEW dict; the input is not changed). Used wherever the board the
+    projection was read from is not the moment the narration was written against: a turn that advanced the clock, or a
+    projection rebuilt after the turn."""
+    if isinstance(proj, dict) and "time" in proj:
+        return {k: v for k, v in proj.items() if k != "time"}
+    return proj
+
+
 async def _faith_drain_retro(owner, llm) -> None:
     """R5 part 3 — on the next opportunity, RE-JUDGE the turns that shipped guard-down and surface the
     verdict on the overseer ring, so a previously-UNJUDGED turn becomes judged-of-record: RED if it was
@@ -4591,6 +4600,9 @@ async def _faith_drain_retro(owner, llm) -> None:
                 _proj = entry.get("projection")
                 if _proj is None:
                     _proj = await _faith_build_projection(owner)
+                    # ORW-434: a projection rebuilt now describes a LATER moment than the narration being judged. Its board
+                    # fields are still a fair reference; its `time` block (part of day, who is asleep) is not, so withhold it.
+                    _proj = _faith_without_time(_proj)
                 _t0 = time.monotonic()
                 try:
                     _raw = llm(judge.build_prompt(_narr, _proj, _ctx))
@@ -4624,6 +4636,16 @@ async def _faith_drain_retro(owner, llm) -> None:
                             "down) — requeued, NOT recorded clean",
                             lever=None, beat_before=_bb, ok=False, user=owner)
                         requeue.append(entry)
+                    elif (_verdict.is_slip and _verdict.dimension == "time"
+                          and not (isinstance(_proj, dict) and "time" in _proj)):
+                        # ORW-434: the judge was given NO time facts for this turn (withheld: the turn advanced the clock,
+                        # or the projection was rebuilt later), so a time verdict has nothing to stand on. Same rule as the
+                        # live check. Judged of record, not a slip; said plainly rather than recorded as clean.
+                        _lr.record_overseer(
+                            "observation", "faith:retro-time-unfounded",
+                            "RETRO-JUDGED a previously guard-down turn — the judge returned a time verdict but no time "
+                            "facts were supplied for that turn; discarded (now judged-of-record)",
+                            lever=None, beat_before=_bb, ok=True, user=owner)
                     elif _verdict.is_slip:
                         _lr.record_overseer(
                             "anomaly", f"faith:retro:{_verdict.dimension}",
@@ -4738,6 +4760,10 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
                 # rebuilt next-turn board (which would judge stale narration against facts that hadn't
                 # happened yet). _faith_build_projection is fail-soft (returns a dict, never raises).
                 _retro_proj = projection if projection is not None else await _faith_build_projection(owner)
+                if time_advanced:
+                    # ORW-434: the board is END-of-turn; a turn that advanced the clock may correctly narrate the earlier
+                    # part of day, so the deferred check gets no time block either (same rule as the live check below).
+                    _retro_proj = _faith_without_time(_retro_proj)
                 _faith_defer_retro(owner, narration, _retro_proj, beat_before, context)
             # S2b: the guard is DOWN — an ungrounded closed-set outcome draft must fail CLOSED, never
             # soft-pass (finding 5: a board-backed narration is left alone).
@@ -4760,7 +4786,7 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
         # of day. No cheap start-of-turn board is held, so skip the time dimension for this turn (and say so).
         _time_skipped = bool(time_advanced) and isinstance(_proj, dict) and "time" in _proj
         if _time_skipped:
-            _proj = {k: v for k, v in _proj.items() if k != "time"}
+            _proj = _faith_without_time(_proj)
             logger.info("[orwell] faithfulness: time dimension skipped this turn (a time-advancing engine write ran; the board is end-of-turn)")
         judge = FaithfulnessJudge(_llm)
         import inspect as _faith_insp
