@@ -21,7 +21,7 @@ def parse_engine_rooms(path: str | None = None) -> tuple[str, ...] | None:
         m = re.search(r"export const HOUSE_ROOMS: readonly Room\[\] = \[(.*?)\];", text, re.S)
         rooms = tuple(re.findall(r'"([a-z-]+)"', m.group(1))) if m else ()
         return rooms or None
-    except Exception:
+    except Exception:  # failsoft-ok: the vendored fallback list is pinned to the engine's by a test; a missing source file just uses it
         return None
 
 
