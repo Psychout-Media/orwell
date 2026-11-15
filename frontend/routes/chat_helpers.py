@@ -3922,7 +3922,7 @@ async def record_post_turn_presence_check(user, narration: str) -> None:
         logger.warning("[orwell] post-turn presence check skipped for user=%s: %s", user, e)
 
 
-async def screen_presence_wall(user, text: str) -> str:
+async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
     (delimiters preserved for the rest) — the empirically load-bearing half: the terminal whereabouts
@@ -3932,7 +3932,11 @@ async def screen_presence_wall(user, text: str) -> str:
     ever splitting it; a proven phantom placement is DROPPED and never re-admitted by any fallback.
     Fail-soft: a read/scan hiccup falls through to emit the text unchanged (a false hold on creative
     prose is worse than a missed phantom — ADR 0005 #1) — except for a sentence already proven to
-    stage a non-present houseguest, which is never restored."""
+    stage a non-present houseguest, which is never restored.
+
+    ORW-395: `alt_state` is the board snapshot taken BEFORE the FE ran the player's own `turnIn` this
+    turn. The reply voices the goodnight in the evening room, but live presence is already the morning
+    board; a sentence is a phantom only if it is absent under BOTH boards."""
     if not text or not text.strip():
         return text
     try:
@@ -3946,12 +3950,18 @@ async def screen_presence_wall(user, text: str) -> str:
         return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
     roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
     first_counts = _first_name_counts(roster)
+    alt_facts = _presence_facts(alt_state) if isinstance(alt_state, dict) else None
+    if alt_facts:
+        _alt_roster = roster | set(alt_facts["in_view"]) | set(alt_facts["active_offscene"]) | set(alt_facts["evicted"])
+        _alt_counts = _first_name_counts(_alt_roster)
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
     for part in parts:
         try:
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
+            if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
+                hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
                 dropped.add(hit)
                 continue  # DROP — a non-present houseguest is never staged as present
