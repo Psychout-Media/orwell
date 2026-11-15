@@ -2,25 +2,34 @@
  * Graceful shutdown with a hard exit deadline (ORW-404). The hard-exit timer is armed BEFORE the flush
  * and is unref'd; the flush itself must be non-blocking (async fsync) so that timer can actually fire
  * when a sync never settles. Idempotent: a second signal while shutting down is ignored.
+ *
+ * Order: onStart (stop taking NEW work) -> quiesce -> drain (let in-flight work finish) -> flush -> exit.
+ * A request accepted during the flush could write a newer save after the flush snapshotted its work, and
+ * the exit would discard it; every step before the flush exists to prevent that.
  */
 export interface ShutdownOptions {
-  /** Non-blocking flush of un-synced saves; may never settle. */
-  flush: () => Promise<void>;
-  exit: (code: number) => void;
-  /**
-   * ORW-404: wait for requests already in flight to finish (bounded by `drainMs`); runs after onStart and
-   * BEFORE the flush so the flush sees every save those requests made. May never settle.
-   */
-  drain?: () => Promise<void>;
-  /** Bound on the drain (ms). Default 8 000. */
-  drainMs?: number;
-  /** Hard exit deadline (ms). Default 12 000. */
-  hardExitMs?: number;
   /**
    * Called synchronously, first, when shutdown begins (before the timer and the flush): the place to
    * stop accepting NEW work (the transport's "shutting down" flag). Must not throw; if it does it is ignored.
    */
   onStart?: () => void;
+  /**
+   * Stop taking new work BEFORE the flush (e.g. close a listener). Runs after onStart and before the drain.
+   * Bounded by the hard-exit timer; a throw never blocks the flush.
+   */
+  quiesce?: () => void | Promise<void>;
+  /**
+   * ORW-404: wait for requests already in flight to finish (bounded by `drainMs`); runs BEFORE the flush
+   * so the flush sees every save those requests made. May never settle.
+   */
+  drain?: () => Promise<void>;
+  /** Bound on the drain (ms). Default 8 000. */
+  drainMs?: number;
+  /** Non-blocking flush of un-synced saves; may never settle. */
+  flush: () => Promise<void>;
+  exit: (code: number) => void;
+  /** Hard exit deadline (ms). Default 12 000. */
+  hardExitMs?: number;
 }
 
 export const DEFAULT_HARD_EXIT_MS = 12_000;
@@ -34,6 +43,7 @@ export function createShutdown(opts: ShutdownOptions): () => Promise<void> {
     const timer = setTimeout(() => opts.exit(0), opts.hardExitMs ?? DEFAULT_HARD_EXIT_MS);
     if (typeof timer.unref === "function") timer.unref();
     started = (async () => {
+      try { await opts.quiesce?.(); } catch { /* quiesce is best-effort: still flush */ }
       if (opts.drain) {
         let t: ReturnType<typeof setTimeout> | undefined;
         try {

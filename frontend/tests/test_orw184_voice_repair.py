@@ -345,16 +345,17 @@ def test_every_engine_dial_value_passes_the_degenerate_check(repair_on):
 
 def test_the_clause_parser_inverts_the_engine_fingerprint_template():
     repair = importlib.import_module("src.orwell_voice_repair")
-    template = VOCAB["fingerprintTemplate"]
     dials = VOCAB["dials"]
     words = VOCAB["humorWords"]
-    for humor in dials["humor"]:
-        for tell in dials["stressTell"]:
-            sample = {"register": dials["register"][0], "rhythm": dials["rhythm"][-1],
-                      "directness": dials["directness"][1], "energy": dials["energy"][2],
-                      "humor": humor, "stressTell": tell}
-            rendered = template.format(**{**sample, "humor": words.get(humor, humor)})
-            assert repair.parse_voice_clause(rendered) == sample
+    assert len(VOCAB["fingerprintTemplates"]) == 4  # ORW-432: exactly four sentence shapes
+    for template in VOCAB["fingerprintTemplates"]:
+        for humor in dials["humor"]:
+            for tell in dials["stressTell"]:
+                sample = {"register": dials["register"][0], "rhythm": dials["rhythm"][-1],
+                          "directness": dials["directness"][1], "energy": dials["energy"][2],
+                          "humor": humor, "stressTell": tell}
+                rendered = template.format(**{**sample, "humor": words.get(humor, humor)})
+                assert repair.parse_voice_clause(rendered) == sample
 
 
 def test_no_humor_reads_back_as_the_humor_dial_none():
@@ -377,10 +378,12 @@ def test_the_clause_parser_refuses_anything_ambiguous(clause):
     assert repair.parse_voice_clause(clause) is None
 
 
-def test_the_fixture_template_matches_the_engine_source_literally():
-    # Cheap FE-side tripwire on the engine template (the engine half asserts the rendered output too).
-    src = (REPO / "src" / "engine" / "voice.ts").read_text("utf-8")
-    m = re.search(r"return `(talks in a [^`]+)`;", src)
-    assert m, "voiceFingerprint's template literal moved; update the fixture and both halves of the gate"
-    as_format = re.sub(r"\$\{(?:voice\.)?(\w+)\}", r"{\1}", m.group(1))
-    assert as_format == VOCAB["fingerprintTemplate"]
+def test_the_fixture_templates_match_the_engine_source_literally():
+    # Cheap FE-side tripwire on the engine templates (the engine half asserts the rendered output too).
+    src = (REPO / "src" / "domain" / "traitConsistency.ts").read_text("utf-8")
+    block = re.search(r"VOICE_LINE_TEMPLATES: readonly string\[\] = \[(.*?)\n\];", src, re.S)
+    assert block, "VOICE_LINE_TEMPLATES moved; update the fixture and both halves of the gate"
+    found = re.findall(r'^\s*"([^"]+)",\s*$', block.group(1), re.M)
+    assert found == VOCAB["fingerprintTemplates"]
+    repair = importlib.import_module("src.orwell_voice_repair")
+    assert list(repair.VOICE_LINE_TEMPLATES) == VOCAB["fingerprintTemplates"]

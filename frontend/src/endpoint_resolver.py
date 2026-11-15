@@ -411,7 +411,12 @@ def resolve_session_headers(sess, owner: Optional[str] = None):
             if ep is None:
                 env = _server_env_headers(url)
                 if env:
-                    merged = _non_auth_headers(_stored_headers_dict(stored))
+                    hdrs = _stored_headers_dict(stored)
+                    # review of #2663: a stored CUSTOM credential (an auth header that is not the server key itself) keeps its
+                    # stored headers; the server key only fills in when the row carries no auth header, or carries that same key.
+                    if any(str(k).lower() in AUTH_HEADER_NAMES for k in hdrs) and not _is_server_env_auth(url, hdrs):
+                        return stored
+                    merged = _non_auth_headers(hdrs)
                     merged.update(env)
                     return merged
                 return stored

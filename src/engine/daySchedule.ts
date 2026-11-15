@@ -67,7 +67,7 @@ export function finalHohPartOf(live: LiveSeasonState | null | undefined, threePa
   return live.finalHohPart ?? 1;
 }
 
-/** The readable name of a milestone, naming the Final HOH part when there is one (narration priming + the HUD cue). */
+/** The readable name of a milestone, naming the Final HOH part when there is one (narration priming only; the status panel builds its own "Final HOH part N" text). */
 export function milestoneLabel(m: StructuralMilestone, finalHohPart?: 1 | 2 | 3 | null): string {
   return m === "hoh-competition" && finalHohPart ? `Final HOH part ${finalHohPart}` : MILESTONE_LABEL[m];
 }

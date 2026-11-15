@@ -80,8 +80,12 @@ const httpServer = startHttpMcp({ resolve: runtime.registry.resolver() }, port, 
 // bounded to 10 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
 // disk can never hold the process in the handler; the flush is non-blocking so the timer can fire.
 const shutdown = createShutdown({
-  onStart: () => runtime.beginShutdown(), // stop accepting NEW tool calls (503, retryable) while in-flight ones finish
-  drain: () => httpServer.drainInflight(DEFAULT_DRAIN_MS), // let requests already in flight finish (bounded) BEFORE the save flush
+  // Stop taking NEW tool calls with a clear, retryable answer (503 engine-restarting) instead of closing the
+  // listener: the front end waits that answer out, and a request on a kept-alive connection is answered
+  // rather than reset. Then let requests already in flight finish (bounded) BEFORE the save flush, so no
+  // request can write a newer save after the flush snapshots its work (review of #2732).
+  onStart: () => runtime.beginShutdown(),
+  drain: () => httpServer.drainInflight(DEFAULT_DRAIN_MS),
   drainMs: DEFAULT_DRAIN_MS,
   flush: () => runtime.flushSavesAsync(10_000),
   exit: (code) => process.exit(code),
@@ -144,4 +148,7 @@ if (embedMode === "fastembed") {
 // Resume saved games now — after warm-up — so resumed souls capture the real embedder when warm.
 // (Before this, a request for a saved user still works: the resolver builds their sandbox lazily.)
 // ORW-406: warm in the background (yielding per user) and report `warmed` on /health; a request that arrives first builds its own sandbox via the same cached path.
-void runtime.warmSaved();
+// A save-store enumeration error must never become an unhandled rejection that takes the process down: log it; a request still builds its own sandbox lazily.
+void runtime.warmSaved().catch((e: unknown) => {
+  console.error(`[orwell] boot warm-up failed (${e instanceof Error ? e.message : String(e)}); saved games load on first request`);
+});

@@ -86,24 +86,22 @@ describe("recordOpenLedger (the adapter write-back)", () => {
   });
 
   it("appears in the narrator's brief on a later turn only while that houseguest is present", () => {
-    const g = played();
-    const id = withCompanion(g);
+    const g = played(31);
+    const { a: id, absent } = scene(g);
     g.recordOpenLedger(req(id));
     expect(briefText(g)).toContain(`"${WORDS}"`);
     expect(briefText(g)).toMatch(/open between you and/);
-    // move to a room where that houseguest is not
-    const away = ["living-room", "kitchen", "backyard", "bedroom", "bathroom"].find((r) => {
-      const wa = g.movePlayer(r) ?? g.whereabouts();
-      return wa && !wa.present.some((p) => p.id === id);
-    });
-    if (away) expect(briefText(g)).not.toContain(WORDS);
+    // move to a room where that houseguest is not (the premiere gathering is over, so movement is real)
+    moveTo(g, absent);
+    expect(g.whereabouts()!.present.some((p) => p.id === id)).toBe(false);
+    expect(briefText(g)).not.toContain(WORDS);
   });
 
   it("refuses a speaker who is not present, and refuses when off, pre-game or headless", () => {
-    const g = played();
-    const id = withCompanion(g);
-    const absent = g.getGameState().house.map((h) => h.id as string).find((x) => x !== id && x !== g.getGameState().player?.id && !g.whereabouts()!.present.some((p) => p.id === x));
-    if (absent) expect(g.recordOpenLedger(req(absent)).reason).toBe("not-present");
+    const g = played(31);
+    const { absent } = scene(g); // a real houseguest who is not in the player's room
+    expect(g.whereabouts()!.present.some((p) => p.id === absent)).toBe(false);
+    expect(g.recordOpenLedger(req(absent)).reason).toBe("not-present");
     const off = played(4); off.setOpenLedgerEnabled(false);
     expect(off.recordOpenLedger(req("npc:1")).reason).toBe("off");
     expect(new GameSessionAdapter().recordOpenLedger(req("npc:1")).reason).toBe("no-game");
@@ -120,7 +118,7 @@ describe("recordOpenLedger (the adapter write-back)", () => {
     const ib = withCompanion(b);
     expect(ib).toBe(ia);
     const seq = b.getGameState().beatSeq;
-    b.recordOpenLedger(req(ib));
+    expect(b.recordOpenLedger(req(ib))).toMatchObject({ accepted: true });
     expect(b.getGameState().beatSeq).toBe(seq);
     const strip = (g: GameSessionAdapter): string => { const s = JSON.parse(JSON.stringify(g.snapshot())) as Record<string, unknown>; delete s.openLedger; return JSON.stringify(s); };
     expect(strip(b)).toBe(strip(a));
@@ -229,8 +227,8 @@ describe("slice 2: resolution", () => {
     const a = played(31); const b = played(31);
     const sa = scene(a); const sb = scene(b);
     expect(sb.a).toBe(sa.a);
-    b.recordOpenLedger(req(sb.a));
-    b.resolveOpenLedger({ entryId: "open:1", status: "withdrawn", note: "took it back" });
+    expect(b.recordOpenLedger(req(sb.a))).toMatchObject({ accepted: true });
+    expect(b.resolveOpenLedger({ entryId: "open:1", status: "withdrawn", note: "took it back" })).toEqual({ accepted: true });
     const strip = (g: GameSessionAdapter): string => { const s = JSON.parse(JSON.stringify(g.snapshot())) as Record<string, unknown>; delete s.openLedger; return JSON.stringify(s); };
     expect(strip(b)).toBe(strip(a));
   });

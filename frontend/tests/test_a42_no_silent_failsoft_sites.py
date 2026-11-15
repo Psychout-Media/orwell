@@ -131,3 +131,38 @@ def test_the_client_call_sites_report_red_and_no_todo_1599_remains():
         assert "TODO(#1599)" not in f
     report = _read("static", "js", "orwellReport.js")
     assert "opts && opts.red" in report
+
+
+# ── ORW-437 review fixes (#2684, #2700): the real session user on the auth-exempt beacon, and a capped read ──
+
+def test_a_logged_in_red_report_raises_red_through_the_real_session_cookie(tmp_path):
+    """#2700: /fe-report is auth-exempt, so AuthMiddleware never sets request.state.current_user; the handler must resolve the
+    session user from the cookie itself, else the client RED events are silently disabled in production."""
+    from core.auth import AuthManager
+    from routes.auth_routes import SESSION_COOKIE
+    am = AuthManager(auth_path=str(tmp_path / "auth.json"))
+    am._config["users"] = {"role-user": {}}  # validate_token drops a session whose user record is gone
+    am._config["users"] = {"role-user": {}}  # validate_token drops a session whose user record is gone
+    token = am.create_session_trusted("role-user")
+    app = FastAPI()
+    app.state.auth_manager = am
+    app.include_router(orwell_routes.setup_orwell_routes())  # no middleware: exactly what an auth-exempt path sees
+    c = TestClient(app, raise_server_exceptions=False)
+    _clear()
+    body = {"surface": "ws:beat-backwards", "errorClass": "x", "detail": "y", "red": True}
+    assert c.post("/api/orwell/fe-report", json=body, cookies={SESSION_COOKIE: token}).status_code == 204
+    assert any(e["kind"] == "client:ws:beat-backwards" for e in _overseer()), "a logged-in RED beacon must reach the overseer ring"
+    _clear()
+    assert c.post("/api/orwell/fe-report", json=body, cookies={SESSION_COOKIE: "forged-token"}).status_code == 204
+    assert _overseer() == [], "an invalid session cookie must not raise RED"
+
+
+def test_fe_report_stops_reading_at_the_cap_and_logs_nothing(client, caplog):
+    """#2684: a lying small Content-Length with a valid-JSON body padded past 16 KB is dropped (the read is capped), not parsed."""
+    import logging
+    ok = json.dumps({"surface": "ws:capped-probe", "errorClass": "x", "detail": "y"}).encode()
+    padded = ok + b" " * 40000
+    with caplog.at_level(logging.DEBUG):
+        r = client.post("/api/orwell/fe-report", content=padded, headers={"content-length": "10"})
+    assert r.status_code == 204
+    assert "ws:capped-probe" not in caplog.text, "an over-cap body must be dropped, never parsed and logged"
