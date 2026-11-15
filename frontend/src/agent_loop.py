@@ -5861,7 +5861,13 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
                 and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
-                and not chat_helpers.sentence_states_zero_clock_time(text)):
+                and not chat_helpers.sentence_states_zero_clock_time(text)
+                # review of #2751: these predicates carry a whole-text "exempt" word list ("not", "quiet", "asleep"), so a negative word in a
+                # NEIGHBOURING sentence hid a positive claim here; ask each sentence on its own before declaring the chunk claim-free
+                and not any(chat_helpers._sentence_has_house_awake_claim(_p) or chat_helpers._sentence_has_unbacked_morning_claim(_p)
+                            or chat_helpers._sentence_has_in_the_clock_claim(_p) or chat_helpers._sentence_has_nominee_status(_p)
+                            or chat_helpers._sentence_has_met_everyone_claim(_p)
+                            for _p in _split_sentences_keep_dotted_times(text))):
             return text
     except Exception:
         return text

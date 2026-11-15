@@ -116,3 +116,28 @@ def test_orw437_a_standalone_house_awake_claim_is_held_by_the_pre_emission_guard
     monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
     out = asyncio.get_event_loop().run_until_complete(al._pre_emission_outcome_guard("Everyone is already awake in the kitchen.", "u"))
     assert seen and out == ""
+
+
+def test_orw437_a_negative_word_in_a_neighbouring_sentence_does_not_hide_a_house_awake_claim(monkeypatch):
+    """review of #2751 (P1): `_HOUSE_AWAKE_EXEMPT_RE` ("yet", "not", "quiet") was applied to the WHOLE chunk by the fast-path prefilter, so "No one had stirred yet." beside
+    "Everyone is already awake in the kitchen." skipped the screen. Driven through the real `_guard_stream_chunk` + `_apply_mirror_ops`: the claim is dropped from the shown AND the stored
+    text, and the three true sentences stay in both."""
+    from src import agent_loop as al
+    from routes import chat_helpers as ch
+    seen = []
+
+    async def held(user, sentence):
+        seen.append(sentence)
+        return False
+
+    monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
+    raw = "No one had stirred yet. Everyone is already awake in the kitchen. The kettle ticked. Rain tapped the glass. "
+    run = asyncio.get_event_loop().run_until_complete
+    g, _ = run(al._guard_stream_chunk(raw, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    stored = al._apply_mirror_ops(raw, g.mirror_ops)
+    assert any("already awake" in s for s in seen)
+    for text in (g.text, stored):
+        assert "already awake" not in text
+        for kept in ("No one had stirred yet.", "The kettle ticked.", "Rain tapped the glass."):
+            assert kept in text
+    assert stored == g.text
