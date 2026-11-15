@@ -11857,6 +11857,7 @@ export class GameSessionAdapter implements GameSession {
       const live = this.live!;
       const n = (live.hangOutCount ?? 0) + 1;
       live.hangOutCount = n;
+      delete live.approachHeld; // ORW-452: per-turn, same lifecycle as the conversation tick (a wait with no capped approach clears the last turn's hold)
       const rng = new SeededRandom(hashSeed(`hangout:${this.gameSeed ?? ""}:${n}`));
       const day = live.dayNumber ?? 1;
       const evicted = new Set(live.evictionOrder ?? []);
@@ -11892,7 +11893,8 @@ export class GameSessionAdapter implements GameSession {
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc, hit.desire, hit.capped);
-            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
+            if (hit.capped) { if (live.playedGame === true) live.approachHeld = true; return null; } // ORW-423: the want is spent (3 h cooldown), the player is not stopped; ORW-452: narration-only held flag, as the conversation tick
+            delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;

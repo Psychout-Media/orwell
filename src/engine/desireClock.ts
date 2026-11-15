@@ -23,7 +23,7 @@ export const DESIRE = {
   goalFreshHours: 3,
   /** ORW-340: below this trust in the player an NPC avoids them: their goal does not bring them over. */
   goalMinTrust: 0.25,
-  /** ORW-423 (played games only): at most this many CONSECUTIVE approaches of the same purpose (desire) reach the player in one stretch; the next ones wait (they keep their desire, nothing is forgotten). */
+  /** ORW-423 (played games only): at most this many CONSECUTIVE approaches of the same purpose (desire) reach the player in one stretch; the next one is HELD: the player is not interrupted, but that houseguest's desire is SPENT with the normal 3-hour cooldown (not kept, not queued). */
   streakCap: 2,
   /** ORW-423: in-game hours without any approach that end a stretch (the cap releases). */
   streakQuietHours: 2,
