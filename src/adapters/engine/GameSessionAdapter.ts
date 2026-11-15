@@ -5964,6 +5964,9 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
+      ...(pe.stage === "toast" ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
+      ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
     };
   }
 
@@ -6030,15 +6033,19 @@ export class GameSessionAdapter implements GameSession {
     }
     // stage "toast": release the next batch of speakers.
     const all = toastSpeakers(pe.order);
+    // ORW-368: the circle closes on its OWN advance, after the last speakers have had a turn as the narrator's toast batch (it used to flip to done in the same advance that released the last batch, so the last speaker(s) were
+    // never in a toast prompt and the narrator wrapped the circle up on its own). Only a full done list closes it.
+    if (pe.spoke.length >= all.length) {
+      pe.stage = "done";
+      s.champagneCircle = "done"; // the existing release
+      this.persist();
+      return { ...this.advanceView(null), event: { beat: "premiere-toast", content: "The champagne toast ends", detail: { speakers: [], index: pe.spoke.length, of: all.length, closed: true } } };
+    }
     const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
       pe.spoke.push(sp); // the player's slot is a marker only - chat-authored, never recorded here
-    }
-    if (pe.spoke.length >= all.length) {
-      pe.stage = "done";
-      s.champagneCircle = "done"; // the existing release
     }
     this.persist();
     const view = this.advanceView(null);

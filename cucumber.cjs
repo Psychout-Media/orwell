@@ -97,6 +97,7 @@ module.exports = {
       "docs/features/0109-deal-duration.feature",
       "docs/features/0110-vote-deduction.feature",
       "docs/features/0111-day-1-experience.feature",
+      "docs/features/0111-champagne-toast-first-impressions.feature",
       "docs/features/0115-diary-room-strategic-confessional.feature",
       "docs/features/0116-model-authored-cast-genesis.feature",
       "docs/features/0117-house-lives-in-in-game-time.feature",

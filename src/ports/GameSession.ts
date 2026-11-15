@@ -1772,6 +1772,13 @@ export interface PremiereIntrosView {
     justArrived?: NamedRef;
     playerJustEntered?: boolean;
     speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true }>;
+    /**
+     * ORW-368 (Ryne's playtest: "it seems to want me to go every time... after a few people it comes back to me as if I need to go again"): where the PLAYER'S OWN toast slot stands, derived from the engine's own done list (`spoke`, which
+     * the player's slot is part of): `later` = their slot has not come up yet, `now` = it is in the latest batch (the narrator invites the player ONCE), `done` = it has passed. Toast stage only.
+     */
+    playerToast?: "later" | "now" | "done";
+    /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
+    toastRemaining?: number;
   };
 }
 
