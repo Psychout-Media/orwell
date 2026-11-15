@@ -326,3 +326,15 @@ def test_the_prompt_does_not_offer_the_time_dimension_without_a_time_block():
     assert "'time'" not in offered(j.build_prompt("narr", {"board": {"week": 1}}))
     assert "'time'" in offered(j.build_prompt("narr", {"board": {"week": 1}, "time": {"partOfDay": "night"}}))
     assert "'time'" in offered(j.build_prompt("narr"))  # no projection given: the in-game list as before
+
+
+def test_a_non_finite_float_in_the_projection_serializes_as_null_not_nan():
+    """review of #2741: `json.dumps` emitted the non-standard `NaN` / `Infinity` tokens, so the judge's PROJECTION block did not parse as JSON."""
+    def strict(tok):
+        raise ValueError(f"non-standard JSON token {tok}")
+    proj = {"board": {"week": 1, "ratio": float("nan"), "edge": [float("inf"), float("-inf"), 2.5]}}
+    for cap in (6000, 40):  # also through the over-cap fallback
+        out = serialize_projection(proj, cap)
+        json.loads(out, parse_constant=strict)
+    assert json.loads(serialize_projection(proj, 6000)) == {"board": {"week": 1, "ratio": None, "edge": [None, None, 2.5]}}
+    assert proj["board"]["ratio"] != proj["board"]["ratio"], "the caller's dict is untouched"

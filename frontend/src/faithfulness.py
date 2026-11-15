@@ -263,8 +263,22 @@ _LIST_PATHS = (("visible", "knowledge"), ("knowledge",), ("visible", "visibleEve
                ("roster",))
 
 
+def _finite(o: Any) -> Any:
+    """A copy with every non-finite float (NaN, +-Infinity) replaced by None: json.dumps would emit the non-standard tokens `NaN` / `Infinity`, which a strict parser (and the model) reads as garbage."""
+    if isinstance(o, float):
+        return o if o == o and o not in (float("inf"), float("-inf")) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    return o
+
+
 def _dump(projection: Any) -> str:
-    return json.dumps(projection, sort_keys=True, default=str)
+    try:
+        return json.dumps(projection, sort_keys=True, default=str, allow_nan=False)  # review of #2741: standard JSON only
+    except ValueError:  # a non-finite float somewhere: null it out rather than emit `NaN`
+        return json.dumps(_finite(projection), sort_keys=True, default=str, allow_nan=False)
 
 
 def _list_at(obj: Any, path: tuple):
