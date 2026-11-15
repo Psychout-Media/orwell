@@ -1,4 +1,5 @@
 import { liveHouseEvent } from "../../engine/houseEvent";
+import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
@@ -4759,9 +4760,12 @@ export class GameSessionAdapter implements GameSession {
    */
   private rebuildSoulIndex(): void {
     if (!this.house || !this.soul) return;
+    const t0 = stallTimer.now();
+    let notes = 0;
     for (const hg of [this.house.player, ...this.house.npcs]) {
-      for (const note of hg.soul.memory) this.soul.recordToSoul(hg.id, note);
+      for (const note of hg.soul.memory) { this.soul.recordToSoul(hg.id, note); notes++; }
     }
+    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes });
   }
 
   /** Engine/loop-internal: record the public ceremony facts the status panel projects. */
