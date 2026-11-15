@@ -164,6 +164,7 @@ describe("0148 - the nap lever: refusals leave the clock unmoved", () => {
     expect(priv(s).live.timeOfDay).toBe("morning"); // the phase alone would let it through
     unchanged(s, () => s.nap({ hours: 1 }), "early-morning");
     expect(s.getMomentPrompt({}).systemPrompt).not.toContain("- NAP (open now):");
+    at(s, 27); unchanged(s, () => s.nap({ hours: 1 }), "early-morning"); // still up at 3am (the late-night phase): the same early-morning reason, not "evening"
     at(s, 8, 21);
     expect(s.getMomentPrompt({}).systemPrompt).toContain("- NAP (open now):"); // from the house's wake-up it is the day again
   });

@@ -19,7 +19,7 @@ describe("hangOutStopLine (pure)", () => {
   });
   it("ORW-444: event-due reads as a plain fact, not production machinery", () => {
     const line = hangOutStopLine({ stopReason: "event-due" });
-    expect(line).not.toMatch(/production|scheduled/i);
+    expect(line).toBe("The house is being called together.");
   });
   it("names only the public detail, never the desire", () => {
     const line = hangOutStopLine({ stopReason: "npc-approach", detail: { npc: "Role", desire: "SENTINEL-DESIRE" } });

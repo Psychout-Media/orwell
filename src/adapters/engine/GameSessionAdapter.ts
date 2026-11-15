@@ -2027,8 +2027,17 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
-    this.captureSeenMoods(); // ORW-343: the mood word of each houseguest the player is sharing a room with, remembered as last seen
-    this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
+    this.runPersistSequence();
+  }
+
+  /**
+   * The ONE pre-save sequence (review of #2778: it was copied in `persist()` and the `inOneCommit` tail, and the copies drifted): the mood each houseguest
+   * the player shares a room with is remembered as last seen (ORW-343), one recap is made per crossed day with its day-roll reset (ORW-282/400), then the
+   * state is saved. `onPersist` may throw (a refused or failed commit) - after all state mutation (E3).
+   */
+  private runPersistSequence(): void {
+    this.captureSeenMoods();
+    this.catchUpDailyRecaps();
     this.onPersist?.();
   }
 
@@ -2045,9 +2054,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
-      this.captureSeenMoods(); // ORW-437: the deferred tail is the only persist a one-commit turn gets, so the moods seen in it are captured here too, before the state is saved
-      this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
-      this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
+      this.runPersistSequence(); // the deferred tail is the only persist a one-commit turn gets: moods, recap and day-roll reset run here too (ORW-437, review of #2680)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)
       // BEFORE the deferred `onPersist` above ran, so `out.beatSeq` was captured PRE-commit-funnel:
       // stale by the ONE bump this very mutation just earned, and it would stay stale by any FURTHER
@@ -3515,7 +3522,7 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.identityConcept === "string") {
       const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
       if (repaired.length > 0) {
-        target.character.identityConcept = renamedFrom !== undefined ? renameGivenNameInProse(repaired, renamedFrom, target.name) : repaired;
+        target.character.identityConcept = renamedFrom !== undefined ? clipCodePoints(renameGivenNameInProse(repaired, renamedFrom, target.name), 300) : repaired; // the rename can lengthen it: clip again (review of #2775)
         publicFields.push("identityConcept");
       }
     }
@@ -11850,6 +11857,7 @@ export class GameSessionAdapter implements GameSession {
       const live = this.live!;
       const n = (live.hangOutCount ?? 0) + 1;
       live.hangOutCount = n;
+      delete live.approachHeld; // ORW-452: per-turn, same lifecycle as the conversation tick (a wait with no capped approach clears the last turn's hold)
       const rng = new SeededRandom(hashSeed(`hangout:${this.gameSeed ?? ""}:${n}`));
       const day = live.dayNumber ?? 1;
       const evicted = new Set(live.evictionOrder ?? []);
@@ -11885,7 +11893,8 @@ export class GameSessionAdapter implements GameSession {
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc, hit.desire, hit.capped);
-            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
+            if (hit.capped) { if (live.playedGame === true) live.approachHeld = true; return null; } // ORW-423: the want is spent (3 h cooldown), the player is not stopped; ORW-452: narration-only held flag, as the conversation tick
+            delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
@@ -11973,9 +11982,9 @@ export class GameSessionAdapter implements GameSession {
     if (live.pending) return refuse("decision-pending", "Something needs the player's answer first; it is not the moment to lie down.");
     if (this.houseEventInSession()) return refuse("event-in-session", "The whole house is gathered for an event right now; the player cannot slip away to sleep.");
     if (live.playerRetired) return refuse("already-asleep", "The player is already asleep.");
-    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
-    // ORW-451: woken before the house after an early bed (phase "morning", clock 2am up to the wake-up - the early-morning band, ORW-441): a nap is a DAYTIME nap (0148), so this is refused like the night.
+    // ORW-451 (checked before the phase gate, so a player still up at 3am in the late-night phase gets this reason too): woken before the house after an early bed (phase "morning", clock 2am up to the wake-up - the early-morning band, ORW-441): a nap is a DAYTIME nap (0148), so this is refused like the night.
     if (isEarlyMorning(live.nightDepth)) return refuse("early-morning", "It is still the early morning and the house is asleep; the day has not started yet, so this is no time for a nap.");
+    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));

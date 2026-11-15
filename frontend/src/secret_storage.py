@@ -38,7 +38,27 @@ def _load_or_create_key() -> bytes:
         return _KEY_PATH.read_bytes()
     _KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
     key = Fernet.generate_key()
-    _KEY_PATH.write_bytes(key)
+    # ORW-414: two processes booting together must never see a half-written key or end with different keys. The key is written complete to a private temp file
+    # (O_EXCL, 0o600 from the first byte), then published with os.link, which fails if the key already exists: the first writer wins and every other process reads
+    # the winner's key. os.replace is the fallback where hard links are unavailable.
+    tmp = _KEY_PATH.with_name(f"{_KEY_PATH.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(key)
+            fh.flush()
+            os.fsync(fh.fileno())
+        try:
+            os.link(tmp, _KEY_PATH)
+        except FileExistsError:
+            return _KEY_PATH.read_bytes()  # another process published first
+        except OSError:
+            os.replace(tmp, _KEY_PATH)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
     # POSIX: lock the key to 0o600. Windows: no-op (the user-profile data dir is
     # already ACL-restricted); safe_chmod swallows both cases.
     safe_chmod(_KEY_PATH, 0o600)

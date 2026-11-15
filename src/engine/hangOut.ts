@@ -65,7 +65,13 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
     // Float residue guard (the 11.999... stall): a sub-minute remainder IS the event - without this every beat clamps to ~0 minutes and burns the cap doing nothing.
     if (until !== null && until * 60 < 1) {
       // ORW-437: a REAL sub-minute remainder (more than the clock's own 1e-6 h tolerance) is spent now so the event fires once; returning without advancing left it un-due and every call repeated this stop.
-      if (until > 1e-6) { p.advance(until); minutes += until * 60; }
+      if (until > 1e-6) {
+        // Review of #2778: never past a stated target. If the target ends before the event, spend only what is left of it and stop on the target.
+        const room = target !== null ? Math.max(0, target - minutes) : Infinity;
+        const spend = Math.min(until * 60, room);
+        if (spend > 0) { p.advance(spend / 60); minutes += spend; }
+        if (spend < until * 60 - 1e-9) return { stopReason: "max-beats", beats: beat, minutes: Math.round(minutes) };
+      }
       return { stopReason: "event-due", beats: beat - 1, minutes: Math.round(minutes) };
     }
     if (until !== null) beatMin = Math.min(beatMin, Math.max(0, until) * 60); // never past the event

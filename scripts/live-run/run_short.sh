@@ -4,9 +4,10 @@
 #   run_short.sh [--if-new] [REF]      --if-new: do nothing if this exact sha was already run (so a watcher can call it after every dev update)
 # One run at a time (flock on the rig lock). Reads the narrator key only inside the kit's stage script; never prints it. Extra branches: MERGE_BRANCHES / MERGE_PR as the kit.
 set -uo pipefail
-HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"   # RIG_SLOT (default 1) picks the rig: ports, lock, worktree, run pointer
+HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"; . "$HERE/short_lib.sh"   # RIG_SLOT (default 1) picks the rig: ports, lock, worktree, run pointer
 STATE=$RIG_STATE_DIR; mkdir -p "$STATE"
 IF_NEW=0; [ "${1:-}" = "--if-new" ] && { IF_NEW=1; shift; }; REF=${1:-main}; CAP=${RIG_SPEND_CAP:-0.5}   # ORW-109: a spend cap per run (dollars, estimated high)
+short_valid_cap "$CAP" || { echo "LIVE-SHORT COULD-NOT-RUN RIG_SPEND_CAP=$CAP is not a positive number (a run without a working cap is never started)"; exit 2; }
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SHORT BUSY (another live run holds rig slot $RIG_SLOT)"; exit 3; }
 git -C /home/ryne/orwell fetch -q origin "${REF%%~*}" || { echo "LIVE-SHORT COULD-NOT-RUN fetch failed"; exit 2; }
 SHA=$(git -C /home/ryne/orwell rev-parse --short=8 "origin/$REF")
@@ -33,10 +34,12 @@ json.dump({"sha": sha, "ref": ref, "cap": cap, "model": model}, open(f"{run}/met
 P
 curl -s --max-time 10 -H "x-orwell-token: rehlocal" "$RIG_ENGINE_URL/health" > "$RUN/health.json" 2>/dev/null || true
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>&1 & echo $! > "$RUN/spend.pid"
-"$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" ${RIG_CROSSOVER:+--crossover} > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
+CROSS=(); [ "${RIG_CROSSOVER:-}" = 1 ] && CROSS=(--crossover)   # only the exact value 1 (RIG_CROSSOVER=0 must not turn it on)
+"$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" ${CROSS[@]+"${CROSS[@]}"} > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
 wait "$(cat "$RUN/driver.pid")"; RC=$?
 kill "$(cat "$RUN/spend.pid")" 2>/dev/null
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" --once >/dev/null 2>&1   # a final spend.json for the report
+short_patch_spend "$RUN"; [ -f "$RUN/SPEND-CAP-HIT" ] && short_partial_report "$RUN" "$SHA" "$CAP"
 "$KIT/stop.sh" >/dev/null 2>&1
 echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"; cp "$RUN/report.md" "$STATE/last-report$RIG_SUFFIX.md" 2>/dev/null
 if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "LIVE-SHORT CAPPED $SHA $RUN/report.md (spend cap \$$CAP hit; see $RUN/spend.json)"; exit 4; fi
