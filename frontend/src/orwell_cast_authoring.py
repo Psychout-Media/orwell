@@ -1559,11 +1559,19 @@ def look_fields_missing(pc_a, pc_b=None) -> list:
 _BIO_FINAL_MIN_CHARS = 40
 
 
+def _has_floor_biography(npc: dict) -> bool:
+    """The seeded floor biography the engine already holds for this card (the skeleton carries it): when the writer
+    omits its own, that one stands, so the card is not empty. Briana had none left."""
+    b = (npc or {}).get("biography")
+    return isinstance(b, str) and len(b.strip()) >= _BIO_FINAL_MIN_CHARS
+
+
 def card_consistency(profile: dict, npc: dict, cast=None) -> list:
     out = []
     bio = (profile or {}).get("biography")
     if not isinstance(bio, str) or len(bio.strip()) < _BIO_FINAL_MIN_CHARS:  # a repair may trim a floor-clearing text
-        out.append("story-no-biography")
+        if not _has_floor_biography(npc):
+            out.append("story-no-biography")
     out += story_problems(profile, npc, cast)
     ident = (profile or {}).get("identityConcept") or (npc or {}).get("identityConcept")
     if not isinstance(ident, str) or len(ident.strip()) < _IDENTITY_MIN_CHARS:
@@ -2597,7 +2605,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return 0
             # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
             # ORW-388: the biography's own story checks (pronoun, age, look feature, show name) ride the same single strict retry.
-            _no_bio = lambda p: [] if _biography_meets_floor(str((p or {}).get("biography") or "").strip()) else ["story-no-biography"]
+            _no_bio = lambda p: [] if (_biography_meets_floor(str((p or {}).get("biography") or "").strip())
+                                       or _has_floor_biography(npc)) else ["story-no-biography"]
             problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")

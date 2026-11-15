@@ -214,3 +214,8 @@ def test_giovanni_authored_without_wardrobe_oncamera_photohair_is_listed_again_a
 def test_final_check_returns_a_flat_list_of_reason_code_strings():
     codes = ca.card_consistency({"biography": ""}, {"id": "npc:1", "name": "Sam Lee", "genderPresentation": "man"})
     assert isinstance(codes, list) and all(isinstance(c, str) for c in codes)
+
+
+def test_a_card_whose_floor_biography_still_stands_is_written_even_when_the_writer_omits_its_own():
+    npc = {**_BRIANA_NPC, "biography": _GOOD_BIO}
+    assert ca.card_consistency({}, npc) != [] and "story-no-biography" not in ca.card_consistency({}, npc)
