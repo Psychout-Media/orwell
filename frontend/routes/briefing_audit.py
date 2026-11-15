@@ -103,7 +103,10 @@ def _audit_against(t: str, parts: set, b) -> list:
         out.append({"fact": "event-due", "detail": "a block says the event is on now but the briefing says it is not due"})
     if b.location:
         rooms = {r.strip().lower().replace(" ", "-") for r in _ROOM_RE.findall(t)}
-        if rooms and rooms != {b.location.lower()}:
+        # ORW-466: with a house theme the engine names the room by this season's name ("Your room: the Coral Reef Room"), which is the same room
+        same = {b.location.lower()} | ({re.sub(r"^the\s+", "", b.location_name, flags=re.IGNORECASE).strip().lower().replace(" ", "-")}
+                                       if getattr(b, "location_name", "") else set())
+        if rooms and not rooms <= same:
             out.append({"fact": "player-room", "detail": "a block's room differs from the briefing's (" + b.location + ")"})
     if b.day is not None:
         days = set(_DAY_RE.findall(t))

@@ -26,3 +26,30 @@ def parse_engine_rooms(path: str | None = None) -> tuple[str, ...] | None:
 
 
 HOUSE_ROOMS: tuple[str, ...] = parse_engine_rooms() or _FALLBACK
+
+
+def room_id_list(rooms, room_names=None) -> str:
+    """The room ids for a move-extraction prompt, comma-separated. ORW-466: with a house theme (`room_names`, the whereabouts `roomNames`), each id also carries this season's
+    name, "bedroom-a (this season: the Coral Reef Room)", so the player's "the coral reef" maps to bedroom-a. The id stays what the model returns. No theme: the plain ids."""
+    if not isinstance(room_names, dict) or not room_names:
+        return ", ".join(rooms)
+
+    def _one(r: str) -> str:
+        n = room_names.get(r)
+        return f"{r} (this season: {n.strip()})" if isinstance(n, str) and n.strip() else r
+    return ", ".join(_one(r) for r in rooms)
+
+
+def room_id_of(value, room_names=None) -> str | None:
+    """The room id a move extraction answered, or None. ORW-466: tolerates an echo of the themed listing ("bedroom-a (this season: the Coral Reef Room)") and, with a
+    house theme, the themed name itself ("the Coral Reef Room" / "Coral Reef Room")."""
+    if not isinstance(value, str):
+        return None
+    v = re.sub(r"\s*\(this season:[^)]*\)\s*$", "", value.strip(), flags=re.IGNORECASE).strip()
+    if v in HOUSE_ROOMS:
+        return v
+    low = v.lower()
+    for rid, name in (room_names.items() if isinstance(room_names, dict) else ()):
+        if rid in HOUSE_ROOMS and isinstance(name, str) and name.strip() and name.strip().lower() in (low, f"the {low}"):
+            return rid
+    return None
