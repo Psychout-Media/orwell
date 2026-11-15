@@ -47,3 +47,16 @@ def test_empty_claim_names_only_the_clause_it_ends():
 def test_lounge_bathroom_are_rooms():
     assert _kinds("The lounge is empty.") == [("empty", 0, ("lounge",))]
     assert _kinds("The bathroom is empty.") == [("empty", 0, ("bathroom",))]
+
+
+def test_article_form_rule_inside_its_own_leading_quote_is_rules_speech():
+    # review of #2658: the opening quote starts the SAME sentence, so the text before it holds no quote
+    text = '"The last houseguest standing is the new Head of Household."'
+    assert ch._rule_subject(text, text)
+    assert not ch._rule_subject("The last houseguest standing is the new Head of Household.", "The last houseguest standing is the new Head of Household.")
+
+
+def test_unclosed_curly_single_quote_unit_is_unrepairable():
+    # review of #2652: a dropped unit that opens a U+2018 span and never closes it must not be "repaired" as balanced
+    assert ch._dropped_unit_residue("She says ‘we won the veto.") is None
+    assert ch._dropped_unit_residue("She says ‘we won’ and don’t care.") == ("", "")

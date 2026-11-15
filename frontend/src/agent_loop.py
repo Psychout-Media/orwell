@@ -1909,13 +1909,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
     """ORW-405 / ORW-409 - the morning-state lines for the narrator after the FE ran the player's turnIn: the night is over and who is still asleep (names only). The facts come from the post-turnIn briefing
     (one board read); only without one do they come from the turnIn result's public status. The part of the day is NOT restated when the fresh context in `volatile` already states it. '' if unreadable."""
     try:
+        tod, names = "", []
         if briefing is not None:
-            tod, names = briefing.part_of_day, list(briefing.asleep)
-        else:
+            tod, names = str(briefing.part_of_day or "").strip(), list(briefing.asleep or [])
+        if not tod or briefing is None:  # per field: a briefing that lacks the part of the day falls back to the turnIn result's own status for it (an empty asleep list IS a fact, so only a missing briefing falls back for names)
             data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
             st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else (data if isinstance(data, dict) else {})
-            tod = str(st.get("timeOfDay") or "").strip()
-            names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
+            if not tod:
+                tod = str(st.get("timeOfDay") or "").strip()
+            if briefing is None:
+                names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
         if tod and not stated:
@@ -2057,6 +2060,8 @@ _NAP_ACTION_RE = re.compile(
     r"|\b(?:lie|lay|lying|laying)\s+down\s+(?:for\s+(?:a\s+|an\s+)?(?:nap|rest|while|bit|few|couple|\d|half|one|two|three|\w+\s+hours?)|to\s+(?:nap|rest|take))\b",
     re.IGNORECASE,
 )
+_NAP_SUBJECT_RE = re.compile(r"\b(?:i|i'm|im|i’m|i'll|i’ll|i'd|let's|let’s|lets|we'll|we’ll)\b", re.IGNORECASE)
+_NAP_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
 _NAP_WORD_HOURS = {"half an hour": 0.5, "a half hour": 0.5, "half hour": 0.5, "an hour and a half": 1.5, "one and a half hours": 1.5, "a couple of hours": 2.0, "a couple hours": 2.0, "an hour": 1.0, "one hour": 1.0, "a hour": 1.0,
                    "two hours": 2.0, "three hours": 3.0, "a few hours": 3.0}
 
@@ -2067,6 +2072,9 @@ def _nap_hours_from_text(text) -> Optional[float]:
     for phrase in sorted(_NAP_WORD_HOURS, key=len, reverse=True):
         if phrase in low:
             return _NAP_WORD_HOURS[phrase]
+    m = re.search(r"\b(" + "|".join(_NAP_NUM_WORDS) + r")[- ]hours?\b", low)  # "four hours": the number in words (the engine clamps the length)
+    if m:
+        return float(_NAP_NUM_WORDS[m.group(1)])
     m = re.search(r"(\d+(?:\.\d+)?)\s*[- ]?\s*(hours?|hrs?|h)\b", low)
     if m:
         return float(m.group(1))
@@ -2086,7 +2094,9 @@ def _player_means_nap(text) -> bool:
             continue
         for sent in _BED_SPLIT_RE.split(raw):
             sent = sent.strip(" \t\"'“”")
-            if sent and _NAP_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent) and not _BED_REJECT_RE.search(sent):
+            nm = _NAP_ACTION_RE.search(sent) if sent else None
+            # the napper is the SPEAKER: a first-person subject at or before the action ("My roommate will take a nap" has none; a bare possessive "my" is not a subject)
+            if nm and _NAP_SUBJECT_RE.search(sent[:nm.end()]) and not _BED_REJECT_RE.search(sent):
                 return True
     return False
 

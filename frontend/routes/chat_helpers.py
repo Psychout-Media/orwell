@@ -2591,6 +2591,8 @@ def _dropped_unit_residue(unit: str):
     None when the imbalance sits mid-sentence and cannot be repaired."""
     body = unit.rstrip()
     closers = opener = ""
+    if body.count("\u2018") > body.count("\u2019"):
+        return None  # an opened curly single-quote span (U+2019 doubles as the apostrophe, so only an unmatched OPENER is certain): not repairable here, the whole-scene cut stays
     diff = body.count("\u201c") - body.count("\u201d")
     if diff > 0:
         opener += "\u201c" * diff
@@ -2892,7 +2894,8 @@ def _rule_subject(text: str, sent: str) -> bool:
     if not _RULE_SUBJECT_ANY_RE.search(sent):
         return False
     pos = (text or "").find(sent)
-    head = (text or "")[:max(pos, 0)]
+    # the sentence's own leading quote opens the speech too: `"The last houseguest standing is ..."` has no quote in the text before it
+    head = (text or "")[:max(pos, 0)] + re.match(r"^\W*", sent).group(0)
     return (head.count('"') % 2 == 1) or (head.count("\u201c") > head.count("\u201d"))
 
 
