@@ -1508,6 +1508,10 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       try { window.documentModule.clearSelection(); } catch {}
     }
     currentSessionId = id;
+    // ORW-352: selecting a real session abandons any pending New Chat (a pending chat means "no session yet"). A stray one - armed late by onboarding's async New Chat
+    // handler after the opener had already created the casting chat - survived loadSessions() converging back onto the canonical chat, and the player's first send
+    // then MATERIALIZED it: a second session row, the send's holder keyed to it, the window switched back mid-send, and the turn never settled (every later message queued).
+    _pendingChat = null;
     // #1626 increment 2: now that the active session id is known, restore its producer byline from the
     // per-session map BEFORE history renders (the module-eval restore in chat.js runs too early —
     // currentSessionId is unset then). A session with no entry resets to the "Production" default, so a
