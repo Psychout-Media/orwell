@@ -74,7 +74,7 @@ const requireUser = /^(1|true|yes|on)$/i.test(process.env["ORWELL_ENGINE_MULTIUS
 // spray ids to mint unlimited sandboxes (only createCharacter may start a fresh one).
 const knownUser = (user: string): boolean => runtime.knownUser(user);
 
-startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus }, host);
+startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus }, host);
 // Clean shutdown (no background timers to tear down — the runtime is purely turn-driven).
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => process.exit(0));
@@ -132,4 +132,5 @@ if (embedMode === "fastembed") {
 }
 // Resume saved games now — after warm-up — so resumed souls capture the real embedder when warm.
 // (Before this, a request for a saved user still works: the resolver builds their sandbox lazily.)
-runtime.resumeSaved();
+// ORW-406: warm in the background (yielding per user) and report `warmed` on /health; a request that arrives first builds its own sandbox via the same cached path.
+void runtime.warmSaved();
