@@ -21,6 +21,8 @@ def _status(**kw):
 
 CASES = [
     ("premiere night", _status(phase="premiere", timeOfDay="evening", dayNumber=1), "Week 1", "Premiere", "Evening, Day 1"),
+    # the shape the engine sends once the player has spoken and the entrances are done: the clock runs, the day number rides along, the house list is present
+    ("premiere night after the player has spoken", _status(phase="premiere", timeOfDay="night", dayNumber=1, asleep=[], awake=[{"id": "npc:1", "name": "Houseguest A"}]), "Week 1", "Premiere", "Night, Day 1"),
     ("a normal evening", _status(week=2, phase="hoh-competition", timeOfDay="evening", dayNumber=8), "Week 2", "HOH competition", "Evening, Day 8"),
     ("early morning", _status(week=1, phase="nominations", timeOfDay="late-night", earlyMorning=True, dayNumber=3), "Week 1", "Nominations", "Early morning, Day 3"),
     ("late night", _status(week=1, phase="nominations", timeOfDay="late-night", dayNumber=2), "Week 1", "Nominations", "Late night, Day 2"),
