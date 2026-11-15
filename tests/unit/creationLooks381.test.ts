@@ -129,7 +129,7 @@ describe("ORW-381 no main-stream draw moved", () => {
       const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: v.biography, physicalCharacteristics: 0 }]));
       all += JSON.stringify([npcs, pub, l.hidden, l.threads]);
     }
-    expect(createHash("sha256").update(all).digest("hex")).toBe("567b5c2cd595d656482c18379e7b719ab67d9c22264e90edef15afbd0c7feb40"); // ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
+    expect(createHash("sha256").update(all).digest("hex")).toBe("f808eadab3030667f05300c1561a1e46c49670c756108a9f4f4339ecd2330f12"); // ORW-432 (on purpose): only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
   });
 });
 

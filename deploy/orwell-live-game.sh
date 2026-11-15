@@ -19,7 +19,8 @@
 #   ORWELL_UPDATE_IDLE_MINUTES       idle time that counts as "game over"   (default 15, 1..120)
 #   ORWELL_UPDATE_MAX_DEFER_MINUTES  longest the update may wait            (default 240, 1..1440; data/.env may raise it only to 240, the root conf/env to 1440)
 #   ORWELL_UPDATE_DEFER_POLL_SECONDS re-check interval                      (default 60, 5..300)
-#   ORWELL_UPDATE_FORCE=1            skip the check entirely
+#   ORWELL_UPDATE_FORCE=1            skip the idle check (still waits, bounded, for an in-flight turn: ORW-406)
+#   ORWELL_UPDATE_FORCE_NOW=1        emergency only: also skip the in-flight-turn wait (--force-now)
 # Web-side force: the admin tier may drop data/ops/update-force-requested (existence + recent mtime only,
 # content never read; a flag whose mtime is older than 60 minutes is ignored as stale); the wait loop consumes it and proceeds.
 # Status (for orwell-doctor.sh --status) lives in a ROOT-owned dir, /run/orwell/update-deferred — never in
@@ -377,11 +378,16 @@ update_turn_in_flight() {
 
 # Wait (bounded) until no turn is in flight. $1 = signal file. Bound: ORWELL_UPDATE_TURN_WAIT_SECONDS
 # (default 120, clamped 1..300). Always returns 0: after the bound the update proceeds.
+# $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).
 update_wait_for_no_turn() {
-  local f="$1" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
+  local f="$1" force_now="${2:-0}" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
   [[ "$max" =~ ^[0-9]+$ ]] || max=120
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
+  if [[ "$force_now" == "1" ]]; then
+    echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
+    return 0
+  fi
   start="$(_update_defer_now)"
   while update_turn_in_flight "$f"; do
     now="$(_update_defer_now)"

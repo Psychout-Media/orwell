@@ -498,6 +498,15 @@ def mutation_count(user: str | None = None) -> int:
     return _MUTATION_COUNT.get(user or "", 0)
 
 
+def _note_ledger_write(user: str | None, name: str, res) -> None:
+    """ORW-435: tell the sync ledger an FE-dispatched write landed (it decides whether it bumped beatSeq and whether it falls between turns)."""
+    try:
+        from src import orwell_sync_ledger as _led
+        _led.note_engine_write(user, name, res)
+    except Exception:  # failsoft-ok: ledger bookkeeping is observability-only; the write itself already succeeded
+        pass
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
@@ -518,6 +527,8 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     try:
         try:
             res = await _call_inner(name, args, user=user, timeout=timeout)
+            if name not in engine_read_cache.PURE_READS:
+                _note_ledger_write(user, name, res)  # ORW-435: the single seam every FE-owned engine write passes through
         finally:
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
