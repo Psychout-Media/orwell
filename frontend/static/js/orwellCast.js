@@ -516,6 +516,7 @@
     // shows through) and turns visible only once its bytes decoded, so neither the empty
     // pending box, the alt text, nor the broken-image glyph ever paints as the tile.
     img.className = "oc-img-pending";
+    entry.portraitImg = img; // ORW-437: the img now in the holder; a stale img of an earlier url (A to B to A) must not unhide the expand button
     // Photo decoded ⇒ the monogram loading-base retires (one face per card — the
     // browser-smoke "no placeholder glyph on provider-on cards" gate). Idempotent:
     // a url re-transition may have already wiped the holder before a timer fires.
@@ -524,7 +525,7 @@
     const reveal = () => {
       if (revealed) return; // load can follow a synchronous cache-hot reveal — run once
       revealed = true;
-      if (entry.expandBtn && entry.portrait === url) entry.expandBtn.hidden = false; // ORW-437: the photo is on screen now
+      if (entry.expandBtn && entry.portrait === url && entry.portraitImg === img) entry.expandBtn.hidden = false; // ORW-437: the photo is on screen now
       img.classList.remove("oc-img-pending");
       if (justLanded) {
         // The G22 arrival fade (reduced-motion guarded in the CSS above); drop the

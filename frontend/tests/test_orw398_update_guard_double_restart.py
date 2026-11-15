@@ -219,3 +219,19 @@ def test_a_normal_or_merely_waited_run_refuses_a_held_lock_at_once(tmp_path):
 
 def test_only_the_superseded_path_sets_the_lock_wait_flag():
     assert len(re.findall(r"__UD_SUPERSEDED=1(?=\n)", UPDATE)) == 1 and "__ud_rc=0; __ud_superseded=1; __UD_SUPERSEDED=1" in UPDATE
+
+
+@needs_bash
+def test_superseded_waiter_removes_the_status_it_wrote_after_the_clear(tmp_path):
+    # The run that went ahead cleared the status, then THIS waiter wrote its own, then the token changed: nothing may be left saying "deferred".
+    out = loop(tmp_path, idle=30, on_sleep="update_run_supersede")
+    assert "RC=10" in out
+    assert not (tmp_path / "run" / "update-deferred").exists()
+
+
+@needs_bash
+def test_superseded_waiter_keeps_a_newer_waiters_status(tmp_path):
+    status = tmp_path / "run" / "update-deferred"
+    out = loop(tmp_path, idle=30, on_sleep=f"printf 'deferred=true\\nrun_seq=newer-waiter\\n' > '{status}'; update_run_supersede")
+    assert "RC=10" in out
+    assert "run_seq=newer-waiter" in status.read_text()

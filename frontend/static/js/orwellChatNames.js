@@ -195,8 +195,13 @@
     // SOUL lesson 2: never fight the live stream — only a settled row is touched.
     if (row.classList.contains("streaming")) return;
     // ORW-437: with no roster yet there is nothing to link; leave the row UNMARKED so the resweep that follows the roster
-    // arriving (`orwell:rostercache`) processes it, instead of marking it clean against an empty key.
-    if (!_rx) return;
+    // arriving (the `OrwellMonogram.onRosterCache(sweep)` listener registered in boot(); no `orwell:rostercache` event exists)
+    // processes it, instead of marking it clean against an empty key. A row linked against an earlier roster that is now
+    // empty must not keep links to the old houseguest ids: unwrap them and clear the marker.
+    if (!_rx) {
+      if (row.dataset.owNames !== undefined) { unwrapAuto(row); delete row.dataset.owNames; }
+      return;
+    }
     if (row.dataset.owNames === _key) return;
     ensureCss();
     unwrapAuto(row);

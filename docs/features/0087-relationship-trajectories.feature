@@ -41,7 +41,7 @@ Feature: 0087 — Relationship trajectories (a bond that warms or curdles, with 
       Given a cooler-shaped fold signal sequence between two houseguests
       When the trajectory is derived from those signals
       Then the trajectory direction reflects the proposed shape
-      And the momentum magnitude is the engine's own bounded, seeded amount
+      And the momentum magnitude is the engine's own bounded amount
       And no number proposed by the model sets how far the momentum moved
 
   Rule: Momentum is hidden state — surfaced only through behavior (player AND admin)

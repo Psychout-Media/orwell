@@ -142,3 +142,107 @@ def test_usage_documented():
 def test_bash_syntax(script):
     r = subprocess.run(["bash", "-n", str(ROOT / "deploy" / script)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+@needs_bash
+@pytest.mark.parametrize("force_now,waits", [(1, False), (0, True)])
+def test_force_now_holds_even_with_an_old_one_argument_helper(tmp_path, force_now, waits):
+    # A host-pushed first update runs THIS script against the pre-update installed helper, whose
+    # update_wait_for_no_turn takes one argument and ignores $2: --force-now must not depend on it.
+    blk = _restart_block()
+    i = blk.index("if type update_wait_for_no_turn")
+    wait = blk[i:blk.index('ops_progress_step 4 "restarting services"')]
+    r = subprocess.run(["bash", "-c", f"""set -euo pipefail
+FORCE_NOW={force_now}; ENV_FILE=/dev/null; APP_DIR='{tmp_path}'
+update_wait_for_no_turn() {{ echo "OLD-HELPER-WAITED $#"; }}
+{wait}
+"""], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert ("OLD-HELPER-WAITED" in r.stdout) is waits
+    if not waits:
+        assert "--force-now" in r.stdout
+
+
+def _watched_dir(tmp_path, env_text, env=None):
+    """Run the updater's turn-wait block against a stub helper; return the turns-in-flight path it watches."""
+    blk = _restart_block()
+    i = blk.index("if type update_wait_for_no_turn")
+    wait = blk[i:blk.index('ops_progress_step 4 "restarting services"')]
+    envf = tmp_path / ".env"
+    envf.write_text(env_text)
+    full = {k: v for k, v in os.environ.items() if not k.startswith("ORWELL_")}
+    full.update(env or {})
+    r = subprocess.run(["bash", "-c", f"""set -euo pipefail
+FORCE_NOW=0; ENV_FILE='{envf}'; APP_DIR='/app'
+update_wait_for_no_turn() {{ echo "WATCH=$1"; }}
+{wait}
+"""], capture_output=True, text=True, timeout=30, env=full)
+    assert r.returncode == 0, r.stderr
+    return r.stdout.split("WATCH=", 1)[1].strip()
+
+
+@needs_bash
+@pytest.mark.parametrize("env_text,env,expected", [
+    ("ORWELL_INFLIGHT_DIR=/var/lib/orwell data\n", None, "/var/lib/orwell data/turns-in-flight"),
+    ("ORWELL_INFLIGHT_DIR=\"/var/lib/orwell data\"\n", None, "/var/lib/orwell data/turns-in-flight"),
+    ("ORWELL_DATA_DIR_FE='/srv/fe'\n", None, "/srv/fe/turns-in-flight"),
+    ("ORWELL_DATA_DIR_FE=/srv/fe\nORWELL_INFLIGHT_DIR=/srv/sig\n", None, "/srv/sig/turns-in-flight"),
+    ("", {"ORWELL_DATA_DIR_FE": "/env/fe"}, "/env/fe/turns-in-flight"),
+    ("", None, "/app/frontend/data/turns-in-flight"),
+])
+def test_updater_watches_the_directory_the_front_end_publishes_to(tmp_path, env_text, env, expected):
+    assert _watched_dir(tmp_path, env_text, env) == expected
+
+
+@pytest.mark.parametrize("name", ["ORWELL_UPDATE_TURN_WAIT_SECONDS", "ORWELL_UPDATE_WARM_WAIT_SECONDS", "ORWELL_UPDATE_LOCK_WAIT"])
+def test_host_bridge_forwards_the_wait_bounds(name):
+    # the host-to-container bridge forwards digits-only tunables; a bound set on the host must reach the container run
+    m = re.search(r"for __k in ([A-Z_ ]+); do", UPDATE)
+    assert m and name in m.group(1).split()
+
+
+def test_doctor_names_the_emergency_opt_out_separately():
+    doctor = (ROOT / "deploy" / "orwell-doctor.sh").read_text()
+    i = doctor.index("update_deferred_check() {")
+    blk = doctor[i:doctor.index("\n}\n", i)]
+    assert "orwell-update.sh --force\"" in blk
+    assert "orwell-update.sh --force-now\"" in blk and "emergency only" in blk and "may be lost" in blk
+
+
+def _bridge_forward(env):
+    i = UPDATE.index("  FWD_LG=\"\"\n")
+    blk = UPDATE[i:UPDATE.index("  FWD_ENV=", i)]
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail\n{blk}\necho \"FWD=[$FWD_LG]\""], capture_output=True, text=True, timeout=30,
+                       env={**{k: v for k, v in os.environ.items() if not k.startswith("ORWELL_")}, **env})
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+@needs_bash
+@pytest.mark.parametrize("name", ["ORWELL_UPDATE_LOCK_WAIT", "ORWELL_UPDATE_TURN_WAIT_SECONDS", "ORWELL_UPDATE_WARM_WAIT_SECONDS"])
+def test_bridge_caps_the_wait_bounds(name):
+    assert f"{name}='86400'" in _bridge_forward({name: "86400"})
+    for bad in ("86401", "99999999999999999999"):
+        out = _bridge_forward({name: bad})
+        assert name + "='" not in out and "ignored" in out and "FWD=[]" in out
+
+
+@needs_bash
+@pytest.mark.parametrize("value,waits", [("120", "120"), ("86400", "86400"), ("99999999999999999999", "3600"), ("86401", "3600"), ("abc", "3600")])
+def test_lock_wait_is_capped(value, waits):
+    i = UPDATE.index('    local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"')
+    blk = UPDATE[i:UPDATE.index("    _flock_args=(-w", i)]
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail\nf() {{\n{blk}\necho \"W=$_w\"\n}}\nf"], capture_output=True, text=True, timeout=30,
+                       env={**os.environ, "ORWELL_UPDATE_LOCK_WAIT": value})
+    assert r.returncode == 0, r.stderr
+    assert f"W={waits}" in r.stdout
+
+
+@needs_bash
+def test_helper_ignores_a_wrapping_turn_wait(tmp_path):
+    var = "ORWELL_UPDATE_TURN_WAIT_SECONDS"
+    f = tmp_path / "turns-in-flight"
+    f.write_text("1\n")
+    # a 20-digit value falls back to the default bound (120 s => 60 two-second naps), never wraps to a 1 s wait
+    out = bash(_run(f, ":", force_now="0"), env={var: "99999999999999999999"})
+    assert "SLEEPS=60" in out
