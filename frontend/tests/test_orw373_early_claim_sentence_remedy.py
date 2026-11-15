@@ -276,3 +276,87 @@ def test_a_scene_full_of_claim_sentences_is_cut_whole_once_the_per_turn_budget_i
     _state.arm(sig)  # a new turn (a fresh baseline) gets a fresh budget
     assert _run(ch.screen_streamed_scene_break(_USER, "Fine." + claim)) is None
     assert ch.take_scene_rewrite(_USER)
+
+
+# ---- ORW-429: the drop must leave a real scene; worry about the block is not a nomination ----
+
+WORRY_SCENE = (
+    "The question lands in the room and the room doesn't rush to answer it. Houseguest A picks at a thread on the couch cushion, nervous about the vote and what it means for the week. "
+    "Houseguest B keeps glancing at the kitchen, afraid of going up and trying not to show it. "
+    "\"Nobody knows who might be nominated,\" Houseguest B says at last, \"and that's the whole problem.\" "
+    "Gamma Person laughs without any humor in it, scared of being on the block, and stares at the ceiling. "
+    "The house is full of people wondering who will be put on the block. Nobody wants to be the one who says it out loud, so the silence stretches and the clock on the wall ticks. "
+    "The room is waiting on her."
+)
+
+
+def test_worry_about_the_block_is_not_a_nomination_claim(_state):
+    sig = _sig(phase="nominations")
+    _state.arm(sig)
+    assert not ch._narration_claims_outcome(WORRY_SCENE, sig, sig)
+    assert _run(ch.screen_streamed_scene_break(_USER, WORRY_SCENE)) is None
+    assert ch.take_scene_rewrite(_USER) is None
+
+
+def test_a_nomination_stated_as_made_is_still_an_early_claim_and_dropped(_state):
+    sig = _sig(phase="nominations")
+    _state.arm(sig)
+    text = ("The room is tense and the afternoon is long. Houseguest A stares at the floor, nervous about the vote and the whole week ahead. "
+            "Houseguest B paces the kitchen and tells nobody what is on their mind, which is its own kind of answer to the room. "
+            "Gamma Person hums and rearranges the cushions on the couch, pretending the house is not holding its breath at all. "
+            "Hoh Person nominates Nom Alpha and Nom Beta for eviction. "
+            "The yard goes quiet and the hours pass slowly while the cameras keep rolling.")
+    d = ch._narration_claims_outcome(text, sig, sig)
+    assert d and "NOMINATION" in d
+    out = ch.drop_early_claim_sentences(text, sig, sig)
+    assert out and "nominates" not in out[0] and "nervous about the vote" in out[0]
+    assert _run(ch.screen_streamed_scene_break(_USER, text)) is None
+    assert "nominates" not in ch.take_scene_rewrite(_USER)
+
+
+def test_a_drop_that_would_leave_a_stub_falls_back_to_the_full_cut(_state):
+    sig = _sig(phase="nominations")
+    _state.arm(sig)
+    text = ("Hoh Person nominates Nom Alpha and Nom Beta for eviction, and the room reels at the news of it, every houseguest turning toward the pair and starting to talk over each other at once. "
+            "Hoh Person puts Nom Gamma on the block as well, and the room erupts again, louder and angrier than before, with chairs scraping and voices rising through the whole living room, and nobody can hear anyone else over the noise of it all. "
+            "The room is waiting on her.")
+    assert len(text) >= ch._EARLY_DROP_SCENE_MIN_CHARS
+    _res = ch.drop_early_claim_sentences(text, sig, sig)
+    assert _res and ch._early_drop_leaves_a_stub(text, _res[0])
+    d = _run(ch.screen_streamed_scene_break(_USER, text))
+    assert d and ch.take_scene_rewrite(_USER) is None
+
+
+def test_the_stub_floor_leaves_short_chunks_and_real_remainders_alone():
+    assert not ch._early_drop_leaves_a_stub("Hoh Person turns the first key.", "")
+    assert not ch._early_drop_leaves_a_stub("x" * 900, "y" * 600)
+    assert ch._early_drop_leaves_a_stub("x" * 1540, "The room is waiting on her.")
+
+
+# ---- ORW-429 review fixes ----
+
+def test_up_for_eviction_is_not_excused_as_worry():
+    assert not ch._nomination_claims_all_hypothetical("Two houseguests are up for eviction this week, the keys all handed out.")
+
+
+def test_an_explicit_nomination_act_after_a_worry_word_is_still_a_claim():
+    assert not ch._nomination_claims_all_hypothetical("Nervous about the vote, Hoh Person nominates Nom Alpha and Nom Beta.")
+    assert not ch._nomination_claims_all_hypothetical("Afraid of the block, the room watches as Hoh Person has nominated Nom Alpha.")
+    assert ch._nomination_claims_all_hypothetical("Houseguest A is afraid of the block and wonders who will be nominated.")
+
+
+def test_worry_about_the_block_is_not_a_premiere_absence_fabrication():
+    live = _sig(phase="premiere", hoh=None, hohName=None)
+    assert ch._unbacked_outcome_absent("Houseguest A is nervous about the block and afraid of being on the block.", live) is None
+    assert ch._unbacked_outcome_absent("Hoh Person nominates Nom Alpha and Nom Beta.", live)
+
+
+def test_the_stub_rule_is_judged_on_the_turns_running_totals_not_one_chunk(_state):
+    sig = _sig(phase="nominations")
+    _state.arm(sig)
+    chunk = "Hoh Person nominates Nom Alpha and Nom Beta for eviction and the whole room reels at the news of it, every houseguest turning toward the pair and talking over each other, voices rising through the living room until nobody can be heard at all. Ok."
+    assert 200 < len(chunk) < ch._EARLY_DROP_SCENE_MIN_CHARS < 2 * len(chunk)
+    assert _run(ch.screen_streamed_scene_break(_USER, chunk)) is None  # alone, a short chunk keeps the rewrite
+    assert ch.take_scene_rewrite(_USER)
+    d = _run(ch.screen_streamed_scene_break(_USER, chunk))  # running total is now a scene, almost all of it dropped (2 drops: inside the budget): full cut
+    assert d and ch.take_scene_rewrite(_USER) is None
