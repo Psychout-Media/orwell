@@ -2149,8 +2149,11 @@ def setup_orwell_routes() -> APIRouter:
     @router.post("/fe-report")
     async def orwell_fe_report(request: Request):
         # Manual parse: sendBeacon may land as text/plain — content-type is no gate.
+        raw = await request.body()
+        if len(raw) > 16384:  # ORW-396: size cap now that the beacon is reachable logged-out (three short strings never need more)
+            return Response(status_code=204)
         try:
-            data = json.loads((await request.body()).decode("utf-8", "replace") or "{}")
+            data = json.loads(raw.decode("utf-8", "replace") or "{}")
         except Exception:
             return Response(status_code=204)  # malformed body: drop silently
         if not isinstance(data, dict):

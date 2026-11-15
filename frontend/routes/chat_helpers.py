@@ -621,6 +621,18 @@ def hang_out_intent(player_msg) -> bool:
     return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
 
 
+_HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
+
+
+def _reconcile_hang_out_steer(steer: str, game_state) -> str:
+    """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
+    owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
+    ds = game_state.get("daySchedule") if isinstance(game_state, dict) else None
+    if steer and isinstance(ds, dict) and "due" in ds and not ds.get("due"):
+        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE)
+    return steer
+
+
 def _hang_out_steer(res: dict) -> str:
     """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them)."""
     reason = str(res.get("stopReason") or "max-beats")
@@ -1703,6 +1715,8 @@ def pop_framed_hard_constraints(session_id) -> Optional[str]:
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent ⇒ no forcing ⇒ byte-identical (the field is
 # derived purely from the engine `phase`, exactly the retired `_FORCE_COMP_PHASES ∪ _FORCE_ADVANCE_PHASES`).
 _LAST_FRAMED_REQUIRED_LEVER: dict = {}
+# ORW-405: the per-turn volatile slice ("\n- Week: ..." to the end) of the engine moment prompt this turn was framed on, keyed like the stores above, so a mid-turn rebuild (the direct turnIn) can swap it for a fresh one.
+_LAST_FRAMED_MOMENT_VOLATILE: dict = {}
 
 # 0118 (in-game-time pivot, Phase 2) — whether the engine reports the scheduled ceremony time has ARRIVED
 # (the Vault-free day-schedule `due` flag), cached at framing so the agent loop's advance-nudge can fire the
@@ -7164,6 +7178,19 @@ async def _maybe_delta_line(user, last_seen_beat_seq) -> Optional[str]:
         return None
 
 
+def _audit_framed_briefing(user, messages) -> None:
+    """ORW-409: debug-log + soft-fail counter for any contradiction between the blocks of the final briefing. Report-only, fail-open; ORWELL_BRIEFING_AUDIT=0 turns it off."""
+    if os.getenv("ORWELL_BRIEFING_AUDIT", "1") == "0":
+        return
+    try:
+        from routes.briefing_audit import audit_briefing
+        for c in audit_briefing(messages):
+            logger.debug("[orwell] briefing conflict (%s): %s", c["fact"], c["detail"])
+            record_soft_failure(f"briefing-conflict:{c['fact']}", ValueError(c["detail"]), corrected="none:report-only", user=user)
+    except Exception as e:
+        logger.debug("[orwell] briefing audit skipped: %s", e)
+
+
 def _runway_sig(game_state: dict) -> str:
     """The `(week:phase)` signature of the beat the player is currently sitting in. A change in this
     signature means a ceremony resolved and we entered a new beat — the cue to arm a fresh runway."""
@@ -8165,6 +8192,15 @@ async def apply_game_framing(
             else:
                 mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
+            try:  # ORW-405: remember this turn's volatile slice (fail-open)
+                _mp_txt = (mp or {}).get("systemPrompt")
+                _vi = _mp_txt.find("\n- Week: ") if isinstance(_mp_txt, str) else -1
+                if _vi >= 0:
+                    _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
+                else:
+                    _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
+            except Exception:
+                pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
             if _brief_on:
@@ -8316,7 +8352,7 @@ async def apply_game_framing(
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:
-                gm_prompt = gm_prompt + "\n\n" + _ho_steer
+                gm_prompt = gm_prompt + "\n\n" + _reconcile_hang_out_steer(_ho_steer, game_state)
         except Exception as e:
             logger.warning("[orwell] hang-out steer framing skipped for user=%s: %s", _gkey, e)
         try:
@@ -8361,6 +8397,7 @@ async def apply_game_framing(
             preface[0]["content"] = gm_prompt + "\n\n" + preface[0]["content"]
         else:
             preface.insert(0, {"role": "system", "content": gm_prompt})
+        _audit_framed_briefing(user, preface)
     else:
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again
