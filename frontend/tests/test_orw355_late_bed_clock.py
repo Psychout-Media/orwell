@@ -94,3 +94,19 @@ def test_the_bed_belt_still_fires_at_night_and_holds_morning_and_afternoon():
     # a mention of bed that is not going to bed is never forced
     assert al._forced_tool_choice_for_bedtime(
         set(), player_text="I ask her whether she is going to bed.", status={"timeOfDay": "night"}, tools_sent=["turnIn"]) is None
+
+
+def test_orw382_the_day_in_review_reaches_the_narrator_on_a_direct_turn_in():
+    """ORW-382 (Ryne, 11-15: no day-in-review at the Day-1 bedtime): the engine appends `dailyRecap` LAST in the pretty-printed turnIn result and the old 4000-char cut dropped it. The tool message now LEADS with
+    the recap, and the production note tells the narrator to voice it (only when it has something in it)."""
+    import json
+    from src import agent_loop as al
+    big_status = {"started": True, "pad": ["x" * 80 for _ in range(80)]}
+    full = json.dumps({"started": True, "status": big_status, "dailyRecap": {"day": 1, "highlights": [], "surfaced": [], "yourDay": ["a toast"]}}, indent=2)
+    assert len(full) > 4000 and '"dailyRecap"' not in full[:4000]  # red on the old cut
+    msg = al._bedtime_tool_message(full)
+    assert msg.startswith('{"dailyRecap"') and "a toast" in msg
+    assert "dailyRecap" in al._bedtime_direct_note(full) and "before the new morning" in al._bedtime_direct_note(full).lower()
+    empty = json.dumps({"dailyRecap": {"day": 1, "highlights": [], "surfaced": []}})
+    assert al._bedtime_direct_note(empty) == al._BEDTIME_DIRECT_NOTE  # an empty recap: nothing to voice, never invent
+    assert al._bedtime_tool_message("not json") == "not json"
