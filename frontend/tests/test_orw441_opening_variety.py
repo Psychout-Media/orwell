@@ -83,3 +83,19 @@ def test_a_they_card_gets_a_plural_verb_after_the_pronoun_or_the_safe_wording():
         prof = {"physicalCharacteristics": {"onCamera": cam}}
         gate.mend(prof, npc, [npc])
         assert prof["physicalCharacteristics"]["onCamera"] == want, cam
+
+
+def test_they_guard_for_s_adverbs_and_a_comma_after_the_name():
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "nonbinary", "age": 30}
+    cases = [
+        ("Namea always stands in the kitchen, arms folded.", "They always stand in the kitchen, arms folded."),
+        ("Namea sometimes leans on the counter in the kitchen.", "They sometimes lean on the counter in the kitchen."),
+        ("Namea perhaps grins in the lounge.", "They perhaps grin in the lounge."),
+        ("Namea nevertheless stands in the lounge.", "The houseguest nevertheless stands in the lounge."),
+        ("Namea, arms folded, stands in the lounge.", "The houseguest, arms folded, stands in the lounge."),
+        ("Hands loose, Namea, arms folded, stands in the lounge.", "Hands loose, the houseguest, arms folded, stands in the lounge."),
+    ]
+    for cam, want in cases:
+        prof = {"physicalCharacteristics": {"onCamera": cam}}
+        gate.mend(prof, npc, [npc])
+        assert prof["physicalCharacteristics"]["onCamera"] == want, cam
