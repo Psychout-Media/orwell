@@ -167,7 +167,7 @@ def test_the_current_mutator_set_is_pinned():
     expected = {
         "advanceGame", "submitDecision", "updateCasting", "createCharacter",
         "recordInteraction", "runCompetition", "surfaceInformationTo", "diaryRoom", "recordImageBeat",
-        "moveTo", "moveHouseguest", "markHouseguestMet", "turnIn", "hangOut", "noteMessage",
+        "moveTo", "moveHouseguest", "markHouseguestMet", "turnIn", "hangOut", "noteMessage", "resolvePlayerMove",
         "makeDeal", "formAlliance", "joinAlliance", "askJuror",
         "exposeSecret", "tradeSecret", "confront", "accuseTie", "callInFavor",
         "manageSandbox", "raiseSpectatorChoice",
