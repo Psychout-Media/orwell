@@ -36,6 +36,8 @@ removes it; ``orwell-game-reset.sh`` is taught to clear it too (a new season = a
 """
 
 import asyncio
+import contextvars
+import weakref
 import base64
 import copy
 import hashlib
@@ -415,33 +417,62 @@ _RECONCILER_TASK = None
 # no lock is sufficient (claim/release straddle no awaits relative to each other for the SAME id).
 _INFLIGHT: dict = {}
 
-# The most recent _generate_one failure reason (+ an optional short detail — the provider's
-# own error code/message on an HTTP failure), consumed by the attempt logger. Module-level: ORW-378 runs
-# portraits concurrently, but a failure is noted and consumed with no await between the note and the
-# caller reading it (the awaited `_generate_one` returns straight into `_consume_gen_error()`), so the
-# reasons of two tasks do not interleave in practice; and the log is best-effort observability, never game state.
+# ORW-389: the most recent _generate_one failure reason (+ an optional short detail, the provider's own
+# error code/message on an HTTP failure), consumed by the attempt logger. ORW-378 runs portraits
+# concurrently, so the reason is kept PER asyncio TASK (asyncio.gather wraps each portrait in its own
+# Task): two simultaneous failures cannot swap reasons. Awaited helpers share their caller's task, so the
+# note-then-consume pattern is unchanged. The module-level pair is the fallback for a reader in a
+# different task than the writer (a sync caller / a test that drives each call separately).
+# Best-effort observability, never game state.
 _LAST_GEN_ERROR: Optional[str] = None
 _LAST_GEN_DETAIL: Optional[str] = None
+_TASK_GEN: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
+def _gen_task():
+    try:
+        return asyncio.current_task()
+    except RuntimeError:
+        return None
+
+
+def _set_gen_state(error: Optional[str], detail: Optional[str]) -> None:
+    global _LAST_GEN_ERROR, _LAST_GEN_DETAIL
+    _LAST_GEN_ERROR, _LAST_GEN_DETAIL = error, detail
+    t = _gen_task()
+    if t is not None:
+        _TASK_GEN[t] = (error, detail)
 
 
 def _note_gen_error(error_class: str, detail: Optional[str] = None) -> None:
-    global _LAST_GEN_ERROR, _LAST_GEN_DETAIL
-    _LAST_GEN_ERROR = error_class
-    _LAST_GEN_DETAIL = detail or None
+    _set_gen_state(error_class, detail or None)
+
+
+def _peek_gen_error() -> tuple:
+    t = _gen_task()
+    if t is not None and t in _TASK_GEN:
+        return _TASK_GEN[t]
+    return (_LAST_GEN_ERROR, _LAST_GEN_DETAIL)
 
 
 def _consume_gen_error() -> Optional[str]:
-    global _LAST_GEN_ERROR
-    e = _LAST_GEN_ERROR
-    _LAST_GEN_ERROR = None
+    e, d = _peek_gen_error()
+    _set_gen_state(None, d)
     return e
 
 
 def _consume_gen_detail() -> Optional[str]:
-    global _LAST_GEN_DETAIL
-    d = _LAST_GEN_DETAIL
-    _LAST_GEN_DETAIL = None
+    e, d = _peek_gen_error()
+    _set_gen_state(e, None)
     return d
+
+
+# ORW-389: the houseguest id the current task is shooting, so provider log lines can name them.
+_CURRENT_HID: contextvars.ContextVar = contextvars.ContextVar("orwell_portrait_hid", default=None)
+
+
+def _hid_tag() -> str:
+    return str(_CURRENT_HID.get() or "-")
 
 
 PORTRAIT_PARALLEL_DEFAULT = 3
@@ -1278,7 +1309,7 @@ async def _generate_via_openrouter_images(client, base_url: str, model_id: str, 
                                             cost=cost or 0.0, provider="openrouter")
         except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
             pass
-        logger.info("[portraits] gpt-image %s cost %s", model_id, cost)
+        logger.info("[portraits] gpt-image %s cost %s for %s", model_id, cost, _hid_tag())
         return png
     except Exception as e:  # failsoft-ok: handled-by-caller (reason recorded, then the Gemini fallback)
         logger.info("[portraits] gpt-image failed: %s", e)
@@ -1296,8 +1327,13 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
             fb_url, fb_model, fb_headers = await asyncio.to_thread(_resolve_model, cand, owner=user or None)
         except Exception:  # failsoft-ok: capability-probe (an unresolvable candidate is skipped)
             continue
-        return await _generate_via_chat_completions(client, fb_url, fb_model, prompt, fb_headers,
-                                                    reference_png=reference_png)
+        png = await _generate_via_chat_completions(client, fb_url, fb_model, prompt, fb_headers,
+                                                   reference_png=reference_png)
+        if png:
+            # ORW-389: the fallback made the photo, so the GPT Image reason is no longer a failure.
+            _set_gen_state(None, None)
+            logger.info("[portraits] fallback used for %s (after gpt-image failure)", _hid_tag())
+        return png
     return None
 
 
@@ -1320,7 +1356,7 @@ async def _generate_one(prompt: str, user: Optional[str],
         if png:
             _PROVIDER_PROVEN["ok"] = True
             _close_billing_breaker(host)
-        elif is_billing_error(_LAST_GEN_ERROR, _LAST_GEN_DETAIL):
+        elif is_billing_error(*_peek_gen_error()):
             _trip_billing_breaker(host)
     return png
 
@@ -1442,7 +1478,7 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
                                                             headers, reference_png, quality, user=user)
                 if png:
                     return png
-                if is_billing_error(_LAST_GEN_ERROR, _LAST_GEN_DETAIL):
+                if is_billing_error(*_peek_gen_error()):
                     return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
                 return await _gpt_image_fallback(client, user, prompt, reference_png)
             if is_openrouter:
@@ -1560,11 +1596,13 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         first = await C.check_portrait(png, facts, user)
         if first is None:
             return png, None
+        logger.info("[portraits] photo check for %s: %s", _hid_tag(), "ok" if first["ok"] else "problems " + ",".join(map(str, first["problems"])))
         if first["ok"]:
             return png, {"ok": True, "problems": [], "reshot": False}
         meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
         png2 = await _generate_one(prompt + " Fix in this version: " + C.problems_in_words(first["problems"]) + ".",
                                    user, reference_png=ref)
+        logger.info("[portraits] photo re-shoot for %s: %s", _hid_tag(), "made" if png2 else "failed")
         if not png2:
             meta["reshot"] = False
             return png, meta
@@ -1961,6 +1999,7 @@ async def generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
         # _generate_one prepends the identity-keep instruction when a reference is set.
         prompt = _STUDIO_BASE + ". " + _STUDIO_VARIANTS[i % len(_STUDIO_VARIANTS)]
         _consume_gen_error(); _consume_gen_detail()
+        _CURRENT_HID.set(PLAYER_PORTRAIT_ID)
         png = await _generate_one(prompt, user, reference_png=src)
         if png:
             try:
@@ -2231,6 +2270,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         source = "reference" if ref else "generated"
 
         _consume_gen_error(); _consume_gen_detail()  # clear any stale reason/detail
+        _CURRENT_HID.set(sid)  # ORW-389: provider log lines name this houseguest
         # #998: CLAIM the id immediately before the (slow) generate, release in `finally` after the
         # write/failure — an overlapping run that reaches the in-flight check above now skips it,
         # so each id is generated exactly once even while its image is in flight (not yet on disk).

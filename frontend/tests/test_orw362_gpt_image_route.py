@@ -162,7 +162,8 @@ def test_failure_falls_back_to_gemini_once(monkeypatch, client):
     assert _run(op._generate_one("p", "u", reference_png=b"R")) == b"GEMINI"
     assert len(client.posts) == 1 and len(chat) == 1
     assert chat[0][1] == "google/gemini-3.1-flash-image" and chat[0][2] == b"R"
-    assert op._consume_gen_error() == "gpt-image-failed"
+    # ORW-389: the fallback made the photo, so the GPT Image reason is cleared, not left red
+    assert op._consume_gen_error() is None
 
 
 # ── resolution without a model-list entry ───────────────────────────────────────────────
