@@ -12,7 +12,7 @@
  * Only the sections that need no Ryne content are here: no producer's note, no rules wording, no story-so-far,
  * no threads, no callbacks, no speaker cards (those follow later). Pure and deterministic: the same view and
  * request give the same bytes. Vault-free by construction: it reads ONLY the player-visible `GameStateView`
- * (whereabouts is eyeshot-scoped; a closed door stays opaque) plus the FE's echoes, which are re-validated and
+ * (whereabouts is eyeshot-scoped; a closed door stays opaque), the FE's echoes, and (section 6) the persisted open ledger through a callback, which are re-validated and
  * used only to say what changed and whom to state absent; every name printed comes from the engine's roster.
  */
 import type { EntityId } from "../domain/ids";
@@ -262,7 +262,7 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
   // 5. OPEN THREADS (ORW-223 slice 2): kind and status only, only when something is in motion.
   const threads = openThreadsSection(threadLines);
   if (threads) sections.push({ id: "threads" as const, text: threads });
-  // 6. OPEN LEDGER (ORW-407): what was said to or by the player and is still standing, for those here now.
+  // 6. OPEN LEDGER (ORW-407): what the player said or heard (including claims and pacts between houseguests they overheard) and is still standing, for those here now.
   const open = openLedgerSection?.(hereIds);
   if (open) sections.push({ id: "open" as const, text: open });
   const text = sections.map((s) => s.text).join("\n\n");

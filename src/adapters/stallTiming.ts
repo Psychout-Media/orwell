@@ -52,9 +52,10 @@ export class StallTimer {
 }
 
 function envThresholdMs(): number {
-  const n = Number(process.env.ORWELL_STALL_LOG_MS);
-  return Number.isFinite(n) && n >= 0 && process.env.ORWELL_STALL_LOG_MS !== undefined && process.env.ORWELL_STALL_LOG_MS !== ""
-    ? n : DEFAULT_STALL_THRESHOLD_MS;
+  const raw = (process.env.ORWELL_STALL_LOG_MS ?? "").trim(); // whitespace-only is unset, never a zero threshold
+  if (raw === "") return DEFAULT_STALL_THRESHOLD_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_STALL_THRESHOLD_MS;
 }
 
 /** Process-wide timer used by the adapters (tests inject their own via the constructor/setter). */

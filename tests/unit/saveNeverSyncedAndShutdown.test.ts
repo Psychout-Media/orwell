@@ -199,3 +199,96 @@ describe("ORW-404 — durability backlog alarm and /health shape", () => {
     expect(store.durability()).toMatchObject({ saveDurableVersion: 8, saveDurabilityPending: false });
   });
 });
+
+describe("review of #2732 — a checkpoint is not durable until its directory fsync succeeded", () => {
+  const CP = 50;
+  const mk = (extra: Record<string, unknown>) => {
+    const dir = tmp();
+    const store = new FileSaveStore(dir, {
+      fsyncMode: "background", syncFile: async () => {}, syncFileSync: () => {}, onError: () => {}, ...extra,
+    } as never);
+    return { dir, store };
+  };
+
+  it("flushDurable: a failing directory fsync leaves the checkpoint un-durable and retries", async () => {
+    let dirFail = true;
+    const dirCalls: number[] = [];
+    const { store } = mk({
+      syncFile: () => new Promise<void>(() => {}), // the background fsync never settles: only the flush can make it durable
+      syncDir: async () => { throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+      syncDirSync: () => { dirCalls.push(1); if (dirFail) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+    });
+    for (let i = 1; i <= CP; i++) store.saveFor("u", snap(i));
+    await settle();
+    store.flushDurable();
+    expect(dirCalls.length).toBe(1);
+    expect(store.durability().saveDurableVersion).toBeLessThan(CP);
+    dirFail = false;
+    store.flushDurable();
+    expect(dirCalls.length).toBe(2); // dirDirty survived the failure
+    expect(store.durability().saveDurableVersion).toBe(CP);
+  });
+
+  it("flushDurable still syncs the directory while a background directory fsync is in flight", async () => {
+    let release: () => void = () => {};
+    const dirCallsSync: number[] = [];
+    const { store } = mk({
+      syncDir: () => new Promise<void>((res) => { release = res; }),
+      syncDirSync: () => { dirCallsSync.push(1); },
+    });
+    for (let i = 1; i <= CP; i++) store.saveFor("u", snap(i));
+    await settle(); // background sync reached its (stalled) directory fsync
+    store.flushDurable();
+    expect(dirCallsSync.length).toBe(1);
+    release();
+  });
+});
+
+describe("review of #2732 — shutdown quiesces before it flushes", () => {
+  it("quiesce completes before flush starts, and a throwing quiesce still flushes and exits", async () => {
+    const order: string[] = [];
+    const sd = createShutdown({
+      quiesce: async () => { order.push("quiesce"); await settle(); order.push("quiesced"); },
+      flush: async () => { order.push("flush"); },
+      exit: () => { order.push("exit"); },
+    });
+    await sd();
+    expect(order).toEqual(["quiesce", "quiesced", "flush", "exit"]);
+    const o2: string[] = [];
+    await createShutdown({ quiesce: () => { throw new Error("x"); }, flush: async () => { o2.push("flush"); }, exit: () => { o2.push("exit"); } })();
+    expect(o2).toEqual(["flush", "exit"]);
+  });
+});
+
+describe("review of #2732 — a failing directory fsync for one user never stops the flush of the others", () => {
+  it("sync and async flush both continue to the next user, report the failure, and never throw", async () => {
+    for (const mode of ["sync", "async"] as const) {
+      const dir = tmp();
+      const errors: string[] = [];
+      const synced: string[] = [];
+      const store = new FileSaveStore(dir, {
+        fsyncMode: "background", syncFile: (p: string) => new Promise<void>(() => { void p; }), syncFileSync: (p: string) => { synced.push(p); },
+        syncDir: async (p: string) => { if (p.includes(hex("bad"))) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+        syncDirSync: (p: string) => { if (p.includes(hex("bad"))) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+        onError: (m: string) => errors.push(m),
+        ...(mode === "async" ? { syncFile: async (p: string) => { synced.push(p); } } : {}),
+      } as never);
+      for (let i = 1; i <= 50; i++) store.saveFor("bad", snap(i));
+      for (let i = 1; i <= 50; i++) store.saveFor("good", snap(i));
+      if (mode === "sync") store.flushDurable(); else { await settle(); store.flushDurable(); await store.flushDurableAsync(1000); }
+      expect(synced.some((p) => p.includes(hex("good")))).toBe(true); // the other user was still flushed
+      expect(errors.some((m) => m.includes("save.flush failed") || m.includes("dirsync failed"))).toBe(true);
+      resetSaveSyncLimiterForTests();
+    }
+  });
+});
+
+describe("review of #2732 — unsynced tracking is bounded under a long stall", () => {
+  it("1500 saves behind a stalled fsync keep the oldest age and a bounded list", () => {
+    const store = new FileSaveStore(tmp(), { fsyncMode: "background", syncFile: () => new Promise<void>(() => {}), syncDir: async () => {}, onError: () => {} } as never);
+    for (let i = 1; i <= 1500; i++) store.saveFor("u", snap(i));
+    const st = (store as unknown as { states: Map<string, { unsynced: unknown[] }> }).states.values().next().value!;
+    expect(st.unsynced.length).toBeLessThanOrEqual(1000);
+    expect(store.durability().saveUnsyncedUsers).toBe(1);
+  });
+});
