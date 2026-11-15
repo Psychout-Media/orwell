@@ -104,3 +104,21 @@ def test_a_board_that_backs_the_claim_is_caught_nowhere_but_the_gate(monkeypatch
 
 def test_the_table_covers_every_detector_named_in_the_spec():
     assert {"N-16", "N-15", "N-3", "N-1", "A-9", "F-3", "tally", "expulsion", "self-crown"} <= set(PHRASES)
+
+
+def test_a9_scene_cell_is_a_real_sentence_rewrite_not_a_missed_detector(monkeypatch):
+    """ORW-437 (review of #2652): `scene=False` also holds when the detector misses. A-9 must produce a rewrite that drops the offending sentence and keeps the rest."""
+    claim, sig = PHRASES["A-9"]
+    text = "The sun is bright over the yard. " + claim + " Everyone waits for the voice."
+
+    async def cap(user=None):
+        return dict(sig)
+    monkeypatch.setattr(ch, "_capture_beat_signature", cap)
+    ch._LAST_BEAT_SIG[USER] = dict(sig)
+    ch._DESYNC_REGROUND.pop(USER, None)
+    ch.take_scene_rewrite(USER)  # clear any stale one
+    assert _run(ch.screen_streamed_scene_break(USER, text)) is None  # not cut
+    rewritten = ch.take_scene_rewrite(USER)
+    assert rewritten, "A-9 must hand back a rewrite"
+    assert "went to somebody else" not in rewritten and "goes out first" not in rewritten  # the offending sentences are gone
+    assert "The sun is bright over the yard." in rewritten and "Everyone waits for the voice." in rewritten  # the surrounding scene stays

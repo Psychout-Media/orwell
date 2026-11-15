@@ -142,6 +142,11 @@ _REFUSED_TURN: dict = {}
 _MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "nap", "createCharacter", "noteMessage", "runCompetition"})
 
 
+def _is_structured_nap_refusal(name: str, data) -> bool:
+    """The engine answered a `nap` with ``{"ok": false, ...}``: refused, no state change."""
+    return name == "nap" and isinstance(data, dict) and data.get("ok") is False
+
+
 def _refusal_key(user) -> str:
     return user or "__anon__"
 
@@ -566,7 +571,7 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
             _clear_engine_down()   # ... and the "unreachable since" stamp
-            if name in _MUTATING_OK_CLEARS:
+            if name in _MUTATING_OK_CLEARS and not _is_structured_nap_refusal(name, data):  # review of #2737: a refused nap changed nothing, so it must not clear the standing red
                 _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
 
@@ -667,6 +672,7 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    res = None
     if name not in engine_read_cache.PURE_READS:
         engine_read_cache.invalidate(user)  # ORW-166: a possible mutation starts - nothing cached for this user may be served or joined
     if name in _DISCLOSURE_TOOLS:
@@ -681,7 +687,8 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
                 engine_read_cache.invalidate(user)
-                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
+                if not _is_structured_nap_refusal(name, res):  # review of #2737: a refused nap is a no-op, not a mutation (a failed/timed-out call still counts: res is None)
+                    _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
@@ -1639,9 +1646,9 @@ async def knowledge_scope_manifest(user: str | None = None):
 
 async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
     """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
-    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those two cleaned fields into the
+    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those three cleaned fields into the
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
-    narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
+    narrator's appearance string. ``look["clear"]`` (a list of those three field names) clears stale fields. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
     for k in ("wardrobe", "onCamera", "photoHair"):
         if look.get(k):
@@ -1661,7 +1668,7 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
 
 async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
-    (``recordOpenLedger``). Sends exactly ``{text, speaker, addressedTo, kind}``; the engine re-validates, derives the
+    (``recordOpenLedger``). Sends ``{text, speaker, addressedTo, kind}`` plus, when present, ``parties`` (a group pact) and ``about`` (free text); the engine re-validates, derives the
     witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
     played games only; changes no relationship number."""
     args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}

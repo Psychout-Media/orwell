@@ -323,7 +323,7 @@ def test_resolver_falls_back_when_default_endpoint_catalog_excludes_it_across_en
 # (sakana/fugu-ultra) the owner once had selected was faithfully re-kept across every reset — a
 # circular trap (Settings was locked, #870, so they couldn't change it either). The fix: a reset
 # keeps only the API key(s) + endpoint and RESETS the model selections, so they revert to the OOB
-# defaults (glm-4.7 narrator, gemini-3.1-flash-image portraits). A real served selection
+# defaults (glm-4.7 narrator, openai/gpt-image-2.6-sunburst portraits, Gemini only as the per-portrait fallback). A real served selection
 # is also reset by design (owner ruling) — the defaults are what the owner wants post-reset.
 
 
@@ -341,7 +341,7 @@ def _load_oobe_helper(monkeypatch, tmp_path):
 def test_reset_drops_stale_model_selection_so_defaults_stand(monkeypatch, tmp_path):
     """A reset whose prior settings.json had a stale default_model=sakana/fugu-ultra (+ any
     portrait pick) must NOT carry those across — they reset, so the merge over DEFAULT_SETTINGS
-    restores glm-4.7 / gemini-3.1-flash-image."""
+    restores glm-4.7 / openai/gpt-image-2.6-sunburst (Gemini is only the fallback)."""
     mod = _load_oobe_helper(monkeypatch, tmp_path)
     setp = tmp_path / "settings.json"
     setp.write_text(json.dumps({

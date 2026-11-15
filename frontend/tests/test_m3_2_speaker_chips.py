@@ -1025,7 +1025,7 @@ def test_orw140_consumed_tag_keeps_the_name_as_visible_text():
 
     idf = r["idform"]
     assert 'data-hg-id="npc:8"' in idf["restored"]
-    assert re.search(r'<strong class="ow-speaker-name"( data-hg="[^"]*")?>Deja Monroe</strong> "We ride together,"', idf["restored"])  # ORW-359: the name carries data-hg when it has an id
+    assert re.search(r'<strong class="ow-speaker-name" data-hg="npc:8">Deja Monroe</strong> "We ride together,"', idf["restored"])  # ORW-359: the name carries data-hg when it has an id
     assert "npc:8)" not in idf["restored"]  # the id form never leaks as text
 
     # the narrator already wrote the name right after the tag: never a second copy

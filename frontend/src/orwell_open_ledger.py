@@ -30,6 +30,7 @@ MAX_ENTRIES_PER_TURN = 3
 MAX_RESOLUTIONS_PER_TURN = 2
 _RESOLUTIONS = ("kept", "broken", "withdrawn")
 _MIN_NARRATION_CHARS = 80
+NARRATION_MAX_CHARS = 3600  # review of #2692: 1800 skipped anything promised late in a long turn
 
 LlmFn = Callable[[list], Awaitable[str]]
 WriteFn = Callable[[dict], Awaitable[dict]]
@@ -44,7 +45,8 @@ _SYSTEM = (
     '"parties":["<every id party to a group pact>"],"about":"<who or what a claim concerns: an id from the list, else a few words>"}],'
     '"resolutions":[{"entryId":"<id from the OPEN list>","status":"kept|broken|withdrawn","note":"<why, one short sentence>"}]} . '
     "parties and about are optional: leave them out when they do not apply. Only people from the PRESENT list may speak, be "
-    "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty. "
+    "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
+    "(use parties for a larger group pact). "
     "Copy what was said; invent nothing. Skip small talk and anything already finished in the scene. "
     "A formal agreement between the player and one houseguest (a mutual deal to protect, vote, or go to the end together) is "
     "recorded elsewhere as a deal: leave it out, do not extract it as a pact or a promise. "
@@ -81,7 +83,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
     ok_ids = set(allowed_ids) | {"player"}
     by_name = {str(n).strip().lower(): i for i, n in (known or {}).items() if str(n).strip()}
     out: list[dict] = []
-    seen: set[str] = set()
+    seen: set = set()  # (speaker, normalized text): the engine keeps identical words from different speakers as distinct entries
     for it in items if isinstance(items, list) else []:
         if not isinstance(it, dict):
             continue
@@ -89,7 +91,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         if not (isinstance(text, str) and isinstance(speaker, str) and isinstance(to, list) and isinstance(kind, str)):
             continue
         t = re.sub(r"\s+", " ", text).strip().strip('"').strip()
-        if not t or len(t) > TEXT_MAX_CHARS or t.lower() in seen:
+        if not t or len(t) > TEXT_MAX_CHARS or (speaker if isinstance(speaker, str) else "", t.lower()) in seen:
             continue
         if speaker not in ok_ids or any(not isinstance(a, str) or a not in ok_ids or a == speaker for a in to):
             continue
@@ -100,6 +102,8 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         about = it.get("about")
         if about is not None and not isinstance(about, str):
             continue
+        if not ({speaker, *to, *(parties or [])} - {"player"}):
+            continue  # review of #2692: an entry involving no houseguest would never reach the brief and would only use a ledger slot
         k = _norm(kind, KIND_MAX_CHARS) or "claim"
         entry: dict = {"text": t, "speaker": speaker, "addressedTo": list(dict.fromkeys(to)), "kind": k}
         group = list(dict.fromkeys(parties or []))
@@ -108,7 +112,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         ab = _norm(about, ABOUT_MAX_CHARS) if isinstance(about, str) else ""
         if ab:
             entry["about"] = ab if ab in (known or {}) else by_name.get(ab.lower(), ab)
-        seen.add(t.lower())
+        seen.add((speaker, t.lower()))
         out.append(entry)
         if len(out) >= MAX_ENTRIES_PER_TURN:
             break
@@ -172,14 +176,20 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
             user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]}" for o in opens[:5]) + "\n"
         reply = await llm([
             {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:1800]}\n\nJSON:"},
+            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:NARRATION_MAX_CHARS]}\n\nJSON:"},
         ])
         parsed = _parse(reply or "")
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
         refused_full = False
         for entry in clean_entries(parsed, {p["id"] for p in people}, known):
-            res = await write(entry)
+            try:  # review of #2721: one failing write must not discard the rest or misreport the count
+                res = await write(entry)
+            except Exception as e:
+                logger.debug(f"[open-ledger] write skipped: {e}")
+                from src import log_rings
+                log_rings.record_soft_failure("open-ledger:write-failed", e)
+                continue
             if isinstance(res, dict) and res.get("accepted") is True:
                 accepted += 1
             elif isinstance(res, dict) and res.get("reason") == "full":
@@ -188,7 +198,13 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
             _record_full(owner)  # once per turn, however many writes were refused
         if resolve is not None and opens:
             for r in clean_resolutions(parsed, {o["id"] for o in opens}):
-                res = await resolve(r)
+                try:
+                    res = await resolve(r)
+                except Exception as e:
+                    logger.debug(f"[open-ledger] resolve skipped: {e}")
+                    from src import log_rings
+                    log_rings.record_soft_failure("open-ledger:resolve-failed", e)
+                    continue
                 if isinstance(res, dict) and res.get("accepted") is True:
                     accepted += 1
         return accepted

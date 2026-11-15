@@ -1909,13 +1909,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
     """ORW-405 / ORW-409 - the morning-state lines for the narrator after the FE ran the player's turnIn: the night is over and who is still asleep (names only). The facts come from the post-turnIn briefing
     (one board read); only without one do they come from the turnIn result's public status. The part of the day is NOT restated when the fresh context in `volatile` already states it. '' if unreadable."""
     try:
+        tod, names = "", []
         if briefing is not None:
-            tod, names = briefing.part_of_day, list(briefing.asleep)
-        else:
+            tod, names = str(briefing.part_of_day or "").strip(), list(briefing.asleep or [])
+        if not tod or briefing is None:  # per field: a briefing that lacks the part of the day falls back to the turnIn result's own status for it (an empty asleep list IS a fact, so only a missing briefing falls back for names)
             data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
             st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else (data if isinstance(data, dict) else {})
-            tod = str(st.get("timeOfDay") or "").strip()
-            names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
+            if not tod:
+                tod = str(st.get("timeOfDay") or "").strip()
+            if briefing is None:
+                names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
         if tod and not stated:
@@ -2065,6 +2068,8 @@ _NAP_ACTION_RE = re.compile(
     r"|\b(?:lie|lay|lying|laying)\s+down\s+(?:for\s+(?:a\s+|an\s+)?(?:nap|rest|while|bit|few|couple|\d|half|one|two|three|\w+\s+hours?)|to\s+(?:nap|rest|take))\b",
     re.IGNORECASE,
 )
+_NAP_SUBJECT_RE = re.compile(r"\b(?:i|i'm|im|i’m|i'll|i’ll|i'd|let's|let’s|lets|we'll|we’ll)\b", re.IGNORECASE)
+_NAP_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
 _NAP_WORD_HOURS = {"half an hour": 0.5, "a half hour": 0.5, "half hour": 0.5, "an hour and a half": 1.5, "one and a half hours": 1.5, "a couple of hours": 2.0, "a couple hours": 2.0, "an hour": 1.0, "one hour": 1.0, "a hour": 1.0,
                    "two hours": 2.0, "three hours": 3.0, "a few hours": 3.0}
 
@@ -2075,6 +2080,9 @@ def _nap_hours_from_text(text) -> Optional[float]:
     for phrase in sorted(_NAP_WORD_HOURS, key=len, reverse=True):
         if phrase in low:
             return _NAP_WORD_HOURS[phrase]
+    m = re.search(r"\b(" + "|".join(_NAP_NUM_WORDS) + r")[- ]hours?\b", low)  # "four hours": the number in words (the engine clamps the length)
+    if m:
+        return float(_NAP_NUM_WORDS[m.group(1)])
     m = re.search(r"(\d+(?:\.\d+)?)\s*[- ]?\s*(hours?|hrs?|h)\b", low)
     if m:
         return float(m.group(1))
@@ -2094,7 +2102,9 @@ def _player_means_nap(text) -> bool:
             continue
         for sent in _BED_SPLIT_RE.split(raw):
             sent = sent.strip(" \t\"'“”")
-            if sent and _NAP_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent) and not _BED_REJECT_RE.search(sent):
+            nm = _NAP_ACTION_RE.search(sent) if sent else None
+            # the napper is the SPEAKER: a first-person subject at or before the action ("My roommate will take a nap" has none; a bare possessive "my" is not a subject)
+            if nm and _NAP_SUBJECT_RE.search(sent[:nm.end()]) and not _BED_REJECT_RE.search(sent):
                 return True
     return False
 
@@ -3324,7 +3334,8 @@ _MOVE_SIGNAL_RE = re.compile(
     r"sits?|sitting|sat|stands?|standing|stood|leans?|leaning|leaned|lounges?|lounging|lounged|"
     r"perched|sprawled|lingers?|lingering|lingered|"
     r"kitchen|living[\s-]?room|lounge|backyard|back ?yard|bedrooms?|bathroom|"
-    r"hoh[\s-]?room|head of household|storage[\s-]?room|diary[\s-]?room"
+    r"hoh[\s-]?room|head of household|storage[\s-]?room|diary[\s-]?room|"
+    r"dining[\s-]?room|hall(?:way)?|enter(?:s|ed|ing)?|arriv(?:e|es|ed|ing)"
     r")\b", re.I)
 
 # CodeRabbit (BL-013/033): the movement belts must read the player-VISIBLE narration, not raw
@@ -5798,6 +5809,21 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
     )
 
 
+def _split_sentences_keep_dotted_times(text: str) -> list:
+    """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
+    zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
+    parts = re.split(r"(?<=[.!?\n])", text)
+    out: list = []
+    for p in parts:
+        if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):
+            out[-1] += p
+        elif out and re.search(r"\b[ap]\.m\.$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z]", p):
+            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it)
+        else:
+            out.append(p)
+    return out
+
+
 async def _pre_emission_outcome_guard(text: str, owner) -> str:
     """0065 Part C — the PRE-EMISSION outcome guard, applied to already-leak-scrubbed text just
     before it streams to the player. Splits `text` into sentences and, for any sentence that asserts
@@ -5834,6 +5860,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
+                and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
                 and not chat_helpers.sentence_states_zero_clock_time(text)):
             return text
     except Exception:
@@ -5841,7 +5868,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     # At least one sentence carries closed-set claim language OR names someone out of the house — split
     # and screen sentence-by-sentence, preserving the original delimiters so non-suspect prose streams
     # byte-identically.
-    parts = re.split(r"(?<=[.!?\n])", text)
+    parts = _split_sentences_keep_dotted_times(text)  # review of #2657: "3 a.m." / "9 p.m." must not be cut into "3 a." + "m."
     out = []
     for part in parts:
         try:
@@ -5854,6 +5881,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # the two claim kinds not yet chyron-covered (the season winner, a player expulsion).
             # ORW-377 (zero clocks in the house): a stated clock time ("6:15", "3am", "quarter past eight") is dropped as a SENTENCE - never the scene. Closed-set only; fail-open.
             if chat_helpers.sentence_states_zero_clock_time(part):
+                # the whole SENTENCE goes (review of #2754): a clause-level cut left "kitchen; and Sam yawned" on screen and the stored-text mirror could not follow it
                 continue
             if chat_helpers._sentence_has_chyron_covered_claim(part):
                 continue  # a chyron already carries this fact — the model's restatement never renders
@@ -6004,8 +6032,13 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
     surviving first clause right along with the dropped second one."""
     if after == before or not before:
         return round_response  # nothing dropped — the hot path
-    b_parts = re.split(split_pattern, before)
-    a_parts = re.split(split_pattern, after)
+    if split_pattern == r"(?<=[.!?\n])":
+        # the outcome guard splits with `_split_sentences_keep_dotted_times` (review of #2754: "3 a.m." is ONE unit there, so re-splitting it here
+        # into "3 a." + "m." erased the wrong fragments from the stored text); any other guard that splits plainly never produces a dotted-time unit
+        b_parts, a_parts = _split_sentences_keep_dotted_times(before), _split_sentences_keep_dotted_times(after)
+    else:
+        b_parts = re.split(split_pattern, before)
+        a_parts = re.split(split_pattern, after)
     ai = 0
     for bp in b_parts:
         if ai < len(a_parts) and a_parts[ai] == bp:
@@ -7312,6 +7345,7 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
     beat_s = _PD_BEAT_S if beat_s is None else beat_s
     it = stream.__aiter__()
     deadline = None
+    nxt = None
     try:
         while True:
             if deadline is None and armed():
@@ -7344,6 +7378,12 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
                 return
             yield chunk
     finally:
+        if nxt is not None and not nxt.done():  # closed mid-keepalive: stop the pending read first, or aclose() hits "already running" and the upstream read carries on
+            nxt.cancel()
+            try:
+                await nxt
+            except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read)
+                pass
         try:
             await it.aclose()
         except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
@@ -9169,7 +9209,7 @@ async def _stream_agent_loop_impl(
                                         from src.predisplay_check import check_and_count as _pd_check
                                         from src.predisplay_check import quote_open_after as _pd_qopen
                                         _pd_inq = _pd_qopen(_round_emitted_text)  # a quote opened by an earlier chunk of this round is still open
-                                        await _pd_check(_guarded.text, owner, in_quote=_pd_inq)
+                                        await _pd_check(_guarded_text or "", owner, in_quote=_pd_inq)  # review of #2682: count what the player is shown (post-wall), not the pre-wall text
                                     except Exception:  # failsoft-ok: counter only
                                         pass
                                     if (not _pd_rewrite_used and _guarded_text and not _scene_broken and not _visible_halted
@@ -9397,8 +9437,14 @@ async def _stream_agent_loop_impl(
                 # very text the guard cut (a reload or second window would show the invented outcome).
                 if not _scene_broken:
                     round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
-                if _pd_rw_cont:
-                    try:  # ORW-408: the redo still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
+                try:  # review of #2682: the final buffered sentence is counted too (the mid-stream hook never sees it)
+                    from src.predisplay_check import check_and_count as _pd_check_f
+                    from src.predisplay_check import quote_open_after as _pd_qopen_f
+                    await _pd_check_f(_guarded_text or "", owner, in_quote=_pd_qopen_f(_round_emitted_text))
+                except Exception:  # failsoft-ok: counter only
+                    pass
+                if _pd_rw_cont or (not _pd_rewrite_used and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
+                    try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
                         from src.predisplay_check import quote_open_after as _pd_qopen2
                         _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner, in_quote=_pd_qopen2(_round_emitted_text))

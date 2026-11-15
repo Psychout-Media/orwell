@@ -10,9 +10,9 @@ from typing import Iterable
 
 _PARTS = {"morning", "afternoon", "evening", "night", "late night", "early morning", "midday"}
 _TOD_RE = re.compile(r"^\s*-\s*(?:(?:Time of day|Part of the day):|The night is over: it is now)\s*([A-Za-z -]+?)(?:\s*[(.]|$)", re.IGNORECASE | re.MULTILINE)
-_DUE_NOW_RE = re.compile(r"production is calling everyone|production calls everyone|the scheduled event is on now", re.IGNORECASE)
+_DUE_NOW_RE = re.compile(r"production is calling everyone|production calls everyone|the scheduled event is on now|^\s*-\s*IT IS TIME:[^\n]*is starting NOW", re.IGNORECASE | re.MULTILINE)  # the last form is the GAME CONTEXT's own daySchedule line (momentPrompts.ts)
 _IMMINENT_RE = re.compile(r"production gives notice|is about to be called", re.IGNORECASE)
-_NOT_DUE_RE = re.compile(r"production hasn'?t called|is not due until", re.IGNORECASE)
+_NOT_DUE_RE = re.compile(r"production hasn'?t called|is not due until|^\s*-\s*COMING UP:", re.IGNORECASE | re.MULTILINE)
 _WITH_RE = re.compile(r"^\s*With you:\s*(.+?)\.?\s*$", re.IGNORECASE | re.MULTILINE)
 _LEFT_RE = re.compile(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*?)(?:\.\s+Voice it as a natural beat|$)", re.MULTILINE)  # the clauses only: the cue's own instruction sentence holds a ";" that must not be read as a clause
 _ASLEEP_RE = re.compile(r"Still asleep \(\d+\):\s*(.+?)\.\s", re.IGNORECASE)

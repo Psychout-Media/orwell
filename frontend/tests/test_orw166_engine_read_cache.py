@@ -276,7 +276,7 @@ def test_pure_reads_list_is_pinned():
     assert cache.PURE_READS == frozenset({
         "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead",
         "seasonRecap", "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice",
-        "competitionStagingView", "beatLog",
+        "competitionStagingView", "openLedgerHere", "beatLog",
     })
 
 
@@ -414,3 +414,18 @@ def test_per_user_records_stay_bounded_and_are_swept_amortized(monkeypatch):
     run(go())
     assert peak <= 4 * 4 + 1, peak                 # never more than the sweep threshold (+ the record that tripped it)
     assert 0 < sweeps["n"] < 200, sweeps           # swept regularly, but nowhere near once per call (1,000 calls)
+
+
+def test_peek_with_fields_copies_only_those_keys():
+    """ORW-437 (review of #2700): the streaming checker peeks per chunk and needs two keys; it must not deep-copy the whole board."""
+    big = {"asleep": [{"name": "A"}], "daySchedule": {"next": "hoh-competition"}, "pad": ["x" * 50] * 1000}
+
+    async def go():
+        async def fetch():
+            return big
+        await cache.read("getGameState", "u-peek", fetch)
+        return cache.peek("getGameState", "u-peek", fields=("asleep", "daySchedule")), cache.peek("getGameState", "u-peek")
+
+    part, whole = run(go())
+    assert set(part) == {"asleep", "daySchedule"} and part["asleep"] == [{"name": "A"}]
+    assert "pad" in whole and part["asleep"] is not big["asleep"]  # still a copy

@@ -93,10 +93,11 @@ def unify_part_of_day_lines(prompt: str, b: Briefing) -> str:
     if not isinstance(prompt, str) or not b.part_of_day:
         return prompt
     tod = re.search(r"^- Time of day:[^\n]*\n", prompt, re.MULTILINE)
-    pod = re.search(r"^(- Part of the day: )[A-Za-z -]+?(?=\s*[(.])", prompt, re.MULTILINE)
+    # review of #2722: the engine's real line carries the day ("- Part of the day: small hours, Day 5 (engine truth)."): keep that suffix, replace only the band
+    pod = re.search(r"^(- Part of the day: )[A-Za-z -]+?((?:, Day \d+)?)(?=\s*[(.])", prompt, re.MULTILINE)
     if not (tod and pod):
         return prompt
-    out = prompt[:pod.start()] + pod.group(1) + b.part_of_day + prompt[pod.end():]
+    out = prompt[:pod.start()] + pod.group(1) + b.part_of_day + pod.group(2) + prompt[pod.end():]
     return re.sub(r"^- Time of day:[^\n]*\n", "", out, count=1, flags=re.MULTILINE)
 
 
