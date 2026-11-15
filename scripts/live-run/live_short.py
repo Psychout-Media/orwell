@@ -363,7 +363,7 @@ def score(turns, checks, check, turn_limit):
     for t in turns:
         a_ = abs_hours(t.get("clock"))
         if prev is not None and a_ is not None and a_ - prev > 1.0:
-            gap = a_ - prev; bed = bool(BED_MSG_RE.search(t.get("msg") or "") or NAP_MSG_RE.search(t.get("msg") or ""));  # 0148: a nap passes its hours by design wake8 = abs((a_ % 24) - 8.0) < 0.2 and ((prev % 24) >= 23.0 or (prev % 24) < 8.0)  # the night ran its course to 8am (the previous turn was already deep in the night), not a day cut short
+            gap = a_ - prev; bed = bool(BED_MSG_RE.search(t.get("msg") or "") or NAP_MSG_RE.search(t.get("msg") or "")); wake8 = abs((a_ % 24) - 8.0) < 0.2 and ((prev % 24) >= 23.0 or (prev % 24) < 8.0)  # the night ran its course to 8am (the previous turn was already deep in the night), not a day cut short
             if t.get("harness_jump"): check(f"K1-clock-jump-by-runner[{t['label']}]", True, f"+{gap:.1f}h, made by the runner's own engine call ({t['harness_jump']} move(s)) - not the game", "note")
             elif bed or wake8: check(f"K1-clock-jump-bed[{t['label']}]", True, f"+{gap:.1f}h after a bed message or to 8am", "note")
             elif t.get("phase_before") in ("hoh-competition", "veto-competition") and t.get("phase") != t.get("phase_before"):
