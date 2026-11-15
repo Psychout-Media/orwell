@@ -18,6 +18,7 @@ const read = (rel: string): string => readFileSync(join(ROOT, rel), "utf8");
 export const OPERATIONAL_ENV: Readonly<Record<string, string>> = {
   ORWELL_DATA_DIR: "per-user save directory",
   ORWELL_STORE: "save-store backend selector (file | sqlite)",
+  ORWELL_STALL_LOG_MS: "ORW-404 stall-timing log threshold in ms (default 500; measurement only, a stderr line when a save/embed/rebuild step exceeds it)",
   ORWELL_ENGINE_PORT: "HTTP edge port",
   ORWELL_ENGINE_HOST: "HTTP edge bind host",
   ORWELL_ENGINE_TOKEN: "shared secret on every tool route",
@@ -44,7 +45,6 @@ export const RAW_BEHAVIOUR: Readonly<Record<string, { kind: "toggle" | "seam" | 
   ORWELL_HANGOUT_P_SCALE: { kind: "knob", default: "1", reason: "live-verification knob (A15): scales the hang-out stop chances; the deploy never sets it" },
   ORWELL_WANT_MOVEMENT_K: { kind: "knob", default: "1", reason: "calibration-measurement override of the want-movement strength; the deploy never sets it" },
   ORWELL_SAVE_FSYNC: { kind: "knob", default: "background", reason: "ORW-404 kill switch: =sync restores the fully synchronous per-save fsync (default: the fsync runs off the request path); non-behavioural, never changes saved bytes" },
-  ORWELL_STALL_LOG_MS: { kind: "knob", default: "500", reason: "ORW-404 stall-timing log threshold in ms (measurement only; stderr line when a save/embed/rebuild step exceeds it)" },
 };
 
 const walk = (dir: string, out: string[] = []): string[] => {
