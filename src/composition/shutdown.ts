@@ -9,6 +9,11 @@ export interface ShutdownOptions {
   exit: (code: number) => void;
   /** Hard exit deadline (ms). Default 12 000. */
   hardExitMs?: number;
+  /**
+   * Called synchronously, first, when shutdown begins (before the timer and the flush): the place to
+   * stop accepting NEW work (the transport's "shutting down" flag). Must not throw; if it does it is ignored.
+   */
+  onStart?: () => void;
 }
 
 export const DEFAULT_HARD_EXIT_MS = 12_000;
@@ -17,6 +22,7 @@ export function createShutdown(opts: ShutdownOptions): () => Promise<void> {
   let started: Promise<void> | null = null;
   return () => {
     if (started) return started;
+    try { opts.onStart?.(); } catch { /* stopping intake is best-effort; never block exit */ }
     const timer = setTimeout(() => opts.exit(0), opts.hardExitMs ?? DEFAULT_HARD_EXIT_MS);
     if (typeof timer.unref === "function") timer.unref();
     started = (async () => {

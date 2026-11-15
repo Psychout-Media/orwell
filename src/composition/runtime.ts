@@ -85,8 +85,10 @@ export interface Runtime {
   warmStatus(): { warmed: boolean; warmMs: number | null };
   /** ORW-404: the save-fsync backlog for `/health` (all zero when the store has none). */
   saveDurability(): SaveDurability;
-  /** ORW-404: shutdown flush — fsync the newest un-synced save of every user, bounded. Never throws. */
-  flushSaves(timeoutMs?: number): void;
+  /** ORW-404: mark the process as shutting down (one-way). The transport then refuses NEW tool calls with a retryable 503. */
+  beginShutdown(): void;
+  /** ORW-404: true once `beginShutdown` ran; read by the transport per request. */
+  isShuttingDown(): boolean;
   /** ORW-404: non-blocking shutdown flush; resolves by `timeoutMs` even if a sync never settles. Never rejects. */
   flushSavesAsync(timeoutMs?: number): Promise<void>;
   /** The in-game clock's LIVE state (runtime FE flip, else the env default) — reported on `/health`. */
@@ -196,10 +198,13 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // Default: resume eagerly (tests + every non-entrypoint caller keep the original behavior). The
   // entrypoint passes deferResume so it can bind /health + warm the embedder before resuming.
   if (!opts.deferResume) resumeSaved();
+  let shuttingDown = false;
   return {
     registry,
     orchestrator,
     clock,
+    beginShutdown: () => { shuttingDown = true; },
+    isShuttingDown: () => shuttingDown,
     knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
     resumeSaved,
     warmSaved,
@@ -207,7 +212,6 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective(),
     saveDurability: () => saveStore?.durability?.()
       ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false },
-    flushSaves: (timeoutMs) => { try { saveStore?.flushDurable?.(timeoutMs); } catch { /* never block exit */ } },
     flushSavesAsync: async (timeoutMs) => { try { await saveStore?.flushDurableAsync?.(timeoutMs); } catch { /* never block exit */ } },
   };
 }

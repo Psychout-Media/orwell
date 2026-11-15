@@ -48,8 +48,6 @@ export interface UserSaveStore {
   quarantineIncompatible?(user: string): void;
   /** ORW-404: the fsync backlog (stores that fsync in the background). Optional. */
   durability?(): SaveDurability;
-  /** ORW-404: synchronously harden every un-synced save before exit, bounded by `timeoutMs`. Optional. */
-  flushDurable?(timeoutMs?: number): void;
   /** ORW-404: non-blocking shutdown flush (async fsync, resolves by `timeoutMs` even if a sync never settles). Optional. */
   flushDurableAsync?(timeoutMs?: number): Promise<void>;
 }

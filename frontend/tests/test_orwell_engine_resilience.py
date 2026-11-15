@@ -155,6 +155,39 @@ def test_a_sustained_connection_error_eventually_raises(monkeypatch):
         _run(orwell_engine._call("gameStatus", {}, user="x"))
 
 
+# --- ORW-404: the engine's "restarting" 503 (it is shutting down) is an outage, not a failed turn --------
+
+_RESTARTING = {"error": "engine restarting: retry shortly", "code": "engine-restarting", "retryable": True}
+
+
+def test_engine_restarting_503_is_retried_then_succeeds(monkeypatch):
+    # The engine refused a NEW call during its shutdown window (nothing was applied): retry like any
+    # momentary outage, and leave no recorded error when the next try lands.
+    client = _patch_seq(monkeypatch, [
+        _resp(503, payload=_RESTARTING),
+        _resp(200, payload={"result": {"ok": True}}),
+    ])
+    assert _run(orwell_engine._call("recordInteraction", {}, user="x")) == {"ok": True}
+    assert client.calls == 2
+    assert orwell_engine.last_engine_error() is None
+
+
+def test_a_sustained_engine_restarting_503_surfaces_as_unreachable_not_a_tool_error(monkeypatch):
+    _patch_seq(monkeypatch, [_resp(503, payload=_RESTARTING) for _ in range(5)])
+    with pytest.raises(httpx.HTTPStatusError):
+        _run(orwell_engine._call("recordInteraction", {}, user="x"))
+    le = orwell_engine.last_engine_error()
+    assert le and le["kind"] == "unreachable"  # the same outage banner as a refused connection, never "tool-error"
+
+
+def test_other_structured_503s_are_still_the_engine_answering(monkeypatch):
+    # e.g. the response-budget 503 or the disabled-admin 503: a structured body that is NOT the restart code.
+    client = _patch_seq(monkeypatch, [_resp(503, payload={"error": "engine busy", "code": "engine-busy"})])
+    with pytest.raises(orwell_engine.EngineToolError):
+        _run(orwell_engine._call("recordInteraction", {}, user="x"))
+    assert client.calls == 1
+
+
 # --- a structured engine answer is NEVER retried ----------------------------------------------
 
 def test_no_active_game_is_not_retried(monkeypatch):

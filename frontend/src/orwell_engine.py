@@ -337,7 +337,11 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
             err = body.get("error")
         except Exception:
             err, body = None, None
-        if err is not None:
+        # ORW-404: a 503 with code "engine-restarting" is the engine refusing NEW work while it shuts down
+        # (nothing was applied). It is an OUTAGE, not an answer: fall through to raise_for_status so the
+        # retry loop treats it like a refused connection mid-restart and never records a failed turn.
+        restarting = r.status_code == 503 and isinstance(body, dict) and body.get("code") == "engine-restarting"
+        if err is not None and not restarting:
             # audit A-S5: carry the engine's STRUCTURED fields (`code`/`beatSeq`/`board`) through so
             # the stale-beat reconcile keys off a stable machine code, not the message prose. Absent
             # fields ⇒ None ⇒ the existing message-marker fallback still applies (byte-identical).

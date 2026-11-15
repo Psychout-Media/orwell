@@ -96,6 +96,13 @@ export interface HttpMcpOptions {
   /** ORW-404: the save-fsync backlog for `/health` (latest vs durable version, oldest un-synced age). */
   saveStatus?: () => { saveLatestVersion: number; saveDurableVersion: number; saveOldestUnsyncedAgeMs: number; saveUnsyncedUsers: number; saveDurabilityPending?: boolean };
   /**
+   * ORW-404: true once the process has begun a graceful shutdown. While true, every NEW tool call
+   * (player/admin `/call` and `/rpc`) is refused with a retryable 503 (`code: "engine-restarting"`) so
+   * nothing is accepted that the exit could kill; requests already running finish (a save is
+   * synchronous inside its request). `/health` and the static `GET /tools` keep answering. Unset => never.
+   */
+  shuttingDown?: () => boolean;
+  /**
    * #1713 — the per-request RESPONSE BUDGET (ms): the hard bound on how long a queued tool call may
    * go unanswered before the transport answers a typed 503 (`code: "engine-busy"`) instead of holding
    * the socket silently. Node's `server.requestTimeout` only bounds RECEIVING the request — nothing
@@ -267,6 +274,10 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
     return { refused: () => refused, clear: () => clearTimeout(timer) };
   };
 
+  const isShuttingDown = (): boolean => {
+    try { return options.shuttingDown?.() === true; } catch { return false; }
+  };
+
   const server = createServer((req, res) => {
     const send = (code: number, body: unknown): void => {
       // E30: the socket may be gone (request timeout, client abort) by the time a queued job
@@ -304,6 +315,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
           ...warmFields(options.warmStatus),
           stalls: stallTimer.snapshot(),
           ...saveFields(options.saveStatus),
+          shuttingDown: isShuttingDown(),
           flags: (() => {
             const f = bootFlags();
             try {
@@ -362,6 +374,12 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
         // sprayed id created the sandbox, making the id "known" for later POSTs and defeating
         // the B34 anti-spray gate.
         return send(200, { tools: toolsFor(channel === "player" ? "player" : "admin/God Mode") });
+      }
+
+      // ORW-404: once shutdown has begun, refuse NEW mutating work before reading the body or queueing it.
+      if (req.method === "POST" && (match[2] === "call" || match[2] === "rpc") && isShuttingDown()) {
+        try { res.setHeader("retry-after", "3"); } catch { /* headers already sent */ }
+        return send(503, { error: "engine restarting: retry shortly", code: "engine-restarting", retryable: true });
       }
 
       if (req.method === "POST" && match[2] === "call") {
