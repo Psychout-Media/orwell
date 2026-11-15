@@ -888,6 +888,10 @@ export function generateHouse(
   // advancing stream, archetype-biased per NPC, so the cast sounds like sixteen people. Player-INDEPENDENT
   // and off the main stream (no calibration impact), byte-stable for the season (voice is identity).
   const voiceRng = new SeededRandom(hashSeed(`voice:${npcs.map((n) => n.name).join("|")}`));
+  // ORW-432: re-picks for dials the trait table forbids ride their OWN stream, so the main voice stream (and
+  // so every dial that already coexisted, every signature and lexicon) is byte-identical to before.
+  const voiceFixRng = new SeededRandom(hashSeed(`voice-fix:${npcs.map((n) => n.name).join("|")}`));
+  const stressTellCounts = new Map<string, number>();
   // 0085: deal the static INFLUENCE aptitudes (persuasiveness/susceptibility) cast-wide off a names-keyed
   // side rng — archetype-correlated, byte-stable, off the main stream (no calibration impact). Engine-only.
   const influenceRng = new SeededRandom(hashSeed(`influence:${npcs.map((n) => n.name).join("|")}`));
@@ -901,7 +905,7 @@ export function generateHouse(
     n.character.demeanor = demeanors[i]!;
     n.character.appearance = withBuild(n.character.appearance, builds[i]!);
     n.character.presentation = presentations[i]!;
-    n.character.voice = generateVoice(voiceRng, n.character.archetype);
+    n.character.voice = generateVoice(voiceRng, n.character.archetype, { fixRng: voiceFixRng, tellCounts: stressTellCounts, demeanor: n.character.demeanor });
     n.character.influence = generateInfluence(influenceRng, n.character.archetype);
   });
   return { npcs };

@@ -344,7 +344,7 @@ update_deferred_check() {
   if [[ -n "$until_epoch" ]] && (( now > until_epoch + 600 )); then return 0; fi
   text="$(tr -cd '[:print:]\n' < "$f" | tr '\n' ' ' | sed 's/ *$//')"
   warn "an update is DEFERRED (a game is live) — it runs on its own once the game is idle: ${text}"
-  info "to run it now (cuts any live game): bash ${APP_DIR}/deploy/orwell-update.sh --force"
+  info "to run it without waiting for the game to go idle (it still waits for the turn in flight to finish): bash ${APP_DIR}/deploy/orwell-update.sh --force"
 }
 
 diagnose() {
