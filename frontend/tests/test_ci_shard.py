@@ -169,8 +169,8 @@ def test_every_browser_test_file_has_a_measured_duration():
     missing = [n for n in _real_test_files() if _module_launches_browser(os.path.join(here, n)) and n not in table]
     assert not missing, (
         f"browser test file(s) with no entry in frontend/tests/_ci_durations.json: {missing}. Unweighed files make fe-browser-tests shards lopsided. "
-        "Add each file with its measured seconds: take the `--durations=0` logs of the fe-browser-tests jobs of a green CI run "
-        "(gh api repos/<owner>/<repo>/actions/jobs/<job id>/logs > leg-N.log) and run "
-        "`python3 frontend/tests/_ci_refresh_durations.py leg-1.log ... leg-5.log`; for a brand-new file, estimate its seconds by hand (ROUGH is fine) "
-        "and refresh from CI after it first runs."
+        "To add the entry, run this ONE command from the repo root (it takes a green main run's `--durations=0` logs, one per fe-browser-tests job: "
+        "`gh api repos/Psychout-Media/orwell/actions/jobs/<job id>/logs > leg-N.log`): `python3 frontend/tests/_ci_refresh_durations.py leg-1.log leg-2.log leg-3.log leg-4.log leg-5.log`. "
+        "A brand-new file is in no main log yet: add `\"<file name>\": <seconds>` to frontend/tests/_ci_durations.json by hand (a conservative 15 per test is fine) "
+        "and let the next refresh replace it with the measured time."
     )
