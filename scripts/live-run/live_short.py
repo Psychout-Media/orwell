@@ -119,6 +119,7 @@ class Engine:
             a = self.call("advanceGame"); p = a.get("pending")
             if p:
                 k, o = p.get("kind"), [x.get("id") for x in (p.get("options") or [])]
+                if k == "ceremony-step": self.call("advanceGame"); continue  # a staged ceremony's watch step is advanced, never answered
                 d = {"kind": k}
                 if k in ("comp-round", "comp-intent"): d["intent"] = "compete"
                 elif k == "nominations": d["choice"] = o[:2]
