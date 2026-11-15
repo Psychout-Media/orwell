@@ -71,8 +71,11 @@ export function sliceForView(history, view) {
 
 // ── per-session view state (a plain map; the viewer's own choice, never persisted) ───────────────────────────────
 const _views = new Map();
+// ORW-375 diagnostics: a small ring of chapter-view events (window.__chLog), read by the race test when it fails.
+export function _chLog(ev, d) { try { const w = window; (w.__chLog = w.__chLog || []).push({ t: Math.round(performance.now()), ev, ...d }); if (w.__chLog.length > 80) w.__chLog.shift(); } catch (_) { /* no window */ } }
 export function getView(sessionId) { return _views.has(sessionId) ? _views.get(sessionId) : 'current'; }
 export function setView(sessionId, view) {
+  _chLog('setView', { view: String(view) });
   if (view === 'current' || view == null) _views.delete(sessionId); else _views.set(sessionId, view);
   try { window.dispatchEvent(new CustomEvent('orwell:chapter-view', { detail: { sessionId, view: getView(sessionId) } })); } catch (_) { /* no window in tests */ }
 }
@@ -88,7 +91,8 @@ export function rowsFor(sessionId, history) {
   const idx = chapterIndex(history);
   if (idx.weeks.length < 2) { updateBar(null, null); return windowRows(sessionId, 'all', history); }
   let view = getView(sessionId);
-  if (view !== 'current' && !idx.weeks.includes(view)) { _views.delete(sessionId); view = 'current'; }
+  if (view !== 'current' && !idx.weeks.includes(view)) { _chLog('rowsFor-RESET', { view: String(view), weeks: idx.weeks.join(','), rows: history.length }); _views.delete(sessionId); view = 'current'; }
+  _chLog('rowsFor', { view: String(view), weeks: idx.weeks.join(','), rows: history.length });
   const want = view === 'current' ? idx.current : view;
   updateBar(sessionId, { weeks: idx.weeks, current: idx.current, viewing: want, isCurrent: want === idx.current });
   return windowRows(sessionId, String(want), history.filter((_, i) => idx.rowWeek[i] === want));

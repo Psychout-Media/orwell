@@ -156,7 +156,6 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
         browser.close()
 
 
-@pytest.mark.skip(reason="ORW-375: red on CI only (a week picked while the chat reloads snaps back to the current week; the live guard trips on a bubble without the history tag). Skipped so main is green while the race is fixed properly; the guard records the node in window.__guardTrigger.")
 @pytest.mark.browser
 @pytest.mark.quarantine(card="ORW-375", added="2026-11-15")  # red on main in fe-browser-tests (3/5) on unrelated PRs; __guardTrigger was None, so the live guard is not what snaps the view back
 def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  # noqa: F811
@@ -187,7 +186,7 @@ def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  #
         _settled(page)
         rows = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")
         bar = page.inner_text("#orwell-chapter-bar")
-        trig = page.evaluate("() => window.__guardTrigger || null")
+        trig = page.evaluate("() => ({guard: window.__guardTrigger || null, log: window.__chLog || []})")
         browser.close()
     assert "Reading Week 1" in bar, (bar, trig)
     assert any("w1 a" in t for t in rows) and not any("w2 a" in t for t in rows), rows
