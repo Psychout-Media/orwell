@@ -202,6 +202,9 @@ def crossover(eng, play, check, chat):
     st = eng.call("getGameState")
     check("N12-a-nap-stays-in-the-day", st.get("dayNumber") == d1 and st.get("timeOfDay") in ("morning", "afternoon", "early-morning"), f"after a nap: {st.get('clockLabel')} ({st.get('timeOfDay')}), was Day {d1}")
     # N5: an EARLY bed (the start of the night) wakes before the house; on waking nobody is up and the widgets agree.
+    # The day's HOH competition is due this afternoon: play it (and the nominations after it) first, or ticking to the night drags the comp into the night and the
+    # goodnight is overruled by the event (an event always wins) - a runner artefact, not the game.
+    eng.play_pendings_until("nominations", "x2", max_steps=60)
     eng.tick_to_night("x-early")
     d2 = eng.call("getGameState").get("dayNumber")
     play("early-bed", "I'm turning in early tonight. Goodnight.")
