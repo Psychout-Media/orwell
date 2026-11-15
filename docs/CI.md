@@ -20,7 +20,7 @@ It is `ci/fast-checks.sh`. Not every check in it is repeated in a slower lane: t
 
 ## Browser lane: two workers per leg (ORW-414), and the ORW-413 parts that were dropped
 
-The `fe-browser-tests` legs run `pytest -m browser -n 2 --dist loadfile`. ORW-414 (#2714) gave every browser stack a kernel-assigned free port and its own data directory, and its body said the lane "needs `-n 2` in ci.yml (ORW-413)"; ORW-413's two PRs never added it, so the lane stayed serial (found by the live check of 2026-11-15 11:30 MST). `--dist loadfile` keeps one file's tests on one worker, so a module-scoped stack boots once per file. The A41 skip guard (0 skips) works under xdist (checked locally on three files, 6 passed, 0 skipped).
+The `fe-browser-tests` legs run `pytest -m browser -n 2 --dist loadgroup`. ORW-414 (#2714) gave every browser stack a kernel-assigned free port and its own data directory, and its body said the lane "needs `-n 2` in ci.yml (ORW-413)"; ORW-413's two PRs never added it, so the lane stayed serial (found by the live check of 2026-11-15 11:30 MST). `conftest.py` marks every browser file with an `xdist_group` named by the file, so `--dist loadgroup` keeps its tests on one worker and a module-scoped stack boots once per file; the files in `_BROWSER_SPREAD_FILES` (today `test_a58_golden_render_live_vs_reload.py`, about 30 s per independent case, alone the longest leg) carry no group and spread over both workers, each booting its own stack. The A41 skip guard (0 skips) works under xdist (checked locally on three files, 6 passed, 0 skipped).
 
 Dropped from ORW-413, with the reason (the card said to build them or record why not):
 

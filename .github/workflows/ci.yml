@@ -579,7 +579,7 @@ jobs:
           { echo '### Front-end coverage'; echo '```'; cat ../fe-coverage.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
         shell: bash
 
-  # The headless-Chromium pytest tests (the `browser` marker). Two workers WITHIN a job (`-n 2 --dist loadfile`; each stack has its own free port and data dir since ORW-414) with `--reruns 1` so the known environmental onboarding-scrim flake (#925/#1148/#930)
+  # The headless-Chromium pytest tests (the `browser` marker). Two workers WITHIN a job (`-n 2 --dist loadgroup`; each stack has its own free port and data dir since ORW-414) with `--reruns 1` so the known environmental onboarding-scrim flake (#925/#1148/#930)
   # self-recovers within the job instead of reddening the whole run. Needs the chromium binary, installed
   # by the shared `setup-playwright` composite action (cache + bounded `--with-deps` + fallback).
   fe-browser-tests:
@@ -624,10 +624,10 @@ jobs:
           ORWELL_SKIP_LANE: browser
           ORWELL_CI_SHARD: ${{ matrix.shard }}/10
         # --durations=0 (was 8): every test's time is in the log, so the shard table can be refreshed from any green run (_ci_refresh_durations.py)
-        # ORW-414 (finished by the ORW-437 review round): `-n 2 --dist loadfile`. ORW-414 (#2714) made every browser stack take a kernel-assigned free port and its own data dir, and
-        # said the lane "needs -n 2 in ci.yml"; ORW-413 never added it, so the lane stayed serial. `loadfile` keeps a file's tests on ONE worker, so a module-scoped stack boots once
+        # ORW-414 (finished by the ORW-437 review round): `-n 2 --dist loadgroup`. ORW-414 (#2714) made every browser stack take a kernel-assigned free port and its own data dir, and
+        # said the lane "needs -n 2 in ci.yml"; ORW-413 never added it, so the lane stayed serial. `loadgroup` plus the xdist_group mark that frontend/tests/conftest.py puts on every browser file keeps a file's tests on ONE worker, so a module-scoped stack boots once
         # per file, not once per worker. The runner has 4 cores: two Chromium + two stacks.
-        run: cd frontend && python3 -m pytest tests/ -m browser -n 2 --dist loadfile --reruns 1 -q -rs --durations=0
+        run: cd frontend && python3 -m pytest tests/ -m browser -n 2 --dist loadgroup --reruns 1 -q -rs --durations=0
 
   fe-browser:
     needs: changes
