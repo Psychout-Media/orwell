@@ -35,6 +35,7 @@ class Briefing:
     commitments: tuple = ()      # open promises: reserved. The commitments the narrator sees are rendered by the ENGINE's own brief (ORW-407); the front end builds no prompt line for them
     day: Optional[int] = None    # the in-game day number (`dayNumber`); None when the clock is dormant
     minutes_until: Optional[int] = None  # whole in-game minutes to the next event (`daySchedule.minutesUntil`); never spoken under zero clocks
+    location_name: str = ""      # ORW-466: this season's themed name for `location` ("the Coral Reef Room"); "" without a house theme
 
     @property
     def awake_present(self) -> tuple:
@@ -78,7 +79,10 @@ def build_briefing(board: Any, zero_clocks: Optional[bool] = None) -> Briefing:
     sched = Briefing.from_schedule(board.get("daySchedule"))
     dn = board.get("dayNumber")
     w = board.get("whereabouts") if isinstance(board.get("whereabouts"), dict) else {}
+    rn = w.get("roomNames") if isinstance(w.get("roomNames"), dict) else {}
+    themed = rn.get(str(w.get("room") or ""))
     return Briefing(
+        location_name=themed.strip() if isinstance(themed, str) else "",
         part_of_day=_part_of_day(board, bool(zero_clocks)),
         next_event=sched.next_event, next_day=sched.next_day, next_part=sched.next_part, due=sched.due, minutes_until=sched.minutes_until,
         day=dn if isinstance(dn, int) and not isinstance(dn, bool) and dn > 0 else None,
