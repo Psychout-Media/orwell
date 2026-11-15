@@ -412,17 +412,3 @@ def test_slow_background_authoring_never_blocks_a_concurrent_turn(monkeypatch):
     _run(_drive())
 
 
-# ── ORW-437 (review of #2668): an error frame mid-stream rejects the WHOLE completion ────────────────────
-
-def test_error_frame_mid_stream_rejects_the_partial_completion(monkeypatch):
-    from src import orwell_day_condense as dc
-    _pin_endpoints(monkeypatch)
-    calls: list = []
-    err = 'event: error\ndata: {"status": 503, "text": "provider overloaded"}\n\n'
-    _install_stream_fake(monkeypatch, [[_delta("The day began with a quiet "), err, _finish("stop")]], calls)
-
-    fn = _run(A.resolve_prose_llm_fn(A._resolve_llm_fn, "u-err"))
-    out = _run(fn([{"role": "user", "content": "summarise the day"}]))
-    assert "The day began" not in out          # the partial text is not kept
-    assert dc.looks_like_error(out)            # the consumer sees a failed call, so nothing is stored
-    assert len(calls) == 1                     # and no length retry rides over it

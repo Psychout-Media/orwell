@@ -3110,9 +3110,7 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                 pass
         if _error_frame is not None:
             # ORW-437 (review of #2668): an error frame mid-stream means everything before it is a partial response (a
-            # cut-off summary would be stored as the day's memory). The whole completion is rejected: the caller gets the
-            # error frame itself, which every consumer already treats as a failed call (day-condense `looks_like_error`,
-            # the authoring parse), so recovery runs and no partial text is kept or recovered from reasoning.
+            # cut-off summary would be stored as the day's memory); `_fn` turns it into a raised failure.
             return _error_frame, "error", ""
         return "".join(parts), _finish, "".join(rparts)
 
@@ -3132,7 +3130,9 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
             messages = [{"role": "user", "content": str(messages)}]
         text, finish, reasoning = await _once(messages, _max_tokens)
         if finish == "error":
-            return text  # ORW-437: a failed stream is returned as the error frame, never retried-over or recovered from
+            # ORW-437: a failed stream RAISES (never returns the frame as text): every consumer already wraps the call in a
+            # try/except and takes its own failure path (nothing stored, a retry or the floor), and nothing is retried-over or recovered.
+            raise RuntimeError("provider-error-frame")
         # 2026-07-13 retry-on-length: `finish_reason == "length"` means the completion was CUT OFF
         # by the output cap — for a JSON-authoring call the body is chopped mid-object and
         # unparseable, so a same-cap retry (#1057) can never fix it. Re-issue EXACTLY ONCE at
