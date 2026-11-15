@@ -30,12 +30,14 @@
     var hasSignal = (init && init.signal) || (!isStr && input && input.signal);
     if (!PATHS[path] || !isStr || hasSignal || (init && init.cache)) return realFetch(input, init);
     var now = Date.now(), hit = cache[u];
-    if (!hit || now - hit.t > TTL_MS) {
+    // ORW-396: a request still PENDING is always joined, however old - re-issuing after TTL_MS while the engine is slow
+    // only stacks more load on it. The TTL ages a SETTLED result only.
+    if (!hit || (hit.done && now - hit.t > TTL_MS)) {
       var p = realFetch(input, init);
-      hit = cache[u] = { p: p, t: now };
+      hit = cache[u] = { p: p, t: now, done: false };
       var mine = hit;
-      p.then(function (r) { if (!r || !r.ok) { if (cache[u] === mine) delete cache[u]; } },
-             function () { if (cache[u] === mine) delete cache[u]; });
+      p.then(function (r) { mine.done = true; mine.t = Date.now(); if (!r || !r.ok) { if (cache[u] === mine) delete cache[u]; } },
+             function () { mine.done = true; if (cache[u] === mine) delete cache[u]; });
     }
     return hit.p.then(function (r) { return r.clone(); });
   };

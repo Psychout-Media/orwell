@@ -409,3 +409,28 @@ def test_mirror_wall_drop_partial_sentence_removal_keeps_the_rest():
     assert "I run this house" not in mirrored
     assert "An Ally settles into the lounge chair." in mirrored
     assert "The sprinklers click on in the distance." in mirrored
+
+
+# ── ORW-395 (2): a goodnight said in the pre-sleep room survives the wall after turnIn moved the board ──
+def test_pre_sleep_room_goodnight_survives_when_the_board_has_moved_to_morning(monkeypatch):
+    from src import orwell_engine
+    evening = _state("living-room", present=["An Ally", "A Neighbor"],
+                     house=_house(active=["An Ally", "A Neighbor", "A Schemer"]))
+    morning = _state("bedroom", present=["An Ally"],
+                     house=_house(active=["An Ally", "A Neighbor", "A Schemer"]))
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(morning))
+    text = 'A Neighbor yawns and says, "goodnight, sleep well." You pull the covers up.'
+    # without the snapshot the live (morning) board makes the speaker a phantom placement
+    assert "goodnight" not in _run(chat_helpers.screen_presence_wall(_USER, text))
+    out = _run(chat_helpers.screen_presence_wall(_USER, text, alt_state=evening))
+    assert "goodnight, sleep well" in out and "covers" in out
+
+
+def test_snapshot_does_not_rescue_someone_absent_on_both_boards(monkeypatch):
+    from src import orwell_engine
+    evening = _state("living-room", present=["An Ally"], house=_house(active=["An Ally", "A Schemer"]))
+    morning = _state("bedroom", present=["An Ally"], house=_house(active=["An Ally", "A Schemer"]))
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(morning))
+    text = 'A Schemer leans on the door and mutters, "nobody suspects us." You nod.'
+    out = _run(chat_helpers.screen_presence_wall(_USER, text, alt_state=evening))
+    assert "nobody suspects" not in out

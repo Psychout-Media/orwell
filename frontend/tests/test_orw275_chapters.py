@@ -157,6 +157,41 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
 
 
 @pytest.mark.browser
+def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  # noqa: F811
+    """ORW-293 (main red at d1dbc361): selectSession chose the week's rows when the history ARRIVED, then waited out a 120 ms fade before painting them. A week
+    picked inside that fade was painted over by the rows chosen before the pick (Week 2 drawn back over Week 1). Forced deterministically here: reopen the chat,
+    wait until the fade has started (the history is in hand), pick Week 1, and after everything settles Week 1 must be what is shown."""
+    from playwright.sync_api import sync_playwright
+    sid = _session(_stack, "ch275-race")
+    hist = [dict(m, id=f"rid{i}", seq=i + 1) for i, m in enumerate(HIST)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        _select(page, sid)
+        page.wait_for_selector("#orwell-chapter-bar select", timeout=15000)
+        page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('w2 a')", timeout=15000)
+        _settled(page)
+        page.evaluate("""(id) => { window.__raceDone = false;
+          window.__raceP = Promise.resolve(window.sessionModule.selectSession(id)).finally(() => { window.__raceDone = true; }); }""", sid)
+        # the fade has started: the reload's history is in hand
+        page.wait_for_function("() => document.getElementById('chat-history').style.opacity === '0'", timeout=15000, polling=5)
+        page.select_option("#orwell-chapter-bar select", "1")
+        page.wait_for_function("() => window.__raceDone === true", timeout=15000)
+        _settled(page)
+        rows = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")
+        bar = page.inner_text("#orwell-chapter-bar")
+        trig = page.evaluate("() => window.__guardTrigger || null")
+        browser.close()
+    assert "Reading Week 1" in bar, (bar, trig)
+    assert any("w1 a" in t for t in rows) and not any("w2 a" in t for t in rows), rows
+
+
+@pytest.mark.browser
 def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
     sid = _session(_stack, "ch275b")
