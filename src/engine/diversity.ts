@@ -529,16 +529,75 @@ export function showmancePlausible(a: ShowmanceIdentity, b: ShowmanceIdentity): 
 // re-export so the cap is a single source of truth in tests/imports
 export { MAX_PER_AGE_BAND };
 
+/** Given names that are also everyday words or months: only these need the context rule below. */
+const COMMON_WORD_NAMES: ReadonlySet<string> = new Set([
+  "may", "will", "grace", "hope", "summer", "faith", "mark", "art", "rose", "june", "april", "august", "dawn", "joy", "ivy", "pearl",
+  "amber", "frank", "lane", "chase", "cliff", "drew", "gene", "guy", "hunter", "miles", "autumn", "winter", "storm", "river", "sky",
+  "rain", "bill", "jack", "rich", "ray", "jay", "pat",
+]);
+/** A word before the name that makes a common-word reading ("in May", "the will", "her faith", "last summer") the likelier one. */
+const COMMON_USE_BEFORE: ReadonlySet<string> = new Set([
+  "in", "of", "on", "last", "next", "this", "every", "each", "since", "until", "during", "early", "late", "mid", "the", "a", "an",
+  "her", "his", "their", "my", "our", "your", "its", "free", "good", "bad", "ill", "some", "no", "any",
+]);
+const MONTH_NAMES: ReadonlySet<string> = new Set(["may", "june", "april", "august"]);
+const DETERMINERS: ReadonlySet<string> = new Set(["the", "a", "an"]);
+const PREPOSITIONS: ReadonlySet<string> = new Set(["of", "in", "on"]);
+/** After a determiner, a name followed by one of these starts a clause about a person ("the Mark she grew up with"). */
+const CLAUSE_STARTERS: ReadonlySet<string> = new Set(["she", "he", "they", "who", "whom", "that", "i", "we", "you"]);
+/** "friend of Grace", "daughter of Hope": a person relation before the preposition makes the name a person. */
+const RELATIONS: ReadonlySet<string> = new Set([
+  "friend", "daughter", "son", "sister", "brother", "mother", "father", "cousin", "wife", "husband", "partner", "boyfriend",
+  "girlfriend", "roommate", "rival", "ally", "aunt", "uncle", "niece", "nephew", "grandmother", "grandfather", "grandma", "grandpa",
+  "mom", "dad", "mum", "mother-in-law", "father-in-law", "stepmother", "stepfather", "boss", "mentor", "coach", "neighbour",
+  "neighbor", "student", "teacher", "care",
+]);
+
 /**
  * ORW-430: carry a given-name change into a public prose string. Swaps the old FIRST name (whole word, with its
  * possessive) for the new first name, only when the first name changed. Pure; a no-op otherwise.
+ *
+ * Name-shaped occurrences only (review of #2748). The match is case-sensitive, so a lower-case use ("free will",
+ * "the mark") is never touched. When the old given name is also an everyday word or a month (May, Will, Grace, Hope,
+ * Summer, Faith, Mark, Art, Rose ...), a capitalised occurrence right after a preposition ("in", "of", "on"), article,
+ * possessive or time word ("last", "next", "every") is left alone ("in May", "last Summer", "the Art"), EXCEPT a
+ * possessive ("May's"), which is always a person. Sentence-initial uses and uses after a verb, comma, "and",
+ * "named", "with" or "by" are renamed. Two overrides keep real names: after the/a/an, a name followed by a
+ * pronoun or relative ("the Mark she grew up with") is a person; after of/in/on, a non-month name whose preceding word
+ * is a person relation ("friend of Grace", "daughter of Hope") is a person. Months (May, June, April, August) after
+ * in/of/last/next/this/every always stay. Any other given name is renamed everywhere.
+ *
+ * An occurrence followed by a capitalised word that is not the card's own surname is another person's full name
+ * ("Lola Other" when the card is "Lola Lawrence") and is never renamed.
  */
 export function renameGivenNameInProse(text: string, priorName: string, nextName: string): string {
   const oldGiven = priorName.trim().split(/\s+/)[0] ?? "";
   const newGiven = nextName.trim().split(/\s+/)[0] ?? "";
   if (!oldGiven || !newGiven || oldGiven === newGiven) return text;
   const esc = oldGiven.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const common = COMMON_WORD_NAMES.has(oldGiven.toLowerCase());
   // ORW-437: a hyphen or an apostrophe-prefix keeps a longer name whole ("Nia-Lee", "D'Nia" are other people); the card
   // name's own possessive ("Nia's") is still swapped because only a following word character or hyphen blocks a match.
-  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), newGiven);
+  const ownSurname = new Set(priorName.trim().split(/\s+/).slice(1));
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (m, offset: number) => {
+    const rest = text.slice(offset + m.length);
+    const sur = /^\s+([A-Z][\p{L}'\u2019-]*)/u.exec(rest);
+    if (sur && !ownSurname.has(sur[1]!.replace(/['\u2019]s$/i, ""))) return m; // another person's full name ("Lola Other")
+    if (!common) return newGiven;
+    if (/^['\u2019]s\b/i.test(rest)) return newGiven; // a possessive is a person
+    const before = text.slice(0, offset);
+    const words = before.match(/[A-Za-z]+/g) ?? [];
+    const prevWord = /([A-Za-z]+)\s*$/.exec(before)?.[1]?.toLowerCase();
+    if (prevWord === undefined || !COMMON_USE_BEFORE.has(prevWord)) return newGiven;
+    if (DETERMINERS.has(prevWord)) {
+      const next = /^\s+([A-Za-z]+)/.exec(rest)?.[1]?.toLowerCase();
+      return next !== undefined && CLAUSE_STARTERS.has(next) ? newGiven : m;
+    }
+    if (MONTH_NAMES.has(oldGiven.toLowerCase())) return m;
+    if (PREPOSITIONS.has(prevWord)) {
+      const rel = words.length >= 2 ? words[words.length - 2]!.toLowerCase() : "";
+      return RELATIONS.has(rel) ? newGiven : m;
+    }
+    return m;
+  });
 }
