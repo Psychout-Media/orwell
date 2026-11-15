@@ -226,7 +226,12 @@ def _valid_fold_entry(e) -> bool:
     return (isinstance(e, dict) and all(k in e for k in _FOLD_REQUIRED)
             and isinstance(e["content"], str) and isinstance(e["kind"], str)
             and isinstance(e["idempotency_key"], str) and e["idempotency_key"]
-            and isinstance(e["with_ids"], list) and all(isinstance(x, str) for x in e["with_ids"]))
+            and isinstance(e["with_ids"], list) and all(isinstance(x, str) for x in e["with_ids"])
+            # review of #2751: the nullable fields are checked for SHAPE too, not only presence. A JSON object for `row_anchor` would reach a DB equality at settle/truncate outside its handler
+            and (e["row_anchor"] is None or isinstance(e["row_anchor"], str))
+            and (e["consequence"] is None or isinstance(e["consequence"], dict))
+            and (e["felt_minutes"] is None or _is_int(e["felt_minutes"]))
+            and all(e.get(k) is None or isinstance(e.get(k), dict) for k in ("assurance", "heard_about_me")))
 
 
 def _restore_folds(saved) -> int:

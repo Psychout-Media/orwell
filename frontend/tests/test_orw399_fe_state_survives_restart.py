@@ -227,3 +227,17 @@ def test_orw437_a_saved_fold_missing_a_key_settle_reads_is_skipped():
         e = {**base, "consequence": None, "felt_minutes": None, "row_anchor": None}
         del e[missing]
         assert not bsp._valid_fold_entry(e), missing
+
+
+@pytest.mark.parametrize("field,bad", [("row_anchor", {"id": 1}), ("row_anchor", 7), ("consequence", "text"), ("felt_minutes", "5"), ("felt_minutes", True), ("assurance", [1]), ("heard_about_me", "x")])
+def test_a_restored_fold_with_a_wrong_shaped_nullable_field_is_skipped(field, bad):
+    """review of #2751: presence of the keys was checked, not their values; a JSON object for `row_anchor` reached a DB equality at settle."""
+    _stage()
+    snap = bsp.snapshot()
+    snap["folds"][0]["entries"][0][field] = bad
+    fl.clear_all()
+    assert bsp._restore_folds(snap["folds"]) == 0 and fl.pending_fold_count(_P, _SID) == 0
+    fl.stage_pending_fold(_P, _SID, content="c", with_ids=[], kind="talk", consequence=None, felt_minutes=None, idempotency_key="idem-null")
+    saved = bsp.snapshot()["folds"]
+    fl.clear_all()
+    assert bsp._restore_folds(saved) == 1, "an entry whose nullable fields are all null still restores"
