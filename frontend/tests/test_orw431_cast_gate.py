@@ -323,19 +323,20 @@ def test_none_notable_is_not_a_repeated_mark():
 
 
 # ---- ORW-437 review: a nickname is a shortening, never a longer different name ----------------------------
+# (opaque tokens, not real names: the rule under test is about letters, not about who is cast)
 def test_longer_distinct_name_is_not_a_nickname():
-    npc = {"id": "npc:1", "name": "Samir Nesbitt"}
-    bio = "Samira grew up in Macon. Samira fixes boats. Samira dislikes noise."
+    npc = {"id": "npc:1", "name": "Zorvan Qell"}
+    bio = "Zorvana grew up in Macon. Zorvana fixes boats. Zorvana dislikes noise."
     assert "story-name" in ca.story_name_codes(bio, npc)
 
 
 def test_shortening_is_a_nickname_unless_it_is_another_cast_first_name():
-    npc = {"id": "npc:1", "name": "Samuel Nesbitt"}
-    bio = "Sam grew up in Macon. Sam fixes boats. Sam dislikes noise."
+    npc = {"id": "npc:1", "name": "Zorvan Qell"}
+    bio = "Zor grew up in Macon. Zor fixes boats. Zor dislikes noise."
     assert ca.story_name_codes(bio, npc) == []
-    other = [npc, {"id": "npc:2", "name": "Sam Ortiz"}]
+    other = [npc, {"id": "npc:2", "name": "Zor Wick"}]
     assert "story-cast-name" in ca.story_name_codes(bio, npc, other)
-    assert ca.repair_story_name(bio, npc, other).startswith("Samuel grew")
+    assert ca.repair_story_name(bio, npc, other) == "Zorvan grew up in Macon. Zorvan fixes boats. Zorvan dislikes noise."
 
 
 # ---- ORW-437 review of #2731 --------------------------------------------------------------------------------
@@ -358,13 +359,19 @@ def test_oversize_or_many_sentence_biography_is_reported_non_blocking():
 
 def test_a_rewrite_keeps_the_first_drafts_look_subfields_it_omitted():
     from src import orwell_cast_gate as G
-    npc = npc_of("npc:1", "Samir Nesbitt", "man", 23)
-    first = json.loads(profile_json("Nia grew up in Macon. Nia welds boats. Nia keeps lists of everything and never sleeps."))
-    async def rewrite(_n, _c):
-        return {"biography": "Samir grew up in Macon and welds boats. He keeps lists of everything and never sleeps.",
+    npc = npc_of("npc:1", "Zorvan Qell", "man", 23)
+    first = json.loads(profile_json("x"))
+    del first["biography"]  # a blocking draft the mend cannot repair, so the gate must call the rewrite
+    calls = []
+
+    async def rewrite(_n, codes):
+        calls.append(codes)
+        return {"biography": "Zorvan grew up in Macon and welds boats. He keeps lists of everything and never sleeps.",
                 "physicalCharacteristics": {"hair": "short"}}
     got, left = _go(G.run_gate(G.SeasonGate("u"), first, npc, [npc], rewrite))
+    assert len(calls) == 1 and "story-no-biography" in calls[0]
     assert got is not None and got["physicalCharacteristics"].get("wardrobe") == LOOK["wardrobe"]
+    assert got["physicalCharacteristics"]["hair"] == "short" and got["biography"].startswith("Zorvan grew up")
 
 # ---- ORW-431b: an authored card never has an empty identity line --------------------------------------------
 class _Engine:
