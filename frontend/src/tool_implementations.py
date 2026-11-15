@@ -4832,7 +4832,7 @@ async def do_create_character(
             motivation=args.get("motivation"),
             private_strategy=args.get("privateStrategy"),
             interview_notes=args.get("interviewNotes"),
-            gender_presentation=args.get("genderPresentation"),
+            gender_presentation=drop_unstated_gender(args, PLAYER_TURN_TEXT.get()).get("genderPresentation"),
             seed=args.get("seed"),
             # The ONE sanctioned player-channel restart door (D1/R1): a confirmed play-again over a
             # finished/abandoned season delegates through the engine's registry.resetUser hinge.
@@ -5233,6 +5233,34 @@ STRATEGY_STYLE_ADJUSTED_NOTE = (
 )
 
 
+# ORW-476 - the player's gender is NEVER inferred from their name. The engine only stores what it is
+# handed, and the model was handing it a name-guessed "woman"/"man" (the schema says "never inferred", the
+# model ignored it), after which the narrator and houseguests gendered a player who never said a word about
+# it. The FE holds the player's own words for the turn (PLAYER_TURN_TEXT), so it checks the claim: a
+# `genderPresentation` is forwarded ONLY when the player's words plainly state that same presentation;
+# otherwise it is dropped and the player stays unset (narrated neutrally, ORW-444).
+_GENDER_EVIDENCE = {
+    "man": re.compile(r"\b(?:he\s*/\s*(?:him|his)|he\s+(?:and|or)\s+him|(?:i\s*(?:'|\u2019)?\s*m|i\s+am|as)\s+(?:a\s+|an\s+)?(?:\w+\s+)?(?:man|guy|dude|male|gentleman|boy|bloke)\b|my\s+pronouns\s+(?:are\s+)?he\b|use\s+he\b|identify\s+as\s+(?:a\s+)?(?:man|male))", re.I),
+    "woman": re.compile(r"\b(?:she\s*/\s*(?:her|hers)|she\s+(?:and|or)\s+her|(?:i\s*(?:'|\u2019)?\s*m|i\s+am|as)\s+(?:a\s+|an\s+)?(?:\w+\s+)?(?:woman|girl|gal|lady|female|chick)\b|my\s+pronouns\s+(?:are\s+)?she\b|use\s+she\b|identify\s+as\s+(?:a\s+)?(?:woman|female))", re.I),
+    "nonbinary": re.compile(r"\b(?:they\s*/\s*them|non[-\s]?binary|enby|gender\s*queer|genderfluid|agender|my\s+pronouns\s+(?:are\s+)?they\b|use\s+they\b)", re.I),
+}
+
+
+def player_stated_gender(value, text: str) -> bool:
+    """True only when the player's own words plainly state the presentation `value` (ORW-476)."""
+    pat = _GENDER_EVIDENCE.get(str(value or "").strip().lower())
+    return bool(pat and pat.search(text or ""))
+
+
+def drop_unstated_gender(args: dict, text: str) -> dict:
+    """ORW-476: remove a model-supplied `genderPresentation` the player never stated (never name-inferred)."""
+    gp = args.get("genderPresentation")
+    if gp is None or player_stated_gender(gp, text):
+        return args
+    logger.info("[orwell] ORW-476: dropped genderPresentation=%r - the player did not state it", gp)
+    return {k: v for k, v in args.items() if k != "genderPresentation"}
+
+
 async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     """0050: record casting-interview answers as they land; the engine returns the status."""
     from src import orwell_engine
@@ -5241,6 +5269,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
+        args = drop_unstated_gender(args, PLAYER_TURN_TEXT.get())
         res = await orwell_engine.update_casting(args, user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
