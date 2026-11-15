@@ -204,6 +204,16 @@ _RETRY_BACKOFF_S = 0.25      # base backoff; doubles each attempt (0.25s, 0.5s)
 # Gateway/proxy statuses that mean "the engine is momentarily unreachable behind the proxy", NOT a
 # real per-tool error (those carry a structured {"error": ...} body and become an EngineToolError).
 _TRANSIENT_STATUSES = frozenset({502, 503, 504})
+# ORW-404: the engine answers 503 {"code": "engine-restarting"} to NEW calls while it shuts down for a deploy.
+# That 503 is sent BEFORE any state change, so re-sending even a non-idempotent tool is safe. A restart takes a
+# few seconds (exit, boot, warm-up), far longer than the short blip retry above, so for THIS code only the call
+# keeps retrying for up to ~20 s total, waiting the engine's Retry-After (capped) between tries. A call with a
+# short timeout of its own (the framing / poll reads) never waits longer than that timeout: its budget is
+# min(20 s, its timeout). Past the budget it falls through to the normal "unreachable" path.
+_RESTART_WAIT_BUDGET_S = float(os.environ.get("ORWELL_ENGINE_RESTART_WAIT_S") or "20")
+_RESTART_RETRY_AFTER_CAP_S = 3.0   # longest single wait between restart retries
+_RESTART_RETRY_AFTER_DEFAULT_S = 1.0  # when the 503 carries no usable Retry-After
+_monotonic = time.monotonic  # indirection so tests can drive a virtual clock
 _RECONNECTING_UNTIL = 0.0    # monotonic deadline; while now < this, a call is mid-retry
 _RECONNECTING_FOR_S = 8.0    # how long the soft state lingers after the last retry began
 
@@ -222,6 +232,26 @@ def reconnecting() -> bool:
     """True while the client is retrying a momentarily-unreachable engine — a soft, brief state the
     health banner renders as "reconnecting…" instead of a hard outage. A success clears it."""
     return time.monotonic() < _RECONNECTING_UNTIL
+
+
+def _restart_wait_s(exc: Exception) -> float | None:
+    """For the engine's "restarting" 503 return how long to wait before retrying (its Retry-After, capped);
+    None for anything else (every other error keeps the short retry)."""
+    if not (isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 503):
+        return None
+    try:
+        body = exc.response.json()
+    except Exception:
+        return None
+    if not (isinstance(body, dict) and body.get("code") == "engine-restarting"):
+        return None
+    try:
+        wait = float(exc.response.headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        wait = _RESTART_RETRY_AFTER_DEFAULT_S
+    if wait != wait or wait <= 0:  # NaN / non-positive
+        wait = _RESTART_RETRY_AFTER_DEFAULT_S
+    return min(wait, _RESTART_RETRY_AFTER_CAP_S)
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -391,11 +421,26 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     # Other wider-timeout pollers keep retrying every transient kind.
     tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
-    for attempt in range(_RETRY_ATTEMPTS + 1):
+    started = _monotonic()
+    restart_budget = _RESTART_WAIT_BUDGET_S if timeout is None else min(_RESTART_WAIT_BUDGET_S, timeout)
+    attempt = -1
+    while True:
+        attempt += 1
         try:
             data = await _post_tool_once(path, name, args, user, timeout)
         except Exception as e:
             last_exc = e
+            # ORW-404: the engine is restarting (503 sent before any state change): ride it out, bounded by the
+            # call's own time budget, and do NOT spend the short-blip attempts on it.
+            wait = _restart_wait_s(e)
+            if wait is not None:
+                remaining = restart_budget - (_monotonic() - started)
+                attempt -= 1
+                if remaining > 0:
+                    _mark_reconnecting()
+                    await asyncio.sleep(min(wait, remaining))
+                    continue
+                attempt = _RETRY_ATTEMPTS  # budget spent: straight to the unreachable path below
             # A read/connect TIMEOUT on a tight framing call already waited its full budget — don't
             # retry it (the framing layer's fallback prompt takes over fast). Other transient kinds
             # (refused, 5xx, empty body) fail fast and are cheap to retry even on the framing path.
@@ -424,8 +469,6 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             if name in _MUTATING_OK_CLEARS:
                 _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
-    # Unreachable (the loop either returns or raises), but keep the type-checker honest.
-    raise last_exc if last_exc else EngineToolError("engine call failed")
 
 
 

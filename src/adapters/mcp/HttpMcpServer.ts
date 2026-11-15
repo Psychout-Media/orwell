@@ -201,7 +201,14 @@ function presentedToken(headers: Record<string, string | string[] | undefined>):
  */
 const MAX_USER_ID_CHARS = 64;
 
-export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options: HttpMcpOptions = {}): Server {
+/** ORW-404: the HTTP server plus a bounded wait for tool requests in flight (used by the graceful shutdown). */
+export type DrainableServer = Server & {
+  /** Resolves when no tool request is in flight, or after `timeoutMs`; never rejects. */
+  drainInflight(timeoutMs: number): Promise<void>;
+  inflightCount(): number;
+};
+
+export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options: HttpMcpOptions = {}): DrainableServer {
   // A request's MCP server is resolved per (channel, asserted user). Single-tenant deps ignore the
   // user; the registry-backed resolver routes each call into that user's isolated sandbox.
   const pick = (channel: "player" | "admin", user: string): McpServer =>
@@ -278,6 +285,19 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
     try { return options.shuttingDown?.() === true; } catch { return false; }
   };
 
+  // ORW-404: tool requests in flight (passed the shutdown gate, response not yet finished / socket not closed).
+  let inflight = 0;
+  let idleWaiters: Array<() => void> = [];
+  const enterInflight = (res: import("node:http").ServerResponse): void => {
+    inflight++;
+    let done = false;
+    res.once("close", () => {
+      if (done) return;
+      done = true;
+      inflight--;
+      if (inflight === 0) { const w = idleWaiters; idleWaiters = []; for (const f of w) f(); }
+    });
+  };
   const server = createServer((req, res) => {
     const send = (code: number, body: unknown): void => {
       // E30: the socket may be gone (request timeout, client abort) by the time a queued job
@@ -381,6 +401,8 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
         try { res.setHeader("retry-after", "3"); } catch { /* headers already sent */ }
         return send(503, { error: "engine restarting: retry shortly", code: "engine-restarting", retryable: true });
       }
+
+      if (req.method === "POST" && (match[2] === "call" || match[2] === "rpc")) enterInflight(res);
 
       if (req.method === "POST" && match[2] === "call") {
         let body = "";
@@ -568,7 +590,19 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
     server.on("close", () => clearInterval(collapseWarnTimer));
   }
 
-  return server;
+  // ORW-404: resolves once no tool request is in flight, or after `timeoutMs` (whichever first); never rejects.
+  // New tool requests are refused by the 503 gate once `shuttingDown` is set (listening stays open so /health
+  // keeps answering), so during a drain the count can only fall.
+  const drain = (timeoutMs: number): Promise<void> => {
+    if (inflight === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const t = setTimeout(() => { idleWaiters = idleWaiters.filter((f) => f !== fin); resolve(); }, timeoutMs);
+      t.unref?.();
+      const fin = (): void => { clearTimeout(t); resolve(); };
+      idleWaiters.push(fin);
+    });
+  };
+  return Object.assign(server, { drainInflight: drain, inflightCount: (): number => inflight });
 }
 
 /**
@@ -581,6 +615,6 @@ export function startHttpMcp(
   port: number,
   options: HttpMcpOptions = {},
   host = "127.0.0.1",
-): Server {
+): DrainableServer {
   return createHttpMcpServer(deps, options).listen(port, host);
 }

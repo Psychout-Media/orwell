@@ -217,4 +217,4 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
 }
 
 // ORW-404: the entrypoint composes the runtime only (audit E18), so the shutdown helper is re-exported here.
-export { createShutdown, DEFAULT_HARD_EXIT_MS } from "./shutdown";
+export { createShutdown, DEFAULT_HARD_EXIT_MS, DEFAULT_DRAIN_MS } from "./shutdown";

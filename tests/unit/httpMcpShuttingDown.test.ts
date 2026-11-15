@@ -83,3 +83,89 @@ describe("createShutdown onStart", () => {
     expect(order).toEqual(["start", "flush", "exit"]);
   });
 });
+
+describe("shutdown drains requests in flight (ORW-404)", () => {
+  async function withDrainServer(
+    tool: () => Promise<unknown>,
+    fn: (base: string, server: ReturnType<typeof createHttpMcpServer>, setFlag: () => void) => Promise<void>,
+  ): Promise<void> {
+    let flag = false;
+    const stub = { listTools: () => [], callTool: tool } as unknown as McpServer;
+    const server = createHttpMcpServer({ resolve: () => stub }, { shuttingDown: () => flag });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    try { await fn(`http://127.0.0.1:${(server.address() as AddressInfo).port}`, server, () => { flag = true; }); }
+    finally { await new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections(); }); }
+  }
+
+  it("a slow request started before shutdown completes normally and exit is requested only after it finishes", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let started!: () => void;
+    const began = new Promise<void>((r) => { started = r; });
+    await withDrainServer(async () => { started(); await gate; return { done: true }; }, async (base, server, setFlag) => {
+      const order: string[] = [];
+      const shutdown = createShutdown({
+        onStart: setFlag,
+        drain: () => server.drainInflight(5_000),
+        flush: async () => { order.push("flush"); },
+        exit: () => { order.push("exit"); },
+        hardExitMs: 10_000,
+        drainMs: 5_000,
+      });
+      const inflight = post(base, "/player/call");
+      await began;
+      const done = shutdown();
+      await new Promise((r) => setTimeout(r, 150));
+      expect(order).toEqual([]); // still draining: no flush, no exit
+      expect((await post(base, "/player/call")).status).toBe(503); // new request during the drain
+      release();
+      const r = await inflight;
+      expect(r.status).toBe(200);
+      expect(await r.json()).toMatchObject({ result: { done: true } });
+      await done;
+      expect(order).toEqual(["flush", "exit"]);
+    });
+  });
+
+  it("a request stuck longer than the bound does not hold exit past the bound", async () => {
+    let started!: () => void;
+    const began = new Promise<void>((r) => { started = r; });
+    await withDrainServer(async () => { started(); await new Promise(() => {}); return {}; }, async (base, server, setFlag) => {
+      const order: string[] = [];
+      const shutdown = createShutdown({
+        onStart: setFlag,
+        drain: () => server.drainInflight(60_000),
+        flush: async () => { order.push("flush"); },
+        exit: () => { order.push("exit"); },
+        hardExitMs: 10_000,
+        drainMs: 200,
+      });
+      void post(base, "/player/call").catch(() => undefined);
+      await began;
+      const t0 = Date.now();
+      await shutdown();
+      expect(Date.now() - t0).toBeLessThan(2_000);
+      expect(order).toEqual(["flush", "exit"]);
+    });
+  });
+
+  it("drainInflight resolves at once when nothing is in flight, and counts a request still reading its body", async () => {
+    await withDrainServer(async () => ({}), async (base, server) => {
+      await server.drainInflight(50);
+      expect(server.inflightCount()).toBe(0);
+      const net = await import("node:net");
+      const port = Number(new URL(base).port);
+      const sock = net.connect(port, "127.0.0.1");
+      await new Promise<void>((r) => sock.on("connect", () => r()));
+      sock.write("POST /player/call HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 50\r\n\r\n{");
+      await new Promise((r) => setTimeout(r, 100));
+      expect(server.inflightCount()).toBe(1);
+      const t0 = Date.now();
+      await server.drainInflight(150);
+      expect(Date.now() - t0).toBeGreaterThanOrEqual(100);
+      sock.destroy();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(server.inflightCount()).toBe(0);
+    });
+  });
+});

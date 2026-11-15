@@ -160,6 +160,41 @@ def test_a_sustained_connection_error_eventually_raises(monkeypatch):
 _RESTARTING = {"error": "engine restarting: retry shortly", "code": "engine-restarting", "retryable": True}
 
 
+class _Clock:
+    """A virtual clock: the stubbed asyncio.sleep advances it, so a 20 s wait costs no wall time."""
+
+    def __init__(self, monkeypatch):
+        self.now = 0.0
+        self.sleeps = []
+
+        async def _sleep(s):
+            self.sleeps.append(s)
+            self.now += s
+
+        monkeypatch.setattr(orwell_engine.asyncio, "sleep", _sleep)
+        monkeypatch.setattr(orwell_engine, "_monotonic", lambda: self.now)
+
+
+class _RestartingEngine:
+    """Answers the restarting 503 (Retry-After: 3) until `until` virtual seconds, then succeeds."""
+
+    def __init__(self, clock, until, retry_after="3"):
+        self.clock, self.until, self.retry_after, self.calls = clock, until, retry_after, 0
+
+    async def post(self, *_a, **_k):
+        self.calls += 1
+        if self.clock.now < self.until:
+            r = _resp(503, payload=_RESTARTING)
+            if self.retry_after is not None:
+                r.headers["retry-after"] = self.retry_after
+            return r
+        return _resp(200, payload={"result": {"ok": True}})
+
+
+def _patch_engine(monkeypatch, eng):
+    monkeypatch.setattr(orwell_engine.httpx, "AsyncClient", lambda *a, **k: eng)
+
+
 def test_engine_restarting_503_is_retried_then_succeeds(monkeypatch):
     # The engine refused a NEW call during its shutdown window (nothing was applied): retry like any
     # momentary outage, and leave no recorded error when the next try lands.
@@ -172,12 +207,51 @@ def test_engine_restarting_503_is_retried_then_succeeds(monkeypatch):
     assert orwell_engine.last_engine_error() is None
 
 
+def test_a_restart_that_lasts_five_seconds_is_ridden_out_without_an_error(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RestartingEngine(clock, until=5.0)
+    _patch_engine(monkeypatch, eng)
+    assert _run(orwell_engine._call("recordInteraction", {}, user="x")) == {"ok": True}
+    assert eng.calls >= 3 and clock.now >= 5.0  # far past the old ~0.75 s of backoff
+    assert max(clock.sleeps) <= 3.0              # Retry-After honoured, capped
+    assert orwell_engine.last_engine_error() is None
+
+
+def test_retry_after_is_honoured_and_capped(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RestartingEngine(clock, until=1.5, retry_after="1.5")
+    _patch_engine(monkeypatch, eng)
+    _run(orwell_engine._call("recordInteraction", {}, user="x"))
+    assert clock.sleeps == [1.5]
+    clock2 = _Clock(monkeypatch)
+    eng2 = _RestartingEngine(clock2, until=1.0, retry_after="999")
+    _patch_engine(monkeypatch, eng2)
+    _run(orwell_engine._call("recordInteraction", {}, user="x"))
+    assert clock2.sleeps == [3.0]
+
+
 def test_a_sustained_engine_restarting_503_surfaces_as_unreachable_not_a_tool_error(monkeypatch):
-    _patch_seq(monkeypatch, [_resp(503, payload=_RESTARTING) for _ in range(5)])
+    clock = _Clock(monkeypatch)
+    eng = _RestartingEngine(clock, until=10_000.0)
+    _patch_engine(monkeypatch, eng)
     with pytest.raises(httpx.HTTPStatusError):
         _run(orwell_engine._call("recordInteraction", {}, user="x"))
+    assert 20.0 <= clock.now <= 23.0   # about 20 s, then give up
     le = orwell_engine.last_engine_error()
     assert le and le["kind"] == "unreachable"  # the same outage banner as a refused connection, never "tool-error"
+
+
+def test_a_short_timeout_read_is_not_held_for_twenty_seconds(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RestartingEngine(clock, until=10_000.0)
+    _patch_engine(monkeypatch, eng)
+    with pytest.raises(httpx.HTTPStatusError):
+        _run(orwell_engine.get_game_state(user="x"))  # framing read: 3 s timeout budget
+    assert clock.now <= orwell_engine._FRAMING_TIMEOUT + 0.001
+    clock.now = 0.0
+    with pytest.raises(httpx.HTTPStatusError):
+        _run(orwell_engine.game_status(user="x"))     # status poll: 8 s budget
+    assert clock.now <= orwell_engine._POLL_TIMEOUT + 0.001
 
 
 def test_other_structured_503s_are_still_the_engine_answering(monkeypatch):
@@ -186,6 +260,17 @@ def test_other_structured_503s_are_still_the_engine_answering(monkeypatch):
     with pytest.raises(orwell_engine.EngineToolError):
         _run(orwell_engine._call("recordInteraction", {}, user="x"))
     assert client.calls == 1
+
+
+def test_other_503s_keep_the_short_retry_exactly(monkeypatch):
+    # A bare gateway 503 (no engine body) and a different structured 503 are NOT the restart code: the
+    # original 3 tries / 0.25 s, 0.5 s backoff, never the long wait.
+    clock = _Clock(monkeypatch)
+    client = _patch_seq(monkeypatch, [_resp(503, text="bad gateway") for _ in range(5)])
+    with pytest.raises(httpx.HTTPStatusError):
+        _run(orwell_engine._call("recordInteraction", {}, user="x"))
+    assert client.calls == 3
+    assert clock.sleeps == [0.25, 0.5]
 
 
 # --- a structured engine answer is NEVER retried ----------------------------------------------

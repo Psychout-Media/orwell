@@ -58,7 +58,13 @@ describe("ORW-404 follow-up: new-directory durability (background mode)", () => 
     const store = new FileSaveStore(data, { fsyncMode: "background", syncFile: async () => {}, syncDir: async (p) => { dirCalls.push(p); } });
     store.saveFor("a", snap(2));
     await settle();
-    expect(dirCalls).toEqual([join(data, hex("a"))]);
+    // ORW-404 follow-up 2: the parent is also flagged once per user per boot (a restart between the first save
+    // and its parent sync leaves an existing directory the next boot would otherwise never re-harden).
+    expect(dirCalls).toEqual([join(data, hex("a")), data]);
+    dirCalls.length = 0;
+    store.saveFor("a", snap(3));
+    await settle();
+    expect(dirCalls).toEqual([]); // once per user per boot
   });
 
   it("a failed new-directory sync is logged and retried with the next save, and never blocks saveFor", async () => {
@@ -138,5 +144,40 @@ describe("ORW-404 follow-up: new-directory durability (ORWELL_SAVE_FSYNC=sync mo
     synced.length = 0;
     expect(() => store.saveFor("a", snap(50))).not.toThrow();
     expect(synced).toEqual([join(data, hex("a"))]);
+  });
+});
+
+describe("ORW-404 follow-up 2: directory sync bookkeeping", () => {
+  it("a directory sync still in flight at shutdown is awaited by the flush and its flags stay owed until it succeeds", async () => {
+    const data = tmp();
+    const dirCalls: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let first = true;
+    const store = new FileSaveStore(data, {
+      fsyncMode: "background", syncFile: async () => {}, onError: () => {},
+      syncDir: async (p) => { dirCalls.push(p); if (first) { first = false; await gate; throw Object.assign(new Error("EIO"), { code: "EIO" }); } },
+    });
+    store.saveFor("a", snap(1));
+    await settle();
+    expect(dirCalls).toEqual([join(data, hex("a"))]); // the user-dir sync is running (gated)
+    let flushed = false;
+    const flush = store.flushDurableAsync(2_000).then(() => { flushed = true; });
+    await settle();
+    expect(flushed, "the flush waits for the sync in flight").toBe(false);
+    release(); // that sync now FAILS: the flag must still be owed, so the flush re-syncs both directories
+    await flush;
+    expect(dirCalls.slice(1)).toContain(join(data, hex("a")));
+    expect(dirCalls.slice(1)).toContain(data);
+  });
+
+  it("a first write that throws after the directory was created still gets the data dir synced once, in the background", async () => {
+    const data = tmp();
+    const dirCalls: string[] = [];
+    const store = new FileSaveStore(data, { fsyncMode: "background", syncFile: async () => {}, syncDir: async (p) => { dirCalls.push(p); } });
+    const bad = { toJSON() { throw new Error("boom"); } } as unknown as SessionSnapshot;
+    expect(() => store.saveFor("a", bad)).toThrow("boom");
+    await settle();
+    expect(dirCalls).toEqual([data]);
   });
 });
