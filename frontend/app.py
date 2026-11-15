@@ -219,6 +219,9 @@ if AUTH_ENABLED:
         # Engine-reachability probe (doctor script, monitoring, the engine-status banner pre-login).
         # Vault-free and user-free: engine up/down + a connection-error string — no game state.
         "/api/orwell/health",
+        # ORW-396: the client failure beacon (POST) promises "always 204": it must work logged-out (login page / expired session).
+        # Already per-client rate-limited and field-capped in the handler; it logs three clipped strings and touches no game data.
+        "/api/orwell/fe-report",
         "/api/version",
         "/login",
         # The local-HTTPS CA root (feature 0074): a fresh device must fetch + trust this PUBLIC cert
