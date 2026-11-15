@@ -147,3 +147,25 @@ Feature: House presence and lingering play
     When the player says they will wait 120 minutes for the event
     Then the wait stopped because the event came due
     And the in-game clock has moved on by exactly 47 minutes
+
+  # ORW-462 (Kevin's ruling, 2026-11-15): the player is not omniscient. Looking for someone always finds them, but only through what the player could really do.
+  Scenario: A plain house search never sees through a closed door
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player searches the house without naming anyone
+    Then the houseguests behind doors are listed as not in view with no room named
+    And the houseguests the player can see are still named in their rooms
+
+  Scenario: Looking for someone behind an unlocked door finds them by opening it
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player searches the house looking for the houseguest behind the unlocked door
+    Then the answer names the door to open and says the player will see who is inside
+
+  Scenario: Looking for someone in the HOH room is answered by a houseguest who knows
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player searches the house looking for the houseguest in the HOH room
+    Then the answer is that a houseguest who knows says the houseguest is there, while the door stays closed to the player
+
+  Scenario: Looking for someone in the diary room is answered by a houseguest who knows
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player searches the house looking for the houseguest in the diary room
+    Then the answer is that a houseguest who knows says the houseguest is there, while the door stays closed to the player

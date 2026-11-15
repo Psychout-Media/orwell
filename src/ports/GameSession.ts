@@ -1887,9 +1887,17 @@ export interface MarkHouseguestMetOpts {
 export interface HouseSearchEntry {
   id: EntityId;
   name: string;
-  status: "here" | "awake" | "asleep" | "arriving";
-  /** The room id (absent for a sleeper whose bed is not a known bedroom, and for one who has not walked in yet at the premiere entrances). */
+  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "behind-door" | "told";
+  /**
+   * The room id. ORW-462 (Kevin, 2026-11-15: the player is not omniscient): named only where the player can see (their own room and the rooms in sightline) or for the houseguest they are LOOKING FOR
+   * (`behind-door`: an unlocked room they can open and look into; `told`: the diary room or the HOH room, which a houseguest who knows says). Absent for everyone else ("unseen"), for a sleeper not being looked for,
+   * and for one who has not walked in yet at the premiere entrances.
+   */
   room?: string;
+  /** ORW-462: what the player can do next ("open the door to the kitchen and look") - only on a `behind-door` entry. */
+  action?: string;
+  /** ORW-462: for a `told` entry (diary room / HOH room): who says so - an awake houseguest in the player's room, absent when the house's public knowledge is the source. */
+  toldBy?: NamedRef;
   /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Absent for a sleeper. */
   access?: "open" | "closed";
   /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
@@ -1900,7 +1908,7 @@ export interface HouseSearchView {
   houseguests: HouseSearchEntry[];
   /** How many NPC houseguests are asleep (the HUD's `asleep` list length); absent when the clock is off. */
   asleepCount?: number;
-  /** Each room that holds at least one awake houseguest (the player excluded), with its names. Empty rooms are not listed. */
+  /** Each room the player can SEE into (their own and those in sightline) that holds at least one awake houseguest (the player excluded), with its names. ORW-462: a room behind a door is never listed with its occupants. */
   rooms: Array<{ room: string; access: "open" | "closed"; present: NamedRef[] }>;
 }
 
@@ -3196,7 +3204,7 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null;
+  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;
