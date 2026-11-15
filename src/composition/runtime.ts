@@ -211,3 +211,6 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     flushSavesAsync: async (timeoutMs) => { try { await saveStore?.flushDurableAsync?.(timeoutMs); } catch { /* never block exit */ } },
   };
 }
+
+// ORW-404: the entrypoint composes the runtime only (audit E18), so the shutdown helper is re-exported here.
+export { createShutdown, DEFAULT_HARD_EXIT_MS } from "./shutdown";

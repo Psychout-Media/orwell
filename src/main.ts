@@ -1,5 +1,4 @@
-import { composeRuntime } from "./composition/runtime";
-import { createShutdown, DEFAULT_HARD_EXIT_MS } from "./composition/shutdown";
+import { composeRuntime, createShutdown, DEFAULT_HARD_EXIT_MS } from "./composition/runtime";
 import { startHttpMcp } from "./adapters/mcp/HttpMcpServer";
 import { createEmbeddingsStatusTracker } from "./adapters/embedding/embeddingsStatus";
 
