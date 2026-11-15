@@ -8723,7 +8723,7 @@ export class GameSessionAdapter implements GameSession {
    * A8 - the one NPC (awake, living) whose desire clock has crossed its threshold RIGHT NOW, or null. Deterministic: the relationship drive comes from `rankApproaches` on an
    * hours-keyed stream, the role is public standing (HOH/nominee), the schedule is the public day schedule. Pure read - the caller records the approach.
    */
-  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string } | null {
+  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string; capped?: true } | null {
     const live = this.live;
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
     const m = nextMilestone(live);
@@ -8747,8 +8747,8 @@ export class GameSessionAdapter implements GameSession {
     });
     const byGoal = goalDriven(goalCands);
     const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
-    // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next ones wait (no rng; they keep their desire and cooldown state, so nobody is forgotten).
-    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return null;
+    // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next one is marked `capped`: the caller spends the want exactly as before (cooldown, movement, orientation untouched, so the house-life mix is unchanged) but the player is not interrupted.
+    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return { ...pick, capped: true };
     return pick;
   }
 
@@ -8788,10 +8788,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
-  private noteApproach(npc: EntityId, desire?: string): void {
+  private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
-    if (live.playedGame === true && desire !== undefined) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
+    if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
   /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
@@ -9066,8 +9066,9 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc, hit.desire); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
-        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
+      if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+          const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
   }
 
@@ -11684,7 +11685,8 @@ export class GameSessionAdapter implements GameSession {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
-            this.noteApproach(hit.npc, hit.desire);
+            this.noteApproach(hit.npc, hit.desire, hit.capped);
+            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
