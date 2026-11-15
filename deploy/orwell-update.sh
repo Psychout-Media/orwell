@@ -1647,7 +1647,13 @@ else
     if type update_wait_for_no_turn >/dev/null 2>&1; then
       # The same directory the front end publishes to (frontend/src/turn_inflight.py: ORWELL_INFLIGHT_DIR, else its data dir); the service's .env is read when the updater's own environment lacks it.
       INFLIGHT_DIR="${ORWELL_INFLIGHT_DIR:-$(sed -n 's/^ORWELL_INFLIGHT_DIR=//p' "$ENV_FILE" 2>/dev/null | tail -n1 | tr -d '"'"'"' ')}"
-      update_wait_for_no_turn "${INFLIGHT_DIR:-${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}}/turns-in-flight" "$FORCE_NOW"
+      # The helper sourced at the top may be the OLDER installed copy (a host-pushed first update runs the new script
+      # against the pre-update /opt/orwell helper), whose one-argument form ignores $2. So --force-now is decided HERE, never left to the helper.
+      if [[ $FORCE_NOW -eq 1 ]]; then
+        echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
+      else
+        update_wait_for_no_turn "${INFLIGHT_DIR:-${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}}/turns-in-flight" "$FORCE_NOW"
+      fi
     fi
     ops_progress_step 4 "restarting services"
     if [[ "$RESTART_SCOPE" == frontend ]]; then

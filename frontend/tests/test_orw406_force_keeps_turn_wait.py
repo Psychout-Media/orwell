@@ -115,3 +115,22 @@ def test_usage_documented():
 def test_bash_syntax(script):
     r = subprocess.run(["bash", "-n", str(ROOT / "deploy" / script)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+@needs_bash
+@pytest.mark.parametrize("force_now,waits", [(1, False), (0, True)])
+def test_force_now_holds_even_with_an_old_one_argument_helper(tmp_path, force_now, waits):
+    # A host-pushed first update runs THIS script against the pre-update installed helper, whose
+    # update_wait_for_no_turn takes one argument and ignores $2: --force-now must not depend on it.
+    blk = _restart_block()
+    i = blk.index("if type update_wait_for_no_turn")
+    wait = blk[i:blk.index('ops_progress_step 4 "restarting services"')]
+    r = subprocess.run(["bash", "-c", f"""set -euo pipefail
+FORCE_NOW={force_now}; ENV_FILE=/dev/null; APP_DIR='{tmp_path}'
+update_wait_for_no_turn() {{ echo "OLD-HELPER-WAITED $#"; }}
+{wait}
+"""], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0, r.stderr
+    assert ("OLD-HELPER-WAITED" in r.stdout) is waits
+    if not waits:
+        assert "--force-now" in r.stdout

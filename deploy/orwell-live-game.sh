@@ -415,8 +415,8 @@ _update_probe() { curl -fsS --noproxy '*' --max-time "${2:-3}" "$1" 2>/dev/null 
 # engine reports `"warmed":true` (an engine predating the field, answering ok, counts as warm) and the front
 # end reports `"engine":true`. Logs how long the engine took to warm. ALWAYS returns 0: a timeout is logged
 # and the update carries on (the first request just pays the old lazy cost).
-# Append to the ops log unless stdout already IS that file (the ops unit redirects stdout there; a second append duplicated every line, review of #2720).
-_warm_log() { [[ -n "$1" ]] || return 0; [[ "$(readlink -f /proc/self/fd/1 2>/dev/null)" == "$(readlink -f "$1" 2>/dev/null)" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
+# Append to the ops log unless stdout already IS that file (the ops unit redirects stdout there; a second append duplicated every line, review of #2720). `-ef` compares the inode in this shell: a readlink inside $(...) saw the capture pipe and never matched.
+_warm_log() { [[ -n "$1" ]] || return 0; [[ /proc/self/fd/1 -ef "$1" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
   local eng="${1:-}" fe="${2:-}" log="${3:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
   [[ "$max" =~ ^[0-9]+$ ]] || max=60

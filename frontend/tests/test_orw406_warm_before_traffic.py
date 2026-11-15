@@ -74,3 +74,14 @@ def test_updater_wiring():
     call = blk[blk.index("update_wait_for_warm "):blk.index("\n    fi", blk.index("update_wait_for_warm "))]  # the call itself, not an unrelated `|| true` earlier in the block
     assert call.rstrip().endswith("|| true"), call  # a warm-up problem can never fail the update
     assert blk.index("update_restarted_sha_write") < blk.index("update_wait_for_warm") < blk.index("ops_progress_done")
+
+
+@needs_bash
+def test_line_is_written_once_when_stdout_is_the_log(tmp_path):
+    # The ops unit appends stdout INTO the ops log (>>); the helper must not append the same line a second time.
+    log = tmp_path / "ops-update.log"
+    script = harness(0, log)
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail; . '{LIB}'; {script}"], stdout=open(log, "a"),
+                       stderr=subprocess.PIPE, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert log.read_text().count("warm-up complete") == 1, log.read_text()
