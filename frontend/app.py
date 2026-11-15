@@ -1075,6 +1075,11 @@ app.router.lifespan_context = _lifespan
 async def _startup_event():
     global upload_cleanup_task
     logger.info("Application starting up...")
+    try:  # ORW-406: a fresh process has no turn in flight; clear a stale signal left by the last one
+        from src.turn_inflight import publish_inflight as _pub_inflight
+        _pub_inflight(0)
+    except Exception:
+        pass
     # Backfill the in-memory LLM I/O ring from its durable archive BEFORE any model call, so the
     # "LLM I/O (live)" status-page view isn't blank after a restart (the ring is per-process; the
     # file persists). Must run pre-traffic so seeded history keeps lower seq than live calls.
