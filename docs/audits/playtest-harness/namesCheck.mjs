@@ -1,3 +1,4 @@
+// RETIRED (ORW-44 S4b3): this drives POST /api/chat_stream, which the WebSocket-only game build refuses (426 ws-only), and it hard-codes an OpenRouter text endpoint (ORW-287: text is DeepSeek direct). Kept as audit history; drive a turn with frontend/tests/_ws_turn_driver.py instead.
 // Clean, single-turn check: force a NAMED scene and read the FULL GM response to
 // verify the model uses the engine roster (post NAMES-ARE-FIXED fix) vs inventing.
 import { readFileSync } from 'fs';

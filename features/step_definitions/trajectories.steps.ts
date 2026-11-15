@@ -1,4 +1,7 @@
 import { Given, When, Then } from "@cucumber/cucumber";
+import { McpServer } from "../../src/adapters/mcp/McpServer";
+import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
+import { buildSandbox } from "../../tests/support/sandbox";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -184,7 +187,9 @@ Then("the momentum is high", function (this: BbWorld) {
 
 // === Rule: the engine owns momentum; the model only proposes shape ======================================
 
-Given("the player records a scene with an NPC and proposes a cooler consequence shape", function (this: BbWorld) {
+Given("a cooler-shaped fold lands between two houseguests", function (this: BbWorld) {
+  // ORW-335: reworded from "the player records a scene ... proposes a cooler consequence shape": the trajectory layer reads only
+  // off-screen NPC-to-NPC folds (orchestrator -> recordTrajectoryFold); a player scene's consequence descriptor does NOT feed it (not built).
   // The model proposes the DIRECTION (cooler) — a souring/cooling-shaped fold. It proposes NO magnitude;
   // the engine owns it. A "cooler" shape lands a negative bond delta with a little threat (the engine's own
   // bounded amount), exactly like the `cooler` consequence direction (`CONSEQUENCE_DIRECTION_IMPACTS`).
@@ -192,7 +197,7 @@ Given("the player records a scene with an NPC and proposes a cooler consequence 
     { bondDelta: -0.105, threatDelta: 0.03, betrayal: false }], undefined);
 });
 
-When("the engine folds the scene and updates the trajectory", function () { /* folded above */ });
+When("the engine folds the scene and updates the trajectory", function () { /* folded above (deriveTrajectory over the fold signals) */ });
 
 Then("the trajectory direction reflects the proposed shape", function (this: BbWorld) {
   // A cooler shape ⇒ the arc is falling (cooling or souring), never warming.
@@ -257,10 +262,15 @@ Given("a relationship trajectory exists in the hidden engine layer", function (t
   assert.ok(trajWired(s!).trajectories.size > 0, "the hidden arc exists");
 });
 
-When("an administrator inspects every God-Mode and admin projection", function (this: BbWorld) {
-  const s = tw(this).twSession!;
-  // The non-Vault projections an admin/God-Mode surface reads (the adapter holds NO admin momentum view).
-  tw(this).twProjOn = JSON.stringify([s.gameStatus(), s.whereabouts(), s.getGameState(), s.seasonRecap()]);
+When("an administrator inspects every God-Mode and admin projection", async function (this: BbWorld) {
+  // ORW-335: through the REAL admin channel (was player-side projections only): every read-only admin tool on this session.
+  const sb = buildSandbox(1);
+  const session = tw(this).twSession!;
+  const admin = new McpServer("admin/God Mode", { player: sb.player, admin: sb.admin, summary: sb.summary, commands: new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge), session });
+  const reads: unknown[] = [];
+  for (const name of ["inspectNonVaultState", "sandboxHealth", "getBehavioralFlags"]) reads.push(await admin.callTool(name, {}));
+  tw(this).twProjOn = JSON.stringify(reads);
+  assert.ok((tw(this).twProjOn ?? "").length > 50, "the admin channel answered");
 });
 
 Then("no trajectory phase or momentum value is returned on any of them", function (this: BbWorld) {
@@ -304,9 +314,19 @@ Then("off-arc reconciliation scenes still occur at a nonzero rate", function (th
 });
 
 Then("no betrayal is ever produced unless the prior-bond and incentive gate is already met", function (this: BbWorld) {
-  // Here the gate IS met (high bond + threat), so a betrayal CAN occur — but the gate, not momentum, is the
-  // licence. The companion neutrality test proves an UNMET gate yields ZERO betrayals even at full momentum.
-  assert.ok(tw(this).twBetrayals! >= 0, "betrayal only over a met gate (proven absent on an unmet gate elsewhere)");
+  // ORW-335: was `betrayals >= 0` (always true). Now the same seeded batch at FULL souring momentum with the gate UNMET (no prior bond)
+  // must produce ZERO betrayals: momentum alone never licenses one.
+  const rel = new RelationshipModel(0.5);
+  const e = rel.edge(tw(this).twA!, tw(this).twB!); e.affinity = 0.15; e.trust = 0.15; e.threat = 0.8; e.alignment = -0.3;
+  let unmet = 0;
+  for (let seed = 1; seed <= 400; seed++) {
+    const scenes = richOffscreenStretch({
+      events: new InMemoryEventStore(), rng: new SeededRandom(seed), npcs: [tw(this).twA!, tw(this).twB!], interactions: 3,
+      edgeOf: (a, b) => rel.edge(a, b), trajectoryOf: () => ({ phase: "souring", momentum: 1 }),
+    });
+    unmet += scenes.filter((sc) => sc.type === "betrayal").length;
+  }
+  assert.equal(unmet, 0, "no prior bond: zero betrayals even at full souring momentum");
 });
 
 // === Rule: deterministic and calibration-neutral ========================================================

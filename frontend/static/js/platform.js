@@ -179,7 +179,7 @@ export const ORWELL_MUTATING_TOOLS = Object.freeze([
   // The jury house Q&A (0129): a juror's telling lands in the player's knowledge (Journal).
   'askJuror',
   // Secrets-as-power + gossip / pre-show-tie levers (0093 / 0094 / 0095 / 0099).
-  'exposeSecret', 'tradeSecret', 'confront', 'accuseTie',
+  'exposeSecret', 'tradeSecret', 'confront', 'accuseTie', 'callInFavor',
   // The one mutating ADMIN tool in the HUD set — sandbox lifecycle (create | reset | save | load).
   'manageSandbox',
 ]);

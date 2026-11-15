@@ -2635,7 +2635,8 @@ def setup_email_routes():
                         # a str, not a dict — and llm_call_async's h.update()
                         # then throws "dictionary update sequence element…".
                         # Unwrap until we have a dict (or give up → no headers).
-                        _h = sess.headers
+                        from src.endpoint_resolver import resolve_session_headers as _rsh_e
+                        _h = _rsh_e(sess)
                         for _ in range(3):
                             if isinstance(_h, str):
                                 try:
@@ -2672,7 +2673,7 @@ def setup_email_routes():
             # by exact id, then basename; fall back to the first served model.
             try:
                 from src.llm_core import list_model_ids
-                _avail = list_model_ids(url, headers=headers)
+                _avail = await asyncio.to_thread(list_model_ids, url, headers=headers)
                 if _avail and model not in _avail:
                     import os as _os
                     _base = _os.path.basename((model or "").rstrip("/"))

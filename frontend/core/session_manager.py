@@ -9,8 +9,10 @@ This is the single place that handles:
 """
 
 import json
+import time
 import uuid
 import logging
+import threading
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Optional
 
@@ -20,6 +22,32 @@ from .database import Session as DbSession, ChatMessage as DbChatMessage, Docume
 from .models import Session, ChatMessage
 
 logger = logging.getLogger(__name__)
+
+# ORW-171 S1: get_session runs on every read; the last_accessed touch (SELECT+UPDATE+COMMIT) is
+# throttled to at most once per TOUCH_INTERVAL_S per session id. last_accessed is only read for
+# coarse ordering and day-scale cleanup, so a few seconds of staleness is harmless. Other writers
+# of last_accessed (message persist, chat handler) are unthrottled.
+TOUCH_INTERVAL_S = 5.0
+_TOUCH_MAP_MAX = 2048
+_last_touch: Dict[str, float] = {}
+_last_touch_lock = threading.Lock()
+
+
+def _touch_due(session_id: str) -> bool:
+    """True (and records now) when this session id has not been touched within the interval."""
+    now = time.monotonic()
+    with _last_touch_lock:
+        last = _last_touch.get(session_id)
+        if last is not None and 0 <= now - last < TOUCH_INTERVAL_S:
+            return False
+        if len(_last_touch) >= _TOUCH_MAP_MAX:
+            cutoff = now - TOUCH_INTERVAL_S
+            for k in [k for k, v in _last_touch.items() if v < cutoff]:
+                del _last_touch[k]
+            if len(_last_touch) >= _TOUCH_MAP_MAX:
+                _last_touch.clear()
+        _last_touch[session_id] = now
+        return True
 
 
 def _message_timestamp_iso(value: Optional[datetime]) -> Optional[str]:
@@ -248,6 +276,14 @@ class SessionManager:
         new chat_messages insert), so the row + restored transcript commit atomically. Headers
         are serialised the same way `create_session` stores them."""
         headers = getattr(cached, "headers", None) or {}
+        try:
+            # ORW-199/200: never persist a provider key an endpoint supplies at call time.
+            from src.endpoint_resolver import persistable_session_headers
+            headers = persistable_session_headers(
+                getattr(cached, "endpoint_url", "") or "", headers, getattr(cached, "owner", None),
+            ) or {}
+        except Exception:
+            pass
         db_session = DbSession(
             id=session_id,
             name=getattr(cached, "name", None) or "Recovered session",
@@ -681,8 +717,9 @@ class SessionManager:
         # DB row while a session object is still cached in RAM.
         self.sync_session_metadata(session_id)
 
-        # Update last_accessed
-        self._touch_session(session_id)
+        # Update last_accessed (throttled, ORW-171 S1)
+        if _touch_due(session_id):
+            self._touch_session(session_id)
 
         return self.sessions[session_id]
 
@@ -781,6 +818,8 @@ class SessionManager:
         owner: str = None
     ) -> Session:
         """Create a new session and save to database."""
+        with _last_touch_lock:
+            _last_touch.pop(session_id, None)
         db = SessionLocal()
         try:
             db_session = DbSession(

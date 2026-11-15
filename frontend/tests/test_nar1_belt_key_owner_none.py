@@ -162,6 +162,8 @@ def test_f14_and_narr3_belt_no_longer_gated_on_owner():
     # gate is the SURFACE-THE-PENDING belt itself.
     assert "F14 (#1013)" in src[head:pend]
     # The two legitimate owner-gated observability blocks are UNCHANGED — still gated.
-    assert src.count("if _is_live_game and owner:") == 2, (
-        "expected exactly 2 remaining owner-gated blocks (sync-ledger + token-ledger "
-        "observability) — the F14/NARR-3 correctness belt must not be one of them")
+    # Deliberate re-pin (ORW-292): the TOKEN-ledger write is no longer owner-gated - under auth-off the owner is None, and gating on it meant a whole live game logged no token usage at all (it now meters
+    # under the ledger's own "default" bucket). The sync-ledger observability block is the one that stays owner-gated; the F14/NARR-3 correctness belt must still not be one of the gated blocks.
+    assert src.count("if _is_live_game and owner:") == 1, (
+        "expected exactly 1 remaining owner-gated block (the sync-ledger observability one) — "
+        "the F14/NARR-3 correctness belt and (ORW-292) the token ledger must not be gated on owner")

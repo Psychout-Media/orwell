@@ -225,7 +225,7 @@ gates (ADR 0008's `seq`/reconcile contract, the `_Run` replay-then-tail behaviou
 > reconciliation/BB-Nerd audits (T2/T3 + F5/F6) found riding on top of it: a cancelled generation
 > left an empty durable row, "Try again" appended a second row instead of superseding, and BOTH
 > takes folded into the hidden relationship/soul layer — sometimes with the SUPERSEDED take's
-> (fabricated) content surviving. Source: `kevinhirsch/orwell#1728`.
+> (fabricated) content surviving. Source: `Psychout-Media/orwell#1728`.
 
 ### D1 — the persisted render log is id-keyed, single-mutator, supersede-by-id
 
@@ -468,7 +468,7 @@ for the ordering (guard before the truncate call, discard gated on `if result:`)
   completion-broadcast model — the **delivery** half that is sound and stays).
 - Bounded by: the Vault Wall (mandate #2) and cross-user isolation (0021) — both unchanged; ADR 0003; the
   reasoning-scrub render contract (the `roundReplyText`/`roundReasoningText` channel split).
-- **Addendum (2026-07-21) source:** `kevinhirsch/orwell#1728` — the persisted render-log
+- **Addendum (2026-07-21) source:** `Psychout-Media/orwell#1728` — the persisted render-log
   supersede-by-id/cancel-discard half (D1, PR #1751) + the defer-fold-to-settle consequence half
   (B2) closing the multi-audit BB-Nerd F5/F6 = reconciliation T2/T3 finding. See
   `frontend/src/fold_ledger.py`, `agent_loop._settle_pending_fold`, and

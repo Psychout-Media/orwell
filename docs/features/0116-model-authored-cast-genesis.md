@@ -153,10 +153,13 @@ enters the house):
   refusal naming the last violation set (the `[house-entry-gate]` HOLD surface). The game does
   **not** start on the deterministic floor, and the failure is never discovered only *after* the
   player commits their character. Never a silent floor.
-- **Floor-permitted lanes (no model wired / keyless CI / `ORWELL_ALLOW_FLOOR_START=1`):** the
-  deterministic factory **simply stands** — the same fail-soft contract as every FE-driven write-back
-  ("no model/provider ⇒ the engine's deterministic floor simply stands"), which is what keeps the
-  test floor byte-neutral (§7).
+- **Floor-permitted lanes (keyless CI / `ORWELL_ALLOW_FLOOR_START=1` / the `soft` policy only):** the
+  deterministic factory **simply stands** — the same fail-soft contract as every FE-driven write-back,
+  which is what keeps the test floor byte-neutral (§7). *(Amended 2026-11-11, ORW-260, Ryne BDD card 30
+  option B: under the default `strict` policy the cast skeleton AND the deeper backstories (0058, cast
+  authoring) are REQUIRED — "I don't want a fallback". A failed authoring run latches
+  `orwell_cast_authoring.strict_failed`, and the pre-finalize gate in `do_create_character` refuses the start once,
+  loudly, with a ledger entry. The world snapshot and the off-screen detail stay fail-soft.)*
 
 ## 5. RULING #1 AMENDMENT (owner sign-off required)
 
@@ -175,8 +178,8 @@ inside validators):
   hard-coding — **per-season generation makes a fixed cast structurally impossible**: there is no
   longer any static pairing *to* hard-code, which is a strictly stronger guarantee than sampling
   from a fixed pool.
-- **What survives verbatim:** the vendored corpora remain, powering the **deterministic floor**
-  (§7), so the 0004 `isCorpusName` inverse-realism gate becomes **floor-scoped** rather than
+- **What survives verbatim:** the vendored corpora remain, powering the **test-lane deterministic floor**
+  (§7; not a prod fallback), so the 0004 `isCorpusName` inverse-realism gate becomes **floor-scoped** rather than
   universal. The legacy-name ban applies to **both** paths (the deny-list moves from "excluded from
   the corpora" to "excluded from the corpora AND enforced by the genesis name validator").
 - **Testing rule UNCHANGED:** roles only, never names, in tests. Sample saves stay format-only.
@@ -199,7 +202,7 @@ gate, portrait gating, the `recordCastProfile` cross-character guards).
 
 ## 7. Test floor, determinism & the recorded artifact
 
-- **The deterministic factory remains**, verbatim, as the floor for stubbed lanes, keyless CI,
+- **The deterministic factory remains**, verbatim, as the floor for **test lanes only** (never a prod fallback: under `strict` a failed genesis refuses the game start — ORW-286 item 3, Ryne BDD card 30): stubbed lanes, keyless CI,
   calibration/heavy sims (and, historically, the golden replay, decommissioned 2026-07-21). **No model wired ⇒ byte-identical** cast generation to
   today (the fail-soft write-back contract; the byte-neutrality gate in §8).
 - **Genesis output is RECORDED into the save as the world-gen artifact.** Replays read the store,

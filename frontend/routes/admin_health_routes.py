@@ -224,6 +224,12 @@ def _store_stats() -> dict:
         try:
             stats["sessions"] = db.query(DbSession).count()
             stats["messages"] = db.query(DbChatMessage).count()
+            # ORW-199: which provider each live session uses (host only + model; no key/path).
+            from routes.admin_provider_routes import provider_host
+            stats["sessionProviders"] = [
+                {"id": r.id, "provider": provider_host(r.endpoint_url), "model": r.model}
+                for r in db.query(DbSession).filter(DbSession.archived == False)  # noqa: E712
+                .order_by(DbSession.last_accessed.desc()).limit(50).all()]
         finally:
             db.close()
     except Exception as e:
@@ -685,6 +691,12 @@ def _token_economy(user: str | None) -> dict:
     # inclusive), so the fraction is well-defined in [0,1]; null when there is no input yet (avoids a
     # divide-by-zero and reads as "no data" rather than a fake 0%). Vault-free scalar — pure arithmetic
     # over two Vault-free counters. This is the meter you watch when tuning the cacheable prefix.
+    # ORW-198: slow-turn suspects - turns whose reasoning tokens exceeded the alarm bar (ids and counts only).
+    from src.orwell_token_ledger import REASONING_ALARM_TOKENS, reasoning_alarm
+    _alarms = [e for e in entries if reasoning_alarm(e)]
+    summary["reasoningAlarmTokens"] = REASONING_ALARM_TOKENS
+    summary["reasoningAlarmCount"] = len(_alarms)
+    summary["reasoningAlarms"] = [{"turnId": e.get("turnId"), "session": e.get("session"), "reasoningTokens": e.get("reasoningTokens")} for e in _alarms[-10:]]
     _inp = summary["inputTokens"]
     summary["cacheHitRate"] = round(summary["cachedTokens"] / _inp, 4) if _inp > 0 else None
     out["summary"] = summary
@@ -1248,7 +1260,7 @@ async def _bundle_extras(user: str | None) -> dict:
     Vault-free; the whole assembly is wrapped so the bundle always serializes."""
     extras: dict = {}
     extras["versions"] = _versions()
-    extras["systemInfo"] = _system_info()
+    extras["systemInfo"] = await asyncio.to_thread(_system_info)
     extras["featureFlags"] = _feature_flags()
     extras["logs"] = _recent_logs()
     extras["opsStatus"] = await asyncio.to_thread(_ops_status_files)   # shells out to `systemctl is-active`
@@ -1775,6 +1787,8 @@ async def _health_snapshot(user: str | None) -> dict:
 
     fe_last = detail.get("lastError")  # the FE's recent view of engine trouble (recency-gated)
     frontend = {"lastError": fe_last, "store": _store_stats()}
+    if detail.get("integrityRefusal"):  # ORW-321: RED - the engine's integrity checkpoint is refusing turns (kinds + invariant NAME only)
+        frontend["integrityRefusal"] = detail["integrityRefusal"]
 
     # Tiers AGREE when the engine self-reports healthy AND the FE's recent experience of it
     # concurs (no fresh transport failure on record). A disagreement is itself the signal —
@@ -2427,6 +2441,8 @@ _STATUS_PAGE = """<!doctype html>
     <button type="button" class="btn" id="pv-reseal" title="Hide the unsealed secrets again">Re-seal / hide</button>
   </div>
   <div id="pv-body" style="font-size:13px;line-height:1.5;white-space:pre-wrap"></div>
+  <!-- ORW-313: the NPC agendas, one collapsible block per houseguest. Empty (and so invisible) until the explicit unseal fills it; cleared by Re-seal. -->
+  <div id="pv-agendas" style="margin-top:10px;font-size:13px;line-height:1.5;word-break:break-word"></div>
 </div>
 <div id="update-msg" class="sub" style="margin:-6px 0 8px"></div>
 <!-- BEGIN ops-progress lane: live step-by-step timeline for the running ops action (Update / -->
@@ -2545,6 +2561,7 @@ function render(d) {
     "<table><thead><tr><th>Time (UTC)</th><th>Tool</th><th>Error</th><th style='text-align:right'>Duration</th></tr></thead><tbody>" +
     (fails.map(f => "<tr><td>" + esc(fmt(f.ts)) + "</td><td>" + esc(f.tool) + "</td><td>" + esc(f.errorClass) + "</td><td class='num'>" + esc(f.durationMs) + " ms</td></tr>").join("") ||
      "<tr><td colspan=4>No recent failures on record.</td></tr>") + "</tbody></table>" +
+    (((d.frontend || {}).integrityRefusal) ? "<div class='fail' style='margin-top:8px;color:#c0392b;font-weight:600'>RED &mdash; the engine's integrity checkpoint is REFUSING turns (" + esc(((d.frontend || {}).integrityRefusal || {}).tool) + ", " + esc((((d.frontend || {}).integrityRefusal || {}).kinds || []).join(",")) + ", invariant " + esc(((d.frontend || {}).integrityRefusal || {}).invariant || "unknown") + ", " + esc(((d.frontend || {}).integrityRefusal || {}).count) + " refusal(s)). The game cannot advance; state is unchanged.</div>" : "") +
     (feLast ? "<div class='sub' style='margin-top:8px'>Front-end tier: " + esc(feLast.tool || "?") + " — " + esc(feLast.kind || "") + " — " + esc(feLast.error || "") + "</div>" : "");
   // CAST AUTHORING · ENRICHMENT (2026-07-12): the authoring run state + the per-class failure
   // ledger. Pre-game castAuthoring carries {pregame, givenUp, houseEntryHold}; in-game it carries
@@ -2805,6 +2822,35 @@ function renderVault(v) {
   }
   return out.join("\\n");
 }
+// ORW-313: the NPC agendas (goals, reasons, history) from the unsealed dump, one collapsible <details> per houseguest. Built with createElement + textContent only (no markup sink, XSS-safe), and
+// called ONLY from the explicit unseal below - never on page load.
+function renderAgendas(box, list) {
+  box.textContent = "";
+  if (!Array.isArray(list) || !list.length) return;
+  function line(parent, text, style) { var d = document.createElement("div"); d.style.cssText = style || ""; d.textContent = text; parent.appendChild(d); }
+  function goalBlock(parent, g) {
+    var wrap = document.createElement("div");
+    wrap.style.cssText = "margin:6px 0 10px;padding-left:8px;border-left:2px solid #7a3b3b";
+    line(wrap, "[" + (g.horizon || "") + "] " + (g.kind || "") + (g.target ? " -> " + g.target : "") + "  (" + (g.status || "") + ", commitment " + g.commitment + "%)", "font-weight:600");
+    (g.why || []).forEach(function (w) { line(wrap, "because: " + w); });
+    line(wrap, "worked if: " + (g.test || ""));
+    line(wrap, "formed " + (g.formed || "") + (g.resolved ? ", resolved " + g.resolved : ""));
+    if (g.endNote) line(wrap, "ended: " + g.endNote);
+    parent.appendChild(wrap);
+  }
+  line(box, "AGENDAS (" + list.length + " houseguest" + (list.length === 1 ? "" : "s") + ")", "font-weight:700;margin:6px 0");
+  list.forEach(function (a) {
+    var d = document.createElement("details");
+    d.style.cssText = "border:1px solid #4a3030;border-radius:6px;margin:6px 0;padding:0 10px";
+    var sm = document.createElement("summary");
+    sm.style.cssText = "cursor:pointer;padding:12px 0;font-weight:600";
+    sm.textContent = (a.houseguest || "") + " - " + (a.goals || []).length + " active, " + (a.history || []).length + " resolved";
+    d.appendChild(sm);
+    (a.goals || []).forEach(function (g) { goalBlock(d, g); });
+    if ((a.history || []).length) { line(d, "History (resolved, oldest first)", "font-weight:700;margin:8px 0 2px"); a.history.forEach(function (g) { goalBlock(d, g); }); }
+    box.appendChild(d);
+  });
+}
 async function unsealProducerVault() {
   if (!confirm("UNSEAL THE PRODUCER'S VAULT?\\n\\nThis deliberately reveals your LIVE game's SECRETS — off-screen scheming, NPC confessionals, hidden ties, the sealed twists, and the real eviction votes. It overrides the God-Mode Vault wall (mandate #2) for debugging.\\n\\nThis WILL spoil your in-progress game. Continue?")) return;
   var body = document.getElementById("pv-body");
@@ -2816,11 +2862,13 @@ async function unsealProducerVault() {
     const d = await r.json();
     // textContent sink — write the RAW reason (don't esc(); the entity would render verbatim, #851).
     body.textContent = d.ok ? renderVault(d.vault) : ("Could not unseal: " + ((d && d.reason) || "unknown") + ".");
+    renderAgendas(document.getElementById("pv-agendas"), d.ok && d.vault ? d.vault.agendas : null);
   } catch (e) { body.textContent = "Request failed: " + e.message; }
 }
 document.getElementById("producer-vault").addEventListener("click", unsealProducerVault);
 document.getElementById("pv-reseal").addEventListener("click", function () {
   document.getElementById("pv-body").textContent = "";
+  document.getElementById("pv-agendas").textContent = ""; // ORW-313: re-seal hides the agendas too
   document.getElementById("pv-panel").style.display = "none";
 });
 // ── DEBUG · owner override of mandate #2: the SPOILER bundle download ──────────────────────────────

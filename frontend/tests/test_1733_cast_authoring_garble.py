@@ -169,7 +169,14 @@ def test_voice_conflicts_flags_script_garble_in_lexicon_and_catchphrases():
         {"voice": _voice(catchphrases=["we move", "缺乏 not today"])}, npc) is True
 
 
-def test_voice_conflicts_flags_a_degenerate_dial_value():
+@pytest.fixture
+def legacy_voice_drop(monkeypatch):
+    """ORW-242: ORWELL_VOICE_REPAIR is default ON (repair only the failing dial). These tests pin the LEGACY whole-voice drop, now the explicit opt-out (=0); the default-ON behaviour is covered in test_orw184_voice_repair.py."""
+    monkeypatch.setenv("ORWELL_VOICE_REPAIR", "0")
+
+
+
+def test_voice_conflicts_flags_a_degenerate_dial_value(legacy_voice_drop):
     # The bundle shape: humor:"none" — a valid closed-vocab word in the ENGINE's own deterministic
     # pool, but a degenerate non-answer when an LLM hands it back verbatim (renders "none humor").
     npc = {"id": "npc:1"}
@@ -240,13 +247,13 @@ def test_voice_conflicts_is_false_on_a_well_formed_coherent_voice():
     assert ca.voice_conflicts({"voice": "not a dict"}, npc) is False
 
 
-def test_coherence_conflicts_drops_the_whole_voice_object():
+def test_coherence_conflicts_drops_the_whole_voice_object(legacy_voice_drop):
     npc = {"id": "npc:1"}
     profile = {"voice": _voice(humor="none"), "biography": None}
     assert ca.coherence_conflicts(profile, npc) == ["voice"]
 
 
-def test_degenerate_voice_dropped_end_to_end_coherent_remainder_still_commits(_clean_ledger):
+def test_degenerate_voice_dropped_end_to_end_coherent_remainder_still_commits(_clean_ledger, legacy_voice_drop):
     async def _llm(_messages):
         return json.dumps({
             "voice": _voice(humor="none"),  # degenerate dial — must be dropped whole

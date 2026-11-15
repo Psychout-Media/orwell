@@ -6,6 +6,7 @@ import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { targetsMeTilt, type BeliefClaim, type BeliefStore } from "../../src/engine/beliefStore";
 import { nominationPlan } from "../../src/engine/season";
+import { voteChoice } from "../../src/engine/liveSeason";
 import { HEARD, heardConfidence, isMisheard, tellerReliability } from "../../src/engine/heardAboutMe";
 import { FEATURE_FLAGS } from "../../src/featureFlags";
 import { buildSandbox } from "../support/sandbox";
@@ -113,6 +114,30 @@ describe("heard-about-me: the writer", () => {
     expect(heard(sb).length).toBe(1);
     expect(JSON.stringify(edge(sb, listener, teller))).toBe(before.t);
     expect(heard(sb)[0]!.impact, "no edge delta is recorded: a told claim moves no relationship").toBeUndefined();
+  });
+});
+
+describe("heard-about-me: a FALSE claim misdirects an EVICTION VOTE (falsifiable; ORW-100 / B1 S0b bar)", () => {
+  it("nobody is targeting the voter, yet after a tell that the player is, the voter evicts the PLAYER over an even rival; with no tell (or flag off) they do not", () => {
+    const sb = season("ham-vote", 5);
+    const [teller, voter, rival] = npcsOf(sb) as [EntityId, EntityId, EntityId];
+    for (const a of sb.session.livingIds()) for (const b of sb.session.livingIds()) if (a !== b) { const e = edge(sb, a, b); e.trust = 0.5; e.affinity = 0.5; e.threat = 0.5; }
+    expect((sb.session.snapshot() as unknown as { campaigns?: unknown[] }).campaigns ?? [], "precondition: no campaign exists, so the claim is false").toEqual([]);
+    const ctxFor = (box: UserSandbox) => ({
+      player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel: box.engine.relationships,
+      beliefTiltFor: (t: EntityId, h: EntityId) => tilt(box, t, h),
+    });
+    const before = voteChoice(voter, [rival, PLAYER], ctxFor(sb));
+    expect(before, "no belief: an even house does not single out the player").not.toBe(PLAYER);
+    tellIn(sb, teller, [voter]);
+    expect(heard(sb)[0]!.subject).toBe(PLAYER);
+    expect(voteChoice(voter, [rival, PLAYER], ctxFor(sb)), "the false belief misdirects the VOTE onto the player").toBe(PLAYER);
+
+    const off = season("ham-vote-off", 5, false);
+    for (const a of off.session.livingIds()) for (const b of off.session.livingIds()) if (a !== b) { const e = edge(off, a, b); e.trust = 0.5; e.affinity = 0.5; e.threat = 0.5; }
+    tellIn(off, teller, [voter]);
+    expect(heard(off)).toEqual([]);
+    expect(voteChoice(voter, [rival, PLAYER], ctxFor(off))).not.toBe(PLAYER);
   });
 });
 

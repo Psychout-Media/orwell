@@ -23,7 +23,7 @@ function parked(seed: number, user = `ho${seed}`, afterFirstCeremony = false): S
     const v = s.advanceGame();
     if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
     const st = s.getGameState() as { daySchedule?: { due: boolean } };
-    if (st.daySchedule && st.daySchedule.due === false && !(s.getGameState() as { pending?: unknown }).pending && (!afterFirstCeremony || (s.snapshot() as unknown as { live: { hoh?: string } }).live.hoh !== undefined)) return s;
+    if (st.daySchedule && st.daySchedule.due === false && ((s.snapshot() as unknown as { live: { dayNumber?: number } }).live.dayNumber ?? 1) >= 2 && !(s.getGameState() as { pending?: unknown }).pending && (!afterFirstCeremony || (s.snapshot() as unknown as { live: { hoh?: string } }).live.hoh !== undefined)) return s;
   }
   return null;
 }
@@ -101,7 +101,8 @@ describe("hangOut lever", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     c.restore(snap as unknown as Parameters<S["restore"]>[0]);
     const r = c.hangOut();
-    expect(["bedtime", "event-due", "pulled", "npc-approach", "observed"]).toContain(r.stopReason);
+    // ORW-68: pinned to the ONE reason this parked state yields (it was a five-way any-of). The next milestone is already due at 23.9h, so event-due wins on priority (event-due > pulled > approach > observed > bedtime) before any beat; bedtime itself is pinned in the pure runner (hangOut.test.ts).
+    expect({ stopReason: r.stopReason, beats: r.beats }).toEqual({ stopReason: "event-due", beats: 0 });
     const late = JSON.parse(JSON.stringify(snap)); late.live.nightDepth = 24.5;
     const d = new GameSessionRegistry().sandboxFor("ho-bed2").session as S; d.setHangOutEnabled(true); d.setPerConversationClockEnabled(true);
     d.restore(late);
@@ -128,6 +129,7 @@ describe("hangOut lever", () => {
     expect(a.hangOut()).toEqual(b.hangOut());
     const snap = a.snapshot();
     const c = new GameSessionRegistry().sandboxFor("ho5c").session as S; c.setHangOutEnabled(true); c.setPerConversationClockEnabled(true);
+    c.setDesireClockEnabled(false); c.setWantMovementEnabled(false); c.setMorningApproachEnabled(false); c.setMoodApproachEnabled(false); c.setApproachMemoryEnabled(false); c.setNpcTellsEnabled(false); // the SAME flags `parked` pins (the restored session must run the same layers as the original)
     GameSessionAdapter.setTimeOfDayEnabled(true);
     c.restore(snap);
     expect(live(c).hangOutCount).toBe(1);

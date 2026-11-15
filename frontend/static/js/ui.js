@@ -452,6 +452,11 @@ export function autoResize(textarea) {
   let clone = textarea._resizeClone;
   if (!clone) {
     clone = textarea.cloneNode(false);
+    // ORW-289: the measuring clone is NOT a second composer. cloneNode copies the id (a duplicate `#message`: the first-match selectors and
+    // getElementById then disagree about which box is "the" composer), plus name/autofocus/required/aria-label/disabled state. Strip them, hide it from AT.
+    ['id', 'name', 'autofocus', 'required', 'aria-label', 'disabled', 'data-default-placeholder'].forEach(function (a) { clone.removeAttribute(a); });
+    clone.setAttribute('aria-hidden', 'true');
+    clone.setAttribute('tabindex', '-1');
     clone.style.cssText = getComputedStyle(textarea).cssText;
     clone.style.position = 'absolute';
     clone.style.visibility = 'hidden';

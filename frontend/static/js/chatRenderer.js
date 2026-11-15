@@ -10,8 +10,9 @@ import spinnerModule from './spinner.js';
 import { bindMenuDismiss } from './escMenuStack.js';
 import { matchModelKey } from './model/matchKey.js';
 import { isNarrow } from './platform.js';
-import { ORWELL_TOOL_BEATS, orwellBeatOutcome, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
+import { ORWELL_TOOL_BEATS, orwellBeatOutcome, orwellBeatNodeView, orwellAdvanceView, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
 import { detectOocAside } from './orwellOocAside.js';
+import { weekChapterCardHtml } from './orwellChapters.js';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
 const REPORT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>';
@@ -884,6 +885,8 @@ export function updateSessionCostUI() {
  * arg: it becomes the PRIMARY stamp and the real wall clock is demoted to the hover
  * `title` (kept as metadata on `dataset.wallClock`). Absent/blank moment (pre-game /
  * casting) ⇒ the neutral wall-clock stamp (prior behavior). */
+// ORW-379: zero clocks => the real wall time is never shown (not as a stamp, not in the hover).
+export function zeroClocksOn() { return !!(document.body && document.body.hasAttribute('data-zero-clocks')); }
 export function roleTimestamp(when, moment) {
   const ts = document.createElement('span');
   ts.className = 'role-timestamp';
@@ -898,11 +901,9 @@ export function roleTimestamp(when, moment) {
     // In-world moment leads; the wall clock is demoted to hover/metadata.
     ts.textContent = moment.trim();
     ts.classList.add('role-timestamp-moment');
-    ts.title = d.toLocaleString();
-    ts.dataset.wallClock = wall;
+    if (!zeroClocksOn()) { ts.title = d.toLocaleString(); ts.dataset.wallClock = wall; }
   } else {
-    ts.textContent = wall;
-    ts.title = d.toLocaleString();
+    if (!zeroClocksOn()) { ts.textContent = wall; ts.title = d.toLocaleString(); }  // ORW-379: no real time in a played game
   }
   return ts;
 }
@@ -1884,7 +1885,7 @@ export function displayMetrics(messageElement, metrics) {
           <div><span class="ctx-label">Usage</span> <span style="color:${ctxColor};font-weight:600;">${ctxPct}%</span></div>
           <div><span class="ctx-label">Window</span> ${fmtNum(totalCtx)} tokens</div>
         </div>
-        ${ctxPct >= 70 ? `<button class="ctx-compact-btn" title="Summarize older messages to free up context">Compact context</button>` : ''}
+        ${ctxPct >= 70 && !isGameBuild() ? `<button class="ctx-compact-btn" title="Summarize older messages to free up context">Compact context</button>` : ''}
       `;
 
       const compactBtn = popup.querySelector('.ctx-compact-btn');
@@ -2197,8 +2198,9 @@ function storedAnnouncements(metadata) {
   take(metadata.announcements);
   const evs = Array.isArray(metadata.tool_events) ? metadata.tool_events : [];
   for (const ev of evs) {
-    if (!ev || (ev.tool !== 'advanceGame' && ev.tool !== 'submitDecision') || typeof ev.output !== 'string') continue;
-    try { take((JSON.parse(ev.output) || {}).announcements); } catch (_) { /* a truncated/non-JSON output carries none */ }
+    if (!ev || typeof ev.output !== 'string') continue;
+    const adv = orwellAdvanceView(ev.tool, ev.output);  // ORW-264: the SAME parse as the live seam; null = not an advance tool / non-JSON
+    if (adv) take(adv.announcements);
   }
   return out;
 }
@@ -2388,22 +2390,11 @@ export function addMessage(role, content, modelName, metadata) {
             // A production beat / empty tool result is a flat label, not an
             // expand/collapse affordance with nothing behind it.
             const _evExpandHtml = `${evCmdHtml}${outHtml}${evDiffHtml}`;
-            const _evHasExpand = !!_evExpandHtml.trim();
-            node.className = 'agent-thread-node' + (ok ? '' : ' error') + (_evHasExpand ? '' : ' agent-thread-node--flat');
-            // (className extended below once the outcome is known — reload mirrors the live path.)
-            const _evChevron = _evHasExpand ? '<span class="agent-thread-chevron">\u25B6</span>' : '';
-            const _evContentDiv = _evHasExpand ? `<div class="agent-thread-content">${_evExpandHtml}</div>` : '';
-            // L42: render the PUBLIC outcome (Vault-free, from the persisted tool result) on reload too,
-            // so the re-opened transcript reads as what happened, not a stack of identical beat rows.
-            const _evOutcome = (_beat && ok) ? orwellBeatOutcome(ev.tool, ev.output) : null;
-            const _evToolText = _evOutcome || _beat || ev.tool;
-            // M2-5 (PR #1235 review): mirror the LIVE path — game-build success slates carry
-            // no "done" debug tail on reload either (failures stay literal), and an outcome
-            // slate keeps its persistent richer-type marker. Live/reload parity is the F5 rule.
-            const _evStatusHtml = _evOutcome ? '' : (ok && isGameBuild()) ? ''
-              : `<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span>`;
-            if (_evOutcome) node.className += ' ow-slate-outcome';
-            node.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(_evToolText)}</span>${_evStatusHtml}${_evChevron}</div>${_evContentDiv}`;
+            // ORW-264: the finished chip is built by the ONE shared pure builder the live path uses
+            // (orwellBeatNodeView) - outcome line, no "done" tail in the game build, flat/expand shape.
+            const _nv = orwellBeatNodeView({ tool: ev.tool, beat: _beat, ok, output: ev.output, expandHtml: _evExpandHtml, esc });
+            node.className = _nv.className;
+            node.innerHTML = _nv.innerHTML;
             // Click handling is delegated globally \u2014 see chat.js init.
             threadWrap.appendChild(node);
             // M4-6: the SAME pure descriptor + shared DOM builder the live path uses (chat.js) \u2014
@@ -2475,6 +2466,7 @@ export function addMessage(role, content, modelName, metadata) {
     // --- Standard single-bubble message ---
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + (role === 'user' ? 'msg-user' : 'msg-ai');
+    if (metadata && metadata.kind === 'week-chapter') wrap.dataset.kind = 'week-chapter';  // ORW-275: styled as a card, no footer actions
 
     const r = document.createElement('div');
     r.className = 'role';
@@ -2800,6 +2792,12 @@ export function addMessage(role, content, modelName, metadata) {
       wrap.appendChild(createUserMsgFooter(wrap));
     }
 
+    // ORW-275: the week-chapter boundary row is shown as a recap card; its stored content is only the plain-text fallback for clients that do not know the kind. The body is markdown-rendered
+    // above (which would escape card HTML), so the card replaces the finished body here.
+    if (role === 'assistant' && metadata && metadata.kind === 'week-chapter' && metadata.recap) {
+      const _cardBody = wrap.querySelector('.body');
+      if (_cardBody) _cardBody.innerHTML = weekChapterCardHtml(metadata, esc);
+    }
     box.appendChild(wrap);
 
     // TTS is now part of the msg-actions system

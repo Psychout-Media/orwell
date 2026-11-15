@@ -36,7 +36,14 @@ export const ARCHETYPES: ReadonlyArray<readonly [JurorArchetype, number, number,
 ];
 
 
-/** The juror's static profile: archetype from the id hash (uniform over the five), no rng. */
+/** ORW-318 (ORW-253 slice 6): the profile row for a GIVEN juror archetype (the archetype now comes from the juror's character, `juryMinds.jurorArchetypeFor`). */
+export function profileOfArchetype(archetype: JurorArchetype): JurorProfile {
+  const row = ARCHETYPES.find((r) => r[0] === archetype)!;
+  const [, relationship, manner, reliability, gameRespect, finale, forgiveness] = row;
+  return { archetype, mult: { relationship, manner, reliability, gameRespect, finale }, forgiveness };
+}
+
+/** The juror's static profile: archetype from the id hash (uniform over the five), no rng. The pre-ORW-318 path (used when no character is supplied). */
 export function jurorProfile(juror: EntityId, salt: string | number = 0): JurorProfile {
   const [archetype, relationship, manner, reliability, gameRespect, finale, forgiveness] = ARCHETYPES[fnv(`${salt}|${juror}|archetype`) % ARCHETYPES.length]!;
   return { archetype, mult: { relationship, manner, reliability, gameRespect, finale }, forgiveness };

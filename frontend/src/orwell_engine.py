@@ -11,6 +11,8 @@ import time
 
 import httpx
 
+from src import engine_read_cache
+
 logger = logging.getLogger(__name__)
 
 # ORWELL_* are primary; BBAI_* are kept as silent deprecated fallbacks so a pre-rename .env
@@ -72,6 +74,12 @@ def _user_headers(user: str | None, admin: bool = False) -> dict:
     return headers
 
 
+_TURN_REFUSED_PLAYER_NOTE = (
+    " [PRODUCTION NOTE, not for the player: the game's integrity check REFUSED this beat and changed nothing, so the beat has NOT happened. Do not narrate any result, vote, "
+    "morning or next scene, and do not retry this call. Tell the player in ONE short out-of-character line that the game could not move on from here and that the operator has been told.]"
+)
+
+
 class EngineToolError(RuntimeError):
     """The engine RESPONDED with a structured error — it is reachable and answered. Distinct from a
     transport outage (connection refused / timeout / proxy 5xx), which propagates as httpx's own
@@ -96,6 +104,17 @@ class EngineToolError(RuntimeError):
         self.board = board
 
 
+class EngineTurnRefused(EngineToolError):
+    """ORW-321: the engine's fail-closed INTEGRITY CHECKPOINT refused the turn (HTTP 409 `code: "turn-refused"`): state unchanged, the beat did not happen. Carries the fault KINDS and the NAME of the
+    first failing invariant (field names only, never content). Never a model stall and never a transport outage: it must raise a RED operator signal and give the player an honest line."""
+
+    def __init__(self, message: str, status: int | None = 409, kinds=None, invariant: str | None = None):
+        super().__init__(message + _TURN_REFUSED_PLAYER_NOTE, status=status, code="turn-refused")
+        self.kinds = list(kinds or [])
+        self.invariant = invariant
+
+
+
 # --- last-error tracking: VISIBLE error reporting for "engine up but erroring" -----------------
 # Every failed engine call records here; the next successful call clears it. /api/orwell/health
 # surfaces it (recency-gated), so the front-end banner can report a TECHNICAL problem (a failing
@@ -113,6 +132,55 @@ def _record_error(tool: str, kind: str, message: str) -> None:
 def _clear_error() -> None:
     global _LAST_ERROR
     _LAST_ERROR = None
+
+
+# ORW-321 - integrity-checkpoint refusals are NEVER silent. A refused turn is not a model stall and not an outage: the engine answered "no, that beat would have broken an invariant". It is held
+# per user (persists until a later mutating call SUCCEEDS), reaches the operator as a RED entry on the engine-health detail + the overseer log ring, and flags the current turn so the stall /
+# anti-stale ladders do not climb against it.
+_INTEGRITY_REFUSAL: dict = {}
+_REFUSED_TURN: dict = {}
+_MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "createCharacter", "noteMessage", "runCompetition"})
+
+
+def _refusal_key(user) -> str:
+    return user or "__anon__"
+
+
+def note_integrity_refusal(user, tool: str, kinds, invariant) -> None:
+    """Record (and escalate) one checkpoint refusal. Vault-free: kinds + an invariant NAME only. Never raises."""
+    try:
+        k = _refusal_key(user)
+        prev = _INTEGRITY_REFUSAL.get(k) or {}
+        _INTEGRITY_REFUSAL[k] = {
+            "tool": tool, "kinds": list(kinds or []), "invariant": invariant,
+            "count": int(prev.get("count", 0)) + 1, "first": prev.get("first") or time.time(), "last": time.time(),
+        }
+        _REFUSED_TURN[k] = True
+        from src import log_rings as _rings
+        _rings.record_overseer(
+            "escalation", "integrity-refusal",
+            f"the engine's integrity checkpoint refused {tool} (kinds={','.join(kinds or []) or '?'}, invariant={invariant or '?'}); state unchanged, the beat did not happen",
+            lever="operator-red", ok=False, user=user)
+    except Exception:  # failsoft-ok: recorder-self (the red signal must never hurt the call that raised it)
+        pass
+
+
+def integrity_refusal(user=None) -> dict | None:
+    """The standing checkpoint refusal for `user`, or None. Cleared by the next successful mutating call."""
+    r = _INTEGRITY_REFUSAL.get(_refusal_key(user))
+    return dict(r) if r else None
+
+
+def integrity_refusal_recent(user, ttl_s: float = 600.0) -> bool:
+    """True while a checkpoint refusal for `user` is recent (default 10 min). While it holds, the FE's advance stall / force belts stand down: the engine would refuse again, so a nudge is noise, not a
+    correction. The window expires on its own, so a later attempt (after an operator fix) goes through and a success clears the standing refusal."""
+    r = _INTEGRITY_REFUSAL.get(_refusal_key(user))
+    return bool(r) and (time.time() - float(r.get("last", 0))) <= ttl_s
+
+
+def refused_this_turn(user) -> bool:
+    """True when a checkpoint refusal happened since the last `clear_disclosure_turn` (the per-turn clear)."""
+    return bool(_REFUSED_TURN.get(_refusal_key(user)))
 
 
 def last_engine_error() -> dict | None:
@@ -274,6 +342,9 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
             # the stale-beat reconcile keys off a stable machine code, not the message prose. Absent
             # fields ⇒ None ⇒ the existing message-marker fallback still applies (byte-identical).
             body = body if isinstance(body, dict) else {}
+            if body.get("code") == "turn-refused":
+                raise EngineTurnRefused(err, status=r.status_code, kinds=body.get("kinds"),
+                                        invariant=body.get("invariant") if isinstance(body.get("invariant"), str) else None)
             _bseq = body.get("beatSeq")
             exc = EngineToolError(
                 err, status=r.status_code,
@@ -312,7 +383,9 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
-    tight = timeout is not None and timeout <= _FRAMING_TIMEOUT
+    # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
+    # Other wider-timeout pollers keep retrying every transient kind.
+    tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
     for attempt in range(_RETRY_ATTEMPTS + 1):
         try:
@@ -331,6 +404,8 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
                 continue
             # Out of retries (or a non-transient failure): record the banner error and re-raise.
             if isinstance(e, EngineToolError):
+                if isinstance(e, EngineTurnRefused):
+                    note_integrity_refusal(user, name, e.kinds, e.invariant)
                 if not e.no_game:  # the pre-game refusal is a normal state, not a problem
                     _record_error(name, "tool-error", f"{e} (HTTP {e.status})" if e.status else str(e))
                 raise
@@ -342,6 +417,8 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
         else:
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
+            if name in _MUTATING_OK_CLEARS:
+                _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
     # Unreachable (the loop either returns or raises), but keep the type-checker honest.
     raise last_exc if last_exc else EngineToolError("engine call failed")
@@ -366,6 +443,7 @@ def disclosure_this_turn(user) -> bool:
 def clear_disclosure_turn(user) -> None:
     _DISCLOSURE_TURN.pop(_disclosure_key(user), None)
     _TELLS_TURN.pop(_disclosure_key(user), None)
+    _REFUSED_TURN.pop(_refusal_key(user), None)
 
 
 # A50: the engine's tells per houseguest NAME, captured from this turn's `npcVoice` results (only when the tells layer is on, i.e. the result carries a `tells` key; [] = calm).
@@ -412,6 +490,14 @@ def note_engine_delivery(user, game_state) -> bool:
     return False
 
 
+# ORW-167: per-user count of non-read engine calls (landed or failed: a write that timed out may still have been applied). Monotonic within the process; compared before and after a turn.
+_MUTATION_COUNT: dict = {}
+
+
+def mutation_count(user: str | None = None) -> int:
+    return _MUTATION_COUNT.get(user or "", 0)
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
@@ -425,10 +511,18 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    if name not in engine_read_cache.PURE_READS:
+        engine_read_cache.invalidate(user)  # ORW-166: a possible mutation starts - nothing cached for this user may be served or joined
     if name in _DISCLOSURE_TOOLS:
         _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
-        res = await _call_inner(name, args, user=user, timeout=timeout)
+        try:
+            res = await _call_inner(name, args, user=user, timeout=timeout)
+        finally:
+            if name not in engine_read_cache.PURE_READS:
+                # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
+                engine_read_cache.invalidate(user)
+                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
@@ -580,6 +674,9 @@ DECISION_KINDS: frozenset = frozenset({
     "secret-veto",
     # 0123 — the player's in-chat answer to a houseguest's deal offer (vote: accept | decline).
     "deal-offer",
+    # ORW-281 4a — a WATCH step of a staged ceremony. NOT a decision: it is answered by advanceGame (Continue); the engine REFUSES submitDecision for it
+    # (typed). It lives in the union only because the engine's pending-kind union carries it; card-only, never model-submittable.
+    "ceremony-step",
 })
 
 # PO RULING 2026-11-03 (Ryne): big irreversible choices must be confirmed on the decision CARD — prose never
@@ -699,6 +796,25 @@ async def record_world_snapshot(snapshot: dict, user: str | None = None) -> dict
     return await _call("recordWorldSnapshot", snapshot, user=user)
 
 
+async def record_npc_traits(req: dict, user: str | None = None) -> dict:
+    """ORW-319 (spec 0146 lane 1): write each houseguest's model-read habits + season-aim hint BACK to the engine, which validates them
+    against closed sets and keeps each houseguest's first record (write-once). ``req`` is ``{"traits": [{id, habits, aimHint?, aimWhy?}]}``.
+    Returns ``{accepted, rejected}``. Engine-side only (an aim is a motive)."""
+    return await _call("recordNpcTraits", req, user=user)
+
+
+async def record_npc_reflections(req: dict, user: str | None = None) -> dict:
+    """ORW-320 (spec 0146 slice 7): write the post-crown nightly reflections BACK to the engine (``{"reflections": [{id, night, reflection}]}``). The engine
+    refuses until the season is finished, validates, and keeps the first record per houseguest-night. Returns ``{accepted, rejected, reason?}``."""
+    return await _call("recordNpcReflections", req, user=user)
+
+
+async def record_house_culture(req: dict, user: str | None = None) -> dict:
+    """ORW-319 (spec 0146 lane 2): write the season's house culture (spots, rituals, a running joke) BACK to the engine (validated,
+    write-once). Returns ``{accepted, reason?}``."""
+    return await _call("recordHouseCulture", req, user=user)
+
+
 async def world_snapshot_view(user: str | None = None) -> dict | None:
     """Feature 0062 (BE-103 close-out, the G5 gap): read the Vault-free projection of the FROZEN
     move-in zeitgeist ``record_world_snapshot`` captured — ``{ capturedFor, source, slices,
@@ -709,6 +825,36 @@ async def world_snapshot_view(user: str | None = None) -> dict | None:
     input (§6)."""
     result = await _call("worldSnapshotView", {}, user=user)
     return result if isinstance(result, dict) else None
+
+
+async def day_ledger(user: str | None = None) -> list:
+    """ORW-271: the Vault-free append-only per-night day ledger (``[{day, tier, events, themes, text?, coversDays?, merged?}]``).
+    Fail-soft: any engine error or non-list answer reads as ``[]`` (the prompt then simply sends the raw history, as before)."""
+    try:
+        result = await _call("dayLedger", {}, user=user)
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:ledger-read-failed", e, corrected="raw history", user=user)
+        return []
+    return result if isinstance(result, list) else []
+
+
+async def record_day_summary(day: int, text: str, tier: str = "day", covers_days: list | None = None,
+                             user: str | None = None) -> dict:
+    """ORW-271: FE-driven write-back of the model-authored summary of a closed in-game day (or, ``tier="week"``, of the
+    ``covers_days`` range). Idempotent per (day, tier) in the engine. Fail-soft: never raises; returns ``{accepted: False, ...}``."""
+    args: dict = {"day": day, "text": text}
+    if tier == "week":
+        args["tier"] = "week"
+        if covers_days:
+            args["coversDays"] = list(covers_days)
+    try:
+        result = await _call("recordDaySummary", args, user=user)
+    except Exception as e:
+        from src import log_rings
+        log_rings.record_soft_failure("day-condense:write-back-failed", e, corrected="raw history", user=user)
+        return {"accepted": False, "reason": f"error: {e}"}
+    return result if isinstance(result, dict) else {"accepted": False}
 
 
 async def record_producer_profile(overlay: dict, user: str | None = None) -> dict:
@@ -778,11 +924,23 @@ async def get_game_state(user: str | None = None, timeout: float | None = None) 
         raise
 
 
-async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None) -> dict:
-    """The managed system prompt to inject for this user's current (or given) moment."""
+async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None,
+                            brief: dict | None = None) -> dict:
+    """The managed system prompt to inject for this user's current (or given) moment.
+
+    ``brief`` (Showrunner memory, ORWELL_SHOW_BRIEF): when given, the engine also returns ``showBrief`` — the
+    terminal Show Brief for this turn. Omitted (the default) ⇒ the call and its response are byte-identical."""
     args: dict = {}
     if moment:
         args["moment"] = moment
+    if brief is not None:
+        args["brief"] = brief
+    try:
+        from src.zero_clocks import zero_clocks_on
+        if zero_clocks_on():
+            args["zeroClocks"] = True  # ORW-377: the narrator is handed the part of the day, never the clock time (presentation only)
+    except Exception:
+        pass
     return await _call("getMomentPrompt", args, user=user, timeout=timeout if timeout is not None else _FRAMING_TIMEOUT)
 
 
@@ -879,7 +1037,20 @@ async def game_status(user: str | None = None) -> dict:
     Power of Veto this week), empty before the chip draw runs, so a narrator names the real field
     instead of inventing who competes.
     """
-    return await _call("gameStatus", {}, user=user)
+    # ORW-396: a status read is a poller-class call - the POLL timeout (no retry on timeout), never the 30 s default x 3 tries that outlasted the 45 s middleware.
+    return await _call("gameStatus", {}, user=user, timeout=_POLL_TIMEOUT)
+
+
+async def get_game_state_polled(user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-166: :func:`get_game_state` for the HUD POLLERS only - a <=400 ms-old, single-flight, per-user, mutation-invalidated copy
+    (``engine_read_cache``). The chat framing path keeps calling :func:`get_game_state` directly, so the narrator reads state exactly as fresh as its own turn."""
+    return await engine_read_cache.read("getGameState", user, lambda: get_game_state(user=user, timeout=timeout),
+                                  timeout_class=timeout if timeout is not None else _FRAMING_TIMEOUT)
+
+
+async def game_status_polled(user: str | None = None) -> dict:
+    """ORW-166: :func:`game_status` for the HUD pollers (same cache contract as :func:`get_game_state_polled`)."""
+    return await engine_read_cache.read("gameStatus", user, lambda: game_status(user=user), timeout_class=_POLL_TIMEOUT)
 
 
 async def state_delta(since_beat_seq: int | None = None, user: str | None = None) -> dict:
@@ -1031,7 +1202,8 @@ async def social_initiatives(user: str | None = None) -> dict:
 async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None = None,
                     traded_secret: dict | None = None, expected_beat_seq: int | None = None,
                     idempotency_key: str | None = None, user: str | None = None,
-                    term: dict | None = None, direction: str | None = None) -> dict:
+                    term: dict | None = None, direction: str | None = None, third: str | None = None,
+                    parts: list | None = None) -> dict:
     """Record a player<->NPC deal (0039). The engine tracks and adjudicates it. 0065 Part A — an
     optional `expected_beat_seq` CAS token is threaded in only when provided (absent ⇒ identical to
     today).
@@ -1049,6 +1221,10 @@ async def make_deal(with_id: str, kind: str, terms: str, leverage: dict | None =
     args: dict = {"with": with_id, "kind": kind, "terms": terms}
     if direction in ("offer", "ask"):  # B55: who promises, for the active kinds only; absent => the engine defaults to the player's offer
         args["direction"] = direction
+    if third:  # 0142: protect-third only - the third houseguest the partner swears not to move against
+        args["third"] = third
+    if parts:  # 0142: package only - the two bundled promises [{kind, third?, terms?}]; the engine validates and gates each
+        args["parts"] = parts
     if leverage is not None:
         args["leverage"] = leverage
     if traded_secret is not None:
@@ -1189,6 +1365,18 @@ async def confront(npc_id: str, fact_id: str, expected_beat_seq: int | None = No
     return await _call("confront", args, user=user)
 
 
+async def call_in_favor(npc_id: str, ask: str | None = None, expected_beat_seq: int | None = None,
+                        user: str | None = None) -> dict:
+    """Feature 0142 — the player CALLS IN a favor a houseguest owes them (they kept a deal). The engine prices
+    whether it is honored and returns the Vault-free `{honored, kind, narratable}`; null (None) when no favor is owed."""
+    args: dict = {"npcId": npc_id}
+    if ask:
+        args["ask"] = ask
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    return await _call("callInFavor", args, user=user)
+
+
 async def accuse_tie(a_id: str, b_id: str, expected_beat_seq: int | None = None,
                      user: str | None = None) -> dict:
     """Feature 0095 — the player accuses two houseguests of a PRE-SHOW tie. The engine checks whether
@@ -1262,6 +1450,26 @@ async def knowledge_scope_manifest(user: str | None = None):
     a fact no in-game pathway gave them (the room-to-room asymmetry: the player told B, A must not
     recall it). Returns a list of ``{content, knownTo}``; ``[]`` pre-game or when nothing is bounded."""
     return await _call("knowledgeScopeManifest", {}, user=user)
+
+
+async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
+    """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
+    pieces) and ``onCamera`` line through the look-only engine tool. Merges only those two cleaned fields into the
+    public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
+    narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
+    args = {"houseguestId": houseguest_id}
+    for k in ("wardrobe", "onCamera"):
+        if look.get(k):
+            args[k] = look[k]
+    return await _call("recordLookExtras", args, user=user)
+
+
+async def record_room_canon(room_id: str, feature: str, user: str | None = None) -> dict:
+    """ORW-223 (Showrunner memory, canon ledger v1): write ONE narrated texture feature of a room BACK to the engine as
+    append-only canon (``recordRoomCanon``). Sends exactly ``{roomId, feature}``; the engine re-validates the room, the
+    120-char cap and the content fence (no events, outcomes, secrets, places, devices, relationships, numbers) and
+    answers ``{accepted, reason?, entryId?}``. Vault-free; played games only."""
+    return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
 
 
 async def whereabouts(user: str | None = None):
@@ -1355,7 +1563,11 @@ async def _admin_call(name: str, args: dict | None = None, user: str | None = No
     """Invoke an admin/God-Mode tool over the engine's HTTP MCP transport, for `user`'s sandbox.
     Shares `_post_tool`'s semantics: structured engine errors raise :class:`EngineToolError`, real
     outages propagate as httpx errors, and failures feed the visible health banner."""
-    return await _post_tool("/admin/call", name, args, user)
+    engine_read_cache.invalidate(user)  # ORW-166: an admin tool may mutate (override, reset...): never serve a cached read across it
+    try:
+        return await _post_tool("/admin/call", name, args, user)
+    finally:
+        engine_read_cache.invalidate(user)
 
 
 async def inspect_non_vault_state(user: str | None = None) -> dict:
@@ -1591,6 +1803,12 @@ async def engine_health_detail() -> dict:
             break
     if detail.get("ok"):
         _clear_reconnecting()  # the engine answered — any reconnecting state is over
+    _ir = integrity_refusal(None) or next((integrity_refusal(k if k != "__anon__" else None) for k in list(_INTEGRITY_REFUSAL)), None)
+    if _ir:
+        detail["integrityRefusal"] = {  # ORW-321: RED - the engine's checkpoint is refusing turns (Vault-free: kinds + an invariant name)
+            "red": True, "tool": _ir["tool"], "kinds": _ir["kinds"], "invariant": _ir["invariant"],
+            "count": _ir["count"], "ageSeconds": int(time.time() - _ir["last"]),
+        }
     le = last_engine_error()
     if le:
         detail["lastError"] = {

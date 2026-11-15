@@ -101,7 +101,15 @@ run() {
   local title="$1"; shift
   tui_active && { command -v clear >/dev/null 2>&1 && clear || true; }
   ow_section "$title"
-  ow_step "$*"; echo
+  # ORW-241 (audit item 28): never echo a secret. The deploy-token action passes it as GIT_TOKEN=<value> on this command line, so the displayed copy masks any NAME=value argument whose name looks secret.
+  local shown=() a
+  for a in "$@"; do
+    case "$a" in
+      *TOKEN=*|*PASSWORD=*|*SECRET=*|*API_KEY=*|*PAT=*) shown+=("${a%%=*}=***") ;;
+      *) shown+=("$a") ;;
+    esac
+  done
+  ow_step "${shown[*]}"; echo
   "$@"; local rc=$?
   echo
   [[ $rc -eq 0 ]] && ow_ok "${title}: done." || ow_fail "${title}: exited ${rc} (see output above)."
@@ -229,7 +237,7 @@ do_reset_factory() {
     [[ "${1:-}" == "--yes" ]] || die "reset-factory is destructive — pass --yes to run it non-interactively."
     run "Factory reset" bash "${DEPLOY_DIR}/orwell-factory-reset.sh" --yes; return $?
   fi
-  wt_confirm_phrase "RESET" "FACTORY RESET — back to first-run onboarding, KEEPING your API keys.\n\nPERMANENTLY DELETES all games AND the entire front-end store (accounts, sessions, settings, MCP configs, uploads, and EVERY cast portrait / avatar / headshot).\n\nPRESERVED: your API keys + provider endpoint (+ data/.env). The SELECTED MODELS reset to the OOB defaults (glm-5.2 narrator, qwen3.6-flash utility, gemini-3.1-flash-image portraits).\n\nThe next visit starts at first-run OOBE — with an LLM already configured." \
+  wt_confirm_phrase "RESET" "FACTORY RESET — back to first-run onboarding, KEEPING your API keys.\n\nPERMANENTLY DELETES all games AND the entire front-end store (accounts, sessions, settings, MCP configs, uploads, and EVERY cast portrait / avatar / headshot).\n\nPRESERVED: your API keys + provider endpoint (+ data/.env). The SELECTED MODELS reset to the OOB defaults (glm-5.2 narrator, qwen3.6-flash utility, gpt-image-2.6-sunburst portraits).\n\nThe next visit starts at first-run OOBE — with an LLM already configured." \
     || { wt_msgbox "Cancelled — nothing was changed."; return 0; }
   run "Factory reset" bash "${DEPLOY_DIR}/orwell-factory-reset.sh" --yes
 }

@@ -128,8 +128,21 @@ def test_portraits_start_immediately_not_chained_behind_authoring(tmp_portraits,
     assert res["exit_code"] == 0
     # Portraits kicked off, and BEFORE authoring is even scheduled — never chained behind it.
     assert ("portraits", ("player", "npc:1", "npc:2")) in order
+    # ORW-251i: when this red recurs on a CI worker, say WHY (the order flipped to authoring-first on gw1 of fe-unit 2/2 even with the gate pinned off): the prewarm gate, the env hatch, the gate result and the live
+    # background threads/tasks are all captured in the failure message.
+    import os
+    import threading
+    _prewarm = importlib.import_module("src.orwell_prewarm")
+    _diag = {
+        "order": order,
+        "env_floor_start": os.environ.get("ORWELL_ALLOW_FLOOR_START"),
+        "gate_now": _run(cast_authoring.house_entry_gate_active("bob")),
+        "warm_state_bob": _prewarm.warm_state("bob"),
+        "prewarm_keys": sorted(getattr(_prewarm, "_STATE", {}).keys()),
+        "threads": sorted(t.name for t in threading.enumerate())[:12],
+    }
     assert order.index(("portraits", ("player", "npc:1", "npc:2"))) < \
-        next(i for i, c in enumerate(order) if c[0] == "authoring")
+        next(i for i, c in enumerate(order) if c[0] == "authoring"), _diag
     # Authoring still runs, with a top-up callback to fill any not-yet-landed face from the
     # authored facet (idempotent). It is keyed by the OWNER, never the player's identity.
     assert ("authoring", "bob") in order
@@ -163,6 +176,60 @@ def _gate_off(monkeypatch):
     async def _off(owner):
         return False
     monkeypatch.setattr(ca, "house_entry_gate_active", _off)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_create_character(monkeypatch):
+    """ORW-251k: make every createCharacter test in this file HERMETIC. do_create_character reaches, besides what the individual tests patch, the engine pre-seed call, the cast-genesis run, the
+    cast-identity seed (a BACKGROUND asyncio task), the zeitgeist (web search) and producer-authoring kicks. With a model endpoint configured on the xdist worker those made REAL OpenRouter and web-search
+    calls, and the identity task outlived its test: when it finally finished it called `then()` -> `kickoff_authoring`, resolved at call time, i.e. the NEXT test's fake, so `("authoring", ...)` landed in
+    that test's order list BEFORE its portraits ('assert 1 < 0', fe-unit 2/2 on #2466/#2476/#2393). Every such path is stubbed to a deterministic no-op (identity runs its `then` inline, after the
+    portrait kick, exactly the order the real pipeline has), and any task a test leaves pending is cancelled at teardown so nothing can leak into the next test."""
+    eng = importlib.import_module("src.orwell_engine")
+    gen = importlib.import_module("src.orwell_cast_genesis")
+    ident = importlib.import_module("src.orwell_cast_identity")
+    zeit = importlib.import_module("src.orwell_zeitgeist")
+    prod = importlib.import_module("src.orwell_producer_authoring")
+    ca = importlib.import_module("src.orwell_cast_authoring")
+
+    async def _no_preseed(*a, **k):
+        return {"warmed": False}
+
+    async def _no_genesis(*a, **k):
+        return None
+
+    async def _no_model(*a, **k):
+        return None
+
+    async def _no_model_bool(*a, **k):
+        return False
+
+    def _identity_inline(cast, owner, then=None, write=None):
+        if then is not None:
+            then()
+
+    monkeypatch.setattr(eng, "pre_seed_cast", _no_preseed)
+    monkeypatch.setattr(gen, "run_genesis", _no_genesis)
+    monkeypatch.setattr(ident, "kickoff_identity", _identity_inline)
+    monkeypatch.setattr(zeit, "kickoff_capture", lambda owner: None)
+    monkeypatch.setattr(prod, "kickoff_producer_authoring", lambda owner: None)
+    monkeypatch.setattr(ca, "resolve_authoring_llm_fn", _no_model)
+    monkeypatch.setattr(ca, "_utility_model_available", _no_model_bool)
+    yield
+    loop = asyncio.get_event_loop()
+    pending = [t for t in asyncio.all_tasks(loop) if not t.done()]
+    for t in pending:
+        t.cancel()
+    if pending:
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+
+@pytest.fixture(autouse=True)
+def _pin_house_entry_gate_off(monkeypatch):
+    """ORW-251e: every createCharacter test in this file pins the house-entry gate OFF. They used to rely on "no utility model resolves in the test env", which another test's saved model settings
+    can falsify on the same xdist worker: the gate then goes ON, the immediate seeded-facet kick is skipped, authoring runs first and the portraits land after it ("assert 1 < 0", fe-unit 2/2). The
+    gate-ON contract is pinned in test_adr0013_photo_requires_authoring.py, which patches the gate itself."""
+    _gate_off(monkeypatch)
 
 
 def test_prewarmed_branch_falls_through_to_kickoff_when_warm_declines(tmp_portraits, monkeypatch):
@@ -563,7 +630,8 @@ def test_legacy_entry_without_fingerprint_is_not_mass_reshot(tmp_portraits, monk
     d.mkdir(parents=True, exist_ok=True)
     (d / "npc_1.png").write_bytes(b"PNG:legacy")
     orwell_portraits._save_manifest(
-        "u", {"npc_1": {"file": "npc_1.png", "name": "Houseguest One", "source": "generated"}})
+        "u", {"npc_1": {"file": "npc_1.png", "name": "Houseguest One", "source": "generated",
+                  "promptVersion": orwell_portraits.PORTRAIT_PROMPT_VERSION}})
 
     cast = [{"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "facet-A"}]
     summary = _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False))
@@ -582,6 +650,82 @@ def test_legacy_entry_without_fingerprint_is_not_mass_reshot(tmp_portraits, monk
         "u", record_beats=False))
     assert summary2["generated"] == 1 and calls["n"] == 1
     assert (tmp_portraits / "u" / "npc_1.png").read_bytes() == b"PNG:facet-B"
+
+
+def _seed_old_entry(tmp_portraits, version):
+    d = tmp_portraits / "u"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "npc_1.png").write_bytes(b"PNG:old")
+    entry = {"file": "npc_1.png", "name": "Houseguest One", "source": "generated",
+             "fingerprint": orwell_portraits._prompt_fingerprint("old wording")}
+    if version is not None:
+        entry["promptVersion"] = version
+    orwell_portraits._save_manifest("u", {"npc_1": entry})
+    return d
+
+
+@pytest.mark.parametrize("stored_version", [None, 1])
+def test_older_prompt_version_is_not_reshot_and_keeps_version_1(tmp_portraits, monkeypatch, stored_version):
+    """ORW-361: an entry shot under an older prompt wording (promptVersion missing or 1) is NOT re-shot by
+    the fingerprint path and keeps version 1; a missing portrait is shot with the new prompt and records 2."""
+    monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
+    seen = []
+
+    async def fake_gen(prompt, user, reference_png=None):
+        seen.append(prompt)
+        return b"PNG:" + prompt.encode()
+    monkeypatch.setattr(orwell_portraits, "_generate_one", fake_gen)
+    d = _seed_old_entry(tmp_portraits, stored_version)
+
+    cast = [
+        {"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "new wording"},
+        {"houseguestId": "npc:2", "name": "Houseguest Two", "prompt": "new wording two"},
+    ]
+    summary = _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False))
+
+    assert summary["generated"] == 1
+    assert seen == ["new wording two"]  # only the missing portrait, shot with the new prompt
+    assert (d / "npc_1.png").read_bytes() == b"PNG:old"
+    m = orwell_portraits.load_manifest("u")
+    assert m["npc_1"]["promptVersion"] == 1  # kept (explicit), never bumped
+    assert m["npc_1"]["fingerprint"] == orwell_portraits._prompt_fingerprint("old wording")
+    assert m["npc_2"]["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION == 2
+
+
+def test_forced_single_reshoot_records_version_2_and_keeps_old_file_on_failure(tmp_portraits, monkeypatch):
+    monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
+    outcome = {"fail": True}
+
+    async def fake_gen(prompt, user, reference_png=None):
+        if outcome["fail"]:
+            return None  # provider failure: _generate_one is fail-soft and returns no image
+        return b"PNG:" + prompt.encode()
+    monkeypatch.setattr(orwell_portraits, "_generate_one", fake_gen)
+    d = _seed_old_entry(tmp_portraits, None)
+    cast = [{"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "new wording"}]
+
+    _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False, force_ids=["npc:1"]))
+    assert (d / "npc_1.png").read_bytes() == b"PNG:old"  # failure: old file stays
+    assert orwell_portraits.load_manifest("u")["npc_1"].get("promptVersion", 1) == 1
+
+    outcome["fail"] = False
+    summary = _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False, force_ids=["npc:1"]))
+    assert summary["generated"] == 1
+    assert (d / "npc_1.png").read_bytes() == b"PNG:new wording"
+    m = orwell_portraits.load_manifest("u")["npc_1"]
+    assert m["promptVersion"] == 2
+    assert m["fingerprint"] == orwell_portraits._prompt_fingerprint("new wording")
+
+
+def test_stale_portrait_ids_lists_exactly_the_older_entries():
+    manifest = {
+        "npc_1": {"file": "a.png"},                                   # missing => 1
+        "npc_2": {"file": "b.png", "promptVersion": 1},
+        "npc_3": {"file": "c.png", "promptVersion": orwell_portraits.PORTRAIT_PROMPT_VERSION},
+        "player": {"file": "p.png", "source": "upload"},              # the player's own photo stays
+        "npc_4": "not a dict",
+    }
+    assert orwell_portraits.stale_portrait_ids(manifest) == ["npc_1", "npc_2"]
 
 
 # --- the cast roster route: name + status + portrait, Vault-free ------------------------

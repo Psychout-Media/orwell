@@ -515,7 +515,7 @@ turn started after the downgrade is unaffected — it keys the run on the same `
 adopts its own bubble by `clientMsgId`/`{id, seq}` exactly as today. The client retries WS on the next
 load.
 
-**Feature flag & rollout.** A server flag (`ORWELL_WS_TRANSPORT`, default **off** in Phase 1) gates
+**Feature flag & rollout.** *(Superseded 2026-11-12, ORW-44: the flag and the SSE fallback are removed from the game build, which is WebSocket-only; see ADR 0017's amendment. The text below is the original Phase-1 plan.)* A server flag (`ORWELL_WS_TRANSPORT`, default **off** in Phase 1) gates
 whether the client *attempts* the upgrade at all; when off, every client uses today's stack (zero-risk
 default). Roll out: internal → opt-in cohort → default-on once the WS-specific tests + F5 harness are
 green in CI for both modes. The SSE routes are **never removed** — they are the fallback.

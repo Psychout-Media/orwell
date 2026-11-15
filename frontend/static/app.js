@@ -3124,6 +3124,7 @@ function initializeEventListeners() {
     document.querySelectorAll('.modal').forEach(injectMinimizeButton);
 
     // Watch for dynamically-created modals
+    // Modal bookkeeping stays SYNCHRONOUS (ORW-157 review: dismiss / inert / scrim / focus must not wait on a frame).
     new MutationObserver((mutations) => {
       for (const m of mutations) {
         for (const n of m.addedNodes) {

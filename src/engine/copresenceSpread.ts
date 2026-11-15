@@ -55,8 +55,8 @@ export const LIE_COST = { perPriorLie: 0.85, perRepeatToListener: 0.6, floor: 0.
 /** B34: how a spun / lied share arrives (transmit-side only). */
 export const SPIN = { spunConfidence: 0.85, spunDistortion: 0.15, lieConfidence: 0.5, lieDistortion: 0.5 } as const;
 
-const CUNNING: Partial<Record<StrategyStyle, number>> = { strategic: 0.7, aggressive: 0.6, "under-the-radar": 0.55 };
-const LEAKY: Partial<Record<StrategyStyle, number>> = { emotional: 0.7, social: 0.5, aggressive: 0.4, loyal: 0.2, strategic: 0.1, "under-the-radar": 0.1 };
+export const CUNNING: Partial<Record<StrategyStyle, number>> = { strategic: 0.7, aggressive: 0.6, "under-the-radar": 0.55 };
+export const LEAKY: Partial<Record<StrategyStyle, number>> = { emotional: 0.7, social: 0.5, aggressive: 0.4, loyal: 0.2, strategic: 0.1, "under-the-radar": 0.1 };
 
 /** How much `holder` wants `listener` to hear fact `c`: affinity to the listener, the threat of the fact's subject, and the fact's confidence. 0..1, no rng. Shared by the spread and by seeking. */
 export function factMotive(c: { subject?: EntityId; confidence: number }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat">): number {

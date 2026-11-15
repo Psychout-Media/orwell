@@ -1,3 +1,4 @@
+import "../support/pinFlagsOff";
 import { describe, it, expect } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { NOMINATION_STYLE_BY_ARCHETYPE, NOMINATION_STYLES } from "../../src/engine/decisionConstants";

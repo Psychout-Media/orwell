@@ -83,7 +83,7 @@ of Wave M4. Excluded items are *not* listed below — this is deliberate scope, 
   hidden key/number crosses — the existing casting-leak / redaction gate patterns are templates).
 - Docs touched if behavior is documented anywhere (CLAUDE.md FE conventions, INTEGRATION.md,
   features README status).
-- **Pre-playtest / release checklist:** run the balance gate (`calibration-nightly`, workflow_dispatch; weekly by schedule and automatic on PRs touching tuning constants or default flags) when a default flag has flipped or a tuning constant changed since the last run, and read its PO-band table (bands: `tests/calibration/poTargetBands.ts` only). It is advisory, never a required check.
+- **Pre-playtest / release checklist:** run the balance gate (`calibration-nightly`, workflow_dispatch only, run by hand from the Actions tab; no schedule and no per-PR run, Ryne 2026-11-12) when a default flag has flipped or a tuning constant changed since the last run, and read its PO-band table (bands: `tests/calibration/poTargetBands.ts` only). It is advisory, never a required check.
 
 Sizes: S ≤ ~½ day · M ≈ 1–2 days · L = multi-day. Waves order by leverage; items inside a wave
 are parallel unless `Depends` says otherwise.

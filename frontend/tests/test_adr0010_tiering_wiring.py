@@ -30,7 +30,7 @@ def _captured_trim_budget(monkeypatch, *, tiering_enabled, context_length, msg_c
 
     captured: dict = {}
 
-    def fake_trim(messages, budget, reserve_tokens=0):
+    def fake_trim(messages, budget, reserve_tokens=0, **kw):
         captured["budget"] = budget
         return messages
 
@@ -67,5 +67,6 @@ def test_tiering_enabled_escalates_budget_before_trim(monkeypatch):
 def test_tiering_off_keeps_the_lean_budget(monkeypatch):
     budget = _captured_trim_budget(monkeypatch, tiering_enabled=False,
                                    context_length=1_000_000, msg_chars=400_000)
-    # Default off ⇒ the lean auto-derived cap (48K) is unchanged.
-    assert budget == 48_000
+    # Default off ⇒ the auto-derived budget, unescalated. ORW-219: model-aware, so a 1M window with
+    # the default cap gets the designed 0.60 x window (was 48K).
+    assert budget == 600_000

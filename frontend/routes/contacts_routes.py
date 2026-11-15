@@ -5,6 +5,7 @@ CardDAV contacts integration. Reads from local Radicale, supports
 search and adding new contacts.
 """
 
+import asyncio
 import re
 import logging
 import uuid
@@ -687,13 +688,13 @@ def setup_contacts_routes():
     @router.get("/list")
     async def list_contacts(_admin: str = Depends(require_admin)):
         """List all contacts."""
-        contacts = _fetch_contacts()
+        contacts = await asyncio.to_thread(_fetch_contacts)
         return {"contacts": contacts, "count": len(contacts)}
 
     @router.get("/search")
     async def search_contacts(q: str = Query(""), _admin: str = Depends(require_admin)):
         """Search contacts by name or email. Returns up to 10 matches."""
-        contacts = _fetch_contacts()
+        contacts = await asyncio.to_thread(_fetch_contacts)
         if not q:
             return {"results": []}
         q_lower = q.lower()
@@ -716,13 +717,13 @@ def setup_contacts_routes():
         if not email:
             return {"success": False, "error": "Email required"}
         # Check if already exists
-        contacts = _fetch_contacts()
+        contacts = await asyncio.to_thread(_fetch_contacts)
         for c in contacts:
             if email.lower() in [e.lower() for e in c["emails"]]:
                 return {"success": True, "message": "Already exists", "contact": c}
         if not name:
             name = email.split("@")[0]
-        ok = _create_contact(name, email)
+        ok = await asyncio.to_thread(_create_contact, name, email)
         return {"success": ok}
 
     @router.post("/import")
@@ -733,7 +734,7 @@ def setup_contacts_routes():
         if text.strip():
             if "BEGIN:VCARD" not in text.upper():
                 return {"success": False, "error": "No vCard data found"}
-            result = _import_vcards(text)
+            result = await asyncio.to_thread(_import_vcards, text)
         elif csv_text.strip():
             result = _import_csv_contacts(csv_text)
         else:
@@ -747,7 +748,7 @@ def setup_contacts_routes():
         _admin: str = Depends(require_admin),
     ):
         """Export all contacts as vCard or CSV."""
-        contacts = _fetch_contacts(force=True)
+        contacts = await asyncio.to_thread(_fetch_contacts, force=True)
         if format == "csv":
             content = _contacts_to_csv(contacts)
             media_type = "text/csv; charset=utf-8"
@@ -810,7 +811,7 @@ def setup_contacts_routes():
             return {"success": False, "error": "Name or email required"}
         if not name and emails:
             name = emails[0].split("@")[0]
-        ok = _update_contact(uid, name, emails, phones)
+        ok = await asyncio.to_thread(_update_contact, uid, name, emails, phones)
         return {"success": ok}
 
     @router.delete("/{uid}")
@@ -818,7 +819,7 @@ def setup_contacts_routes():
         """Delete a contact by UID."""
         if not uid:
             return {"success": False, "error": "UID required"}
-        ok = _delete_contact(uid)
+        ok = await asyncio.to_thread(_delete_contact, uid)
         return {"success": ok}
 
     return router

@@ -139,6 +139,34 @@ def report(kind, line):
         passes.append(line)
 
 
+def _port_free(timeout=20.0):
+    """True once nothing accepts connections on the matrix port (a previous module's server has really exited)."""
+    import socket
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with socket.socket() as sk:
+            sk.settimeout(0.5)
+            if sk.connect_ex(("127.0.0.1", PORT)) != 0:
+                return True
+        time.sleep(0.25)
+    return False
+
+
+def stop_fe(proc):
+    """Terminate the booted FE AND wait for it to exit, so the next module's boot_fe() cannot mistake the dying server for its own
+    (the cause of the shared-8893 ERR_CONNECTION_REFUSED flake: terminate() returned at once, the next module saw the old server answer 200,
+    then the old server went away under its first page.goto)."""
+    try:
+        proc.terminate()
+        proc.wait(timeout=15)
+    except Exception:  # failsoft-ok: a stuck server is killed; the next boot waits for the port anyway
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:  # failsoft-ok: nothing more to do for an already-dead process
+            pass
+
+
 def boot_fe():
     env = dict(os.environ, ORWELL_GAME_BUILD="1", AUTH_ENABLED="false", LOCALHOST_BYPASS="true",
                # 2026-07-11: pin the legacy soft enrichment policy — the matrix wires no model, and
@@ -146,6 +174,7 @@ def boot_fe():
                ORWELL_ENRICHMENT_POLICY="soft")
     if ENGINE_URL:
         env["ORWELL_ENGINE_MCP_URL"] = ENGINE_URL
+    _port_free()  # a previous module's server must be gone before we boot ours (see stop_fe)
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(PORT)],
         cwd=FE_DIR, stdout=open(f"/tmp/fe-matrix-{PORT}.log", "w"), stderr=subprocess.STDOUT, env=env)

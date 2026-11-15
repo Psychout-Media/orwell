@@ -9,8 +9,11 @@ and the FE later hid it (the owner's "generates then disappears" report). The fi
 
 Driven hermetically against the real ``stream_llm`` generator with a fake HTTP client. Roles only.
 """
+import pytest
 import asyncio
 import json
+
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
 
 
 class _FakeResp:

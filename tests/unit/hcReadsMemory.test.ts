@@ -49,6 +49,6 @@ describe("the adapter's HC memory bias (ORWELL_HC_MEMORY)", () => {
 
 describe("the decision x source table", () => {
   it("lists the Houseguest's Choice decision and its provider", () => {
-    expect(DECISION_SOURCES.houseguestsChoice).toEqual(["hcMemoryFor"]);
+    expect(DECISION_SOURCES.houseguestsChoice).toEqual(["hcMemoryFor", "hcStrategyFor"]);
   });
 });

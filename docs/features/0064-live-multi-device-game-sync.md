@@ -81,7 +81,7 @@ then leans on the existing sync so all screens render the **same conversation li
 - **D. Once-only casting kickoff** — the producers' opener fires once per game, not once per device.
 - **E. Robustness** — late join (replay + live), reconnect, FE-restart catch-up, multi-tab,
   cross-user isolation, Vault-free throughout.
-- **F. Window & HUD layout sync** — the gadget-rail and every OrwellWindow kit window's
+- **F. Window & HUD layout sync** — *(SUPERSEDED 2026-07-09 by ADR 0017: layout is remembered per device, not synced across devices; this section is the original cross-device design, kept as the record. Noted 2026-11-12, ORW-286 item 8.)* the gadget-rail and every OrwellWindow kit window's
   **open / minimized / docked** state, **size (w,h)**, and **position (x,y)**. *(Originally specified to sync across the user's devices; **superseded by ADR 0017** — geometry is now remembered per device and only the same device's tabs mirror each other.)*
 
 **Out of scope / non-goals:**
@@ -240,6 +240,8 @@ to game state, two layers:
   the turn queue is keyed by the user's own session id. No call for user A can observe user B.
 
 ### F. Window & HUD layout sync across devices
+
+> **Superseded (owner call 2026-07-09, ADR 0017; noted 2026-11-12, ORW-286 item 8).** Cross-device layout sync was built and then reversed: window/HUD geometry is now remembered **per device** and only game state syncs across devices. The text below is the original design, kept as the record; where it says the layout is a "synced, per-user blob so every device shows the same arrangement", that is no longer the behavior.
 
 The game UI is a set of draggable/resizable **OrwellWindow** kit windows (cast, finale,
 retrospective, …) plus the **gadget rail** (0054). Their state persists **per-device** today, in

@@ -71,6 +71,11 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_FINAL_HOH_THREE_PART',   key: 'finalHohThreePart',      parser: 'defaultOn' },
   { envKey: 'ORWELL_WIPEOUT_REEL',            key: 'wipeoutReel',            parser: 'defaultOn' },
   { envKey: 'ORWELL_JUROR_PROFILES',          key: 'jurorProfiles',          parser: 'defaultOn' },
+  { envKey: 'ORWELL_NPC_MINDS_ENDGAME',       key: 'npcMindsEndgame',        parser: 'defaultOn' },
+  { envKey: 'ORWELL_HOUSE_LIFE',              key: 'houseLife',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_GOAL_MOOD',               key: 'goalMood',               parser: 'defaultOn' },
+  { envKey: 'ORWELL_TIE_REVEAL',              key: 'tieReveal',              parser: 'defaultOn' },
+  { envKey: 'ORWELL_GOSSIP_CONSEQUENCE',      key: 'gossipConsequence',      parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_TIME_PER_CONVERSATION',  key: 'timePerConversation',    parser: 'inverted' },
@@ -118,6 +123,10 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'defaultOn' },
   { envKey: 'ORWELL_NPC_MEMORY_SPEECH', key: 'npcMemorySpeech', parser: 'defaultOn' },
+  // ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood word as the player last saw it. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_MOOD_CUE', key: 'moodCue', parser: 'defaultOn' },
+  // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -130,6 +139,12 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NO_HARD_CAPS', key: 'noHardCaps', parser: 'defaultOn' },
   // B7 M4b: an NPC Houseguest's-Choice holder's sixth-player pick reads their memory/beliefs/owed deals beside the bond. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_HC_MEMORY', key: 'hcMemory', parser: 'defaultOn' },
+  // ORW-87 / B7 remainder: the NPC final HOH's Final-3 eviction and the secret-veto replacement read the NPC's memory ledger (grudge/favor), for a played game only. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_ENDGAME_MEMORY', key: 'endgameMemory', parser: 'defaultOn' },
+  // ORW-101 / spec 0005 PO expansion: the NPC Houseguest's-Choice holder picks the strongest STRATEGIC sixth veto player for their game this week (role-aware, from hidden edges + comp stats), not merely their strongest bond. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_HC_STRATEGY', key: 'hcStrategy', parser: 'defaultOn' },
+  // ORW-271 slice 1: the append-only per-night day ledger (a floor entry at each turnIn + the FE-driven recordDaySummary write-back) for a played game. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_DAY_CONDENSE', key: 'dayCondense', parser: 'defaultOn' },
   // B7 M1b: who approaches the player reads the NPC's memory of them (favor/owed promise => seek out; grudge => avoid). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'defaultOn' },
   // B7 / #2017 M3: open protective deals also feed the HOH's nominations. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -159,9 +174,18 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. OFF unless exactly '1'; never-flipped until the FE honours `held` everywhere.
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
-  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'strict' },
+  // A65 / ORW-97: the engine refuses an ordinary advanceGame before the schedule says an event is due (typed `held`). ON by default; applies only to a game a person is playing (`live.playedGame`), so headless drivers are untouched; the FE reads `held`.
+  { envKey: 'ORWELL_ADVANCE_GATE', key: 'advanceGate', parser: 'defaultOn' },
+  // ORW-275: week chapters - the played-game turnIn that crosses a week boundary (bed on eviction night) carries a Vault-free `weekChapter` recap. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_WEEK_CHAPTERS', key: 'weekChapters', parser: 'defaultOn' },
+  // ORW-37 / B40: lasting game philosophies - each NPC plays one philosophy (a seeded draw conditioned on archetype) that sets the nomination style they play. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_PHILOSOPHIES', key: 'philosophies', parser: 'defaultOn' },
   // ORW-212 / ORW-210: calm, non-magnetic NPC movement on the player-facing view (fewer simultaneous moves, a lower ordinary move chance, the player no longer pulls destinations, the scene-hold keeps only the houseguests the player is talking to). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CALM_PRESENCE', key: 'calmPresence', parser: 'defaultOn' },
+  // ORW-37 half 2 / B41: a pre-show tie's nature shapes decisions between the two people it binds (family shields in nominations and keeps in the vote; a rival is pushed); decision terms only, never competition odds. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  { envKey: 'ORWELL_TIE_BEHAVIOR', key: 'tieBehavior', parser: 'defaultOn' },
+  // ORW-223 slice 1 (Showrunner memory part B): the room canon ledger - the narrated texture of a room is recorded as canon and listed in the Show Brief. ON by default ("built means on"); `=0` turns it off.
+  { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

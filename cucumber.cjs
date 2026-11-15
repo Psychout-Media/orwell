@@ -1,5 +1,6 @@
 // A9 flip (2026-11-04): the BDD lane exercises the premiere through the pre-A9 champagne-circle scenarios (0111 etc.); the entrance scenarios opt IN via setPremiereEntrancesEnabled(true).
 process.env.ORWELL_PREMIERE_ENTRANCES = "0";
+process.env.ORWELL_PHILOSOPHIES = "0"; // ORW-37: lasting game philosophies re-seed who nominates whom; the seed-pinned BDD scenarios (0047 secret-ballot fixture, 0078 floor, 0119 felt-duration neutrality, 0130 anchor) were written on the archetype table. The wiring has its own tests (philosophiesWired.test.ts).
 process.env.ORWELL_CALM_PRESENCE = "0"; // ORW-212: the calm re-seat (fewer, staggered moves) changes the seeded movement the 0078 intentional-movement floor scenario measures; calm has its own tests (calmPresence.test.ts)
 process.env.ORWELL_BEDTIME_GATE = "0"; // the BDD lane turns in at 8am in several scenarios; the bedtime gate has its own unit test
 // Cucumber.js configuration (CommonJS so it loads regardless of "type": "module").
@@ -82,6 +83,7 @@ module.exports = {
       "docs/features/0087-relationship-trajectories.feature",
       "docs/features/0088-living-current-read.feature",
       "docs/features/0089-reactive-confessionals.feature",
+      "docs/features/0090-per-archetype-voice.feature",
       "docs/features/0091-trigger-secrets-house-events.feature",
       "docs/features/0092-secret-pacing-drip.feature",
       "docs/features/0093-secrets-as-levers.feature",
@@ -96,6 +98,7 @@ module.exports = {
       "docs/features/0109-deal-duration.feature",
       "docs/features/0110-vote-deduction.feature",
       "docs/features/0111-day-1-experience.feature",
+      "docs/features/0111-champagne-toast-first-impressions.feature",
       "docs/features/0115-diary-room-strategic-confessional.feature",
       "docs/features/0116-model-authored-cast-genesis.feature",
       "docs/features/0117-house-lives-in-in-game-time.feature",
@@ -112,6 +115,17 @@ module.exports = {
       "docs/features/0128-three-part-final-hoh.feature",
       "docs/features/0130-exit-interviews.feature",
       "docs/features/0133-early-eviction-skip-or-watch.feature",
+      "docs/features/0135-traitors-fury.feature",
+      "docs/features/0136-your-legend-precedes-you.feature",
+      "docs/features/0137-the-producer-read.feature",
+      "docs/features/0141-private-orientation-disclosure.feature",
+      "docs/features/0138-the-player-dossier.feature",
+      "docs/features/0140-publicity-priced-promises.feature",
+      "docs/features/0139-the-booth-has-receipts.feature",
+      "docs/features/0144-visible-mood-never-opposite.feature",
+      "docs/features/0145-npc-agendas.feature",
+      "docs/features/0147-npc-minds-house-life.feature",
+      "docs/features/0134-telephone-game-payoffs.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

@@ -24,7 +24,7 @@ def _panel() -> str:
 def test_house_tally_is_rendered_from_state():
     src = _panel()
     assert "renderRoster(" in src
-    assert "/api/orwell/state" in src          # getGameState — the tally source
+    assert 'OrwellGame.get("state"' in src     # getGameState — the tally source (ORW-165: read through the shared game-state store, which owns the /api/orwell/state fetch)
     assert 'id="os-roster-h"' in src           # the "The House · N/N" header element
 
 

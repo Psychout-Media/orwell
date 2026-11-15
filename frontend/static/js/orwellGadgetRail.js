@@ -338,7 +338,24 @@
     guardComposerOverlap();  // #740: never let a floating rail card sit over the composer
   }
   if (body && window.MutationObserver) {
-    var _obs = new MutationObserver(function () { syncVisibility(); });
+    // ORW-157: already scoped to #gadget-rail-body (NOT document.body, as the audit first read it), so a streamed
+    // token does not wake it; but its callback ran forced-layout reads (getComputedStyle per gadget,
+    // getBoundingClientRect) SYNCHRONOUSLY on every batch (a gadget refreshing its card fires a burst). Coalesce
+    // to at most one sync per animation frame. The 4 s fallback + events below are unchanged.
+    var _railSyncRaf = 0;
+    var _railSyncTimer = 0;
+    var _railSyncRun = function () {
+      if (!_railSyncRaf && !_railSyncTimer) return;
+      if (_railSyncRaf && window.cancelAnimationFrame) window.cancelAnimationFrame(_railSyncRaf);
+      clearTimeout(_railSyncTimer);
+      _railSyncRaf = 0; _railSyncTimer = 0;
+      syncVisibility();
+    };
+    var _obs = new MutationObserver(function () {
+      if (_railSyncRaf || _railSyncTimer) return;
+      if (window.requestAnimationFrame) _railSyncRaf = window.requestAnimationFrame(_railSyncRun);
+      _railSyncTimer = setTimeout(_railSyncRun, 120);
+    });
     _obs.observe(body, { childList: true, subtree: true, attributes: true,
       attributeFilter: ["style", "class", "hidden"] });
   }

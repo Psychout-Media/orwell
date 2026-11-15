@@ -177,12 +177,11 @@ def test_reasoning_channel_deltas_are_wrapped_into_think_tags():
     # A separate provider reasoning channel (DeepSeek/vLLM): the server emits {delta, thinking:true}
     # and chat.js wraps consecutive reasoning deltas into <think>…</think> so the SAME accordion
     # path handles channel-reasoning and inline <think> identically.
-    chat = _read("static", "js", "chat.js")
-    seg = chat[chat.index("VLLM reasoning tokens: wrap in <think> tags"):]
-    seg = seg[:seg.index("const wasEmpty = !accumulated;")]
+    # ORW-59: the wrapping now lives in the pure applyDelta (chatStreamMachine.js), pinned behaviourally in test_orw59_stream_machine.py.
+    seg = _read("static", "js", "chatStreamMachine.js")
     assert "if (json.thinking) {" in seg
-    assert "'<think>' + _delta" in seg
-    assert "'</think>' + _delta" in seg
+    assert "'<think>' + delta" in seg
+    assert "'</think>' + delta" in seg
 
 
 def test_server_passes_reasoning_through_to_the_client_unscrubbed():
@@ -213,9 +212,12 @@ def test_primary_stream_has_a_reply_only_body_buffer():
     chat = _read("static", "js", "chat.js")
     # both per-round buffers are declared next to the merged roundText
     assert "let roundReplyText" in chat and "let roundReasoningText" in chat
-    # the split keys off json.thinking using the RAW delta (before <think>-wrapping)
-    assert "if (json.thinking) roundReasoningText += json.delta;" in chat
-    assert "else               roundReplyText += json.delta;" in chat
+    # the split keys off json.thinking using the RAW delta (before <think>-wrapping). ORW-59: it is now the pure applyDelta (chatStreamMachine.js), pinned behaviourally in
+    # test_orw59_stream_machine.py; here we pin that the live loop routes EVERY delta through it and assigns the reply/reasoning buffers back from its result.
+    assert "applyDelta({ accumulated, roundText, roundReplyText, roundReasoningText, thinkOpen: _thinkOpen }, json)" in chat
+    assert "roundReplyText = _ad.roundReplyText;" in chat and "roundReasoningText = _ad.roundReasoningText;" in chat
+    machine = _read("static", "js", "chatStreamMachine.js")
+    assert "if (json.thinking) roundReasoningText += json.delta;" in machine and "else roundReplyText += json.delta;" in machine
     # all three body render paths source the reply-only buffer
     # (_renderStream + final-render finalize + tool_start intermediate finalize)
     assert chat.count("stripToolBlocks(roundReplyText)") >= 2

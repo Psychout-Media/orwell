@@ -1,5 +1,7 @@
 import type { Soul } from "./characterFactory";
+import type { TellKind, TellBand } from "./tellTypes";
 import { composedEmotion } from "./emotionalArc";
+import { clamp01 } from "../domain/num";
 
 /**
  * B12 / B8 slice 1 (design `npc-strategy-design.md` 15.2, E0) - OBSERVABLE TELLS. A pure, deterministic read of a houseguest's soul into a small CLOSED set of tells that the room can see:
@@ -8,8 +10,7 @@ import { composedEmotion } from "./emotionalArc";
  * (a tell only changes when the arc crosses a band edge by a margin). No numbers ever leave this module (kind/band/channel are words), no rng, no I/O, no Vault. Wiring (persistence, the narrator,
  * the FE chip, observer reaction) is later slices behind flags; with the layer absent this changes nothing. The top `MAX_TELLS` (ASSUMED 2, pending Ryne) by intensity are returned.
  */
-export type TellKind = "withdrawn" | "tearful" | "snapping" | "brittle-calm" | "giddy" | "warm-open" | "guarded" | "restless";
-export type TellBand = "faint" | "clear" | "strong";
+export type { TellKind, TellBand }; // defined in tellTypes.ts (a leaf module) so characterFactory can name them without importing this file - that import closed a cycle
 export type TellChannel = "body" | "voice" | "behaviour";
 export interface Tell { kind: TellKind; band: TellBand; channel: TellChannel }
 
@@ -28,7 +29,6 @@ const CHANNEL: Readonly<Record<TellKind, TellChannel>> = {
   giddy: "behaviour", "warm-open": "body", guarded: "behaviour", restless: "body",
 };
 
-const clamp01 = (x: number): number => (Number.isNaN(x) ? 0 : Math.max(0, Math.min(1, x)));
 
 function bandOf(intensity: number, prev: TellBand | undefined): TellBand | undefined {
   const h = TELLS.hysteresis;

@@ -1,7 +1,7 @@
 """Source pins for the first-message double-render fix (#1087 SSE self-echo parity).
 
 These run in the fast `fe-unit` lane (no browser) so a revert of any leg fails immediately — the
-behavioral fail-before/pass-after proof lives in `test_first_message_double_render.py` (browser lane).
+behavioral proof of the own-echo classification now lives in `test_orw44_s4c_sse_reader_invariants.py::test_double_render_*` (node unit test on chat.js; the browser stack was retired in ORW-44 S4c).
 
 The bug: `session_events` is at-least-once, so a window received its OWN `run-started` echo while its
 foreground POST was still rendering that run; sessionSync could not tell its own echo from a genuine

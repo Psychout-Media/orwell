@@ -67,6 +67,40 @@ describe("producerVault — the owner-ruled DEBUG live-Vault unseal (override of
     expect(JSON.stringify(viaMcp)).toContain(SENTINEL);
   });
 
+
+  // ORW-313: the NPC agendas (goals, reasons, history) ride the DEBUG dump ONLY - through the sanctioned door, never the post-season view and never an advertised tool.
+  it("ORW-313: every NPC's agenda is in the UNSEALED dump (name-resolved, no raw ids) - and in nothing else", async () => {
+    const { sb } = liveGame("pv-agenda", 7);
+    const session = sb.session as unknown as { noteMessage(a: { messageId: string }): unknown };
+    session.noteMessage({ messageId: "pv-agenda-1" }); // a played game seeds every NPC's agenda
+    const dump = sb.session.producerVaultDump()!;
+    expect(dump.agendas).toHaveLength(15);
+    for (const a of dump.agendas) {
+      expect(a.houseguest.length).toBeGreaterThan(0);
+      expect(a.goals.some((g) => g.horizon === "season")).toBe(true);
+      for (const g of a.goals) {
+        expect(typeof g.test).toBe("string");
+        expect(g.commitment).toBeGreaterThanOrEqual(0);
+        expect(g.commitment).toBeLessThanOrEqual(100);
+        expect(Array.isArray(g.why)).toBe(true);
+      }
+    }
+    expect(JSON.stringify(dump.agendas), "names only: no raw npc:/player ids cross").not.toMatch(/\bnpc:\d|\bplayer\b:/);
+    // through the admin MCP seam the FE unseal calls
+    const viaMcp = (await sb.mcp.admin.callTool("producerVault", {})) as { agendas?: unknown[] };
+    expect(viaMcp.agendas).toHaveLength(15);
+  });
+
+  it("ORW-313: the agendas are NOT in the post-season retrospective view, and a plain admin/player surface never carries them", async () => {
+    const { sb } = liveGame("pv-agenda-wall", 7);
+    (sb.session as unknown as { noteMessage(a: { messageId: string }): unknown }).noteMessage({ messageId: "pv-wall-1" });
+    expect((sb.session as unknown as { buildVaultUnseal(): object }).buildVaultUnseal()).not.toHaveProperty("agendas"); // the shared render the retrospective uses has no agendas
+    const pubState = JSON.stringify(sb.session.getGameState());
+    expect(pubState).not.toContain("commitment"); // an agenda field never reaches the player-facing state
+    expect(toolsFor("admin/God Mode").some((t) => t.name === "producerVault")).toBe(false); // the admin allowlist stays Vault-free
+    expect(toolsFor("player").some((t) => t.name === "producerVault")).toBe(false);
+  });
+
   it("returns null when there is no game at all (nothing to unseal)", () => {
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("pv-empty");

@@ -38,14 +38,17 @@ Feature: Replayability & naming — a fresh, randomly-named house every game
     And no single archetype dominates the house beyond the configured balance
     And the mix includes personalities likely to clash and to bond
 
-  # Amended by product ruling #1 (2026-06-10, E38): NPC names must read as REAL names —
-  # seeded sampling from vendored real-name corpora. The corpora are raw material only
-  # ("no fixed cast"): no full-name+persona pairing is hard-coded, and the legacy Bible's
-  # names stay banned (excluded from the corpora).
-  Scenario: Names are unique within a house, realistic, and never a fixed cast
+  # Amended by product ruling #1 (2026-06-10, E38) and Ryne 2026-11-11 (BDD card 30):
+  # LIVE casting names are model-authored and validated (the genesis lane); the engine does
+  # not sample them from a corpus. The vendored real-name corpora feed ONLY the deterministic
+  # factory (`generateHouse`) used by tests and the non-strict floor, and are raw material
+  # only ("no fixed cast"): no full-name+persona pairing is hard-coded, and the legacy
+  # Bible's names stay banned (excluded from the corpora). This scenario therefore pins the
+  # deterministic factory, not live casting.
+  Scenario: Deterministic-factory names are unique within a house, realistic, and never a fixed cast
     When a new house is generated
     Then every houseguest display name is unique within the house
-    And every generated name is sampled from the vendored real-name corpora
+    And every deterministic-factory name is sampled from the vendored real-name corpora
     And no legacy sample-save name is ever generated
     And no full name and persona pairing is fixed across seeds
 

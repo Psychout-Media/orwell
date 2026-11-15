@@ -31,6 +31,12 @@ function started(seed: number): { session: GameSessionAdapter; ids: EntityId[] }
 }
 
 /** Mutate one NPC's soul scalars/history through the public snapshot/restore round-trip (test-only). */
+/** ORW-335: land REAL beats on a houseguest's soul through the engine's own arc (`inflect` -> `evolveEmotion`), not a hand-set scalar. */
+function beats(session: GameSessionAdapter, id: EntityId, event: string, n: number): void {
+  const inflect = (session as unknown as { inflect(id: EntityId, e: string): void }).inflect.bind(session);
+  for (let i = 0; i < n; i++) inflect(id, event);
+}
+
 function setSoul(session: GameSessionAdapter, id: EntityId, patch: { emotionalState?: number; volatility?: number; emotionalHistory?: number[] }): void {
   const core = session.snapshot();
   const npc = core.house!.npcs.find((n) => n.id === id)!;
@@ -173,8 +179,9 @@ When("many consequential beats evolve that houseguest's soul", function (this: B
   const s = cv(this).cvSession!;
   const id = cv(this).cvIds![0]!;
   cv(this).cvMoodBefore = s.npcVoice(id)!.mood;
-  // Drag the soul through a hard stretch (distress + arc history).
-  setSoul(s, id, { emotionalState: 0.15, volatility: 0.8, emotionalHistory: [0.5, 0.4, 0.3, 0.2, 0.15] });
+  // ORW-335: a hard stretch of REAL beats through the engine's emotional arc (was a hand-set soul scalar, which proved nothing about evolution).
+  beats(s, id, "blindside", 3);
+  beats(s, id, "betrayed", 3);
 });
 
 Then("their voice fingerprint is unchanged", function (this: BbWorld) {
@@ -277,7 +284,7 @@ Given("a houseguest with a settled baseline mood", function (this: BbWorld) {
 });
 
 When("a costly beat lands on that houseguest", function (this: BbWorld) {
-  setSoul(cv(this).cvSession!, cv(this).cvIds![0]!, { emotionalState: 0.18, volatility: 0.5, emotionalHistory: [0.5, 0.5, 0.5] });
+  beats(cv(this).cvSession!, cv(this).cvIds![0]!, "blindside", 3); // ORW-335: real beats through the arc, not a hand-set scalar
 });
 
 Then("their mood word changes from the baseline", function (this: BbWorld) {
@@ -285,8 +292,12 @@ Then("their mood word changes from the baseline", function (this: BbWorld) {
 });
 
 Then("it later settles back as the soul mean-reverts", function (this: BbWorld) {
-  setSoul(cv(this).cvSession!, cv(this).cvIds![0]!, { emotionalState: 0.5, volatility: 0.4, emotionalHistory: [0.5, 0.5, 0.5] });
-  assert.equal(cv(this).cvSession!.npcVoice(cv(this).cvIds![0]!)!.mood, cv(this).cvMoodBefore);
+  // ORW-335: quiet stretches through the engine's own mean reversion (was: the baseline re-written by hand and compared with itself).
+  const s = cv(this).cvSession!, id = cv(this).cvIds![0]!;
+  const shaken = s.npcVoice(id)!.mood;
+  beats(s, id, "calm", 40);
+  assert.notEqual(s.npcVoice(id)!.mood, shaken, "the arc moved the mood back off the distressed word");
+  assert.equal(s.npcVoice(id)!.mood, cv(this).cvMoodBefore, "and it settled back to the baseline word");
 });
 
 // --- Determinism + lever contract ---

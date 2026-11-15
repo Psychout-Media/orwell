@@ -9,8 +9,7 @@
 > the isolated side rng, the confessional phrasing consumes no extra draw). The next layer on top of the **already
 > shipped** 0084 voice fingerprint: 0084 *minted* a per-houseguest `VoiceProfile` and surfaced it on
 > `npcVoice`; 0090 makes that voice **genuinely distinctive per archetype + per soul** AND threads it
-> through the prose the **engine itself authors** (confessionals, the deep-profile hidden prose, the
-> story-thread / retrospective text) so they stop reading in one uniform template voice. **This is a
+> through the prose the **engine itself authors**. **As built, that is the confessionals ONLY** (`src/engine/confessionals.ts`, gated by `voice0090.test.ts`); the deep-profile hidden prose and the story-thread / retrospective text are **not** voiced and still read in the template voice (corrected 2026-11-12, ORW-286 item 8: this paragraph used to claim all three). **This is a
 > build-ON of 0084, never a replacement** — `src/engine/voice.ts` + `src/domain/voiceProfile.ts` +
 > `Character.voice` already exist and stay the carrier. **Depends on:** 0084 (the `VoiceProfile` on
 > `CHARACTER` + the `npcVoice` voicing seam this extends), 0058 (deep profiles / `CharacterFactory`,

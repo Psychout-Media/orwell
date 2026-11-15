@@ -1,0 +1,289 @@
+"""ORW-275 (Lane B half): week chapters. The pure chapter logic (Node) + the chapter bar and re-render in a real browser against the live stack, with /api/history faked so
+the transcript spans two game weeks. Roles only; no model."""
+import json
+import os
+import shutil
+import subprocess
+
+import pytest
+
+STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "js")
+
+
+def _node(program):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not available")
+    mod = os.path.join(STATIC, "orwellChapters.js").replace("\\", "/")
+    p = subprocess.run([node, "--input-type=module", "-e", f"import * as c from 'file://{mod}';\n{program}"], capture_output=True, text=True, timeout=30)
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+def _row(role, text, **md):
+    return {"role": role, "content": text, "metadata": md}
+
+
+HIST = [
+    _row("assistant", "casting talk"),                                   # no week: inherits the first chapter
+    _row("assistant", "w1 a", game_moment="Week 1 · Premiere · Evening"),
+    _row("user", "w1 b", game_moment="Week 1 · Nominations · Morning"),
+    _row("assistant", "w2 a", week=2),
+    _row("user", "w2 b", game_moment="Week 2 · Veto competition · Evening"),
+    _row("assistant", "w2 stray", game_moment="Week 1 · stale stamp"),   # a stray older stamp can never reopen an older chapter
+]
+
+
+def test_chapter_of_message_prefers_the_numeric_week_then_the_game_moment():
+    out = _node(f"const r={json.dumps(HIST)};process.stdout.write(JSON.stringify(r.map(c.chapterOfMessage)));")
+    assert out == [None, 1, 1, 2, 2, 1]
+
+
+def test_index_fills_gaps_forward_and_never_goes_backwards():
+    out = _node(f"const i=c.chapterIndex({json.dumps(HIST)});process.stdout.write(JSON.stringify(i));")
+    assert out["weeks"] == [1, 2] and out["current"] == 2
+    assert out["rowWeek"] == [1, 1, 1, 2, 2, 2]
+
+
+def test_slice_for_view_current_and_past_and_inactive():
+    out = _node(f"""const h={json.dumps(HIST)};
+const t=(v)=>c.sliceForView(h,v).map(m=>m.content);
+process.stdout.write(JSON.stringify({{cur:t('current'),w1:t(1),bad:t(9),one:c.sliceForView(h.slice(0,3),'current').length,same:c.sliceForView(h.slice(0,3),'current')===undefined}}));""")
+    assert out["cur"] == ["w2 a", "w2 b", "w2 stray"]
+    assert out["w1"] == ["casting talk", "w1 a", "w1 b"]
+    assert out["bad"] == out["cur"]            # an unknown week falls back to the current one
+    assert out["one"] == 3                    # fewer than two weeks: untouched
+
+
+def test_rows_for_returns_the_same_array_when_chapters_are_not_active():
+    out = _node("const h=[{role:'user',content:'x',metadata:{game_moment:'Week 1 · A'}}];process.stdout.write(JSON.stringify(c.rowsFor('s',h)===h));")
+    assert out is True
+
+
+def test_rows_for_filters_to_the_view_of_that_session():
+    out = _node(f"""const h={json.dumps(HIST)};
+const a=c.rowsFor('s1',h).map(m=>m.content);
+c.setView('s1',1);
+const b=c.rowsFor('s1',h).map(m=>m.content);
+const o=c.rowsFor('s2',h).map(m=>m.content);
+c.setView('s1','current');
+process.stdout.write(JSON.stringify({{a,b,o,view:c.getView('s1')}}));""")
+    assert out["a"] == ["w2 a", "w2 b", "w2 stray"] and out["b"] == ["casting talk", "w1 a", "w1 b"]
+    assert out["o"] == out["a"] and out["view"] == "current"
+
+
+def test_the_goodnight_row_saved_after_the_chapter_row_stays_in_the_week_it_closes():
+    # storage order on an eviction night: ...week 1 rows, the week-chapter row (week 2), the narrator's goodnight (stamped week 1), then week 2 rows
+    h = [_row("assistant", "w1 a", week=1),
+         _row("assistant", "Week 2. Out: X.", kind="week-chapter", week=2, recap={"evicted": ["X"], "hoh": None, "standing": "You are still in the game. 5 houseguests remain."}),
+         _row("assistant", "goodnight", week=1),
+         _row("user", "w2 a", week=2),
+         _row("assistant", "w2 unstamped")]
+    out = _node(f"const h={json.dumps(h)};const i=c.chapterIndex(h);process.stdout.write(JSON.stringify({{rw:i.rowWeek,w1:c.sliceForView(h,1).map(m=>m.content),cur:c.sliceForView(h,'current').map(m=>m.content)}}));")
+    assert out["rw"] == [1, 2, 1, 2, 2]
+    assert out["w1"] == ["w1 a", "goodnight"]
+    assert out["cur"] == ["Week 2. Out: X.", "w2 a", "w2 unstamped"]
+
+
+def test_the_recap_card_is_escaped_and_leaves_out_empty_parts():
+    out = _node("""process.stdout.write(JSON.stringify([
+      c.weekChapterCardHtml({week: 3, recap: {evicted: ['A <b>', 'B'], hoh: null, standing: 'You are on the block.'}}, (x) => String(x).replace(/</g,'&lt;')),
+      c.weekChapterCardHtml({week: 4, recap: {evicted: [], hoh: null, standing: ''}}, (x) => String(x))]));""")
+    assert "Week 3" in out[0] and "A &lt;b>, B" in out[0] and "You are on the block." in out[0] and "Head of Household" not in out[0]
+    assert "Out:" not in out[1] and "Week 4" in out[1]
+
+
+# ── a real browser against the live stack, /api/history faked to span two weeks ──────────────────────
+
+from test_m0_3_midgen_join import STUB, _stack  # noqa: E402,F401
+from test_p0h_day1_clock_e2e import _session  # noqa: E402
+
+pytestmark_browser = pytest.mark.browser
+
+
+def _select(page, sid):
+    """Open a chat the way the sidebar does. Two lessons (ORW-293):
+    1. Never await selectSession's promise in page.evaluate: these tests mock /api/history with page.route, and a pending promise collected under load
+       surfaces as 'Execution context was destroyed, most likely because of a navigation' (no navigation happened).
+    2. Never start a REDUNDANT selection: the page's own boot selection usually opens this same chat already. A second, un-awaited selectSession repaints
+       the current week LATE - after the test has picked a past week - and the view snaps back (main red at d1dbc361; Overseer A measured the two paints).
+    So: select only when the page is not already on this chat, then wait until the chat has stopped changing (`_settled`)."""
+    page.wait_for_function("() => !!(window.sessionModule && window.sessionModule.getCurrentSessionId)", timeout=15000)
+    # When we DO select, the promise is held on window (so it can never be collected) and we wait for it to settle via a flag, never by awaiting it here.
+    page.evaluate("""(id) => { const sm = window.sessionModule; window.__selDone = true;
+      if (sm.getCurrentSessionId() !== id) { window.__selDone = false; window.__selP = Promise.resolve(sm.selectSession(id)).finally(() => { window.__selDone = true; }); } }""", sid)
+    page.wait_for_function("(id) => window.__selDone === true && window.sessionModule.getCurrentSessionId() === id", arg=sid, timeout=15000)
+
+
+def _settled(page, quiet_ms=800, timeout=15000):
+    """Wait until #chat-history has had no DOM change for `quiet_ms` (every in-flight paint has landed)."""
+    page.evaluate("""() => { if (window.__chMo) return; const box = document.getElementById('chat-history'); window.__chLast = performance.now();
+      window.__chMo = new MutationObserver(() => { window.__chLast = performance.now(); }); window.__chMo.observe(box, {childList: true, subtree: true}); }""")
+    page.wait_for_function("(q) => performance.now() - window.__chLast > q", arg=quiet_ms, timeout=timeout)
+
+
+@pytest.mark.browser
+def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    sid = _session(_stack, "ch275")
+    hist = [dict(m, id=f"id{i}", seq=i + 1) for i, m in enumerate(HIST)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.wait_for_timeout(2500)
+        _select(page, sid)
+        page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
+        txt = lambda: page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")  # noqa: E731
+        page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 3", timeout=15000)
+        _settled(page)
+        cur = txt()
+        assert any("w2 a" in t for t in cur) and not any("w1 a" in t for t in cur), cur
+        assert "Week 2" in page.inner_text("#orwell-chapter-bar")
+        page.select_option("#orwell-chapter-bar select", "1")
+        page.wait_for_function("() => (document.getElementById('orwell-chapter-bar') || {}).textContent.includes('Reading Week 1')", timeout=15000)
+        page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('w1 a')", timeout=15000)
+        _settled(page)
+        past = txt()
+        assert any("w1 a" in t for t in past) and not any("w2 a" in t for t in past), past
+        assert "Reading Week 1" in page.inner_text("#orwell-chapter-bar")
+        page.click("#orwell-chapter-bar button[data-action=current]")
+        page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('w2 a')", timeout=15000)
+        browser.close()
+
+
+@pytest.mark.browser
+def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  # noqa: F811
+    """ORW-293 (main red at d1dbc361): selectSession chose the week's rows when the history ARRIVED, then waited out a 120 ms fade before painting them. A week
+    picked inside that fade was painted over by the rows chosen before the pick (Week 2 drawn back over Week 1). Forced deterministically here: reopen the chat,
+    wait until the fade has started (the history is in hand), pick Week 1, and after everything settles Week 1 must be what is shown."""
+    from playwright.sync_api import sync_playwright
+    sid = _session(_stack, "ch275-race")
+    hist = [dict(m, id=f"rid{i}", seq=i + 1) for i, m in enumerate(HIST)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        _select(page, sid)
+        page.wait_for_selector("#orwell-chapter-bar select", timeout=15000)
+        page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('w2 a')", timeout=15000)
+        _settled(page)
+        page.evaluate("""(id) => { window.__raceDone = false;
+          window.__raceP = Promise.resolve(window.sessionModule.selectSession(id)).finally(() => { window.__raceDone = true; }); }""", sid)
+        # the fade has started: the reload's history is in hand
+        page.wait_for_function("() => document.getElementById('chat-history').style.opacity === '0'", timeout=15000, polling=5)
+        page.select_option("#orwell-chapter-bar select", "1")
+        page.wait_for_function("() => window.__raceDone === true", timeout=15000)
+        _settled(page)
+        rows = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")
+        bar = page.inner_text("#orwell-chapter-bar")
+        trig = page.evaluate("() => window.__guardTrigger || null")
+        browser.close()
+    assert "Reading Week 1" in bar, (bar, trig)
+    assert any("w1 a" in t for t in rows) and not any("w2 a" in t for t in rows), rows
+
+
+@pytest.mark.browser
+def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    sid = _session(_stack, "ch275b")
+    h = [_row("assistant", "w1 a", week=1),
+         _row("assistant", "Week 2. Out: X.", kind="week-chapter", week=2, recap={"evicted": ["Xavier"], "hoh": None, "standing": "You are still in the game. 5 houseguests remain."}),
+         _row("assistant", "goodnight", week=1),
+         _row("user", "w2 hello", week=2)]
+    hist = [dict(m, id=f"id{i}", seq=i + 1) for i, m in enumerate(h)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.wait_for_timeout(2500)
+        _select(page, sid)
+        page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
+        page.wait_for_selector(".ow-week-card", timeout=15000)
+        card = page.inner_text(".ow-week-card")
+        assert "Week 2" in card and "Xavier" in card and "5 houseguests remain" in card, card
+        assert page.evaluate("() => { const m = document.querySelector('.msg[data-kind=week-chapter]'); return !!m && (!m.querySelector('.msg-footer') || getComputedStyle(m.querySelector('.msg-footer')).display === 'none'); }")
+        body = page.inner_text("#chat-history")
+        assert "w2 hello" in body and "goodnight" not in body and "w1 a" not in body  # the closing week's goodnight is in the past chapter
+        browser.close()
+
+
+# ── ORW-161: the anchored history window ──────────────────────────────────────────────────────────────────────────
+def _seq_rows(n):
+    return [{"role": "assistant" if i % 2 else "user", "content": f"m{i}", "seq": i + 1, "metadata": {}} for i in range(n)]
+
+
+def test_orw161_a_short_transcript_is_untouched_and_a_long_one_keeps_the_newest_rows():
+    out = _node(f"""const s={json.dumps(_seq_rows(80))}, l={json.dumps(_seq_rows(200))};
+const a=c.windowOver(s,null), b=c.windowOver(l,null);
+process.stdout.write(JSON.stringify({{shortSame:a.rows===s,shortHidden:a.hidden,n:b.rows.length,hidden:b.hidden,first:b.rows[0].content,last:b.rows[b.rows.length-1].content,anchor:b.anchor}}));""")
+    assert out["shortSame"] is True and out["shortHidden"] == 0
+    assert out["n"] == 50 and out["hidden"] == 150 and out["first"] == "m150" and out["last"] == "m199" and out["anchor"] == 151
+
+
+def test_orw161_the_window_is_anchored_so_new_messages_append_without_dropping_the_oldest():
+    out = _node(f"""const l={json.dumps(_seq_rows(200))};
+const first=c.windowOver(l,null);
+const grown=l.concat([{{role:'user',content:'new',seq:201,metadata:{{}}}}]);
+const again=c.windowOver(grown,first.anchor);
+process.stdout.write(JSON.stringify({{n:again.rows.length,first:again.rows[0].content,last:again.rows[again.rows.length-1].content,hidden:again.hidden}}));""")
+    assert out == {"n": 51, "first": "m150", "last": "new", "hidden": 150}
+
+
+def test_orw161_rows_without_a_seq_are_never_windowed():
+    out = _node(f"""const l={json.dumps([{"role": "user", "content": str(i), "metadata": {}} for i in range(200)])};
+const w=c.windowOver(l,null);process.stdout.write(JSON.stringify({{same:w.rows===l,hidden:w.hidden}}));""")
+    assert out == {"same": True, "hidden": 0}
+
+
+def test_orw161_rows_for_windows_a_long_chat_and_reveals_older_rows_on_demand():
+    out = _node(f"""const l={json.dumps(_seq_rows(200))};
+const a=c.rowsFor('sess',l).length;
+c.showEarlier('sess','sess|all',l,151);
+const b=c.rowsFor('sess',l).length;
+c.showEarlier('sess','sess|all',l,91);
+const d=c.rowsFor('sess',l).length;
+c.showEarlier('sess','sess|all',l,31);
+const e=c.rowsFor('sess',l);
+process.stdout.write(JSON.stringify({{a,b,d,eSame:e===l,eLen:e.length}}));""")
+    assert out == {"a": 50, "b": 110, "d": 170, "eSame": True, "eLen": 200}
+
+
+@pytest.mark.browser
+def test_orw161_a_long_chat_renders_its_newest_rows_and_reveals_earlier_ones_on_tap(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    sid = _session(_stack, "ch161")
+    hist = [dict(_row("assistant" if i % 2 else "user", f"line{i:03d}"), id=f"id{i}", seq=i + 1) for i in range(200)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.wait_for_timeout(2500)
+        _select(page, sid)
+        page.wait_for_selector("#orwell-history-more", timeout=15000)
+        count = lambda: page.evaluate("() => document.querySelectorAll('#chat-history .msg[data-from-history]').length")  # noqa: E731
+        page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 50", timeout=15000)
+        assert count() == 50
+        body = page.inner_text("#chat-history")
+        assert "line199" in body and "line150" in body and "line149" not in body
+        assert "(150)" in page.inner_text("#orwell-history-more")
+        page.click("#orwell-history-more")
+        page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 110", timeout=15000)
+        assert count() == 110 and "line090" in page.inner_text("#chat-history")
+        browser.close()

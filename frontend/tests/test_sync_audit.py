@@ -53,6 +53,8 @@ _DECISION_KINDS = [
     # 0123: the player's in-chat answer to a houseguest's deal offer. Accepted by every relay, but per
     # the PO ruling (2026-11-01) it is NEVER a pending card — so it is not barrier-covered below.
     "deal-offer",
+    # ORW-281 4a: a WATCH step of a staged ceremony (answered by advanceGame; the engine refuses submitDecision for it).
+    "ceremony-step",
 ]
 # The kinds the engine can actually BLOCK on as a pending (deal-offer is open state, never a pending).
 _PENDING_KINDS = [k for k in _DECISION_KINDS if k != "deal-offer"]

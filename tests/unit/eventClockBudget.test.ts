@@ -151,3 +151,23 @@ describe("a night is counted once, even when an event's later steps sit at 8am",
     }
   });
 });
+
+describe("ORW-262 — a played game spreads the event budget over its steps", () => {
+  it("charges a slice per step, settles the remainder on the closing step, and never exceeds the budget", () => {
+    const s = {} as LiveSeasonState;
+    const steps = ["eviction", "eviction-reveal", "eviction-reveal", "eviction-goodbye"] as const;
+    let total = 0;
+    for (const b of steps) {
+      const h = eventBeatHours(s, b, 3, BUDGET, 5)!;
+      expect(h).toBeGreaterThan(0);
+      expect(h).toBeLessThan(BUDGET);
+      total += h;
+    }
+    total += eventBeatHours(s, "eviction-result", 3, BUDGET, 5)!;
+    expect(total).toBeCloseTo(BUDGET, 6);
+    expect(eventBeatHours(s, "eviction-result", 3, BUDGET, 5)).toBe(0);
+  });
+  it("omitting the spread keeps the front-loaded charge (headless sims unchanged)", () => {
+    expect(eventBeatHours({} as LiveSeasonState, "eviction", 3, BUDGET)).toBe(BUDGET);
+  });
+});

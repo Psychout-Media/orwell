@@ -10,10 +10,10 @@ from types import SimpleNamespace
 from typing import Dict, Any, AsyncGenerator, List, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Form, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata
 from src.request_models import ChatRequest
 from src.llm_core import llm_call_async, stream_llm, stream_llm_with_fallback
 from src.agent_loop import stream_agent_loop
@@ -22,7 +22,7 @@ from src import agent_runs
 from src import session_events
 from src.model_context import estimate_tokens
 from src.chat_helpers import coerce_message_and_session
-from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url
+from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url, resolve_session_headers
 from src.session_search import search_session_messages
 from src.prompt_security import untrusted_context_message
 from core.exceptions import SessionNotFoundError
@@ -40,6 +40,7 @@ from routes.chat_helpers import (
     save_assistant_response,
     run_post_response_tasks,
     clean_thinking_for_save,
+    save_stopped_partial,
     _enforce_chat_privileges,
     auto_escalation_withhold,
     ensure_turn_recorded,
@@ -50,14 +51,18 @@ from routes.chat_helpers import (
     unmark_session_framed,
     _last_message_ts,
     current_game_moment,
+    current_game_week,
+    current_game_day,
 )
 from src.action_intents import classify_tool_intent as _classify_tool_intent
 from src.tool_policy import build_effective_tool_policy
+from src.orwell_show_brief import served_seen as _served_brief_seen
 
 logger = logging.getLogger(__name__)
 
 # Track active streams for partial-save safety net
-_active_streams: Dict[str, dict] = {}
+from src.turn_inflight import InflightRegistry as _InflightRegistry  # ORW-406
+_active_streams: Dict[str, dict] = _InflightRegistry()
 _IMAGE_MODEL_PREFIXES = ("gpt-image", "dall-e", "chatgpt-image")
 
 # Strong refs to fire-and-forget background tasks (e.g. the post-turn recordInteraction
@@ -81,16 +86,8 @@ def _stream_set(session_id: str, **fields) -> None:
 
 
 def _session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
-    if not session_url or not endpoint_base:
-        return False
-    sess = session_url.rstrip("/")
-    base = _normalize_base(endpoint_base).rstrip("/")
-    variants = {
-        base,
-        base + "/chat/completions",
-        build_chat_url(base).rstrip("/"),
-    }
-    return sess in variants or sess.startswith(base + "/")
+    from src.endpoint_resolver import session_url_matches_endpoint
+    return session_url_matches_endpoint(session_url, endpoint_base)
 
 
 # F-TR-1 (perf audit): anti-buffering headers for every token-carrying SSE response. A reverse
@@ -102,6 +99,23 @@ def _session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
 # token-stream (`chat_stream`) and resume (`chat_resume`) responses were missing it. Applied to the
 # OUTER StreamingResponse of each token stream.
 SSE_STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+def _game_build_ws_only() -> bool:
+    """ORW-44 S4b2: the game build is WebSocket-only. The SSE/poll chat routes (chat_stream, events, resume) refuse there with a typed error;
+    the non-game build keeps them."""
+    try:
+        from src.settings import ws_transport_enabled
+        return bool(ws_transport_enabled())
+    except Exception:  # failsoft-ok: settings unreadable -> behave as the non-game build (routes stay available), never lock chat out
+        return False
+
+
+WS_ONLY_ERROR = {"error": "ws-only", "reason": "this network blocks the live connection", "detail": "The game runs over a live (WebSocket) connection only."}
+
+
+def _ws_only_json() -> JSONResponse:
+    return JSONResponse(WS_ONLY_ERROR, status_code=426)
 
 
 def _sse_error_response(message: str, status: int = 400) -> StreamingResponse:
@@ -757,7 +771,7 @@ def setup_chat_routes(
         _verify_session_owner(request, session)
 
         try:
-            sess = session_manager.get_session(session)
+            sess = await asyncio.to_thread(session_manager.get_session, session)  # ORW-171: blocking DB work off the event loop
         except KeyError:
             raise HTTPException(404, f"Session '{session}' not found")
         owner = get_current_user(request)
@@ -855,12 +869,15 @@ def setup_chat_routes(
             sess.endpoint_url,
             sess.model,
             ctx.messages,
-            headers=sess.headers,
+            headers=resolve_session_headers(sess),
             temperature=ctx.preset.temperature,
             max_tokens=ctx.preset.max_tokens,
             prompt_type=preset_id,
         )
-        _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model})
+        # ORW-230: a framed turn here is the casting interview or the feeds-down framing (a live game turn was
+        # refused above). Its think blocks never become the saved reply, and the caller is sent that same
+        # narration, not the raw reply (R-VLT-2).
+        _clean_reply, _clean_md = clean_thinking_for_save(reply, {"model": sess.model}, game=bool(ctx.framed))
         sess.add_message(ChatMessage("assistant", _clean_reply, metadata=_clean_md))
 
         from core.database import update_session_last_accessed
@@ -877,7 +894,7 @@ def setup_chat_routes(
             allow_background_extraction=not tool_policy.block_all_tool_calls,
         )
 
-        return {"response": reply}
+        return {"response": _clean_reply if ctx.framed else reply}
 
     # ------------------------------------------------------------------ #
     # The shared narration pipeline behind POST /api/chat_stream. Extracted as
@@ -999,7 +1016,7 @@ def setup_chat_routes(
         # (return / raise) releases via the context manager. Mirrors the engine's per-user enqueue.
         async with session_manager.session_lock(session):
             try:
-                sess = session_manager.get_session(session)
+                sess = await asyncio.to_thread(session_manager.get_session, session)  # ORW-171: blocking DB work off the event loop
             except KeyError:
                 return _sse_error_response(f"Session '{session}' not found", status=404)
             owner = get_current_user(request)
@@ -1318,8 +1335,9 @@ def setup_chat_routes(
             research_sources = None
             web_sources = ctx.web_sources
 
-            # Register active stream for partial-save safety net
-            _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode}
+            # Register active stream for partial-save safety net. ORW-243: `framed` notes a game, casting or
+            # feeds-down turn, whose streamed `partial` stream_status never returns (R-VLT-2).
+            _active_streams[session] = {"status": "streaming", "partial": "", "query": message, "is_research": effective_do_research, "mode": _effective_mode, "framed": bool(ctx.framed)}
 
             # Early SSE keepalive (E): flush the connection — commit the 200 + a byte — BEFORE the
             # model's first token, which can be many seconds out on a cold/loaded provider. An
@@ -1507,6 +1525,10 @@ def setup_chat_routes(
                 yield f"data: {json.dumps({'type': 'compacted', 'context_length': ctx.context_length})}\n\n"
 
             full_response = ""
+            # ORW-293b: set once the turn's FINAL assistant row has been saved at [DONE]. The disconnect/cancel branches below save a "stopped partial" for a cut-short
+            # turn; if the consumer closes this generator at the final `yield chunk` (right AFTER the [DONE] save), that branch used to save the SAME reply a second time
+            # (two assistant rows with identical text, e.g. seq 3 and seq 5: the intermittent doubled reply).
+            _final_saved = False
             # Reasoning ("thinking:true") deltas are kept OUT of the public reply but must
             # still be PERSISTED so the collapsed "Thinking" accordion survives a reload and
             # renders the same in a second browser session. Accumulated separately here and
@@ -1585,7 +1607,7 @@ def setup_chat_routes(
                 _chat_finish_reason = None
                 # ── Chat mode: call stream_llm directly, NO tools, NO document access ──
                 try:
-                    _chat_candidates = [(sess.endpoint_url, sess.model, sess.headers)] + _fallback_candidates
+                    _chat_candidates = [(sess.endpoint_url, sess.model, resolve_session_headers(sess))] + _fallback_candidates
                     async for chunk in stream_llm_with_fallback(
                         _chat_candidates,
                         messages,
@@ -1693,7 +1715,17 @@ def setup_chat_routes(
                                     # reply is stamped so the in-game narrator never receives it.
                                     phase=("casting" if (ctx.framed and not ctx.game_active) else None),
                                     game_moment=_game_moment,
+                                    game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                                    game_day=(current_game_day(ctx.user) if ctx.game_active else None),
+                                    # ORW-230: a game turn's think blocks never become the reply
+                                    # (the token cap inside a think saves the reasoning as thinking).
+                                    game=bool(ctx.framed),
+                                    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ None, the row is unchanged):
+                                    # what the narrator last saw rides on its reply's row, so a restart or another
+                                    # window briefs "changed since your last turn" from here (K6 §5.1).
+                                    brief_seen=(_served_brief_seen(ctx.user) if ctx.game_active else None),
                                 )
+                                _final_saved = True
                                 if _saved_id:
                                     # ADR 0012 §2.2/§3.3: carry the SERVER-MINTED message timestamp so
                                     # every window renders the identical time string (the sender no
@@ -1719,26 +1751,28 @@ def setup_chat_routes(
                             _stream_set(session, status="done")
                             yield chunk
                 except (asyncio.CancelledError, GeneratorExit):
-                    if full_response:
+                    if full_response and not _final_saved:
                         logger.info("Client disconnected mid-stream (chat mode) for session %s, saving partial (%d chars)", session, len(full_response))
-                        _stopped_content, _stopped_md = clean_thinking_for_save(
-                            full_response,
+                        # M2-6: a partial beat is still an in-game beat — stamp the in-world moment so a
+                        # disconnect/stopped save reloads with the game moment, not the wall clock (the
+                        # exact bug M2-6 removes). Same source + casting gate as the [DONE] save above.
+                        # ORW-230: a game turn cut off inside an open <think> saves its reasoning to
+                        # metadata.thinking, never as the reply (the one shared disconnect save).
+                        _stopped_moment = current_game_moment(ctx.user) if ctx.game_active else None
+                        save_stopped_partial(
+                            sess, session_manager, full_response,
                             {
                                 "stopped": True,
                                 "model": _actual_model or _answered_by or _requested_model,
                                 "requested_model": _requested_model,
                             },
                             reasoning=full_reasoning,
+                            game=bool(ctx.framed),
+                            game_moment=_stopped_moment,
+                            game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                            game_day=(current_game_day(ctx.user) if ctx.game_active else None),
+                            incognito=incognito,
                         )
-                        # M2-6: a partial beat is still an in-game beat — stamp the in-world moment so a
-                        # disconnect/stopped save reloads with the game moment, not the wall clock (the
-                        # exact bug M2-6 removes). Same source + casting gate as the [DONE] save above.
-                        _stopped_moment = current_game_moment(ctx.user) if ctx.game_active else None
-                        if _stopped_moment:
-                            _stopped_md["game_moment"] = _stopped_moment
-                        sess.add_message(ChatMessage("assistant", _stopped_content, metadata=_stopped_md))
-                        if not incognito:
-                            session_manager.save_sessions()
                     raise
                 finally:
                     _active_streams.pop(session, None)
@@ -1770,7 +1804,7 @@ def setup_chat_routes(
                         sess.endpoint_url,
                         sess.model,
                         messages,
-                        headers=sess.headers,
+                        headers=resolve_session_headers(sess),
                         temperature=ctx.preset.temperature,
                         max_tokens=ctx.preset.max_tokens,
                         prompt_type=preset_id,
@@ -1874,7 +1908,7 @@ def setup_chat_routes(
                                     _reported_model = last_metrics.get("model")
                                     last_metrics["requested_model"] = last_metrics.get("requested_model") or _requested_model
                                     last_metrics["model"] = _reported_model or _actual_model or _answered_by or _requested_model
-                                    yield f'data: {json.dumps({"type": "metrics", "data": last_metrics})}\n\n'
+                                    yield f'data: {json.dumps({"type": "metrics", "data": public_metadata(last_metrics)})}\n\n'  # ORW-187: the stream/mirror/resume replay never carries engine_result
                                 elif data.get("type") == "realign_body":
                                     # S2a in-turn realignment (RC2 / #1664): the mid-stream guard missed
                                     # an ungrounded closed-set claim — EXCISE the phantom sentence(s) from
@@ -1940,6 +1974,7 @@ def setup_chat_routes(
                                 _rec_task = asyncio.create_task(ensure_turn_recorded(
                                     ctx.user, message, full_response, _agent_tools_called,
                                     beat_seq_before=_beat_seq_before,
+                                    session_id=session,
                                 ))
                                 # Retain a strong ref until the task finishes (weak-ref GC guard).
                                 _BG_TASKS.add(_rec_task)
@@ -1963,6 +1998,15 @@ def setup_chat_routes(
                                     # reply is stamped so the in-game narrator never receives it.
                                     phase=("casting" if (ctx.framed and not ctx.game_active) else None),
                                     game_moment=_game_moment,
+                                    game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                                    game_day=(current_game_day(ctx.user) if ctx.game_active else None),
+                                    # ORW-230: a game turn's think blocks never become the reply
+                                    # (the token cap inside a think saves the reasoning as thinking).
+                                    game=bool(ctx.framed),
+                                    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ None, the row is unchanged):
+                                    # what the narrator last saw rides on its reply's row, so a restart or another
+                                    # window briefs "changed since your last turn" from here (K6 §5.1).
+                                    brief_seen=(_served_brief_seen(ctx.user) if ctx.game_active else None),
                                 )
                                 if _saved_id and ctx.game_active:
                                     # #1728 (B2, PR #1825 fix #2): the SAME row id `dataset.dbId`
@@ -1977,6 +2021,7 @@ def setup_chat_routes(
                                         logger.warning(
                                             f"Fold-ledger row-anchor attach failed session={session}: "
                                             f"{_anchor_e}")
+                                _final_saved = True
                                 if _saved_id:
                                     # ADR 0012 §2.2/§3.3: server-minted timestamp (see the chat-mode
                                     # save above) so all windows render the identical time string.
@@ -2004,28 +2049,29 @@ def setup_chat_routes(
                     # outer finally from running and left _active_streams
                     # with a stale entry).
                     try:
-                        if full_response:
+                        if full_response and not _final_saved:
                             logger.info("Client disconnected mid-stream for session %s, saving partial response (%d chars)", session, len(full_response))
-                            _stopped_content2, _stopped_md2 = clean_thinking_for_save(
-                                full_response,
+                            # M2-6: stamp the in-world moment on a partial/stopped beat too (same source +
+                            # casting gate as the [DONE] save), so a disconnect reloads with the game
+                            # moment instead of the wall clock. The cards the player was shown survive a
+                            # cut-short turn. ORW-230: a game turn cut off inside an open <think> saves its
+                            # reasoning to metadata.thinking, never as the reply (the one shared save).
+                            _stopped_moment2 = current_game_moment(ctx.user) if ctx.game_active else None
+                            save_stopped_partial(
+                                sess, session_manager, full_response,
                                 {
                                     "stopped": True,
                                     "model": _actual_model or _answered_by or _requested_model,
                                     "requested_model": _requested_model,
                                 },
                                 reasoning=full_reasoning,
+                                game=bool(ctx.framed),
+                                game_moment=_stopped_moment2,
+                                game_week=(current_game_week(ctx.user) if ctx.game_active else None),
+                                game_day=(current_game_day(ctx.user) if ctx.game_active else None),
+                                announcements=_owed_anns,
+                                incognito=incognito,
                             )
-                            # M2-6: stamp the in-world moment on a partial/stopped beat too (same source +
-                            # casting gate as the [DONE] save), so a disconnect reloads with the game
-                            # moment instead of the wall clock.
-                            _stopped_moment2 = current_game_moment(ctx.user) if ctx.game_active else None
-                            if _stopped_moment2:
-                                _stopped_md2["game_moment"] = _stopped_moment2
-                            if _owed_anns:
-                                _stopped_md2["announcements"] = _owed_anns  # the cards the player was shown survive a cut-short turn
-                            sess.add_message(ChatMessage("assistant", _stopped_content2, metadata=_stopped_md2))
-                            if not incognito:
-                                session_manager.save_sessions()
                     except Exception:
                         logger.exception("Failed to save partial response on disconnect (session %s)", session)
                     raise
@@ -2078,6 +2124,9 @@ def setup_chat_routes(
 
     @router.post("/api/chat_stream")
     async def chat_stream(request: Request) -> StreamingResponse:
+        if _game_build_ws_only():
+            # ORW-44 S4b3: a typed refusal the client turns into the "this network blocks the live connection" notice (the WS `turn` frame reuses _prepare_chat_stream, not this route).
+            return _sse_error_response("ws-only", 426)
         # Thin HTTP wrapper over the shared `_prepare_chat_stream` pipeline (unchanged behavior): build
         # the producer, then run the ADR 0012 run-keying / casting single-flight / subscribe tail. An
         # early pre-stream guard returns an `_sse_error_response` (a StreamingResponse) — forward it as-is.
@@ -2207,7 +2256,9 @@ def setup_chat_routes(
     # fetches the authoritative state itself.
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/events/{session_id}")
-    async def chat_events(request: Request, session_id: str) -> StreamingResponse:
+    async def chat_events(request: Request, session_id: str):
+        if _game_build_ws_only():
+            return _ws_only_json()   # ORW-44 S4b2: the game build mirrors over the socket only
         # W2: same owner guard as every sibling session endpoint — without it any
         # authenticated user could subscribe to another user's activity stream
         # (a metadata side-channel + an unbounded subscriber slot).
@@ -2223,7 +2274,9 @@ def setup_chat_routes(
     # (e.g. after reopening a session whose agent kept running in the background)
     # ------------------------------------------------------------------ #
     @router.get("/api/chat/resume/{session_id}")
-    async def chat_resume(request: Request, session_id: str, from_seq: int = Query(0)) -> StreamingResponse:
+    async def chat_resume(request: Request, session_id: str, from_seq: int = Query(0)):
+        if _game_build_ws_only():
+            return _ws_only_json()   # ORW-44 S4b2: the socket's replay-then-tail replaces resume
         _verify_session_owner(request, session_id)
         # ADR 0012 — allow resuming a run that EXISTS (running OR terminal-but-still-buffered within
         # the evict grace), not only an actively-running one. A short turn finishes before a peer's
@@ -2266,7 +2319,13 @@ def setup_chat_routes(
             # exact path sessions.js polls each turn. Both client consumers already branch on
             # `status !== 'streaming'`, so the idle payload is drop-in compatible.
             return {"status": "idle"}
-        return rec
+        # ORW-243 (R-VLT-2): `partial` is the raw streamed text, any open <think> included, so a framed (game,
+        # casting, feeds-down) turn never returns it. Fail closed: only a record registered as unframed does. No
+        # client reads it (sessions.js reads status/mode/is_research). The internal flag is never echoed.
+        status = {k: v for k, v in rec.items() if k != "framed"}
+        if rec.get("framed") is not False:
+            status.pop("partial", None)
+        return status
 
     # ------------------------------------------------------------------ #
     # POST /api/inject_context
@@ -2356,7 +2415,7 @@ def setup_chat_routes(
                     sess.endpoint_url,
                     sess.model,
                     messages,
-                    headers=sess.headers,
+                    headers=resolve_session_headers(sess),
                     temperature=0.7,
                     # 0 = let the server decide (no cap). A hardcoded 4096 made
                     # local reasoning models (Qwen3 / R1) burn the whole budget
@@ -2422,9 +2481,9 @@ def setup_chat_routes(
         return StreamingResponse(stream_rewrite(), media_type="text/event-stream", headers=SSE_STREAM_HEADERS)
 
     # ── WebSocket Phase-1 (ADR 0017 §3.5): register the `turn` producer ──────────────────────────
-    # Build the factory over THIS closure's `_prepare_chat_stream` and hand it to ws_routes. Dormant
-    # behind ORWELL_WS_TRANSPORT (client-gated) — registering it is inert until a socket relays a
-    # `turn`; the HTTP path is untouched.
+    # Build the factory over THIS closure's `_prepare_chat_stream` and hand it to ws_routes.
+    # The game build's only turn path (ORW-44: WebSocket-only) — registering it is inert until a socket relays a
+    # `turn`.
     try:
         from routes.ws_routes import set_turn_stream_factory
         set_turn_stream_factory(make_ws_turn_stream_factory(_prepare_chat_stream))

@@ -24,7 +24,7 @@ Feature: 0058 — Deep character profiles (born deep, persist, play out)
   # §3 — the Day-1 perception seeds the NPC→player edge (not from zero)
   Scenario: the authored Day-1 read seeds the NPC to player relationship edge
     Given a deep-profile season started with seed "0058-3"
-    Then at move-in some NPC to player edges differ from the player to NPC edges
+    Then at move-in every houseguest with a Day-1 read has a seeded NPC to player edge that differs from the player to NPC edge
     And no relationship number ever crosses to the player
 
   # §5 — story threads are seeded, sealed, and play out through the consequence fold

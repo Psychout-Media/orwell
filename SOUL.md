@@ -295,7 +295,7 @@ many parallel agents, not typing every edit myself.
   Claude-Session: https://claude.ai/code/session_016iJgPf3EsKFY4wzbj9B5Hr
   ```
 - **PR bodies** end with the 🤖 Generated-with line. GitHub via `mcp__github__*` (no `gh` CLI);
-  scope is `kevinhirsch/orwell`. The word "issues" in "Resolves issues #x" breaks auto-close — close
+  scope is `Psychout-Media/orwell`. The word "issues" in "Resolves issues #x" breaks auto-close — close
   manually. Push with `git push -u origin <branch>` (retry w/ backoff on network errors).
 - **Watch PRs** via `subscribe_pr_activity` / the webhook events. Webhooks DON'T deliver CI
   *success*, new pushes, or merge-conflict transitions → keep an hourly `CronCreate` backstop that
@@ -489,7 +489,7 @@ the record session — runtime-only, never committed — plus the older rotation
 ## How to resume
 1. Read `CLAUDE.md` (authoritative), then `docs/features/README.md` + `git log --oneline` for live
    truth. `docs/IMPLEMENTATION_QUEUE.md` and the audits hold the prose.
-2. Check open PRs/issues in `kevinhirsch/orwell`; re-subscribe to anything in flight.
+2. Check open PRs/issues in `Psychout-Media/orwell`; re-subscribe to anything in flight.
 3. Re-establish the hourly PR backstop cron.
 4. Be the overseer: dispatch disjoint, review hard, verify live for stream/render work, relay
     visuals, track as issues, merge only within granted scope. Diagnose before you revert.

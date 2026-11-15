@@ -208,6 +208,52 @@ def test_ship_gate_create_character_is_not_refused(post_reset_settings, rhino_is
     assert res.get("refusalKind") is None
 
 
+def test_orw260_a_failed_backstory_authoring_run_blocks_the_start_once_loudly(post_reset_settings, rhino_is_admin,
+                                                                           monkeypatch, run):
+    """ORW-260 (Ryne, BDD card 30, option B): the deeper backstories are REQUIRED like the cast skeleton. Strict policy + a latched authoring failure => casting finalize is
+    refused BEFORE the engine starts (no fallback cast); the refusal is one-shot (the retry re-runs authoring instead of deadlocking on a stale latch)."""
+    monkeypatch.setenv("ORWELL_ENRICHMENT_POLICY", "strict")
+    monkeypatch.delenv("ORWELL_ALLOW_FLOOR_START", raising=False)
+    _seed_single_openrouter_endpoint(owner="pre-reset-ghost")
+    oe = importlib.import_module("src.orwell_engine")
+    ti = importlib.import_module("src.tool_implementations")
+    authoring = importlib.import_module("src.orwell_cast_authoring")
+    genesis = importlib.import_module("src.orwell_cast_genesis")
+    calls = {"create": 0}
+
+    async def fake_create(*a, **k):
+        calls["create"] += 1
+        return {"started": True, "house": [], "portraitPrompts": []}
+
+    async def fake_state(*a, **k):
+        return {"started": False}
+
+    async def fake_pre_seed(*a, **k):
+        return {"warmed": True, "seed": 7, "house": [{"id": "npc:1"}], "portraitPrompts": []}
+
+    async def fake_run_genesis(*a, **k):
+        return {"committed": 1}
+    monkeypatch.setattr(oe, "create_character", fake_create)
+    monkeypatch.setattr(oe, "get_game_state", fake_state)
+    monkeypatch.setattr(oe, "pre_seed_cast", fake_pre_seed)
+    monkeypatch.setattr(genesis, "run_genesis", fake_run_genesis)
+    monkeypatch.setattr(importlib.import_module("src.orwell_cast_identity"), "kickoff_identity", lambda *a, **k: None)
+    monkeypatch.setattr(importlib.import_module("src.orwell_zeitgeist"), "kickoff_capture", lambda *a, **k: None)
+    genesis.reset_state("rhino")
+    enrichment.clear_failures("rhino")
+
+    authoring.mark_strict_failed("rhino")   # the deeper-backstory lane ended on the floor
+    res = run(ti.do_create_character('{"playerName":"P"}', owner="rhino"))
+    assert res.get("exit_code") == 1, f"a failed backstory run must block the start: {res}"
+    assert calls["create"] == 0, "the engine must NOT start on the fallback"
+    assert "backstories" in res.get("error", "")
+    assert any(f.get("callClass") == "cast-authoring" for f in enrichment.failures("rhino")), "and it is a loud ledger entry"
+    assert authoring.strict_failed("rhino") is False, "one-shot: the retry is not deadlocked on a stale latch"
+    # the world snapshot / off-screen detail stay fail-soft: nothing about them blocks (they never touch this latch)
+    res2 = run(ti.do_create_character('{"playerName":"P"}', owner="rhino"))
+    assert res2.get("exit_code") == 0 and calls["create"] == 1
+
+
 def test_ship_gate_non_admin_user_with_shared_endpoint_also_resolves(post_reset_settings,
                                                                      monkeypatch):
     """Belt for the non-admin variant: a preserved NULL-owner (shared) endpoint must resolve

@@ -6,7 +6,7 @@ import type { EdgeSignals } from "./relationshipConstants";
 import type { EvictionManner } from "./jury";
 import { richOffscreenStretch, type OffscreenScene } from "./offscreen";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity } from "./gossip";
-import { JURY_HOUSE, BEARING_THRESHOLDS, BEARING_MAX } from "./juryHouseConstants";
+import { JURY_HOUSE, BEARING_THRESHOLDS, BEARING_MAX, MANNER_GRUDGE } from "./juryHouseConstants";
 
 /**
  * Feature 0100 — the JURY HOUSE: a sequestered SECOND society of the last-nine evictees who keep
@@ -169,4 +169,15 @@ export function bearingWord(grudge: number): string {
     if (clamped >= BEARING_THRESHOLDS[i]!.min) return BEARING_THRESHOLDS[i]!.word;
   }
   return BEARING_THRESHOLDS[0]!.word;
+}
+
+/**
+ * ORW-110 - the grudge floor a juror's recorded manner toward a finalist implies: betrayed or blindsided on the way out => the "burning" tier, disrespected => the "warm" tier, otherwise 0.
+ * Pure, no rng; the finale bearing takes max(jury-house grudge, this).
+ */
+export function mannerGrudge(m: { betrayed?: boolean; blindsided?: boolean; disrespected?: boolean } | undefined): number {
+  if (!m) return 0;
+  if (m.betrayed || m.blindsided) return MANNER_GRUDGE.wronged;
+  if (m.disrespected) return MANNER_GRUDGE.disrespected;
+  return 0;
 }

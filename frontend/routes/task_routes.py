@@ -309,7 +309,8 @@ def setup_task_routes(task_scheduler) -> APIRouter:
                 if not recent:
                     return prompt[:50].strip()
                 url, model = recent.endpoint_url, recent.model
-                headers = recent.headers or {}
+                from src.endpoint_resolver import resolve_session_headers as _rsh_t
+                headers = _rsh_t(recent) or {}
             finally:
                 db.close()
 

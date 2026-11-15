@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+// ORW-37 finding: the legend nudges NPC->player edges at move-in BY DESIGN (R4, notorietyBias), so "byte-identical outcomes" holds only while no decision sits near a tipping point; with lasting game philosophies ON the seed-42 game does (the legend flips one nomination). Pinned OFF here so this guard keeps proving the legend adds no OUTCOME lever beyond the move-in edges; the coupling itself is reported on the card.
+vi.hoisted(() => { process.env.ORWELL_PHILOSOPHIES = "0"; });
+
 
 afterEach(() => { vi.unstubAllEnvs(); });
 import { createHash } from "node:crypto";

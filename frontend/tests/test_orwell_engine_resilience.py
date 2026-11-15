@@ -14,6 +14,9 @@ import pytest
 
 orwell_engine = importlib.import_module("src.orwell_engine")
 
+# This module tests the retry / backoff itself: opt out of the conftest default (retry off).
+pytestmark = pytest.mark.engine_retry
+
 
 def _resp(status: int, *, payload=None, text=None) -> httpx.Response:
     req = httpx.Request("POST", orwell_engine.ENGINE_URL.rstrip("/") + "/player/call")

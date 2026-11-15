@@ -2,21 +2,42 @@ import type { MemoryEntry } from "./npcMemory";
 import { FORGIVENESS } from "./forgivenessConstants";
 
 /**
- * B27 - the pure forgiveness layer. `forgivenessTraitOf(seed)` is a deterministic function of an integer seed (the caller derives one per houseguest from the game seed and the houseguest id; it
- * touches no shared random stream). `applyForgiveness` returns the ENTRIES the memory read should see: a grudge-keeper's real betrayals are held no older than `floorAgeWeeks`; everyone else's favors
- * age `favorFade` times faster. It never mutates the ledger and never changes severity. Absent the layer the ledger is read as it always was.
+ * B27 / ORW-130 - the pure forgiveness layer. Whether a houseguest holds a grudge against ONE other houseguest is a readable function of who they are and what happened between them (see the table in
+ * `forgivenessConstants.ts`): temperament + how bad + repeat betrayals + favors + closeness. No randomness, no shared stream, no I/O, no Vault, nothing numeric ever shown to the player. `applyForgiveness`
+ * returns the ENTRIES the memory read should see: a held grudge's real betrayals read no older than `floorAgeWeeks`; otherwise favors age `favorFade` times faster. It never mutates the ledger or changes a severity.
  */
 export type ForgivenessTrait = "grudge-keeper" | "typical";
 
-const unit = (seed: number): number => {
-  let h = (Math.imul(seed | 0, 0x9e3779b1) ^ 0x7f4a7c15) >>> 0;
-  h = Math.imul(h ^ (h >>> 16), 0x7feb352d) >>> 0;
-  h = Math.imul(h ^ (h >>> 15), 0x846ca68b) >>> 0;
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-};
+export interface ForgivenessInput {
+  /** The holder's strategy style (unknown/undefined => the default term). */
+  style?: string;
+  /** The holder's soul volatility, 0..1. */
+  volatility: number;
+  /** The holder's bond with the other houseguest, 0..1 (the closeness proxy). */
+  closeness: number;
+}
 
-export function forgivenessTraitOf(seed: number): ForgivenessTrait {
-  return unit(seed) < FORGIVENESS.grudgeKeeperShare ? "grudge-keeper" : "typical";
+const unit = (x: number): number => (Number.isNaN(x) ? 0 : x < 0 ? 0 : x > 1 ? 1 : x);
+
+/** The score the holder weighs; exported so the readable terms can be tested. */
+export function holdScore(entries: readonly MemoryEntry[] | undefined, who: ForgivenessInput): number {
+  const F = FORGIVENESS;
+  const betrayals = (entries ?? []).filter((e) => F.betrayalKinds.includes(e.kind));
+  if (betrayals.length === 0) return 0;
+  const worst = betrayals.reduce((m, e) => Math.max(m, e.severity), 0);
+  const favors = (entries ?? []).filter((e) => F.favorKinds.includes(e.kind)).reduce((s, e) => s + e.severity, 0);
+  const again = Math.min(F.repeatMax, betrayals.length - 1);
+  const sign = F.closeSign[who.style ?? ""] ?? 0.5;
+  return (F.style[who.style ?? ""] ?? F.styleDefault)
+    + F.volatility * unit(who.volatility)
+    + F.severity * unit(worst)
+    + F.repeat * again
+    - F.favor * Math.min(favors, F.favorMax)
+    + F.closeness * sign * unit(who.closeness);
+}
+
+export function forgivenessTraitFor(entries: readonly MemoryEntry[] | undefined, who: ForgivenessInput): ForgivenessTrait {
+  return holdScore(entries, who) >= FORGIVENESS.holdAt ? "grudge-keeper" : "typical";
 }
 
 export function applyForgiveness(entries: readonly MemoryEntry[] | undefined, trait: ForgivenessTrait, week: number): readonly MemoryEntry[] | undefined {

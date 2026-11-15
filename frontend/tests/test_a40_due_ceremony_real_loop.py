@@ -27,9 +27,13 @@ EARLY = [
 ]
 
 
-def _fresh(stack):
-    """A fresh season through the FE's own sanctioned restart door (the stack is shared by the real-stack pins)."""
-    r = _post_json(stack["fe"], "/api/orwell/new-game", {"playerName": "P", "confirm": True}, timeout=120)
+def _fresh(stack, seed=None):
+    """A fresh season through the FE's own sanctioned restart door (the stack is shared by the real-stack pins). `seed` pins the season (the door's optional `seed`; explicit seeds are
+    first-class for tests and replays); None = real entropy, a different game every run (as in play)."""
+    body = {"playerName": "P", "confirm": True}
+    if seed is not None:
+        body["seed"] = seed
+    r = _post_json(stack["fe"], "/api/orwell/new-game", body, timeout=120)
     assert r.get("started"), r
 
 
@@ -50,7 +54,7 @@ def test_early_asks_never_start_the_competition_and_each_costs_five_minutes(_sta
         assert sched["due"] is False, f"not due at {sched}"
         assert pending is None, f"an early ask staged a decision card ({pending}) - production owns the schedule"
         assert hoh is None, "no HOH may be crowned before the competition is called"
-        assert phase == "hoh-competition"
+        assert phase in ("premiere", "hoh-competition")  # ORW-116: the premiere exit is taken when the HOH comes due
         assert prev - sched["minutesUntil"] == 5, f"an early ask is an ordinary 5-minute message: {prev} -> {sched}"
         prev = sched["minutesUntil"]
 
@@ -103,4 +107,4 @@ def test_a_narrator_that_calls_advance_early_does_not_start_the_competition(_sta
     after, pending, hoh, phase = _board(_stack)
     assert after["due"] is False
     assert pending is None, f"a model-called advanceGame at 8am staged a card ({pending}) - production owns the schedule"
-    assert hoh is None and phase == "hoh-competition"
+    assert hoh is None and phase in ("premiere", "hoh-competition")

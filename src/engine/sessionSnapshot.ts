@@ -9,11 +9,14 @@ import type { Deal } from "../domain/deal";
 import type { Campaign, Drive } from "./campaigns";
 import type { Trajectory, FoldSignal } from "./trajectory";
 import type { Alliance } from "./alliances";
+import { isAgendaSuperset } from "./agenda";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
 import type { HiddenRecord } from "../ports/VaultStore";
 import type { AdvanceView } from "../ports/GameSession";
+import type { PersistedCanon } from "../domain/canon";
+import { canonSupersetProblems, restoreCanon } from "./canonLedger";
 
 /**
  * The current durable-snapshot schema version (B40/audit C4). Bump when the shape changes; a save
@@ -226,7 +229,7 @@ export interface SessionCore {
   /** B28: the monotonic count of tell ONSETS (a new tell kind beginning on any houseguest) - persists even after a tell fades, so the checkpoint can prove the tells layer never loses history. */
   tellOnsetCount?: number;
   /** B29 (ORWELL_TELL_REACTIONS): the observer-reaction state - decaying exploit tilts, the per-pair last-reacted week, monotonic counts by kind. Absent when nothing has reacted (byte-identical). */
-  tellReactions?: { exploit: Record<string, number>; reactedWeek: Record<string, number>; counts: Record<string, number>; ticks: number };
+  tellReactions?: { exploit: Record<string, number>; reactedWeek: Record<string, number>; counts: Record<string, number>; ticks: number; avoidUntil?: Record<string, number> };
   /**
    * SEATED sub-zones (issue #792 — the PO ruling: sub-zones SEATED into `assignRooms`, not computed
    * on-read). Each houseguest in a zoned big room (backyard/lounge) holds a per-id sub-zone (the
@@ -244,6 +247,8 @@ export interface SessionCore {
    * saves. Vault-free (position, never the scene's content).
    */
   trackedSightings?: Record<EntityId, TrackedSighting>;
+  /** ORW-343: the mood WORD the player last saw on each active houseguest (a memory, kept beside presence; Vault-free: a word only). Absent on older saves / when the cue is off. */
+  lastSeenMood?: Record<EntityId, string>;
   /** The game's seed (B60/audit E12): the per-moment rng keys off it, so two same-named games diverge. */
   seed?: number;
   /**
@@ -492,6 +497,13 @@ export interface SessionCore {
    * pre-0070 saves (no texture; the deterministic template content simply stands).
    */
   textureOverrides?: Record<string, string>;
+  /**
+   * Showrunner memory (K4 §2.5) — the canon ledger: the small details the narration established on screen (a
+   * nickname, a habit, a prop), each with where it came from. NEVER thinned: `sessionCoreIsSuperset` refuses a
+   * save that drops an entry or rewrites its words. Absent until the first detail is recorded, so a game with no
+   * canon saves byte-identically (and every pre-ledger save loads as an empty ledger).
+   */
+  canon?: PersistedCanon;
   /**
    * Issue #1322 (P2) — the approach-rotation anti-recency cooldown: per-NPC remaining STRETCHES (a
    * distinct week:phase) before they are eligible to lead `socialInitiatives`'s top-3 again, so the
@@ -827,51 +839,52 @@ export function sessionCoreCountsNonDecreasing(later: SessionCoreCounts, earlier
  * corrected) — only outright loss of an already-persisted key/entry is flagged, exactly like the
  * relationship-edge / Vault-id presence checks above.
  */
-export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSnapshot): boolean {
+/** ORW-321: the NAME of the first SessionCore dimension that lost something (a field name only, never content), or null when `later` is a superset of `earlier`. The checkpoint reports it so a refusal is diagnosable in one look. */
+export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: SessionSnapshot): string | null {
   // deals (0039): append-only by id — `DealTracker` only ever `.push()`s; `expireWeekScoped` flips
   // `status` in place and never removes an entry (src/engine/deals.ts).
   const laterDealIds = new Set((later.deals ?? []).map((d) => d.id));
-  for (const d of earlier.deals ?? []) if (!laterDealIds.has(d.id)) return false;
+  for (const d of earlier.deals ?? []) if (!laterDealIds.has(d.id)) return "deals";
 
   // deepProfiles (0058): the hidden §3 layer never loses a houseguest's entry once generated — an
   // authoring upgrade REPLACES a profile's content in place, never deletes the key.
   const laterProfiles = later.deepProfiles ?? {};
-  for (const id of Object.keys(earlier.deepProfiles ?? {})) if (!(id in laterProfiles)) return false;
+  for (const id of Object.keys(earlier.deepProfiles ?? {})) if (!(id in laterProfiles)) return "deepProfiles";
 
   // confideState (0075): the trust-gated confidence ledger never forgets a houseguest it has already
   // confided in. The {tier,truthful} VALUE may legitimately change (a caught lie flips to the truth,
   // `GameSessionAdapter.confide`), so only presence is guarded — not tier-rank monotonicity.
   const laterConfide = later.confideState ?? {};
-  for (const id of Object.keys(earlier.confideState ?? {})) if (!(id in laterConfide)) return false;
+  for (const id of Object.keys(earlier.confideState ?? {})) if (!(id in laterConfide)) return "confideState";
 
   // jurorTold (0129 slice 4): the contents a juror told the player in the jury house — append-only; a dropped
   // telling would silently erase part of the informed vote card.
   const laterJurorTold = new Set(later.jurorTold ?? []);
-  for (const c of earlier.jurorTold ?? []) if (!laterJurorTold.has(c)) return false;
+  for (const c of earlier.jurorTold ?? []) if (!laterJurorTold.has(c)) return "jurorTold";
 
   // secretUsedAs (0093/0099): once a wielded secret is recorded, the record is never lost. Its value can
   // still transition traded→exposed, so only presence is guarded, not value stability.
   const laterUsedAs = later.secretUsedAs ?? {};
-  for (const id of Object.keys(earlier.secretUsedAs ?? {})) if (!(id in laterUsedAs)) return false;
+  for (const id of Object.keys(earlier.secretUsedAs ?? {})) if (!(id in laterUsedAs)) return "secretUsedAs";
 
   // privateOrientations (0063): a closeted orientation is never silently dropped.
   const laterOrientations = later.privateOrientations ?? {};
-  for (const id of Object.keys(earlier.privateOrientations ?? {})) if (!(id in laterOrientations)) return false;
+  for (const id of Object.keys(earlier.privateOrientations ?? {})) if (!(id in laterOrientations)) return "privateOrientations";
 
   // textureOverrides (0070): once an off-screen event gets model-voiced prose, it is never un-textured.
   const laterTexture = later.textureOverrides ?? {};
-  for (const id of Object.keys(earlier.textureOverrides ?? {})) if (!(id in laterTexture)) return false;
+  for (const id of Object.keys(earlier.textureOverrides ?? {})) if (!(id in laterTexture)) return "textureOverrides";
 
   // nominationWeeks (0060 §3): the distinct weeks a houseguest has been nominated only ever grow
   // (`GameSessionAdapter.recordNominationWeeks`: `??= []` then push-if-absent, never a removal).
   for (const [id, weeks] of Object.entries(earlier.nominationWeeks ?? {})) {
     const laterWeeks = new Set(later.nominationWeeks?.[id] ?? []);
-    for (const w of weeks) if (!laterWeeks.has(w)) return false;
+    for (const w of weeks) if (!laterWeeks.has(w)) return "nominationWeeks";
   }
 
   // surfacedTieSubjects (0059 §5): a discovered pre-game tie subject is never un-surfaced (Set, add-only).
   const laterTieSubjects = new Set(later.surfacedTieSubjects ?? []);
-  for (const s of earlier.surfacedTieSubjects ?? []) if (!laterTieSubjects.has(s)) return false;
+  for (const s of earlier.surfacedTieSubjects ?? []) if (!laterTieSubjects.has(s)) return "surfacedTieSubjects";
 
   // 0095 — a pre-show tie's `exposure` (sealed → surfaced-to-house → public) never regresses to a
   // LESS-exposed state across a save/restore. Matched by unordered pair (a/b order is not guaranteed
@@ -885,7 +898,7 @@ export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSn
     const key = [t.a, t.b].sort().join("|");
     const laterRank = laterTieExposure.get(key);
     const earlierRank = exposureRank[t.exposure ?? "sealed"]!;
-    if (laterRank === undefined || laterRank < earlierRank) return false;
+    if (laterRank === undefined || laterRank < earlierRank) return "seededRelationships.ties";
   }
 
   // pacingLastDrippedWeek (0092): once a thread edges toward the player, the week it did so is recorded
@@ -893,14 +906,32 @@ export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSn
   const laterDripped = later.pacingLastDrippedWeek ?? {};
   for (const [id, week] of Object.entries(earlier.pacingLastDrippedWeek ?? {})) {
     const laterWeek = laterDripped[id];
-    if (laterWeek === undefined || laterWeek < week) return false;
+    if (laterWeek === undefined || laterWeek < week) return "pacingLastDrippedWeek";
   }
 
   // showrunnerNotes (0101/#1401): the Vault-held production bible is APPEND-ONLY by `seq` — a note is
   // never rewritten or dropped once composed, so every earlier note's seq must still be present. The
   // bible only ever DEEPENS over a season (non-degradation #4).
   const laterNoteSeqs = new Set((later.showrunnerNotes ?? []).map((n) => n.seq));
-  for (const n of earlier.showrunnerNotes ?? []) if (!laterNoteSeqs.has(n.seq)) return false;
+  for (const n of earlier.showrunnerNotes ?? []) if (!laterNoteSeqs.has(n.seq)) return "showrunnerNotes";
 
-  return true;
+  // canon (K4 §2.5): the ledger is never thinned. No entry disappears, its words, category, scope and provenance
+  // never change, its status only moves forward out of `active`, its reference counters never go back, and the
+  // id counter never goes back (`canonSupersetProblems`). Both sides are read the way a load reads them.
+  if (earlier.canon !== undefined || later.canon !== undefined) {
+    if (canonSupersetProblems(restoreCanon(earlier.canon).ledger, restoreCanon(later.canon).ledger).length > 0) return "canon";
+  }
+
+  // agendas (ORW-312 / 0145): an NPC's resolved-goal history only ever grows (`isAgendaSuperset`), and an agenda once seeded is never dropped.
+  const laterAgendas = later.live?.agendas ?? {};
+  for (const [id, prev] of Object.entries(earlier.live?.agendas ?? {})) {
+    const next = laterAgendas[id];
+    if (!next || !isAgendaSuperset(prev, next)) return "agendas";
+  }
+
+  return null;
+}
+
+export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSnapshot): boolean {
+  return sessionCoreSupersetViolation(later, earlier) === null;
 }

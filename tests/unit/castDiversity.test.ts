@@ -316,17 +316,14 @@ describe("L28/E — the cast is voiced in DIVERSE registers (demeanor spread)", 
     }
   });
 
-  it("presentation spreads too — the 2026-07-21 'tattooed rocker edge ×3' index case stays dead", () => {
-    for (const seed of [3, 17, 88, 256, 1009, 4242]) {
+  it("presentation: every houseguest gets a DIFFERENT style family (ORW-360) — one family, one person", () => {
+    for (let i = 0; i < 40; i++) {
+      const seed = 3 + i * 97;
       const { npcs } = generateHouse(new SeededRandom(seed));
       const presentations = npcs.map((n) => n.character.presentation);
       for (const p of presentations) expect(APPEARANCE_POOLS.PRESENTATION as readonly string[]).toContain(p);
-      // the cast-wide cap holds: no presentation style lands on 3+ houseguests
-      for (const [, count] of tally(presentations)) {
-        expect(count).toBeLessThanOrEqual(MAX_PER_PRESENTATION);
-      }
-      // a real spread of styles every season
-      expect(new Set(presentations).size).toBeGreaterThanOrEqual(7);
+      expect(MAX_PER_PRESENTATION).toBe(1);
+      expect(new Set(presentations).size).toBe(presentations.length);
     }
   });
 });

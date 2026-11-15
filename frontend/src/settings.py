@@ -33,6 +33,9 @@ DEFAULT_SETTINGS = {
     # ADR 0006 - the in-game time-of-day clock + nightly sleep economy (the engine's ORWELL_TIME_OF_DAY).
     # ON by default; the settings switch flips it on the LIVE engine (admin setTimeOfDay) with no restart.
     "time_of_day_enabled": True,
+    # ORW-377 - "zero clocks in the house": the narrator and houseguests say the PART OF THE DAY, never a clock time, and a clock-time sentence is dropped before the player sees it. Presentation only (the engine
+    # keeps its internal clock for the schedule, sleep and bedtime). ON by default; read per call, so flipping it needs no restart. OFF => the clock is shown and nothing is dropped, exactly as before.
+    "zero_clocks": True,
     # #1154 / ADR 0016 §D - FORCE the engine call (tool_choice) at the closed-set, ENGINE-OWNED beats
     # where a missed call is catastrophic: runCompetition (read the comp winner) at a competition phase
     # and advanceGame at a stalled ceremony/eviction advance-phase (incl. the goodbye-message/eviction
@@ -72,14 +75,21 @@ DEFAULT_SETTINGS = {
     # into a player-visible surface (audit 2026-10-25 Tier 1 #10, option (b)). Presentation-only: no balance
     # or game-state effect either way.
     "offscreen_texture_enrichment": False,
-    # OOB default image model. OpenRouter is the default provider and serves Google's Gemini
-    # flash-image models via /chat/completions; gemini-3.1-flash-image is the out-of-box pick —
+    # OOB default image model (ORW-362, Kevin 2026-11-14): OpenAI GPT Image 2.6 Sunburst via OpenRouter's
+    # Image API (POST /api/v1/images; see orwell_portraits._generate_via_openrouter_images). If that call
+    # fails, the one portrait falls back to google/gemini-3.1-flash-image on /chat/completions. Rollback:
+    # set image_model back to google/gemini-3.1-flash-image. Background on the Gemini pick it replaced:
+    # OpenRouter serves Google's Gemini
+    # flash-image models via /chat/completions; gemini-3.1-flash-image was the out-of-box pick —
     # newest-generation Gemini photorealism at ~current-default cost (~1.2x gemini-2.5-flash-image,
     # ~4x cheaper than gemini-3-pro-image), and it does reference-image identity-carry on the same key.
     # (Overridable in Settings → Image generation; the "Auto-detect" option resolves to the same
     # family — see IMAGE_AUTODETECT_CANDIDATES in src/ai_interaction.py.)
-    "image_model": "google/gemini-3.1-flash-image",
+    "image_model": "openai/gpt-image-2.6-sunburst",
     "image_quality": "medium",
+    # ORW-378: portraits generated at once (new casts, backfills, the background upgrader). Clamped 1-4
+    # where read (orwell_portraits.portrait_parallel); a provider 429 drops a run to one at a time.
+    "portrait_parallel": 3,
     "vision_model": "",
     "vision_enabled": True,
     # Ordered fallback chain for the Vision model (image analysis, OCR, tagging).
@@ -150,16 +160,14 @@ DEFAULT_SETTINGS = {
     "agent_max_tool_calls": 0,
     "agent_max_rounds": 20,  # per-message agent step cap (clamped 1..200)
     "agent_input_token_budget": 6000,
-    # Ceiling on the *auto-derived* input budget that #1230 introduced. Has
-    # no effect when `agent_input_token_budget` is explicitly changed off its
-    # default (the user's value is honoured regardless). Default matches
-    # `src.context_budget.DEFAULT_HARD_MAX` (48k — a cost-bounded fraction of a
-    # long-context window that still fits the whole narrative conversation, so
-    # NPCs stay consistent turn to turn); lower this for cost-paranoid setups,
-    # raise it on premium APIs with very large windows that you want to actually
-    # use (e.g. 900_000 to fill a 1M-context model). See `compute_input_token_budget`
-    # in src/context_budget.py.
-    "agent_input_token_hard_max": 48_000,
+    # Ceiling on the *auto-derived* input budget (#1230). No effect when `agent_input_token_budget` is
+    # explicitly changed off its default. 0 (the default) means AUTO: a model whose context window is
+    # 500,000 tokens or more gets 0.60 x its window (600,000 for a 1M model, so a long game keeps its
+    # history), and a smaller window keeps a 48,000 cap. Any other number is an explicit cap and is
+    # honoured exactly, 48000 included, on every model. Saved files that still carry 48000 from the old
+    # default count as an explicit 48K cap; set 0 (or remove the key) to get AUTO. See
+    # `compute_input_token_budget` in src/context_budget.py.
+    "agent_input_token_hard_max": 0,
     "agent_stream_timeout_seconds": 300,
     # N4 (2026-07-16 live-playthrough forensics): `agent_stream_timeout_seconds` above only
     # guards the STREAMING path (agent_loop.py's `stream_llm` call). The async NON-stream
@@ -328,12 +336,12 @@ DEFAULT_SETTINGS = {
     # no fallback, so a large prompt never cold-cache-misses on a fallback; small calls keep
     # fallbacks on for availability. Per-session stickiness (the `user` field) is always on.
     "token_pin_threshold_tokens": 0,
-    # ADR 0010 / feature 0069 slice D — opt-in non-degradation context tiering. False (default) keeps
+    # ADR 0010 / feature 0069 slice D — non-degradation context tiering. ON by default (ORW-266, "built means on"); False keeps
     # the lean budget (auto-derived, capped at agent_input_token_hard_max) => byte-identical. True lets
     # a long game GROW its input budget toward the model window (~0.85x) BEFORE older turns are trimmed
     # away, so history is kept (mandate #4) instead of lost to lossy compaction. Costs more on long
     # games (watch the token-economy meter); only helps on large-context models.
-    "context_tiering_enabled": False,
+    "context_tiering_enabled": True,
     # ADR 0010 / feature 0069 slice C — an OpenRouter `provider` routing object sent on live-game
     # calls (https://openrouter.ai/docs/guides/routing/provider-selection). A free-form dict of the
     # documented fields — e.g. {"sort": "throughput"}, {"order": ["deepinfra/turbo"],
@@ -588,24 +596,11 @@ def game_build_enabled() -> bool:
     return raw.strip().lower() not in _GAME_BUILD_FALSEY
 
 
-_WS_TRANSPORT_TRUTHY = {"1", "true", "yes", "on"}
-
-
 def ws_transport_enabled() -> bool:
-    """WebSocket Phase-1 transport (ADR 0017/0018) — default ON (turned on 2026-07-10).
-
-    When enabled the page emits body[data-ws-transport="1"], which the client
-    (orwellWs.js) reads to attempt the WS upgrade; a client that cannot upgrade falls
-    back to the existing SSE/poll stack automatically (permanent path). Turn-on gate:
-    the two-window mirror-parity WS leg was verified PASS end to end (#1353 — WS engages
-    with a valid perTabId hello, the peer uses the live incremental renderer; #1349 CSWSH
-    Origin guard in place). ORWELL_WS_TRANSPORT is read from the environment as the
-    operator lever: unset ⇒ ON (default); an explicit off/0/false/no ⇒ OFF (rollback to
-    the SSE/poll stack — just an env edit + restart, no code change)."""
-    raw = os.getenv("ORWELL_WS_TRANSPORT")
-    if raw is None:
-        return True
-    return raw.strip().lower() in _WS_TRANSPORT_TRUTHY
+    """WebSocket transport (ADR 0017/0018). ORW-44 S4b2: the game build is WebSocket-ONLY (Ryne, "Drop it": no long-poll fallback),
+    so this is simply the game build. The ``ORWELL_WS_TRANSPORT`` rollback flag is gone; the non-game build keeps the SSE/poll stack and
+    never attempts the upgrade. When True the page emits body[data-ws-transport="1"], which orwellWs.js reads."""
+    return game_build_enabled()
 
 
 def is_feature_enabled(name: str, *, features: dict | None = None) -> bool:
@@ -723,11 +718,39 @@ def load_settings() -> dict:
             saved = json.load(f)
         if not isinstance(saved, dict):
             raise ValueError("settings must be an object")
+        saved = _migrate_legacy_hard_max(saved)
         merged = {**DEFAULT_SETTINGS, **saved}
     except (FileNotFoundError, PermissionError, json.JSONDecodeError, ValueError):
         merged = dict(DEFAULT_SETTINGS)
     _settings_cache = (now, merged)
     return merged
+
+
+_LEGACY_HARD_MAX = 48_000
+_hard_max_migration_logged = False
+
+
+def _migrate_legacy_hard_max(saved: dict) -> dict:
+    """ORW-219 one-time migration: the old default for ``agent_input_token_hard_max`` was 48000 and settings-repair
+    persisted it, so such installs would read it as an EXPLICIT 48K cap and stay truncated on big-window models.
+    Rewrite exactly 48000 to 0 (auto; auto still gives 48K on windows under 500K, so only 500K+ windows change).
+    Any other value is an operator choice and is left alone. Applied in memory always, and written back once
+    (best effort); logged once per process."""
+    global _hard_max_migration_logged
+    v = saved.get("agent_input_token_hard_max")
+    if isinstance(v, bool) or v != _LEGACY_HARD_MAX:
+        return saved
+    migrated = {**saved, "agent_input_token_hard_max": 0}
+    if not _hard_max_migration_logged:
+        _hard_max_migration_logged = True
+        logger.warning("settings: migrated legacy agent_input_token_hard_max=48000 to 0 (auto; 0.60 x window on windows "
+                       ">= 500K tokens, 48K cap below). Set an explicit other number to pin a cap.")
+    try:
+        from core.atomic_io import atomic_write_json
+        atomic_write_json(SETTINGS_FILE, migrated, indent=2)
+    except Exception as e:  # noqa: BLE001 - read-only store etc.: the in-memory value is already migrated
+        logger.debug("settings: could not persist hard_max migration: %s", e)
+    return migrated
 
 
 def save_settings(settings: dict):

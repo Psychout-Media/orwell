@@ -104,6 +104,10 @@ def pin_legacy_model_defaults() -> bool:
     return True
 
 
+# ORW-287: ``seed_default_model_fallbacks`` (ORW-144, a DeepSeek -> OpenRouter text fallback) was REMOVED. OpenRouter is for
+# images only; a DeepSeek failure surfaces as the outage UX, never a silent paid OpenRouter text call.
+
+
 def seed_deepseek_endpoint_from_env(environ: Optional[dict] = None) -> Optional[str]:
     """Create (or finish binding) the DeepSeek endpoint on a keyed, endpoint-less first boot.
 

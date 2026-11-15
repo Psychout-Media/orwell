@@ -48,6 +48,33 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/gateway", tags=["gateway"])
 
+# ORW-265: inbound-update dedupe. Platforms redeliver an update (same id) on a slow/non-2xx webhook;
+# the turn narrates and folds a consequence (fresh idempotency key per call), so a redelivery would
+# do both twice. Process-local, bounded, claimed BEFORE the turn and released if it raises.
+_INBOUND_SEEN: "dict[str, float]" = {}
+_INBOUND_TTL_S = 24 * 3600.0
+_INBOUND_MAX = 4096
+
+
+def reset_inbound_dedupe_for_tests() -> None:
+    _INBOUND_SEEN.clear()
+
+
+def _claim_inbound(key: str) -> bool:
+    """True if *key* is new (now claimed); False if it was already seen (a redelivery)."""
+    import time
+    now = time.monotonic()
+    if len(_INBOUND_SEEN) >= _INBOUND_MAX:
+        for k in [k for k, t in _INBOUND_SEEN.items() if now - t > _INBOUND_TTL_S]:
+            _INBOUND_SEEN.pop(k, None)
+        while len(_INBOUND_SEEN) >= _INBOUND_MAX:
+            _INBOUND_SEEN.pop(next(iter(_INBOUND_SEEN)), None)
+    seen = _INBOUND_SEEN.get(key)
+    if seen is not None and now - seen <= _INBOUND_TTL_S:
+        return False
+    _INBOUND_SEEN[key] = now
+    return True
+
 # SEC-2 (#559): a gateway-wide shared secret. Unlike the per-platform ``verify_webhook`` hook
 # (opt-in, e.g. TELEGRAM_WEBHOOK_SECRET), this is platform-agnostic and FAIL-CLOSED: the moment
 # ORWELL_GATEWAY_WEBHOOK_SECRET is configured, EVERY inbound webhook must carry a matching
@@ -118,6 +145,12 @@ async def platform_webhook(platform_id: str, request: Request):
 
     text = (text or "").strip()
 
+    # ORW-265: a redelivered update is acked and dropped — one narration, one fold.
+    dedupe_key = adapter.inbound_dedupe_key(raw)
+    if dedupe_key is not None and not _claim_inbound(dedupe_key):
+        logger.info("gateway: duplicate update %s ignored", dedupe_key)
+        return {"ok": True, "action": "duplicate-ignored"}
+
     # /pair command: issue a pairing code and return instructions
     if text.lower().startswith("/pair"):
         code = generate_code(platform_identity)
@@ -149,11 +182,17 @@ async def platform_webhook(platform_id: str, request: Request):
             return {"ok": True, "action": "daily-cap-reached"}
 
     # Normal turn: route to the gateway handler
-    reply = await handle_platform_turn(
-        platform_id=platform_id,
-        platform_identity=platform_identity,
-        message_text=text,
-    )
+    try:
+        reply = await handle_platform_turn(
+            platform_id=platform_id,
+            platform_identity=platform_identity,
+            message_text=text,
+        )
+    except BaseException:
+        # Release the claim so the platform's retry of a FAILED attempt is processed.
+        if dedupe_key is not None:
+            _INBOUND_SEEN.pop(dedupe_key, None)
+        raise
     await adapter.send(platform_identity, reply)
     return {"ok": True}
 

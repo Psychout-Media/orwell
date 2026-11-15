@@ -1,24 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { forgivenessTraitOf, applyForgiveness } from "../../src/engine/forgiveness";
+import { forgivenessTraitFor, applyForgiveness } from "../../src/engine/forgiveness";
 import { FORGIVENESS } from "../../src/engine/forgivenessConstants";
 import { salience, type MemoryEntry, type MemoryKind } from "../../src/engine/npcMemory";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 
 /**
- * B27 (flag ORWELL_FORGIVENESS, off by default) - a seeded ~1-in-6 grudge-keeper whose real betrayals never read older than a floor age; everyone else's favors fade fast; flag off => the ledger is read
+ * B27 / ORW-130 (flag ORWELL_FORGIVENESS) - a houseguest who holds a grudge (from temperament + the relationship) has real betrayals that never read older than a floor age; everyone else's favors fade fast; flag off => the ledger is read
  * as it always was. Pure, no shared rng, never mutates the ledger or changes a severity. Roles only.
  */
 const BETRAYAL = new Set<MemoryKind>(["deal-broken", "scene-betrayal"]);
 const FAVOR = new Set<MemoryKind>(["veto-saved", "deal-kept", "scene-kindness"]);
 const old = (kind: MemoryKind, week = 1, severity = 0.8): MemoryEntry => ({ kind, week, severity });
 
-describe("the trait draw", () => {
-  it("is deterministic and about 1 in 6 are grudge-keepers", () => {
-    let keepers = 0; const N = 6000;
-    for (let s = 1; s <= N; s++) { expect(forgivenessTraitOf(s)).toBe(forgivenessTraitOf(s)); if (forgivenessTraitOf(s) === "grudge-keeper") keepers++; }
-    expect(keepers / N).toBeGreaterThan(FORGIVENESS.grudgeKeeperShare - 0.03);
-    expect(keepers / N).toBeLessThan(FORGIVENESS.grudgeKeeperShare + 0.03);
+describe("the trait (ORW-130: from the houseguest and the relationship, no coin - the flat 1-in-6 share is gone)", () => {
+  it("is deterministic (a pure function of state) and not all-or-nothing across styles", () => {
+    const e = [old("scene-betrayal", 1, 0.9)];
+    const out = ["aggressive", "strategic", "emotional", "loyal", "social"].map((style) => forgivenessTraitFor(e, { style, volatility: 0.5, closeness: 0.5 }));
+    for (const style of ["aggressive", "social"]) expect(forgivenessTraitFor(e, { style, volatility: 0.5, closeness: 0.5 })).toBe(forgivenessTraitFor(e, { style, volatility: 0.5, closeness: 0.5 }));
+    expect(new Set(out).size).toBe(2);
   });
 });
 
@@ -77,7 +77,7 @@ describe("through the real session", () => {
     const onTilts = holders.map((h) => g.memoryTiltFor(PLAYER, h));
     let raised = 0;
     onTilts.forEach((t, i) => { expect(t, "forgiveness never lowers a grudge").toBeGreaterThanOrEqual(offTilts[i]! - 1e-12); if (t > offTilts[i]! + 1e-9) raised++; });
-    // across many games the keepers (1 in 6) show up; in this one every raised holder is a keeper, the rest are exactly today's
+    // ORW-130: some holders hold the grudge and some forgive, for readable reasons (see forgivenessByPerson.test.ts); the rest are exactly today's
     expect(raised).toBeLessThan(holders.length);
     g.setForgivenessEnabled(false);
     expect(holders.map((h) => g.memoryTiltFor(PLAYER, h))).toEqual(offTilts);

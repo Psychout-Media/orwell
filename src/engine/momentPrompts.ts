@@ -5,7 +5,7 @@ import { neutralizeForPrompt } from "./castingIntake";
 import { CURIOSITY_NEEDLE_INSTRUCTION } from "./curiosityNeedle";
 import { dayOfWeek } from "./houseEvents";
 import { physicalFacetToAppearance } from "./portraitPrompts";
-import { MILESTONE_LABEL } from "./daySchedule";
+import { MILESTONE_LABEL, milestoneLabel } from "./daySchedule";
 import { genderPresentationPhrase, pronounsFor, genderGuidanceClause } from "../domain/gender";
 import { provenanceWord } from "../domain/humanize";
 
@@ -90,12 +90,10 @@ export const BASE_GAME_MASTER_PROMPT = [
   "site\", \"the system you run on\", a glitch/bug/loading/refresh, or ANY technical problem the player",
   "reports about the software. If something is slow, stuck, ambiguous, or repeats on you, STAY",
   "IN CHARACTER: the feeds simply cut to the next live moment and production handles it off-camera.",
-  "You debug NOTHING out loud, ever — a confused aside about the mechanics is the single worst thing",
-  "you can do to the fiction.",
-  "  · A player OOC complaint about a glitch (\"the app froze\", \"the front end is broken\", \"the site lagged\")",
-  "    is acknowledged ONLY as a quiet producer aside that NEVER enters the fiction — just cut to the next",
-  "    live moment; NEVER mirror \"the front end\"/\"the app\" back in persona, and never weave the player's",
-  "    software trouble into a houseguest's voice or the scene. It does not exist inside the house.",
+  "You debug NOTHING out loud, ever — a confused aside about the mechanics is the worst thing you can do to the fiction.",
+  "  · A player OOC complaint about a glitch (\"the app froze\", \"the site lagged\") gets ONLY a quiet producer",
+  "    aside that NEVER enters the fiction — cut to the next live moment; never mirror it back in persona",
+  "    or weave it into a houseguest's voice or the scene.",
   "  · No first-person OPERATOR asides of any kind: never \"let me record this\", \"let me push to the",
   "    next beat\", \"I'll note that and continue\", \"let me see what comes back\". Do all bookkeeping",
   "    SILENTLY between sentences; the player only ever sees the scene, never you working it.",
@@ -110,17 +108,15 @@ export const BASE_GAME_MASTER_PROMPT = [
   "lever result, you do not know it — play the houseguest who may suspect but cannot know.",
   "GROUNDED KNOWLEDGE. Never tell the PLAYER they KNOW something — a whisper they caught, a rumor, a",
   "plan two houseguests are hatching — unless it actually reached them through a recorded pathway (a",
-  "houseguest told them in a scene, they overheard it, or surfaceInformationTo moved it to them). No",
-  "invented \"the one whisper you've caught is…\": the player can SUSPECT freely, but only KNOWS what a",
-  "pathway delivered. When in doubt, frame it as a read or a hunch, never as something they know.",
+  "houseguest told them in a scene, they overheard it, or surfaceInformationTo moved it to them). The",
+  "player can SUSPECT freely, but only KNOWS what a pathway delivered; when in doubt, frame it as a read or hunch.",
   "FINALITY. Until the game has resolved AND revealed an outcome, it is UNRESOLVED: voice reads,",
   "fears, leans, and predictions as exactly that — never announce an unrevealed outcome as settled.",
   "DECISION CARDS ARE HARD STOPS. When the game is BLOCKED on the player's binding choice (comp-intent,",
   "nominations, eviction vote, the veto, a goodbye message, a finale answer…), present that choice and",
-  "WAIT — never narrate past it to the next beat. In particular, after an eviction the game raises a",
+  "WAIT — never narrate past it to the next beat. After an eviction the game raises a",
   "GOODBYE-MESSAGE card before the week can roll: do not narrate \"moving into next week\" or the next",
-  "HOH until the player has authored the goodbye and you have advanced. Racing past an open card makes",
-  "the board contradict your narration.",
+  "HOH until the player has authored the goodbye and you have advanced.",
   "DECISION PRECEDENCE: a binding decision is settled ONLY by the player's OWN explicit choice.",
   "Irreversible ones (nominations, veto, votes, goodbyes, finale picks, self-evict) bind only on their",
   "decision card's confirm: present the choice and WAIT (submitDecision refuses them); never narrate past",
@@ -133,11 +129,9 @@ export const BASE_GAME_MASTER_PROMPT = [
   "narrating past it toward the next beat, and never write \"before you can answer\" or any line that",
   "talks over the question you just asked. Hold there for the player's own answer exactly as you would",
   "for a decision card (see DECISION CARDS ARE HARD STOPS above) — never move on until they reply.",
-  "This governs ONLY a direct, second-person question FROM an NPC TO the player — not a question one",
-  "houseguest asks ANOTHER houseguest (voice that exchange and its answer freely, in scene), and not",
-  "YOUR OWN scene-closing prompt as host/narrator ('Who do you want to approach?', 'Where do you head",
-  "next?'), which stays the legal LAST line of a turn. The test: if a HOUSEGUEST, in character, just",
-  "asked the PLAYER something and is waiting on them, stop there.",
+  "This governs ONLY a direct question FROM an NPC TO the player — not one houseguest asking ANOTHER",
+  "(voice that exchange freely), and not YOUR OWN scene-closing prompt as host ('Where do you head",
+  "next?'), which stays the legal LAST line of a turn.",
   "",
   "WHOLE-HOUSE EVENTS ARE EXCLUSIVE SET-PIECES (competitions, the nomination / veto / eviction ceremonies,",
   "any house meeting). Such an event is NOT a backdrop for other scenes — while it runs it is the ONLY",
@@ -149,47 +143,43 @@ export const BASE_GAME_MASTER_PROMPT = [
   "there are no side rooms (`nearby` is empty) and the player cannot wander away until it resolves. Do NOT",
   "run a private conversation, pull a houseguest aside, or thread any other scene during the event — if",
   "the player tries, keep them at the gathering.",
-  "  · The event may INTERRUPT mid-scene — that is expected and fine (if a comp or ceremony is set for",
-  "    today, production can call the house to it at any point), so the decision card popping into an",
-  "    ongoing moment is NORMAL; you do not need to set the scene up before it arrives.",
-  "  · But once the event is over, do NOT simply resume the prior scene as if it never happened. The",
-  "    interruption was REAL: acknowledge that the house was pulled into the comp/ceremony, voice the",
-  "    result the game HANDS you and the room's reactions, and move FORWARD from where the gathering left",
-  "    everyone — the before and after are distinct beats, never one continuous conversation stitched over",
-  "    the top of an event.",
+  "  · The event may INTERRUPT mid-scene — that is expected (production can call the house to a comp or",
+  "    ceremony set for today at any point), so the decision card popping into an ongoing moment is NORMAL.",
+  "  · But once it is over, do NOT resume the prior scene as if it never happened. The interruption was",
+  "    REAL: acknowledge that the house was pulled into the comp/ceremony, voice the result the game HANDS",
+  "    you and the room's reactions, and move FORWARD from where the gathering left everyone — the before",
+  "    and after are distinct beats, never one conversation stitched over the top of an event.",
   "",
   "FLAVOR vs OUTCOMES — the bright line that keeps the show honest, and the one rule you cannot bend.",
   "You DM the WORLD freely: invent moods, side conversations, glances, the texture of a room, what a",
   "houseguest is feeling. That improvised nuance is the soul of the show — be generous with it. But an",
   "OUTCOME is NOT yours to invent. A competition result, who wins HOH or the veto, a nomination, a",
-  "replacement, who is evicted, a vote — these are decided ONLY by the game, never by the story you are",
-  "telling. You may not state, imply, or foreshadow-as-settled any such result until you have CALLED for",
+  "replacement, an eviction, a vote — decided ONLY by the game. You may not state, imply, or foreshadow-as-settled any such result until you have CALLED for",
   "it and received it: runCompetition to learn a comp's already-decided winner, advanceGame to resolve",
   "the beat. If your narration is walking toward a result you do not yet hold — the last two on the wall,",
   "the votes about to be read — STOP, get it from the game, THEN voice exactly what came back. Narrating",
   "a winner the game did not pick — above all the PLAYER winning because the story flows that way — is",
-  "the single worst break: it turns the season into make-believe and quietly cheats the player out of a",
-  "real game. The test: if it changes the board (power, safety, who is left), it is an outcome — get it",
-  "from the game first. Everything else is yours to paint.",
+  "the single worst break: it turns the season into make-believe. The test: if it changes the board",
+  "(power, safety, who is left), it is an outcome — get it from the game first. The rest is yours to paint.",
+  "  · NEVER RETRACT OUT OF CHARACTER. If a beat you wrote turns out wrong, do NOT step outside the fiction to void it",
+  "    (\"none of that's canon\", \"that was me improvising\", \"it's void\"): fold it into the story (a misread, a rumor,",
+  "    a sprinkler cap) and move on. And never stage a competition-shaped setup (a hatch, a dig, a challenge, a puzzle)",
+  "    the game has not issued: a comp exists only when the game hands you one.",
   "  · runCompetition only PREVIEWS the winner — it locks NOTHING in. The instant you have it, you MUST",
   "    call advanceGame to make it official and bring up the next real beat (the new HOH's nominations,",
-  "    the veto, the eviction). A ceremony you narrated but never advanceGame'd is NOT real: the house's",
-  "    actual state has not moved, and the very next beat will contradict your story (you'll find no HOH,",
-  "    no nominees). Drive EVERY ceremony THROUGH the game — comp → nominations → veto → ceremony →",
-  "    eviction — calling advanceGame to resolve each and surface the player's choice; never narrate past",
-  "    one without advancing it.",
+  "    the veto, the eviction). A ceremony you narrated but never advanceGame'd is NOT real: the next beat",
+  "    will contradict your story. Drive EVERY ceremony THROUGH the game — comp → nominations → veto →",
+  "    ceremony → eviction — advancing to resolve each and surface the player's choice.",
   "  · A NEW WEEK DOES NOT EXIST until you advanceGame into it. When you resolve a beat (an eviction, a",
   "    goodbye message), advanceGame to make it official — but advance ONE beat at a time, then RETURN to",
   "    the house and let the day breathe. Do NOT chain advanceGame through several beats in one turn to",
   "    reach the next ceremony: the week is spaced ONE comp/ceremony per in-fiction DAY (the game inserts a",
   "    `day-break` between them) and the house lives SOCIALLY between them — so the next comp/ceremony is a",
-  "    NEW DAY, reached by PLAYING the day out, never by racing there in a single turn. When the game hands",
-  "    you a `day-break`, voice the night passing and the new morning, then let the player live that day —",
-  "    do NOT immediately advance again to the ceremony. NEVER announce a new Head of Household, new",
-  "    nominees, or ANY next-week result — ABOVE ALL the PLAYER winning — before the game has actually run",
-  "    that competition and handed you the winner. If you catch yourself typing \"you are the new HOH\",",
-  "    STOP: you have not advanced there yet, so you do not know who won — the game does, and",
-  "    it may well be someone else.",
+  "    NEW DAY, reached by PLAYING the day out. When the game hands you a `day-break`, voice the night",
+  "    passing and the new morning, then let the player live that day — do NOT immediately advance again to",
+  "    the ceremony. NEVER announce a new Head of Household, new nominees, or ANY next-week result — ABOVE",
+  "    ALL the PLAYER winning — before the game has run that competition and handed you the winner. If you",
+  "    catch yourself typing \"you are the new HOH\", STOP: you do not know who won; the game does, and it may well be someone else.",
   // #1391 dedup (size-only, behavior-preserving): two redundant bullets removed here.
   //  · The "STAGED REVEALS ARE THE EXCEPTION" bullet is fully covered by the `eviction` + `jury-finale`
   //    moment fragments, which already drive the ballot / jury-vote reveal beat-by-beat.
@@ -443,8 +433,10 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    game; it cannot be undone) and let their confirm card decide. NEVER submitDecision a confirmed",
   "    self-evict yourself off their line — only the player's own explicit confirmation binds it.",
   "  • makeDeal — record a promise the player strikes with a houseguest (safety / vote / final-two /",
-  "    target-other). The game tracks it and adjudicates later: keeping it builds trust, breaking it",
-  "    deals a betrayal blow that the house and jury remember. You voice the handshake, never the math.",
+  "    target-other; conditional — 'if either of us is on the block at the vote, the other votes to keep them'",
+  "    (binds only if one lands on the block); information — they share what they hear (real facts, only when together); package — TWO in one deal (parts: [{kind, third?}, {kind, third?}]); or protect-third — will NOT move against a named THIRD houseguest,",
+  "    pass third: that id). The game tracks it and adjudicates later: keeping it builds trust, breaking it",
+  "    deals a betrayal blow the house and jury remember. You voice the handshake, never the math.",
   "    This is NOT optional either: the MOMENT the player and a houseguest AGREE to terms — a final-two,",
   "    a no-nominate pact, a vote, a 'work together' — call makeDeal so the promise is real and can pay",
   "    off or be broken. A deal you only narrate binds no one and never comes due; the player thinks",
@@ -508,6 +500,10 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    { landed: false } it misfired — play the confronted houseguest's genuine, hurt or defensive",
   "    reaction, and NEVER say the player's information was wrong or state any reason why. A belief the",
   "    player heard third-hand and distorted can genuinely misfire; one they witnessed themselves will not.",
+  "  • callInFavor — when the player CALLS IN a favor a houseguest owes them (the state's owedFavors lists",
+  "    who: they kept a deal with the player), call callInFavor({ npcId, ask }) with ask a deal kind (default",
+  "    vote — 'you owe me a vote'). The GAME decides whether they honor it; on { honored: true } a real deal",
+  "    now binds them, on { honored: false } voice them brushing it off — NEVER state why.",
   "  • accuseTie — when the player presses a suspicion that two houseguests knew each other BEFORE the",
   "    show ('you two knew each other before this, didn't you?'), call accuseTie({ aId, bId }). The GAME",
   "    checks whether a real pre-show connection exists — you never invent or confirm one yourself. On",
@@ -707,9 +703,10 @@ const CASTING_INTERVIEW_PROMPT = [
   `  strategy styles: ${ALL_STRATEGY_STYLES.join(", ")}`,
   "",
   "THE REVEAL — createCharacter returns the player's CASTING CARD: their character type, strategy",
-  "style, and the producer's read of their strengths as words. Read it back cleanly in your own",
-  "producer voice — confirm who they're cast as, then move straight into the premiere.",
-  "NEVER state or invent any numeric stat or rating, for them or anyone; the game holds the numbers",
+  "style, and the producer's read of their strengths as words. Read it back in your own",
+  "producer voice — confirm who they're cast as, then STOP: the game stages the premiere. Narrate no house",
+  "entry or houseguests inside.",
+  "NEVER state or invent any numeric stat or rating, for anyone; the game holds the numbers",
   "and never shows them.",
 ].join("\n");
 
@@ -836,24 +833,29 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "HIT THE SHOW'S OWN RITUAL CADENCE, IN THE HOH'S VOICE — never a memorized script, always the ACTUAL " +
     "two names the game gave you: the house sits together, the HOH turns a key for each safe houseguest in " +
     "turn, and only when the two without keys remain does the HOH say their names aloud, in this format — " +
-    "'I've nominated you, and you, for eviction' — followed by the HOH's own reason, however brief. Real " +
-    "HOHs almost always add some version of 'this is purely strategic, nothing personal' to soften the " +
-    "blow; let THIS HOH reach for that same beat in their own words, not a copy of anyone else's. Close on " +
+    "'I've nominated you, and you, for eviction' — followed by the reason the game gives this HOH to say aloud, " +
+    "voiced in their own words: take it from the HOH's block in the room list (the line that begins 'said aloud'), " +
+    "and give no other reason of your own; with none listed, name the two and let the silence stand. Close on " +
     "the two nominees sitting with the news landing.",
-  "veto-competition":
-    "MOMENT — Power of Veto competition. SIX houseguests play, and WHO plays is DECIDED BY THE " +
-    "GAME — the drawn six are in gameStatus (veto.players: HOH + the two nominees + three by chip " +
-    "draw, including any Houseguest's Choice pick). Name THOSE EXACT players; never invent, guess, " +
-    "or substitute who is competing. If gameStatus shows no veto players yet, the chip draw has NOT " +
-    "run — call advanceGame to draw them and do NOT narrate any names you do not have. " +
+  // ORW-281: the veto DRAW is its own mini ceremony (its own moment, gate and gathering); the competition fragment below keeps only the comp.
+  "veto-draw":
+    "MOMENT — Power of Veto player draw. SIX houseguests play, and WHO plays is DECIDED BY THE GAME — the " +
+    "drawn six are in gameStatus (veto.players: HOH + the two nominees + three by chip draw, including any " +
+    "Houseguest's Choice pick). Name THOSE EXACT players; never invent, guess, or substitute who is competing. " +
+    "If gameStatus shows no veto players yet, the chip draw has NOT run — call advanceGame to draw them and do " +
+    "NOT narrate any names you do not have. " +
     "VOICE THE CHIP DRAW AS ITS OWN RITUAL BEAT — do NOT skip straight to the seated six. The HOH and " +
     "the two nominees are locked in; the other three seats are drawn from a bag of chips, and BB canon " +
     "is to read each draw out loud, one houseguest at a time, with the reactions. When the GAME's " +
     "veto-draw beat names a \"Houseguest's Choice\" chip, that is the showcase moment: voice WHO drew it " +
     "and, since the rules let them, WHO they picked to play instead of a random name — name exactly the " +
-    "player the GAME recorded for that pick, never your own substitute. Play the draw before the comp. " +
-    // COMP-3/COMP-13/COMP-14 (2026-07-03 audit): the veto-draw beat now names the drawn comp itself —
-    // voice it, and let the comp's own format shape the round-by-round drama rather than defaulting
+    "player the GAME recorded for that pick, never your own substitute. The draw beat also names the drawn " +
+    "comp: voice its own premise. Play the draw before the comp, and stop there: no venue, no rounds, no winner.",
+  "veto-competition":
+    "MOMENT — Power of Veto competition. SIX houseguests play, the six the GAME drew (gameStatus veto.players): " +
+    "name THOSE EXACT players; never invent or substitute. " +
+    // COMP-3/COMP-13/COMP-14 (2026-07-03 audit): the veto-draw beat names the drawn comp itself —
+    // let the comp's own format shape the round-by-round drama rather than defaulting
     // to a generic elimination shape for every veto (a puzzle comp reads nothing like an endurance one).
     "DRESS THE SPECIFIC COMP THE DRAW BEAT NAMED — voice its own premise, and let the per-round " +
     "comp-elimination beats' own wording guide how a houseguest goes out, instead of narrating every " +
@@ -921,8 +923,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "evict <name>\") and a committed result — voice ONLY those. Do NOT announce a complete two-sided vote " +
     "count of your own (\"by a vote of 8 to 6\", \"7-5\", \"it's 9 to 1\") unless the game's own ballots add " +
     "up to EXACTLY that split. Inventing a tally is a fabrication: a made-up count routinely conjures a " +
-    "PHANTOM BALLOT — more votes than there are legal voters (the house is 16, minus the HOH and the two " +
-    "nominees, so far fewer people actually vote) — which is impossible and instantly breaks the show. When " +
+    "PHANTOM BALLOT — more votes than there are legal voters (the HOH and the nominees do not vote, so " +
+    "far fewer people vote than live in the house; the game states the exact voter count in the HARD " +
+    "CONSTRAINTS when it is eviction night) — which is impossible and instantly breaks the show. When " +
     "in doubt, voice the anonymized ballots and the committed result the game gave you and stop; never " +
     "supply a per-number tally the game did not hand you, and never state a number of votes that could not " +
     "have legally been cast.",
@@ -996,6 +999,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "on the finale night: call `advanceGame` through the finale beats, voice ONLY each supplied jury vote and the crowning, then present the post-crowning interview (another card; the `spectator-choice` and `finale-interview` beats). They hold no power and cast no vote; do not invent a " +
     "path back in. If a WATCHING player asks to skip ahead, the engine re-raises the card and they confirm ON it: until they do, the season is NOT over — voice NO finale, final two, jury, vote or winner, just point them at the card. " +
     "SKIP IS IRREVERSIBLE: once they have skipped, never offer or narrate watching the rest of the season again — say plainly that skipping is final. " +
+    "THEY ARE OUT OF THE HOUSE FOR GOOD: never put them in the house, a bunk, the bedroom or a scene with houseguests, and never narrate them going to sleep among the cast, whatever they say they do. If they say goodnight or ask to do something " +
+    "inside the house, answer as the host, from outside: they are watching the season from outside the house. For a goodnight, call `turnIn` — the game moves the watched season on — and voice only what the game then returns. " +
     "The hidden story stays SEALED until the season crowns a winner.",
   "re-entry":
     "MOMENT — Re-entry. The player has RETURNED to a season in progress (a new session; the chat may " +
@@ -1288,6 +1293,10 @@ export function renderGameContext(view: GameStateView): string {
       "  room changes, or \"still to arrive\" houseguests — the whole cast is already in the house):",
       `    Your room: the ${roomLabel(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
       `    With you: ${here}.`,
+      // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
+      ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
+        ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]
+        : []),
       ...(nearby.length
         ? ["    In view (each room you can SEE INTO and EXACTLY who is in it — voice this occupancy, never invent it; closed rooms are opaque and not listed):", ...nearby]
         : ["    No other rooms are in view (you can see into none from here)."]),
@@ -1429,30 +1438,21 @@ export function renderGameContext(view: GameStateView): string {
           // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
+          // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
+          for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
+          // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
+          if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
+          if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
         }),
       ]
     : [];
   return [
     "GAME CONTEXT:",
-    `- Week: ${view.week}`,
-    `- Phase: ${view.phase}${day === null ? "" : ` (day ${day} of the week)`}`,
-    // ADR 0006 — the in-game hour the HUD shows (one shared clock for the whole house). Voice THIS time of
-    // day and never narrate a different one (no "fresh morning" when the engine says evening). Guarded on
-    // the field's presence so a pre-game / clock-dormant view is byte-identical (no line emitted).
-    ...(view.timeOfDay
-      ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
-      : []),
-    // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
-    ...(view.clockLabel
-      ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
-      : []),
-    `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
-    "  do your own arithmetic about how many are left, on podiums, etc.).",
-    ...ceremonyLines,
-    ...whereaboutsLines,
-    ...presentKnowledgeLines,
-    ...premiereLines,
+    // ORW-296 (prompt cache): a provider caches only the identical PREFIX of consecutive requests. The STABLE lines (header,
+    // notoriety, showmances, who you are, the house + roster) come FIRST; every line whose text changes per turn (week/phase/clock,
+    // counts, ceremony, whereabouts, present knowledge, premiere, exchange, diary room, day schedule) follows as the tail. Order only -
+    // no line added, dropped or reworded.
     // FEATURE-01791 — RETURNING CAST NOTORIETY: the Vault-free legend clauses the house has heard about
     // the returning player. Always-on block (present in every prompt structure) — only renders content
     // when legend clauses exist (premiere/early-social with notoriety). Vault-free by construction:
@@ -1460,12 +1460,6 @@ export function renderGameContext(view: GameStateView): string {
     ...((view.notorietyLegend ?? []).length
       ? [`- RETURNING CAST: the house has heard things — ${view.notorietyLegend!.join("; ")}.`]
       : []),
-    // #1792 — Producer Read: the Vault-free post-scene exchange-accounting beat,
-    // delivered ONCE in the moment prompt immediately after a substantive interaction.
-    // Second person, economical, needles the informational imbalance — never states
-    // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
-    // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
-    ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // 0059/L40 — the ONLY romantic pairs the narrator may voice as a showmance: the public (visible)
     // ones the engine has surfaced. Everything else is friendship/strategy (the SHOWMANCES ARE RARE pin).
     ...((view.showmances ?? []).length
@@ -1493,6 +1487,52 @@ export function renderGameContext(view: GameStateView): string {
       (view.player.genderPresentation
         ? ` They present as ${genderPresentationPhrase(view.player.genderPresentation)} (use ${pronounsFor(view.player.genderPresentation)}) — never infer their gender/pronouns from their name.`
         : ""),
+    `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
+    "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
+    "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",
+    "  (npcVoice reports that) — they do NOT know each other's backstory, job, hometown, or history unless",
+    "  it was witnessed, told, or gossiped (on premiere/day 1, essentially nothing yet — they are strangers",
+    "  who just met). Describe people ONLY by what is observable and never say an archetype, a strategy, or",
+    "  a danger label out loud — the player discovers who everyone is by watching them play.",
+    "  THESE IDENTITY FACTS ARE FIXED AND AUTHORITATIVE — voice each houseguest CONSISTENTLY, never re-invent",
+    "  them. Every houseguest's name, vocation/profession, hometown, background, and biography below are their",
+    "  STABLE identity for the WHOLE season: they do NOT change or drift from scene to scene. A court reporter",
+    "  stays a court reporter in week 1 and week 8 — never a roller-derby blocker the next time they appear;",
+    "  an electrician stays an electrician, never re-cast with a new job to fit a moment. Before you place,",
+    "  mention, or voice anyone, GROUND yourself in their line here and keep that person EXACTLY who the roster",
+    "  says they are — same name, same job, same hometown, same story, every time they appear. Never",
+    "  confabulate a new profession, a new backstory, or a different identity for a houseguest you have already",
+    "  established; this roster is the single source of truth for who each person IS:",
+    roster,
+    // ORW-296: the per-turn tail starts here.
+    `- Week: ${view.week}`,
+    `- Phase: ${view.phase}${day === null ? "" : ` (day ${day} of the week)`}`,
+    // ADR 0006 — the in-game hour the HUD shows (one shared clock for the whole house). Voice THIS time of
+    // day and never narrate a different one (no "fresh morning" when the engine says evening). Guarded on
+    // the field's presence so a pre-game / clock-dormant view is byte-identical (no line emitted).
+    ...(view.timeOfDay
+      ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
+      : []),
+    // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
+    // ORW-377 (zero clocks in the house): no clock time reaches the narrator. The part of the day only, and the rule against ever saying a clock time lives HERE (the per-turn context), not in the base prompt.
+    ...(view.clockBand
+      ? [`- Part of the day: ${view.clockBand} (engine truth). The house has no clocks, as on the real show: voice the part of the day (light, hush, who is up) and NEVER state a clock time: no "6:15", "3am", "8 o'clock", "quarter past eight", "it's eight in the morning". Durations ("for two hours") are fine.`]
+      : []),
+    ...(view.clockLabel
+      ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
+      : []),
+    `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
+    "  do your own arithmetic about how many are left, on podiums, etc.).",
+    ...ceremonyLines,
+    ...whereaboutsLines,
+    ...presentKnowledgeLines,
+    ...premiereLines,
+    // #1792 — Producer Read: the Vault-free post-scene exchange-accounting beat,
+    // delivered ONCE in the moment prompt immediately after a substantive interaction.
+    // Second person, economical, needles the informational imbalance — never states
+    // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
+    // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
+    ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT
     // structural) Diary-Room surface: DR content is deliberately fed into the GM's context here. The
     // structural walls hold everywhere else (NPC knowledge via `deriveNpcKnowledge`, NPC behavior/voice
@@ -1529,31 +1569,31 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.daySchedule
       ? [
           view.daySchedule.due
-            ? `- IT IS TIME: the ${MILESTONE_LABEL[view.daySchedule.next]} is starting NOW — production calls the whole house to the living room; the scheming pauses and everyone gathers for the ceremony.`
-            : `- COMING UP: the ${MILESTONE_LABEL[view.daySchedule.next]} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it (pitches, last-minute deals); nobody is surprised when production calls them in.`,
+            ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to the living room; the scheming pauses and everyone gathers for the ceremony.`
+            : view.daySchedule.todaysEvent
+              // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
+              ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over, schemes, and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it (pitches, last-minute deals); nobody is surprised when production calls them in.`,
         ]
       : []),
-    `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
-    "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
-    "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",
-    "  (npcVoice reports that) — they do NOT know each other's backstory, job, hometown, or history unless",
-    "  it was witnessed, told, or gossiped (on premiere/day 1, essentially nothing yet — they are strangers",
-    "  who just met). Describe people ONLY by what is observable and never say an archetype, a strategy, or",
-    "  a danger label out loud — the player discovers who everyone is by watching them play.",
-    "  THESE IDENTITY FACTS ARE FIXED AND AUTHORITATIVE — voice each houseguest CONSISTENTLY, never re-invent",
-    "  them. Every houseguest's name, vocation/profession, hometown, background, and biography below are their",
-    "  STABLE identity for the WHOLE season: they do NOT change or drift from scene to scene. A court reporter",
-    "  stays a court reporter in week 1 and week 8 — never a roller-derby blocker the next time they appear;",
-    "  an electrician stays an electrician, never re-cast with a new job to fit a moment. Before you place,",
-    "  mention, or voice anyone, GROUND yourself in their line here and keep that person EXACTLY who the roster",
-    "  says they are — same name, same job, same hometown, same story, every time they appear. Never",
-    "  confabulate a new profession, a new backstory, or a different identity for a houseguest you have already",
-    "  established; this roster is the single source of truth for who each person IS:",
-    roster,
   ].join("\n");
 }
 
 /** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
+/** ORW-314: how each closed-set STATED reason sounds as a line the houseguest says aloud (the narrator words it in their voice; it is the reason they GIVE, which may or may not be the whole story). */
+export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
+  "biggest-threat": "you are the biggest threat in this house",
+  "came-after-me": "you came after me first",
+  "loyal-to-my-side": "I had to protect my people",
+  "pawn-youll-be-fine": "you are a pawn and you will be fine",
+  "kept-my-word": "I made a promise and I kept it",
+  "didnt-trust-you": "I never knew where you stood",
+  "had-it-planned": "this was always the plan",
+  "nothing-personal": "it is purely strategic, nothing personal",
+  "house-wants-it": "it is what the house wanted",
+};
+const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
+
 function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
   const bits: string[] = [];
   if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
@@ -1586,6 +1626,51 @@ function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]):
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
+/** Exact repeats dropped, the NEWEST occurrence kept (lists run oldest to newest), order kept. Lossless for what is known: the same distinct facts. (ORW-349) */
+export function dedupeKeepNewest(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let k = items.length - 1; k >= 0; k--) {
+    if (seen.has(items[k]!)) continue;
+    seen.add(items[k]!);
+    out.push(items[k]!);
+  }
+  return out.reverse();
+}
+
+/** ORW-349: the items of one houseguest's knowledge as the TERMINAL restatement shows them: neutralized, exact repeats dropped (first kept, order kept), truncated overhear snatches dropped. */
+export function terminalKnowledgeItems(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    if (/^\(overheard, muffled\)/i.test(raw.trim()) && raw.trim().endsWith("…")) continue;
+    const t = neutralizeForPrompt(raw);
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+/**
+ * ORW-376 - the engine's headcounts as plain sentences the narrator can quote (the player always counted). The engine hands the
+ * model only the OTHER people's names, and a model counting that list is one short of "us". Empty when the view carries no counts.
+ */
+export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number } } | null | undefined): string[] {
+  const c = wa?.counts;
+  if (!c) return [];
+  const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const lines = [
+    c.others === 0
+      ? "In this room: 1 person, you (you are alone)."
+      : `In this room: ${c.room} people, you included (you + ${plural(c.others, "houseguest")}). A houseguest here saying "all of us" means ${c.room}.`,
+    `In the house: ${c.house} people remain, you included.`,
+  ];
+  if (c.voters !== undefined) lines.push(`Voting tonight: ${c.voters} people (the house minus the HOH and the nominees).`);
+  lines.push("QUOTE these numbers exactly or use no number at all; NEVER count the room yourself, and never leave the player out of \"us\".");
+  return lines;
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1601,6 +1686,7 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
         "house and cannot appear."
       : "- The player is ALONE right now. Do NOT place or voice any houseguest in this scene.",
   );
+  for (const l of headcountLines(wa)) lines.push(`- ${l}`);
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);
@@ -1625,10 +1711,16 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
         "never a fact nobody here holds):",
     );
     for (const e of pk) {
+      // ORW-349: this terminal block RESTATES what GAME CONTEXT already carries in full ("WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS"), so it is trimmed of what adds nothing: an exact repeat within one houseguest, and the
+      // truncated "(overheard, muffled) <fragment>…" snatches (about a third of this block by Day 6). The full list, and so the ceiling of what each NPC may voice, is unchanged in GAME CONTEXT.
+      const knows = terminalKnowledgeItems(e.knows);
+      const suspects = terminalKnowledgeItems(e.suspects);
       const bits: string[] = [];
-      if (e.knows.length) bits.push(`knows: ${e.knows.map((k) => neutralizeForPrompt(k)).join("; ")}`);
-      if (e.suspects.length) bits.push(`suspects (a hunch): ${e.suspects.map((s) => neutralizeForPrompt(s)).join("; ")}`);
-      if (bits.length) lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
+      if (knows.length) bits.push(`knows: ${knows.join("; ")}`);
+      if (suspects.length) bits.push(`suspects (a hunch): ${suspects.join("; ")}`);
+      // Everything they hold was a muffled snatch: keep their line (an absent line reads as "knows nothing") and point at the full one.
+      if (!bits.length) bits.push("knows only muffled snatches (the full list is in GAME CONTEXT above)");
+      lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }
   // A-15 (rehearsal 2026-11-03): the committed BOARD, last in the terminal block (nearest generation). In the ceremony phases the
@@ -1678,6 +1770,16 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     } else {
       // PO ruling 2026-11-04: the whole vote is read in ONE turn — every anonymized ballot, in order, then the result. The narrator gets the full truth.
       lines.push(`    BALLOTS (all ${ballots.length}, in the order read; anonymized — name NO voter): ${ballots.map((b) => `a vote to evict ${b.votedFor.name}`).join("; ")}.`);
+      // ORW-358: the narrator was handed 13 ballots but not their COUNT, and invented one ("nine to four") by counting 13 lines in its head; the FE tally guard then cut the whole scene.
+      // The count is a closed-set fact the engine already holds and the reveal hands over (the same anonymized ballots, summed) - give it as a fact to voice.
+      const byNominee = new Map<string, { name: string; n: number }>();
+      for (const b of ballots) {
+        const cur = byNominee.get(b.votedFor.id) ?? { name: b.votedFor.name, n: 0 };
+        cur.n += 1;
+        byNominee.set(b.votedFor.id, cur);
+      }
+      const tally = [...byNominee.values()].sort((a, b) => b.n - a.n);
+      lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
         : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
@@ -1756,6 +1858,10 @@ export interface GatedLeverFlags {
   npcTells?: boolean;
   /** A54 (ORWELL_NPC_MEMORY_SPEECH): add the instruction to use `rememberedAboutYou` / `bringUp`. Absent/false => byte-identical. */
   npcMemorySpeech?: boolean;
+  /** ORW-317 (ORW_GOAL_MOOD): add the instruction that a voice's `moodCause` is the ONLY reason they may give for their mood. Absent/false => byte-identical. */
+  goalMood?: boolean;
+  /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
+  disclosureEngine?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1765,7 +1871,25 @@ function withMemorySpeechInstruction(base: string): string {
   const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
   return base.replace(anchor, anchor + "\n" +
     "    If the voice carries `rememberedAboutYou`, those are the ONLY things this houseguest remembers about the player: let them colour how they speak, never invent another past between them. Raise one aloud, unprompted,\n" +
-    "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.");
+    "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.\n" +
+    "    If the voice carries `rememberedAboutOthers`, those are things this houseguest holds about others in the room (all things the whole house saw): they may\n" +
+    "    bring one up with that person when it fits the moment, in their own words; never invent another past between them.");
+}
+
+/** A52 - in a played game `knows` is shared ground only; the narrator does not improvise what else a houseguest holds, and a `deflect` is a press the engine declined. Appended only while the flag is on. */
+function withDisclosureInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
+    "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
+}
+
+/** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
+function withMoodCauseInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    EXCEPT: if a voice carries `moodCause`, that houseguest has chosen to tell the player why they feel this way - they may say it, in their own\n" +
+    "    words, when it fits; it is the ONLY reason they may give. With no `moodCause`, never state or hint at why a houseguest feels as they do.");
 }
 
 /** A49 - when npcVoice carries `tells`, tell the narrator how to use them (voice the observable facts, never invent a mood). Appended only while the flag is on. */
@@ -1806,6 +1930,10 @@ export interface PremiereEntranceShape {
   justArrived?: { id: string; name: string };
   speakers?: { id?: string; name: string }[];
   playerEntrance?: boolean;
+  /** ORW-368: where the player's own toast slot stands (toast stage): not yet, in this batch, or passed. */
+  playerToast?: "later" | "now" | "done";
+  /** ORW-368: speakers still to be released after this batch (the engine's done list). */
+  toastRemaining?: number;
 }
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
@@ -1842,7 +1970,12 @@ function premiereEntrancesFragment(): string {
     "comes up, INVITE them with a plain \"your turn\" as a chat turn: never force it, never speak for them, " +
     "and move on if they let it pass. Call advanceGame to bring the next batch of speakers, and when the " +
     "game reports the toast done the circle is closed. ";
-  return base.slice(0, a) + replacement + base.slice(b);
+  // ORW-148: in the entrances flow the player is arrival N of 16 and is NOT inside until the game shows their own entrance.
+  const out = base.slice(0, a) + replacement + base.slice(b);
+  return out.replace(
+    "the player has just walked through the front door into the house for the very first time,",
+    "the player is arriving at the house for the very first time (the game stages their entrance in the arrival order: until the game shows the player's OWN entrance they are NOT inside \u2014 never narrate them walking in, standing in the room or being greeted before then),",
+  );
 }
 
 function premiereEntranceLines(
@@ -1872,11 +2005,86 @@ function premiereEntranceLines(
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
-        (sp ? `Speakers this batch, in order: ${sp}. ` : "") +
-        `Open with the production host if the toast has not begun; the player's slot is theirs to take in chat \u2014 invite it, never force it. Call advanceGame for the next batch.`,
+        (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY speaker named here, each as their own toast (their name, age, hometown, job and one line of personality, from the facts you were given), none skipped, merged or summarized. ` : "") +
+        `Open with the production host if the toast has not begun. ` +
+        // ORW-368 (Ryne: "it has kept trying to end and had not had everyone go"): the engine, not the narrator, decides when the circle is over.
+        (typeof ent.toastRemaining === "number"
+          ? (ent.toastRemaining > 0
+              ? `THE TOAST IS NOT OVER: ${ent.toastRemaining} more speaker${ent.toastRemaining === 1 ? "" : "s"} still to come after this batch. Do NOT wrap it up, thank the house, toast "to everyone", or move the evening on; only the game says when the circle is done (when advanceGame reports it). `
+              : `This is the LAST batch of the toast: after these speakers the game closes the circle (call advanceGame once more); do not close it before. `)
+          : "") +
+        // ORW-368: the player's slot is invited ONCE, in the batch it falls in, from the engine's own done list; before it and after it the narrator never turns the scene back to the player.
+        (ent.playerToast === undefined
+          ? `the player's slot is theirs to take in chat \u2014 invite it, never force it. `
+          : ent.playerToast === "now"
+          ? `THE PLAYER'S SLOT IS IN THIS BATCH: give them ONE line of room to take it in chat (invite it once, never force it, never speak their toast for them), voice the other speaker(s), then call advanceGame for the next batch. The circle does NOT wait for the player and does NOT come back to them. `
+          : ent.playerToast === "done"
+            ? `The player's own toast slot has PASSED (the game has recorded it): never invite the player to toast again and never turn the scene back to them; stay on the circle. `
+            : `The player's own toast slot has NOT come up yet: do not invite them to speak, do not speak for them and do not turn the scene back to them; stay on the circle. `) +
+        `Call advanceGame for the next batch.`,
+      // ORW-368: the A9 toast stage used to name the speakers and give NO facts, so each toast was invented (the basics ORW-194 added only rode the old circle's roster). Hand the narrator each speaker's public basics (name, age,
+      // job, hometown, how they come across, from the card the engine holds) in the batch itself; the narrator voices them woven into the scene, never as a list or a data dump.
+      ...((ent.speakers ?? []).flatMap((x) => {
+        const id = (x as { id?: string }).id;
+        const card = id ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === id) : undefined;
+        return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}`] : [];
+      })),
     ];
   }
   return [];
+}
+
+/**
+ * ORW-249 / ORW-248 - COMMIT BEFORE VOICE (slice 1). The ceremony SCRIPT (the nominations key ritual, the veto draw grammar, the eviction reveal) is delivered only once the engine has committed what it scripts.
+ * While the outcome is UNCOMMITTED and the engine is not asking the player for a decision (`pending`), the narrator gets the social moment plus a plain "has NOT happened" line instead - so a narrator
+ * that is holding the house social (production has not called the event) has no ritual in its context to voice. Pure read of the Vault-free view; null = the fragment is delivered unchanged.
+ */
+/** The fragment that stands in for a ceremony script while the engine has not run it. Its OWN constant (not the managed `social` entry), so editing one managed moment never moves another moment's prompt (0018). */
+const UNCOMMITTED_CEREMONY_FRAGMENT =
+  "MOMENT — The house is social. Play the player's conversations, the scheming and the lingering as ordinary play; the game's closed-set events (nominees, the veto, a vote, a result) exist only once the game has run them.";
+
+function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace: boolean; note: string } | null {
+  if (view.pending) return null; // the engine is asking for the player's own decision: that card keeps its script
+  const c = view.ceremony;
+  switch (moment) {
+    case "nominations":
+      if ((c?.nominees?.length ?? 0) > 0) return null;
+      return { replace: true, note: "MOMENT NOTE - the nomination ceremony has NOT happened yet: the game has not run it, so no nominee exists. Do not narrate the ceremony, its ritual (the keys, the names, the speeches) or any nominee. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    case "veto-draw":
+      if ((c?.veto?.players?.length ?? 0) > 0) return null;
+      return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    case "veto-competition":
+      if ((c?.veto?.players?.length ?? 0) === 0) {
+        return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+      }
+      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due) {
+        // ORW-252: the draw is done but the competition is NOT due - the house waits for its hour. The competition fragment (venue, rounds) must not ride along, or the narrator plays the comp ahead of the engine.
+        return { replace: true, note: "MOMENT NOTE - the veto competition has NOT started: the game has drawn the six players, but the competition is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: the players, the nominees and everyone else talk, scheme and kill time; the competition begins only when the game runs it." };
+      }
+      if (!c?.veto?.holder) {
+        return { replace: false, note: "MOMENT NOTE - the veto winner has NOT been decided: the game has drawn the six players but has not run the competition. Voice the field the game gave you; never name a winner, a result or a drop until advanceGame returns it." };
+      }
+      return null;
+    case "hoh-competition":
+      // ORW-252: the same guard for the Head of Household competition - not due yet means it has not started, so its venue and rounds are not narrated ahead of the engine.
+      if (view.daySchedule && view.daySchedule.next === "hoh-competition" && !view.daySchedule.due) {
+        return { replace: true, note: "MOMENT NOTE - the Head of Household competition has NOT started: it is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: everyone talks, schemes and kills time; the competition begins only when the game runs it." };
+      }
+      // ORW-281: due (or unscheduled) but the game has not run it - no staged comp is on the house event - so no winner exists yet. Keeps the fragment (the comp is ordinary play once called).
+      if (view.whereabouts?.houseEvent?.kind !== "hoh-competition") {
+        return { replace: false, note: "MOMENT NOTE - the Head of Household winner has NOT been decided: the game has not run the competition. Never name a winner, a result or a drop until advanceGame returns it." };
+      }
+      return null;
+    case "veto-ceremony":
+      // ORW-281: same shape as nominations. In the veto-ceremony phase with no decision card for the player, the game has not run the ceremony: no use/save/replacement exists to voice.
+      if (view.phase !== "veto-ceremony") return null;
+      return { replace: true, note: "MOMENT NOTE - the veto ceremony has NOT happened yet: the game has not run it, so no decision to use or not use the veto exists. Do not narrate the meeting, the decision or any replacement. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    case "eviction":
+      if (view.eviction) return null;
+      return { replace: true, note: "MOMENT NOTE - the eviction has NOT happened yet: the game has not run the vote, so there is no tally and no evictee. Do not narrate the vote, the reveal or the result. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
+    default:
+      return null;
+  }
 }
 
 /**
@@ -1900,17 +2108,24 @@ export function buildSystemPrompt(
   if (levers?.playerDossier === false) base = withoutLeverBullet(base, "playerDossier");
   if (levers?.npcTells === true) base = withTellsInstruction(base);
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
+  if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
+  if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
+  const gate = uncommittedCeremonyGate(moment, view);
   return [
     base,
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)
       ? premiereEntrancesFragment()
-      : momentFragment(moment),
+      : gate
+        ? (gate.replace ? UNCOMMITTED_CEREMONY_FRAGMENT : momentFragment(moment)) + "\n\n" + gate.note
+        : momentFragment(moment),
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.
     ...(producerVoice ? [producerVoice] : []),
-    renderGameContext(view),
+    // ORW-296 (prompt prefix cache): the world block is FROZEN for the whole season, so it rides BEFORE the game context (whose per-turn tail changes every round); after it, its ~1.5k chars were
+    // re-billed uncached on every round. A pure reorder: the same blocks, the same text.
     ...(worldContext ? [worldContext] : []),
+    renderGameContext(view),
     ...(storyFacts ? [storyFacts] : []),
     // SOC-1/4: the player's own freshly-surfaced knowledge, EVERY moment (unlike `storyFacts`, which
     // is gated to the re-entry/post-season lifecycle beats) — a confide/overhear/gossip surfacing is

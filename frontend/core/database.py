@@ -51,6 +51,17 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     if isinstance(dbapi_connection, sqlite3.Connection):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # ORW-174: busy_timeout first (a locked write waits instead of failing at once). WAL + synchronous=NORMAL for FILE databases only: readers stop blocking the writer and each commit stops paying a
+        # full fsync - the per-message persist and the HUD's session reads share this file. An in-memory database cannot be WAL (and a failed switch must never stop a connection from opening).
+        cursor.execute("PRAGMA busy_timeout=5000")
+        try:
+            cursor.execute("PRAGMA database_list")
+            main_file = next((row[2] for row in cursor.fetchall() if row[1] == "main"), "")
+            if main_file:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.Error as e:  # failsoft-ok: WAL is a speed-up; a filesystem that refuses it (some network mounts) keeps the default journal and the app runs unchanged
+            logger.warning("[db] could not enable WAL (%s); keeping the default journal mode", e)
         cursor.close()
 
 
@@ -79,6 +90,39 @@ class EncryptedText(TypeDecorator):
         return decrypt(value)
 
 
+class TolerantBoolean(TypeDecorator):
+    """Boolean that tolerates legacy TEXT-affinity columns (ORW-209).
+
+    A column that a legacy migration created as TEXT stores ``'0'``/``'1'``
+    strings. SQLAlchemy's stock ``Boolean`` result processor treats any
+    non-integer-zero value as True, so ``'0'`` read as True through the ORM
+    while SQL filters (``is_enabled = 1``) treated it as disabled, and an ORM
+    "enable" of such a row was a silent no-op (True -> True, nothing written).
+    Reads parse the common textual spellings; writes stay ordinary booleans.
+    """
+    impl = Boolean
+    cache_ok = True
+
+    _FALSE = frozenset({"0", "false", "f", "no", "n", "off", "", "none", "null"})
+
+    def _parse(self, value):
+        if value is None:
+            return None
+        if isinstance(value, (bytes, bytearray)):
+            value = value.decode("utf-8", "ignore")
+        if isinstance(value, str):
+            return value.strip().lower() not in self._FALSE
+        return bool(value)
+
+    def process_result_value(self, value, dialect):
+        return self._parse(value)
+
+    def result_processor(self, dialect, coltype):
+        # Bypass the impl Boolean processor: it runs first in a TypeDecorator
+        # chain and would already have turned the string "0" into True.
+        return self._parse
+
+
 class Session(TimestampMixin, Base):
     """
     SQLAlchemy model for Session table.
@@ -96,8 +140,8 @@ class Session(TimestampMixin, Base):
     owner = Column(String, nullable=True, index=True)  # username; null = legacy/shared
     
     # Configuration flags
-    rag = Column(Boolean, default=False)
-    archived = Column(Boolean, default=False)
+    rag = Column(TolerantBoolean, default=False)
+    archived = Column(TolerantBoolean, default=False)
 
     # Organization
     folder = Column(String, nullable=True, default=None)
@@ -122,7 +166,7 @@ class Session(TimestampMixin, Base):
     )
     
     # Properties
-    is_important = Column(Boolean, default=False)
+    is_important = Column(TolerantBoolean, default=False)
     message_count = Column(Integer, default=0)
     total_input_tokens = Column(Integer, default=0)
     total_output_tokens = Column(Integer, default=0)
@@ -130,7 +174,10 @@ class Session(TimestampMixin, Base):
     crew_member_id = Column(String, nullable=True)  # links to crew_members.id
 
     # Relationship to chat messages
-    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
+    # ORW-197: explicit order. Without it SQLite serves the rows in whatever index order it picks (the UNIQUE
+    # (session_id, client_msg_id) index puts every assistant row first), so a hydrated history was scrambled.
+    messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan",
+                            order_by="[ChatMessage.seq, ChatMessage.timestamp]")
     
     @property
     def is_active(self):
@@ -212,10 +259,10 @@ class Document(TimestampMixin, Base):
     language        = Column(String, nullable=True)          # "python", "markdown", "text", etc.
     current_content = Column(Text, nullable=False, default="")
     version_count   = Column(Integer, default=1)
-    is_active       = Column(Boolean, default=True)
+    is_active       = Column(TolerantBoolean, default=True)
     # Soft-archive: hidden from the Library's Documents list/search/Tidy until
     # restored. Distinct from is_active (which tracks "open in a session").
-    archived        = Column(Boolean, default=False)
+    archived        = Column(TolerantBoolean, default=False)
     # Owner of this document. Documents used to derive ownership from their
     # linked chat session, but a session can be deleted (session_id → NULL via
     # SET NULL), orphaning the doc and making it vanish from the owner's
@@ -278,8 +325,8 @@ class GalleryImage(TimestampMixin, Base):
     session_id = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True, index=True)
     album_id   = Column(String, ForeignKey("gallery_albums.id", ondelete="SET NULL"), nullable=True, index=True)
     owner      = Column(String, nullable=True, index=True)
-    is_active  = Column(Boolean, default=True)
-    favorite   = Column(Boolean, default=False)
+    is_active  = Column(TolerantBoolean, default=True)
+    favorite   = Column(TolerantBoolean, default=False)
 
     # File integrity
     file_hash  = Column(String(64), nullable=True, index=True)  # SHA-256
@@ -320,15 +367,15 @@ class EmailAccount(TimestampMixin, Base):
     id             = Column(String, primary_key=True, index=True)
     owner          = Column(String, nullable=True, index=True)
     name           = Column(String, nullable=False)  # Display name: "Work", "Personal", etc.
-    is_default     = Column(Boolean, default=False, nullable=False)
-    enabled        = Column(Boolean, default=True, nullable=False)
+    is_default     = Column(TolerantBoolean, default=False, nullable=False)
+    enabled        = Column(TolerantBoolean, default=True, nullable=False)
 
     # IMAP (receiving)
     imap_host      = Column(String, default="")
     imap_port      = Column(Integer, default=993)
     imap_user      = Column(String, default="")
     imap_password  = Column(String, default="")
-    imap_starttls  = Column(Boolean, default=True)
+    imap_starttls  = Column(TolerantBoolean, default=True)
 
     # SMTP (sending)
     smtp_host      = Column(String, default="")
@@ -352,7 +399,7 @@ class ModelEndpoint(TimestampMixin, Base):
     name = Column(String, nullable=False)          # Display label, e.g. "Local vLLM", "OpenRouter"
     base_url = Column(String, nullable=False)      # Base URL, e.g. "http://localhost:8002/v1"
     api_key = Column(EncryptedText, nullable=True)  # Optional provider API key, encrypted at rest
-    is_enabled = Column(Boolean, default=True)
+    is_enabled = Column(TolerantBoolean, default=True)
     hidden_models = Column(Text, nullable=True)    # JSON list of model IDs that failed probing
     cached_models = Column(Text, nullable=True)    # JSON list of last-known model IDs (avoids probe on list)
     pinned_models = Column(Text, nullable=True)    # JSON list of admin-pinned model IDs (manual, may not appear in /v1/models)
@@ -370,7 +417,7 @@ class ModelEndpoint(TimestampMixin, Base):
     # register time from `--enable-auto-tool-choice` in the serve cmd;
     # can be toggled per-endpoint in the UI. NULL = unknown, falls
     # back to the model-name keyword heuristic in agent_loop.py.
-    supports_tools = Column(Boolean, nullable=True, default=None)
+    supports_tools = Column(TolerantBoolean, nullable=True, default=None)
     # Per-user ownership. NULL = legacy/shared (visible to every user) — this
     # is the historical default. When non-null, the model picker only shows
     # the endpoint to that user (admins always see everything).
@@ -387,7 +434,7 @@ class McpServer(TimestampMixin, Base):
     args = Column(Text, nullable=True)           # JSON array of command args
     env = Column(Text, nullable=True)            # JSON object of env vars
     url = Column(String, nullable=True)          # For SSE: server URL
-    is_enabled = Column(Boolean, default=True)
+    is_enabled = Column(TolerantBoolean, default=True)
     oauth_config = Column(Text, nullable=True)   # JSON: provider, keys_file, token_file, scopes
     disabled_tools = Column(Text, nullable=True)  # JSON array of tool names to hide from LLM
     oauth_tokens = Column(EncryptedText, nullable=True)  # JSON {tokens, client_info} for generic MCP OAuth, encrypted at rest
@@ -410,7 +457,7 @@ class Comparison(TimestampMixin, Base):
     metrics_a = Column(Text, nullable=True)         # JSON string
     metrics_b = Column(Text, nullable=True)         # JSON string
     winner = Column(String, nullable=True)           # "a", "b", "tie", or null
-    is_blind = Column(Boolean, default=True)
+    is_blind = Column(TolerantBoolean, default=True)
     blind_mapping = Column(Text, nullable=True)      # JSON: {"left": "a"/"b", "right": "a"/"b"}
     voted_at = Column(DateTime, nullable=True)
 
@@ -450,7 +497,7 @@ class ApiToken(TimestampMixin, Base):
     token_hash = Column(String, nullable=False)
     token_prefix = Column(String, nullable=False)  # first 8 chars for display
     scopes = Column(String, nullable=False, default="chat")
-    is_active = Column(Boolean, default=True)
+    is_active = Column(TolerantBoolean, default=True)
     last_used_at = Column(DateTime, nullable=True)
 
 
@@ -463,7 +510,7 @@ class Webhook(TimestampMixin, Base):
     url = Column(String, nullable=False)
     secret = Column(String, nullable=True)  # HMAC-SHA256 signing secret
     events = Column(String, nullable=False)  # comma-separated event types
-    is_active = Column(Boolean, default=True)
+    is_active = Column(TolerantBoolean, default=True)
     last_triggered_at = Column(DateTime, nullable=True)
     last_status_code = Column(Integer, nullable=True)
     last_error = Column(String, nullable=True)
@@ -481,8 +528,8 @@ class UserTool(TimestampMixin, Base):
     scope         = Column(String, nullable=False, default="global")  # "global" or session_id
     session_id    = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
     owner         = Column(String, nullable=True, index=True)      # username
-    is_pinned     = Column(Boolean, default=False)
-    is_active     = Column(Boolean, default=True)
+    is_pinned     = Column(TolerantBoolean, default=False)
+    is_active     = Column(TolerantBoolean, default=True)
     version       = Column(Integer, default=1)
     author        = Column(String, nullable=True, default="ai")
 
@@ -527,9 +574,9 @@ class CrewMember(TimestampMixin, Base):
     greeting      = Column(Text, nullable=True)
     enabled_tools = Column(Text, nullable=True)             # JSON array or "all"
     session_id    = Column(String, ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True)
-    is_active     = Column(Boolean, default=True)
+    is_active     = Column(TolerantBoolean, default=True)
     sort_order    = Column(Integer, default=0)
-    is_default_assistant = Column(Boolean, default=False)   # singleton per-owner "personal assistant"
+    is_default_assistant = Column(TolerantBoolean, default=False)   # singleton per-owner "personal assistant"
     timezone      = Column(String, nullable=True)           # IANA tz name (e.g. "America/New_York") for scheduled check-ins
 
     session = relationship("Session", foreign_keys=[session_id],
@@ -572,8 +619,8 @@ class ScheduledTask(TimestampMixin, Base):
     # drop the ForeignKey so SQLAlchemy table sort doesn't fail on flush.
     character_id   = Column(String, nullable=True)
     max_steps      = Column(Integer, nullable=True)       # max agent loop iterations (null=unlimited)
-    email_results  = Column(Boolean, default=True)        # email results to character.email_to
-    notifications_enabled = Column(Boolean, default=True) # per-task on/off for completion notifications
+    email_results  = Column(TolerantBoolean, default=True)        # email results to character.email_to
+    notifications_enabled = Column(TolerantBoolean, default=True) # per-task on/off for completion notifications
 
     session = relationship("Session", backref=backref("scheduled_tasks", cascade="save-update, merge"))
     then_task = relationship("ScheduledTask", remote_side=[id], foreign_keys=[then_task_id])
@@ -609,7 +656,7 @@ class EditorDraft(TimestampMixin, Base):
     # Tiny preview (data URL, ~128px wide) for the landing list. Stored
     # inline so the list endpoint can return everything in one shot.
     thumbnail       = Column(Text, nullable=True)
-    is_active       = Column(Boolean, default=True)
+    is_active       = Column(TolerantBoolean, default=True)
 
     __table_args__ = (
         Index('ix_editor_drafts_owner_updated', 'owner', 'is_active', 'updated_at'),
@@ -1578,8 +1625,8 @@ class Note(TimestampMixin, Base):
     note_type  = Column(String, default="note")     # "note" or "checklist"
     color      = Column(String, nullable=True)
     label      = Column(String, nullable=True)
-    pinned     = Column(Boolean, default=False)
-    archived   = Column(Boolean, default=False)
+    pinned     = Column(TolerantBoolean, default=False)
+    archived   = Column(TolerantBoolean, default=False)
     due_date   = Column(String, nullable=True)
     source     = Column(String, default="user")     # "user" or "agent"
     session_id = Column(String, nullable=True)
@@ -1624,11 +1671,11 @@ class CalendarEvent(TimestampMixin, Base):
     location    = Column(String, default="")
     dtstart     = Column(DateTime, nullable=False, index=True)
     dtend       = Column(DateTime, nullable=False)
-    all_day     = Column(Boolean, default=False)
+    all_day     = Column(TolerantBoolean, default=False)
     # True when dtstart/dtend are stored as UTC instants (set on import paths
     # that preserve the source TZID). False = legacy naive-local. Drives the
     # `Z`-suffix on serialization so the frontend interprets correctly.
-    is_utc      = Column(Boolean, default=False, nullable=False)
+    is_utc      = Column(TolerantBoolean, default=False, nullable=False)
     rrule       = Column(String, default="")
     color       = Column(String, nullable=True)  # per-event color override
     status      = Column(String, default="confirmed")  # confirmed, cancelled
@@ -1652,7 +1699,7 @@ class Integration(TimestampMixin, Base):
     name   = Column(String, nullable=False)
     type   = Column(String, nullable=False)  # "email", "rss", "webhook"
     config = Column(JSON, nullable=True)     # type-specific config
-    enabled = Column(Boolean, default=True)
+    enabled = Column(TolerantBoolean, default=True)
 
 
 
@@ -1801,6 +1848,7 @@ def _init_db_inner():
     _migrate_encrypt_signatures()
     _migrate_encrypt_endpoint_keys()
     _migrate_backfill_task_folders()
+    _migrate_strip_session_auth_headers()
 
 
 def init_db():
@@ -1853,6 +1901,21 @@ def init_db():
             )
         except Exception:
             pass
+
+
+def _migrate_strip_session_auth_headers():
+    """ORW-199/200: provider credentials were persisted on session rows. The endpoint record is
+    now the source of truth (resolved at call time), so strip Authorization / x-api-key from
+    existing session rows whose URL resolves to a keyed endpoint. Idempotent; rows with no
+    resolvable endpoint are never touched. Fail-soft."""
+    try:
+        from src.endpoint_resolver import migrate_strip_session_auth_headers
+        n = migrate_strip_session_auth_headers()
+        if n:
+            logging.getLogger(__name__).info(
+                "Migrated: stripped stored auth headers from %d session row(s)", n)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"session auth-header strip migration failed: {e}")
 
 
 def _migrate_backfill_task_folders():
@@ -1919,25 +1982,35 @@ def _migrate_chat_messages_fts():
                 DELETE FROM chat_messages_fts WHERE message_id = old.id;
             END;
 
-            CREATE TRIGGER IF NOT EXISTS chat_messages_fts_au
-            AFTER UPDATE ON chat_messages BEGIN
+            -- ORW-174: the delete below scans the whole index (message_id is UNINDEXED), and this trigger used to fire for EVERY update of a message row (mark_message_phase touches one each game turn). It now
+            -- fires only when an indexed value actually changed. Dropped first so an existing database picks up the narrower definition (IF NOT EXISTS would keep the old one).
+            DROP TRIGGER IF EXISTS chat_messages_fts_au;
+            CREATE TRIGGER chat_messages_fts_au
+            AFTER UPDATE OF content, session_id, role ON chat_messages
+            WHEN old.content IS NOT new.content OR old.session_id IS NOT new.session_id OR old.role IS NOT new.role
+            BEGIN
                 DELETE FROM chat_messages_fts WHERE message_id = old.id;
                 INSERT INTO chat_messages_fts(content, message_id, session_id, role)
                 VALUES (COALESCE(new.content, ''), new.id, new.session_id, new.role);
             END;
             """
         )
-        conn.execute(
-            """
-            INSERT INTO chat_messages_fts(content, message_id, session_id, role)
-            SELECT COALESCE(cm.content, ''), cm.id, cm.session_id, cm.role
-            FROM chat_messages cm
-            WHERE NOT EXISTS (
-                SELECT 1 FROM chat_messages_fts fts
-                WHERE fts.message_id = cm.id
+        # ORW-170: the backfill below probes the FTS table once PER MESSAGE with message_id UNINDEXED (a full index scan each), i.e. O(messages x index rows) on EVERY boot. The triggers keep the two in
+        # step, so in the normal case the row counts already match and there is nothing to backfill: compare the counts (one scan each) and only run the backfill when the index is short.
+        n_msgs = conn.execute("SELECT count(*) FROM chat_messages").fetchone()[0]
+        n_fts = conn.execute("SELECT count(*) FROM chat_messages_fts").fetchone()[0]
+        if n_fts < n_msgs:
+            conn.execute(
+                """
+                INSERT INTO chat_messages_fts(content, message_id, session_id, role)
+                SELECT COALESCE(cm.content, ''), cm.id, cm.session_id, cm.role
+                FROM chat_messages cm
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM chat_messages_fts fts
+                    WHERE fts.message_id = cm.id
+                )
+                """
             )
-            """
-        )
         conn.commit()
     except Exception as e:
         logging.getLogger(__name__).warning(f"chat_messages FTS migration failed: {e}")

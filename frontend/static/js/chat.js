@@ -10,7 +10,7 @@ import uiModule from './ui.js';
 import sessionModule from './sessions.js';
 import chatRenderer from './chatRenderer.js';
 import chatStream from './chatStream.js';
-import { ORWELL_TOOL_BEATS as _orwellToolBeats, orwellBeatOutcome, isGameBuild, isSeasonStarted, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, setGameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate, narratorWaitCopy } from './orwellToolBeats.js';
+import { ORWELL_TOOL_BEATS as _orwellToolBeats, orwellBeatOutcome, orwellBeatNodeView, orwellAdvanceView, isGameBuild, isSeasonStarted, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, setGameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate, narratorWaitCopy } from './orwellToolBeats.js';
 import { addAITTSButton } from './tts-ai.js';
 import markdownModule from './markdown.js';
 import { svgifyEmoji } from './markdown.js';
@@ -30,6 +30,8 @@ import { isNarrow } from './platform.js';
 // imported binding is read-only; a shared object's fields are not). Behavior-preserving: chat.js
 // still owns all the logic and just references `chatState.X` where it used to reference `X`.
 import { chatState } from './chatState.js';
+import { applyDelta, splitChannel } from './chatStreamMachine.js';
+import './orwellWsBlocked.js';
 // #1414 (R3 PR1): the #738 scroll-edge mask + recede-on-scroll banner — the first leaf
 // extraction from this god-object. Behavior-preserving: chat.js still calls
 // _initChatScrollEdges() from init() exactly as before, the logic just lives in its own
@@ -112,6 +114,11 @@ import {
 // (chat.js passes its `_lastToolName` local). None are on chatModule / called cross-file, so no
 // re-export. Imported here only, so #1399 single-eval holds.
 import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner } from './chatStreamLoop.js';
+import { frameBatched, liveAddedElements } from './frameBatch.js';
+
+// ORW-183: the stream event types that make a run "rich" (tools, sources, research). A mirrored / reattached run that sees one of these is rebuilt from the DB at the end instead of being finalized in place.
+// The two background-stream readers each carried their own copy of this list (one as a regex, one as an || chain); this is the single definition both use.
+const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progress', 'agent_step', 'web_sources', 'rag_sources', 'research_progress', 'research_sources', 'research_findings', 'research_done']);
 
   // #1399: chat.js must be evaluated EXACTLY ONCE per page. It was previously loaded by two
   // different urls at once — app.js's bare `import './js/chat.js'` AND index.html's versioned
@@ -194,6 +201,28 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
   // scattered new string per call site.
   const _ENGINE_INTERRUPT_LINE =
     "Big Brother cuts to a brief technical interlude… hang tight, we'll be right back.";
+  // ORW-270: fire-and-forget beacon so a player-visible "technical interlude" is attributable in the
+  // server log. Never throws, never blocks, and dispatches nothing (no gamechanged event).
+  function _beaconStreamError(status, message, sessionId) {
+    try {
+      const body = JSON.stringify({
+        kind: 'stream-error',
+        status: status == null ? '' : String(status).slice(0, 20),
+        message: String(message == null ? '' : message).slice(0, 200),
+        sessionId: sessionId == null ? '' : String(sessionId).slice(0, 64),
+      });
+      let sent = false;
+      try {
+        if (navigator.sendBeacon) sent = navigator.sendBeacon('/api/orwell/client-error', new Blob([body], { type: 'application/json' }));
+      } catch (_) { sent = false; }
+      if (!sent) {
+        fetch('/api/orwell/client-error', {
+          method: 'POST', credentials: 'same-origin', keepalive: true,
+          headers: { 'Content-Type': 'application/json' }, body,
+        }).catch(() => {});
+      }
+    } catch (_) { /* a beacon is an addition, never new behavior */ }
+  }
 
   let API_BASE = '';
   // #1414 (R3 PR3): feed the extracted chatAttachments.js chat.js's live API_BASE. A closure over
@@ -461,6 +490,22 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     return chatState._ownRunIds[sessionId] === runId;
   }
 
+  /** ORW-259: the role-timestamp span a streaming holder is CREATED with. In a game the stamp is the in-world moment (M2-6), so seed it with the
+   * most recent in-world moment already on screen instead of the wall clock; a reply that never settles (interrupted, stopped, dropped) then
+   * keeps an in-world stamp, not "11:06 PM". message_saved still overwrites it with the exact moment. No game bubble yet (casting, chat mode)
+   * => the neutral wall-clock span, exactly as before. */
+  // ORW-379: zero clocks => no real wall time on screen (safe where there is no body, e.g. unit harnesses).
+  function _zeroClocks() { try { return !!(document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks')); } catch (_) { return false; } }
+  function _stampSpanHtml(wallClock) {
+    try { if (document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks')) wallClock = ''; } catch (_) {}
+    try {
+      var moments = document.querySelectorAll('#chat-history .role-timestamp-moment');
+      var last = moments.length ? (moments[moments.length - 1].textContent || '').trim() : '';
+      if (last) return '<span class="role-timestamp role-timestamp-moment" data-wall-clock="' + uiModule.esc(wallClock) + '">' + uiModule.esc(last) + '</span>';
+    } catch (_) {}
+    return '<span class="role-timestamp">' + wallClock + '</span>';
+  }
+
   /** ADR 0012 §2.2: stamp a live bubble's role-timestamp from the SERVER-minted ISO time (carried on
    * the message_saved event) so every window renders the identical time string — replacing the
    * speculative client `new Date()` the bubble was created with. Formats identically to
@@ -479,15 +524,15 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       if (typeof moment === 'string' && moment.trim()) {
         span.textContent = moment.trim();
         span.classList.add('role-timestamp-moment');
-        if (haveWall) {
+        if (haveWall && !_zeroClocks()) {
           span.title = d.toLocaleString();
           span.dataset.wallClock = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
         return;
       }
-      if (!haveWall) return;
+      if (!haveWall || _zeroClocks()) return;  // ORW-379
       span.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      span.title = d.toLocaleString();
+      if (!_zeroClocks()) span.title = d.toLocaleString();
     } catch (_) {}
   }
 
@@ -1101,6 +1146,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
     // Declare accumulated outside try block so it's accessible in catch
     let accumulated = '';
+    // ORW-96: the completion latches live OUTSIDE the try so the catch's `_serverConfirmedDone` can read them (declared inside, the catch threw a ReferenceError and a no-[DONE] drop rendered nothing).
+    let _streamSawDone = false;
+    let _sawMessageSaved = false;
     // D2: per-stream SSE event counter — incremented for each processed data: line so the
     // self-resume knows how many events were already consumed and can resume from_seq there.
     let _sseEventCount = 0;
@@ -1155,6 +1203,18 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     let processingProbeTimer = null;
     let processingProbeAbort = null;
     let _renderStream = () => {};
+    // ORW-156: the plain-delta render is COALESCED to one per animation frame (`_renderStreamSoon`); every other
+    // caller keeps the synchronous `_renderStream` (which also supersedes a pending frame render, since it
+    // renders the current buffers anyway). Non-delta SSE events flush a pending frame render FIRST (see the
+    // `_flushStreamSoon()` call after JSON.parse), so tool/segment/settle code never sees a stale bubble.
+    // One shared coalescer (`_makeFrameCoalescer`, also used by the mirror's `_renderLiveStream`) so sender and mirror paint on the same cadence.
+    let _streamRenderedOnce = false;   // the FIRST paint of a bubble/segment stays synchronous (no empty-bubble frame)
+    const _streamCo = _makeFrameCoalescer(() => _renderStream());
+    const _flushStreamSoon = () => { _streamCo.now(); };
+    const _renderStreamSoon = () => {
+      if (!_streamRenderedOnce || (typeof document !== 'undefined' && document.hidden)) { _renderStream(); return; }
+      _streamCo.soon();
+    };
     let _cancelThinkingTimer = () => {};
     let _removeThinkingSpinner = () => {};
     // The whole-turn abort is an ACTIVITY-RESET IDLE timer (`_makeStreamIdleGuard`), not a one-shot.
@@ -1522,7 +1582,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       var _charNameInit = presetsModule.getCharacterName ? presetsModule.getCharacterName() : '';
       if (_charNameInit) roleLabel = _charNameInit;
       const roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      holder.innerHTML = `<div class="role">${uiModule.esc(roleLabel)} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
+      holder.innerHTML = `<div class="role">${uiModule.esc(roleLabel)} ${_stampSpanHtml(roleTs)}</div><div class="body"></div>`;
       holder._requestedModel = modelName;
       holder._actualModel = modelName;
       // #1626 increment 2: seed the explicit character label at creation (the SAME source model_info
@@ -1655,6 +1715,12 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       // `chat` event frames into THIS already-created holder via the persistent consumer
       // (_onWsChatFrame). We pin the holder + spinner as the render target and skip the
       // fetch. Dormant when the flag is off (byte-identical SSE path preserved).
+      // ORW-44 S2 (Ryne: "drop it" - WebSocket only): the game build has NO SSE send path. Make sure the socket is up first (waits out an in-flight reconnect, forces one upgrade attempt for a
+      // pre-game / per-tab-pending fallback); if it cannot be, the turn is refused below with a clear message instead of silently POSTing /api/chat_stream.
+      const _wsOnlySend = _wsOnlyTransport();  // the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE path
+      if (_wsOnlySend && streamSessionId && !_wsChatActive()) {
+        try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
+      }
       if (_wsChatActive() && streamSessionId) {
         const _bodyDiv = holder.querySelector('.body');
         let _sc = _bodyDiv && _bodyDiv.querySelector('.stream-content');
@@ -1713,6 +1779,19 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           try { await softReloadHistory(streamSessionId); } catch (_) {}
           return;
         }
+      }
+
+      if (_wsOnlySend) {
+        // ORW-44 S2: the live connection is down and could not be brought up. Refuse the send cleanly: nothing was sent, so give the text back, drop the optimistic bubble and say why.
+        try { _outboxReleaseInflightSend(_clientMsgId); } catch (_) {}
+        if (clearResponseTimeout) clearResponseTimeout();
+        try { if (spinner) spinner.destroy(); } catch (_) {}
+        if (chatState._streamSessionId === streamSessionId) chatState._streamSessionId = null;
+        try { if (holder) holder.remove(); } catch (_) {}
+        try { if (_userMsgEl) _userMsgEl.remove(); } catch (_) {}
+        try { const msgEl = document.getElementById('message'); if (msgEl) msgEl.value = _finalMsgWithInject; } catch (_) {}
+        try { uiModule.showToast('This network blocks the live connection Orwell needs to play. Your message is back in the box - try again on another network.', 7000); } catch (_) {}
+        return;
       }
 
       const res = await fetch(`${API_BASE}/api/chat_stream`, {
@@ -1895,12 +1974,14 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
       // Direct render helper for streaming text
       _renderStream = () => {
+        _streamCo.cancel();
         // F8: the BODY renders the reply-only buffer (roundReplyText — deltas with json.thinking
         // falsy). Reasoning is structurally ABSENT here, so it can NEVER paint in the public
         // bubble; the live "Thinking" accordion renders roundReasoningText separately. (A model
         // that inlines literal <think> tags on the CONTENT channel still works: processWithThinking
         // extracts/handles inline <think> and, in the game build, scrubs operator asides.)
         const dt = stripToolBlocks(roundReplyText);
+        if (dt.trim()) _streamRenderedOnce = true;   // ORW-156: only a render that PAINTS reply text ends the synchronous first paint
         const bodyEl = roundHolder.querySelector('.body');
         const contentEl = _ensureStreamLayout(bodyEl);
 
@@ -1927,8 +2008,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
               ? liveReply._streamRenderer
               : (liveReply._streamRendererOoc = _liveOoc.ooc,
                  liveReply._streamRenderer = createStreamRenderer(liveReply, {
-                   render: (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t)),
+                   render: (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx),
                    hljs: window.hljs,
+                   needsFullRender: markdownModule.createRestatementWatch(),
                  }));
             r.update(replyTrimmed);
           }
@@ -1942,8 +2024,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           ? contentEl._streamRenderer
           : (contentEl._streamRendererOoc = _liveOoc.ooc,
              contentEl._streamRenderer = createStreamRenderer(contentEl, {
-               render: (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t)),
+               render: (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx),
                hljs: window.hljs,
+               needsFullRender: markdownModule.createRestatementWatch(),
              }));
         renderer.update(displayText);
         uiModule.scrollHistory();
@@ -2015,16 +2098,15 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
         seg.classList.add('round-seg');
         seg._streamRenderer = null;
         seg._streamRendererOoc = undefined;
+        _streamRenderedOnce = false;   // ORW-156: the next round's segment paints its first text synchronously
       };
 
       let _nextIsError = false;
-      let _streamSawDone = false;
       // BUG 2 (#985 P2-B): did the server persist ANY message this turn? A clean empty turn (the final
       // round made a tool call but emitted no narration; the server's `if full_response:` save is
       // skipped) emits NO `message_saved`. Combined with `accumulated === ''`, that is the
       // "backend produced no turn" terminal state — distinct from a thrown network drop. We render the
       // user-controlled Retry for it instead of silently hiding the empty bubble.
-      let _sawMessageSaved = false;
       // BUG 2 — did the turn produce a VISIBLE artifact OTHER than narration text/a save? An in-character
       // image, an ask_user prompt, a budget notice, a surfaced error etc. all leave `accumulated === ''`
       // yet are a real, completed turn — NOT the empty-turn-with-no-recourse case. Set true on those so
@@ -2163,11 +2245,14 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
             }
             try {
               const json = JSON.parse(data);
+              if (!json.delta) _flushStreamSoon();   // ORW-156: a non-delta event must see the up-to-date bubble
               // Handle SSE error events (e.g. HTTP 404 from provider)
               if (_nextIsError || json.status >= 400) {
                 _nextIsError = false;
                 const rawErrMsg = json.text || json.error?.message || `Error ${json.status || 'unknown'}`;
                 console.error('Stream error:', rawErrMsg);
+                // ORW-44 S4b3: the game build refuses the HTTP stream route (WebSocket only). A stale client that still posts to it gets this typed error: show the same persistent "this network blocks the live connection" notice instead of the interrupt line.
+                if (json.error === 'ws-only') { try { window.dispatchEvent(new CustomEvent('orwell:ws-blocked', { detail: { reason: 'ws-only-refusal' } })); } catch (_) {} }
                 if (spinner && spinner.element) spinner.destroy();
                 // Orwell #872 (item A): NEVER render a raw HTTP status / provider error into the GM
                 // body bubble in the game build — an "Error 400" reads to the player as a literal
@@ -2179,6 +2264,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 const errMsg = isGameBuild()
                   ? _ENGINE_INTERRUPT_LINE
                   : rawErrMsg;
+                _beaconStreamError(json.status, rawErrMsg, sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId());
                 typewriterInto(roundHolder.querySelector('.body'), errMsg);
                 // ADR 0012 (GAP 2): keep the immediate live feedback, but mark the turn so the finally
                 // FORCE-reconciles this bubble to the persisted fallback — the agent loop saves a
@@ -2212,27 +2298,18 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 if (_threadAbove && _threadAbove.classList.contains('agent-thread') && !_threadAbove.classList.contains('has-bottom')) {
                   _threadAbove.classList.add('has-bottom');
                 }
-                // VLLM reasoning tokens: wrap in <think> tags for the thinking UI.
-                // Stateful open/close (not a whole-message substring check) so each round
-                // of a multi-round agent response gets its own <think>…</think> — otherwise
-                // only round 1 is wrapped and rounds 2+ reasoning leaks into the answer.
-                let _delta = json.delta;
-                // F8: split the RAW delta by channel BEFORE the <think>-wrapping below, so the
-                // reply buffer carries zero reasoning/markup and the accordion buffer carries raw
-                // reasoning. The BODY render reads roundReplyText → reasoning can't leak into it.
-                if (json.thinking) roundReasoningText += json.delta;
-                else               roundReplyText += json.delta;
+                // ORW-59 / R3 step 2: the channel split (F8) and the stateful <think> wrapping are the pure `applyDelta` (chatStreamMachine.js). The BODY render reads roundReplyText →
+                // reasoning can't leak into it; the merged accumulated / roundText stay intact for the other consumers.
+                const _ad = applyDelta({ accumulated, roundText, roundReplyText, roundReasoningText, thinkOpen: _thinkOpen }, json);
+                roundReplyText = _ad.roundReplyText;
+                roundReasoningText = _ad.roundReasoningText;
+                _thinkOpen = _ad.thinkOpen;
                 // CodeRabbit fix: clear the premiere-recovery latch only on a real reply token —
                 // a reasoning-only delta must NOT clear it (see declaration comment above).
-                if (!json.thinking && _orwellPremiereRecoveryArmed) _orwellPremiereRecoveryArmed = false;
-                if (json.thinking) {
-                  if (!_thinkOpen) { _delta = '<think>' + _delta; _thinkOpen = true; }
-                } else if (_thinkOpen) {
-                  _delta = '</think>' + _delta; _thinkOpen = false;
-                }
-                const wasEmpty = !accumulated;
-                accumulated += _delta;
-                roundText += _delta;
+                if (_ad.isReplyToken && _orwellPremiereRecoveryArmed) _orwellPremiereRecoveryArmed = false;
+                const wasEmpty = _ad.wasEmpty;
+                accumulated = _ad.accumulated;
+                roundText = _ad.roundText;
                 currentAccumulated = accumulated; // Update global tracker
                 // First token arrived — switch stop button from processing to streaming
                 if (wasEmpty && submitBtn && !_isBg) {
@@ -2494,7 +2571,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 } else {
                   // Normal streaming
                   if (spinner && spinner.element) spinner.destroy();
-                  _renderStream();
+                  _renderStreamSoon();
                   _scheduleThinkingSpinner();
                   // Feed streaming TTS with accumulated text
                   if (streamingTTS) window.aiTTSManager.streamingUpdate(roundText);
@@ -2639,6 +2716,13 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                   _sourcesData = json.data; _sourcesType = 'web';
                   _sourcesHtml = _buildSourcesBox(json.data, 'web');
                 }
+              } else if (json.type === 'narrator_away' || json.type === 'narrator_paused') {
+                // ORW-133: the narrator is away. The server holds the show and retries; say so plainly (a
+                // transient notice, never body text). The final "paused" line arrives as the reply itself.
+                if (!_isBg && json.type === 'narrator_away') {
+                  uiModule.showToast(json.message || 'The narrator is away — the show is paused. Retrying shortly.', 4000);
+                }
+                continue;
               } else if (json.type === 'model_fallback') {
                 // Model went offline — switched to fallback
                 var _fbData = json.data || {};
@@ -3180,10 +3264,11 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                   if (_beatOut) { cmd = ''; outHtml = ''; }  // game beats: label + status only, no raw JSON
                   // C20: surface the engine's pending decision (or clear it) to the confirm
                   // guardrail. Vault-free AdvanceView only; fail-open on any parse trouble.
+                  // ORW-264: parsed by the ONE shared orwellAdvanceView (also used by the reload path).
                   if (json.tool === 'advanceGame' || json.tool === 'submitDecision') {
                     try {
-                      const _adv = JSON.parse(json.output || '{}');
-                      window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: _adv && _adv.pending ? _adv.pending : null } }));
+                      const _adv = orwellAdvanceView(json.tool, json.output);
+                      if (_adv) window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: _adv.pending ? _adv.pending : null } }));
                       // T0-3 (issue #1778): the SAME tool result's Vault-free `announcements`
                       // (BeatAnnouncementView[]) — the engine's broadcast chyron(s) for whatever
                       // ceremony fact(s) just committed (including a T0-2 auto-advanced beat chained
@@ -3244,30 +3329,13 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                   // otherwise mark the node --flat (a plain label, no expander).
                   const _expandHtml = `${cmdHtml2}${outHtml}${diffHtml}`;
                   const _hasExpand = !!_expandHtml.trim();
-                  const _chevron2 = _hasExpand ? '<span class="agent-thread-chevron">\u25B6</span>' : '';
-                  const _contentDiv2 = _hasExpand ? `<div class="agent-thread-content">${_expandHtml}</div>` : '';
-                  // Preserve the user's .open choice across the innerHTML
-                  // rewrite \u2014 otherwise expanding a running tool collapses
-                  // it as soon as the result lands, forcing the user to
-                  // click again. Click handling is delegated (see init at
-                  // bottom of file) so no per-node listener needed.
                   const _wasOpen = _hasExpand && currentToolBubble.classList.contains('open');
-                  // L42: in the game build, show the beat's PUBLIC OUTCOME (Vault-free, from the tool
-                  // result) instead of a generic "done" \u2014 "\ud83d\uddf3\ufe0f Troy is evicted (7-1)", "\ud83c\udfc6 Maya wins HOH".
-                  const _outcome = (_beatOut && ok) ? orwellBeatOutcome(json.tool, json.output) : null;
-                  const _toolText = _outcome || _beatOut || json.tool;
-                  // M2-5 (audit B7): game-build slates carry NO lowercase "done" debug tail —
-                  // the ✓ + styled label IS the resolved state. Failures stay literal (operator
-                  // truth, the J1-30 rule); the workspace build keeps its done/failed status.
-                  const _statusHtml = _outcome ? '' : (ok && isGameBuild()) ? ''
-                    : `<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span>`;
-                  // TRANS-12/VM-5 (2026-07 pre-ship audit): a ceremony beat's outcome (HOH crown,
-                  // nomination reveal, veto result, eviction vote reveal) used to swap in via this
-                  // innerHTML replace with zero motion \u2014 the show's biggest beats landed as a
-                  // silent state flip. `ow-ceremony-reveal` (style.css) gives the header a brief
-                  // staged entrance; reduced-motion strips it to the same instant swap as before.
-                  currentToolBubble.className = 'agent-thread-node' + (ok ? '' : ' error') + (_hasExpand ? '' : ' agent-thread-node--flat') + (_wasOpen ? ' open' : '') + (_outcome ? ' ow-ceremony-reveal ow-slate-outcome' : '');
-                  currentToolBubble.innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(_toolText)}</span>${_statusHtml}${_chevron2}</div>${_contentDiv2}`;
+                  // L42 / M2-5 / TRANS-12: the finished chip (public outcome, no "done" tail, staged
+                  // ceremony reveal) is built by the ONE shared pure builder both render paths use (ORW-264).
+                  const _nv = orwellBeatNodeView({ tool: json.tool, beat: _beatOut, ok, output: json.output, expandHtml: _expandHtml, esc, wasOpen: _wasOpen, reveal: true });
+                  const _outcome = _nv.outcome;
+                  currentToolBubble.className = _nv.className;
+                  currentToolBubble.innerHTML = _nv.innerHTML;
                   if (_outcome) {
                     const _revealHeader = currentToolBubble.querySelector('.agent-thread-header');
                     const _clearReveal = () => currentToolBubble.classList.remove('ow-ceremony-reveal');
@@ -3731,6 +3799,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 // (`.body`, not a separate note) as the sibling branch above. Outside the game build
                 // (the general assistant) keep the raw, informative text for debuggability.
                 const errText = isGameBuild() ? _ENGINE_INTERRUPT_LINE : `[Error: ${json.error}]`;
+                _beaconStreamError(json.status, typeof json.error === 'string' ? json.error : (json.error && json.error.message), sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId());
                 const errDiv = document.createElement('div');
                 errDiv.style.cssText = 'color: var(--color-error); font-style: italic; padding: 4px 0;';
                 errDiv.textContent = errText;
@@ -4373,8 +4442,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           // fired). Skip BOTH recovery and the generic error surface so the settled live content
           // stands and the finally's reconcile adopts it. (This is the reader's own "Stream closed
           // before completion" throw when `message_saved` arrived without a trailing `[DONE]`.)
-          const _serverConfirmedDone = _streamSawDone || _sawMessageSaved ||
-            !!(holder && holder.dataset && holder.dataset.dbId);
+          const _serverConfirmedDone = _isServerConfirmedDone(_streamSawDone, _sawMessageSaved, holder);
           // Stream died unexpectedly — the "silently died" case. Re-engage the
           // model immediately (no wait) with a completion handshake, up to the
           // cap. Only auto-recover from connection-class failures; deterministic
@@ -4383,7 +4451,10 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           if (!_requeuedOffline && !_serverConfirmedDone &&
               !(_isRecoverableStreamErr(err) && _tryAutoRecover(holder, accumulated, streamSessionId))) {
             const errorHolder = document.querySelector('.msg-ai:last-of-type .body');
-            if (errorHolder) {
+            if (_isRecoverableStreamErr(err) && holder && holder.isConnected) {
+              // ORW-96: auto-recover declined (nudge cap spent) on a connection-class drop - an honest, user-controlled Retry, not a raw `Error:` typed into the narrator's bubble (which the settle reconcile then erased, leaving nothing).
+              _renderStreamDropRetry(holder, streamSessionId, { label: 'The connection dropped before the reply finished.' });
+            } else if (errorHolder) {
               let errMsg = `Error: ${err.message}`;
               // Add hint for tool-call errors
               if (err.message && (err.message.includes('tool') || err.message.includes('auto'))) {
@@ -4397,6 +4468,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     } finally {
       clearResponseTimeout();
       clearProcessingProbe();
+      _streamCo.cancel();   // ORW-156: never paint a frame after the turn settled
       // F-5 / N-10: a finished turn must never leave a header-only assistant bubble (see isEmptyAssistantBubble).
       try { pruneEmptyAssistantBubbles(document.getElementById('chat-history')); } catch (_) {}
       // #615: a mid-stream engine-tool error (e.g. a 409 stale-beat) can throw out of the reader
@@ -4614,8 +4686,11 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       }
 
       // Refresh session list after a delay (picks up auto-generated names)
+      // ORW-168: only while the session still has a placeholder name (an already-named game session skips the refetch + sidebar re-render)
+      const _renameSid = (sessionModule && sessionModule.getCurrentSessionId) ? sessionModule.getCurrentSessionId() : null;
       setTimeout(() => {
-        if (sessionModule && sessionModule.loadSessions) {
+        if (sessionModule && sessionModule.loadSessions
+            && !(sessionModule.sessionMayNeedRename && _renameSid && !sessionModule.sessionMayNeedRename(_renameSid))) {
           sessionModule.loadSessions();
         }
       }, 3000);
@@ -4653,6 +4728,11 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     }
   }
 
+  // ORW-44: the game build with the WebSocket transport on is WebSocket-ONLY; the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE paths.
+  function _wsOnlyTransport() {
+    return isGameBuild() && !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn());
+  }
+
   /**
    * D2 — self-resume: reattach to the SAME server-buffered run after a mid-stream SSE drop,
    * painting continued tokens into the EXISTING holder (from_seq = _sseEventCount) so
@@ -4661,6 +4741,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
    */
   async function _trySelfResume(holder, accumulated, sessionId) {
     if (!sessionId || !holder || !accumulated) return false;
+    if (_wsOnlyTransport()) return false;  // ORW-44 S4a: WebSocket only - the chat channel replays; the SSE resume route is not used
     const _runId = chatState._ownRunIds[sessionId];
     if (!_runId) return false;  // no known run for this session — can't self-resume
 
@@ -4690,7 +4771,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
 
     const bodyDiv = holder.querySelector('.body');
     const _liveState = {};
-    const _liveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
+    const _liveRender = (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx);
     const renderDelta = () => {
       if (bodyDiv) _renderLiveStream(bodyDiv, replyText, reasoningText, _liveRender, _liveState, holder);
     };
@@ -4722,8 +4803,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           try { json = JSON.parse(payload); } catch (_) { continue; }
           if (json.type === 'user_message') continue;  // Sender already rendered its own bubble
           if (json.delta) {
-            if (json.thinking) reasoningText += json.delta;
-            else replyText += json.delta;
+            { const _ch = splitChannel({ reply: replyText, reasoning: reasoningText }, json); replyText = _ch.reply; reasoningText = _ch.reasoning; }  // ORW-59 R3 step 4: the one F8 split
             if (!gotDelta) { gotDelta = true; }
             paintDirty = true;
           } else if (json.type === 'message_saved') {
@@ -4744,7 +4824,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
                 _refreshLiveByline(holder);
               }
             }
-          } else if (/^(tool_start|tool_output|tool_progress|agent_step|web_sources|rag_sources|research_progress|research_sources|research_findings|research_done)$/.test(json.type)) {
+          } else if (_RICH_RUN_EVENT_TYPES.has(json.type)) {
             rich = true;
           }
         }
@@ -4753,6 +4833,9 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     } catch (e) {
       // Second drop during self-resume — keep accumulated, cleanup below
     }
+    // ORW-156: the per-chunk paints above go through the shared per-frame coalescer (as the sender's do); flush it ONCE here, on every way
+    // out of the loop ([DONE], end of stream, a drop), so the settle below never races a late frame and never misses the last delta.
+    if (_liveState._replyCo) _liveState._replyCo.now();
 
     chatState._resumingStreams.delete(sessionId);
 
@@ -4787,6 +4870,12 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
   // died" case). Deterministic errors — unsupported tools, HTTP 4xx/5xx, JSON
   // parse failures — will fail identically on retry, so surfacing them
   // immediately is both more honest and avoids wasting the nudge budget.
+  // F3: a turn the server has CONFIRMED complete: a [DONE] sentinel, a persisted message_saved, or a DB id already on the holder
+  // (also the ADR-0008 message-added completion adopted by the observer). A transport close after any of these is NOT an incomplete turn.
+  function _isServerConfirmedDone(sawDone, sawSaved, holder) {
+    return !!(sawDone || sawSaved || (holder && holder.dataset && holder.dataset.dbId));
+  }
+
   function _isRecoverableStreamErr(err) {
     if (!err) return false;
     if (err.name === 'TypeError') return true;   // fetch/reader network failure
@@ -4843,6 +4932,14 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
   // no narration + no save) — passing `opts.label` swaps the message; the Retry mechanism is identical.
   function _renderStreamDropRetry(holder, sessionId, opts) {
     opts = opts || {};
+    // ORW-96 (F-S4-C parity): a drop that produced no reply is a SYSTEM notice, NOT the GM's voice - reclassify the empty narrator holder to `.msg-system` and drop its GM `.role`/avatar (same as the HTTP-error path).
+    try {
+      const _b = holder && holder.querySelector && holder.querySelector('.body');
+      if (holder && holder.classList && holder.classList.contains('msg-ai') && !(holder.dataset && holder.dataset.dbId) && _b && !(_b.textContent || '').trim()) {
+        holder.className = 'msg msg-system';
+        holder.innerHTML = '<div class="body"></div>';
+      }
+    } catch (_) {}
     const target = holder && (holder.querySelector('.body') || holder);
     if (!target || target.querySelector('.stream-drop-retry')) return;
     // BUG 2: the empty-turn holder was hidden by the finalize ("no visible text" branch) — make it
@@ -4953,6 +5050,26 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
   // through _setReconcileDeps, mirroring the PR2..PR6 injection pattern. The reconcile Sets stay
   // chatState-backed (PR0), so submit / outbox / reconcile serialize on ONE instance.
 
+  // ORW-156: ONE per-frame coalescer shared by the sender (`_renderStreamSoon`) and the mirror/observer (`_renderLiveStream`), so both
+  // windows paint on the same cadence. `soon()` schedules `run` once per animation frame with a 100 ms timer backstop (rAF does not fire in a
+  // hidden/backgrounded window); `now()` runs a pending `run` immediately; `cancel()` drops it. `run` always renders the LATEST buffers.
+  function _makeFrameCoalescer(run) {
+    let raf = 0;
+    let timer = 0;
+    const cancel = () => {
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf);
+      clearTimeout(timer);
+      raf = 0;
+      timer = 0;
+    };
+    const fire = () => { cancel(); run(); };
+    return {
+      soon() { if (raf || timer) return; if (typeof requestAnimationFrame === 'function') raf = requestAnimationFrame(fire); timer = setTimeout(fire, 100); },
+      now() { if (raf || timer) fire(); },
+      cancel,
+    };
+  }
+
   /**
    * R2 (refactor-roadmap / ADR 0012 §3.3): the SHARED incremental live-stream renderer that BOTH
    * the sender (its `.live-reply-content` path) and the observer (resumeStream) feed, so two windows
@@ -5025,10 +5142,29 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       contentDiv.appendChild(replyEl);
       state._replyEl = replyEl;
       state._replyRendererOoc = _liveOoc.ooc;
-      state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs });
+      state._replyRenderer = createStreamRenderer(replyEl, { render, hljs: window.hljs, needsFullRender: markdownModule.createRestatementWatch() });
+      // ORW-156: a NEW reply container (first delta, or the OOC wrap flipped and the old one was just removed) paints synchronously, as the
+      // sender's re-created renderer does, so the mirror never shows an empty reply for a frame.
+      state._replyPainted = false;
     }
-    state._replyRenderer.update(replySrc);
-    uiModule.scrollHistory();
+    // ORW-156: the first reply paint is synchronous; later deltas are coalesced to one per frame through the SAME coalescer the sender uses.
+    state._pendingReplySrc = replySrc;
+    if (!state._replyPainted || document.hidden) {
+      state._replyPainted = true;
+      if (state._replyCo) state._replyCo.cancel();
+      state._replyRenderer.update(replySrc);
+      uiModule.scrollHistory();
+      return;
+    }
+    if (!state._replyCo) {
+      state._replyCo = _makeFrameCoalescer(() => {
+        if (state._replyRenderer && state._replyEl && state._replyEl.isConnected) {
+          state._replyRenderer.update(state._pendingReplySrc);
+          uiModule.scrollHistory();
+        }
+      });
+    }
+    state._replyCo.soon();
   }
 
   /**
@@ -5098,6 +5234,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
    */
   export async function resumeStream(sessionId) {
     if (!sessionId) return false;
+    if (_wsOnlyTransport()) return false;  // ORW-44 S4a: WebSocket only - the socket's replay-then-tail re-attaches a running reply
     if (hasActiveStream(sessionId)) return false;
 
     let res;
@@ -5129,7 +5266,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     // history reload — not its own `new Date()` at attach time.
     const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
-      ' <span class="role-timestamp">' + roleTs + '</span></div>' +
+      ' ' + _stampSpanHtml(roleTs) + '</div>' +
       '<div class="body"><div class="stream-content"></div></div>';
     _applyModelColor(holder.querySelector('.role'), meta && meta.model);
     holder._requestedModel = meta && meta.model;
@@ -5201,7 +5338,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     // sender's `_renderStream` feeds createStreamRenderer. Supplied to the shared `_renderLiveStream`
     // so the observer never invents its own markdown path (it shares the sender's), and any inline
     // <think>/operator-aside scrub the game build applies in processWithThinking runs here too.
-    const _liveRender = (t) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t));
+    const _liveRender = (t, ctx) => markdownModule.processWithThinking(markdownModule.squashOutsideCode(t), ctx);
     const renderDelta = () => {
       _renderLiveStream(contentDiv, replyText, reasoningText, _liveRender, _liveState, holder);
     };
@@ -5245,8 +5382,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
           if (json.delta) {
             // Route reasoning (thinking:true) to its own buffer so it lands in the collapsed
             // accordion, exactly like the primary stream path — never raw into the bubble.
-            if (json.thinking) reasoningText += json.delta;
-            else replyText += json.delta;
+            { const _ch = splitChannel({ reply: replyText, reasoning: reasoningText }, json); replyText = _ch.reply; reasoningText = _ch.reasoning; }  // ORW-59 R3 step 4: the one F8 split
             if (!gotDelta) { gotDelta = true; try { spinner.destroy(); } catch (_) {} }
             // M1-1: paint per network CHUNK (after this parts-loop), not per delta — a
             // SETTLED run's replay arrives as one burst whose message_saved rides the same
@@ -5315,20 +5451,19 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
             // F5 (dedup hardening): also capture the DB id so the finalize-in-place below stamps
             // data-db-id onto the canonical bubble (zero-churn adopt on a later reload, no duplicate).
             if (json.id) { savedDbId = json.id; holder.dataset.dbId = json.id; }
-          } else if (json.type === 'tool_start' || json.type === 'tool_output' ||
-                     json.type === 'tool_progress' || json.type === 'agent_step' ||
-                     json.type === 'web_sources' || json.type === 'rag_sources' ||
-                     json.type === 'research_progress' || json.type === 'research_sources' ||
-                     json.type === 'research_findings' || json.type === 'research_done') {
+          } else if (_RICH_RUN_EVENT_TYPES.has(json.type)) {
             rich = true;
           }
         }
-        // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check).
+        // M1-1: flush this chunk's accumulated deltas in ONE paint (post-dup-check). ORW-156: after the first paint this paint goes
+        // through the shared per-frame coalescer, exactly like the sender's, so several chunks inside one frame paint once.
         if (paintDirty) { paintDirty = false; renderDelta(); }
       }
     } catch (e) {
       // Network drop or parse failure: fall through to the reload below.
     }
+    // ORW-156: flush the coalesced paint ONCE, on every way out of the loop ([DONE], end of stream, leaving, a drop), before the settle.
+    if (_liveState._replyCo) _liveState._replyCo.now();
 
     cleanup();
     if (leftSession) { if (holder.parentNode) holder.remove(); return true; }
@@ -5420,7 +5555,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       var meta = sessionModule.getSessions().find(function(s) { return s.id === sessionId; });
       var roleLabel = _senderLabel(_shortModel(meta && meta.model));
       var roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-      holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) + ' <span class="role-timestamp">' + roleTs + '</span></div><div class="body"></div>';
+      holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) + ' ' + _stampSpanHtml(roleTs) + '</div><div class="body"></div>';
       _applyModelColor(holder.querySelector('.role'), meta && meta.model);
 
       var bodyDiv = holder.querySelector('.body');
@@ -5486,15 +5621,13 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
     if (window._cmpPreObserverWired) return;
     window._cmpPreObserverWired = true;
     _scanCompactPres(document.body);
-    const obs = new MutationObserver((muts) => {
-      for (const m of muts) {
-        for (const n of m.addedNodes) {
-          if (n.nodeType !== 1) continue;
-          if (n.tagName === 'PRE') _markCompactPre(n);
-          if (n.querySelectorAll) _scanCompactPres(n);
-        }
+    // ORW-157: once per frame over the nodes still attached (not per streamed token).
+    const obs = new MutationObserver(frameBatched((muts) => {
+      for (const n of liveAddedElements(muts)) {
+        if (n.tagName === 'PRE') _markCompactPre(n);
+        if (n.querySelectorAll) _scanCompactPres(n);
       }
-    });
+    }));
     obs.observe(document.body, { childList: true, subtree: true });
   })();
 
@@ -5810,7 +5943,7 @@ import { _ensureStreamLayout, _toolLabels, _thinkingLabel, _showThinkingSpinner 
       const roleTs = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
       const agentMeta = sessionModule.getSessions().find(s => s.id === sessionModule.getCurrentSessionId());
       const agentModelLabel = _senderLabel(_shortModel(agentMeta?.model));
-      holder.innerHTML = `<div class="role">${uiModule.esc(agentModelLabel)} <span class="role-timestamp">${roleTs}</span></div><div class="body"></div>`;
+      holder.innerHTML = `<div class="role">${uiModule.esc(agentModelLabel)} ${_stampSpanHtml(roleTs)}</div><div class="body"></div>`;
       _applyModelColor(holder.querySelector('.role'), agentMeta?.model);
       box.appendChild(holder);
 

@@ -192,9 +192,11 @@ export class SoulStore implements SoulProvider {
    * is untouched, and a restore re-derives every index (`rebuildSoulIndex`).
    */
   discardPending(): void {
-    const keep = SoulStore.pending.filter((p) => p.store !== this);
-    SoulStore.pending.length = 0;
-    SoulStore.pending.push(...keep);
+    // Compact in place (no spread): `push(...keep)` overflows the call stack once the shared lane holds ~100k+ queued embeds (a long synchronous burst, e.g. a full season driven in one tick).
+    const q = SoulStore.pending;
+    let w = 0;
+    for (let r = 0; r < q.length; r++) if (q[r]!.store !== this) q[w++] = q[r]!;
+    q.length = w;
   }
 
   /** One synchronous embed+upsert (the ADR 0004 sync-per-call seam, unchanged). */
@@ -260,13 +262,15 @@ export class SoulStore implements SoulProvider {
    *  see a complete index; other sandboxes' backlogs stay on the breathing lane. */
   private flushPending(hg: EntityId): void {
     if (SoulStore.pending.length === 0) return;
-    const keep: Array<{ store: SoulStore; hg: EntityId; mem: Memory }> = [];
-    for (const p of SoulStore.pending) {
+    // Compact in place (no spread): `push(...keep)` overflows the call stack on a very large shared queue (same hazard as discardPending). indexOne never enqueues, so reading and writing one array is safe.
+    const q = SoulStore.pending;
+    let w = 0;
+    for (let r = 0; r < q.length; r++) {
+      const p = q[r]!;
       if (p.store === this && p.hg === hg) this.indexOne(p.hg, p.mem);
-      else keep.push(p);
+      else q[w++] = p;
     }
-    SoulStore.pending.length = 0;
-    SoulStore.pending.push(...keep);
+    q.length = w;
   }
 
   recall(hg: EntityId, context: string, k = 3): Memory[] {

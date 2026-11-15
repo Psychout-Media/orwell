@@ -6,8 +6,8 @@
 > **Gate:** engine (`tests/unit/legends0101.test.ts` — the pure selector + adapter/calibration-neutrality
 > gate; `test:arch`'s dependency-cruiser Vault boundary; BDD `0101-npc-myth-making.feature`, wired into
 > `cucumber.cjs`, step defs `npc_myth_making.steps.ts`). Default ON behind `ORWELL_MYTH_MAKING` (`=0` opts out) (also a
-> `setBehavioralFlags({ mythMaking })` God-Mode runtime dial) — default OFF, byte-identical to the
-> pre-feature build when off. The front-end voicing path (the model repeating "people are saying you…"
+> `setBehavioralFlags({ mythMaking })` God-Mode runtime dial); with it switched OFF the build is byte-identical to the
+> pre-feature one. The front-end voicing path (the model repeating "people are saying you…"
 > from the existing surfaced belief) rides the SAME rumor-surfacing pathway 0002/B27b already uses —
 > no new front-end wiring was needed.
 > **Builds directly on (does NOT duplicate):** the 0002 gossip-diffusion model already in
@@ -247,8 +247,9 @@ owner deviation needed — recorded here for traceability:
    blindside and a public conflict were left OUT of v1 (no reliable structured signal exists yet to
    attribute an eviction to the player's own campaigning without over-reaching) — a natural v2 extension
    once 0085/0086's campaign/drive layer exposes that attribution directly.
-2. **Seed rate + cap** — `LEGEND.seedProb = 0.35` per eligible off-screen tick, `LEGEND.maxPerSeason = 4`
-   (`src/engine/gossip.ts`).
+2. **Seed rate + rising cost** — `LEGEND.seedProb = 0.35` per eligible off-screen tick, multiplied by `LEGEND.costDecay = 0.6`
+   once per legend already minted (`legendSeedProbability`, `src/engine/gossip.ts`). There is NO hard per-season count (ORW-283,
+   BDD card 29: limits come from consequences, not arbitrary caps); folklore stays scarce because each one makes the next rarer.
 3. **NPC→player fold** — v1 ships with **no fold at all**: `legendTick` passes neither `rel` nor `subjects`
    to `diffuseGossip`, so a legend moves no edge whatsoever (stricter than "no player edges" — no NPC edges
    either), keeping the pass calibration-neutral by construction even while enabled.

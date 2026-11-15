@@ -7,7 +7,9 @@
 # "is someone playing right now?" and, if so, DEFERS until the game has been idle for a while.
 #
 # SIGNAL: the age of the newest PLAYER chat message (chat_messages.role='user') in the front-end's
-# SQLite DB, read as the service user. No new app endpoint, no new state.
+# SQLite DB, read as the service user. No new app endpoint, no new state. It is read with python3's built-in
+# sqlite3 module (read-only); the sqlite3 command-line tool is only a fallback, because a production box has
+# python3 but not that tool (ORW-233). Nothing is installed for it.
 #
 # NEVER STUCK, by construction (see update_defer_decision): --force / ORWELL_UPDATE_FORCE=1 skip the
 # check; an unreadable/absent signal means RUN (fail open); and a hard maximum defer proceeds anyway.
@@ -80,17 +82,76 @@ update_defer_decision() {
   echo "defer:live"
 }
 
+# The question both readers ask: the age, in seconds, of the newest PLAYER message.
+_LG_SQL="SELECT CAST(strftime('%s','now') - strftime('%s', max(timestamp)) AS INTEGER) FROM chat_messages WHERE role='user';"
+
+# ORW-233: the reader is python3's built-in sqlite3 module. The production box has python3 (the front end needs it)
+# but NO sqlite3 command-line tool, so the CLI-only reader always answered "none" there and no update ever waited.
+# Read-only URI, a 2 s busy timeout, and an isolated interpreter (-I: no PYTHON* env, no user site-packages, no cwd
+# on sys.path — a module planted where it runs is never imported). Exit codes: 0 = printed the age (or nothing: no
+# player message yet) · 4 = no such table · 5 = no sqlite3 module · anything else = the read failed.
+_LG_PY='
+import sys
+try:
+    import sqlite3
+    from urllib.parse import quote
+except ImportError:
+    sys.exit(5)
+try:
+    con = sqlite3.connect("file:" + quote(sys.argv[1]) + "?mode=ro", uri=True, timeout=2)
+    try:
+        row = con.execute(sys.argv[2]).fetchone()
+    finally:
+        con.close()
+except sqlite3.Error as e:
+    sys.stderr.write("%s\n" % e)
+    sys.exit(4 if "no such table" in str(e) else 3)
+if row and row[0] is not None:
+    print(int(row[0]))
+'
+
+# One reader each. $1 db, then the privilege-dropping prefix (empty unless root). Prints <integer> | none | error,
+# or "unavailable" when this reader cannot run on this box (the caller then tries the next one).
+_live_game_read_python() {
+  local db="$1" out rc=0; shift
+  command -v python3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  # `|| rc=$?`: a failing read must not trip the caller's `set -e`. `cd /`: the service user may not be able to
+  # enter the directory the updater was started in.
+  out="$(cd / && timeout 10 "$@" python3 -I -c "$_LG_PY" "$db" "$_LG_SQL" 2>/dev/null)" || rc=$?
+  case "$rc" in
+    0) out="${out//[$'\r\n ']/}"
+       if [[ "$out" =~ ^-?[0-9]+$ ]]; then printf '%s' "$out"; else echo none; fi ;;
+    4) echo none ;;
+    5) echo unavailable ;;
+    *) echo error ;;
+  esac
+  return 0
+}
+# The fallback for a box without python3: the sqlite3 command-line tool (the ORW-206 reader).
+_live_game_read_cli() {
+  local db="$1" out err rc=0; shift
+  command -v sqlite3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
+  out="$(cd / && timeout 10 "$@" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$_LG_SQL" 2>"$err")" || rc=$?
+  if (( rc != 0 )); then
+    if grep -qi 'no such table' "$err" 2>/dev/null; then rm -f "$err"; echo none; return 0; fi
+    rm -f "$err"; echo error; return 0
+  fi
+  rm -f "$err"
+  out="${out//[$'\r\n ']/}"
+  if [[ "$out" =~ ^-?[0-9]+$ ]]; then printf '%s' "$out"; else echo none; fi
+  return 0
+}
+
 # Seconds since the newest player message in the FE DB. Prints exactly one of:
 #   <integer>  the age (may be negative on clock skew)
-#   none       nothing to wait on: no DB, no sqlite3, no table, no player message, or we cannot read it
-#              safely (as root with no way to drop privileges) -> the update runs
+#   none       nothing to wait on: no DB, no table, no player message, no reader on this box (neither python3 nor
+#              the sqlite3 CLI), or we cannot read it safely (as root with no way to drop privileges) -> the update runs
 #   error      the read failed in a way that may be transient (locked, timeout) -> caller retries
-# sqlite is NEVER run as root against the service DB (root-owned -wal/-shm sidecars break the FE).
+# The DB is NEVER opened as root (root-owned -wal/-shm sidecars break the FE): as root, the read runs as the service user.
 live_game_idle_seconds() {
-  local db="$1" out err rc svcu sql
+  local db="$1" svcu got
   [[ -f "$db" ]] || { echo none; return 0; }
-  command -v sqlite3 >/dev/null 2>&1 || { echo none; return 0; }
-  sql="SELECT CAST(strftime('%s','now') - strftime('%s', max(timestamp)) AS INTEGER) FROM chat_messages WHERE role='user';"
   local -a runner=()
   if [[ "$(id -u)" -eq 0 ]]; then
     svcu="$(_live_game_svc_user)"
@@ -100,16 +161,10 @@ live_game_idle_seconds() {
       echo none; return 0
     fi
   fi
-  err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
-  rc=0   # `|| rc=$?`: a failing read must not trip the caller's `set -e`
-  out="$(timeout 10 "${runner[@]}" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$sql" 2>"$err")" || rc=$?
-  if (( rc != 0 )); then
-    if grep -qi 'no such table' "$err" 2>/dev/null; then rm -f "$err"; echo none; return 0; fi
-    rm -f "$err"; echo error; return 0
-  fi
-  rm -f "$err"
-  out="${out//[$'\r\n ']/}"
-  if [[ "$out" =~ ^-?[0-9]+$ ]]; then printf '%s' "$out"; else echo none; fi
+  got="$(_live_game_read_python "$db" "${runner[@]}")"
+  if [[ "$got" == unavailable ]]; then got="$(_live_game_read_cli "$db" "${runner[@]}")"; fi
+  if [[ "$got" == unavailable ]]; then got=none; fi
+  printf '%s' "$got"
   return 0
 }
 
@@ -156,17 +211,38 @@ update_defer_write_status() {
 }
 update_defer_clear_status() { rm -f "${ORWELL_RUN_DIR}/update-deferred" 2>/dev/null || true; return 0; }
 
-# Block until the update may proceed; always returns 0 (the update then runs). Seams for tests:
+# ORW-398: one token in the ROOT-owned run dir says "the newest update run that went ahead". A deferred run records
+# the token when it starts waiting; a run that proceeds (forced, manual, idle) writes a fresh one. A deferred run
+# that sees the token change was superseded by a run that already did the work, and exits without restarting.
+update_run_seq_read() {
+  local f="${ORWELL_RUN_DIR}/update-run-seq"
+  [[ -f "$f" && ! -L "$f" ]] || { printf 0; return 0; }
+  head -c 80 "$f" 2>/dev/null | tr -d '\r\n' || true
+}
+update_run_supersede() {
+  local dir="$ORWELL_RUN_DIR" tmp
+  [[ -L "$dir" ]] && return 0
+  mkdir -p "$dir" 2>/dev/null || return 0
+  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi
+  tmp="$(umask 022; mktemp "${dir}/.update-run-seq.XXXXXX" 2>/dev/null)" || return 0
+  printf '%s-%s-%s\n' "$$" "$(date +%s%N 2>/dev/null || date +%s)" "$RANDOM" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  mv -fT "$tmp" "${dir}/update-run-seq" 2>/dev/null || rm -f "$tmp"
+  return 0
+}
+
+# Block until the update may proceed; returns 0 (the update then runs), or 10 when a later run that proceeded
+# superseded this deferred one (the caller exits without restarting). A run that proceeds supersedes any deferred run. Seams for tests:
 # _update_defer_sleep, _update_defer_now. Optional hook from the updater: update_defer_notify <msg>
 # (publishes to the web status page), update_defer_cancelled (cleanup if the wait is interrupted).
 # $1 db  $2 ops dir  $3 force  $4 env file
 update_wait_for_idle_game() {
   local db="$1" ops="$2" force="${3:-0}" envf="${4:-}"
-  local thr max poll start now waited idle verdict since until_ errs=0 last_log=-1 msg
+  local my_seq thr max poll start now waited idle verdict since until_ errs=0 last_log=-1 msg
   thr="$(update_defer_setting ORWELL_UPDATE_IDLE_MINUTES "$ORWELL_UPDATE_IDLE_MINUTES_DEFAULT" 1 120 "$envf")"
   max="$(update_defer_setting ORWELL_UPDATE_MAX_DEFER_MINUTES "$ORWELL_UPDATE_MAX_DEFER_MINUTES_DEFAULT" 1 1440 "$envf" 240)"
   poll="$(update_defer_setting ORWELL_UPDATE_DEFER_POLL_SECONDS "$ORWELL_UPDATE_DEFER_POLL_SECONDS_DEFAULT" 5 300 "$envf")"
   start="$(_update_defer_now)"
+  my_seq="$(update_run_seq_read)"
   since="$(date -u -d "@${start}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
   until_="$(date -u -d "@$((start + max * 60))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
   # Never leave a stale "deferred" status behind if the wait is interrupted.
@@ -176,6 +252,12 @@ update_wait_for_idle_game() {
   trap 'update_defer_clear_status' EXIT
   while :; do
     now="$(_update_defer_now)"; waited=$((now - start))
+    if [[ "$(update_run_seq_read)" != "$my_seq" ]]; then
+      update_defer_clear_status
+      trap - INT TERM HUP EXIT
+      echo "==> a later update run already went ahead (forced, manual or idle) — this deferred run is superseded; exiting without restarting"
+      return 10
+    fi
     if [[ "$force" != "1" ]] && update_force_flag_present "$ops"; then
       rm -rf --one-file-system -- "${ops%/}/update-force-requested" 2>/dev/null || true
       force=1; echo "==> web force request received"
@@ -197,6 +279,7 @@ update_wait_for_idle_game() {
       run:*)
         update_defer_clear_status
         trap - INT TERM HUP EXIT
+        update_run_supersede
         case "$verdict" in
           run:force)     echo "==> live-game check skipped (--force / web force / ORWELL_UPDATE_FORCE=1)" ;;
           run:max-defer) echo "==> update was deferred ${waited}s for a live game; max defer (${max} min) reached — proceeding anyway" ;;
@@ -223,3 +306,53 @@ _update_defer_abort() {
 }
 _update_defer_now() { date +%s; }
 _update_defer_sleep() { sleep "$1" & wait $!; }   # `wait` so a trapped INT/TERM/HUP fires at once, not after the sleep
+
+# ── ORW-406: restart only what changed, and swap between turns ───────────────────────────────────────────
+# update_restart_scope <newline-separated changed paths> -> none | frontend | both
+#   none      every changed path is under frontend/static/ (the app serves static files with no-cache
+#             revalidation, ETag from mtime, so the new files are picked up with no restart and no version bump)
+#   frontend  every changed path is under frontend/ (the engine bundle and its deps are untouched)
+#   both      anything else (src/, package*.json, deploy/, units, ...) or an empty/unknown list: the old behaviour
+update_restart_scope() {
+  local paths="$1" p scope=none n=0
+  while IFS= read -r p; do
+    [[ -n "$p" ]] || continue
+    n=$((n + 1))
+    case "$p" in
+      frontend/static/*) ;;
+      frontend/*) [[ "$scope" == none ]] && scope=frontend ;;
+      *) echo both; return 0 ;;
+    esac
+  done <<<"$paths"
+  (( n > 0 )) || { echo both; return 0; }
+  echo "$scope"
+}
+
+# 0 when the front end's turns-in-flight file says one or more turns are running, else 1. A missing, unreadable,
+# symlinked or malformed file means "no turn" (fail open): the wait below is bounded anyway.
+update_turn_in_flight() {
+  local f="$1" v
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 1
+  v="$(timeout 5 head -c 16 "$f" 2>/dev/null | tr -d ' \r\n' || true)"
+  [[ "$v" =~ ^[0-9]+$ ]] && (( 10#$v > 0 ))
+}
+
+# Wait (bounded) until no turn is in flight. $1 = signal file. Bound: ORWELL_UPDATE_TURN_WAIT_SECONDS
+# (default 120, clamped 1..300). Always returns 0: after the bound the update proceeds.
+update_wait_for_no_turn() {
+  local f="$1" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now
+  [[ "$max" =~ ^[0-9]+$ ]] || max=120
+  (( max = 10#$max, max < 1 )) && max=1
+  (( max > 300 )) && max=300
+  start="$(_update_defer_now)"
+  while update_turn_in_flight "$f"; do
+    now="$(_update_defer_now)"
+    if (( now - start >= max )); then
+      echo "==> a turn is still in flight after ${max}s — restarting anyway."
+      return 0
+    fi
+    echo "==> a turn is in flight — waiting for it to finish before restarting (up to ${max}s)."
+    _update_defer_sleep 2
+  done
+  return 0
+}

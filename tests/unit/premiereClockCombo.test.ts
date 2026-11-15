@@ -28,47 +28,40 @@ function walkToDone(s: GameSessionAdapter): void {
   expect(stage(s), "entrances then the toast then done").toBe("done");
 }
 
+const talk = (s: GameSessionAdapter, n: number, tag: string) => { for (let i = 0; i < n; i++) s.noteMessage({ messageId: `${tag}${i}` }); };
+
 describe("entrances ON + clock ON (the shipped combination)", () => {
   for (const seed of [3, 11, 21]) {
-    it(`seed ${seed}: done -> one advance -> day-break at 8am, no comp card, HOH not due; the morning holds 48 messages; then the HOH stages in the afternoon`, () => {
+    it(`seed ${seed}: the clock runs from the afternoon entry through the toast (no jump); the first night is the player's; turning in rolls it; the HOH is Day 2's afternoon (ORW-116)`, () => {
       const s = shipped(seed);
-      // The premiere has no clock: nothing has started the day yet.
-      expect(live(s).timeOfDay, "no clock during the entrances").toBeUndefined();
+      expect(live(s).timeOfDay, "nothing has started the clock before the first entrance").toBeUndefined();
       walkToDone(s);
-      expect(live(s).timeOfDay, "no clock during the toast either").toBeUndefined();
+      // Ryne: houseguests ENTER in the afternoon; the clock runs for real through the entrances, so the toast is the evening - no phase advance moved it.
+      expect(live(s).nightDepth!, "the toast is the evening").toBeGreaterThan(17);
+      expect(live(s).nightDepth!).toBeLessThan(21);
       expect(live(s).hoh).toBeUndefined();
 
-      // ONE more advance: the day-break.
-      const v = s.advanceGame();
-      expect(v.pending ?? null, "the day-break opens no competition card").toBeNull();
-      expect(live(s).pending ?? null).toBeNull();
+      // The player socializes into the night; the premiere exit (a plain advance) does NOT roll it.
+      talk(s, 40, "m");
+      const hour = live(s).nightDepth!;
+      for (let i = 0; i < 4; i++) {
+        const v = s.advanceGame();
+        expect(v.held, "the night is never auto-run").toBeDefined();
+        expect(v.pending ?? null).toBeNull();
+      }
+      expect(live(s).nightDepth, "advances move no time").toBe(hour);
+      expect(milestoneDue(live(s) as never), "the first HOH is not due on the premiere night").toBe(false);
+
+      // Turning in rolls the night (Day 2); the HOH is not due in the morning, and is due at noon.
+      s.turnIn();
       expect(live(s).hoh, "no HOH yet").toBeUndefined();
-      expect(live(s).nightDepth, "the day starts at 8am").toBe(8);
-      expect(milestoneDue(live(s) as never), "the first HOH is not due at the day-break").toBe(false);
-
-      // Spend the morning: 47 ordinary messages leave it not yet due; the 48th reaches noon and makes it due.
-      for (let i = 0; i < 47; i++) s.advanceClockPerConversation();
-      expect(milestoneDue(live(s) as never)).toBe(false);
-      expect(live(s).nightDepth!).toBeLessThan(12);
+      expect(milestoneDue(live(s) as never), "not due at wake").toBe(false);
+      for (let i = 0; i < 200 && (live(s).nightDepth ?? 0) < 12 - 1e-6; i++) talk(s, 1, `d${i}`);
       s.advanceClockPerConversation();
-      expect(live(s).nightDepth!).toBeCloseTo(12, 5);
-      expect(milestoneDue(live(s) as never), "the HOH is due at noon").toBe(true);
-
-      // The HOH then stages (a competition card), still no winner yet: the player commits an approach first.
+      expect(milestoneDue(live(s) as never), "the HOH is due once it is Day 2 noon").toBe(true);
       const hohView = s.advanceGame();
       expect(hohView.pending?.kind, "the HOH competition stages once it is due").toMatch(/^comp-/);
       expect(live(s).hoh).toBeUndefined();
     });
   }
-
-  it("mid-morning the engine reports the HOH NOT due (the signal the FE and hang-out gate on); an explicit advanceGame is not itself gated", () => {
-    const s = shipped(11);
-    walkToDone(s);
-    s.advanceGame(); // the day-break
-    for (let i = 0; i < 10; i++) s.advanceClockPerConversation(); // ~50 minutes of the morning
-    expect(s.milestoneDue(), "adapter-level due flag stays false mid-morning").toBe(false);
-    expect(milestoneDue(live(s) as never)).toBe(false);
-    expect(live(s).hoh).toBeUndefined();
-    // Pinned observation (not a requirement): advanceGame itself does not consult milestoneDue; the gate is the FE/hang-out reading it.
-  });
 });

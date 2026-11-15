@@ -61,6 +61,8 @@ export const ORWELL_TOOL_BEATS = {
   'tradeSecret': '🔁 Trading a secret',
   // 0094/0095: confront a houseguest over a learned fact / accuse a pre-show tie.
   'confront': '⚡ Confrontation',
+  // 0142: call in a favor a houseguest owes the player.
+  'callInFavor': '🤝 Calling in a favor',
   'accuseTie': '🔍 Calling out a tie',
   // 0075: the player presses an ally to open up; the engine decides the disclosure.
   'confide': '🤫 Confiding',
@@ -175,6 +177,12 @@ export function orwellBeatOutcome(tool, output) {
   const ev = r.event;
   if (!ev || !ev.content) return null;
   const icon = _BEAT_ICON[ev.beat] || '•';
+  // ORW-232 slice 1: a competition's per-round drop is told in the narrator's one continuous scene, so its box is COMPACTED to a short progress line (who falters and how is prose, not a box).
+  // The crown beat keeps its full outcome (and the ceremony slate); only the interim rounds shrink.
+  if (ev.beat === 'comp-elimination') {
+    const left = /(\d+)\s+remain/i.exec(String(ev.content));
+    return left ? `${icon} The competition: ${left[1]} remain` : `${icon} The competition continues`;
+  }
   let content = String(ev.content);
   // Append the anonymized ballot tally for a resolved eviction, when the staged ballots are present.
   if (/eviction|final-eviction/.test(ev.beat || '') && r.eviction && Array.isArray(r.eviction.votesRevealed) && r.eviction.votesRevealed.length) {
@@ -410,4 +418,40 @@ export function orwellRenderCeremonySlate(slate) {
   card.appendChild(faces);
   card.appendChild(body);
   return card;
+}
+
+// ORW-264 (R2, ADR 0015): the ONE pure builder of a FINISHED tool-beat chip node, used by BOTH the live
+// stream (chat.js tool_output) and the reload path (chatRenderer.js) so the two can never drift again
+// (a "stack of identical beat rows" / a check + "done" tail on one path only). Pure: (inputs) -> {className,
+// innerHTML, outcome}. `beat` is the caller's resolved ORWELL_TOOL_BEATS label (null => not a production
+// beat); `expandHtml` is the already-built expandable content (command/output/diff, '' for a beat).
+// Live-only presentation state (`wasOpen`, `reveal` = the transient ceremony-reveal entrance) is an
+// input, never read from the DOM, so reload (false/false) yields the same markup minus transients.
+export function orwellBeatNodeView({ tool, beat, ok, output, expandHtml, esc, wasOpen = false, reveal = false }) {
+  const hasExpand = !!String(expandHtml || '').trim();
+  const outcome = (beat && ok) ? orwellBeatOutcome(tool, output) : null;
+  const toolText = outcome || beat || tool;
+  // game-build slates carry no "done" debug tail; failures stay literal (J1-30)
+  const statusHtml = outcome ? '' : (ok && isGameBuild()) ? ''
+    : `<span class="agent-thread-status">${ok ? 'done' : 'failed'}</span>`;
+  const chevron = hasExpand ? '<span class="agent-thread-chevron">\u25B6</span>' : '';
+  const contentDiv = hasExpand ? `<div class="agent-thread-content">${expandHtml}</div>` : '';
+  const className = 'agent-thread-node' + (ok ? '' : ' error') + (hasExpand ? '' : ' agent-thread-node--flat')
+    + ((wasOpen && hasExpand) ? ' open' : '') + (outcome ? (reveal ? ' ow-ceremony-reveal' : '') + ' ow-slate-outcome' : '');
+  const innerHTML = `<div class="agent-thread-dot"></div><div class="agent-thread-header"><span class="agent-thread-tool">${esc(toolText)}</span>${statusHtml}${chevron}</div>${contentDiv}`;
+  return { className, innerHTML, outcome };
+}
+
+// ORW-264 (R2, ADR 0015): the ONE pure parse of an advanceGame/submitDecision tool result into its Vault-free
+// AdvanceView, shared by the LIVE stream (chat.js tool_output: arms the decision card via `orwell:pending`
+// + the chyron via `orwell:announcements`) and the RELOAD path (chatRenderer.js storedAnnouncements: repaints the
+// chyron cards; the decision card itself re-arms from gameStatus.pending, never from a stored result).
+// Returns the parsed object ({pending?, announcements?, ...}; a non-object parse is normalized to {}), or null
+// when `tool` is not one of the two or the output is not JSON (fail-open: the caller does nothing).
+export function orwellAdvanceView(tool, output) {
+  if (tool !== 'advanceGame' && tool !== 'submitDecision') return null;
+  try {
+    const v = JSON.parse(output || '{}');
+    return (v && typeof v === 'object') ? v : {};
+  } catch (_) { return null; }
 }

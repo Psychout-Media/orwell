@@ -111,7 +111,7 @@ def test_barrier_is_appended_to_the_gm_prompt(monkeypatch):
     async def fake_state(user=None, **kw):
         return {"started": True, "phase": "eviction", "moment": "eviction"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     async def fake_status(user=None):
@@ -153,7 +153,7 @@ def test_barrier_is_fail_open(monkeypatch):
     async def fake_state(user=None, **kw):
         return {"started": True, "phase": "social", "moment": "social"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     async def boom_status(user=None):

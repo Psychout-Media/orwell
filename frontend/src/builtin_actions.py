@@ -5,6 +5,7 @@ Registry of built-in automation actions that can be executed by the task
 scheduler without needing an LLM call.
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -1141,7 +1142,7 @@ async def action_test_skills(owner: str, **kwargs) -> Tuple[str, bool]:
         # garbage transcripts → 36 'unknown' verdicts with no hint why.
         try:
             from src.llm_core import list_model_ids
-            avail = list_model_ids(url, headers=headers)
+            avail = await asyncio.to_thread(list_model_ids, url, headers=headers)
             if avail and model not in avail:
                 import os as _os
                 base = _os.path.basename((model or "").rstrip("/"))

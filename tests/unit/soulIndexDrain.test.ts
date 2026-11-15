@@ -152,3 +152,22 @@ describe("G12 — the breathing lane is SHARED across every store (sandbox burst
     expect(e1.calls()).toBe(0); // …and recall on an index-less soul costs no embed
   });
 });
+
+describe("ORW-304 - a very large shared queue never overflows the call stack", () => {
+  it("recall (flushPending) and discardPending compact the shared lane in place, whatever its size", () => {
+    const e = countingEmbed();
+    const a = new SoulStore(e.embed);
+    const b = new SoulStore(e.embed);
+    // A burst far past the ~100k arguments a spread into push() can take (the ORW-300 full BDD gate hit it): all synchronous, so nothing drains in between. Many houseguests x few memories each keeps every
+    // soul's own narrative cheap (it recomposes per write).
+    const HG = 3_000, PER = 50, BIG = HG * PER;
+    for (let h = 1; h <= HG; h++) for (let k = 0; k < PER; k++) (h % 2 === 0 ? a : b).recordToSoul(npc(h), `fact ${h}-${k}`);
+    expect(SoulStore.pendingTotal()).toBe(BIG);
+    expect(() => a.recall(npc(2), "fact 2-0", 1), "flushPending on a huge queue").not.toThrow();
+    expect(SoulStore.pendingTotal(), "only store A's entries for that houseguest were flushed; everything else stays queued").toBe(BIG - PER);
+    expect(() => b.discardPending(), "discardPending on a huge queue").not.toThrow();
+    expect(SoulStore.pendingTotal(), "store B's backlog is gone, store A's remaining backlog stays").toBe(BIG / 2 - PER);
+    a.discardPending();
+    expect(SoulStore.pendingTotal()).toBe(0);
+  }, 120_000);
+});

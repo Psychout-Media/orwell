@@ -115,22 +115,19 @@ def test_l6c_reload_renders_every_narration_round_not_just_last():
 # ── L7 ───────────────────────────────────────────────────────────────────────── #
 
 def test_live_tool_node_only_renders_chevron_when_expandable():
+    # ORW-264: both paths build the chip through the ONE shared pure builder (orwellBeatNodeView).
     chat = _read("static", "js", "chat.js")
-    out = chat[chat.index("const cmdHtml2 ="):]
-    out = out[:out.index("_lastToolName = '';")]
-    assert "_hasExpand" in out
-    assert "agent-thread-node--flat" in out
-    # the chevron + content div are conditional on real content
-    assert "_chevron2 = _hasExpand ?" in out
-    assert "_contentDiv2 = _hasExpand ?" in out
+    assert "_hasExpand" in chat and "orwellBeatNodeView({ tool: json.tool" in chat
+    tb = _read("static", "js", "orwellToolBeats.js")
+    assert "agent-thread-node--flat" in tb
+    assert "const chevron = hasExpand ?" in tb
+    assert "const contentDiv = hasExpand ?" in tb
 
 
 def test_reload_tool_node_only_renders_chevron_when_expandable():
     renderer = _read("static", "js", "chatRenderer.js")
-    assert "_evHasExpand" in renderer
-    assert "agent-thread-node--flat" in renderer
-    assert "_evChevron = _evHasExpand ?" in renderer
-    assert "_evContentDiv = _evHasExpand ?" in renderer
+    assert "_evHasExpand" not in renderer and "orwellBeatNodeView({ tool: ev.tool" in renderer
+    assert "_evExpandHtml" in renderer  # the expandable content the shared builder gates on
 
 
 def test_flat_node_is_not_a_click_target():

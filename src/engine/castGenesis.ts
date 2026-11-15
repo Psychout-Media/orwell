@@ -455,6 +455,28 @@ function neutralizeProse(v: string | undefined, max = SHORT_PROSE_MAX): string |
   return flat.length <= max ? flat : flat.slice(0, max);
 }
 
+/**
+ * ORW-286 item 7: the PUBLIC prose a genesis model writes (the freeform `identity`, which the portrait prompt echoes as "Character: ..." and the player reads) is proposed in the same breath as
+ * that houseguest's HIDDEN elements (Vault-bound). The model never receives hidden content, but it writes both, and nothing stopped it echoing a hidden element's text into the public identity:
+ * "the model cannot leak what it never receives" does not cover what it invents in the same proposal. This is the structural check: does the public prose repeat a distinctive run of words from any
+ * of the same NPC's hidden-element details? A window of `window` consecutive words (default 4; a detail shorter than 3 words is too generic to match on and is skipped) found in the prose counts.
+ * Deliberately conservative: a paraphrase is not caught (no word list can be), but a verbatim echo is, and the cost of a false positive is only that one NPC's identity falls back to the floor.
+ * Pure; no I/O; never logs or returns the hidden text.
+ */
+export function publicProseRepeatsHidden(prose: string, hiddenDetails: readonly string[], window = 4): boolean {
+  const words = (s: string): string[] => s.toLowerCase().replace(/[^a-z0-9\s]+/g, " ").split(/\s+/).filter((w) => w.length > 0);
+  const haystack = ` ${words(prose).join(" ")} `;
+  for (const detail of hiddenDetails) {
+    const dw = words(detail);
+    if (dw.length < 3) continue;
+    const w = Math.min(window, dw.length);
+    for (let i = 0; i + w <= dw.length; i++) {
+      if (haystack.includes(` ${dw.slice(i, i + w).join(" ")} `)) return true;
+    }
+  }
+  return false;
+}
+
 // ── Name validation (§3 "Names": validated, not pooled) ─────────────────────────────────────────────
 const NAME_TOKEN_RE = /^[A-Z][a-z]*([-'][A-Z]?[a-z]+)?$/;
 const NAME_VOWEL_RE = /[aeiouy]/i;
@@ -761,6 +783,11 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
     const he = validateHiddenElements(p.hiddenElements, statLine, hb, cx.id);
     if (he.elements) out.hiddenElements = he.elements;
     violations.push(...he.violations);
+    // ORW-286 item 7: the public identity must not repeat a hidden element the same proposal carried. Stripped (the floor stands without a freeform identity), never echoed in the violation.
+    if (out.identityConcept && out.hiddenElements && publicProseRepeatsHidden(out.identityConcept, out.hiddenElements.map((e) => e.detail))) {
+      delete out.identityConcept;
+      violations.push({ scope: "npc", npcId: cx.id, field: "identity", rule: "public identity repeats a hidden element", action: "stripped" });
+    }
 
     // PUBLIC PERSONA PROSE — recorded faithfully (C8-capped), never normalized (ADR 0005 open set).
     // The 2026-07-21 cross-cast facet backstop: a DUPLICATE hometown city or an over-represented

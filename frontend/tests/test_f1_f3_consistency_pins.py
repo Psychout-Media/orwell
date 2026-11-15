@@ -89,7 +89,8 @@ def test_f3_auto_recover_is_gated_on_server_confirmed_completion():
     src = _read("static", "js", "chat.js")
     assert "_serverConfirmedDone" in src, "the F3 completion gate must exist"
     # A [DONE] sentinel, a persisted message_saved, OR a db id already on the holder = authoritative done.
-    assert "_streamSawDone || _sawMessageSaved" in src
+    assert "_isServerConfirmedDone(_streamSawDone, _sawMessageSaved, holder)" in src
+    assert "return !!(sawDone || sawSaved || (holder && holder.dataset && holder.dataset.dbId));" in src  # ORW-44 S4c: the gate is a named helper now (unit-tested in test_orw44_s4c_sse_reader_invariants.py)
     # The gate suppresses BOTH auto-recover AND the generic error surface on a confirmed-done close.
     assert "!_requeuedOffline && !_serverConfirmedDone &&" in src
 

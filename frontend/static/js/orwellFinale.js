@@ -162,6 +162,11 @@ import * as modalManager from "./modalManager.js";
             bottom: var(--composer-clearance, 84px);
             max-height: calc(100dvh - var(--composer-clearance, 84px) - 24px);
           }
+          /* ORW-77 (#1418): a LIVE decision card (juror-vote, finale statement/question) outranks the finale panel's BODY on a phone - the panel is a bottom sheet and covered the
+             card. Layout chosen (the card's options: stack / collapse / nest): COLLAPSE the floating panel to its header while a card is live, so the finalists and tallies are one
+             tap away (the header expands again the moment the card is answered or dismissed) but nothing sits on top of the card. Pure CSS - the card element is the signal, like the
+             retro's rule - so no poll and no state to drift. A docked panel is rail-flow and never overlaps, so it is untouched. */
+          body:has(#orwell-decision-card) #orwell-finale:not(.ow-docked) .ow-body { display: none !important; }
         }
         /* #725: soften the inner var(--border) strokes (finalist cards, move buttons) to the
            low-opacity WHITE hairline on the light glass — Apple defines glass by lensing, not a

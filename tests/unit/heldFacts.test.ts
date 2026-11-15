@@ -15,8 +15,16 @@ describe("B10 S2 - heldCandidates", () => {
   });
   it("is stable regardless of input order and de-duplicates a lineage", () => {
     const a = [fact("z"), fact("m"), fact("m")];
-    expect(heldCandidates(a, []).map((c) => c.factId)).toEqual(["m", "z"]);
-    expect(heldCandidates([...a].reverse(), []).map((c) => c.factId)).toEqual(["m", "z"]);
+    const order = heldCandidates(a, []).map((c) => c.factId);
+    expect([...order].sort()).toEqual(["m", "z"]);
+    expect(heldCandidates([...a].reverse(), []).map((c) => c.factId)).toEqual(order);
+  });
+  // 2026-11-13 (ORW-334): the order follows what the fact says, not its counter id, so renumbering ids (an unrelated record shifting the shared counter) cannot re-order ties.
+  it("orders by content, so the same facts under different ids come out in the same order", () => {
+    const contents = ["alpha", "bravo", "charlie", "delta"];
+    const withIds = (prefix: string) => contents.map((c, i) => ({ ...fact(c), factId: `${prefix}${9 - i}` }));
+    const byContent = (xs: ReturnType<typeof heldCandidates>) => xs.map((c) => c.content);
+    expect(byContent(heldCandidates(withIds("know:"), []))).toEqual(byContent(heldCandidates(withIds("evt:"), [])));
   });
   it("marks first-hand vs hearsay and carries the held confidence", () => {
     const c = heldCandidates([fact("own"), fact("rumor", { source: L1, hops: 2, confidence: 0.4 })], []);

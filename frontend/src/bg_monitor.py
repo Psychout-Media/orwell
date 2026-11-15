@@ -49,9 +49,10 @@ async def _drain_agent(sess, messages):
             _disabled_tools = game_build_disabled_additions(_get_setting_bg("game_tools_enabled", []))
     except Exception as e:
         logger.warning(f"[bg-monitor] game-build disabled-tools union failed: {e}")
+    from src.endpoint_resolver import resolve_session_headers
     async for chunk in stream_agent_loop(
         sess.endpoint_url, sess.model, messages,
-        headers=getattr(sess, "headers", None),
+        headers=resolve_session_headers(sess),
         context_length=getattr(sess, "context_length", 0) or 0,
         session_id=sess.id,
         max_rounds=_FOLLOWUP_MAX_ROUNDS,

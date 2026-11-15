@@ -180,13 +180,11 @@ describe("0095 — persistence: exposure survives a restart, monotonic, non-degr
 });
 
 describe("0095 — calibration-neutral: OFF is a total no-op", () => {
-  it("advanceTieReveal returns [] and touches nothing when the flag is unset (the default)", () => {
-    const { sb } = gameWithATie("off-default");
-    const before = sb.session.snapshot().seededRelationships;
-    const events = sb.session.advanceTieReveal(sb.engine.knowledge);
-    expect(events).toEqual([]);
-    expect(sb.session.snapshot().seededRelationships).toEqual(before);
-    expect(peek(sb.session).tieRevealTickCount).toBe(0);
+  it("the flag is ON when unset (2026-11-05 default flip, Ryne: built means on): the tick runs; OFF stays reachable via the explicit override below", () => {
+    const { sb } = gameWithATie("on-default");
+    delete process.env.ORWELL_TIE_REVEAL;
+    sb.session.advanceTieReveal(sb.engine.knowledge);
+    expect(peek(sb.session).tieRevealTickCount, "unset flag => the reveal tick counted (default ON)").toBe(1);
   });
 
   it("advanceTieReveal is a no-op even when forced off explicitly via the static override", () => {

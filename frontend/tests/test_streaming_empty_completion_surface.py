@@ -28,6 +28,8 @@ import pytest
 
 import src.llm_core as llm_core
 
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
+
 
 # --------------------------------------------------------------------------- #
 # 1. max_tokens=0 must be OMITTED from the OpenAI/OpenRouter streaming payload

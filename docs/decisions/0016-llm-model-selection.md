@@ -23,7 +23,7 @@
 > **(The utility slug `qwen/qwen3.6-flash` named here is NOT served on OpenRouter and was corrected to
 > the served `qwen/qwen3.6-27b` on 2026-07-21 — see the note above.)** Everything else in this ADR stands: the narrator reasoning posture stays **`low`**
 > (GLM-4.7 is the same interleaved-thinking family), the portrait default is **unchanged**
-> (`google/gemini-3.1-flash-image` OOB; the Seedream follow-up remains a separate build), and the
+> (`google/gemini-3.1-flash-image` OOB; the Seedream provider is built as an OPTIONAL provider, #1156, used only when fal.ai is explicitly configured as the image model), and the
 > per-class reasoning budgets are the cost lever for the utility tier's reason-by-default behavior
 > (~266 reasoning tokens on a trivial call — the JSON classes run "off").
 > **Source:** a six-lane research sweep (mainstream-hosted + open-weight candidates, community/practitioner
@@ -104,7 +104,7 @@ then moved it to a hosted Qwen 3.6 Flash. Both are superseded on the exact slug 
 correction above. Self-hosting the same class on the operator's box — Qwen3-30B-A3B-Instruct @ Q6 via
 `llama-server`, `enable_thinking=False` at template-apply — remains a documented zero-cost option.)*
 
-### C. Portrait — Seedream v5 Lite Sequential via fal.ai · *follow-up build*
+### C. Portrait — Seedream v5 Lite Sequential via fal.ai · *built as an optional provider (#1156)*
 
 The #1140 fix is **reference-image conditioning**: generate one canonical headshot per houseguest, persist
 it, and regenerate *against* it so face + gender stay stable instead of re-rolling from text. Seedream v5
@@ -146,7 +146,7 @@ never sent* (2026-06-21 OpenRouter conformance audit); this build adds it, scope
   (`frontend/tests/test_adr0010_settings_ui.py`, `test_default_model_resolution.py`,
   `test_adr0010_admin_token_economy.py`). The narrator default-string swap (`deepseek/deepseek-v4-pro` →
   `z-ai/glm-4.7`) lands alongside (parallel work).
-- **Follow-up PRs:** (C) the fal.ai Seedream v5 Lite provider + the per-houseguest reference-persistence
+- **Follow-up PRs:** (C) the fal.ai Seedream v5 Lite provider (**built**, #1156: `frontend/src/orwell_fal_image.py`, `orwell_portraits.py`; opt-in, alongside the OpenRouter default) + the per-houseguest reference-persistence
   pipeline; (D) the `tool_choice` force-call at critical beats.
 - **Owed live verification** (features 0107/0108, real-model golden path): GLM reasoning never reaches the
   public bubble; `tool_choice` + thinking interop on the pinned provider; and an A/B of narration quality +
@@ -184,3 +184,25 @@ API), and **persisted stores keep whatever they carry** — nothing is migrated 
 - **Owed live verification:** narration quality and the tool-call rate on `deepseek-flash` vs the GLM-4.7
   incumbent (the A/B above) — this amendment only changes the default.
 
+## Amendment 2026-11-14 (ORW-362) — GPT Image 2.6 Sunburst is the portrait default
+
+**Config + one transport route; the engine/closed set is untouched.** Kevin's decision (2026-11-14): switch
+portraits from Nano Banana (`google/gemini-3.1-flash-image`) to OpenAI GPT Image 2.6 Sunburst
+(`openai/gpt-image-2.6-sunburst`), first for portraits on the public text-to-image arena at medium quality,
+which is the `image_quality` default. `DEFAULT_SETTINGS.image_model` now carries it.
+
+- **Route:** OpenRouter serves this model on its Image API only (`POST {base}/images`, no chat-completions
+  image output). `_generate_one` sends any OpenRouter model whose id starts `openai/gpt-image-` to
+  `_generate_via_openrouter_images` (`frontend/src/orwell_portraits.py`); every other OpenRouter image model
+  keeps the `/chat/completions` route. Body: `model`, `prompt`, `n: 1`, `aspect_ratio: "1:1"`,
+  `quality` (low/medium/high, anything else medium), `output_format: "png"`, and for a reference image
+  (re-shoot or player intake) `input_references` as a data-URL image part. The PNG is `data[0].b64_json`.
+- **Resolution:** the slug is not in the endpoint's chat model list, so `_resolve_model` accepts a
+  `openai/gpt-image-*` spec for the first enabled OpenRouter endpoint without a catalog probe (as a fal slug is).
+- **Spend:** `usage.cost` goes to the token ledger (call class `portrait`, provider `openrouter`); missing usage counts as 0.
+- **Fallback:** a non-200, empty data, missing/undecodable b64 or an exception (timeout included) records
+  `gpt-image-failed` with the reason (it shows red as before), then that one portrait is made with the first
+  resolvable `IMAGE_AUTODETECT_CANDIDATES` entry (Gemini) on the chat route. One fallback attempt, no loop,
+  so no houseguest is left without a photo.
+- **Rollout / rollback:** the prompt is unchanged, so existing portraits are not re-shot. Roll back by setting
+  `image_model` to `google/gemini-3.1-flash-image`. Live behaviour is verified by the first real portraits after deploy.

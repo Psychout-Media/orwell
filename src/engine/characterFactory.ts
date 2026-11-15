@@ -3,6 +3,7 @@ import type { EntityId } from "../domain/ids";
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
+import { STYLE_FAMILY_LABELS } from "../domain/styleFamilies";
 import { physicalFacetToAppearance } from "./portraitPrompts";
 import { generateVoice, type VoiceProfile } from "./voice";
 import { generateInfluence, type Influence } from "./campaigns";
@@ -243,7 +244,7 @@ export interface Soul {
   temperamentDrift?: number;
   settleScale?: number;
   /** B28 (flag ORWELL_NPC_TELLS): the persisted observable tells `{kind, since, band}` (top 2, hysteresis against the previous record). Absent => a pre-change save is byte-identical. Hidden, words only. */
-  tells?: Array<{ kind: import("./tells").TellKind; since: number; band: import("./tells").TellBand }>;
+  tells?: Array<{ kind: import("./tellTypes").TellKind; since: number; band: import("./tellTypes").TellBand }>;
 }
 
 export interface Houseguest {
@@ -551,15 +552,9 @@ const LOOKS = [
   "a warm smile", "a sharp gaze", "an easy grin", "a guarded expression", "bright eyes",
   "a confident stance", "a restless energy", "a calm, unhurried bearing",
 ];
-// 2026-07-21 prompt audit: "tattooed rocker edge" made a CLOTHING-STYLE axis mandate body ink — a
-// second, uncapped ink source beside the distinguishing-mark deal (the cast-uniformity index case).
-// The rocker vibe stays; the ink now lives ONLY in the distinguishing-mark budget (one authority).
-const PRESENTATION = [
-  "casual and laid-back", "polished and camera-ready", "sporty and energetic", "bohemian",
-  "sharp and put-together", "approachable", "athleisure and gym energy",
-  "vintage thrift-store style", "preppy and buttoned-up", "rocker edge — all black and leather",
-  "beachy and sun-faded", "minimalist monochrome",
-];
+// ORW-360: PRESENTATION is the 30 style-family labels (src/domain/styleFamilies.ts, the one authority).
+// The rocker vibe stays ink-free (2026-07-21 audit): visible ink is the distinguishing-mark budget's alone.
+const PRESENTATION: readonly string[] = STYLE_FAMILY_LABELS;
 
 /** The facet pools, exported for the G24 variety tests (same precedent as NAME_CORPORA). */
 export const APPEARANCE_POOLS = { BUILDS, COMPLEXIONS, HAIR, FEATURES, LOOKS, PRESENTATION } as const;
@@ -572,13 +567,28 @@ export const APPEARANCE_POOLS = { BUILDS, COMPLEXIONS, HAIR, FEATURES, LOOKS, PR
 export const MAX_PER_BUILD = 2;
 
 /**
- * No single PRESENTATION style may exceed this many across the 15-cast (2026-07-21 prompt audit — the
- * "tattooed rocker edge ×3" index case). Presentation was the last per-NPC `rng.pick` appearance facet
- * with NO cast-wide spread: measured over 40 seeds, 85% of floor casts dealt some presentation 3+ times
- * (worst: the SAME string on six houseguests). The cast-wide capped deal below forces the spread the
- * same way builds/demeanors already do. 12 presentations / ≤2 each comfortably covers 15.
+ * ORW-360: every houseguest gets a DIFFERENT style family (30 families for at most 15 houseguests), so
+ * the cap is 1. History: 2026-07-21 audit capped at 2 of 12; the 11-14 season still read four rockers
+ * because deepProfile dealt a second, independent style list. `dealPresentationFamilies` is the deal.
  */
-export const MAX_PER_PRESENTATION = 2;
+export const MAX_PER_PRESENTATION = 1;
+
+/**
+ * Deal `count` presentation labels, ONE draw per houseguest mapped onto the families still unused (no
+ * rejection loop): the draw count on the side rng is exactly `count`, and when `count` exceeds the pool
+ * the used set resets so a larger cast still spreads. Deterministic per rng stream.
+ */
+export function dealPresentationFamilies(rng: RandomnessSource, count: number): string[] {
+  const out: string[] = [];
+  let remaining = PRESENTATION.slice();
+  for (let i = 0; i < count; i++) {
+    if (remaining.length === 0) remaining = PRESENTATION.slice();
+    const idx = rng.int(remaining.length);
+    out.push(remaining[idx]!);
+    remaining.splice(idx, 1);
+  }
+  return out;
+}
 
 /**
  * Replace the BUILD slot (the first comma-separated segment) of a generated appearance string with
@@ -858,7 +868,7 @@ export function generateHouse(
   // houseguests at once. Same discipline as builds: a dedicated names-keyed side rng (seed-stable,
   // player-INDEPENDENT, off the main stream), capped ≤MAX_PER_PRESENTATION.
   const presentationRng = new SeededRandom(hashSeed(`presentation:${npcs.map((n) => n.name).join("|")}`));
-  const presentations = spreadFacet(presentationRng, PRESENTATION, npcs.length, MAX_PER_PRESENTATION);
+  const presentations = dealPresentationFamilies(presentationRng, npcs.length);
   // 0084: deal each houseguest a distinct VOICE fingerprint cast-wide off a names-keyed side rng — one
   // advancing stream, archetype-biased per NPC, so the cast sounds like sixteen people. Player-INDEPENDENT
   // and off the main stream (no calibration impact), byte-stable for the season (voice is identity).
@@ -934,6 +944,23 @@ export const NEUTRAL_PLAYER_STATS: { physical: number; mental: number; social: n
   { physical: 0.5, mental: 0.5, social: 0.5 };
 
 /**
+ * ORW-208 - resolve the stored strategy style for a chosen archetype. The canonical style must be one of the archetype's own `styles`
+ * (it drives hidden stats and leakiness). A requested style OUTSIDE that list is still replaced with the list's first entry (the closed
+ * set is unchanged), but the substitution is now REPORTED (`adjusted`) instead of silent, so the caller can surface it. An unauthored
+ * (defaulted) archetype keeps the neutral first-entry placeholder and reports nothing (the style was never authored against it).
+ */
+export function resolveStrategyStyle(
+  archetype: string | undefined,
+  requested: string | undefined,
+): { applied: StrategyStyle; adjusted?: { requested: string; applied: StrategyStyle } } {
+  const known = archetype !== undefined && SPEC_OF.has(archetype as Archetype);
+  const spec = known ? SPEC_OF.get(archetype as Archetype)! : SPEC_OF.get(DEFAULT_ARCHETYPE)!;
+  if (known && requested && (spec.styles as readonly string[]).includes(requested)) return { applied: requested as StrategyStyle };
+  const applied = spec.styles[0]!;
+  return known && requested ? { applied, adjusted: { requested, applied } } : { applied };
+}
+
+/**
  * The ONLY human-authored profile, produced at first-run character creation.
  *
  * Engine contract (#529 — the engine NEVER invents canon about the human player; absence ⇒
@@ -958,8 +985,7 @@ export function runPlayerOOBE(input: OobeInput): PlayerCharacter {
   // Stats come from the AUTHORED archetype only. Unauthored ⇒ neutral/unbiased (#529): never deal a
   // fabricated archetype's bias to a human who never chose it.
   const stats = defaulted ? { ...NEUTRAL_PLAYER_STATS } : { ...spec.bias };
-  const strategyStyle = !defaulted && input.strategyStyle && spec.styles.includes(input.strategyStyle)
-    ? input.strategyStyle : spec.styles[0]!;
+  const strategyStyle = resolveStrategyStyle(input.archetype, input.strategyStyle).applied; // ORW-208: same rule, now reportable
   // The casting interview seeds the Soul memory (0050): the house's long-term memory starts with
   // who the player said they were. These are the player's OWN pre-game memories — recallable and
   // persisted (0007/0030), never an NPC pathway (the interview is OOC; no one witnessed it).

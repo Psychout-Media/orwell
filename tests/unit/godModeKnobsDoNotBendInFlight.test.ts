@@ -92,15 +92,21 @@ describe("#2007 — a sandbox rebuild never bends a season in flight", () => {
 
   it("control: the SAME knobs DO change the next season dealt (so the test above is not vacuous)", () => {
     const reg = new GameSessionRegistry(new FileSaveStore(mkdtempSync(join(tmpdir(), "kn-c-"))), { maxResident: 1 });
+    // Pre-show ties are rare now (ORW-132), so the default season for a given seed may deal nothing; find a seed in a window whose DEFAULT season deals a reserve twist or tie, then show the knobs remove them on that same seed.
+    let seed = SEED, dealt = 0;
+    for (; seed < SEED + 40; seed++) {
+      const plain = new GameSessionRegistry().sandboxFor(`player-d-${seed}`);
+      plain.session.createCharacter({ playerName: "The Player", seed });
+      const ps = plain.session.snapshot() as SessionSnapshot;
+      dealt = (ps.live?.reserve?.length ?? 0) + (ps.seededRelationships?.ties.length ?? 0);
+      if (dealt > 0) break;
+    }
+    expect(dealt, "the default season deals some reserve twist or tie (on some seed in the window)").toBeGreaterThan(0);
     const sb = reg.sandboxFor("player-c");
     sb.admin.configure(KNOBS);
-    sb.session.createCharacter({ playerName: "The Player", seed: SEED });
+    sb.session.createCharacter({ playerName: "The Player", seed });
     const snap = sb.session.snapshot() as SessionSnapshot;
     expect(snap.live?.reserve?.length ?? 0).toBe(0);
     expect(snap.seededRelationships?.ties.length ?? 0).toBe(0);
-    const plain = new GameSessionRegistry().sandboxFor("player-d");
-    plain.session.createCharacter({ playerName: "The Player", seed: SEED });
-    const ps = plain.session.snapshot() as SessionSnapshot;
-    expect((ps.live?.reserve?.length ?? 0) + (ps.seededRelationships?.ties.length ?? 0), "the default season deals some reserve twist or tie").toBeGreaterThan(0);
   });
 });

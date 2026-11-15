@@ -31,7 +31,7 @@ function driveToResolvedComp(session: GameSessionAdapter): void {
   session.createCharacter({ playerName: "The Player", seed: 4 });
   session.advanceGame(); // 0111: close the premiere champagne circle
   let adv = session.advanceGame(); // the first HOH stages
-  if (adv.event?.beat === "day-break") adv = session.advanceGame(); // P4b: clock-live premiere exit = the first-morning day-break; the HOH stages on the next advance
+  while (adv.event?.beat === "day-break") adv = session.advanceGame(); // P4b: clock-live premiere exit = the first-morning day-break; the HOH stages on the next advance
   if (adv.pending?.kind === "comp-round" || adv.pending?.kind === "comp-intent") {
     session.submitDecision({ kind: "comp-round", intent: "compete" }); // resolves + begins staging
   }

@@ -6,7 +6,7 @@ import type { UserSandbox } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import { startNewGame } from "../../src/engine/characterFactory";
 import {
-  generateDiversityLayer, showmanceIdentities, showmancePlausible, privateOrientationVaultId,
+  generateDiversityLayer, showmanceIdentities, showmancePlausible, privateOrientationVaultId, privateOrientationToVaultContent,
 } from "../../src/engine/diversity";
 import { nameGenderOf } from "../../src/engine/data/nameGender";
 import {
@@ -270,17 +270,23 @@ When("no in-game pathway has surfaced the private orientation", function (this: 
 });
 
 Then("the player's knowledge still contains nothing about that orientation", function (this: BbWorld) {
+  // ORW-286 item 9: assert the sealed VALUE for each houseguest, not a literal record-label string (the old loop never used `orientation`).
   const sb = this.dvSandbox!;
   const sealed = sb.session.snapshot().privateOrientations!;
-  const surface = dvPlayerSurface(sb);
-  for (const orientation of Object.values(sealed)) {
-    // The sealed orientation VALUE never appears verbatim on any player surface (no pathway yet).
-    assert.ok(!surface.includes(`private-orientation`), "a private-orientation record leaked");
-  }
-  // The player holds no belief about the sealed orientation.
-  for (const id of Object.keys(sealed)) {
-    const known = sb.engine.knowledge.knownTo(PLAYER).map((f: { content: string }) => f.content).join("\n");
-    assert.ok(!known.includes(privateOrientationVaultId(id as never)), "the player already knows a sealed orientation");
+  assert.ok(Object.keys(sealed).length > 0, "the seed holds at least one sealed orientation, so the sweep below is not vacuous");
+  const house = sb.session.getGameState().house;
+  const prompts = [sb.session.getMomentPrompt({}).systemPrompt, sb.session.getMomentPrompt({ moment: "social" }).systemPrompt].join("\n");
+  const known = sb.engine.knowledge.knownTo(PLAYER).map((f: { content: string }) => f.content);
+  for (const [id, orientation] of Object.entries(sealed)) {
+    const hg = house.find((h) => h.id === id);
+    assert.ok(hg, `${id} is in the house`);
+    const word = new RegExp(`\\b${String(orientation).replace(/[^a-z]/gi, "")}\\b`, "i");
+    assert.ok(!word.test(JSON.stringify(hg)), `${id}'s card names their sealed orientation`);
+    assert.ok(!word.test(JSON.stringify(sb.session.npcVoice(id))), `${id}'s voicing projection names their sealed orientation`);
+    const namingThem = prompts.split(/(?<=[.!?\n])/).filter((s) => s.includes(hg!.name));
+    assert.ok(!namingThem.some((s) => word.test(s)), `a moment-prompt sentence about ${id} names their sealed orientation`);
+    assert.ok(!known.some((c) => c.includes(hg!.name) && word.test(c)), `the player already holds a belief tying ${id} to their sealed orientation`);
+    assert.ok(!known.some((c) => c.includes(privateOrientationVaultId(id as never))), "the player's knowledge carries the engine-only record id");
   }
 });
 
@@ -305,9 +311,18 @@ Then("the player holds a belief about the orientation with a source and a confid
 });
 
 Then("the verbatim private-orientation field never appears on any player surface", function (this: BbWorld) {
-  // Even after a pathway, the raw engine-only record form never crosses; only the belief content does.
-  const surface = dvPlayerSurface(this.dvSandbox!);
-  assert.ok(!surface.includes("private-orientation "), "the verbatim private-orientation record leaked");
+  // Even after a pathway, the raw engine-only record form never crosses; only the belief content does. ORW-286 item 9: check the REAL record text and id
+  // the engine stores, not a literal label.
+  const sb = this.dvSandbox!;
+  const surface = dvPlayerSurface(sb);
+  const sealed = sb.session.snapshot().privateOrientations!;
+  assert.ok(Object.keys(sealed).length > 0, "a sealed orientation exists, so the sweep is not vacuous");
+  for (const [id, orientation] of Object.entries(sealed)) {
+    assert.ok(!surface.includes(privateOrientationToVaultContent(id as never, orientation as never)), `the verbatim engine-only record for ${id} leaked`);
+    assert.ok(!surface.includes(privateOrientationVaultId(id as never)), `the engine-only record id for ${id} leaked`);
+  }
+  // and the pathway belief itself IS the one thing that crossed (the control that the sweep can see a belief about this orientation)
+  assert.ok(sb.engine.knowledge.knownTo(PLAYER).some((f: { content: string }) => /learned through the house/.test(f.content)), "the surfaced belief is held");
 });
 
 // ── 0059 queer showmance ─────────────────────────────────────────────────────────────────────────────

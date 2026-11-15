@@ -83,6 +83,16 @@ describe("adapter gate (slice 2, flag ORWELL_VOTE_COUNT)", () => {
     const g = sb.session as unknown as Gate;
     expect(g.voteStillInDoubt(ids[0]!, ids[1]!)).toBe(g.voteStillInDoubt(ids[0]!, ids[1]!));
   });
+  // ORW-38 mutation sweep (#2126): the adapter's true-support read (threat up, trust down) was unpinned beyond "fresh house".
+  it("a decided count is NOT in doubt: everyone threatened by the target leaves nothing to work", () => {
+    for (const [threat, trust] of [[1, 0]] as const) {
+      const { sb, ids } = sess();
+      const g = sb.session as unknown as Gate & { rel: { edge(a: string, b: string): { threat: number; trust: number } } };
+      const target = ids[0]!;
+      for (const v of sb.session.livingIds()) if (v !== target) { const e = g.rel.edge(v, target); e.threat = threat; e.trust = trust; }
+      expect(g.voteStillInDoubt(ids[1]!, target), `threat ${threat} trust ${trust}`).toBe(false);
+    }
+  });
   it("a fresh, neutral house is in doubt (the actor still has a count to work)", () => {
     const { sb, ids } = sess();
     const g = sb.session as unknown as Gate;

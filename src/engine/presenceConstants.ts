@@ -275,3 +275,9 @@ export const MOVEMENT_INTENT: MovementIntentConstants = {
  *  - playerPullsDestinations: false => the player does not count in the affinity pull that picks an NPC's destination (NPCs move for their own reasons).
  */
 export const CALM_PRESENCE = { moveScale: 0.58, maxMoverShare: 0.2, holdTicks: 2, playerPullsDestinations: false } as const;
+
+/**
+ * ORW-87 - how the NPC memory ledger bends MOVEMENT (played games only; headless sims never read it). `tilt` is the signed ledger tilt toward acting against a houseguest (+grudge, -favor;
+ * |tilt| is at most ~0.15). A remembered favor draws the NPC toward them, a remembered grudge keeps them away (or sharpens an existing avoid). Below `minTilt` nothing changes.
+ */
+export const MOVEMENT_MEMORY = { minTilt: 0.02, gain: 6 } as const;

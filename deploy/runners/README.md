@@ -2,7 +2,7 @@
 
 > ## WARNING — never register self-hosted runners on a PUBLIC repository
 >
-> `kevinhirsch/orwell` is **public**. On a public repo anyone can open a pull request, and a PR's
+> `Psychout-Media/orwell` is **public**. On a public repo anyone can open a pull request, and a PR's
 > workflow file chooses its own `runs-on:` — so a PR containing `runs-on: self-hosted` runs
 > attacker-chosen code on these runners (and from there on your LAN and the Proxmox host's other
 > guests). Approval settings for outside contributors narrow this; they do not remove it.
@@ -41,7 +41,7 @@ Runs on the **Proxmox host**. For each runner `i` in `1..COUNT` it:
    `signed-by` — no `curl | bash` as root), **Python 3.12 + venv/pip**, and the latest
    **`actions/runner`** linux-x64 agent.
 3. Creates a **non-root** `runner` user and registers the agent **non-interactively** as that user:
-   `./config.sh --url https://github.com/kevinhirsch/orwell --token <regtoken> --name
+   `./config.sh --url https://github.com/Psychout-Media/orwell --token <regtoken> --name
    orwell-runner-<i> --labels self-hosted --unattended --replace --ephemeral`.
 4. Installs it as a **systemd service** (`./svc.sh install runner && ./svc.sh start`). Because the
    runner is `--ephemeral` it takes **one job, then GitHub de-registers it** — re-run the script
@@ -51,7 +51,7 @@ Runs on the **Proxmox host**. For each runner `i` in `1..COUNT` it:
 
 The PAT (read from `GIT_TOKEN`, `--token`, or a `GIT_TOKEN=` line in `data/.env`) stays on the
 **host**. It is used only to mint a **short-lived registration token** per runner via the GitHub
-REST API (`POST /repos/kevinhirsch/orwell/actions/runners/registration-token`, ~1h TTL). Only that
+REST API (`POST /repos/Psychout-Media/orwell/actions/runners/registration-token`, ~1h TTL). Only that
 token is passed inside, where `./config.sh` consumes it immediately. `--remove` mints a matching
 **remove token** the same way.
 
@@ -115,7 +115,7 @@ supersedes the prior registration of the same name), never an error.
 
 After provisioning, check the GitHub UI:
 
-**Settings → Actions → Runners** — `https://github.com/kevinhirsch/orwell/settings/actions/runners`
+**Settings → Actions → Runners** — `https://github.com/Psychout-Media/orwell/settings/actions/runners`
 
 Each runner should appear **Idle** with the `self-hosted` label. Then any push that triggers
 [`ci.yml`](../../.github/workflows/ci.yml) fans its jobs across them.

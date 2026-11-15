@@ -73,6 +73,10 @@ if not _current_db_url or _AUTO_TEST_DB_MARKER in _current_db_url:
 # exercise the gate explicitly.
 os.environ.setdefault("ORWELL_ALLOW_FLOOR_START", "1")
 
+# ORW-166: the HUD-poller read cache (src/engine_read_cache.py) is OFF for the suite - many tests monkeypatch the engine reads and re-poll within
+# its 400 ms window, and a cache would serve one test the previous test's state. The dedicated cache tests (test_orw166_engine_read_cache.py) set a TTL explicitly.
+os.environ.setdefault("ORWELL_STATE_CACHE_TTL_MS", "0")
+
 # Owner directive 2026-07-11 — the enrichment policy defaults to STRICT in production (loud failures,
 # creation refusals on an unwired class; src/enrichment_policy.py). The FE suite stubs the LLM
 # everywhere and its many fail-soft contracts ("absent ⇒ byte-identical deterministic floor") must
@@ -90,6 +94,18 @@ if _existing is None or not getattr(_existing, "_orwell_test_stub", False):
     pkg.__path__ = [CORE_DIR]
     pkg._orwell_test_stub = True
     sys.modules["core"] = pkg
+
+
+# ── ORW-229 flaky-test rule (docs/CI.md) ─────────────────────────────────────────────
+# Two small plugins: `_quarantine` (the `quarantine(card=..., added=...)` marker: such tests are DESELECTED unless ORWELL_RUN_QUARANTINED=1, the
+# nightly run) and `_flaky_report` (lists every test that passed only on CI's `--reruns 1` in the job summary). Registered here, not via
+# `pytest_plugins` (only allowed in a rootdir conftest). The quarantine deselection runs inside the modifyitems wrapper below, so before the shard split.
+def pytest_configure(config):
+    import _flaky_report
+    import _quarantine
+    for plugin, name in ((_quarantine, "orwell-quarantine"), (_flaky_report, "orwell-flaky-report")):
+        if not config.pluginmanager.has_plugin(name):
+            config.pluginmanager.register(plugin, name)
 
 
 # ── CI lane split: auto-mark the real headless-browser tests as `browser` ────────────
@@ -164,6 +180,32 @@ def _run_fixture() -> Callable[..., Any]:
 
 
 @pytest.fixture(autouse=True)
+def _engine_client_no_retry_backoff(request, monkeypatch) -> None:
+    """The FE engine client retries a transient failure (refused / 5xx / empty body) twice with an exponential backoff (0.25 s, 0.5 s ...). Tests that drive a game turn have no engine
+    behind them, so EVERY engine read in the loop (whereabouts, status, ...) hit a closed port and slept through the whole backoff: ~7 s of pure waiting per turn-driving test
+    (measured 2026-11-12 with a sleep spy: 8.3 s -> 1.4 s per drive), which is what pushed fe-unit shards toward their cap. Default the retry OFF; a test that exercises the retry or
+    backoff itself opts back in with `@pytest.mark.engine_retry` (module-level `pytestmark` works)."""
+    if request.node.get_closest_marker("engine_retry"):
+        return
+    try:
+        from src import orwell_engine
+        monkeypatch.setattr(orwell_engine, "_RETRY_ATTEMPTS", 0)
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _reset_portrait_billing_breaker() -> None:
+    """ORW-397: the image-provider billing breaker is module state; a test that fakes a 402 must not leave it open for the next one."""
+    try:
+        from src import orwell_portraits
+        orwell_portraits.reset_billing_breaker()
+    except Exception:  # failsoft-ok: test-hygiene (module may be unimportable in a narrow test)
+        pass
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _ensure_current_event_loop() -> None:
     """Py3.12 guard: `asyncio.get_event_loop()` RAISES ("There is no current event loop in thread
     'MainThread'") when no loop is set for the thread — unlike 3.11, which silently auto-created one.
@@ -190,6 +232,15 @@ def _ensure_current_event_loop() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
 
+@pytest.fixture
+def non_game_text_routing(monkeypatch) -> None:
+    """ORW-287: the text-routing guard (src/text_routing.py) is ON in the suite, like prod's game build. The few test modules that
+    pin the OpenRouter wire/payload shape drive llm_core with an OpenRouter-style URL on purpose (that format is still real for the
+    non-game build); they opt out at module level with ``pytestmark = pytest.mark.usefixtures("non_game_text_routing")``."""
+    import src.text_routing as _tr
+    monkeypatch.setattr(_tr, "active", lambda: False)
+
+
 @pytest.fixture(autouse=True)
 def _isolate_game_session_store(tmp_path, monkeypatch) -> None:
     """The canonical game-session binding (feature 0064) persists to a JSON file at a MODULE-CONSTANT
@@ -213,6 +264,20 @@ def _isolate_game_session_store(tmp_path, monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sync_ledger_store(tmp_path, monkeypatch) -> None:
+    """The sync ledger (`orwell_sync_ledger.LEDGER_PATH`, under the non-overridable `DATA_DIR`) is a module-constant JSON file read-modify-written on
+    every recorded turn, so under `pytest-xdist` every WORKER shares ONE file and a concurrent worker's write overwrote another's entry (a lost update):
+    `test_orw294_merged_extraction::test_belt_fires_are_counted_per_applied_correction_not_per_call` read `{}` for its own unique owner purely by
+    co-run timing (passes alone, passes serially, fails in parallel). Redirect it per test, like the game-session store above. Tests that need a
+    specific path still monkeypatch it themselves (their patch runs after this fixture and wins)."""
+    try:
+        import src.orwell_sync_ledger as _led
+    except Exception:
+        return
+    monkeypatch.setattr(_led, "LEDGER_PATH", tmp_path / "orwell_sync_ledger.json")
+
+
+@pytest.fixture(autouse=True)
 def _reset_cast_authoring_ledger() -> None:
     mod = sys.modules.get("src.orwell_cast_authoring")
     if mod is not None:
@@ -225,6 +290,12 @@ def _reset_cast_authoring_ledger() -> None:
     if ep is not None:
         with contextlib.suppress(AttributeError):
             ep._FAILURES.clear()
+    # ORW-251b: the 0065 prewarm gate (`_STATE`, keyed by owner) is process-global too. A test that warms owner "bob" left authorStarted=True, so a later test_orwell_portraits case took the PREWARMED branch
+    # (authoring before portraits: "assert 1 < 0") - an order-dependent red under xdist. Reset it per test when loaded.
+    pw = sys.modules.get("src.orwell_prewarm")
+    if pw is not None:
+        with contextlib.suppress(Exception):
+            pw.reset(None)
 
 
 @pytest.fixture(autouse=True)
@@ -334,3 +405,12 @@ def pytest_sessionfinish(session, exitstatus):
         tr.write_line(f"  VIOLATION: {p}", red=True)
     if problems and session.exitstatus == 0:
         session.exitstatus = 1
+
+
+@pytest.fixture
+def zero_clocks_off(monkeypatch) -> None:
+    """ORW-377: `zero_clocks` ships ON; the tests that pin the PRE-zero-clocks clock wording (the engine clock quoted to the narrator, minute counts, a stated clock time left in the stream) opt out per module with
+    ``pytestmark = pytest.mark.usefixtures("zero_clocks_off")``. ON is pinned in test_orw377_zero_clocks.py."""
+    import src.settings as _st
+    _real = _st.get_setting
+    monkeypatch.setattr(_st, "get_setting", lambda k, d=None: False if k == "zero_clocks" else _real(k, d))

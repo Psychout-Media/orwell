@@ -20,6 +20,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
+
 llm_trace = importlib.import_module("src.llm_trace")
 log_rings = importlib.import_module("src.log_rings")
 ahr = importlib.import_module("routes.admin_health_routes")

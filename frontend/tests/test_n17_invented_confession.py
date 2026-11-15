@@ -134,3 +134,49 @@ def test_a_second_delivery_exempts_its_own_turn():
     oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}})
     oe.clear_disclosure_turn(u)
     assert oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 2, "sourceId": "npc:5"}}) is True
+
+
+# ── A53 / ORW-24: an engine-VOLUNTEERED disclosure (ORW-261: an unprompted orientation, routed by `disclosureDecision`) is engine-backed with no lever call ─────────────────────────────────────────────
+
+VOLUNTEERED = 'KV— "I\'ve never told anyone this. I\'ve been closeted my whole life, and I\'m done hiding it from you."'
+
+
+def test_a_volunteered_engine_disclosure_passes_via_the_delivery_marker():
+    """The engine leaves the same Vault-free delivery marker for a volunteered disclosure as for the 0092 drip (a counter and the teller's public id): the true, engine-delivered line survives."""
+    u = _setup("n17-vol-1")
+    oe._DELIVERY_SEEN.pop(u, None)
+    assert ch.screen_invented_confession(u, VOLUNTEERED)[1], "without a delivery this is an invented confession -> replaced"
+    assert oe.note_engine_delivery(u, {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}}) is True
+    text, ops = ch.screen_invented_confession(u, VOLUNTEERED)
+    assert ops == [] and text == VOLUNTEERED, "positive control: the engine volunteered it, so it is never swapped for a deflection"
+
+
+def test_the_marker_carries_no_content_and_the_next_turn_is_unexempt_again():
+    u = _setup("n17-vol-2")
+    oe._DELIVERY_SEEN.pop(u, None)
+    state = {"surfacedToPlayer": {"n": 1, "sourceId": "npc:3"}}
+    assert set(state["surfacedToPlayer"]) == {"n", "sourceId"}, "a counter and a public id only"
+    assert oe.note_engine_delivery(u, state) is True
+    oe.clear_disclosure_turn(u)
+    assert oe.note_engine_delivery(u, state) is False, "the same marker next turn does not exempt again"
+    assert ch.screen_invented_confession(u, VOLUNTEERED)[1], "invented-confession negative: no new delivery -> replaced"
+
+
+def test_the_guard_has_no_false_positives_over_the_saved_v1_transcripts():
+    """False-positive run (the 5,610-line precedent): the vendored v1 live transcripts, every line through the line judge. Conservative by design: none may fire."""
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[2] / "docs" / "legacy" / "meta-feedback"
+    total = flagged = 0
+    hits = []
+    for p in sorted(root.rglob("*")):
+        if not p.is_file() or p.suffix.lower() not in (".md", ".txt", ".json", ".jsonl", ".log"):
+            continue
+        for ln in p.read_text(errors="ignore").split("\n"):
+            if not ln.strip():
+                continue
+            total += 1
+            if ch._line_is_invented_confession(ln):
+                flagged += 1
+                hits.append((p.name, ln[:120]))
+    assert total > 5000, f"the corpus is present ({total} lines)"
+    assert flagged == 0, hits[:5]

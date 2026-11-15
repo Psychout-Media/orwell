@@ -15,7 +15,7 @@ import type { EntityId } from "./ids";
  * The first four are DEFENSIVE (negative-obligation) promises — "don't move against me". The last two
  * (0121) are ACTIVE (positive-obligation) promises — "do this FOR me" — where a break is a FAILURE TO ACT.
  */
-export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
+export type DealKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional" | "information";
 
 /** 0121 — the ACTIVE-obligation kinds: a break is a failure to act (throw the comp / use the veto to save). */
 const POSITIVE_KINDS: ReadonlySet<DealKind> = new Set<DealKind>(["comp-throw", "veto-save"]);
@@ -35,7 +35,9 @@ export function reliableHonorerFrom(factId: string): EntityId | undefined {
   return factId.startsWith(RELIABLE_FACT_PREFIX) ? (factId.slice(RELIABLE_FACT_PREFIX.length) as EntityId) : undefined;
 }
 
-export type DealStatus = "open" | "kept" | "broken";
+/** "lapsed" (ORW-316): an UNTESTED conditional / undelivered information pact whose term ran out. It is a terminal, neutral state (not kept, not broken, no fold) and is no longer part of the
+ *  live ledger (`forParty` / `npcOnly` / `open` skip it) - but the entry stays in the saved list, because the non-degradation checkpoint treats `deals` as append-only by id. */
+export type DealStatus = "open" | "kept" | "broken" | "lapsed";
 
 /**
  * What a binding action would have to do to break the deal. `protect` is the party who must not be
@@ -97,12 +99,27 @@ export interface Deal {
    * 0038 diffusion pathway (no new fold mechanism).
    */
   formationWitnesses?: EntityId[];
+  /**
+   * 0142 idea 3 (information): how many facts the promisor has actually passed to the player under this deal (the engine counts them in `deliverInformationDeals`). 0 / absent ⇒ never delivered,
+   * so an expiring information deal is dropped neutrally; > 0 ⇒ it resolves kept at its horizon. Absent on every other kind.
+   */
+  delivered?: number;
+  /**
+   * 0142 idea 3 (package): the id shared by the two ordinary deals a package made. Each part is adjudicated on its OWN condition; a break of either also costs the package's reliability
+   * (see `DealLedger.reconcile`). Absent on a stand-alone deal.
+   */
+  packageId?: string;
+  /**
+   * 0142 idea 4: the last in-game week the promisor WEIGHED breaking this deal (`weighDealBreaks`). Once per deal per week: a deal already weighed this week is not rolled again.
+   * Absent on a deal never weighed (every headless / pre-idea-4 deal) => byte-identical. Engine-only bookkeeping; never projected.
+   */
+  weighedWeek?: number;
 }
 
 /** The binding horizon of a deal kind (audit E43): one HOH reign, or the whole season. The active
  *  kinds (0121) resolve within their week — at that week's comp / veto ceremony. */
 export function horizonOf(kind: DealKind): "week" | "season" {
-  return kind === "safety" || kind === "vote" || kind === "comp-throw" || kind === "veto-save" ? "week" : "season";
+  return kind === "safety" || kind === "vote" || kind === "comp-throw" || kind === "veto-save" || kind === "conditional" || kind === "information" ? "week" : "season";
 }
 
 /** A binding action through the live decision seam (0034/0005) the engine reconciles deals against. */
@@ -122,6 +139,8 @@ export interface BindingAction {
    * throw-promise; `competed`/`won` breaks it (they tried when they swore to tank). Absent on non-compete.
    */
   outcome?: "threw" | "competed" | "won";
+  /** ORW-269 - the actor was SEEN fighting hard on most rounds of this comp (played games only). A kept throw-promise with this set still resolves kept (the result dominates) but draws suspicion. */
+  effortHard?: boolean;
   /** 0121 — a `veto-use` action's SAVED set (who the veto pulled off the block) — veto-save adjudication. */
   saved?: readonly EntityId[];
   /**
@@ -138,10 +157,12 @@ const ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
  * Build the condition for a freshly-made deal. `safety` / `vote` / `final-two` bind BOTH parties not
  * to move against the other; `target-other` binds only the promisor (`parties[0]`) to spare `parties[1]`.
  */
-export function conditionFor(kind: DealKind, parties: [EntityId, EntityId]): DealCondition {
+export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], third?: EntityId): DealCondition {
   const [a, b] = parties;
+  // 0142 idea 3: `protect-third` - the promisor (`a`) swears not to move against a THIRD houseguest (`third`); `b` is who asked. Same one-way break rule as target-other, protecting `third`.
+  if (kind === "protect-third" && third !== undefined) return { protect: third, promisors: [a] };
   // One-way bindings: `target-other` + the 0121 active kinds bind only the promisor (`a`) toward `b`.
-  if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save") return { protect: b, promisors: [a] };
+  if (kind === "target-other" || kind === "comp-throw" || kind === "veto-save" || kind === "information") return { protect: b, promisors: [a] };
   // safety / vote / final-two are mutual: neither party may move against the other.
   return { protect: b, promisors: [a, b] };
 }
@@ -172,7 +193,10 @@ function positiveVerdict(deal: Deal, action: BindingAction): "kept" | "broken" |
 export function actionBreaks(deal: Deal, action: BindingAction): boolean {
   if (deal.status !== "open") return false;
   if (isPositiveObligation(deal.kind)) return positiveVerdict(deal, action) === "broken";
+  if (deal.kind === "information") return false; // 0142: an information promise has no adverse act to break - it is kept by telling
   if (!ADVERSE.has(action.kind)) return false;
+  // 0142 idea 3: a `conditional` deal ("if you are on the block I vote to keep you, and the same for me") only comes due at the VOTE - nominating the partner is not a break, the promise binds only if they end up on the block.
+  if (deal.kind === "conditional" && action.kind !== "vote-evict") return false;
   const c = deal.condition;
   if (!c.promisors.includes(action.actor)) return false;
   // The protected party was targeted — OR, for a mutual deal, either party was targeted by the other.
@@ -201,7 +225,9 @@ export function wrongedParty(deal: Deal, action: BindingAction): EntityId | unde
 export function actionHonors(deal: Deal, action: BindingAction): boolean {
   if (deal.status !== "open") return false;
   if (isPositiveObligation(deal.kind)) return positiveVerdict(deal, action) === "kept";
+  if (deal.kind === "information") return false;
   if (!ADVERSE.has(action.kind)) return false;
+  if (deal.kind === "conditional" && action.kind !== "vote-evict") return false; // 0142: only the vote can honor a conditional promise
   if (!deal.condition.promisors.includes(action.actor)) return false;
   const other = deal.parties.find((p) => p !== action.actor);
   if (!other || action.targets.length === 0 || action.targets.includes(other)) return false;

@@ -59,6 +59,9 @@ export function breakSeverityScale(deal: Deal, currentWeek?: number): number {
   return 1;
 }
 
+/** What caused a deal to break: a binding action on the board, or (0142 idea 4) the promisor's own deliberate choice to walk it back. */
+export type BreakCause = BindingAction["kind"] | "deliberate";
+
 /** Where reconciliation routes its consequences. All optional so status logic is testable in isolation. */
 export interface ReconcileSink {
   rel?: RelationshipModel;
@@ -77,14 +80,14 @@ export interface ReconcileSink {
    * a break caused by a `vote-evict` must not name the breaker before the same terminal gate the
    * primary eviction reveal (E12) and the 0048 retrospective use, or it deanonymizes a sealed ballot.
    */
-  reveal?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BindingAction["kind"]) => string | undefined;
+  reveal?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BreakCause) => string | undefined;
   /**
    * #1963 — is this break SEALED (a break tied to a secret eviction ballot, E12/A7) AND observable through the wronged
    * party's behaviour? A sealed break must not be attributed to the breaker by ANY hidden fold the wronged party ACTS on
    * (an NPC's noms/votes/deals would otherwise name who voted against them). When the wronged party is the PLAYER nothing
    * acts on their hidden read (they form their own), so the engine keeps the full fold. Absent ⇒ never sealed ⇒ byte-identical.
    */
-  sealed?: (wronged: EntityId, breaker: EntityId, actionKind: BindingAction["kind"]) => boolean;
+  sealed?: (wronged: EntityId, breaker: EntityId, actionKind: BreakCause) => boolean;
   /**
    * #1963 — the houseguests the wronged party can SUSPECT for a sealed break (everyone who voted to evict them), so
    * the betrayal fold is shared across all of them instead of landing wholly on the real breaker. The breaker is always
@@ -92,7 +95,7 @@ export interface ReconcileSink {
    */
   suspects?: (wronged: EntityId, breaker: EntityId) => readonly EntityId[];
   /** Whether the wronged party witnesses/learns this break (default: true for a public ceremony break). */
-  witnessed?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BindingAction["kind"]) => boolean;
+  witnessed?: (wronged: EntityId, breaker: EntityId, deal: Deal, actionKind: BreakCause) => boolean;
   /**
    * 0121 — the deal-depth layer (`ORWELL_DEAL_DEPTH`). When true, keeping a deal compounds via the
    * LOYALTY STREAK (consecutive kept deals with the same partner scale the honored fold, bounded) and a
@@ -100,6 +103,8 @@ export interface ReconcileSink {
    * ⇒ the plain `DEAL_IMPACTS.honored` and no reputation ⇒ byte-identical.
    */
   dealDepth?: boolean;
+  /** ORW-269 - a kept comp-throw whose promisor was seen fighting hard: the (small) suspicion fold, on the caller's own side stream. */
+  suspicion?: (promisor: EntityId, promisee: EntityId, deal: Deal) => void;
   /** 0121 — seed a hidden "keeps their word" reputation for the honorer (diffuses via gossip). */
   reputation?: (honorer: EntityId, other: EntityId, deal: Deal) => void;
   /**
@@ -136,6 +141,9 @@ export function formationAudienceScale(
   return Math.min(constants.maxScale, 1 + constants.perWitness * audienceSize);
 }
 
+/** 0142 (package): the extra betrayal-shock, as a share of the ordinary break, a broken package part costs the breaker with the party who relied on the bundle. */
+export const PACKAGE_BREAK_SCALE = 0.5;
+
 export class DealLedger {
   private deals: Deal[] = [];
   private seq = 0;
@@ -156,13 +164,14 @@ export class DealLedger {
     madeWeek?: number,
     duration?: { expiresWeek?: number; vague?: boolean },
     witnesses?: EntityId[],
+    third?: EntityId,
   ): Deal {
     const deal: Deal = {
       id: `deal:${++this.seq}`,
       parties,
       kind,
       terms,
-      condition: conditionFor(kind, parties),
+      condition: conditionFor(kind, parties, third),
       status: "open",
       ...(madeEventId ? { madeEventId } : {}),
       ...(madeWeek !== undefined ? { madeWeek } : {}),
@@ -181,12 +190,12 @@ export class DealLedger {
 
   /** All deals a given houseguest is party to (any status) — the player's own visibility scope. */
   forParty(id: EntityId): Deal[] {
-    return this.deals.filter((d) => d.parties.includes(id));
+    return this.deals.filter((d) => d.status !== "lapsed" && d.parties.includes(id));
   }
 
   /** Deals NOT involving the player (NPC↔NPC) — Vault-held, never an outward fact. */
   npcOnly(): Deal[] {
-    return this.deals.filter((d) => !d.parties.includes(PLAYER));
+    return this.deals.filter((d) => d.status !== "lapsed" && !d.parties.includes(PLAYER));
   }
 
   get all(): readonly Deal[] {
@@ -217,8 +226,17 @@ export class DealLedger {
         // `applyBreak` below). A break from a PUBLIC action (nominate/replace) is never sealed.
         if (action.kind === "vote-evict" && action.actor !== PLAYER) deal.sealedBallot = true;
         if (wronged) this.applyBreak(deal, wronged, action.actor, action.kind, sink);
+        // 0142 idea 3 (package): a break of EITHER part also costs the package's reliability - the wronged party's read of the breaker takes a further, smaller betrayal-grade hit (they staked two promises on
+        // one word). Not for a sealed ballot (the extra hit would single the breaker out, #1963). The sibling part stays open and is adjudicated on its OWN condition.
+        if (wronged && deal.packageId && !deal.sealedBallot && sink.rel && sink.rng && sink.dealDepth) {
+          sink.rel.applyDirected(wronged, action.actor, "betrayal", sink.rng, breakSeverityScale(deal, sink.currentWeek) * PACKAGE_BREAK_SCALE);
+        }
       } else if (actionHonors(deal, action)) {
         this.applyHonor(deal, action.actor, sink);
+        if (deal.kind === "comp-throw" && action.kind === "compete" && action.effortHard === true) {
+          const promisee = deal.parties.find((x) => x !== action.actor);
+          if (promisee) sink.suspicion?.(action.actor, promisee, deal);
+        }
         // The horizon (E43): a safety/vote promise runs through ITS week's eviction; the vote is
         // the endpoint where it resolves kept. Season-scoped kinds stay open (and stay binding).
         // 0121: an ACTIVE-obligation deal (comp-throw / veto-save) resolves the MOMENT the promised
@@ -247,6 +265,7 @@ export class DealLedger {
    */
   expireWeekScoped(currentWeek: number): Deal[] {
     const resolved: Deal[] = [];
+    const untested: Deal[] = [];
     for (const deal of this.deals) {
       if (deal.status !== "open") continue;
       // 0109 / #1993: an explicit negotiated term OVERRIDES the kind-implied horizon (a `safety` deal promised
@@ -255,11 +274,32 @@ export class DealLedger {
         && horizonOf(deal.kind) === "week" && deal.madeWeek !== undefined && deal.madeWeek < currentWeek;
       const negotiatedTermPassed = deal.expiresWeek !== undefined && currentWeek > deal.expiresWeek;
       if (kindHorizonPassed || negotiatedTermPassed) {
+        // 0142 (coordinator ruling on #2405): a `conditional` pact still OPEN when its term ends was never TESTED (a tested one resolves at the vote: kept if honored, broken if not), so nobody kept
+        // anything. It is NOT marked `kept` (that status earns goodwill / "keeps their word" reads) and folds nothing either way: it LAPSES (status "lapsed", out of the live ledger, kept in the saved list - ORW-316; the formation event stays in the record).
+        if (deal.kind === "conditional" || (deal.kind === "information" && !deal.delivered)) { untested.push(deal); continue; }
         deal.status = "kept";
         resolved.push(deal);
       }
     }
+    // ORW-316: LAPSE, never delete. The old `this.deals.filter(...)` removed these entries, and the non-degradation checkpoint (`sessionCoreIsSuperset`: `deals` is append-only by id) then refused the
+    // week-roll advance as a "degradation" on every attempt - the game froze at the end of the first eviction whenever an untested conditional / undelivered information deal was open (found live 2026-11-12).
+    for (const d of untested) d.status = "lapsed";
     return resolved;
+  }
+
+  /**
+   * 0142 idea 4 - a QUIET, DELIBERATE break: the promisor `breaker` chose to walk the deal back (`dealTemptation.ts`). Shares `applyBreak` with `reconcile`, so the fallout is the ordinary one
+   * (betrayal-shock, loyalty-streak reset, jury demerit, the reveal and witness sinks). The deal's `sealedBallot` is set so `dealView` keeps showing it OPEN to the wronged party: the player learns
+   * only through the existing witness pathways or the 0048 unseal. The caller supplies a `reveal` sink that keeps the event Vault-side. Returns the wronged party, or undefined when nothing was broken.
+   */
+  breakDeliberately(deal: Deal, breaker: EntityId, sink: ReconcileSink = {}): EntityId | undefined {
+    if (deal.status !== "open" || !deal.condition.promisors.includes(breaker)) return undefined;
+    const wronged = deal.parties.find((p) => p !== breaker);
+    if (!wronged) return undefined;
+    deal.status = "broken";
+    deal.sealedBallot = true;
+    this.applyBreak(deal, wronged, breaker, "deliberate", sink);
+    return wronged;
   }
 
   /** The kept-promise fold (E43/E54): the protected party registers the demonstrated loyalty. 0121: with
@@ -294,7 +334,7 @@ export class DealLedger {
     deal: Deal,
     wronged: EntityId,
     breaker: EntityId,
-    actionKind: BindingAction["kind"],
+    actionKind: BreakCause,
     sink: ReconcileSink,
   ): void {
     // 0026 + 0109: the wronged party's hidden read of the breaker takes the large, slow-decaying

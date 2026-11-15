@@ -135,7 +135,8 @@ def test_tile_click_focuses_chat_never_replaces():
 
 def test_prehoh_reframe_copy_and_markup():
     src = _read(PANEL)
-    assert "First HOH tonight" in src
+    assert "First HOH tonight" not in src  # ORW-363: the line follows the schedule (Day 1 premiere -> the first HOH comp is tomorrow afternoon)
+    assert "preHohLabel(st)" in src
     assert 'id="os-prehoh"' in src
     assert 'id="os-board"' in src
     # the three em-dash rows still exist (they update underneath) — just hidden pre-HOH.
@@ -263,3 +264,117 @@ def test_strip_is_the_unlit_class_gate():
     # the not-yet-met class the CSS dims — the visible "lights up" gate.
     assert "os-tile-unmet" in src
     assert ".os-tile-unmet" in src  # the CSS rule exists
+
+
+# ── ORW-196: during the staged entrances the engine's `remaining` holds anonymous ordinal placeholders; the strip dims un-arrived houseguests via `met` ── #
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_unarrived_roster_tiles_are_dimmed_from_the_met_list_during_entrances():
+    fn = _fn_body(_read(PANEL), "premiereUnmetIds")
+    roster = [{"id": "npc:1", "name": "n1"}, {"id": "npc:2", "name": "n2"}, {"id": "npc:3", "name": "n3"}]
+    prem = {
+        "complete": False,
+        "met": [{"houseguest": {"id": "npc:1", "name": "n1"}}],
+        # anonymous ordinal placeholders: they can NOT be joined to roster ids
+        "remaining": [{"houseguest": {"id": "unarrived:1", "name": "(not yet arrived)"}},
+                      {"houseguest": {"id": "unarrived:2", "name": "(not yet arrived)"}}],
+        "entrance": {"stage": "entrances"},
+    }
+    unmet = _node_eval(fn, "premiereUnmetIds(" + json.dumps(prem) + "," + json.dumps(roster) + ")")
+    assert set(unmet) == {"npc:2", "npc:3"}, "the two houseguests not in `met` are dimmed"
+    # once everyone has arrived (toast), every tile is lit
+    prem_done = {"complete": True, "remaining": [], "met": [{"houseguest": {"id": r["id"], "name": r["name"]}} for r in roster]}
+    assert _node_eval(fn, "premiereUnmetIds(" + json.dumps(prem_done) + "," + json.dumps(roster) + ")") == []
+    # the name key also matches (id-or-name, like the tile lighting)
+    assert _node_eval(fn, "premiereUnmetIds(" + json.dumps({"met": [{"houseguest": {"name": "n2"}}]}) + "," + json.dumps(roster) + ")") == ["npc:1", "npc:3"]
+    # no roster argument => the old `remaining`-id behaviour (back-compat)
+    assert _node_eval(fn, "premiereUnmetIds(" + json.dumps(prem) + ")") == ["unarrived:1", "unarrived:2"]
+
+
+def test_the_strip_passes_the_roster_so_unarrived_tiles_dim():
+    src = _read(PANEL)
+    assert "premiereUnmetIds(prem, cards.filter((c) => !c.isPlayer)" in src
+    assert "ALWAYS" not in _fn_body(src, "premiereUnmetIds")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_orw363_prehoh_line_follows_the_schedule_never_tonight_on_day_one():
+    """ORW-363 (Ryne, playtest 11-15: "it's day 1. Isn't the first HOH comp on day 2?"). Day 1 is the premiere: the first HOH comp is TOMORROW afternoon.
+    From Day 2 it is THIS afternoon. The time of day comes from the engine's own schedule when it reports one."""
+    src = _read(PANEL)
+    fn = _fn_body(src, "preHohLabel")
+    day1 = _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 1})')
+    assert day1 == "First HOH: tomorrow afternoon"
+    assert "tonight" not in day1
+    # The premiere often has no engine clock (no day number yet): still tomorrow.
+    assert _node_eval(fn, 'preHohLabel({"week": 1})') == "First HOH: tomorrow afternoon"
+    # Day 2 before the comp: today, at the schedule's phase.
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "hoh-competition", "phase": "afternoon", "due": false}}})') == "First HOH: this afternoon"
+    # The day number may only be on the game state.
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "_state": {"dayNumber": 2}})') == "First HOH: this afternoon"
+    # The phase is the engine's, never a fixed word (a schedule that set the comp for the evening would read "evening").
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "hoh-competition", "phase": "evening"}}})') == "First HOH: this evening"
+    # Another milestone's phase is never borrowed for the HOH line.
+    assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "nominations", "phase": "evening"}}})') == "First HOH: this afternoon"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_orw363_the_panel_names_the_next_event_and_when_from_the_engine_schedule():
+    """ORW-363, widened (Ryne, 11-15: "when we wake up the tool should say, Nominations this evening"): every ceremony step, read from daySchedule, never fixed text."""
+    src = _read(PANEL)
+    fns = "\n".join(_fn_body(src, n) for n in ("isPreHoh", "preHohLabel", "nextEventWhen", "nextEventLabel"))
+    names = src[src.index("const NEXT_EVENT_NAME"): src.index("};", src.index("const NEXT_EVENT_NAME")) + 2]
+    fns = names + "\n" + fns
+
+    def lab(next_, phase, hoh=True, **extra):
+        ds = dict({"next": next_, "phase": phase, "due": False}, **extra)
+        st = {"week": 2 if hoh else 1, "dayNumber": 9, "_state": {"daySchedule": ds}}
+        if hoh:
+            st["hoh"] = {"id": "hg-1", "name": "n"}
+        return _node_eval(fns, "nextEventLabel(" + json.dumps(st) + ")")
+
+    # the morning of the nominations day: "this evening" (Ryne's own example)
+    assert lab("nominations", "evening") == "Nominations: this evening"
+    # every ceremony step has its line
+    assert lab("veto-draw", "morning") == "Veto player draw: this morning"
+    assert lab("veto-competition", "afternoon") == "Veto competition: this afternoon"
+    assert lab("veto-ceremony", "evening") == "Veto meeting: this evening"
+    assert lab("eviction", "evening") == "Eviction: this evening"
+    assert lab("hoh-competition", "afternoon") == "HOH competition: this afternoon"
+    assert lab("final-eviction", "evening") == "Final eviction: this evening"
+    assert lab("finale", "evening") == "Finale: this evening"
+    # behind tonight's night: tomorrow, at the schedule's phase
+    assert lab("nominations", "evening", tomorrow=True) == "Nominations: tomorrow evening"
+    # due: it is happening now
+    assert lab("eviction", "evening", due=True) == "Eviction: now"
+    # a night slot reads "tonight"
+    assert lab("eviction", "night") == "Eviction: tonight"
+    # the first HOH keeps its name, from the schedule when there is one
+    assert lab("hoh-competition", "afternoon", hoh=False, tomorrow=True) == "First HOH: tomorrow afternoon"
+    # no schedule and not pre-HOH: nothing (never a guess)
+    assert _node_eval(fns, 'nextEventLabel({"week": 3, "hoh": {"id": "x"}})') is None
+    # no schedule before the first HOH (the premiere): the Day-1 line
+    assert _node_eval(fns, 'nextEventLabel({"week": 1, "dayNumber": 1})') == "First HOH: tomorrow afternoon"
+
+
+def test_orw370_the_panel_names_each_final_hoh_part_from_the_schedule():
+    """ORW-370: the three-part Final HOH is three competitions on one `hoh-competition` milestone; the engine's daySchedule now carries `finalHohPart`, and the panel names it."""
+    src = _read(PANEL)
+    fns = "\n".join(_fn_body(src, n) for n in ("isPreHoh", "preHohLabel", "nextEventWhen", "nextEventLabel"))
+    names = src[src.index("const NEXT_EVENT_NAME"): src.index("};", src.index("const NEXT_EVENT_NAME")) + 2]
+    fns = names + "\n" + fns
+
+    def lab(part, phase="afternoon", **extra):
+        ds = dict({"next": "hoh-competition", "phase": phase, "due": False}, **extra)
+        if part is not None:
+            ds["finalHohPart"] = part
+        st = {"week": 11, "dayNumber": 80, "hoh": {"id": "hg-1", "name": "n"}, "_state": {"daySchedule": ds}}
+        return _node_eval(fns, "nextEventLabel(" + json.dumps(st) + ")")
+
+    assert lab(1) == "Final HOH part 1: this afternoon"
+    assert lab(2) == "Final HOH part 2: this afternoon"
+    assert lab(3, tomorrow=True) == "Final HOH part 3: tomorrow afternoon"
+    assert lab(2, due=True) == "Final HOH part 2: now"
+    # an ordinary HOH (no part) keeps its name; a stray part on another event never renames it
+    assert lab(None) == "HOH competition: this afternoon"
+    assert lab(7) == "HOH competition: this afternoon"

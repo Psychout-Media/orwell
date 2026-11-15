@@ -123,21 +123,21 @@ Then("the planted sentinel never appears in the moment prompt", function (this: 
 
 // --- Scenario: Day-1 perception seeds the NPC→player edge ----------------------------------------
 
-Then("at move-in some NPC to player edges differ from the player to NPC edges", function (this: BbWorld) {
-  // The Day-1 read nudges npc→player (not player→npc), so the directed edges must be asymmetric for
-  // at least some houseguests — proof the authored read seeded the edge rather than a blank slate.
+Then("at move-in every houseguest with a Day-1 read has a seeded NPC to player edge that differs from the player to NPC edge", function (this: BbWorld) {
+  // ORW-286 item 9: "some edges differ" passed on a single difference from any cause. The spec (0058 section 3): the Day-1 read seeds the NPC->player edge, NOT from zero. So for EVERY
+  // houseguest whose deep profile carries a Day-1 read: the NPC->player edge is seeded (no signal is the blank zero start) and it differs from the player->NPC mirror.
   const sb = this.dpSandbox!;
   const rel = sb.engine.relationships;
-  const npcs = sb.session.getGameState().house;
-  let differ = 0;
-  for (const h of npcs) {
+  const profiles = (sb.session.snapshot().deepProfiles ?? {}) as unknown as Record<string, { dayOnePerception?: string }>;
+  const withRead = sb.session.getGameState().house.filter((h) => h.status === "active" && profiles[h.id]?.dayOnePerception);
+  assert.ok(withRead.length >= 10, `most of the cast carries a Day-1 read, so this sweep is not vacuous (found ${withRead.length})`);
+  for (const h of withRead) {
     const toPlayer = rel.edge(h.id, PLAYER);
     const fromPlayer = rel.edge(PLAYER, h.id);
-    if (Math.abs(toPlayer.trust - fromPlayer.trust) > 1e-9
-      || Math.abs(toPlayer.affinity - fromPlayer.affinity) > 1e-9
-      || Math.abs(toPlayer.threat - fromPlayer.threat) > 1e-9) differ++;
+    assert.ok(toPlayer.trust > 0 && toPlayer.affinity > 0 && toPlayer.threat > 0, `${h.id}'s NPC→player edge is the blank zero start, not a seeded read: ${JSON.stringify(toPlayer)}`);
+    const differs = Math.abs(toPlayer.trust - fromPlayer.trust) > 1e-9 || Math.abs(toPlayer.affinity - fromPlayer.affinity) > 1e-9 || Math.abs(toPlayer.threat - fromPlayer.threat) > 1e-9;
+    assert.ok(differs, `${h.id}'s NPC→player edge equals its mirror, so the Day-1 read is not what shaped it`);
   }
-  assert.ok(differ > 0, "no NPC→player edge differed from its mirror — the Day-1 read seeded nothing");
 });
 
 Then("no relationship number ever crosses to the player", function (this: BbWorld) {

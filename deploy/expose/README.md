@@ -38,29 +38,20 @@ The player tier ships a **multiplexed WebSocket transport** (ADR
 [`0017`](../../docs/decisions/0017-multiplexed-websocket-session-transport.md); wire spec
 `docs/design/websocket-phase1-protocol.md`) that re-hosts the live chat stream, the mirror
 resume, and the HUD/presence pushes on **one socket per tab** at `GET /api/ws/session`. It is
-**ON by default** (since 2026-07-10, #1357) — the browser will *attempt* the upgrade automatically.
-Set `ORWELL_WS_TRANSPORT=0` to fall back to the byte-identical SSE/poll stack (reversible at any
-time by unsetting or removing the override).
+**the game build's only transport** (ORW-44, 2026-11-12; it was default-on since 2026-07-10, #1357). The `ORWELL_WS_TRANSPORT` flag no longer exists: setting it
+(to 0 or 1) changes nothing, and there is no SSE/poll fallback in the game build. A terminator or network that does not pass the WebSocket `Upgrade` shows the player
+"this network blocks the live connection" and the game cannot be played there. (The non-game build, `ORWELL_GAME_BUILD=0`, keeps its SSE/poll stack.)
 
-> **⚠ Prerequisite for PUBLIC turn-on (not yet met).** The WS handshake in
-> `frontend/routes/ws_routes.py` currently authenticates by **session cookie only** — it does **not**
-> yet enforce the `Origin`/CSRF guard the protocol spec (`docs/design/websocket-phase1-protocol.md`
-> §1.1) requires. HTTP CORS middleware does **not** cover a WebSocket upgrade, so on a **public**
-> terminator that cookie-only posture is a **cross-site-WebSocket-hijack (CSWSH)** surface: a foreign
-> page could open an authenticated socket in the victim's browser. **Do not set
-> `ORWELL_WS_TRANSPORT=1` on an internet-exposed deploy until the Origin/CSRF guard lands** (in flight
-> on branch `claude/ws-origin-guard`). **LAN-only / loopback turn-on is acceptable only on a
-> *trusted* network meanwhile** — LAN placement *reduces* exposure but does not by itself prove no
-> cross-origin page can reach a victim's LAN/loopback socket (a malicious site the victim visits runs
-> in their browser, inside the LAN). So on a **shared, untrusted, or multi-tenant** LAN the
-> Origin/CSRF guard is still required; only a **single-operator, trusted** LAN/local-HTTPS deploy is
-> safe to turn on before the guard lands. Public deploys always wait for the guard.
+> **Origin guard (CSWSH).** The WS handshake in `frontend/routes/ws_routes.py` authenticates by session cookie **and** enforces an `Origin` allowlist
+> before accepting the upgrade (`_ws_origin_allowed`: a present, foreign `Origin` is refused; same-origin scheme + host + port, or an entry in `ALLOWED_ORIGINS`,
+> is accepted; a non-browser client with no `Origin` is allowed). HTTP CORS middleware does not cover a WebSocket upgrade, which is exactly why the guard lives
+> in the handshake. *(2026-11-12 doc fix: this block used to say the guard was "not yet met" and told operators to keep the WS flag off on public deploys. The guard
+> has been in place since #1349, and the flag no longer exists, so that advice was both stale and unactionable.)*
 
 **Every terminator here passes the upgrade with no extra config.** Turning WS on adds **no new route
 and no new port** — it is the *same* FE endpoint, so the "only the front-end is ever exposed" rule
 above is unchanged. What it *does* change is that an authenticated socket becomes reachable, which is
-why a **public** (or shared/untrusted-LAN) terminator needs the Origin guard above first; a
-trusted single-operator LAN/loopback one does not.
+why the handshake enforces the Origin guard above.
 
 | Terminator | WebSocket handling | Action needed |
 |---|---|---|

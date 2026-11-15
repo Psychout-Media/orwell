@@ -74,7 +74,7 @@ def _fake_engine(monkeypatch, *, moment, invite, week=2):
             st["diaryRoomInvite"] = invite
         return st
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": "MOMENT-PROMPT"}
 
     async def fake_status(user=None):

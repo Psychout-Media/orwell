@@ -71,7 +71,8 @@ Each houseguest is spawned with the §3 sections, **partitioned by who may ever 
 - **Diversity + non-mirroring are guaranteed by the engine**, not hoped for from the LLM: the cast must
   span archetype / disposition / voice / age / body / geography / class, and must **not echo the
   player's profile** (same seed ⇒ same cast regardless of who the player is). The seeded floor (L28) is
-  the deterministic fallback the engine validates/repairs the LLM output against.
+  the skeleton the engine validates/repairs the LLM output against — it is **not** a fallback cast: under the default `strict`
+  policy a failed authoring run refuses the game start (ORW-286 item 3, Ryne BDD card 30).
 
 ## 4. The hybrid (endless variety, airtight persistence) + the pipeline order
 
@@ -99,7 +100,7 @@ createCharacter
   distinguishing marks, age-look, style) — the **single source of truth shared by the image generator
   AND the text narration**, so words and picture never drift (the L29 hook; the L23 "stop re-describing
   bodies" cue reads the same facet).
-- **Offline/test path:** the deterministic seeded floor stands in when no authoring LLM is available, so
+- **Offline/test path (amended 2026-11-11, ORW-260):** under the default strict enrichment policy a failed or impossible authoring run is a LOUD failure that refuses the game start (no fallback cast; Ryne, BDD card 30). Only keyless CI / `ORWELL_ALLOW_FLOOR_START=1` / the `soft` policy keep the old behaviour: the deterministic seeded floor stands in when no authoring LLM is available, so
   the engine and its tests never depend on a live model.
 
 ## 5. The story-thread model (this is the "play out")

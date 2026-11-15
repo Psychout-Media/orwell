@@ -163,7 +163,10 @@ def test_saved_turn_returns_its_announcements_from_the_history_serialisation(_sm
 def test_owed_announcements_are_captured_for_the_stopped_save_too():
     src = open(os.path.join(FRONTEND, "routes", "chat_routes.py"), encoding="utf-8").read()
     assert "_owed_anns.extend(" in src, "the route captures owed announcements off the stream"
-    assert '_stopped_md2["announcements"] = _owed_anns' in src, "a cut-short turn keeps the cards the player was shown"
+    # ORW-230: the agent-mode disconnect handler saves through `save_stopped_partial`, which stamps the cards.
+    assert "announcements=_owed_anns," in src, "a cut-short turn keeps the cards the player was shown"
+    helpers = open(os.path.join(FRONTEND, "routes", "chat_helpers.py"), encoding="utf-8").read()
+    assert 'md["announcements"] = announcements' in helpers[helpers.index("def save_stopped_partial("):][:2500]
     assert '"announcements": _owed_anns' in src, "the normal save merges them into the stored metadata"
 
 

@@ -1402,7 +1402,7 @@ FUNCTION_TOOL_SCHEMAS = [
                         "type": "string",
                         # ONE source of truth with the REST/WS relays (orwell_engine.DECISION_KINDS);
                         # the hand-copied enum drifted (exit-interview / deal-offer / secret-veto missing).
-                        "enum": sorted(_DECISION_KINDS),
+                        "enum": sorted(_DECISION_KINDS - {"ceremony-step"}),  # a watch step is answered by advanceGame; the engine always refuses it here, so never offer it to the model (ORW-281 4a)
                         "description": "Only comp-intent / comp-round (send `intent`) and deal-offer (send `vote`: accept | decline) "
                                        "are submittable here. deal-offer answers a houseguest's STANDING offer in the "
                                        "chat — it is not a pending decision card. Every other kind is committed ONLY by "
@@ -1539,7 +1539,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "premiereIntros",
-            "description": "PREMIERE ONLY (#380): the meet-everyone progress — who the player has met and who is STILL to introduce (the stragglers are met in motion), each with their OBSERVABLE public persona (archetype/strategy/background/age/presentation/demeanor — never the soul, a number, or how the player feels). This is a READ, never a checklist — the champagne circle already met the whole house (0111), so NEVER run a meet-everyone roll-call from it; use it to pick who deserves a DEEPER scene. First power is REACHABLE once a couple of hot reads form and nobody is invisible, WITHOUT every formal introduction first; returns null outside the premiere.",
+            "description": "PREMIERE ONLY (#380): the meet-everyone progress — who the player has met and who is STILL to introduce (the stragglers are met in motion), each with their OBSERVABLE public persona (archetype/strategy/background/age/presentation/demeanor — never the soul, a number, or how the player feels). This is a READ, never a checklist — with the entrances OFF the champagne circle already met the whole house (0111); with the staged entrances ON, `complete` is false and `remaining` lists anonymous placeholders only until the last arrival. NEVER run a meet-everyone roll-call from it; use it to pick who deserves a DEEPER scene. First power is REACHABLE once a couple of hot reads form and nobody is invisible, WITHOUT every formal introduction first; returns null outside the premiere.",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -1683,6 +1683,21 @@ FUNCTION_TOOL_SCHEMAS = [
                     "subject": {"type": "string", "description": "For a bluff: the houseguest id the invented secret is about."},
                 },
                 "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "callInFavor",
+            "description": "Feature 0142 — when the player CALLS IN a favor a houseguest owes them (the state's owedFavors lists who: they kept a deal with the player), call callInFavor({npcId, ask}) with ask a deal kind (default vote: 'you owe me a vote'). The ENGINE decides whether they honor it; you never invent the outcome. Returns {honored}. Voice the houseguest honoring it, or brushing it off, accordingly; never state why.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "npcId": {"type": "string", "description": "The houseguest who owes the favor (from owedFavors)."},
+                    "ask": {"type": "string", "enum": ["safety", "vote", "final-two", "target-other", "comp-throw", "veto-save"], "description": "The deal kind being asked for (default vote)."},
+                },
+                "required": ["npcId"],
             },
         },
     },
@@ -2001,8 +2016,8 @@ _apply_game_build_schemas()
 # `with_deal_depth_kinds` swaps in the extended enum at SEND time when the flag is on (a deep copy, never
 # mutating the shared base). Off (the default) ⇒ the same list ⇒ byte-identical.
 BASE_DEAL_KINDS = ["safety", "vote", "final-two", "target-other"]
-ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save"]
-_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them"
+ACTIVE_DEAL_KINDS = ["comp-throw", "veto-save", "protect-third", "conditional", "information", "package"]
+_ACTIVE_DEAL_KIND_DESC = "comp-throw = throw a competition for them; veto-save = use the veto to save them; protect-third = they swear not to move against a named THIRD houseguest (pass `third`); conditional = a mutual pact that only binds if one of you lands on the block (each votes to keep the other); information = they promise to tell you what they hear, passed one fact at a time and only while you are together; package = TWO promises bundled in one deal (pass `parts`), each kept or broken on its own, a break of either costing the whole bundle's reliability"
 
 
 def current_deal_kinds() -> list:
@@ -2029,6 +2044,8 @@ def with_deal_depth_kinds(schemas: list) -> list:
             if isinstance(kind, dict) and isinstance(kind.get("enum"), list):
                 kind["enum"] = BASE_DEAL_KINDS + ACTIVE_DEAL_KINDS
                 kind["description"] = f"The deal's nature. {_ACTIVE_DEAL_KIND_DESC}."
+            props["third"] = {"type": "string", "description": "protect-third only: the id of the THIRD houseguest the deal partner swears not to nominate, replace or vote out (from the roster)."}
+            props["parts"] = {"type": "array", "minItems": 2, "maxItems": 2, "description": "package only: exactly TWO promises to bundle, each {kind, third?, terms?} where kind is one of safety / vote / final-two / target-other / protect-third / conditional / information (third as for protect-third).", "items": {"type": "object", "properties": {"kind": {"type": "string"}, "third": {"type": "string"}, "terms": {"type": "string"}}, "required": ["kind"]}}
             props["direction"] = {"type": "string", "enum": ["offer", "ask"], "description": "comp-throw / veto-save only: 'offer' (default) = the player promises to do it for them; 'ask' = the player asks THEM to throw / save for the player."}
         out.append(s)
     return out
@@ -2074,6 +2091,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "exposeSecret", "tradeSecret",
     # 0094/0095: confront a houseguest over a learned fact / accuse a pre-show tie (engine-decided).
     "confront", "accuseTie",
+    # 0142: call in a favor a houseguest owes the player (engine-decided).
+    "callInFavor",
     # B64/0049: the Vault-free presence read (who's here, who's one room over).
     "whereabouts",
     # L21/L24: the player directs their own movement (the engine never auto-relocates a person).

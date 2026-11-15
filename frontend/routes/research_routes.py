@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
-from src.endpoint_resolver import resolve_endpoint
+from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
 from src.auth_helpers import _auth_disabled, get_current_user
 
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9-]{1,128}$")
@@ -44,7 +44,7 @@ def _resolve_research_endpoint(sess) -> tuple:
         "research",
         fallback_url=sess.endpoint_url,
         fallback_model=sess.model,
-        fallback_headers=sess.headers,
+        fallback_headers=resolve_session_headers(sess),
         owner=owner,
     )
     return url, model, headers
@@ -560,7 +560,7 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
             src_sess = session_manager.get_session(session_id)
             ep_url = src_sess.endpoint_url or ""
             ep_model = src_sess.model or ""
-            ep_headers = dict(src_sess.headers or {})
+            ep_headers = dict(resolve_session_headers(src_sess) or {})
         except KeyError:
             pass
 

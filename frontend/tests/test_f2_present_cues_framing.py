@@ -43,7 +43,7 @@ def _frame(monkeypatch, system_prompt, user, session):
     async def fake_state(user=None, **kw):
         return {"started": True, "phase": "hoh-competition", "moment": "hoh-competition"}
 
-    async def fake_moment(moment, user=None):
+    async def fake_moment(moment, user=None, **_kw):
         return {"systemPrompt": system_prompt}
 
     monkeypatch.setattr(orwell_engine, "game_status", fake_status)

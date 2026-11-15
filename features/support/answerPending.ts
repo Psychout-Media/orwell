@@ -44,6 +44,8 @@ export function answerPending(p: PendingView, policy: AnswerPolicy = {}): Submit
     // Intentionally never auto-answered: `self-evict` (the out-of-character walk-out confirmation) and `deal-offer` (the engine
     // surfaces a floated deal through `openDealOffer`, which needs an explicit chat answer — a shared driver must not decline it
     // by accident). The type union lists both kinds, so they are named here instead of falling into the throwing default.
+    // `ceremony-step` (ORW-281 4a) is a WATCH step answered by advanceGame, never by a decision.
+    case "ceremony-step":
     case "deal-offer":
     case "self-evict": return null;
     default: {

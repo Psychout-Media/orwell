@@ -4482,10 +4482,22 @@ async def do_vault_unlock(content: str, owner: Optional[str] = None) -> Dict:
 # engine decides outcomes and enforces the Vault Wall; we only relay Vault-free
 # results back to the model so it can narrate as the game master.
 
+def _note_narrator_view(owner, res) -> None:
+    """Showrunner memory (ORWELL_SHOW_BRIEF, default OFF ⇒ a no-op): the whereabouts in a tool result the NARRATOR
+    reads moves the Show Brief's "last seen" marker (K6 §5.1), so the next brief does not report it again. Only the
+    narrator's own tools call this, never the front end's internal engine reads. Fail-open."""
+    try:
+        from src import orwell_show_brief
+        orwell_show_brief.note_tool_result(owner, res)
+    except Exception as e:  # pragma: no cover - the marker must never break a tool call
+        logger.debug(f"[show-brief] last-seen marker not moved for {owner}: {e}")
+
+
 async def do_get_game_state(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
         st = await orwell_engine.get_game_state(user=owner)
+        _note_narrator_view(owner, st)
         return {"output": json.dumps(st, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine unreachable: {e}", "exit_code": 1}
@@ -4500,6 +4512,14 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
     # ORW-220: PRODUCTION OWNS THE SCHEDULE on this lever too. The engine's runCompetition PREVIEWS the current competition (type, name, winner); while the pre-resolve is
     # holding a not-yet-due scheduled event the narrator must not learn it early (live 11-06 07:29:58 it got the first HOH comp's name and winner in the same batch where advanceGame
     # returned held). Same `held` shape as do_advance_game; the engine is not called and no outcome is returned.
+    try:
+        from routes import chat_helpers as _ch_pause
+        if _ch_pause.event_pause_holds(owner):
+            return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. It is the player's turn inside the scene: do not advance or resolve it this turn, "
+                                          "do not narrate further rounds or the winner. End on a moment they can answer; their next message continues it."}),
+                    "exit_code": 0}
+    except Exception:
+        pass
     try:
         from routes import chat_helpers as _ch_gate
         if _ch_gate.scheduled_event_is_held(owner):
@@ -4789,6 +4809,14 @@ async def do_create_character(
                 owner, "cast-genesis",
                 "casting finalize refused — the cast skeleton could not be model-authored (genesis failed)")
             return {"error": _genesis_gate.refusal_message(), "exit_code": 1}
+        # ORW-260 (Ryne, card 30 option B): the deeper backstories are required too - a failed authoring run (already finished, e.g. the interview-time pre-warm) refuses the start.
+        from src import orwell_cast_authoring as _authoring_latch
+        if _enrichment_g.is_strict() and _authoring_latch.strict_failed(owner) and not _authoring_latch.floor_start_allowed():
+            _enrichment_g.record_failure(
+                owner, "cast-authoring",
+                "casting finalize refused — the deeper backstories could not be written (authoring failed)")
+            _authoring_latch.clear_strict_failed(owner)  # refuse ONCE, loudly; the retry re-runs authoring (the house-entry gate then holds until it lands) rather than deadlocking on a stale latch
+            return {"error": _authoring_latch.refusal_message(), "exit_code": 1}
     except Exception as e:
         logger.warning("[enrichment] strict genesis pre-finalize gate failed open for %s: %s", owner, e)
     try:
@@ -4913,16 +4941,24 @@ async def do_create_character(
             # #1842: engine-computed cast-identity auto-correction diagnostic → wire to health rollup
             cast_coherence = res.get("castCoherence") if isinstance(res, dict) else None
             if cast_coherence and isinstance(cast_coherence, dict):
-                repaired = cast_coherence.get("repaired", 0)
-                houseguests = cast_coherence.get("houseguests", [])
-                if repaired and repaired > 0:
+                # ORW-145: record WHAT was corrected (each houseguest's action and the public field NAMES the
+                # engine cleared), and never drop a FLOORED houseguest (its prose stripped, the worse
+                # outcome): the 11-06 record carried only the repaired ids, so the cause was unrecoverable.
+                # Vault-free: only the id, the action and the field names are copied, never any other key.
+                repaired = int(cast_coherence.get("repaired") or 0)
+                floored = int(cast_coherence.get("floored") or 0)
+                corrected = [
+                    {"id": str(h.get("id", "?")), "action": str(h.get("action") or ""),
+                     "fields": [str(f) for f in (h.get("fields") or []) if isinstance(f, str)]}
+                    for h in (cast_coherence.get("houseguests") or []) if isinstance(h, dict)
+                ]
+                if repaired > 0 or floored > 0:
                     from src import enrichment_policy
-                    ids = [h.get("id", "?") for h in houseguests if h.get("action") == "repaired"]
                     enrichment_policy.record_runtime_failure(
                         owner, "cast-coherence",
-                        f"engine enforceCastCoherence repaired {repaired} houseguest(s) at game start — "
-                        f"auto-corrected but RED-eligible per #1599",
-                        detail=json.dumps({"repaired": repaired, "houseguests": ids})
+                        f"engine enforceCastCoherence repaired {repaired} and floored {floored} "
+                        f"houseguest(s) at game start — auto-corrected but RED-eligible per #1599",
+                        detail=json.dumps({"repaired": repaired, "floored": floored, "houseguests": corrected})
                     )
             # (the player's name is intentionally NOT read here — cast authoring is player-independent)
 
@@ -5110,6 +5146,13 @@ async def do_create_character(
                             orwell_producer_authoring.kickoff_producer_authoring(owner)
                         except Exception as e:  # noqa: BLE001 — persona flavor; never block anything
                             logger.warning("[create] deferred producer-authoring kickoff failed: %s", e)
+                        # ORW-319 (ORW-253 slice 5): the model's cast-time words (habits + aim hints, house culture). Best-effort;
+                        # a failure retries once, then skips with an admin alert (Ryne 2026-11-12) - the engine's own version stands.
+                        try:
+                            from src import orwell_npc_minds_words
+                            orwell_npc_minds_words.kickoff_npc_minds_words(owner)
+                        except Exception as e:  # noqa: BLE001 — never block the gate-clear
+                            logger.warning("[create] deferred npc-minds-words kickoff failed: %s", e)
                     _authoring_gate.kickoff_house_ready_watch(
                         owner, on_ready=_deferred_post_start)
                     holding = {
@@ -5158,9 +5201,36 @@ async def do_create_character(
                 orwell_producer_authoring.kickoff_producer_authoring(owner)
             except Exception as e:  # noqa: BLE001 — persona flavor; never block game start
                 logger.warning("[create] producer-authoring kickoff failed: %s", e)
-        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+            # ORW-319 (ORW-253 slice 5): the model's cast-time words (habits + aim hints, house culture); retry once, then skip + alert.
+            try:
+                from src import orwell_npc_minds_words
+                orwell_npc_minds_words.kickoff_npc_minds_words(owner)
+            except Exception as e:  # noqa: BLE001 — never block game start
+                logger.warning("[create] npc-minds-words kickoff failed: %s", e)
+        # ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an auto-corrected change is not a cloak)
+        # and a plain line for the narrator so the casting card and the player are told the STORED style, never the one asked for.
+        _out = json.dumps(res, indent=2)
+        _adj = res.get("strategyStyleAdjusted") if isinstance(res, dict) else None
+        if isinstance(_adj, dict) and _adj.get("applied"):
+            try:
+                from src import enrichment_policy as _ep_style
+                _ep_style.record_runtime_failure(
+                    owner, "casting-strategy-style",
+                    f"engine stored strategy style '{_adj.get('applied')}' instead of the requested '{_adj.get('requested')}' "
+                    f"(not offered by archetype '{_adj.get('archetype')}') - auto-corrected, RED-eligible per #1599",
+                    detail=json.dumps(_adj))
+            except Exception:
+                pass
+            _out += STRATEGY_STYLE_ADJUSTED_NOTE.format(applied=_adj.get("applied"), requested=_adj.get("requested"), archetype=_adj.get("archetype"))
+        return {"output": _out, "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+STRATEGY_STYLE_ADJUSTED_NOTE = (
+    "\n\nNOTE (engine truth): the stored strategy style is \"{applied}\" - the \"{archetype}\" archetype does not offer \"{requested}\", so the engine kept \"{applied}\". "
+    "The casting card shows the stored style; tell the player plainly if they asked for \"{requested}\" and do not describe their strategy as \"{requested}\"."
+)
 
 
 async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
@@ -5220,6 +5290,13 @@ async def _refresh_after_model_progression(owner, res) -> None:
 
 async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
+    try:  # ORW-232 slice 2: a paused competition is the player's turn - the model's advanceGame must not run the rest through the pause
+        from routes import chat_helpers as _ch_pause3
+        if _ch_pause3.event_pause_holds(owner):
+            return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not advance or resolve it this turn, and do not narrate further rounds or the winner. "
+                                          "End on a moment the player can answer; their next message continues it."}), "exit_code": 0}
+    except Exception:
+        pass
     # P4b — PRODUCTION OWNS THE SCHEDULE on the MODEL's own lever too: while this turn's pre-resolve is holding a not-yet-due scheduled event (the HOH comp on day-1 morning, a
     # ceremony before its hour), the model's advanceGame must not start it ("run the HOH competition", "let's go to nominations"). Nothing advances; the model gets an
     # in-fiction note. The pre-resolve's logged safety cap pops the hold, so a stuck clock can't freeze the game. The premiere count is NOT a hold here (the champagne-circle
@@ -5267,6 +5344,21 @@ async def do_advance_game(content: str, owner: Optional[str] = None) -> Dict:
                 orwell_engine.remember_pending(_cur, user=owner)
                 return {"output": json.dumps(_cur, indent=2), "exit_code": 0}
             # else: the retry LANDED — fall through to the shared post-advance handling below.
+        if isinstance(res, dict) and res.get("held") and not res.get("event"):
+            from routes import chat_helpers as _ch_held
+            if _ch_held.engine_held_is_schedule(res):
+                # ORW-97 (A65): the ENGINE refused - the schedule says the event is not due. Nothing committed: NOT progress (no refresh, no pending cache); tell the narrator why, from the
+                # Vault-free held payload, and mark the hold so the stall belts do not escalate against it.
+                _ch_held.note_engine_held(owner, res.get("held"))
+                return {"output": json.dumps({"held": True, "note": _ch_held.engine_held_note(res.get("held"))}), "exit_code": 0}
+            # ORW-116 (b), Ryne: the engine will not roll the NIGHT on its own. Nothing committed; tell the narrator in plain words instead of leaving a bare typed `held`.
+            return {"output": json.dumps({"held": True, "note": "The night is the player's. The house is still up and nothing advances overnight: stay in the scene, keep the evening and night social, and let the player turn in (or the house wake at 8am) before the next day begins. Do not narrate a new day or any ceremony."}),
+                    "exit_code": 0}
+        try:
+            from routes import chat_helpers as _ch_clr
+            _ch_clr.clear_engine_held(owner)  # ORW-97: a real advance landed
+        except Exception:
+            pass
         await _refresh_after_model_progression(owner, res)  # CON-3
         try:
             from routes import chat_helpers as _ch_mark
@@ -5307,6 +5399,14 @@ async def do_submit_decision(content: str, owner: Optional[str] = None) -> Dict:
     _DECISION_KINDS = orwell_engine.DECISION_KINDS  # ONE source (orwell_engine.DECISION_KINDS)
     if kind not in _DECISION_KINDS:
         return {"error": f"kind must be one of: {', '.join(sorted(_DECISION_KINDS))}", "exit_code": 1}
+    if kind in ("comp-round", "comp-intent"):
+        try:  # ORW-232 slice 2: a paused competition is the player's turn - the model must not answer its card and chain the rest through the pause
+            from routes import chat_helpers as _ch_pause2
+            if _ch_pause2.event_pause_holds(owner):
+                return {"output": json.dumps({"held": True, "note": "The competition is PAUSED for the player to speak. Do not answer or advance its round this turn; end on a moment the player can answer in "
+                                              "character. Their next message continues it."}), "exit_code": 0}
+        except Exception:
+            pass
     # PO ruling 2026-11-03: a big irreversible choice binds ONLY on the player's own confirm on its card — the
     # model may not commit it from prose. Refused BEFORE any engine call; nothing is submitted or changed.
     if kind in orwell_engine.CARD_ONLY_KINDS:
@@ -5516,6 +5616,9 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
         res = await orwell_engine.season_retrospective(user=owner)
         if res is None:
             return {"output": "The Vault stays sealed: the season is still live. It opens only after a winner is crowned.", "exit_code": 0}
+        # ORW-320: "the house you never saw" is the retrospective WINDOW's per-houseguest story (long); it stays off the host model's context.
+        if isinstance(res, dict):
+            res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5567,6 +5670,7 @@ async def do_whereabouts(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.whereabouts(user=owner)
         if res is None:
             return {"output": "No game is running yet — the house is empty until a game starts.", "exit_code": 0}
+        _note_narrator_view(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5585,6 +5689,7 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         if res is None:
             return {"output": "No game is running yet.", "exit_code": 0}
         await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
+        _note_narrator_view(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5849,6 +5954,24 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
         _dir = (args.get("direction") or "").strip().lower()
         if _dir in ("offer", "ask") and kind in ("comp-throw", "veto-save"):  # B55: only meaningful for the active kinds
             _extra["direction"] = _dir
+        _third = (args.get("third") or "").strip()
+        if kind == "protect-third":  # 0142: the engine refuses a protect-third without a valid third houseguest
+            if not _third:
+                return {"error": "third (the houseguest to be protected) is required for a protect-third deal", "exit_code": 1}
+            _extra["third"] = _third
+        if kind == "package":  # 0142: two bundled promises; shape-filtered here, gated and consent-checked part by part by the ENGINE
+            _parts = []
+            for _p in (args.get("parts") or []):
+                if isinstance(_p, dict) and isinstance(_p.get("kind"), str):
+                    _row = {"kind": _p["kind"].strip()}
+                    if isinstance(_p.get("third"), str) and _p["third"].strip():
+                        _row["third"] = _p["third"].strip()
+                    if isinstance(_p.get("terms"), str) and _p["terms"].strip():
+                        _row["terms"] = _p["terms"].strip()[:200]
+                    _parts.append(_row)
+            if len(_parts) != 2:
+                return {"error": "parts (exactly two promises, each {kind, third?, terms?}) is required for a package deal", "exit_code": 1}
+            _extra["parts"] = _parts
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal
@@ -6016,6 +6139,28 @@ async def do_confront(content: str, owner: Optional[str] = None) -> Dict:
     try:
         res = await orwell_engine.confront(npc_id, fact_id, user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+async def do_call_in_favor(content: str, owner: Optional[str] = None) -> Dict:
+    """Feature 0142 — the player CALLS IN a favor a houseguest owes them. The ENGINE prices and resolves it
+    (null when none is owed or no game is being played); we only forward {npcId, ask} and return its Vault-free result."""
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    npc_id = (args.get("npcId") or args.get("npc_id") or "").strip()
+    ask = (args.get("ask") or "").strip() or None
+    if not npc_id:
+        return {"error": "npcId (the houseguest who owes the favor) is required", "exit_code": 1}
+    try:
+        res = await orwell_engine.call_in_favor(npc_id, ask, user=owner)
+        if res is None:
+            return {"output": json.dumps({"honored": None, "note": "no favor is owed by that houseguest"}), "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

@@ -1,21 +1,68 @@
 """History routes — session history, truncation, fork, conversation topics."""
 
+import asyncio
 import json
 import uuid
 import logging
 from typing import Dict, Any
 
+from typing import Optional
+
 from fastapi import APIRouter, Request, HTTPException
 
-from core.models import ChatMessage
+from core.models import ChatMessage, public_metadata, client_metadata_update
 from core.database import SessionLocal, ChatMessage as DbChatMessage, Session as DbSession
 from src.topic_analyzer import analyze_topics
 from routes.session_routes import (
     _message_role,
     _message_text,
     _reject_compact_during_active_run,
+    _reject_compact_for_game_session,
     _verify_session_owner,
 )
+
+def _without_admin_engine_results(entries):
+    """ORW-187 - return copies of the history entries whose `metadata` went through `core.models.public_metadata` (admin-only tool-event fields removed; storage untouched)."""
+    out = []
+    for e in entries:
+        md = e.get("metadata") if isinstance(e, dict) else None
+        if isinstance(md, dict) and "tool_events" in md:
+            e = {**e, "metadata": public_metadata(md)}
+        out.append(e)
+    return out
+
+
+def page_history(entries, after_seq=None, before_seq=None, limit=None):
+    """ORW-172 - optional paging over the history rows `/api/history` serves (ADR 0008 `seq`).
+
+    ALL params absent => `(entries, None)`: the unpaged response, byte-identical to before. Otherwise:
+      * `after_seq=N`  - only rows with seq > N (a delta since the last row the client holds);
+      * `before_seq=N` - only rows with seq < N (an older page);
+      * `limit=L`      - at most L rows: the OLDEST L of an `after_seq` window (so a delta pages forward with no gap),
+                         else the NEWEST L (the tail window / the page just before `before_seq`).
+    Rows carry their `seq` unchanged and stay in the original order. A row with no `seq` can't be placed against a cursor, so a
+    cursor query leaves it out; a bare `limit` slices by position and keeps it. The meta says whether more rows exist on the
+    far side (`hasMore`), the window's first/last seq, and the unpaged `total`.
+    """
+    if after_seq is None and before_seq is None and limit is None:
+        return entries, None
+    total = len(entries)
+    rows = list(entries)
+    if after_seq is not None:
+        rows = [e for e in rows if isinstance(e.get("seq"), int) and e["seq"] > after_seq]
+    if before_seq is not None:
+        rows = [e for e in rows if isinstance(e.get("seq"), int) and e["seq"] < before_seq]
+    has_more = False
+    if limit is not None:
+        if limit < 0:
+            limit = 0
+        if len(rows) > limit:
+            has_more = True
+            rows = rows[:limit] if after_seq is not None and before_seq is None else rows[len(rows) - limit:]
+    seqs = [e["seq"] for e in rows if isinstance(e.get("seq"), int)]
+    return rows, {"total": total, "hasMore": has_more,
+                  "firstSeq": seqs[0] if seqs else None, "lastSeq": seqs[-1] if seqs else None}
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +91,12 @@ def setup_history_routes(session_manager) -> APIRouter:
     router = APIRouter(tags=["history"])
 
     @router.get("/api/history/{session_id}")
-    async def get_session_history(request: Request, session_id: str) -> Dict[str, Any]:
+    async def get_session_history(request: Request, session_id: str, after_seq: Optional[int] = None,
+                                  before_seq: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
         _verify_session_owner(request, session_id)
         try:
-            session = session_manager.get_session(session_id)
+            # ORW-171: get_session is blocking SQLAlchemy work (load + metadata sync); on the event loop it stalls every other request - the streaming chat included - for its duration.
+            session = await asyncio.to_thread(session_manager.get_session, session_id)
         except KeyError:
             raise HTTPException(404, f"Session '{session_id}' not found")
 
@@ -129,12 +178,20 @@ def setup_history_routes(session_manager) -> APIRouter:
             finally:
                 db.close()
 
-        return {
-            "history": history_dict,
+        # R-VLT-2 (ORW-230): a game or casting session's reload never carries the narrator's reasoning.
+        from routes.chat_helpers import player_visible_history
+        rows = _without_admin_engine_results(player_visible_history(session, history_dict))
+        # ORW-172: optional paging (no params => exactly the unpaged response, no extra key).
+        rows, page = page_history(rows, after_seq, before_seq, limit)
+        out = {
+            "history": rows,
             "model": session.model,
             "endpoint_url": session.endpoint_url,
             "name": session.name,
         }
+        if page is not None:
+            out["page"] = page
+        return out
 
     @router.post("/api/session/{session_id}/truncate")
     async def truncate_session(request: Request, session_id: str):
@@ -193,6 +250,8 @@ def setup_history_routes(session_manager) -> APIRouter:
                     from src.auth_helpers import effective_user
                     from src import fold_ledger as _fl
                     _fl.discard_pending_fold(effective_user(request), session_id, keep_count)
+                    from src import belt_state_persist as _bsp  # ORW-399: the persisted copy follows the discard
+                    _bsp.save_now()
                 except Exception as _fold_e:
                     logger.warning(f"Discarding staged fold on truncate failed {session_id}: {_fold_e}")
             return {"status": "ok", "kept": keep_count, "truncated": result}
@@ -214,7 +273,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             content = body.get("content", "")
             if not content:
                 raise HTTPException(400, "content is required")
-            msg = ChatMessage(role=role, content=content, metadata=body.get("metadata"))
+            msg = ChatMessage(role=role, content=content, metadata=public_metadata(body.get("metadata")))  # ORW-187: a client can never store an admin-only engine_result
             session_manager.add_message(session_id, msg)
             return {"status": "ok"}
         except KeyError:
@@ -397,7 +456,7 @@ def setup_history_routes(session_manager) -> APIRouter:
         _verify_session_owner(request, session_id)
         try:
             body = await request.json()
-            meta_update = body.get("metadata", {})
+            meta_update = client_metadata_update(body.get("metadata", {}))  # ORW-187: a client can never overwrite/forge/delete the server-owned tool_events (admin ledger)
             session = session_manager.get_session(session_id)
 
             # Update in-memory
@@ -597,17 +656,18 @@ def setup_history_routes(session_manager) -> APIRouter:
             session = session_manager.get_session(session_id)
         except KeyError:
             raise HTTPException(404, "Session not found")
+        _reject_compact_for_game_session(session)
         _reject_compact_during_active_run(session_id)
 
         try:
-            from src.model_context import estimate_tokens, get_context_length
+            from src.model_context import estimate_tokens, get_context_length_async  # ORW-177: the size probe runs off the event loop
             from src.llm_core import llm_call_async
-            from src.endpoint_resolver import resolve_endpoint
+            from src.endpoint_resolver import resolve_endpoint, resolve_session_headers
 
             if len(session.history) < 6:
                 return {"status": "ok", "message": "Not enough messages to compact"}
 
-            ctx_len = get_context_length(session.endpoint_url, session.model)
+            ctx_len = await get_context_length_async(session.endpoint_url, session.model)
             messages_before = session.get_context_messages()
             used_before = estimate_tokens(messages_before)
             pct_before = round((used_before / ctx_len) * 100, 1) if ctx_len else 0
@@ -629,7 +689,7 @@ def setup_history_routes(session_manager) -> APIRouter:
             util_url, util_model, util_headers = resolve_endpoint("utility", owner=owner or None)
             compact_url = util_url or session.endpoint_url
             compact_model = util_model or session.model
-            compact_headers = util_headers if util_url else session.headers
+            compact_headers = util_headers if util_url else resolve_session_headers(session)
 
             from src.context_compactor import SELF_SUMMARY_SYSTEM_PROMPT
             compaction_count = sum(1 for m in session.history if isinstance(m, ChatMessage) and "[Conversation summary" in (m.content or ""))

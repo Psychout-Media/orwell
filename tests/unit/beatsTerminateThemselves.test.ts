@@ -103,7 +103,7 @@ describe("T0-2 — resolving a CLOSED-SET ceremony pending auto-advances in ONE 
   it("nominations: the veto field is already drawn immediately after submitDecision — no follow-up advanceGame needed", () => {
     // Seed 81005 (re-selected 2026-11-03: #1965 made the replaced fold trust-gated, then the default flip moved the clock ON; was 81003): the player reaches HOH within the drive.
     clockOff();
-    const { session } = startedGame(81005);
+    const { session } = startedGame(81007); // re-selected 2026-11-11 (ORW-247: ceremonies gather the house, which moves the seeded trajectory; was 81005)
     const pending = driveToPendingKind(session, "nominations");
 
     // Before the fix, resolving `nominations` left the loop sitting at "veto-competition, nothing
@@ -219,8 +219,8 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
     // honors the same lull gate as a plain advanceGame call (the offer opportunity is never skipped).
     // PO ruling 2026-11-01: a floated offer is open state the narrator voices — it NEVER blocks the week,
     // so the chained step still draws its beat in the same single commit.
-    // Seed 2 (re-selected 2026-11-04: the one-turn eviction reveal shortened the trajectory; 2,3,10,17,24,25,34,35 all qualify): an offer floats on a chained call.
-    const { session } = startedGame(2);
+    // Seed 1 (re-selected 2026-11-12, ORW-19 comp-win threat 0.3 -> 0.45 moved the seeded trajectories; before that seed 2 re-selected 2026-11-04: the one-turn eviction reveal shortened the trajectory; 2,10,24,25 qualify under the ORW-116 clock-from-entry flow): an offer floats on a chained call.
+    const { session } = startedGame(1);
     session.setNpcDealOffersEnabled(true);
 
     let view: AdvanceView = session.advanceGame();
@@ -239,7 +239,7 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
       view = session.advanceGame();
     }
 
-    expect(caught, "seed 2 should float a deal offer on a chained submitDecision call").not.toBeNull();
+    expect(caught, "seed 1 should float a deal offer on a chained submitDecision call").not.toBeNull();
     const offer = session.getGameState().openDealOffer!;
     expect(offer.from.id).not.toBe("player");
     expect(["safety", "final-two"]).toContain(offer.kind);
@@ -277,7 +277,7 @@ describe("T0-2 — a failed persist rolls back BOTH the pending's resolution and
     const store = new FlakyStore();
     const runtime = composeRuntime({ saveStore: store, clock: new FakeClock() });
     const user = "t0-2-fault";
-    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81005 }); // re-selected 2026-11-03, default flip (was 81003)
+    runtime.registry.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 81007 }); // re-selected 2026-11-11, ORW-247 ceremony gathering (was 81005)
 
     const pending = driveToPendingKind(runtime.registry.sandboxFor(user).session, "nominations");
     expect(runtime.registry.sandboxFor(user).session.gameStatus().veto.players.length).toBe(0);

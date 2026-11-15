@@ -1,4 +1,4 @@
-"""Recording + render integrity — kevinhirsch/orwell #1728, #1729, #1730, #1734.
+"""Recording + render integrity — Psychout-Media/orwell #1728, #1729, #1730, #1734.
 
 These four issues all center on the FE render-row list and the `_auto_record_scene` hidden-layer
 fold, so they land together (splitting would self-conflict):

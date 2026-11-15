@@ -2,7 +2,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import { confessionalFor, selectRecentForConfessional } from "../../src/engine/confessionals";
 import { CONFESSIONAL } from "../../src/engine/confessionalConstants";
@@ -40,6 +40,9 @@ function confessionals(sb: ReturnType<GameSessionRegistry["sandboxFor"]>): GameE
 // --- Background -----------------------------------------------------------------
 
 Given("a started season with recorded events in the house", function (this: BbWorld) {
+  // ORW-335: this driver plays a raw week with no night handling, so pin the clock-off cadence it was written for (it passed in the full
+  // suite only because an earlier feature left the static override off; run alone it stalled before the ceremony). Reset by the After hook.
+  GameSessionAdapter.setTimeOfDayEnabled(false);
   const reg = new GameSessionRegistry();
   const user = "rc-bg";
   reg.sandboxFor(user).session.createCharacter({ playerName: "P", seed: 6 });
@@ -63,10 +66,15 @@ When("that houseguest gives their confessional", function (this: BbWorld) {
 Then("the confessional references that recent veto-ceremony event", function (this: BbWorld) {
   const confs = confessionals(this.rcSandbox!);
   assert.ok(confs.length > 0, "the house confessed");
-  // At least one ceremony confessional OPENS with a 0089 reactive gist (a concrete recent beat the
-  // confessor lived), not only the static target/ally readout.
-  const reactive = confs.filter((c) => GIST_PHRASES.some((p) => c.content.includes(p)));
-  assert.ok(reactive.length > 0, "at least one confessional reacted to a concrete recent event");
+  // ORW-335: tied to THE veto ceremony (was: any confessional with any gist phrase). The confessionals recorded AFTER the veto-ceremony
+  // event must include one that reacts with a CEREMONY gist and names the veto ceremony.
+  const all = this.rcSandbox!.engine.events.queryAll();
+  const vetoAt = all.findIndex((e) => e.type !== "confessional" && /(does not use|uses) the veto/.test(e.content));
+  assert.ok(vetoAt >= 0, "a veto ceremony happened this week");
+  const ceremonyGists = [CONFESSIONAL.gists.ceremony!.initiator, CONFESSIONAL.gists.ceremony!.witness];
+  const after = all.slice(vetoAt + 1).filter((e) => e.type === "confessional");
+  assert.ok(after.some((c) => ceremonyGists.some((g) => c.content.includes(g)) && /veto/i.test(c.content)),
+    "a confessional after the veto ceremony reacts to that ceremony");
 });
 
 Then("it still names their engine-grounded biggest threat and most-trusted ally", function (this: BbWorld) {
@@ -301,9 +309,18 @@ Then("both runs produce the same confessional reacting to the same recent event"
 });
 
 Then("the confessional appends to that houseguest's soul without losing earlier ones", function (this: BbWorld) {
-  const house = this.rcRegistry!.sandboxFor(this.rcUser!).session.snapshot().house!;
-  const confessor = house.npcs.find((n) => n.soul.memory.some((m) => m.includes("[confessional")));
-  assert.ok(confessor, "a houseguest carries their own confessional in their soul (monotonic, recall-able)");
-  // Monotonic: their memory holds the confessional content (never thinned, 0007).
-  assert.ok(confessor!.soul.memory.some((m) => m.includes("[confessional")), "the confessional is retained in the soul");
+  // ORW-335: compare BEFORE and AFTER (was: only checked a confessional exists). Snapshot every soul, play on to the next week's
+  // confessionals, and assert each houseguest's memory kept every earlier entry in order and gained a new confessional.
+  const sb = this.rcRegistry!.sandboxFor(this.rcUser!);
+  const before = new Map(sb.session.snapshot().house!.npcs.map((n) => [n.id, [...n.soul.memory]] as const));
+  playOneWeek(this.rcRegistry!, this.rcUser!);
+  const after = sb.session.snapshot().house!.npcs;
+  let grew = 0;
+  for (const n of after) {
+    const was = before.get(n.id);
+    if (!was) continue;
+    assert.deepEqual(n.soul.memory.slice(0, was.length), was, `${n.id}: earlier memory kept, in order`);
+    if (n.soul.memory.slice(was.length).some((m) => m.includes("[confessional"))) grew++;
+  }
+  assert.ok(grew > 0, "a houseguest's soul gained a new confessional");
 });

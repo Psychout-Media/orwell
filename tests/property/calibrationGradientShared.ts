@@ -1,3 +1,4 @@
+import { endHeldNight } from "../support/heldNight";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
@@ -182,6 +183,7 @@ async function runToEnd(
     const adv = (await mcp.callTool("advanceGame", {})) as AdvanceResult & { winner?: { id: string } | null };
     finished = adv.finished;
     winner = adv.winner ?? winner;
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `gr${i}`, undefined, { direct: true }); // ORW-116: a held night is the player's - time passes, then they turn in
     if (adv.pending) {
       const sub = (await mcp.callTool("submitDecision", answer(adv.pending))) as AdvanceResult & { winner?: { id: string } | null };
       finished = sub.finished;
@@ -200,6 +202,7 @@ async function runToEnd(
  * shards never share registry state.
  */
 export async function playSeed(seed: number): Promise<GradientResult> {
+  process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: the sim player turns in directly when a night is held (the bedtime gate is a separate narrator-facing guard; the night HOLD stays fully on)
   const runtime = composeRuntime({
     clock: new FakeClock(),
         seed: 1,

@@ -145,6 +145,11 @@ def reset_user_season(user: Optional[str]) -> None:
         orwell_cast_genesis.reset_state(user)
     except Exception as e:
         logger.info("[prewarm] reset_user_season: genesis reset failed: %s", e)
+    try:  # ORW-260: ... and the deeper-backstory (cast-authoring) strict-failed latch
+        from src import orwell_cast_authoring
+        orwell_cast_authoring.clear_strict_failed(user)
+    except Exception as e:
+        logger.info("[prewarm] reset_user_season: authoring latch reset failed: %s", e)
     try:
         reset(user)
     except Exception as e:

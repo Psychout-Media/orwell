@@ -73,7 +73,7 @@ describe("moment prompts — the managed per-moment injection (so the LLM is the
     expect(moment).toBe("nominations");
     expect(systemPrompt).toContain("Big Brother");
     expect(systemPrompt.toLowerCase()).toContain("never say you are"); // anti generic-assistant framing
-    expect(systemPrompt).toContain("Nomination ceremony");
+    expect(systemPrompt).toMatch(/nomination ceremony/i); // ORW-249: before the engine runs it, the moment names the ceremony and says it has NOT happened (commit before voice)
     expect(systemPrompt).toContain(PLAYER_NAME); // Vault-free context woven in
   });
 

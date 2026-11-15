@@ -1,0 +1,19 @@
+SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.
+If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.
+
+1. NOW
+It is 10:25am, Day 1.
+You are in the living room (2 turns here).
+HERE with you: NPC A (3 turns), NPC B (just arrived).
+In view: the kitchen: NPC C and NPC D; the dining room: nobody; the backyard: NPC E; the hallway: nobody.
+NOT HERE: NPC F is NOT here; you last saw NPC F head into the bathroom 5 turns ago (that sighting is stale). NPC G is NOT here, and you cannot see where NPC G is.
+Not in view (you cannot see where they are): NPC H, NPC I, NPC J, NPC K, NPC L, NPC M, NPC N and NPC O.
+
+2. CHANGED SINCE YOUR LAST TURN
+Unknown: this is the first brief of this conversation. Trust section 1.
+
+3. WHAT YOU ESTABLISHED
+Built into the living room: big sectional couch; armchairs; coffee table; area rug; floor-to-ceiling glass doors to the yard; console table; bean bags; feature wall; air-conditioner vents; staircase up to the HOH room. That is the whole list.
+Loose things that may be lying around: drinks and mugs, snacks, books and magazines, cards and games, clothes, shoes and flip-flops, a watch or an earbuds case.
+HOW THE LAST SCENE ENDED (the last lines the player saw, quoted from the chat; sections 1 and 2 win if they disagree):
+> @[NPC A] — "Say one more word." NPC B laughs and heads for the door.

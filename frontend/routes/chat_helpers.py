@@ -1,6 +1,7 @@
 """Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
 
 import asyncio
+import collections
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ from core.models import ChatMessage
 from core.database import SessionLocal
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
-from src.endpoint_resolver import normalize_base
+from src.endpoint_resolver import normalize_base, resolve_session_headers
 from src.context_compactor import maybe_compact, trim_for_context
 from src.auth_helpers import get_current_user
 from src.prompt_security import untrusted_context_message
@@ -620,6 +621,18 @@ def hang_out_intent(player_msg) -> bool:
     return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
 
 
+_HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
+
+
+def _reconcile_hang_out_steer(steer: str, game_state) -> str:
+    """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
+    owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
+    ds = game_state.get("daySchedule") if isinstance(game_state, dict) else None
+    if steer and isinstance(ds, dict) and "due" in ds and not ds.get("due"):
+        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE)
+    return steer
+
+
 def _hang_out_steer(res: dict) -> str:
     """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them)."""
     reason = str(res.get("stopReason") or "max-beats")
@@ -628,6 +641,9 @@ def _hang_out_steer(res: dict) -> str:
     obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
+    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
+    if shown:
+        line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
     return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. "
             "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % (mins, line))
 
@@ -659,11 +675,21 @@ _PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
-def _premiere_not_yet_steer() -> str:
-    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call, this afternoon - never on demand."""
-    return ("PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for this afternoon and it is not that time yet. The player cannot start, skip to or "
-            "move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
-            "hasn't called it yet - it will be this afternoon; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
+def _schedule_when(scheduled_phase: str, tomorrow: bool, default: str) -> str:
+    """ORW-394: the in-fiction "when" for an event not yet called: "tomorrow <part of day>" when the engine's schedule says tomorrow, "this <part of day>" when it is today."""
+    if tomorrow:
+        return f"tomorrow {scheduled_phase}" if scheduled_phase else "tomorrow"
+    return f"this {scheduled_phase}" if scheduled_phase else default
+
+
+def _premiere_not_yet_steer(ds: Optional[dict] = None) -> str:
+    """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call - never on demand.
+    ORW-394: with the engine clock live (`ds` = the board's daySchedule) the when comes from the schedule (never "this afternoon" when it is not today); without it, the premiere morning's "this afternoon"."""
+    ds = ds if isinstance(ds, dict) else {}
+    when = _schedule_when(str(ds.get("phase") or ""), bool(ds.get("tomorrow")), "this afternoon") if ds else "this afternoon"
+    return (f"PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for {when} and it is not that time yet. The player cannot start, skip to or "
+            f"move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
+            f"hasn't called it yet - it will be {when}; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
 
 
 _PREMIERE_CLOCK_STARTED: set = set()  # runway keys whose first day-schedule board (the premiere's day-break) already armed its narration steer
@@ -728,6 +754,18 @@ def note_premiere_turn(user, game_state) -> None:
         if stage in ("entrances", "toast"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
             _PREMIERE_MSGS.pop(key, None)
+            # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
+            # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
+            # none of them, the post-turn check re-grounds the NEXT turn ("the engine committed this beat but your last turn never voiced it ... use ONLY the names given here").
+            if stage == "entrances":
+                try:
+                    _ent = ((game_state or {}).get("premiere") or {}).get("entrance") or {}
+                    _ja = _ent.get("justArrived")
+                    _jn = str((_ja or {}).get("name") or "").strip() if isinstance(_ja, dict) else ""
+                    if _jn:
+                        note_ceremony_beat_for_voicing(user, f"{_jn} just walked in (premiere entrance {_ent.get('index')} of {_ent.get('total')})", [_jn])
+                except Exception:  # failsoft-ok: expected-empty (a malformed premiere view only skips the voicing check; the entrance itself is the engine's and is unaffected)
+                    pass
             # live finding (Thursday dry run): the engine RECORDS each toast batch, but a chatting player pulls the narrator off the circle and the speeches are never voiced. Remember who is
             # on the mic (names off the board) so the pacing ladder can hold the next batch until this one has actually been voiced.
             sp = []
@@ -762,7 +800,7 @@ def note_premiere_turn(user, game_state) -> None:
         if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
             _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
             if _PREMIERE_CLOCK_HOLD[key]:
-                _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds)
             return
         _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
@@ -797,11 +835,67 @@ def scheduled_event_is_held(user) -> bool:
         return False
 
 
+# ORW-97: the ENGINE's own A65 schedule hold (advanceGame -> typed `held`, reason "schedule"). A held advance is NEVER progress; while it stands the stall-nudge / forced-advance belts
+# must not escalate (they would spin on a refusal). Cleared by any real advance; a wall-clock TTL is only a safety net (the clock moves on the player's turns, not on time).
+_ENGINE_HELD: dict = {}
+_ENGINE_HELD_TTL_S = 600.0
+
+
+def engine_held_is_schedule(res) -> bool:
+    """True when an advanceGame response is the engine's A65 schedule hold (typed `held` with reason "schedule", nothing committed)."""
+    h = res.get("held") if isinstance(res, dict) else None
+    return isinstance(h, dict) and h.get("reason") == "schedule" and not res.get("event")
+
+
+def engine_held_note(held) -> str:
+    """A Vault-free in-fiction sentence from the held payload (next event + minutesUntil) for the narrator."""
+    h = held if isinstance(held, dict) else {}
+    nxt = str(h.get("next") or "next scheduled event").replace("-", " ")
+    try:
+        mins = int(h.get("minutesUntil"))
+    except (TypeError, ValueError):
+        mins = None
+    when = "later today" if mins is None or mins <= 0 else (f"in about {mins} minutes" if mins < 90 else f"in about {round(mins / 60)} hours")
+    if _zc_on() and mins is not None and mins > 0:
+        when = "very soon" if mins <= 30 else "later on"  # ORW-377: no minutes/hours counts - the house has no clocks
+    return (f"Production hasn't called the house in yet: the {nxt} is not due until {when}, so nothing advanced. Stay in the scene, keep the houseguests talking, "
+            "do NOT narrate it starting, and do not call advanceGame again until the production calls the house in.")
+
+
+def note_engine_held(user, held) -> None:
+    try:
+        import time as _t
+        _ENGINE_HELD[_runway_key(user)] = (_t.monotonic(), held)
+    except Exception:
+        pass
+
+
+def clear_engine_held(user) -> None:
+    try:
+        _ENGINE_HELD.pop(_runway_key(user), None)
+    except Exception:
+        pass
+
+
+def engine_is_holding(user) -> bool:
+    try:
+        import time as _t
+        e = _ENGINE_HELD.get(_runway_key(user))
+        if not e:
+            return False
+        if _t.monotonic() - e[0] > _ENGINE_HELD_TTL_S:
+            _ENGINE_HELD.pop(_runway_key(user), None)
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def production_is_holding(user) -> bool:
     """True while the pre-resolve is holding a scheduled event that is NOT yet due. The agent loop's stall/lull nudges read this like a live runway, so nothing but the
     clock (or the logged safety cap) may bring a production event in early."""
     try:
-        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user)
+        return _runway_key(user) in _PRODUCTION_HOLD or premiere_is_holding(user) or event_pause_holds(user) or engine_is_holding(user)  # ORW-97: the engine's own schedule hold; ORW-232 slice 2 / ORW-281 slice 5: a fresh competition or event pause also stops the FE's own stall-nudge silent advance
     except Exception:
         return False
 
@@ -921,6 +1015,13 @@ def _day_break_narration_steer(content: str) -> str:
 # general fallback covers every other kind (nominations is HOH-only; comp-intent/veto-decision/
 # replacement/votes/tie-break/final-eviction/finale-* fall through to it where unlisted).
 _PENDING_KIND_HINTS = {
+    "ceremony-step": (
+        "This is a WATCH step of a staged ceremony, not a choice. The engine supplies the one line that "
+        "just happened (quoted above); voice THAT moment in the fiction, in the room, and stop. Do NOT call "
+        "advanceGame or submitDecision and do NOT narrate the next step: the player moves the ceremony on "
+        "with the Continue button, one step at a time, and the engine then supplies the next line. Never "
+        "reveal a result, a vote or a name the engine has not yet supplied."
+    ),
     "goodbye-message": (
         "The player must author their GOODBYE MESSAGE to the houseguest who was just evicted. "
         "Bring them to the moment, prompt them for their farewell words (the tone and message are "
@@ -973,7 +1074,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     kind = str(pending.get("kind") or "").strip() or "this decision"
     by = pending.get("by") if isinstance(pending.get("by"), dict) else {}
     who = (by.get("name") or "the player").strip() or "the player"
-    prompt = str(pending.get("prompt") or "").strip()
+    prompt = str(pending.get("prompt") or (pending.get("text") if kind == "ceremony-step" else "") or "").strip()  # a watch step carries its engine line as `text`
     hint = _PENDING_KIND_HINTS.get(kind, _PENDING_GENERAL_HINT)
     quoted = f' The engine\'s instruction is: "{prompt}".' if prompt else ""
     # LW9 (audit 2026-06-21): a STAGED competition NARROWS each round. The model reliably narrates a
@@ -1014,7 +1115,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     )
 
 
-def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
+def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
 
@@ -1051,17 +1152,36 @@ def _whereabouts_barrier_directive(whereabouts) -> Optional[str]:
         npresent = _names(nb.get("present"))
         nearby_bits.append(f"{nr} ({', '.join(npresent) if npresent else 'empty'})")
     here = ", ".join(present) if present else "no other houseguest"
-    nearby_line = ("\nAdjacent rooms right now: " + "; ".join(nearby_bits) + "."
+    nearby_line = ("\nAdjacent rooms right now: " + "; ".join(nearby_bits) + ". Those people STAY in their rooms this turn."
                    if nearby_bits else "")
+    counts = _engine_counts_of(whereabouts)
+    count_line = ""
+    if counts:
+        count_line = (("In this room: 1 person, you (you are alone). " if counts["others"] == 0 else
+                       f"In this room: {counts['room']} people, you included (you + {counts['others']} houseguest{'s' if counts['others'] != 1 else ''}); "
+                       f"a houseguest here saying \"all of us\" means {counts['room']}. ")
+                      + f"In the house: {counts['house']} people remain, you included. "
+                      + (f"Voting tonight: {counts['voters']} people (the house minus the HOH and the nominees). " if counts["voters"] is not None else "")
+                      + "QUOTE these numbers exactly or use no number at all; never count the room yourself. ")
+    if present:
+        roster_line = (count_line + f"HARD ROSTER (this turn): the ONLY people in the room with the player are: {here}. "
+                       "Nobody else speaks, acts, reacts, laughs, overhears or is described as present this turn - a name that is not on this list may be MENTIONED in conversation, never seen or heard in the room. ")
+    else:
+        roster_line = (count_line + "HARD ROSTER (this turn): the player is alone - nobody else is in the room. Nobody else speaks, acts, reacts, overhears or is described as present this turn; "
+                       "a name may be MENTIONED in conversation, never seen or heard in the room. ")
+    # ORW-311 (Coordinator ruling 2026-11-12): a houseguest the engine says has TURNED IN for the night is in their bed. The roster only said who is in the player's room; with an empty roster the narrator still
+    # voiced sleeping houseguests in the kitchen at 2:44am. Names only (the same public `asleep` list the HUD and the Show Brief carry); they may be mentioned, never seen or heard awake.
+    sleepers = _names(asleep)
+    asleep_line = (f"\nTURNED IN FOR THE NIGHT (engine truth): {', '.join(sleepers)} - asleep in their beds. They do NOT speak, act, walk, laugh, overhear or appear in any room this turn; "
+                   "they may only be MENTIONED. Do not write a scene, a line of dialogue or a movement for any of them." if sleepers else "")
     return (
-        "LOCATION IS GROUNDED BY THE ENGINE (the source of truth — do not contradict it). Right now "
-        f"the player is in the {room}, with: {here}.{nearby_line}\n"
-        "Houseguests MAY move between rooms during the scene — narrate it naturally and the engine will "
-        "record it — but hold these hard rules so the scene never contradicts the board: (1) NEVER place "
-        "a houseguest who has already been evicted in any room — they have left the house for good; "
-        "(2) NEVER invent a room that is not part of the house; (3) a houseguest is in exactly ONE place "
-        "at a time. Voice only the people who are here or who plausibly walk in from an adjacent room; "
-        "do not silently teleport anyone or empty a room the engine says is occupied."
+        "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
+        f"the player is in the {room}, with: {here}.{nearby_line}{asleep_line}\n"
+        + roster_line +
+        "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
+        "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
+        "the prose foldable into the board: (1) NEVER place a houseguest who has already been evicted in any room - they have left the house for good; (2) NEVER invent a room that is not part of "
+        "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied."
     )
 
 
@@ -1087,6 +1207,11 @@ def _premiere_progress_directive(premiere) -> Optional[str]:
     # opening toast), NEVER redirect toward power — the player is pinned in the living room for the toast
     # and the moment prompt already frames the gathered scene + the close edge. Stay silent here.
     if premiere.get("champagneCircle") == "gathered":
+        return None
+    # ORW-196: while the staged ENTRANCES run the engine reports complete=false (arrivals still coming). That is not a "go engage more people" gap: arrivals are
+    # released one at a time by the engine, so the directive stays silent (the entrance prompt fragment owns the framing).
+    _ent = premiere.get("entrance")
+    if isinstance(_ent, dict) and _ent.get("stage") == "entrances":
         return None
     # CHAMPAGNE CIRCLE (0111): the whole house is met at the toast, so `complete`/`powerReachable` are
     # true throughout a live premiere ⇒ STOP redirecting (the model is free to start the game the instant
@@ -1503,6 +1628,10 @@ _LAST_FRAMED_BEAT_KEY: dict = {}
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent (pre-game / casting) ⇒ a neutral wall-clock
 # stamp (prior behavior). Vault-free by construction (closed-set public status only).
 _LAST_FRAMED_GAME_MOMENT: dict = {}
+# ORW-275: the engine's game WEEK stashed next to the moment (same keying), persisted as numeric metadata['week'] on every saved game row.
+_LAST_FRAMED_GAME_WEEK: dict = {}
+# ORW-271: the engine's in-game DAY number stamped next to the moment (same keying), persisted as metadata['game_day'] on the saved row.
+_LAST_FRAMED_GAME_DAY: dict = {}
 
 # #1626 increment 2 — the Vault-free PRODUCER (production-voice) name from the moment prompt, captured
 # from the SAME framing read that fetches the GM prompt (increment 1 exposed `MomentPromptView.
@@ -1586,6 +1715,8 @@ def pop_framed_hard_constraints(session_id) -> Optional[str]:
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent ⇒ no forcing ⇒ byte-identical (the field is
 # derived purely from the engine `phase`, exactly the retired `_FORCE_COMP_PHASES ∪ _FORCE_ADVANCE_PHASES`).
 _LAST_FRAMED_REQUIRED_LEVER: dict = {}
+# ORW-405: the per-turn volatile slice ("\n- Week: ..." to the end) of the engine moment prompt this turn was framed on, keyed like the stores above, so a mid-turn rebuild (the direct turnIn) can swap it for a fresh one.
+_LAST_FRAMED_MOMENT_VOLATILE: dict = {}
 
 # 0118 (in-game-time pivot, Phase 2) — whether the engine reports the scheduled ceremony time has ARRIVED
 # (the Vault-free day-schedule `due` flag), cached at framing so the agent loop's advance-nudge can fire the
@@ -1604,6 +1735,19 @@ _LAST_MILESTONE_DUE: dict = {}
 # agent loop CONSUMES this flag (`consume_pre_resolved_advance`) to treat the turn as already-progressed
 # (reset the staleness clock) AND suppress its backstop — exactly mirroring the `_peer_advanced` guard.
 _PRE_RESOLVED_ADVANCE: dict = {}
+
+
+# ORW-273: the pre-resolve walked competition ROUNDS for this user this turn (set where the walk is logged, consumed when the turn's baseline signature is captured - which happens AFTER the walk, so
+# before == live and the A-9 screen would otherwise read the narrator voicing the engine's own rounds as a result the engine never produced).
+_COMP_WALKED_THIS_TURN: dict = {}
+
+
+def mark_comp_walked(user) -> None:
+    _COMP_WALKED_THIS_TURN[_desync_key(user)] = True
+
+
+def consume_comp_walked(user) -> bool:
+    return bool(_COMP_WALKED_THIS_TURN.pop(_desync_key(user), False))
 
 
 def mark_pre_resolved_advance(user) -> None:
@@ -2333,6 +2477,119 @@ def _tally_claims_match_ballots(text: str, counts) -> bool:
     return found
 
 
+def drop_wrong_tally_sentences(text: str, live: dict) -> str:
+    """ORW-358 - the sentence-level remedy for a WRONG vote tally on a night whose evictee the engine has committed. The narrator
+    was handed the ballots (and now their count) but may still state a number the engine's ballots contradict ("Nine to four"
+    over an 11-2 reveal); cutting the whole scene then lost the goodbyes and reactions around it. Drops ONLY the sentence(s)
+    carrying a tally claim that disagrees with `ballotCounts`; every other sentence (goodbyes, reactions, the evictee's lines)
+    is kept byte-identically. Returns `text` unchanged unless the eviction is committed AND the engine's counts are known
+    (`evictionEvictee` + `ballotCounts`) - with no committed result or no counts there is no truth to correct against, so the
+    caller's whole-scene cut stays. Pure."""
+    if not text or not isinstance(live, dict) or not live.get("evictionEvictee") or not live.get("ballotCounts"):
+        return text
+    counts = live.get("ballotCounts")
+    out = []
+    for part in re.split(r"(?<=[.!?\n])", text):
+        if _committed_claim(_CLAIM_TALLY_RE, part) and not _tally_claims_match_ballots(part, counts):
+            continue
+        out.append(part)
+    return "".join(out)
+
+
+# ORW-373: the early-ceremony claim classes whose remedy is sentence-level. The narrator announced a board change one beat before the engine commits
+# it (a crown, a nomination, the veto won, a competition result); the engine DOES commit it a beat later, so the only fault is the one sentence. The
+# directive text is the verifier's own label (`_narration_claims_outcome`); a WRONG identity, an eviction claim or a sealed tally is NOT in this set
+# (a genuinely wrong claim keeps the whole-scene cut).
+_EARLY_CLAIM_MARKERS = ("a NEW HEAD OF HOUSEHOLD being crowned", "a phantom HEAD OF HOUSEHOLD win", "a NOMINATION (a houseguest being put on the block)",
+                        "the POWER OF VETO being won", "the VETO USE DECISION", "a COMPETITION RESULT or its aftermath")
+# One sentence unit: through its terminator, any closing quote / bold / paren cluster, and the whitespace (paragraph break) after it. Newline-only
+# lines are units of their own. Unlike a bare `(?<=[.!?\n])` split, a closing quote stays WITH its sentence.
+_SENTENCE_UNIT_RE = re.compile(r"[^\n]*?(?:[.!?]+(?:\*\*|[\"\u201d\u2019*_)\]])*(?=\s|$)\s*|\n+|$)")
+
+
+# At most this many sentences are dropped per turn before the scene is cut whole after all: a scene where MANY sentences carry the claim is a fabricated
+# scene, not one early sentence in a sound one (the stream is screened chunk by chunk, so the count is kept per turn).
+_EARLY_DROP_BUDGET = 2
+_EARLY_DROPS: dict = {}
+
+
+def _is_early_claim_directive(directive, unit=None, after=None) -> bool:
+    """True for a verifier label that is an EARLY ceremony claim. The self-crown label ("you are the new HOH" while the player is not HOH) is a genuine
+    lie when the HOH is someone else, so it only qualifies when the sentence is ADDRESSED TO the engine's own HOH by name (an announcement of the real
+    crown, voiced early) - judged only when `unit`/`after` are given."""
+    d = str(directive or "")
+    if not d or "; and " in d or not any(m in d for m in _EARLY_CLAIM_MARKERS):
+        return False
+    if "a phantom HEAD OF HOUSEHOLD win" in d:
+        hoh = str((after or {}).get("hohName") or "").strip()
+        return bool(unit and hoh and (hoh in unit or (len(hoh.split()[0]) >= 3 and re.search(r"\b" + re.escape(hoh.split()[0]) + r"\b", unit))))
+    return True
+
+
+def _dropped_unit_residue(unit: str):
+    """(closers, opener) the dropped sentence leaves dangling: a closing quote / bold the unit shut but never opened (kept, so the span opened in an
+    earlier chunk is still closed), or an opening one it never shut (carried to the next kept sentence). ("", "") when the unit is balanced;
+    None when the imbalance sits mid-sentence and cannot be repaired."""
+    body = unit.rstrip()
+    closers = opener = ""
+    diff = body.count("\u201c") - body.count("\u201d")
+    if diff > 0:
+        opener += "\u201c" * diff
+    elif diff < 0:
+        closers += "\u201d" * (-diff)
+    for mark in ('"', "**"):
+        if body.count(mark) % 2 == 0:
+            continue
+        first, last = body.find(mark), body.rfind(mark)
+        if not re.search(r"\w", body[:first]):
+            opener += mark
+        elif not re.search(r"\w", body[last + len(mark):]):
+            closers += mark
+        else:
+            return None
+    return closers, opener
+
+
+def drop_early_claim_sentences(text: str, before: dict, after: dict):
+    """ORW-373 - the sentence-level remedy for an EARLY ceremony claim (see `_EARLY_CLAIM_MARKERS`). The scene is kept; only the sentence(s) the
+    verifier flags on their own, with an early-claim label, are removed. Quote / bold spans the dropped sentence closed (or opened) are repaired so no
+    span is left open, and a paragraph break the dropped sentence carried is preserved. Returns (kept text, sentences dropped) - the text may be "" (a
+    chunk that was only the claim) - or None when no sentence can be dropped alone (nothing flagged individually, a flagged sentence of another class, an unrepairable
+    quote) - the caller then keeps the whole-scene cut. Pure."""
+    if not text or not isinstance(after, dict) or not after:
+        return None
+    units = [m.group(0) for m in _SENTENCE_UNIT_RE.finditer(text) if m.group(0)]
+    out, carry_ws, carry_open, n_dropped = [], "", "", 0
+    for u in units:
+        d = _narration_claims_outcome(u, before, after) if u.strip() else None
+        if d and not _is_early_claim_directive(d, u, after):
+            return None
+        if not d:
+            if carry_open and u.strip():
+                lead = u[:len(u) - len(u.lstrip())]
+                u, carry_open = lead + carry_open + u.lstrip(), ""
+            if carry_ws and out and "\n" not in out[-1][-1:]:
+                out[-1] = out[-1].rstrip(" \t") + carry_ws
+            carry_ws = ""
+            out.append(u)
+            continue
+        res = _dropped_unit_residue(u)
+        if res is None:
+            return None
+        n_dropped += 1
+        closers, opener = res
+        carry_open += opener
+        tail = u[len(u.rstrip()):]
+        if closers:
+            if out:
+                out[-1] = out[-1].rstrip(" \t")
+            out.append(closers + tail)
+            carry_ws = ""
+        elif "\n" in tail:
+            carry_ws = tail
+    return ("".join(out), n_dropped) if n_dropped else None
+
+
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
 # A68: the separator stays on ONE line ([ \t], not \s) - "\n- one\n- two" in a markdown list is not a "one - two" vote tally.
 _CLAIM_TALLY_RE = re.compile(
@@ -2359,7 +2616,14 @@ _CLAIM_EVICT_RESULT_RE = re.compile(
 # didn't move, the engine never committed a nomination.
 _CLAIM_NOMINATED_RE = re.compile(
     r"\b(?:nominat(?:e[sd]?|ing)|put(?:s|ting)?\s+(?:\w+\s+){0,3}?on the block|"
-    r"on the (?:chopping )?block|the nominees are|named (?:as )?(?:a )?nominee)\b",
+    r"on the (?:chopping )?block|the nominees are|named (?:as )?(?:a )?nominee|"
+    # ORW-248 (prod 2026-11-07): the nominations RITUAL narrated without ever saying "nominate" - the key walk ("turns a key for each safe houseguest", "the two without a key"), "up for eviction", and a
+    # ceremony narrated as begun ("the nomination ceremony begins"). The nominations moment prompt itself prescribes the key ritual, so a narrator told to stay social still reached the player with it.
+    r"(?:are|is|were|been|now|both)\s+up\s+for\s+eviction|up\s+for\s+eviction\s+(?:this\s+week|tonight)|"
+    r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b|"
+    r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
+    r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
+    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
     re.IGNORECASE,
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
@@ -2517,6 +2781,105 @@ _VETO_USE_SPECULATIVE_RE = re.compile(
     r"plan(?:s|ning)?\s+(?:on|to)|think(?:s|ing)?\s+about|will\s+you)\b",
     re.IGNORECASE,
 )
+
+
+# ORW-80 (A96, live replay 4) — a conditional / hypothetical / interrogative mention of a weekly-loop outcome
+# ("if somebody wins the veto tomorrow", "whoever wins HOH", "what if the nominee wins the veto", "unless
+# someone wins the veto", "if he is evicted Thursday") is open-set talk (ADR 0005), not a claim. The claim
+# regexes match committed-sounding verbs ("wins", "won", "is evicted") that a conditional uses too, so the
+# detectors ask `_committed_claim` instead of a bare `.search`: a match whose own clause carries a conditional
+# lead-in BEFORE it is talk about what MIGHT happen. ORW-10 (#2221) applied the same rule to nominations and
+# the player's own veto win in the board verify only; this extends it to every weekly-loop claim kind on every
+# path (the T0-3 hard-drop rail, the closed-set pre-filter, the premiere board-absence check, the board verify).
+# Bare modals (would / could / might) are deliberately NOT lead-ins here: in "he knew he could compete, and the
+# houseguest wins the veto" the claim is real, and the hard-drop rail must keep catching it.
+# ORW-80 review: "as if" and "even if" are manner / concessive phrases, not conditionals about the outcome ("As if
+# on cue, the houseguest wins the veto" asserts the win), and "whether" introduces both ("Whether or not you
+# believe it, you won HOH"), so none of the three is a lead-in.
+_CLAIM_HYPOTHETICAL_RE = re.compile(
+    r"\b(?:(?<!\bas\s)(?<!\beven\s)if|unless|suppose|supposing|imagine|assuming|in\s+case|what\s+if|whoever|"
+    r"whichever|hypothetically|were\s+(?:i|you|he|she|they|we)|had\s+(?:i|you|he|she|they|we))\b",
+    re.IGNORECASE,
+)
+# ORW-80 review: a lead-in governs only the clause it sits in. A comma, semicolon, colon or dash ends that clause,
+# so "Thanks, if you must know, I won the veto." and "Imagine that: the houseguest wins HOH." are claims.
+_CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
+
+
+# ORW-374: a RULES SPEECH ("Last person standing on the platform is the new Head of Household.") and future/conditional talk ("the winner will be the new
+# HOH") describe how the crown is decided, not a crowning. Judged on the WHOLE sentence before the match (a comma in a rules speech must not hide the
+# cue), and ONLY for the two HOH-crown detectors (`_CLAIM_NEW_HOH_RE`, `_CLAIM_SELF_HOH_WIN_RE`). A sentence-initial "Last/First <..> standing/to <..> <is|becomes|wins>"
+# is the rule form; a bare "last one standing" mid-sentence is a RESULT phrase ("Hoh Person, last one standing, is the new HOH") and is NOT a cue.
+_CLAIM_RULE_CUE_RE = re.compile(
+    r"\b(?:will\s+(?:be|become|win|take|earn|get)|would|shall|going\s+to|gonna|to\s+become|stands?\s+to|the\s+rules?|whoever|whichever)\b"
+    r"|(?:'|\u2019)ll\s+be\b",
+    re.IGNORECASE,
+)
+_RULE_SUBJECT_ANY_RE = re.compile(   # with-article form ("The last one standing is ...")
+    r"^\W*(?:the\s+)?(?:last|first)\s+(?:\w+\s+){0,3}?(?:standing|remaining|left|to\s+\w+)\b[^.:;\u2014\u2013]*\b(?:is|becomes|wins|gets|earns)\b",
+    re.IGNORECASE,
+)
+_RULE_SUBJECT_RE = re.compile(   # article-less rule form, judged on the WHOLE sentence (the cue sits AFTER the "last one standing" match)
+    r"^\W*(?:last|first)\s+(?:\w+\s+){0,3}?(?:standing|remaining|left|to\s+\w+)\b[^.:;\u2014\u2013]*\b(?:is|becomes|wins|gets|earns)\b",
+    re.IGNORECASE,
+)
+
+
+def _rule_subject(text: str, sent: str) -> bool:
+    """ORW-374: `sent` (a sentence of `text`) is the RULE form "Last person standing ... is the new HOH". The bare form always counts; the article form
+    ("The last houseguest standing is ...") is the narrator's recap voice and counts only INSIDE a double-quoted speech (the host reading the rules)."""
+    if _RULE_SUBJECT_RE.search(sent):
+        return True
+    if not _RULE_SUBJECT_ANY_RE.search(sent):
+        return False
+    pos = (text or "").find(sent)
+    head = (text or "")[:max(pos, 0)]
+    return (head.count('"') % 2 == 1) or (head.count("\u201c") > head.count("\u201d"))
+
+
+_VOCATIVE_PREFIX_RE = re.compile(
+    r"^[\s\"\u201c\u2018'*_\[(@]*([A-Z][\w.'\u2019-]*(?:\s+[A-Z][\w.'\u2019-]*){0,2})\]?[\s\"\u201d*_,:\u2014\u2013-]*$")
+
+
+def _self_crown_is_vocative(sentence, m, after) -> bool:
+    return _vocative_to_real_hoh(sentence, m.start(), after)
+
+
+def _vocative_to_real_hoh(sentence: str, start: int, after) -> bool:
+    """ORW-374: True when the text before a self-crown match ("<Name> - you are the new Head of Household") is a bare vocative naming the engine's REAL
+    HOH: the engine's own truth voiced to the crowned houseguest, not a claim about the player. A different name (or none) is not."""
+    hoh = str((after or {}).get("hohName") or "").strip()
+    if not hoh:
+        return False
+    m = _VOCATIVE_PREFIX_RE.match(sentence[:start])
+    return bool(m and _name_matches(m.group(1), hoh))
+
+
+def _committed_claim(regex, text: str, cue_re=None, skip=None, after=None) -> bool:
+    """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose OWN clause
+    (the text after the last comma, semicolon, colon or dash before it) carries a conditional lead-in
+    (`_CLAIM_HYPOTHETICAL_RE`) is talk about what might happen, not a claim that it did. A lead-in in an earlier
+    clause does not cover a later claim ("Wondering if it was fair, you watch as the houseguest wins the veto"),
+    and a committed claim in another sentence, or with the conditional after it ("she wins the veto, if you can
+    believe it"), still counts. The match's own first word is checked too: a name-capturing pattern reads
+    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match.
+    ORW-374: `cue_re` (e.g. `_CLAIM_RULE_CUE_RE`) is also tested against the WHOLE sentence prefix; `skip=(sentence, match, after)->bool`
+    exempts a match the caller can show is not a claim (a vocative to the engine's real HOH)."""
+    if not text:
+        return False
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        for m in regex.finditer(sentence):
+            words = m.group(0).split(None, 1)
+            clause = _CLAIM_CLAUSE_SPLIT_RE.split(sentence[:m.start()])[-1]
+            lead = re.sub(r"\s+", " ", clause + (words[0] if words else ""))   # one space, so the as/even look-behinds hold
+            if _CLAIM_HYPOTHETICAL_RE.search(lead):
+                continue
+            if cue_re is not None and (cue_re.search(sentence[:m.start()] + (words[0] if words else "")) or _rule_subject(text, sentence)):
+                continue
+            if skip is not None and skip(sentence, m, after):
+                continue
+            return True
+    return False
 
 
 def _veto_use_claim_is_speculative(text: str) -> bool:
@@ -2926,7 +3289,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     # gated on `if not desync` — independently evaluated, first genuine problem found still wins
     # (matching the prior priority order), but a clean verdict from an earlier category never
     # suppresses a LATER category's own check.
-    if _CLAIM_EVICTED_RE.search(text):
+    if _committed_claim(_CLAIM_EVICTED_RE, text):  # ORW-80: not a hypothetical ("if he is evicted Thursday")
         _count_unmoved = after.get("evicted") == before.get("evicted")
         # P3: tonight's eviction is ALREADY committed (the pre-resolve landed it at framing, so before == after) - narrating the result is a recap, not a phantom. Only a
         # WRONG evictee (an active houseguest named as leaving) is still a fabrication.
@@ -2953,13 +3316,13 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to FINALE phases: mid-season "crowned the winner" language is necessarily
     #     hypothetical flavor ("you could be crowned the winner someday"), never a committed
     #     outcome — policing it elsewhere would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_CLAIM_WINNER_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_WINNER_RE, text)
           and str(after.get("phase") or "").lower().startswith(_FINALE_PHASES)
           and not after.get("finished")):
         desync = "the SEASON WINNER being crowned"
     # (3) A finale vote TALLY was narrated, but the game isn't finished → narrated the count
     #     before the engine revealed all the jury votes.
-    if not desync and (_CLAIM_TALLY_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_TALLY_RE, text)
           and str(after.get("phase") or "").lower().startswith(_FINALE_PHASES)
           and not after.get("finished")):
         desync = "a FINAL VOTE TALLY (the jury count)"
@@ -2977,10 +3340,10 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      turn keeps its result-language narration unpoliced).
     #      PO ruling 2026-11-04 (the vote reveal is ALL IN ONE TURN): once the engine has handed over every ballot (`ballotCounts`), a tally that AGREES with
     #      those counts is simply the truth the BOARD block gave the narrator - only a tally that contradicts them is still a fabrication.
-    _tally_ok = bool(_CLAIM_TALLY_RE.search(text)) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
+    _tally_ok = _committed_claim(_CLAIM_TALLY_RE, text) and _tally_claims_match_ballots(text, after.get("ballotCounts"))
     if not desync and str(after.get("phase") or "").lower().startswith(_EVICTION_PHASES) and (
-          (_CLAIM_TALLY_RE.search(text) and not _tally_ok)
-          or (_CLAIM_EVICT_RESULT_RE.search(text) and after.get("evicted") == before.get("evicted"))):
+          (_committed_claim(_CLAIM_TALLY_RE, text) and not _tally_ok)
+          or (_committed_claim(_CLAIM_EVICT_RESULT_RE, text) and after.get("evicted") == before.get("evicted"))):
         desync = "an EVICTION VOTE TALLY / RESULT (the count is sealed until the engine commits the eviction)"
     # (4a) A2 (2026-07-03): the model tells the PLAYER they won HOH, but the engine shows the player is
     #      NOT the Head of Household → a phantom self-crown. Verified DIRECTLY against `playerIsHoh` (an
@@ -2988,7 +3351,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      (the exact live-red-team failure: "you won HOH" narrated with zero tool calls, an NPC actually
     #      won). Fires only when the board KNOWS the player is not HOH (`playerIsHoh is False`, never on
     #      the unknown/None case — an old-style signature without the field can't trip it).
-    if not desync and _CLAIM_SELF_HOH_WIN_RE.search(text) and after.get("playerIsHoh") is False:
+    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, _CLAIM_RULE_CUE_RE, _self_crown_is_vocative, after) and after.get("playerIsHoh") is False:
         desync = "a phantom HEAD OF HOUSEHOLD win (the engine shows you are NOT the Head of Household)"
     # (4b) A2: the model crowns a NAMED houseguest HOH who is NOT the one the engine crowned → the wrong
     #      identity on the throne. Scoped to the HOH beat AND a crown that really committed THIS turn
@@ -3006,7 +3369,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to HOH phases (like the tally branch): outside the HOH beat, "the new HOH…" /
     #     "wins HOH" reads as reflection or flavor, not a committed crown — policing it elsewhere
     #     would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_CLAIM_NEW_HOH_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text, _CLAIM_RULE_CUE_RE)
           and str(after.get("phase") or "").lower().startswith(_HOH_PHASES)
           and after.get("hoh") == before.get("hoh")
           and not (before.get("hoh") is None and after.get("hoh") is not None)):
@@ -3026,7 +3389,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     so plan/speculation language outside the beat ("I might nominate you") is never policed.
     #     ORW-10 (live replays 5 and 6): once nominees are COMMITTED (the veto ceremony, and every social turn left in the nominations beat after the engine pre-resolved them) ordinary prose about them
     #     ("those are the two on the block") is a recap, not a phantom nomination - there only a REPLACEMENT claim is suspect. While NO nominee is committed the original rule stands.
-    if not desync and (_CLAIM_NOMINATED_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_NOMINATED_RE, text)
           and str(after.get("phase") or "").lower().startswith(_NOM_PHASES)
           and (after.get("noms") or []) == (before.get("noms") or [])
           and not _nomination_claims_all_hypothetical(text)
@@ -3034,7 +3397,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "a NOMINATION (a houseguest being put on the block)"
     # (6a) A2 (2026-07-03): the model tells the PLAYER they won the veto, but the engine shows they do
     #      NOT hold it → a phantom self-win (mirrors 4a). `playerHasVeto is False` only.
-    if not desync and _CLAIM_SELF_VETO_WIN_RE.search(text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
+    if not desync and _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text) and after.get("playerHasVeto") is False and not _all_veto_matches_hypothetical(text):
         desync = "a phantom POWER OF VETO win (the engine shows you do NOT hold the veto)"
     # (6b) A2: the model hands the veto to a NAMED houseguest who is NOT the actual holder → wrong
     #      identity (mirrors 4b). Scoped to the veto beat AND a holder that really committed this turn.
@@ -3046,7 +3409,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
         desync = "the WRONG houseguest winning the Power of Veto (you named someone the engine did not)"
     # (6) NARR-8 (#574): a VETO WINNER was narrated, but the veto holder didn't change → no veto win
     #     committed. Scoped to the veto phase; the fresh-win guard mirrors the HOH branch.
-    if not desync and (_CLAIM_VETO_WINNER_RE.search(text)
+    if not desync and (_committed_claim(_CLAIM_VETO_WINNER_RE, text)  # ORW-80: "if somebody wins the veto tomorrow" is talk
           and str(after.get("phase") or "").lower().startswith(_VETO_PHASES)
           and after.get("vetoHolder") == before.get("vetoHolder")
           and not (before.get("vetoHolder") is None and after.get("vetoHolder") is not None)):
@@ -3183,6 +3546,11 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
                 "[orwell] beat-signature desync detected for user=%s — re-grounding next turn (class=%s; %s)",
                 user, _guard_class_tag(directive), _guard_snippet(directive),
             )
+        # ORW-79 (A95): a period-of-day LIGHT phrase that disagrees with the engine clock. Post-turn NUDGE only (never wired into the streamed hold/cut paths: atmosphere is open-set prose, ADR 0005 #1).
+        _tod = _time_of_day_words_misstated(narration or "", after)
+        if _tod:
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CLOCK - last turn you set the scene with " + _tod + ". The clock is engine truth: keep the light, the sky and the mood of the scene to the real time of day from now on.")
+            logger.warning("[orwell] time-of-day words drift from the engine clock for user=%s - re-grounding next turn", user)
     except Exception as e:
         logger.warning("[orwell] post-turn desync check skipped for user=%s: %s", user, e)
 
@@ -3280,7 +3648,7 @@ def _stages_in_scene(narration: str, name: str) -> bool:
     if re.search(verb_pat, scanned, re.IGNORECASE):
         return True
     # "Nia: 'I called this.'" / 'Ana "what is this?"' — a quoted line right after the name.
-    quote_pat = rf"\b{n}(?:['’]s)?\b\s*[:—-]?\s*[\"“]"
+    quote_pat = rf"\b{n}(?:['’]s)?\b\]?\s*[:—-]?\s*[\"“]"  # ORW-263: the narrator's speaker line is `@[Name] — "..."` (the closing bracket sat between the name and the dash, so the line was never read as staging)
     return bool(re.search(quote_pat, scanned, re.IGNORECASE))
 
 
@@ -3299,15 +3667,41 @@ def _presence_facts(state: dict) -> Optional[dict]:
         return None  # no live scene → nothing to ground against
     in_view: set = set()
     room_present: set = set()
+    adjacent: set = set()  # ORW-249: people in an ADJACENT room - legitimately glimpsed or overheard, never in the player's scene
+    adjacent_rooms: set = set()
     for p in (wa.get("present") or []):
         if isinstance(p, dict) and p.get("name"):
             in_view.add(p["name"])
             room_present.add(p["name"])
     for nb in (wa.get("nearby") or []):
         if isinstance(nb, dict):
+            _nr = str(nb.get("room") or "").replace("-", " ").strip().lower()
+            if _nr:
+                adjacent_rooms.add(_nr)
             for p in (nb.get("present") or []):
                 if isinstance(p, dict) and p.get("name"):
                     in_view.add(p["name"])
+                    adjacent.add(p["name"])
+    adjacent -= room_present
+    # ORW-216: name -> the room the engine has them in, for everyone whose room the player's view actually knows (their own room + the adjacent rooms). Anyone further away has no known room.
+    npc_rooms: dict = {}
+    for p in (wa.get("present") or []):
+        if isinstance(p, dict) and p.get("name"):
+            npc_rooms[p["name"]] = str(wa.get("room") or "")
+    for nb in (wa.get("nearby") or []):
+        if isinstance(nb, dict):
+            for p in (nb.get("present") or []):
+                if isinstance(p, dict) and p.get("name") and str(nb.get("room") or "").strip():
+                    npc_rooms[p["name"]] = str(nb.get("room"))
+    # ORW-249 part (4): the engine's send-time snapshot (`whereabouts.sinceSend`, #2321) says who walked in or out SINCE the player's last message. The narrator is told to voice it as one short beat, so the
+    # guard must read the SAME snapshot: someone who left since the send is legitimately staged in that departure beat even though they are no longer in the room (an arrival is already in `present`).
+    exempt: set = set()
+    _ss = wa.get("sinceSend")
+    if isinstance(_ss, dict):
+        for _k in ("departed", "arrived"):
+            for _n in (_ss.get(_k) or []):
+                if isinstance(_n, str) and _n.strip():
+                    exempt.add(_n.strip())
     evicted: set = set()
     active_offscene: set = set()
     for h in (state.get("house") or []):
@@ -3324,7 +3718,8 @@ def _presence_facts(state: dict) -> Optional[dict]:
     if tonight and tonight in evicted:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
-            "evicted": evicted, "active_offscene": active_offscene}
+            "evicted": evicted, "active_offscene": active_offscene,
+            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms}
 
 
 def _first_name_counts(names) -> dict:
@@ -3413,13 +3808,35 @@ def _presence_desync_directive(narration: str, facts: dict) -> Optional[str]:
 def _sentence_stages_absent_npc(sentence: str, facts: dict, first_counts: dict) -> Optional[str]:
     """The name of an off-scene/evicted houseguest STAGED as acting in `sentence`, or None. Evicted
     is checked first (the stronger, unambiguous claim) then off-scene."""
+    _exempt = facts.get("exempt") or ()
     for n in facts.get("evicted") or ():
-        if _name_staged_unique(sentence, n, first_counts):
+        if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
             return n
     for n in facts.get("active_offscene") or ():
-        if _name_staged_unique(sentence, n, first_counts):
+        if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
             return n
+    # ORW-249 (the hard roster): someone in an ADJACENT room who is staged speaking or acting IN the player's scene is as absent as someone across the house. The one legitimate form is the
+    # glimpse/overhear framed as the OTHER room ("you hear Mara laughing in the backyard", "from next door, Mara's voice..."), which stays.
+    if not _sentence_frames_elsewhere(sentence, facts):
+        for n in facts.get("adjacent") or ():
+            if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
+                return n
     return None
+
+
+# ORW-249: cues that a sentence places a sound or glimpse in ANOTHER room (so it is an overhear, not a presence in the player's scene).
+_ELSEWHERE_CUE_RE = re.compile(
+    r"\b(?:next\s+door|other\s+room|through\s+the\s+(?:wall|door)|down\s+the\s+hall(?:way)?|across\s+the\s+house|from\s+(?:the\s+)?(?:other|next|another)\s+room|"
+    r"overhear\w*|muffled|faintly|distant(?:ly)?|drifts?\s+(?:in|through|from)|carries?\s+(?:in|through|from)|audible|you\s+(?:hear|glimpse|catch\s+sight\s+of)|"
+    r"(?:in|from)\s+the\s+(?:next|adjacent)\s+room)\b", re.IGNORECASE)
+
+
+def _sentence_frames_elsewhere(sentence: str, facts: dict) -> bool:
+    """True when the sentence frames the action as happening in another room: an elsewhere cue, or the NAME OF AN ADJACENT ROOM (the engine's own room labels)."""
+    if _ELSEWHERE_CUE_RE.search(sentence or ""):
+        return True
+    low = (sentence or "").lower()
+    return any(r and re.search(rf"\b{re.escape(r)}\b", low) for r in (facts.get("adjacent_rooms") or ()))
 
 
 def _mentioned_anywhere(text: str, full_name: str, first_counts: dict) -> bool:
@@ -3519,7 +3936,7 @@ async def record_post_turn_presence_check(user, narration: str) -> None:
         logger.warning("[orwell] post-turn presence check skipped for user=%s: %s", user, e)
 
 
-async def screen_presence_wall(user, text: str) -> str:
+async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
     (delimiters preserved for the rest) — the empirically load-bearing half: the terminal whereabouts
@@ -3529,7 +3946,11 @@ async def screen_presence_wall(user, text: str) -> str:
     ever splitting it; a proven phantom placement is DROPPED and never re-admitted by any fallback.
     Fail-soft: a read/scan hiccup falls through to emit the text unchanged (a false hold on creative
     prose is worse than a missed phantom — ADR 0005 #1) — except for a sentence already proven to
-    stage a non-present houseguest, which is never restored."""
+    stage a non-present houseguest, which is never restored.
+
+    ORW-395: `alt_state` is the board snapshot taken BEFORE the FE ran the player's own `turnIn` this
+    turn. The reply voices the goodnight in the evening room, but live presence is already the morning
+    board; a sentence is a phantom only if it is absent under BOTH boards."""
     if not text or not text.strip():
         return text
     try:
@@ -3539,16 +3960,22 @@ async def screen_presence_wall(user, text: str) -> str:
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if not facts or (not facts.get("evicted") and not facts.get("active_offscene")):
-        return text  # nothing off-scene/evicted this turn — the overwhelmingly common path
+    if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
+        return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
     roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
     first_counts = _first_name_counts(roster)
+    alt_facts = _presence_facts(alt_state) if isinstance(alt_state, dict) else None
+    if alt_facts:
+        _alt_roster = roster | set(alt_facts["in_view"]) | set(alt_facts["active_offscene"]) | set(alt_facts["evicted"])
+        _alt_counts = _first_name_counts(_alt_roster)
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
     for part in parts:
         try:
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
+            if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
+                hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
                 dropped.add(hit)
                 continue  # DROP — a non-present houseguest is never staged as present
@@ -3674,6 +4101,132 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
     return None
 
 
+# ORW-78 (A94) - a FALSE PREMISE: the player talks as if someone is nominated ("the nominee...") while the engine has NO nominees, and the narrator softly goes along
+# ("the nominee sits quietly..."). Closed-set only (who is nominated), post-turn, a gentle next-turn re-ground like the roster check - never an edit of creative prose (ADR 0005 #1).
+# Deliberately narrow: only a definite "the nominee(s)" in a sentence with NO hypothetical / future / negation / question cue, in a phase before nominations, with no committed nominee.
+_FALSE_NOMINEE_RE = re.compile(r"\bthe\s+(?:two\s+|both\s+|current\s+)?nominees?\b", re.IGNORECASE)
+_FALSE_NOMINEE_SAFE_CUE_RE = re.compile(
+    r"\b(?:no|not|nobody|none|never|yet|n't|haven't|hasn't|isn't|aren't|won't|if|unless|suppose|imagine|whoever|whichever|hypothetically|will|would|could|might|"
+    r"going\s+to|about\s+to|once|until|before|when|after|soon|tonight|tomorrow|later|upcoming|next|eventually|someday|who|what|which|should|may)\b|\?",
+    re.IGNORECASE,
+)
+_PRE_NOMINATION_PHASES = ("premiere", "setup", "hoh")
+
+
+def _false_nominee_premise_sentences(narration: str) -> list:
+    """Sentences that treat 'the nominee(s)' as existing. Skips ((production asides)), questions, negations, hypotheticals and future/conditional talk."""
+    out = []
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration or "", flags=re.DOTALL)
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        if _FALSE_NOMINEE_RE.search(sentence) and not _FALSE_NOMINEE_SAFE_CUE_RE.search(sentence):
+            out.append(sentence.strip())
+    return out
+
+
+async def record_post_turn_false_premise_check(user, narration: str) -> None:
+    """ORW-78 (A94): before nominations the engine has no nominees, yet the narration spoke of 'the nominee' as a person in play. Stash a gentle next-turn re-ground. Fail-open;
+    never raises, never blocks the finishing turn, never edits this turn's prose."""
+    try:
+        _dkey = _desync_key(user)
+        sig = _LAST_BEAT_SIG.get(_dkey)
+        if not sig or sig.get("noms") or sig.get("nomNames"):
+            return  # nothing baseline, or nominees really exist
+        phase = str(sig.get("phase") or "").lower()
+        if not phase.startswith(_PRE_NOMINATION_PHASES):
+            return
+        hits = _false_nominee_premise_sentences(narration)
+        if not hits:
+            return
+        directive = (
+            "RE-GROUND ON THE BOARD - last turn you spoke of 'the nominee' as if someone were already nominated, but the engine has NO nominees yet: the Head of Household "
+            "has not made nominations. Do not go along with a premise that someone is nominated; if the player assumes it, say plainly (in character or in a (( )) aside) "
+            "that nominations have not happened yet. Never invent a nominee."
+        )
+        _reground_enqueue(_dkey, directive)
+        logger.warning("[orwell] false-premise (nominee with none nominated) detected for user=%s - re-grounding next turn", user)
+    except Exception as e:
+        logger.warning("[orwell] post-turn false-premise check skipped for user=%s: %s", user, e)
+
+
+# ORW-216 - a houseguest PLACED IN THE WRONG ROOM. Whereabouts are engine truth (ADR 0009), yet the narrator once had two houseguests "walking the yard" while the engine had them in the kitchen, then broke
+# character to fix it. A same-turn scrub is deliberately NOT used (a legal narrated move is hard-folded into the board, so loose room prose is often fine - see the evicted-in-a-room guard's scope note).
+# Instead, POST-turn and against the board AFTER this turn's folds: a staged houseguest whose room the view knows, in a sentence that names house rooms but NOT their real one, queues a gentle next-turn
+# re-ground (closed-set, ADR 0005 #1: never edits prose) that also tells the model to correct the slip IN CHARACTER.
+_ROOM_CANON = (("kitchen", "kitchen"), ("living", "living"), ("lounge", "living"), ("backyard", "backyard"), ("back yard", "backyard"), ("yard", "backyard"),
+               ("hoh", "hoh"), ("head of household", "hoh"), ("bedroom", "bedroom"), ("bathroom", "bathroom"), ("storage", "storage"))
+
+
+def _room_keys(text: str) -> set:
+    """The canonical house-room keys named in `text` (a room label like 'living-room' or narration like 'the yard')."""
+    low = (text or "").lower().replace("-", " ")
+    return {key for word, key in _ROOM_CANON if re.search(r"\b" + re.escape(word), low)}
+
+
+_MOTION_VERBS = ("walk", "walks", "walking", "walked", "stroll", "strolls", "strolling", "strolled", "wander", "wanders", "wandering", "wandered", "pace", "paces", "pacing", "paced",
+                 "head", "heads", "heading", "headed", "hang", "hangs", "hanging", "lounge", "lounges", "lounging", "lounged", "relax", "relaxes", "relaxing", "chill", "chills", "chilling",
+                 "mill", "mills", "milling", "linger", "lingers", "lingering", "wait", "waits", "waiting", "stay", "stays", "staying")
+_MOTION_ALT = "|".join(_MOTION_VERBS)
+
+
+def _name_moves_or_sits(sentence: str, full_name: str, first_counts: dict) -> bool:
+    """`full_name` (or a roster-unique first name) followed within two words by a walking/hanging-out verb - the 'walking the yard' phrasing the scene-verb list does not carry."""
+    names = [full_name]
+    parts = full_name.split()
+    if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1:
+        names.append(parts[0])
+    for n in names:
+        if re.search(rf"\b{re.escape(n)}(?:['\u2019]s)?\b(?:\s+\w+){{0,2}}\s+(?:{_MOTION_ALT})\b", sentence, re.IGNORECASE):
+            return True
+    return False
+
+
+def _wrong_room_claims(narration: str, npc_rooms: dict) -> list:
+    """[(name, real_room_label)] for houseguests staged in a sentence that names house rooms but not their real one. Skips ((asides)). Conservative: needs the staging match AND >=1 named room AND the real room absent."""
+    if not narration or not npc_rooms:
+        return []
+    roster = set(npc_rooms)
+    first_counts = _first_name_counts(roster)
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration, flags=re.DOTALL)
+    out: list = []
+    seen: set = set()
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        named = _room_keys(sentence)
+        if not named:
+            continue
+        for name, room in npc_rooms.items():
+            real = _room_keys(room)
+            if not real or name in seen or (named & real):
+                continue
+            if _name_staged_unique(sentence, name, first_counts) or _name_moves_or_sits(sentence, name, first_counts):
+                seen.add(name)
+                out.append((name, room))
+    return out
+
+
+async def record_post_turn_wrong_room_check(user, narration: str) -> None:
+    """ORW-216: queue a next-turn re-ground when the narration staged a houseguest in a room the engine does not have them in. Fail-open; never raises, never edits this turn's prose."""
+    try:
+        if not narration:
+            return
+        from src import orwell_engine
+        state = await orwell_engine.get_game_state(user=user)
+        facts = _presence_facts(state if isinstance(state, dict) else {})
+        if not facts or not facts.get("npc_rooms"):
+            return
+        hits = _wrong_room_claims(narration, {n: r for n, r in facts["npc_rooms"].items() if n not in (facts.get("exempt") or ())})
+        if not hits:
+            return
+        shown = hits[:_PRESENCE_MOVE_MAX_NAMES]
+        listing = "; ".join(f"{n} is in the {str(r).replace('-', ' ')}" for n, r in shown)
+        _reground_enqueue(_desync_key(user), (
+            "RE-GROUND ON THE MAP - last turn you placed a houseguest in a room the engine does not have them in (" + listing + "). Whereabouts are engine truth: read them (whereabouts) before "
+            "placing anyone. If a houseguest's line or the narration got it wrong, correct it IN CHARACTER (a houseguest says they misspoke or misread), never with an out-of-character apology."
+        ))
+        logger.warning("[orwell] wrong-room placement detected for user=%s (%s) - re-grounding next turn", user, ", ".join(n for n, _ in shown))
+    except Exception as e:
+        logger.warning("[orwell] post-turn wrong-room check skipped for user=%s: %s", user, _exc_detail(e))
+
+
 async def record_post_turn_roster_check(user, narration: str) -> None:
     """NARR-3 (#613) post-turn roster-validation backstop. Stash a gentle next-turn re-ground when the
     narration STAGED a houseguest name that exists in NEITHER the active nor the out-of-house roster —
@@ -3778,9 +4331,42 @@ def forget_knowledge_wall(user) -> None:
         _KW_SOURCE_LAST_GOOD.pop(k, None)
 
 
+def _forget_season_pacing(user) -> None:
+    """ORW-231 — a new season starts with none of the last season's turn-steering state. The
+    active→inactive framing edge already drops some of it, but a direct restart (`/api/orwell/new-game`,
+    a confirmed restart, a God-Mode reset) never passes through an inactive turn, so the season start
+    clears it too:
+      * the held social runway, steers, production hold and premiere counters (`clear_social_runway`);
+      * the armed S1b forced-advance escalation;
+      * an owed chyron or aired-fact steer (`clear_preresolve_debt`);
+      * the ORW-10 cut streak and the queued next-turn re-grounds;
+      * the premiere entrance stash.
+    Registered on `orwell_engine.on_season_reset`; another user's state is never touched; never raises."""
+    for clear in (clear_social_runway, clear_advance_escalation, clear_preresolve_debt):
+        try:
+            clear(user)
+        except Exception:
+            logger.debug("[orwell] season-pacing reset step %s skipped for user=%s", clear.__name__, user)
+    try:
+        dkey = _desync_key(user)
+        _CUT_STREAK.pop(dkey, None)
+        _DESYNC_REGROUND.pop(dkey, None)
+        rkey = _runway_key(user)
+        _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
+        _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
+    except Exception:
+        logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
+    try:  # ORW-202: the persisted copy follows the reset (a restart must not resurrect last season's queued re-ground)
+        from src import belt_state_persist
+        belt_state_persist.save_now()
+    except Exception:  # failsoft-ok: best-effort; the in-memory stores are already cleared
+        logger.debug("[orwell] belt-state save after reset skipped for user=%s", user)
+
+
 try:  # register at import; fail-soft so a missing engine module never breaks chat_helpers
     from src import orwell_engine as _oe_for_reset
     _oe_for_reset.on_season_reset(forget_knowledge_wall)
+    _oe_for_reset.on_season_reset(_forget_season_pacing)  # ORW-231
 except Exception:
     pass
 
@@ -4209,7 +4795,8 @@ _CLAIM_COMP_RESULT_RE = re.compile(
 # STRONG forms use competition-elimination verbs ("goes out", "drops off", "slips down") and stand on their own;
 # idioms are excluded ("goes out for a walk", "out of your…", "out in the yard"). The WEAK copula forms
 # ("X is out", "you are out") are ambiguous prose and only count with competition context (`_COMP_CONTEXT_RE`).
-_ELIM_NAME = r"(?:[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
+# ORW-273: a sentence-initial pronoun / determiner is not a houseguest ("He goes down hard on the plank" was cut as a named elimination).
+_ELIM_NAME = r"(?:(?!(?:He|She|They|It|We|I|His|Her|Their|This|That|There|Then|Everyone|Someone|Somebody|Nobody)\b)[A-Z][a-z]+(?:\s[A-Z][a-z]+)?|You)"
 _ELIM_NOT_IDIOM = (r"(?!\s+(?:of\s+(?:your|my|his|her|their|our)\b|in\s+the\b|at\s+the\b|by\s+the\b|"
                    r"for\b|to\b|with\b|into\b|onto\b|there\b|again\b|later\b))")
 _CLAIM_COMP_ELIM_STRONG_RE = re.compile(
@@ -4315,6 +4902,9 @@ def _player_seated_in_excluded_field(text: str, live: dict) -> Optional[str]:
     return None
 
 
+_COMP_ROUND_CUE_RE = re.compile(r"the (?:yard|house|crowd) erupts", re.IGNORECASE)
+
+
 def _unsettled_competition_result(text: str, live: dict, before: dict) -> Optional[str]:
     """A-9 — STRUCTURAL screen: the engine's competition is UNSETTLED (a competition phase, still waiting on
     the player's `comp-intent`/`comp-round` approach) and the COMPETITION did not progress this turn, so any
@@ -4335,6 +4925,7 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
     # approach pending, yet the competition is just as unsettled; a result narrated with NO progress is invented.
     if live.get("pending") not in (None, "comp-intent", "comp-round"):
         return None
+    walked = bool(before.get("compWalked"))
     for k in ("phase", "pending", "hoh", "vetoHolder", "compSig"):
         if before.get(k) != live.get(k):
             return None  # the competition moved (resolved, or a staged round advanced) — the engine produced events
@@ -4345,8 +4936,14 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
                 continue
-            if (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
-                    or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent))):
+            if _CLAIM_RULE_CUE_RE.search(clause) or _rule_subject(text, sent):  # ORW-374: a rules speech is not a result
+                continue
+            if walked:  # ORW-273: round-level cues (a crowd reaction, who dropped) are the rounds the engine walked; only a WINNER / crown / title claim is ahead of the engine
+                _hit = any(not _COMP_ROUND_CUE_RE.fullmatch(m.group(0)) for m in _CLAIM_COMP_RESULT_RE.finditer(clause))
+            else:
+                _hit = (_CLAIM_COMP_RESULT_RE.search(clause) or _CLAIM_COMP_ELIM_STRONG_RE.search(clause)
+                        or (_CLAIM_COMP_ELIM_WEAK_RE.search(clause) and _COMP_CONTEXT_RE.search(sent)))
+            if _hit:
                 return ("a COMPETITION RESULT or its aftermath (the engine has NOT resolved the competition — it is "
                         "still waiting on the player's approach)")
     return None
@@ -4369,7 +4966,12 @@ _CLAIM_VETO_INTENT_RE = re.compile(
 _VETO_N1_HYP_RE = re.compile(
     r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
-    r"think(?:s|ing)?\s+about|whether)\b", re.IGNORECASE)
+    r"think(?:s|ing)?\s+about|whether"
+    # ORW-25 (A80): a supposition ("Imagine the nominees aren't set yet") and a negated report ("Nobody says the
+    # nominees haven't been named") assert nothing about the current board either.
+    r"|imagine|imagining|suppose|supposing|assuming|in\s+case|hypothetically|pretend(?:s|ed|ing)?"
+    r"|(?:nobody|no\s+one|none\s+of\s+them)\s+(?:says?|said|claims?|claimed|thinks?|thought|believes?|"
+    r"pretends?|mentions?|suggests?))\b", re.IGNORECASE)
 
 # N-6: a hypothetical / conditional / past-week sentence ("If Ian wins the veto...", "whoever wins", "when she wins", "last week's HOH") is not an assertion
 # about the CURRENT board, so it is never a contradiction. The narration path's hypothetical detector plus the aside-specific temporal cues.
@@ -4535,8 +5137,9 @@ def _uncommitted_player_choice(text: str, live: dict) -> Optional[str]:
 
 
 # the hypothetical exemption is scoped to the denial's OWN clause (commas / "and" / "so" end a clause), so a hypothetical
-# first clause cannot hide an explicit later contradiction
-_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
+# first clause cannot hide an explicit later contradiction. ORW-25: a colon ends a clause too, so the exclamation in
+# "Imagine that: the nominees haven't been named." does not cover the denial after it.
+_N3_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\b(?:but|and|so|though|yet|however)\b", re.IGNORECASE)
 
 
 def _stale_denial_contradiction(text: str, live: dict) -> Optional[str]:
@@ -4592,6 +5195,17 @@ def _veto_possession_without_holder(text: str, live: dict) -> Optional[str]:
 # Live replay 4 (turns 59 and 94): asked what time it was, the narrator answered "It's 8:10am on day 3/4" - a canned line copied from its own earlier reply - while the engine clock read about noon (and the beat it named,
 # "the nomination ceremony this afternoon", was long over). A present-tense "it's H:MM am/pm" that disagrees with the engine's clock by more than the tolerance is a fabrication of a closed-set fact the engine states exactly.
 _CLOCK_STATEMENT_RE = re.compile(r"\b(?:it(?:'s|\u2019s|\s+is)|the\s+time\s+is|right\s+now\s+it(?:'s|\u2019s))\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b(?:[^.\n]{0,30}?\bday\s+(\d{1,2})\b)?", re.IGNORECASE)
+from src.zero_clocks import narrator_clock as _zc_narrator_clock, zero_clocks_on as _zc_on, sentence_states_zero_clock_time_raw as _zc_raw  # ORW-377
+
+
+def sentence_states_zero_clock_time(text: str) -> bool:
+    """ORW-377: with the zero-clocks setting ON, does this sentence state a clock time (the pre-emission guard drops it)? OFF / any hiccup => False (nothing dropped)."""
+    try:
+        return bool(text) and _zc_on() and _zc_raw(text)
+    except Exception:
+        return False
+
+
 _CLOCK_LABEL_RE = re.compile(r"^(\d{1,2}):(\d{2})(am|pm),\s*Day\s+(\d+)$")
 _CLOCK_TOLERANCE_MIN = 45
 
@@ -4616,9 +5230,63 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
         diff = min(diff, 1440 - diff)
         said_day = int(m.group(4)) if m.group(4) else None
         if diff > _CLOCK_TOLERANCE_MIN or (said_day is not None and said_day != eng_day):
-            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
+            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + _zc_narrator_clock(lab) + " (use exactly that)"
     return None
 
+
+
+# ORW-79 (A95): the exact clock is in the prompt, yet the narrator still sets the scene with "afternoon light" at a morning clock. `_clock_misstated` only checks an explicit "it's H:MM". This is its scene-setting
+# sibling: a present-tense period-of-day LIGHT phrase ("the afternoon sun", "evening light", "morning glow", "dusk light") whose period disagrees with the engine clock. Same style as the rest of the desync
+# family: closed-set (what time of day it is), post-turn, a next-turn re-ground, never an edit of creative prose. Deliberately narrow: only light/sun/glow phrases (not "this morning", which is a time reference
+# a flashback or a plan may use), only present-tense sentences (any past / future / memory / hypothetical cue exempts it), and a phrase within the boundary tolerance of its own period is accepted.
+_TOD_PERIODS = (("morning", 8 * 60, 12 * 60), ("afternoon", 12 * 60, 16 * 60), ("evening", 16 * 60, 20 * 60), ("night", 20 * 60, 24 * 60))
+_TOD_LIGHT_RE = re.compile(
+    r"\b(?:the\s+|that\s+|a\s+|its\s+)?(?:(late|early|mid)[- ])?(morning|afternoon|evening)(?:'s|\u2019s)?\s+(?:light|sun|sunlight|sunshine|glow|haze|rays)\b|"
+    r"\b(?:(dusk|twilight|sunset|sundown)\s+(?:light|glow|sky)|(?:the\s+)?(?:setting|late)\s+sun|(?:the\s+)?(?:rising|morning)\s+sun)\b",
+    re.IGNORECASE,
+)
+_TOD_EXEMPT_RE = re.compile(
+    r"\b(?:was|were|had|used\s+to|remember\w*|recall\w*|yesterday|earlier|last\s+(?:night|week|time)|back\s+then|once|ago|will|would|could|might|going\s+to|about\s+to|tomorrow|tonight|later|someday|if|imagine|suppose|when\s+(?:i|we|you|he|she|they)\s+(?:was|were))\b",
+    re.IGNORECASE,
+)
+_TOD_SUNLIT_WORD_PERIOD = {"dusk": "evening", "twilight": "evening", "sunset": "evening", "sundown": "evening", "setting": "evening", "rising": "morning"}
+
+
+def _tod_period_of(minute_of_day: int) -> str:
+    if minute_of_day < 8 * 60:
+        return "late-night"
+    for name, lo, hi in _TOD_PERIODS:
+        if lo <= minute_of_day < hi:
+            return name
+    return "night"
+
+
+def _time_of_day_words_misstated(text: str, live: dict) -> Optional[str]:
+    """A present-tense period-of-day light phrase that disagrees with the engine clock. None with no clock, an unparseable label, a past/future/hypothetical sentence, or a clock within `_CLOCK_TOLERANCE_MIN` of the named period."""
+    if not isinstance(live, dict) or not text:
+        return None
+    lab = live.get("clockLabel")
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    if not mm:
+        return None
+    eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+    text = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    for sent in re.split(r"(?<=[.!?\n])", text):
+        if not sent.strip() or _TOD_EXEMPT_RE.search(sent):
+            continue
+        for m in _TOD_LIGHT_RE.finditer(sent):
+            named = (m.group(2) or "").lower() or _TOD_SUNLIT_WORD_PERIOD.get((m.group(3) or "").lower()) or ""
+            if not named:
+                tail = m.group(0).lower()
+                named = "evening" if "setting" in tail or "late sun" in tail else "morning"
+            span = {n: (lo, hi) for n, lo, hi in _TOD_PERIODS}.get(named)
+            if not span:
+                continue
+            lo, hi = span
+            if lo - _CLOCK_TOLERANCE_MIN <= eng < hi + _CLOCK_TOLERANCE_MIN:
+                continue
+            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + _zc_narrator_clock(lab) + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
+    return None
 
 
 # ORW-10: the endurance-finish shape the narrator used to replay a competition ("comes down to the last two", "grip fails", "the rig") and the way it named the winner ("It's Tara.", "Tara outlasts them").
@@ -4688,7 +5356,8 @@ def _veto_holder_contradiction(text: str, live: dict) -> Optional[str]:
                 name = next((g for g in m.groups() if g), None)
                 if not name or _name_matches(name, holder) or not _name_matches_active(name, live):
                     continue
-                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1]
+                # ORW-25: the lead also ends at a colon ("Imagine that: <name> gets there first" is a claim)
+                lead = _COMP_CLAUSE_SPLIT_RE.split(sent[:m.end()])[-1].rsplit(":", 1)[-1]
                 if _VETO_N1_HYP_RE.search(lead):
                     continue
                 return ("the WRONG houseguest as the veto winner / user (the engine's Power of Veto holder is "
@@ -4704,22 +5373,24 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
     someday' still streams — it never reaches the async verify, and would pass it anyway)."""
     if not text or not text.strip():
         return False
+    # ORW-80: the weekly-loop outcome kinds count only OUTSIDE a hypothetical ("if somebody wins the veto
+    # tomorrow" is talk, never worth a board read, a drop or a scene cut) — see `_committed_claim`.
     return bool(
-        _CLAIM_EVICTED_RE.search(text)
-        or _CLAIM_WINNER_RE.search(text)
-        or _CLAIM_NEW_HOH_RE.search(text)
-        or _CLAIM_SELF_HOH_WIN_RE.search(text)   # A2: "you won HOH" — a self-crown the board can deny
-        or _CLAIM_SELF_VETO_WIN_RE.search(text)  # A2: "you won the veto" — same
-        or _CLAIM_TALLY_RE.search(text)
-        or _CLAIM_EVICT_RESULT_RE.search(text)  # LIVE-7 (#540): self-counted majority/short
-        or _CLAIM_NOMINATED_RE.search(text)
-        or _CLAIM_VETO_WINNER_RE.search(text)
+        _committed_claim(_CLAIM_EVICTED_RE, text)
+        or _committed_claim(_CLAIM_WINNER_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text, _CLAIM_RULE_CUE_RE)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, _CLAIM_RULE_CUE_RE)   # A2: "you won HOH" — a self-crown the board can deny
+        or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)  # A2: "you won the veto" — same
+        or _committed_claim(_CLAIM_TALLY_RE, text)
+        or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)  # LIVE-7 (#540): self-counted majority/short
+        or _committed_claim(_CLAIM_NOMINATED_RE, text)
+        or _committed_claim(_CLAIM_VETO_WINNER_RE, text)
         or _CLAIM_VETO_USE_RE.search(text)  # T0-3: the veto USE decision (distinct from who WON it)
         or _CLAIM_PLAYER_EXPULSION_RE.search(text)  # #1659 R2: "you're being removed/expelled from the game"
-        or _CLAIM_COMP_RESULT_RE.search(text)  # A-9: a specific competition event (verified against the board)
+        or _committed_claim(_CLAIM_COMP_RESULT_RE, text)  # A-9: a specific competition event (verified against the board)
         or _CLAIM_COMP_ELIM_STRONG_RE.search(text)
         or _CLAIM_COMP_ELIM_WEAK_RE.search(text)
-        or _CLAIM_VETO_BELL_RE.search(text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
+        or _committed_claim(_CLAIM_VETO_BELL_RE, text)  # N-1: a non-holder named as the veto winner (verified vs vetoHolderName)
         or _CLAIM_VETO_INTENT_RE.search(text)  # N-1: a non-holder 'going to use it'
         or _CLAIM_PLAYER_IN_FIELD_RE.search(text)  # F-3: the player seated in a veto field (verified against the engine's field)
         or _DENY_HOH_RE.search(text) or _DENY_NOMS_RE.search(text) or _DENY_VETO_RE.search(text)  # N-3: stale "not yet"
@@ -4748,22 +5419,24 @@ def _sentence_has_chyron_covered_claim(text: str) -> bool:
     `not _veto_use_claim_is_speculative(text)` — a modal/conditional/interrogative veto-use mention
     ("Priya wonders whether to use the veto on herself", "if he uses the veto, the whole week flips")
     is legitimate open-set color (ADR 0005), not a closed-set outcome claim, and must survive the
-    hard-drop rail untouched. The other 8 patterns don't need this: their committed-tense-only
-    construction (wins/won, is/was evicted, nominates — never a bare infinitive/modal form) already
-    excludes the equivalent speculative phrasing for those kinds without a separate clause scan; only
-    veto-use's present-tense "uses" is ambiguous enough (it is grammatically identical in a live
-    conditional and a declarative narration) to need one."""
+    hard-drop rail untouched. ORW-80 (A96, live replay 4): the other 8 patterns turned out to need the
+    same — present-tense "wins" / "is evicted" / "won" read identically in a conditional ("if somebody
+    wins the veto tomorrow", "whoever wins HOH") — so each is asked through `_committed_claim`, which
+    ignores a match with a conditional lead-in earlier in its sentence."""
     if not text or not text.strip():
         return False
+    # ORW-80: present-tense "wins" (and "is evicted", "won") is what a conditional uses too ("if somebody wins
+    # the veto tomorrow", "whoever wins HOH"), so — like veto-use — a match is a claim only outside a
+    # hypothetical (`_committed_claim`); a committed claim still hard-drops exactly as before.
     return bool(
-        _CLAIM_EVICTED_RE.search(text)
-        or _CLAIM_NEW_HOH_RE.search(text)
-        or _CLAIM_SELF_HOH_WIN_RE.search(text)
-        or _CLAIM_SELF_VETO_WIN_RE.search(text)
-        or _CLAIM_TALLY_RE.search(text)
-        or _CLAIM_EVICT_RESULT_RE.search(text)
-        or _CLAIM_NOMINATED_RE.search(text)
-        or _CLAIM_VETO_WINNER_RE.search(text)
+        _committed_claim(_CLAIM_EVICTED_RE, text)
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)
+        or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)
+        or _committed_claim(_CLAIM_TALLY_RE, text)
+        or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)
+        or _committed_claim(_CLAIM_NOMINATED_RE, text)
+        or _committed_claim(_CLAIM_VETO_WINNER_RE, text)
         or (_CLAIM_VETO_USE_RE.search(text) and not _veto_use_claim_is_speculative(text))
     )
 
@@ -4959,6 +5632,16 @@ def _log_scene_cut(user, phase, directive, text) -> None:
         pass
 
 
+# ORW-358: the scene breaker's "keep the scene, drop only the wrong tally sentence" result, handed to the caller out-of-band (the return value stays
+# Optional[str] directive so every existing caller/stub is untouched). Set only when the breaker returned None BECAUSE it rewrote; consumed once.
+_SCENE_REWRITE: dict = {}
+
+
+def take_scene_rewrite(user) -> Optional[str]:
+    """The tally-stripped text the last `screen_streamed_scene_break` call for this user produced instead of cutting the scene (consumed once), else None."""
+    return _SCENE_REWRITE.pop(_desync_key(user), None)
+
+
 async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
     """A2 — decide whether the WHOLE scene in `text` must be cut (a phantom/unverifiable board change).
     Returns the re-ground directive (and stashes it as the next-turn backstop) when the scene must be
@@ -4972,6 +5655,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
+        _SCENE_REWRITE.pop(_dkey, None)
         before = _LAST_BEAT_SIG.get(_dkey)
         live = await _capture_beat_signature(user)
         if not live:
@@ -5013,6 +5697,27 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         _roll_cut_streak(_dkey, before)
         directive = _narration_claims_outcome(text, before, live)
+        if directive and "EVICTION VOTE TALLY / RESULT" in directive:
+            # ORW-358: the evictee is committed and only a TALLY sentence is wrong - drop just that sentence and keep the scene (goodbyes, reactions).
+            # Strictness is unchanged for anything else: the remedy applies only if the stripped text then passes the SAME verifier (a wrong evictee, a
+            # phantom result or a second fabrication still cuts the whole scene).
+            _kept = drop_wrong_tally_sentences(text, live)
+            if _kept != text and _kept.strip() and not _narration_claims_outcome(_kept, before, live):
+                _SCENE_REWRITE[_dkey] = _kept
+                logger.warning("[orwell] scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept for user=%s", user)
+                return None
+        if directive and _is_early_claim_directive(directive, text, live):
+            # ORW-373: the board change was announced one beat early - drop just the flagged sentence(s), keep the scene, and skip the re-ground (the
+            # prose and the board agree again). Only when the stripped text passes the SAME verifier; otherwise the whole-scene cut below stands.
+            _res = drop_early_claim_sentences(text, before, live)
+            _st = _EARLY_DROPS.get(_dkey)
+            if not _st or _st["before"] is not before:
+                _st = _EARLY_DROPS[_dkey] = {"before": before, "n": 0}
+            if _res is not None and _st["n"] + _res[1] <= _EARLY_DROP_BUDGET and not _narration_claims_outcome(_res[0], before, live):
+                _st["n"] += _res[1]
+                _SCENE_REWRITE[_dkey] = _res[0]
+                logger.warning("[orwell] scene circuit-breaker: early ceremony claim - dropped the sentence(s) only, scene kept for user=%s (%s)", user, next((m for m in _EARLY_CLAIM_MARKERS if m in directive), "?"))
+                return None
         if directive:
             _cut_text, _cut_phase = text, live.get("phase")
             _streak = _count_cut(_dkey, before, live)
@@ -5099,16 +5804,18 @@ def _unbacked_outcome_absent(text: str, live: dict) -> Optional[str]:
     if not phase.startswith(_PRE_CEREMONY_PHASES):
         return None
     t = text or ""
-    if (_CLAIM_NEW_HOH_RE.search(t) or _CLAIM_SELF_HOH_WIN_RE.search(t)) and not live.get("hoh"):
+    # ORW-80: a hypothetical ("if he wins HOH tomorrow, we're safe") is premiere talk, not a fabrication.
+    def _claims(*regexes) -> bool:
+        return any(_committed_claim(rx, t) for rx in regexes)
+    if _claims(_CLAIM_NEW_HOH_RE, _CLAIM_SELF_HOH_WIN_RE) and not live.get("hoh"):
         return "a HEAD OF HOUSEHOLD win (no Head of Household reigns yet)"
-    if _CLAIM_NOMINATED_RE.search(t) and not (live.get("noms") or []):
+    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []):
         return "a NOMINATION (no houseguest is on the block yet)"
-    if (_CLAIM_VETO_WINNER_RE.search(t) or _CLAIM_SELF_VETO_WIN_RE.search(t)) and not live.get("vetoHolder"):
+    if _claims(_CLAIM_VETO_WINNER_RE, _CLAIM_SELF_VETO_WIN_RE) and not live.get("vetoHolder"):
         return "a POWER OF VETO win (no one holds the veto yet)"
-    if (_CLAIM_EVICTED_RE.search(t) or _CLAIM_EVICT_RESULT_RE.search(t) or _CLAIM_TALLY_RE.search(t)) \
-            and not live.get("evicted"):
+    if _claims(_CLAIM_EVICTED_RE, _CLAIM_EVICT_RESULT_RE, _CLAIM_TALLY_RE) and not live.get("evicted"):
         return "an EVICTION / a vote result (no one has been evicted yet)"
-    if _CLAIM_WINNER_RE.search(t) and not live.get("finished"):
+    if _claims(_CLAIM_WINNER_RE) and not live.get("finished"):
         return "the SEASON WINNER being crowned (the season is not finished)"
     return None
 
@@ -5407,10 +6114,558 @@ async def screen_streamed_met_everyone(user, sentence: str) -> bool:
         return True  # fail-open: never suppress on an error.
 
 
+# ── ORW-310 — the PRE-EMISSION "unbacked morning" guard. ───────────────────────────────────────── #
+# Live: the player went to bed, the model never called `turnIn`, and the narrator narrated a whole morning
+# (a houseguest waking the player) while the engine sat on Day 1 late-night. WHAT TIME IT IS and WHICH DAY is
+# closed-set board truth (the engine clock); a sentence that ASSERTS the morning/next day has arrived while
+# the board still reads evening/night/late-night is a phantom, dropped before the player sees it, with a
+# next-turn re-ground. Deliberately narrow (ADR 0005 #1): only a present/past ASSERTION of the day turning
+# ("the next morning comes", "morning arrives", "it is the next morning", "wakes you the next morning"), never
+# atmosphere ("morning light" - the A95 post-turn nudge owns that), and a future / hypothetical / dream
+# sentence is exempt. Fail-open on any engine hiccup.
+_UNBACKED_MORNING_RE = re.compile(
+    r"\b(?:the\s+)?next\s+(?:morning|day)\s+(?:comes|came|arrives|arrived|dawns|dawned|breaks|broke)\b"
+    r"|\bmorning\s+(?:has\s+|had\s+)?(?:comes?|came|arrives?|arrived|breaks?|broke|dawns?|dawned)\b"
+    r"|\bit(?:'s|\u2019s|\s+is|\s+was)\s+(?:now\s+|already\s+)*(?:the\s+)?(?:next\s+)?(?:morning|day\s+(?:2|two|3|three))\b"
+    r"|\b(?:wak\w+|woke|rous\w+|awaken\w*)\b[^.!?\n]{0,40}\b(?:next\s+morning|morning\s+(?:light|sun|sunlight)|in\s+the\s+morning)\b",
+    re.IGNORECASE,
+)
+_UNBACKED_MORNING_EXEMPT_RE = re.compile(
+    r"\b(?:will|would|could|might|going\s+to|about\s+to|if|imagine|suppose|tomorrow|until|till|before|when|whenever|dream\w*|hope|wish|"
+    r"see\s+you|wake\s+you\s+(?:up\s+)?(?:in|at|early|tomorrow)|'ll|\u2019ll)\b",
+    re.IGNORECASE,
+)
+_UNBACKED_MORNING_BOARD_TIMES = frozenset({"evening", "night", "late-night"})
+
+
+def _sentence_has_unbacked_morning_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter: does `text` assert the morning / next day has arrived (and is not a
+    future / hypothetical / dream sentence)? Keeps the ORW-310 guard off every other sentence."""
+    if not text or not _UNBACKED_MORNING_RE.search(text):
+        return False
+    return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
+
+
+async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
+    """ORW-310 mid-stream screen: HOLD (return False) a sentence asserting the morning/next day arrived while
+    the engine clock still reads evening/night/late-night; else EMIT (True). Stashes a next-turn re-ground when
+    it holds. Fail-open: any hiccup, an absent clock or a non-night band returns True (emit)."""
+    try:
+        if not _sentence_has_unbacked_morning_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        if not isinstance(status, dict):
+            return True
+        tod = str(status.get("timeOfDay") or "").strip().lower()
+        lab = status.get("clockLabel")
+        # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
+        # pre-dawn small hours, so "morning comes in bright and early" is just as unbacked as it is at night.
+        if tod not in _UNBACKED_MORNING_BOARD_TIMES and not _clock_is_predawn(lab):
+            return True
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
+            "reads " + (_zc_narrator_clock(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
+            "goes to bed, call the `turnIn` tool FIRST and voice the morning only from what it returns.")
+        logger.warning("[orwell] pre-emission guard HELD an unbacked-morning claim for user=%s - engine clock still %s", user, tod)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission unbacked-morning guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
+_PREDAWN_BEFORE_MIN = 7 * 60
+
+
+def _clock_is_predawn(lab) -> bool:
+    """ORW-355: does the engine clock label ("4:15am, Day 4") read before 7am (the small hours, never morning)?"""
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    return bool(mm) and _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3)) < _PREDAWN_BEFORE_MIN
+
+
+# ORW-355 (Ryne 2026-11-14: one rule for every night): the narrator said "It's 8:15 in the morning" while the engine clock read 4:15am. `_clock_misstated` (post-turn, next-turn re-ground) only matches "it's H:MM am/pm", never
+# "H:MM in the morning/afternoon/evening", and never ran BEFORE the player saw it. A present-tense stated clock time is a closed-set fact: this is its pre-emission sentence screen.
+_CLOCK_IN_THE_RE = re.compile(
+    r"\bit(?:'s|\u2019s|\s+is)\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s+in\s+the\s+(morning|afternoon|evening)\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_has_in_the_clock_claim(text: str) -> bool:
+    return bool(text and _CLOCK_IN_THE_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+
+
+async def screen_streamed_clock_time(user, sentence: str) -> bool:
+    """ORW-355 mid-stream screen: HOLD (return False) a sentence stating "It's H:MM in the morning/afternoon/evening" that disagrees with the engine clock by more than the tolerance; else EMIT. Stashes a next-turn
+    re-ground quoting the engine's label. Fail-open: any hiccup, an absent / unparseable clock returns True."""
+    try:
+        m = _CLOCK_IN_THE_RE.search(sentence or "")
+        if not m or not _sentence_has_in_the_clock_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        lab = status.get("clockLabel") if isinstance(status, dict) else None
+        mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+        if not mm:
+            return True
+        eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+        said = _clock_minutes(int(m.group(1)), int(m.group(2) or 0), "am" if m.group(3).lower() == "morning" else "pm")
+        diff = abs(said - eng)
+        diff = min(diff, 1440 - diff)
+        if diff <= _CLOCK_TOLERANCE_MIN:
+            return True
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + _zc_narrator_clock(lab) + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
+        logger.warning("[orwell] pre-emission guard HELD a misstated clock time for user=%s - engine clock %s", user, lab)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission clock-time guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
 def _sentence_has_met_everyone_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the player met the whole house? Keeps the S7
     guard off every sentence that never mentions it (mirrors `_sentence_has_closed_set_claim`)."""
     return bool(text and _MET_EVERYONE_RE.search(text))
+
+
+# ── ORW-205 — the PRE-EMISSION HEADCOUNT guard (the premiere entrances) ──────────────────────── #
+#
+# Playtest 2026-11-06: during the staged premiere entrances the narrator counted the room itself and got
+# it wrong ("Ten of the cast in the house now" with 12 inside, "Six in the door, nine to go" with 11
+# inside, "Eight of you fill the living room" while the player was still outside). #2244 hands the
+# narrator the engine's own count (`premiereIntros.entrance.insideCount` plus a ready-made `headcount`
+# sentence) and the prompt forbids its own counts. This is the structural half, so the rule does not rest
+# on prompt wording alone: a sentence that STATES how many are inside (or still to come) is checked
+# against the engine's LIVE entrance count and DROPPED before the player sees it when the engine
+# contradicts it, and a next-turn re-ground quoting the engine's headcount sentence is stashed.
+#
+# Jurisdiction (ADR 0005 #1): who has arrived is a CLOSED-SET fact, so a stated COUNT of it may be
+# policed, and nothing else. The grammar is deliberately narrow: a number bound to an arrival anchor
+# ("N in", "N of you are inside", "N in the house", "N through the door", "N have arrived", "N of you fill
+# the living room") or a remaining anchor ("N to go", "N more to come", "N more still have to walk through
+# that door"), led in by a clause start or a copula ("that's", "there are", "it's"). A subgroup ("the three
+# of them are laughing", "four of them by the fence"), a time ("nine in the morning"), a hedge ("about ten
+# of you"), a conditional ("once all sixteen are in"), a past or future count ("ten of you were inside",
+# "there will be sixteen"), an anchor that does not end its clause ("three in the house have already clocked
+# you", where "in the house" picks out who) and the cast total in prose never match. Counts are checked only while the
+# engine reports the entrances or the toast; outside them, or on any engine hiccup, the sentence emits
+# unchanged (fail-open: a false hold on creative prose is worse than a missed count).
+
+_HC_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+    "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+    "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+_HC_NUM_ALT = r"\d{1,2}|" + "|".join(sorted(_HC_NUMBER_WORDS, key=len, reverse=True))
+_HC_NUM_RE = re.compile(r"\b(" + _HC_NUM_ALT + r")\b", re.IGNORECASE)
+# The words that may lead straight into a stated count. Anything else right before the number ("waves two
+# in", "about ten", "were", "will be") means it is not a headcount statement — hedges are excluded simply
+# by not being here. A clause start (sentence start, punctuation, a quote or markdown opener) also leads in.
+_HC_LEAD_WORDS = frozenset({
+    "and", "so", "now", "then", "with", "but", "plus", "the", "all", "other", "just", "only",
+    "makes", "that's", "thats", "it's", "there's", "theres", "are", "we're", "you're", "they're",
+})
+_HC_CLAUSE_PUNCT = ".!?;:,(—–\n\"“”'‘’["
+_HC_CLAUSE_SPLIT_RE = re.compile(r"[.!?;:,(—–\n]")
+# A subordinate (conditional / temporal) clause states no current count: "once all sixteen are in", "when
+# there are ten of you in", "by the time twelve of you are inside".
+_HC_CONDITIONAL_RE = re.compile(
+    r"\b(?:once|when|whenever|until|till|after|before|if|unless|as\s+soon\s+as|by\s+the\s+time)\b",
+    re.IGNORECASE,
+)
+# What may follow an anchor for it to close the count (else "in total", "in and out", "to go home"). The anchor
+# must END its clause (ORW-205 review): after it come optional time adverbs ("now", "already", "so far"), then
+# the end, punctuation or a conjunction. A finite verb after it ("Three in the house have already clocked you",
+# "Eight in the house know your name") makes the anchor a modifier of the subject, not an arrival count.
+_HC_BOUNDARY = (
+    r"(?=(?:\s+(?:now|already|so\s+far|tonight|officially|yet)\b)*"
+    r"\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_(\n]|-\s|--"
+    r"|(?:and|but|then|before|until|till|plus|including|counting)\b))"
+)
+_HC_NOUNS = r"houseguests|people|strangers|guests|contestants|players|newcomers|arrivals|cast\s+members"
+_HC_SUBJ = (
+    r"(?:\s+(?P<subj>of\s+(?:you|y'?all|y’all|us|them)\b"
+    r"|of\s+(?:the\s+)?(?:cast|house|group|" + _HC_NOUNS + r"|" + _HC_NUM_ALT + r")\b"
+    r"|(?:" + _HC_NOUNS + r")\b))?"
+)
+_HC_AUX = r"(?:\s+(?:are|now|already|all|officially|finally|safely|have|has|been))*"
+_HC_INSIDE_TAIL_RE = re.compile(
+    _HC_SUBJ + _HC_AUX + r"\s+(?:"
+    r"(?:in|inside)(?!\s+and\s+out\b)" + _HC_BOUNDARY
+    + r"|(?:in|inside)\s+the\s+(?:house(?!['’]s)|front\s+door|door(?!\s*(?:frame|jamb)))\b" + _HC_BOUNDARY
+    + r"|through\s+the\s+(?:front\s+)?door\b" + _HC_BOUNDARY
+    + r"|(?:arrived|walked\s+in|moved\s+in|made\s+it\s+in(?:side)?|checked\s+in)" + _HC_BOUNDARY
+    + r"|(?:fill|fills|crowd|crowds|pack|packs|cram|crams|jam|jams)(?:\s+into)?\s+the\s+"
+      r"(?:living\s+room|room|house|lounge|place)" + _HC_BOUNDARY
+    + r")",
+    re.IGNORECASE,
+)
+_HC_REMAIN_NOUNS = r"houseguests?|arrivals?|people|strangers|guests|faces"
+_HC_REMAIN_TAIL_RE = re.compile(
+    r"(?:\s+more)?(?:\s+(?:" + _HC_REMAIN_NOUNS + r"))?(?:\s+(?:still|left))?\s+to\s+go" + _HC_BOUNDARY
+    + r"|\s+more(?:\s+(?:" + _HC_REMAIN_NOUNS + r"))?\s+(?:still\s+)?(?:to\s+come|on\s+the\s+way|"
+      r"waiting(?:\s+outside)?|(?:left\s+)?to\s+arrive|(?:have|has|need|needs)\s+to\s+(?:walk|come)\s+(?:through|in)|"
+      r"to\s+(?:walk|come)\s+(?:through|in))\b"
+    + r"|\s+(?:left|remaining|still)\s+to\s+(?:arrive|come|walk\s+in)\b",
+    re.IGNORECASE,
+)
+
+# One stated count: kind "inside" (how many are in) or "remaining" (how many are still to come); `subj` is
+# "you" ("N of you"), "us", or "them" (a bare number, a noun, "of the cast", "the other N").
+_HcClaim = collections.namedtuple("_HcClaim", ["kind", "n", "subj", "in_dialogue", "text"])
+
+
+def _hc_lead_word(pre: str) -> Optional[str]:
+    """The lead-in before a number: "" at a clause start, else the lowercased word right before it (or
+    None when what precedes it is neither)."""
+    p = pre.rstrip().rstrip("*_#>~`").rstrip()
+    if not p or not re.search(r"[A-Za-z0-9]", p) or p[-1] in _HC_CLAUSE_PUNCT or p.endswith((" -", "--")):
+        return ""
+    m = re.search(r"([A-Za-z’']+)$", p)
+    return m.group(1).lower().replace("’", "'") if m else None
+
+
+def _hc_in_dialogue(sentence: str, pos: int) -> bool:
+    """Is position `pos` inside quoted speech? Odd straight quotes on either side, or an open curly quote."""
+    before, after = sentence[:pos], sentence[pos:]
+    if before.count('"') % 2 == 1 or after.count('"') % 2 == 1:
+        return True
+    if before.rfind("“") > before.rfind("”"):
+        return True
+    close = after.find("”")
+    return close >= 0 and (after.find("“") < 0 or close < after.find("“"))
+
+
+def _headcount_claims(text: str) -> list:
+    """Every headcount STATEMENT in `text` (see the block comment for the grammar), as `_HcClaim`s.
+    Pure and engine-free. A number with no arrival/remaining anchor, a hedge or another non-lead word in
+    front of it, or a conditional clause around it is never a claim."""
+    if not text or not _HC_NUM_RE.search(text):
+        return []
+    claims = []
+    for m in _HC_NUM_RE.finditer(text):
+        word = m.group(1).lower()
+        pre = text[:m.start()]
+        lead = _hc_lead_word(pre)
+        if lead is None or (lead and lead not in _HC_LEAD_WORDS):
+            continue
+        clause = _HC_CLAUSE_SPLIT_RE.split(pre)[-1]
+        if _HC_CONDITIONAL_RE.search(clause):
+            continue
+        n = int(word) if word.isdigit() else _HC_NUMBER_WORDS[word]
+        tail = text[m.end():]
+        # "one in" is almost always the pronoun ("no one in the house", "the one in the corner").
+        im = None if word == "one" else _HC_INSIDE_TAIL_RE.match(tail)
+        if im:
+            subj_txt = (im.group("subj") or "").lower()
+            if lead == "other":
+                subj = "them"  # "the other eleven (of you) inside": the others, not the player
+            elif subj_txt.startswith(("of you", "of y'", "of y’", "of yall")):
+                subj = "you"
+            elif subj_txt.startswith("of us"):
+                subj = "us"
+            else:
+                subj = "them"
+            claims.append(_HcClaim("inside", n, subj, _hc_in_dialogue(text, m.start()),
+                                   (m.group(0) + im.group(0)).strip()))
+            continue
+        rm = _HC_REMAIN_TAIL_RE.match(tail)
+        if rm:
+            claims.append(_HcClaim("remaining", n, None, _hc_in_dialogue(text, m.start()),
+                                   (m.group(0) + rm.group(0)).strip()))
+    return claims
+
+
+def _sentence_has_headcount_claim(text: str) -> bool:
+    """Cheap synchronous pre-filter (no engine read): does `text` state a headcount at all? Keeps the
+    ORW-205 guard off every sentence that does not (mirrors `_sentence_has_met_everyone_claim`)."""
+    try:
+        return bool(_headcount_claims(text)) or bool(_engine_count_claims(text))  # ORW-376: + the room/house/vote counts
+    except Exception:
+        return False
+
+
+def _headcount_entrance(intros) -> Optional[dict]:
+    """The live entrance count off a `premiereIntros` result, or None when there is nothing to check
+    against (outside the premiere, past the toast, or a malformed view). Reads the #2244 `insideCount` /
+    `playerInside` / `headcount`, falling back to `index` / `playerPosition` on an older engine."""
+    try:
+        ent = intros.get("entrance") if isinstance(intros, dict) else None
+        if not isinstance(ent, dict) or ent.get("stage") not in ("entrances", "toast"):
+            return None
+        inside = ent.get("insideCount", ent.get("index"))
+        total = ent.get("total")
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (inside, total)):
+            return None
+        if total <= 0 or not 0 <= inside <= total:
+            return None
+        player_inside = ent.get("playerInside")
+        if not isinstance(player_inside, bool):
+            pos = ent.get("playerPosition")
+            if not isinstance(pos, int) or isinstance(pos, bool):
+                return None
+            player_inside = inside >= pos
+        headcount = ent.get("headcount")
+        return {"stage": ent["stage"], "inside": inside, "total": total, "player_inside": player_inside,
+                "headcount": headcount.strip() if isinstance(headcount, str) and headcount.strip() else None}
+    except Exception:
+        return None
+
+
+def _headcount_claim_ok(claim, ent: dict) -> bool:
+    """Does the engine's live count back this stated count? Inside: the full count, or the others once the
+    player is in ("eleven houseguests, plus you"); "N of you" in narration also says the player is inside.
+    Remaining: the arrivals still to come (the player among them while outside, or not counted)."""
+    inside, total, player_inside = ent["inside"], ent["total"], ent["player_inside"]
+    if claim.kind == "remaining":
+        left = total - inside
+        return claim.n == left or (not player_inside and left >= 1 and claim.n == left - 1)
+    if claim.subj == "you" and not claim.in_dialogue:
+        return player_inside and claim.n == inside
+    return claim.n == inside or (player_inside and claim.n == inside - 1)
+
+
+def _headcount_mismatch(text: str, ent: Optional[dict], claims=None):
+    """The first stated count in `text` that the engine's entrance count contradicts, or None. At the toast
+    everyone is in, and "two more to go" there means speeches, not arrivals, so only inside counts apply."""
+    if not ent:
+        return None
+    for claim in (_headcount_claims(text) if claims is None else claims):
+        if claim.kind == "remaining" and ent["stage"] != "entrances":
+            continue
+        if not _headcount_claim_ok(claim, ent):
+            return claim
+    return None
+
+
+def _headcount_directive(claim, ent: dict) -> str:
+    """The next-turn re-ground: names the narrator's own count and quotes the engine's headcount sentence."""
+    headcount = ent.get("headcount") or (
+        f"{ent['inside']} of {ent['total']} are inside"
+        + (" (the player is one of them)" if ent["player_inside"]
+           else " (the player has NOT walked in yet; they are not counted)"))
+    return (
+        "RE-GROUND ON THE HEADCOUNT — last turn you counted the house yourself (\"" + claim.text[:80]
+        + "\"), but the engine's headcount is: " + headcount + ". Never count the room yourself: if a "
+        "number matters, quote the engine's HEADCOUNT line exactly; otherwise use no number at all."
+    )
+
+
+async def _live_headcount_entrance(user) -> Optional[dict]:
+    """The engine's LIVE entrance count (`premiereIntros`, not the turn-start board: an `advanceGame`
+    earlier in the same turn moves it), or None. A failed read is unverifiable, so None (fail-open)."""
+    from src import orwell_engine
+    try:
+        return _headcount_entrance(await orwell_engine.premiere_intros(user=user))
+    except Exception as e:
+        logger.debug("[orwell] headcount guard: premiere_intros lookup failed user=%s: %s", user, _exc_detail(e))
+        return None
+
+
+def _note_headcount_hold(user, bad, ent: dict) -> None:
+    """Stash the next-turn re-ground for a held headcount and log it. Never raises."""
+    try:
+        _reground_enqueue(_desync_key(user), _headcount_directive(bad, ent))
+        logger.warning("[orwell] pre-emission guard HELD a headcount for user=%s — stated %d (%s), engine has "
+                       "%d of %d inside (player inside: %s)", user, bad.n, bad.kind, ent["inside"],
+                       ent["total"], ent["player_inside"])
+    except Exception:
+        pass
+
+
+# ── ORW-376 — the headcount wall beyond the premiere: the ENGINE's counts (player included) ───────── #
+#
+# The engine used to hand the narrator only the OTHER people's names, and the model counted that list, so "how many of us are
+# here" came out one short. The whereabouts view now carries `counts` {room, others, house, voters?}. A stated count the engine
+# contradicts is dropped like the premiere headcount (same sentence split, same next-turn re-ground). Closed-set claims only:
+# a room claim ("there are three of us in here", "the four of us"), an "others" claim ("the other three"), a house claim
+# ("eleven of us left"), a vote claim ("seven votes", "a 9-3 vote") past the number of legal voters. Subgroup talk ("the three of
+# us should ...", "one of us") and the idiomatic pair ("the two of us", unless anchored to the room) are never claims.
+_EC_NUM_RE = r"(" + _HC_NUM_ALT + r")"
+_EC_ROOM_ANCHOR = (r"(?:\s+(?:are\s+)?(?:right\s+now\s+)?(?:in\s+here|here|in\s+this\s+room|in\s+the\s+(?:kitchen|living\s*room|lounge|backyard|bedroom|"
+                   r"bathroom|hoh\s*room|storage\s*room|room)|together\s+in\s+(?:here|this\s+room)))")
+_EC_ROOM_US_RE = re.compile(r"\b(?:(there\s+(?:are|were|'s)\s+)|(?:the|all|just|only)\s+)" + _EC_NUM_RE + r"\s+of\s+us\b(" + _EC_ROOM_ANCHOR + r")?", re.IGNORECASE)
+_EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|need|needs|have\s+to|gotta|must|better|ought|going\s+to|gonna|might|may|'ll|’ll|against|vs|versus|\bto\b)\b", re.IGNORECASE)
+_EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
+_EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
+_EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
+_EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text"])
+
+
+def _ec_num(word: str) -> Optional[int]:
+    w = (word or "").lower()
+    if w.isdigit():
+        return int(w)
+    return _HC_NUMBER_WORDS.get(w)
+
+
+def _engine_count_claims(text: str) -> list:
+    """Every ENGINE-checkable count STATEMENT in `text` (kinds room / others / house / votes). Pure and engine-free."""
+    if not text or not _HC_NUM_RE.search(text):
+        return []
+    out = []
+    for m in _EC_ROOM_US_RE.finditer(text):
+        n = _ec_num(m.group(2))
+        if n is None or n < 2:
+            continue  # "one of us" is an idiom, never a count
+        anchored = bool(m.group(1) or m.group(3))
+        if n == 2 and not anchored:
+            continue  # "the two of us": a pair, not the room
+        if _EC_SUBGROUP_RE.match(text[m.end():]):
+            continue  # "the three of us should ...": a subgroup, not a headcount
+        out.append(_EcClaim("room", n, m.group(0).strip()))
+    for m in _EC_OTHER_RE.finditer(text):
+        n = _ec_num(m.group(1))
+        if n is not None and n >= 1:
+            out.append(_EcClaim("others", n, m.group(0).strip()))
+    for m in _EC_HOUSE_RE.finditer(text):
+        n = _ec_num(m.group(1))
+        if n is None or n < 2:
+            continue
+        who = re.sub(r"\s+", " ", m.group("who").lower())
+        out.append(_EcClaim("house" if who == "of us" else "house-loose", n, m.group(0).strip()))
+    for m in _EC_VOTES_RE.finditer(text):
+        nums = [x for x in (_ec_num(g) for g in m.groups() if g) if x is not None]
+        if nums:
+            out.append(_EcClaim("votes", sum(nums) if len(nums) > 1 else nums[0], m.group(0).strip()))
+    return out
+
+
+def _engine_counts_of(whereabouts) -> Optional[dict]:
+    """The validated `counts` off a whereabouts read, or None (unreadable / absent / malformed => fail-open)."""
+    try:
+        c = whereabouts.get("counts") if isinstance(whereabouts, dict) else None
+        if not isinstance(c, dict):
+            return None
+        for k in ("room", "others", "house"):
+            if not isinstance(c.get(k), int) or isinstance(c.get(k), bool) or c[k] < 0:
+                return None
+        v = c.get("voters")
+        return {"room": c["room"], "others": c["others"], "house": c["house"],
+                "voters": v if isinstance(v, int) and not isinstance(v, bool) else None}
+    except Exception:
+        return None
+
+
+def _engine_count_ok(claim, c: dict) -> bool:
+    """Does the engine's count back this stated count? A tally may carry one extra ballot (the HOH breaks a tie)."""
+    n = claim.n
+    if claim.kind == "room":
+        return n == c["room"]
+    if claim.kind == "others":
+        return n in (c["others"], c["others"] - 1)  # the speaker may be one of the others
+    if claim.kind == "house":
+        return n == c["house"]
+    if claim.kind == "house-loose":
+        return n in (c["house"], c["house"] - 1)  # "houseguests"/"people" may leave the player out
+    if claim.kind == "votes":
+        return c["voters"] is None or n <= c["voters"] + 1
+    return True
+
+
+def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
+    if not c:
+        return None
+    for claim in (_engine_count_claims(text) if claims is None else claims):
+        if not _engine_count_ok(claim, c):
+            return claim
+    return None
+
+
+def _engine_count_directive(claim, c: dict) -> str:
+    voters = f" Voting tonight: {c['voters']} people." if c.get("voters") is not None else ""
+    return (
+        "RE-GROUND ON THE HEADCOUNT — last turn you counted people yourself (\"" + claim.text[:80] + "\"), but the engine's counts are: "
+        f"In this room: {c['room']} people, you included (you + {c['others']} houseguests). In the house: {c['house']} people remain, you included.{voters} "
+        "Quote these exactly or use no number at all; never count the room yourself and never leave the player out of \"us\"."
+    )
+
+
+async def _live_engine_counts(user) -> Optional[dict]:
+    """The engine's LIVE counts off `whereabouts` (the player included), or None on any hiccup (fail-open)."""
+    from src import orwell_engine
+    try:
+        return _engine_counts_of(await orwell_engine.whereabouts(user=user))
+    except Exception as e:
+        logger.debug("[orwell] engine-count guard: whereabouts lookup failed user=%s: %s", user, _exc_detail(e))
+        return None
+
+
+def _note_engine_count_hold(user, bad, c: dict) -> None:
+    try:
+        _reground_enqueue(_desync_key(user), _engine_count_directive(bad, c))
+        logger.warning("[orwell] pre-emission guard HELD an engine-count claim for user=%s — stated %d (%s), engine counts %s", user, bad.n, bad.kind, c)
+    except Exception:
+        pass
+
+
+
+async def screen_headcount_wall(user, text: str) -> str:
+    """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
+    stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
+    rest, the same `[.!?\\n]` split the presence wall uses, so `_mirror_wall_drop` can mirror it). Cheap hot
+    path: no headcount statement anywhere ⇒ `text` verbatim with no engine read; otherwise ONE
+    `premiereIntros` read for the chunk. ORW-376: outside the entrances/toast the same wall checks a stated
+    room / house / vote count against the engine's `whereabouts.counts` (ONE read, player included).
+    Fail-open: any hiccup returns `text` unchanged."""
+    try:
+        if not text or not text.strip() or not _sentence_has_headcount_claim(text):
+            return text
+        ent = await _live_headcount_entrance(user)
+        counts = None
+        if ent is None:
+            if not _engine_count_claims(text):
+                return text
+            counts = await _live_engine_counts(user)
+            if counts is None:
+                return text
+        kept = []
+        for part in re.split(r"(?<=[.!?\n])", text):
+            if ent is not None:
+                bad = _headcount_mismatch(part, ent)
+                if bad is not None:
+                    _note_headcount_hold(user, bad, ent)
+                    continue  # DROP — a count the engine contradicts never reaches the player
+            else:
+                ebad = _engine_count_mismatch(part, counts)
+                if ebad is not None:
+                    _note_engine_count_hold(user, ebad, counts)
+                    continue
+            kept.append(part)
+        return "".join(kept)
+    except Exception as e:
+        logger.warning("[orwell] pre-emission headcount wall skipped for user=%s: %s", user, _exc_detail(e))
+        return text
+
+
+async def screen_streamed_headcount(user, sentence: str) -> bool:
+    """ORW-205 per-sentence form of `screen_headcount_wall` (the OOC-aside screen uses it): HOLD (return
+    False) a sentence whose stated headcount the engine's live entrance count contradicts, stashing the
+    next-turn re-ground; else EMIT (True). Fail-open: no claim, no entrance view, or any hiccup emits."""
+    try:
+        claims = _headcount_claims(sentence)
+        eclaims = _engine_count_claims(sentence)  # ORW-376
+        if not claims and not eclaims:
+            return True
+        ent = await _live_headcount_entrance(user)
+        if ent is None and eclaims:
+            counts = await _live_engine_counts(user)
+            ebad = _engine_count_mismatch(sentence, counts, eclaims)
+            if ebad is None:
+                return True
+            _note_engine_count_hold(user, ebad, counts)
+            return False
+        bad = _headcount_mismatch(sentence, ent, claims)
+        if bad is None:
+            return True
+        _note_headcount_hold(user, bad, ent)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission headcount guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True  # fail-open: never suppress on an error.
 
 
 # ── ADR 0009 (D3 Part B) — the PRE-EMISSION LOCATION guard (evicted-houseguest-in-a-room) ──────── #
@@ -5923,16 +7178,31 @@ async def _maybe_delta_line(user, last_seen_beat_seq) -> Optional[str]:
         return None
 
 
+def _audit_framed_briefing(user, messages) -> None:
+    """ORW-409: debug-log + soft-fail counter for any contradiction between the blocks of the final briefing. Report-only, fail-open; ORWELL_BRIEFING_AUDIT=0 turns it off."""
+    if os.getenv("ORWELL_BRIEFING_AUDIT", "1") == "0":
+        return
+    try:
+        from routes.briefing_audit import audit_briefing
+        for c in audit_briefing(messages):
+            logger.debug("[orwell] briefing conflict (%s): %s", c["fact"], c["detail"])
+            record_soft_failure(f"briefing-conflict:{c['fact']}", ValueError(c["detail"]), corrected="none:report-only", user=user)
+    except Exception as e:
+        logger.debug("[orwell] briefing audit skipped: %s", e)
+
+
 def _runway_sig(game_state: dict) -> str:
     """The `(week:phase)` signature of the beat the player is currently sitting in. A change in this
     signature means a ceremony resolved and we entered a new beat — the cue to arm a fresh runway."""
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
-def _schedule_not_due_steer(phase: str, scheduled_phase: str) -> str:
-    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only."""
-    label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
-    when = f"this {scheduled_phase}" if scheduled_phase else "later today"
+def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False) -> str:
+    """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only.
+    ORW-394: the event is labelled from the engine's schedule (`daySchedule.next`) when given - not the game phase, which can still be the previous event's - and says "tomorrow" when the schedule does."""
+    event = next_beat or phase
+    label = _MOMENT_PHASE_LABELS.get(event) or event.replace("-", " ")
+    when = _schedule_when(scheduled_phase, tomorrow, "later today")
     return (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {when} and it is not that time yet. The player cannot start, skip to or move it. "
             f"Keep this scene social. If they ask for it, let a houseguest or the house itself say production hasn't called it yet (it is {when}); "
             "do NOT narrate the event starting, a result, or anyone being called to it.")
@@ -5952,6 +7222,10 @@ def _interruption_steer(game_state) -> str:
     if not isinstance(i, dict) or not i.get("npc"):
         return ""
     why = _DESIRE_LINES.get(str(i.get("desire") or ""), _DESIRE_LINES["check-in"])
+    tells = str(i.get("tells") or "").strip()
+    if tells:  # ORW-261: the houseguest chose, unprompted, to tell the player something private; the engine authored and recorded the sentence - the narrator only voices it
+        return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}, and in the moment they choose to confide something of their own. "
+                f"Voice the entrance and let them say it in their own words, gently and in character: {tells} Add no outcome, vote or other secret beyond that.")
     return (f"AN INTERRUPTION (engine-decided): {i['npc']} steps into the player's conversation - they {why}. Voice the entrance in a line or two and let them speak first; "
             "invent no outcome, vote or secret beyond that.")
 
@@ -5963,7 +7237,8 @@ _PRODUCTION_WARN_MINUTES = 30
 def _production_warning_steer(phase: str, minutes: int) -> str:
     """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only."""
     label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
-    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called (roughly {int(minutes)} in-game minutes away). Let the house feel it: a voice or a bell from production, "
+    _away = "a few minutes away" if _zc_on() else f"roughly {int(minutes)} in-game minutes away"  # ORW-377: no minutes count under zero clocks
+    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called ({_away}). Let the house feel it: a voice or a bell from production, "
             "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
 
 
@@ -6024,12 +7299,24 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     if isinstance(week, int) and not isinstance(week, bool) and week > 0:
         parts.append(f"Week {week}")
     phase = (game_state.get("phase") or "").strip()
+    # ORW-258 (Ryne: every event gets its own day): while the next event waits behind its night, the header names the event that belongs to TODAY (the HOH day reads HOH, not Nominations).
+    _ds = game_state.get("daySchedule")
+    if isinstance(_ds, dict) and isinstance(_ds.get("todaysEvent"), str) and _ds.get("todaysEvent"):
+        phase = _ds["todaysEvent"]
     if phase:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()
     if tod:
         parts.append(_MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
     return " · ".join(parts) if parts else None
+
+
+def current_game_week(user) -> Optional[int]:
+    """ORW-275: the engine's game week (int) stashed by `apply_game_framing` this turn (None pre-game / casting)."""
+    return _LAST_FRAMED_GAME_WEEK.get(user or "default")
+def current_game_day(user) -> Optional[int]:
+    """ORW-271: the engine's in-game day number stashed by `apply_game_framing` this turn (None pre-game / casting)."""
+    return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
 def current_game_moment(user) -> Optional[str]:
@@ -6115,12 +7402,179 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         logger.debug("[orwell] spectator re-raise skipped for user=%s: %s", user, e)
         return False
 
+_COMP_STEER_BASE: dict = {}  # ORW-232: the steer armed before the competition pass began, per user
+# ORW-232 slice 2 (Ryne: "B - talk inside it"): a competition is voiced in SEGMENTS. After every _COMP_PAUSE_EVERY rounds the pass STOPS (the engine has not run the rest), the narrator ends the reply on a moment the
+# player can answer in character, and the player's next message - whatever it says - continues the competition. What they say changes nothing about the result (the engine decided it).
+_COMP_PAUSE_EVERY = 1  # ORW-232 slice 3 (Ryne 2026-11-10: "a full play by play"): ONE round per message, each with its share of the competition's hours (the engine spreads them)
+_COMP_PAUSED: dict = {}  # runway key -> the (week:phase) signature of a competition paused mid-run
+_COMP_CONT: dict = {}    # runway key -> True while this pass CONTINUES a paused competition
+# ORW-281 slice 5 (Ryne: comps and ceremonies are built the same way under the hood): the "fresh pause" hold is ONE EVENT-PAUSE hold that ANY multi-step house event sets (a comp round today; an eviction reveal
+# step or any future staged ceremony the same way), so the FE stall-nudge, the silent-advance belts and the model's advanceGame / submitDecision stand down identically. runway key -> the event kind that paused.
+_EVENT_PAUSE_FRESH: dict = {}
+
+
+def event_pause_begin(user, kind: str = "competition") -> None:
+    """Set the event-pause hold for this player: a multi-step house event stopped mid-run and the next beat is the player's turn to talk. Held until the next framed turn begins."""
+    _EVENT_PAUSE_FRESH[_runway_key(user)] = kind
+
+
+def event_pause_clear(user) -> None:
+    _EVENT_PAUSE_FRESH.pop(_runway_key(user), None)
+
+
+def event_pause_kind(user):
+    """The kind of house event currently paused for this player (None when nothing is)."""
+    try:
+        return _EVENT_PAUSE_FRESH.get(_runway_key(user))
+    except Exception:
+        return None
+
+
+def event_pause_holds(user) -> bool:
+    """ORW-232 slice 2 (live run 2026-11-10): the pause is the player's turn to talk. In the paused turn the narrator itself called submitDecision, which chain-advanced the rest of the competition and the winner
+    straight through the pause. While a pause is fresh, the model's advanceGame / submitDecision are answered with a plain 'paused' note and the engine is not called. ORW-281 slice 5: generalised from the
+    competition-only hold to any multi-step house event (see event_pause_begin)."""
+    try:
+        return _runway_key(user) in _EVENT_PAUSE_FRESH
+    except Exception:
+        return False
+
+
+def comp_pause_holds(user) -> bool:
+    """Back-compat alias: the competition pause IS an event pause (ORW-281 slice 5)."""
+    return event_pause_holds(user)
+
+
+
+
+def _veto_draw_steer(content: str) -> str:
+    """ORW-250 (Ryne: "the veto player draw was seemingly skipped ... it was expressed as a call from production at the beginning of the comp instead"): the draw is its OWN small ceremony on the morning of the
+    veto day. The engine has already committed it; this hands the narrator the draw as FACTS to voice as a short scene in the room, and says the competition is later, so the draw is never folded into the comp."""
+    return (
+        "THE VETO DRAW JUST HAPPENED (engine truth, already decided - you voice it, you never change it): " + str(content).strip() + ". Voice it as its OWN short ceremony in the room THIS morning, before the "
+        "competition: the Head of Household and the nominees gather, the chips come out of the bag and each draw is read aloud, one houseguest at a time, in the order the game gives, with the reactions; if the game "
+        "names a Houseguest's Choice, voice who drew it and who they picked to play the sixth seat, exactly as given. Exactly these six play - never add, drop or swap a player. END there: the competition itself is "
+        "later today, so do not narrate it, its rounds or a winner in this reply."
+    )
+
+
+def _competition_scene_steer(log, continuing: bool = False, paused: bool = False) -> str:
+    """ORW-232 slice 1 (Ryne: the first HOH felt awkward - transitions in and out not role-played, a few boxes of who was eliminated and who won): the competition the engine walked this turn, in ENGINE
+    ORDER, as FACTS for the narrator to voice as ONE continuous scene in the same chat - the lead-in from the house, every round as its own beat (never released as a list or a recap), the winner by name,
+    the walk back inside. The engine decided every outcome; the narrator only voices them."""
+    rounds = [c for k, c in log if k == "comp-elimination"]
+    crown = next((c for k, c in reversed(log) if k in ("hoh-competition", "veto-competition") and re.search(r"\bwins\b", c, re.I)), None)
+    lines = [f"  {i}. {c}" for i, c in enumerate(rounds, 1)]
+    if continuing:
+        head = ("THE COMPETITION CONTINUES (engine truth, already decided - you voice it, you never change it). The player has just spoken in the middle of it: open by answering what they said or did, in "
+                "the scene, then voice EVERY round below, in the order given, each as its own beat (no new lead-in; never skip, reorder or merge them into a list)")
+    else:
+        head = ("THE COMPETITION JUST RAN (engine truth, already decided - you voice it, you never change it). Voice it as ONE continuous scene in THIS reply, in this order: (1) the lead-in from the house - someone "
+                "calls everyone out, the setting, the nerves; (2) EVERY round below, in the order given, each as its own beat of the scene (who falters, how, the room's reaction) - never skip a round, never reorder, "
+                "never merge them into a list or a summary")
+    if paused:
+        tail = ("; then STOP. PAUSE: this reply ENDS here, mid-competition. The game has not run the remaining rounds or the winner, so do NOT narrate them, name a winner, or say who is left in. End on a moment "
+                "the player can answer in character (a houseguest speaks to them, a look, a question). Whatever the player says changes nothing about the result - the next message continues the competition.")
+    else:
+        tail = ("; then (3) the winner, by name, exactly as the game gives it" + (f" ({crown})" if crown else "") + "; (4) the walk back inside. Keep each round to two or three sentences so EVERYTHING below, up to and "
+                "including the winner, lands in THIS reply - the game has already run it, so do not carry any round or the winner over to the next reply.")
+    return (
+        head + tail + " The wording of each round below is the game's; dress it, do not contradict it."
+        + ("\nROUNDS IN ORDER:\n" + "\n".join(lines) if lines else "")
+        + ("\nWINNER: " + crown if crown and not paused else "")
+    )
+
+
 # A/B 2026-11-04: a READY player's staged competition is driven to its result in ONE pre-resolve pass (bounded), so the narration voices the engine's real winner.
 _COMP_RUN_HOPS = 8
 
 
+def _is_watch_step(pending) -> bool:
+    """True for any open staged-ceremony WATCH step (pending kind `ceremony-step`, non-binding). Binding steps are other pending kinds and are never matched. Pure."""
+    return isinstance(pending, dict) and pending.get("kind") == "ceremony-step"
+
+
+async def _advance_one_watch_step(user, pending) -> bool:
+    """ORW-297: advance exactly ONE ceremony watch step, as the ceremony-continue route does (beatSeq CAS + idempotency key, then announcements), and hand the narrator the engine's already-public
+    line of the step now open (Vault-free; the evictee is only ever named by the engine's own result line). Returns True when the engine moved."""
+    from src import orwell_engine
+    try:
+        adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=_mint_idempotency_key(), user=user)
+    except Exception as e:
+        if _is_stale_beat_error(e):
+            await _handle_stale_beat(user, e)
+        from src import log_rings as _lr
+        _lr.record_soft_failure("progression:watch-step-advance", e, corrected="step-not-advanced", user=user)
+        return False
+    if not isinstance(adv, dict):
+        return False
+    _refresh_beat_seq(user, adv)
+    clear_engine_held(user)
+    mark_pre_resolved_advance(user)
+    stash_preresolved_announcements(user, adv)
+    nxt = adv.get("pending")
+    line = str((nxt or {}).get("text") or (nxt or {}).get("prompt") or "") if _is_watch_step(nxt) else ""
+    ev = adv.get("event") or {}
+    if not line:
+        line = str(ev.get("content") or "")
+    if line:
+        key = _runway_key(user)
+        prior = _SCHEDULE_STEER.get(key, "")
+        _SCHEDULE_STEER[key] = (prior + "\n\n" if prior else "") + (
+            "The player moved the ceremony on one step. Voice exactly this moment in the room and stop (do not run ahead to later steps, and name no result the engine has not supplied): " + line)
+    return True
+
+
+# ORW-291 pacing: a played eviction reads ONE anonymized ballot per engine step (a 13-voter vote is ~16 steps). A progress-only player message walks the ballot steps in one pass, capped here
+# (the Continue button stays one step at a time). Eviction-specific: comp pacing (_COMP_PAUSE_EVERY = 1) is untouched.
+_EVICTION_BALLOT_HOPS = 20
+
+
+def _is_eviction_ballot_step(pending) -> bool:
+    """True for an open staged-eviction BALLOT watch step (pending kind `ceremony-step`, ceremony eviction/ballot). Pure."""
+    if not isinstance(pending, dict) or pending.get("kind") != "ceremony-step":
+        return False
+    cer = pending.get("ceremony")
+    return isinstance(cer, dict) and cer.get("kind") == "eviction" and cer.get("stepId") == "ballot"
+
+
+async def _walk_eviction_ballots(user, pending) -> int:
+    """Advance the engine through the remaining ballot steps (stop at the first non-ballot step: the result keeps its own stop, any binding card stops it too), at most _EVICTION_BALLOT_HOPS.
+    Returns the number of advances made. The narrator is handed the ANONYMIZED ballot lines the engine supplied (the nominee each ballot evicts - never a voter, never a tally)."""
+    from src import orwell_engine
+    lines, n, cur = [], 0, pending
+    while n < _EVICTION_BALLOT_HOPS and _is_eviction_ballot_step(cur):
+        try:
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=_mint_idempotency_key(), user=user)
+        except Exception as e:
+            if _is_stale_beat_error(e):
+                await _handle_stale_beat(user, e)
+            from src import log_rings as _lr
+            _lr.record_soft_failure("progression:ballot-walk-advance", e, corrected="walk-stopped", user=user)
+            break
+        if not isinstance(adv, dict) or not adv.get("event"):
+            break
+        n += 1
+        _refresh_beat_seq(user, adv)
+        clear_engine_held(user)
+        mark_pre_resolved_advance(user)
+        stash_preresolved_announcements(user, adv)
+        ev = adv.get("event") or {}
+        if str(ev.get("beat") or "") == "eviction-reveal" and ev.get("content"):
+            lines.append(str(ev["content"]))
+        cur = adv.get("pending")
+    if lines:
+        key = _runway_key(user)
+        prior = _SCHEDULE_STEER.get(key, "")
+        _SCHEDULE_STEER[key] = (prior + "\n\n" if prior else "") + (
+            "The eviction ballots were read in one continuous reveal, in this order (voice them as one flowing scene; the voters stay secret, no tally, and do not name the evictee until the result is supplied): "
+            + "; ".join(lines))
+    logger.info("[orwell] eviction ballots walked %d step(s) for user=%s (progress-only message)", n, user)
+    return n
+
+
 async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None,
-                                    _after_day_break: bool = False, _comp_hops: int = 0) -> dict:
+                                    _after_day_break: bool = False, _comp_hops: int = 0, _comp_log: Optional[list] = None) -> dict:
     """If the live game sits at an unresolved engine-driven beat with NO player decision pending,
     advance that single beat (one advanceGame) so the moment prompt carries the engine's real
     outcome — but ONLY after the player has had their SOCIAL RUNWAY in the current beat (the
@@ -6145,12 +7599,44 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     ceremony. When the runway is spent (or the player asks to move on), we resolve the next ceremony
     for real and, if it landed the player in a NEW spectator beat, arm a fresh runway for it."""
     from src import orwell_engine
+    if _comp_hops == 0 and _comp_log is None and not _after_day_break:
+        event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
     try:
         phase = (game_state.get("phase") or "").lower()
-        if phase not in _CEREMONY_RESOLVE_PHASES and phase not in _COMP_DRIVE_PHASES:
+        # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
+        # afternoon. The model's own advanceGame (the premiere exit) would stage the HOH card at wake; hold it like any other not-yet-due scheduled event.
+        _prem_exit_held = (phase == "premiere" and isinstance(game_state.get("daySchedule"), dict)
+                           and isinstance(game_state.get("premiere"), dict) and game_state["premiere"].get("complete") is True
+                           and _entrance_stage_of(game_state) in (None, "done"))  # HOT FIX: staged entrances + the toast are released by advanceGame and are NEVER held; only the exit after them waits
+        if phase not in _CEREMONY_RESOLVE_PHASES and phase not in _COMP_DRIVE_PHASES and not _prem_exit_held:
             return game_state
         status = await orwell_engine.game_status(user=user)
         _refresh_beat_seq(user, status)  # 0065: track the freshest token before any progression call
+        if isinstance(status, dict) and _is_eviction_ballot_step(status.get("pending")) and _is_progress_only_message(player_msg):
+            # ORW-291 pacing: a bare "next"/"continue" walks the anonymized ballot steps in ONE pass (the speeches, the player's own card and the result keep their own stops).
+            _walked = await _walk_eviction_ballots(user, status.get("pending"))
+            if _walked:
+                try:
+                    _fresh = await _fetch_game_state(user, retry=retry)
+                    if isinstance(_fresh, dict):
+                        _refresh_beat_seq(user, _fresh)
+                        return _fresh
+                except Exception as _fe:
+                    from src import log_rings as _lr_walk
+                    _lr_walk.record_soft_failure("progression:ballot-walk-refetch", _fe, corrected="input-snapshot", user=user)
+            return game_state
+        if isinstance(status, dict) and _is_watch_step(status.get("pending")) and _is_progress_only_message(player_msg):
+            # ORW-297: a typed "next" on ANY open ceremony WATCH step moves it exactly ONE step - the same advance the Continue button (/api/orwell/ceremony-continue) makes.
+            if await _advance_one_watch_step(user, status.get("pending")):
+                try:
+                    _fresh = await _fetch_game_state(user, retry=retry)
+                    if isinstance(_fresh, dict):
+                        _refresh_beat_seq(user, _fresh)
+                        return _fresh
+                except Exception as _fe:
+                    from src import log_rings as _lr_one
+                    _lr_one.record_soft_failure("progression:watch-step-refetch", _fe, corrected="input-snapshot", user=user)
+            return game_state
         if not isinstance(status, dict) or status.get("pending") is not None:
             # The player is the decider (comp-intent, Houseguest's Choice, nominations, a vote, the
             # goodbye message…) — never auto-resolve their own decision; their card is waiting. A
@@ -6160,7 +7646,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             return game_state
 
         sig = _runway_sig(game_state)
-        ready = _player_signals_ready(player_msg)
+        ready = _player_signals_ready(player_msg) or (_COMP_PAUSED.get(_runway_key(user)) == sig)  # ORW-232 slice 2: any message continues a competition paused mid-run
         # PRODUCTION OWNS THE SCHEDULE (PO direction 2026-11-04). With the in-game clock live the engine puts `daySchedule` on the board; the event then fires when the CLOCK
         # reaches its hour - never earlier because the player said "ready" (#2041/#2044 readiness may only resolve an event that is already DUE), never later because a
         # message-count runway has not run out. Not due => the turn stays social with an in-fiction cue, up to a LOGGED safety cap of held messages (a stuck clock must never
@@ -6175,7 +7661,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if not _ds.get("due"):
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
-                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""))
+                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")))
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
                         _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
@@ -6296,7 +7782,15 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 except Exception as _refetch_err:
                     logger.debug("[orwell] double-stale live-state refetch skipped: %s", _refetch_err)
                 return game_state  # reconciled — the S1b force picks it up next round
+        if isinstance(adv, dict) and adv.get("held") and not adv.get("event"):
+            # ORW-116 (b) / ORW-236, Ryne: the night is never auto-run. The engine HELD the day-break (nothing committed): the pre-resolve did NOT walk a beat, so do not mark one,
+            # and keep framing the turn against the board as it is - the evening/night stays social until the player turns in or the house wakes at 8am.
+            logger.info("[orwell] pre-resolve held for user=%s: the night is the player's (%s)", user, adv.get("held"))
+            if engine_held_is_schedule(adv):  # ORW-97: not progress; the stall belts must not escalate against the engine's refusal
+                note_engine_held(user, adv.get("held"))
+            return game_state
         _refresh_beat_seq(user, adv)  # 0065: the advance response carries the new beatSeq — track it
+        clear_engine_held(user)  # ORW-97: a real beat walked
         mark_pre_resolved_advance(user)  # #670: a real beat walked this turn — the backstop must not double-advance
         stash_preresolved_announcements(user, adv)  # F-2/F-4: the chyron is owed to the player whatever the model says
         # comp-intent (player in the field — engine pauses, never auto-decides), or resolve an NPC beat.
@@ -6319,6 +7813,25 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             _wm = re.search(r"\b([A-Z][\w'\u2019-]+(?:\s+[A-Z][\w'\u2019-]+){0,2})\s+wins\s+(?:the\s+)?(?:Head of Household|HOH|Power of Veto|Veto)\b", str(_beat))
             if _wm:
                 note_ceremony_beat_for_voicing(user, str(_beat), [_wm.group(1)])
+        if _beat and phase == "veto-competition" and _beat_kind == "veto-draw":
+            # ORW-250: the draw is its own ceremony - hand the narrator the committed draw and END the pass here (the competition is a later milestone and is never walked in the same pass).
+            _SCHEDULE_STEER[_runway_key(user)] = _veto_draw_steer(str(_beat))
+            logger.info("[orwell] veto draw committed for user=%s - voiced as its own ceremony, the competition waits for its hour", user)
+            try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
+                _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
+                note_ceremony_beat_for_voicing(user, str(_beat), [n.strip() for n in (_dm.group(1).split(",") if _dm else [])][:6])
+            except Exception:
+                pass
+        if _beat and phase in ("hoh-competition", "veto-competition") and _beat_kind in ("comp-elimination", "hoh-competition", "veto-competition"):
+            # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
+            if _comp_log is None:
+                _comp_log = []
+                _COMP_STEER_BASE[_runway_key(user)] = (_SCHEDULE_STEER.get(_runway_key(user)) or "").split("THE COMPETITION")[0].rstrip()  # keep any production cue, never a stale competition record from an unconsumed earlier pass
+                _COMP_CONT[_runway_key(user)] = _runway_key(user) in _COMP_PAUSED  # (kept until the pass ends: the hops below still need it for `ready`)
+            _comp_log.append((_beat_kind, str(_beat)))
+            mark_comp_walked(user)  # ORW-273
+            _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
+            _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False))
         if phase == "nominations" and _beat:
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
@@ -6369,10 +7882,20 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         # ballots AND the committed evictee instead of a half-revealed night. Only reveal -> result is collapsed: goodbyes / exit interview stay one per turn.
         if (_beat_kind == "eviction-reveal" and phase == "eviction" and _comp_hops < _COMP_RUN_HOPS):
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
-                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
-        if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig):
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
+        if (ready and phase in _COMP_DRIVE_PHASES and _comp_hops < _COMP_RUN_HOPS and _runway_sig(new_state) == sig and _beat_kind != "veto-draw"):  # ORW-250: the draw ends the pass
+            if _comp_log and sum(1 for _k, _c in _comp_log if _k == "comp-elimination") >= _COMP_PAUSE_EVERY:
+                # ORW-232 slice 2: the competition is still running (same week:phase) and this pass has voiced its share of rounds - PAUSE here. The rest stays UNRUN in the engine.
+                _COMP_PAUSED[_runway_key(user)] = sig
+                event_pause_begin(user, "competition")
+                _prior = _COMP_STEER_BASE.get(_runway_key(user), "")
+                _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False), paused=True)
+                logger.info("[orwell] competition paused after %d round(s) for user=%s - the player can talk inside it", len(_comp_log), user)
+                return new_state
             return await _pre_resolve_npc_ceremony(user, new_state, retry=retry, player_msg=player_msg,
-                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1)
+                                                   _after_day_break=_after_day_break, _comp_hops=_comp_hops + 1, _comp_log=_comp_log)
+        if phase in _COMP_DRIVE_PHASES and _runway_key(user) in _COMP_PAUSED and _comp_log is not None and _runway_sig(new_state) != sig:
+            _COMP_PAUSED.pop(_runway_key(user), None)  # the competition left its phase (the crown landed): no stale pause
 
         # ARM a fresh runway when the resolved beat landed the player in a NEW spectator ceremony
         # beat (a different week:phase, no new pending) — so the NEXT turns are theirs to socialize
@@ -6481,6 +8004,12 @@ async def note_player_message(client_msg_id, user) -> None:
         _r = res if isinstance(res, dict) else {}
         logger.info("noteMessage id=%s accepted=%s beatSeq=%s", _mid, _r.get("accepted"), _r.get("beatSeq"))  # ids only, no content
         _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+        if _r.get("accepted"):  # ORW-150: an accepted noteMessage bumped beatSeq OUTSIDE any ledgered turn - tell the ledger so the gap check does not read it as a dropped fold
+            try:
+                from src import orwell_sync_ledger as _led_nm
+                _led_nm.note_fe_write(user)
+            except Exception:
+                pass
     except Exception:
         logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
 
@@ -6494,6 +8023,7 @@ async def apply_game_framing(
     preset_system_prompt=None,
     has_attachments: bool = False,
     player_msg=None,
+    last_scene_tail=None,
 ):
     """Big Brother game framing for one turn. Vault-free; mutates `preface` in place.
 
@@ -6595,6 +8125,18 @@ async def apply_game_framing(
         # beat's transcript timestamp so the fiction isn't dated by the wall clock. Keyed the SAME
         # "default"-fallback way as the beat key below. Vault-free (closed-set public status only).
         _LAST_FRAMED_GAME_MOMENT[user or "default"] = _format_game_moment(game_state)
+        # ORW-275: the game WEEK (same framing state, zero extra read). Pre-game / casting ⇒ none (rows stay unstamped).
+        _gw = game_state.get("week") if isinstance(game_state, dict) and game_state.get("started") else None
+        if isinstance(_gw, int) and not isinstance(_gw, bool) and _gw > 0:
+            _LAST_FRAMED_GAME_WEEK[user or "default"] = _gw
+        else:
+            _LAST_FRAMED_GAME_WEEK.pop(user or "default", None)
+        # ORW-271: the in-game DAY (same framing state, zero extra read). Pre-game / no clock day ⇒ none (rows stay unstamped).
+        _gd = game_state.get("dayNumber") if isinstance(game_state, dict) and game_state.get("started") else None
+        if isinstance(_gd, int) and not isinstance(_gd, bool) and _gd > 0:
+            _LAST_FRAMED_GAME_DAY[user or "default"] = _gd
+        else:
+            _LAST_FRAMED_GAME_DAY.pop(user or "default", None)
         # ADR 0011: stash the FRAMING beat key (the beat the model is grounded on THIS turn) so the
         # agent loop can distinguish a concurrent PEER's advance from the model under-calling — the
         # two-tab "20-step loop" fix. Engine's raw fields (NOT the RE_ENTRY display moment). Zero extra
@@ -6637,17 +8179,40 @@ async def apply_game_framing(
             _LAST_FRAMED_REQUIRED_LEVER[user or "default"] = game_state.get("requiredLever")
         if session_id is not None and session_id not in _SESSION_GAME_FRAMED:
             moment = RE_ENTRY_MOMENT
+        # Showrunner memory — the Show Brief v1 skeleton (ORWELL_SHOW_BRIEF, default OFF). Off ⇒ the moment prompt is
+        # fetched exactly as before and nothing is stashed; on ⇒ the same call also carries the optional `brief` request
+        # and the engine returns this turn's brief, stashed (by session) for build_chat_context's terminal append.
+        from src import orwell_show_brief as _show_brief
+        _brief_on = _show_brief.show_brief_enabled()
         try:
-            mp = await orwell_engine.get_moment_prompt(moment, user=user)
+            if _brief_on:
+                mp = await orwell_engine.get_moment_prompt(
+                    moment, user=user,
+                    brief=_show_brief.build_request(session_id, game_state, player_msg, last_scene_tail, user=user))
+            else:
+                mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
+            try:  # ORW-405: remember this turn's volatile slice (fail-open)
+                _mp_txt = (mp or {}).get("systemPrompt")
+                _vi = _mp_txt.find("\n- Week: ") if isinstance(_mp_txt, str) else -1
+                if _vi >= 0:
+                    _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
+                else:
+                    _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
+            except Exception:
+                pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
+            if _brief_on:
+                _show_brief.stash(session_id, mp)
         except Exception as e:
             # The season IS live (state proved it) — a moment-prompt hiccup must not become a
             # feeds-down message. Stay in character with a generic, non-fabricating frame.
             logger.warning("[orwell] moment-prompt fetch failed (game live) for user=%s: %s", _gkey, e)
             gm_prompt = FALLBACK_GM_PROMPT
             _LAST_FRAMED_HARD_CONSTRAINTS.pop(session_id or "default", None)  # #1735/#1752: never replay a stale pin
+            if _brief_on:
+                _show_brief.clear(session_id)  # never replay a stale brief either
         if session_id is not None:
             _SESSION_GAME_FRAMED.add(session_id)
             _bind_canonical_game_session(user, session_id)  # 0064: converge every device here
@@ -6686,7 +8251,7 @@ async def apply_game_framing(
         # and the model's grounding + the gadget reflect one snapshot (supports D1). Permits narrated
         # movement (D2 records it); forbids only the impossible. Best-effort / fail-open.
         try:
-            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"))
+            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))
             if _loc:
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).
@@ -6745,6 +8310,8 @@ async def apply_game_framing(
                 # SUCCESS-GATED belt (one per segment) makes voiced-vs-queued measurable.
                 _note_belt(user, "desync-reground-voiced", _reground.count(_REGROUND_SEP) + 1)
             _LAST_BEAT_SIG[_dkey] = await _capture_beat_signature(user)
+            if consume_comp_walked(user) and isinstance(_LAST_BEAT_SIG.get(_dkey), dict):
+                _LAST_BEAT_SIG[_dkey]["compWalked"] = True  # ORW-273: rounds the engine walked this turn are voiced FROM the prompt; A-9 stands down on round-level cues
         except Exception as e:
             logger.warning("[orwell] beat-signature checkpoint skipped for user=%s: %s", _gkey, e)
         # 0065 Part E2: ADDITIVE — alongside the full authoritative GAME CONTEXT block (built into the
@@ -6785,7 +8352,7 @@ async def apply_game_framing(
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:
-                gm_prompt = gm_prompt + "\n\n" + _ho_steer
+                gm_prompt = gm_prompt + "\n\n" + _reconcile_hang_out_steer(_ho_steer, game_state)
         except Exception as e:
             logger.warning("[orwell] hang-out steer framing skipped for user=%s: %s", _gkey, e)
         try:
@@ -6830,6 +8397,7 @@ async def apply_game_framing(
             preface[0]["content"] = gm_prompt + "\n\n" + preface[0]["content"]
         else:
             preface.insert(0, {"role": "system", "content": gm_prompt})
+        _audit_framed_briefing(user, preface)
     else:
         _was_active = _gkey in _GAME_WAS_ACTIVE  # capture BEFORE discard: the active→inactive edge
         _GAME_WAS_ACTIVE.discard(_gkey)  # game ended/reset: normal chat is honest again
@@ -7022,7 +8590,31 @@ async def _e22_rich_extract(user, player_message, narration) -> bool:
 _NOOP_ABLE_PROGRESSION_TOOLS = frozenset({"advanceGame", "submitDecision"})
 
 
-async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None) -> bool:
+_PROGRESS_ONLY_RE = re.compile(
+    r"^\s*(?:(?:ok(?:ay)?|alright|right)[,.!]?\s+)?(next|continue|go on|go ahead|keep going|carry on|proceed|ok(ay)?|ready|yes|yep|yeah|sure|skip|go|then\??|and then\??|what now\??|\.{1,3}|\u2026)\s*[.!]?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_progress_only_message(text) -> bool:
+    """ORW-288: True for a bare "keep the show moving" player message - one of a few continue words, or the agent loop's readiness cue ("move on", "let's go", "what's next") with NO other talk (the PO rule:
+    a readiness cue that also carries a real remark still counts as a scene). Pure and cheap."""
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if _PROGRESS_ONLY_RE.match(s):
+        return True
+    try:
+        from src.agent_loop import _LULL_READY_RE
+        if _LULL_READY_RE.search(s):
+            rest = _LULL_READY_RE.sub(" ", s)
+            return len(re.findall(r"[A-Za-z']+", rest)) < 4
+    except Exception:  # failsoft-ok: expected-empty (the classifier is an optimisation; on any error the guard keeps its old behaviour and records the fallback)
+        return False
+    return False
+
+
+async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None) -> bool:
     """E22 — the server-side guard for the cardinal sin. Prompt wording told the model to
     record scenes; nothing ENFORCED it (the GM asking "Record this interaction?" was the
     symptom). On a completed game turn with non-trivial narration and ZERO engine writes,
@@ -7040,8 +8632,42 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     user is skipped rather than stacked, so the fire-and-forget guard can never pile a backlog
     of O(events) commits onto the engine's per-user queue and stall the next live turn."""
     text = (narration or "").strip()
+    # ORW-26: consume the belt's "nobody present" verdict up front so it can never leak into a later turn.
+    belt_declined = False
+    if session_id is not None:
+        try:
+            from src import fold_ledger as _fl_d
+            belt_declined = _fl_d.consume_belt_declined(user, session_id)
+        except Exception:
+            belt_declined = False
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
+    # ORW-185: two turn shapes are NOT an unrecorded social scene, and used to trip this guard (the flat
+    # "Scene (auto-recorded)" digest then phantom-folded them): (1) a pure out-of-character aside (the
+    # player's OOC question answered in `(( ))`; the 0055 belt skips these quietly by ORW-207 and its False
+    # return was read here as "extraction declined, write the floor digest"); (2) a turn whose scene the
+    # in-loop 0055 belt already STAGED (#1728 defer-fold-to-settle: staged now, committed next turn, so
+    # beatSeq has not moved and no model tool_start named a write). A second digest would double-fold it.
+    from src.ooc_aside import is_aside_only
+    if is_aside_only(narration) or is_aside_only(player_message):
+        logger.info("[orwell] E22 guard: stood down — OOC aside turn (ORW-185) user=%s", user)
+        return False
+    if session_id is not None:
+        try:
+            from src import fold_ledger as _fl
+            if _fl.has_pending_fold(user, session_id):
+                logger.info("[orwell] E22 guard: stood down — the 0055 belt already staged this turn's scene fold (ORW-185) user=%s", user)
+                return False
+        except Exception:  # fail-open: the guard's floor must still run
+            pass
+    # ORW-288 (live premiere run, 2026-11-12: 32 of 52 premiere turns fired this WARN): a turn whose player message is a bare "keep going" prompt ("next", "continue", "ok" ...) carries NO social scene, and
+    # when the engine's board moved during it (the front-end's own pre-resolve advanced the premiere / a ceremony; the beats it committed are recorded events already) there is nothing for the fallback
+    # to fold - it only wrote a flat "Scene (auto-recorded): the player said 'next'" digest and paid an extraction call for it. A message that carries talk, or a turn where the board did NOT move, still gets the fallback.
+    if _is_progress_only_message(player_message) and isinstance(beat_seq_before, int):
+        _bn = last_beat_seq(user)
+        if isinstance(_bn, int) and _bn > beat_seq_before:
+            logger.info("[orwell] E22 guard: stood down - a bare progress prompt and the board advanced (beatSeq %s -> %s), no scene to fold (ORW-288) user=%s", beat_seq_before, _bn, user)
+            return False
     writes = [t for t in (tools_called or []) if t in GAME_ENGINE_WRITE_TOOLS]
     if writes:
         # A real write (recordInteraction, makeDeal, …) stands the fallback down by name. But when the
@@ -7058,12 +8684,30 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             logger.info("[orwell] E22 guard: stood down — turn wrote %s (beatSeq %s → %s) user=%s",
                         writes, beat_seq_before, beat_now, user)
             return False
-    global _unrecorded_turn_fallbacks
-    _unrecorded_turn_fallbacks += 1
-    logger.warning(
-        "[orwell] E22 guard: game turn narrated with no engine write — recording a fallback "
-        "(process count=%d)", _unrecorded_turn_fallbacks,
-    )
+    # ORW-346 (live week 2026-11-14: all 13 firings in 43 turns were turns where the extractor answered {"withIds":[]} - the player was alone in bed, or a comp/ceremony took the beat before anyone engaged): "nobody engaged" is
+    # NOT the model skipping a recordInteraction - there is no scene with anyone to fold, and the flat floor digest it used to write recorded a phantom, participant-less "scene" and counted as an under-call. An in-loop belt that
+    # already found nobody stands the guard down here; our own extraction below does the same. The WARN + counter now mean what they say: a real under-call.
+    try:
+        from src import fold_ledger as _fl_nobody
+        _nobody = _fl_nobody.consume_scene_nobody(user)
+    except Exception:
+        _nobody = False
+    if _nobody:
+        logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (a solo / board-took-the-beat turn), nothing to fold (ORW-346) user=%s", user)
+        return False
+    _warned = False
+
+    def _count_underwrite():
+        nonlocal _warned
+        global _unrecorded_turn_fallbacks
+        if not _warned:
+            _warned = True
+            _unrecorded_turn_fallbacks += 1
+            logger.warning(
+                "[orwell] E22 guard: game turn narrated with no engine write — recording a fallback "
+                "(process count=%d)", _unrecorded_turn_fallbacks,
+            )
+
     # L18: don't race a fallback already committing for this user (or pile a backlog behind the
     # next live turn). The under-call is recorded above; one in-flight fallback per user is enough.
     if user in _fallback_in_flight:
@@ -7078,10 +8722,21 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         # recordInteraction with the scene-shape `consequence` descriptor. Banked ⇒ done (we do
         # NOT also write a second, flatter digest for the same turn).
         try:
-            if await _e22_rich_extract(user, player_message, text):
+            # ORW-26: the in-loop belt already ran this exact extraction and found every proposed participant off-scene - don't pay (or risk a different roll of) a second identical call; go to the floor digest.
+            if not belt_declined and await _e22_rich_extract(user, player_message, text):
+                _count_underwrite()
                 return True
         except Exception as e:  # never let the rich path break the floor fallback
             logger.warning("[orwell] E22 rich extraction errored for user=%s: %s", user, e)
+        try:
+            from src import fold_ledger as _fl_nobody2
+            _nobody = _fl_nobody2.consume_scene_nobody(user)
+        except Exception:
+            _nobody = False
+        if _nobody:  # ORW-346: our own extraction answered "nobody engaged"; not an under-call, no phantom digest
+            logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (ORW-346) user=%s", user)
+            return False
+        _count_underwrite()
         # LAST resort: the bounded `kind`-floor digest (no model, a solo beat, or a hiccup above).
         digest = (
             "Scene (auto-recorded): the player said: "
@@ -7109,6 +8764,12 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         _res = await _backfill_with_cas(
             user, orwell_engine.record_interaction, digest,
             user=user, defer_fold=True, idempotency_key=_mint_idempotency_key())
+        if _res is not None:  # ORW-150: the E22 fallback fold committed (beatSeq +1) outside the ledgered turn window
+            try:
+                from src import orwell_sync_ledger as _led_e22
+                _led_e22.note_fe_write(user)
+            except Exception:
+                pass
         return _res is not None
     except Exception as e:
         logger.warning("[orwell] E22 fallback recordInteraction failed for user=%s: %s", user, e)
@@ -7362,7 +9023,7 @@ async def auto_name_session(session_manager, sess):
 
         owner = getattr(sess, "owner", None)
         t_url, t_model, t_headers = resolve_task_endpoint(
-            sess.endpoint_url, sess.model, sess.headers, owner=owner,
+            sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
         )
         if not t_model:
             logger.debug("[auto-name] No model provided, skipping")
@@ -7411,9 +9072,16 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
     current_url = sess.endpoint_url or ""
     db = SessionLocal()
     try:
-        endpoints = db.query(ModelEndpoint).filter(
-            ModelEndpoint.is_enabled == True
-        ).all()
+        # Owner-scoped (own + shared, no admin bypass): never adopt another user's endpoint
+        # or persist their key on this session.
+        from src.auth_helpers import owner_filter
+        _q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
+        _own = getattr(sess, "owner", None)
+        if _own:
+            _q = owner_filter(_q, ModelEndpoint, _own, include_shared=True)
+        else:
+            _q = _q.filter(ModelEndpoint.owner.is_(None))
+        endpoints = _q.all()
     finally:
         db.close()
 
@@ -7450,10 +9118,12 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
             # Persist
             _db = SessionLocal()
             try:
+                from src.endpoint_resolver import persistable_session_headers
                 _db.query(DBSession).filter(DBSession.id == session_id).update({
                     "model": new_model,
                     "endpoint_url": chat_url,
-                    "headers": json.dumps(new_headers),
+                    "headers": persistable_session_headers(
+                        chat_url, new_headers, getattr(sess, "owner", None)) or {},
                 })
                 _db.commit()
             finally:
@@ -7582,13 +9252,11 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 if not ep.api_key:
                     return
                 base = normalize_base(ep.base_url or "")
+                # ORW-199/200: in-memory only. The endpoint record is the source of truth and
+                # `resolve_session_headers` supplies auth at call time; persisting a plain-text
+                # copy of the provider key on the session row is what let it go stale.
                 sess.headers = build_headers(ep.api_key, base)
-                update_q = db.query(DBSession).filter(DBSession.id == session_id)
-                if owner:
-                    update_q = update_q.filter(DBSession.owner == owner)
-                update_q.update({"headers": sess.headers})
-                db.commit()
-                logger.info(f"Resolved and persisted auth headers for session {session_id} from endpoint {ep.name}")
+                logger.info(f"Resolved auth headers for session {session_id} from endpoint {ep.name}")
                 return
         finally:
             db.close()
@@ -7651,6 +9319,14 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
         db.close()
 
     return None
+
+
+async def _resolve_model_id(sess) -> Optional[str]:
+    """ORW-177: the stored-endpoint lookup first, then the live `/models` probe. The probe is a blocking
+    `httpx.get` (up to its timeout), so on a cache miss it runs on a worker thread - it used to freeze the
+    event loop, and every other player, once per chat turn."""
+    return _normalize_model_id_from_cache(sess) or await asyncio.to_thread(
+        normalize_model_id, sess.endpoint_url, sess.model)
 
 
 async def build_chat_context(
@@ -7764,12 +9440,21 @@ async def build_chat_context(
 
     # Big Brother game framing (see apply_game_framing): in-character prompt when a game is
     # live; fail-CLOSED feed-down framing when the engine drops mid-season (C12).
+    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF): the last lines the player saw, for the brief's "how the
+    # last scene ended". Off ⇒ the framing call is exactly as before (no extra keyword).
+    from src import orwell_show_brief as _show_brief
+    _brief_kw = ({"last_scene_tail": _show_brief.last_scene_tail(getattr(sess, "history", None))}
+                 if _show_brief.show_brief_enabled() else {})
+    if _brief_kw:
+        # K6 §5.1: after a restart, pick up what the narrator last saw from the newest assistant row that carries it.
+        _show_brief.adopt_history_seen(user, getattr(sess, "history", None))
     engine_available, game_active, feed_down = await apply_game_framing(
         preface, user, incognito,
         session_id=session_id,                              # P2: re-entry on a fresh context
         preset_system_prompt=preset.system_prompt,          # E16: persona never rides the GM stack
         has_attachments=bool(preprocessed.attachment_meta),  # E94: showing something in the scene
         player_msg=_ctx_msg,                                # social runway: "let's move on" cuts it short
+        **_brief_kw,
     )
     # P3: did ANY framing land on this turn? A live game and a feeds-down refusal frame
     # explicitly; the pre-game casting interview frames exactly when the engine answered
@@ -7786,7 +9471,10 @@ async def build_chat_context(
     # strategy/OOC reads and cannot leak them to the houseguests. The player still SEES the
     # interview in scrollback — one continuous conversation. (The assistant reply is stamped at
     # save time in save_assistant_response.)
-    if not game_active and getattr(sess, "history", None):
+    # ORW-224b: only when the turn is actually FRAMED as casting (the game build with the engine up, or feeds-down),
+    # the same condition the assistant-reply stamp uses (`ctx.framed and not ctx.game_active`). In the workspace
+    # build (ORWELL_GAME_BUILD=0) there is no casting interview, so no stamp, and compaction stays available there.
+    if not game_active and framed and getattr(sess, "history", None):
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":
             mark_message_phase(_last, "casting")
@@ -7812,7 +9500,7 @@ async def build_chat_context(
 
     # Normalize model ID. Prefer cached endpoint models so group chat does not
     # re-hit slow local /models endpoints on every participant turn.
-    norm = _normalize_model_id_from_cache(sess) or normalize_model_id(sess.endpoint_url, sess.model)
+    norm = await _resolve_model_id(sess)
     if norm:
         sess.model = norm
 
@@ -7830,10 +9518,15 @@ async def build_chat_context(
     )
 
     # Auto-compact
+    # ORW-219: maybe_compact deliberately gets NO input_budget_fn here. Compaction rewrites (deletes) stored
+    # chat rows, which breaks non-degradation (mandate #4); it stays on its legacy 85%-of-window trigger
+    # (unchanged; reachable at 85% of the raw window; game sessions guarded by ORW-224). The trimmer only drops old turns from the PROMPT, never from the database.
     messages, context_length, was_compacted = await maybe_compact(
-        sess, sess.endpoint_url, sess.model, messages, sess.headers, owner=user,
+        sess, sess.endpoint_url, sess.model, messages, resolve_session_headers(sess, user), owner=user,
+        # ORW-224: a game/casting transcript is never rewritten; the trimmer shortens the prompt only.
+        persist_history=not (game_active or framed),
     )
-    messages = trim_for_context(messages, context_length)
+    messages = trim_for_context(messages, context_length, preserve_system=bool(game_active or framed))
 
     # #1735 (A4) — append this turn's terminal HARD-CONSTRAINTS block as the caller's OWN LAST message,
     # AFTER the transcript (the last user turn included) and AFTER compaction/trimming, so it can never
@@ -7842,6 +9535,13 @@ async def build_chat_context(
     # `preface`/`gm_prompt`, which stay the leading system-prompt stack. One-shot consume (pop): absent
     # ⇒ no message appended, byte-identical to before this fix (pre-game, or a framing hiccup this turn).
     _hard_constraints = pop_framed_hard_constraints(session_id)
+    # Showrunner memory — the Show Brief (ORWELL_SHOW_BRIEF, default OFF): a terminal system message AFTER the
+    # transcript and right BEFORE the HARD CONSTRAINTS block (which keeps its measured last position). The cached
+    # prefix (system prompt + transcript) is untouched. Off, or no brief this turn ⇒ nothing is appended.
+    if _brief_kw:
+        _brief_text = _show_brief.pop(session_id, user)
+        if _brief_text:
+            messages = messages + [{"role": "system", "content": _brief_text}]
     if _hard_constraints:
         messages = messages + [{"role": "system", "content": _hard_constraints}]
 
@@ -8093,8 +9793,185 @@ def _extract_thinking_meta(text: str) -> dict | None:
     return None
 
 
+# ORW-230 — the narrator's think markup, for the game-turn split below. The opener grammar is the clients'
+# (`<think>`, `<thinking>` and `<thought>` with ANY attributes, plus Gemma's `<|channel>thought`); a closer is the
+# matching close tag or Gemma's `<channel|>`. A Gemma RESPONSE channel's opener is read too, so the `<channel|>`
+# that closes it is not taken for the end of a think.
+_GAME_THINK_OPEN_RE = re.compile(r'<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>|<\|channel>thought', re.IGNORECASE)
+_GAME_THINK_CLOSE_RE = re.compile(r'</(?:think(?:ing)?|thought)(?:\s+[^>]*)?>|<channel\|>', re.IGNORECASE)
+_GAME_RESPONSE_OPEN_RE = re.compile(r'<\|channel>response', re.IGNORECASE)
+_GAME_THINK_MARK_RE = re.compile(
+    rf'(?P<open>{_GAME_THINK_OPEN_RE.pattern})|(?P<close>{_GAME_THINK_CLOSE_RE.pattern})'
+    rf'|(?P<response>{_GAME_RESPONSE_OPEN_RE.pattern})',
+    re.IGNORECASE,
+)
+_GAME_THINK_TIME_RE = re.compile(r'\btime\s*=\s*"([\d.]+)"', re.IGNORECASE)
+# A CUT-OFF game turn (the disconnect save) whose reasoning began but was never seen to end: it opens with a
+# reasoning label (the label forms of the clients' `startsWithReasoningPrefix`), or with an EMPTY think pair and
+# no second closer after it (the model reasoned outside the tags; the clients stream that as thinking too).
+_GAME_REASONING_LABEL_RE = re.compile(r'\s*thinking(?:\s+process)?\s*:', re.IGNORECASE)
+_GAME_EMPTY_THINK_PAIR_RE = re.compile(
+    r'\s*<(?:think(?:ing)?|thought)(?:\s+[^>]*)?>\s*</(?:think(?:ing)?|thought)(?:\s+[^>]*)?>', re.IGNORECASE)
+# A cut in the middle of a tag leaves a fragment at the very end: a proper prefix of one of these markers, or a
+# think tag whose attributes began but whose `>` never came (`<think time="3.`).
+_GAME_THINK_MARKERS = ("<thinking>", "<thought>", "</thinking>", "</thought>",
+                       "<|channel>thought", "<|channel>response", "<channel|>")
+_GAME_THINK_TAG_UNFINISHED_RE = re.compile(r'</?(?:think(?:ing)?|thought)\s[^<>]*\Z', re.IGNORECASE)
+
+
+def _strip_partial_think_tag(text: str) -> str:
+    """ORW-230 — drop a think tag that was cut mid-way at the very end of a game turn's text (`<thi`, `</thi`,
+    `<|chan`, `<channel|`), so neither the saved content nor the reasoning keeps the fragment. Any other text,
+    including a trailing `<` that cannot start one of those tags ("I <3 this house"), is returned unchanged."""
+    if not isinstance(text, str) or not text:
+        return text
+    cut = text.rfind("<")
+    if cut < 0:
+        return text
+    tail = text[cut:]
+    low = tail.lower()
+    if any(m != low and m.startswith(low) for m in _GAME_THINK_MARKERS) or _GAME_THINK_TAG_UNFINISHED_RE.match(tail):
+        return text[:cut].rstrip()
+    return text
+
+
+def _split_game_reasoning(text: str, *, cut_off: bool = False) -> dict | None:
+    """ORW-230 — split a GAME turn's text into the narrator's private reasoning and the reply, so no
+    reasoning is ever saved as the reply. Returns {thinking, reply, time}, or None when the text carries
+    no think markup at all (the caller then uses `_extract_thinking_meta` as before).
+
+    Unlike `_extract_thinking_meta` — which, for an ordinary chat, keeps an unclosed or reply-less think
+    as the content so the bubble is not blank — every think block here is reasoning: closed or cut off
+    mid-think (Stop, a dropped connection, the token cap), at the start or opened after earlier
+    narration (agent rounds are joined into one reply), nested (a block ends at its OWN closer), and a
+    closer with no think open: everything since the last block was reasoning (R1-style, where the chat
+    template opened the think so only `</think>` arrived, or a second closer after an empty pair). The
+    grammar is `_GAME_THINK_MARK_RE`: any attributes, `<thought>`, and the Gemma channels. The reply keeps
+    only the narration outside the blocks and may be empty.
+
+    `cut_off` (the disconnect save only): a turn that opens with a reasoning label ("Thinking Process:") is
+    reasoning up to its first closer, and one that opens with an empty think pair and has no second closer
+    is reasoning to the end. Without that boundary the cut-off text is all reasoning and the reply is empty.
+
+    Markup only, by design: the plain-text preamble heuristics in `_normalize_thinking` can split the wrong
+    way (a capitalised paragraph read as the reply), so they are not used here."""
+    if not text:
+        return None
+    body, depth, think_time = text, 0, None
+    if cut_off:
+        label = _GAME_REASONING_LABEL_RE.match(body)
+        empty = None if label else _GAME_EMPTY_THINK_PAIR_RE.match(body)
+        if label is not None:
+            body, depth = body[label.end():], 1  # the label opens the reasoning
+        elif empty is not None and not _GAME_THINK_CLOSE_RE.search(body, empty.end()):
+            time_attr = _GAME_THINK_TIME_RE.search(empty.group(0))
+            think_time = time_attr.group(1) if time_attr else None
+            body, depth = body[empty.end():], 1  # the reasoning after the pair never reached its closer
+    if depth == 0 and _GAME_THINK_MARK_RE.search(body) is None:
+        return None
+    thinking, reply, block, pending = [], [], [], []
+    in_response, pos = False, 0
+    for mark in _GAME_THINK_MARK_RE.finditer(body):
+        (block if depth else pending).append(body[pos:mark.start()])
+        pos = mark.end()
+        if mark.group("open"):
+            if depth == 0:
+                reply += pending
+                pending = []
+            depth += 1
+            if think_time is None:
+                time_attr = _GAME_THINK_TIME_RE.search(mark.group("open"))
+                think_time = time_attr.group(1) if time_attr else None
+        elif mark.group("close"):
+            if depth:
+                depth -= 1
+                if depth == 0:
+                    thinking.append("\n".join(block))
+                    block = []
+            elif in_response and mark.group("close").lower() == "<channel|>":
+                in_response = False  # the end of a Gemma response channel: its text was the reply
+            else:
+                thinking.append("".join(pending))  # a closer with no think open: what came before was reasoning
+                pending = []
+        elif depth == 0:
+            in_response = True  # a Gemma response channel: its text is the reply
+    if depth:
+        thinking.append("\n".join(block + [body[pos:]]))  # cut off inside the think: the rest is all reasoning
+    else:
+        reply += pending + [body[pos:]]
+    return {
+        "thinking": "\n\n".join(p.strip() for p in thinking if p.strip()),
+        "reply": "".join(reply).strip(),
+        "time": think_time,
+    }
+
+
+# R-VLT-2 (ORW-230) — what a GAME or casting session's history serves the player. The narrator's reasoning is
+# Vault-bearing (its prompt carries hidden game state), so a reload withholds it. The stored rows are unchanged.
+_WITHHELD_REASONING_KEYS = ("thinking", "thinking_time")
+_PLAYER_SHOWN_METADATA_KEYS = ("tool_events", "announcements", "web_sources", "research_sources",
+                               "research_findings", "rag_sources")
+
+
+def _game_narration(text):
+    """The narration of a game turn's text, every think block removed (markup only, see `_split_game_reasoning`).
+    Text with no think markup, and anything that is not a string, comes back unchanged."""
+    info = _split_game_reasoning(text) if isinstance(text, str) else None
+    return info["reply"] if info else text
+
+
+def _row_shows_nothing(content, md: dict) -> bool:
+    """True when an assistant row, its reasoning withheld, has nothing left for the reload to render."""
+    if (content.strip() if isinstance(content, str) else content):
+        return False
+    rounds = md.get("round_texts")
+    if isinstance(rounds, list) and any(isinstance(t, str) and t.strip() for t in rounds):
+        return False
+    return not any(md.get(key) for key in _PLAYER_SHOWN_METADATA_KEYS)
+
+
+def withhold_game_reasoning(entry: dict) -> dict | None:
+    """R-VLT-2 (ORW-230): one history row of a game or casting session, as the player may see it.
+
+    Drops `metadata.thinking` / `thinking_time`, and keeps only the narration of an assistant row's content and
+    of each `metadata.round_texts` entry (agent rounds keep their inline think blocks for the reload accordion, and
+    a row saved before ORW-230 can hold the reasoning as its content). The player's own rows are verbatim. Returns
+    a new dict and never mutates `entry`; None for an assistant row whose reasoning was all it had to show (the
+    history leaves it out, like a hidden row, so a reload never paints an empty bubble)."""
+    if not isinstance(entry, dict):
+        return entry
+    md = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else None
+    md_out = {k: v for k, v in (md or {}).items() if k not in _WITHHELD_REASONING_KEYS}
+    out = dict(entry)
+    if md is not None:
+        out["metadata"] = md_out
+    if entry.get("role") != "assistant":
+        return out
+    rounds = md_out.get("round_texts")
+    if isinstance(rounds, list):
+        md_out["round_texts"] = [_game_narration(t) for t in rounds]
+    out["content"] = _game_narration(entry.get("content"))
+    withheld = (md is not None and len(md_out) != len(md)) or out["content"] != entry.get("content") or (
+        isinstance(rounds, list) and md_out["round_texts"] != rounds)
+    if withheld and _row_shows_nothing(out["content"], md_out):
+        return None
+    return out
+
+
+def player_visible_history(session, history: list) -> list:
+    """R-VLT-2 (ORW-230): the rows `/api/history` serves the player. For a game or casting session (ORW-224's
+    `is_game_or_casting_session`: every session while the game build is on; otherwise one holding game or casting
+    rows, or bound as the owner's game session) every row goes through `withhold_game_reasoning`. Any other
+    session's rows are returned as they are."""
+    from src.context_compactor import is_game_or_casting_session
+    if not is_game_or_casting_session(session):
+        return history
+    return [row for row in (withhold_game_reasoning(r) for r in history) if row is not None]
+
+
 def clean_thinking_for_save(
-    content: str, metadata: dict | None = None, reasoning: str = ""
+    content: str, metadata: dict | None = None, reasoning: str = "", *, game: bool = False,
+    cut_off: bool = False,
 ) -> tuple[str, dict]:
     """Extract thinking from content into metadata. Use for save paths that bypass save_assistant_response.
 
@@ -8102,9 +9979,17 @@ def clean_thinking_for_save(
     deltas), which never appears in `content` — so without it the accordion is shown live but
     LOST on reload / in a second browser session. Persist it into metadata.thinking when the
     content itself didn't already carry an inline <think> block.
+
+    `game` (ORW-230): a framed game turn. Every think block is moved out of the content (see
+    `_split_game_reasoning`), so a turn cut off mid-think saves its reasoning to metadata.thinking and
+    an EMPTY reply — never the reasoning as the reply. A tag cut mid-way at the end is dropped. `cut_off`
+    (with `game`): the turn was cut off (the disconnect save), so the conservative cut-off cases apply. A
+    non-game chat keeps today's behaviour.
     """
     md = dict(metadata) if metadata else {}
-    info = _extract_thinking_meta(content)
+    if game:
+        content = _strip_partial_think_tag(content)
+    info = (_split_game_reasoning(content, cut_off=cut_off) if game else None) or _extract_thinking_meta(content)
     if info:
         if info.get("thinking"):
             md["thinking"] = info["thinking"]
@@ -8116,6 +10001,36 @@ def clean_thinking_for_save(
     if reasoning and reasoning.strip() and not md.get("thinking"):
         md["thinking"] = reasoning.strip()
     return out, md
+
+
+def save_stopped_partial(sess, session_manager, partial: str, base_metadata: dict | None = None, *,
+                         reasoning: str = "", game: bool = False, game_moment: Optional[str] = None, game_week: Optional[int] = None, game_day: Optional[int] = None,
+                         announcements: Optional[list] = None, incognito: bool = False):
+    """Persist the partial reply of a turn the client disconnected from (Stop, a dropped connection):
+    the ONE save both `chat_routes` disconnect handlers use, so their thinking handling cannot drift.
+
+    ORW-230: with `game=True` a turn cut off inside an open `<think>` saves its reasoning to
+    metadata.thinking and only the narration around it as the content (`clean_thinking_for_save`, with the
+    cut-off cases: a leading reasoning label, or a leading empty think pair with no second closer, make the
+    rest reasoning). A game partial left with nothing to show (no narration, no reasoning, no owed cards) is
+    not saved, so a reload never shows a blank bubble. M2-6: `game_moment` stamps the in-world moment; the
+    announcement cards the player was shown survive a cut-short turn. Returns the saved ChatMessage, or None."""
+    content, md = clean_thinking_for_save(partial, base_metadata, reasoning=reasoning, game=game, cut_off=True)
+    if game_moment:
+        md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275
+    if isinstance(game_day, int) and not isinstance(game_day, bool) and game_day > 0:
+        md["game_day"] = game_day  # ORW-271
+    if announcements:
+        md["announcements"] = announcements
+    if game and not (content or "").strip() and not md.get("thinking") and not md.get("announcements"):
+        return None
+    message = ChatMessage("assistant", content, metadata=md)
+    sess.add_message(message)
+    if not incognito:
+        session_manager.save_sessions()
+    return message
 
 
 def save_assistant_response(
@@ -8136,8 +10051,15 @@ def save_assistant_response(
     phase: str = None,
     reasoning: str = "",
     game_moment: str = None,
+    game: bool = False,
+    brief_seen: dict = None,
+    game_week: int = None,
+    game_day: int = None,
 ):
     """Add assistant response to session history. In incognito mode, keeps in-memory context but skips DB persistence.
+
+    `game` (ORW-230): a framed game turn — every think block is moved out of the saved content (see
+    `_split_game_reasoning`), so a turn that hit the token cap inside a think saves no reasoning as the reply.
 
     `phase` (Vault Wall / casting-leak fix): when this reply is part of the OOC pre-game
     casting interview (game not yet started), stamp `phase=casting` so the in-game narrator's
@@ -8152,6 +10074,14 @@ def save_assistant_response(
         md["phase"] = phase
     if game_moment:
         md["game_moment"] = game_moment
+    if isinstance(game_week, int) and not isinstance(game_week, bool) and game_week > 0:
+        md["week"] = game_week  # ORW-275: numeric game week next to game_moment
+    if isinstance(game_day, int) and not isinstance(game_day, bool) and game_day > 0:
+        md["game_day"] = game_day  # ORW-271: the engine's in-game day; the prompt view condenses closed days by it
+    # Showrunner memory (ORWELL_SHOW_BRIEF, default OFF; the caller passes None when off): what the narrator last saw,
+    # kept on the row so a restart or another window picks the Show Brief's "changed since" up from here (K6 §5.1).
+    if isinstance(brief_seen, dict):
+        md["briefSeen"] = brief_seen
     def _model_value(value) -> str:
         if value is None:
             return ""
@@ -8181,7 +10111,9 @@ def save_assistant_response(
         md["tool_events"] = tool_events
 
     # Extract thinking into metadata (don't pollute message content with <think> tags)
-    _think_info = _extract_thinking_meta(full_response)
+    if game:
+        full_response = _strip_partial_think_tag(full_response)  # ORW-230: the token cap can land inside a tag
+    _think_info = (_split_game_reasoning(full_response) if game else None) or _extract_thinking_meta(full_response)
     if _think_info:
         if _think_info.get("thinking"):
             md["thinking"] = _think_info["thinking"]
@@ -8295,7 +10227,7 @@ def run_post_response_tasks(
         t_url, t_model, t_headers = resolve_endpoint("utility", owner=owner)
         if not (t_url and t_model):
             t_url, t_model, t_headers = resolve_task_endpoint(
-                sess.endpoint_url, sess.model, sess.headers, owner=owner,
+                sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
             )
         asyncio.create_task(extract_and_store(
             sess, memory_manager, memory_vector,
@@ -8333,7 +10265,7 @@ def run_post_response_tasks(
             from services.memory.skill_extractor import maybe_extract_skill
             from src.task_endpoint import resolve_task_endpoint
             s_url, s_model, s_headers = resolve_task_endpoint(
-                sess.endpoint_url, sess.model, sess.headers, owner=owner,
+                sess.endpoint_url, sess.model, resolve_session_headers(sess, owner), owner=owner,
             )
             logger.debug("[skill-extract] dispatching extractor (model=%s)", s_model)
             asyncio.create_task(maybe_extract_skill(

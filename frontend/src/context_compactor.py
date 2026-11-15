@@ -38,7 +38,40 @@ def _content_as_text(content: Any) -> str:
     return ""
 
 
+GAME_COMPACTION_REFUSAL = "Compaction is off for game sessions; the narrator's memory is handled automatically"
+_GAME_PHASES = ("game", "casting")
+
+
+def is_game_or_casting_session(session) -> bool:
+    """ORW-224: True when compaction must be refused for this session. Compaction rewrites stored rows, so it is
+    refused (a) for EVERY session while the game build is on (the default product: an old game session with no
+    phase stamps and no canonical binding must still be safe from a direct POST), and (b) regardless of build
+    for a session that carries game/casting rows (any stored row stamped ``phase`` game/casting) or is the
+    owner's bound canonical game session. Only the workspace build (ORWELL_GAME_BUILD=0) keeps compaction for
+    sessions that never held a game."""
+    try:
+        from src.settings import game_build_enabled
+        if game_build_enabled():
+            return True
+    except Exception:  # noqa: BLE001 - fall through to the per-session checks
+        pass
+    for m in (getattr(session, "history", None) or []):
+        md = (m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", None)) or {}
+        if md.get("phase") in _GAME_PHASES:
+            return True
+    try:
+        from src.orwell_game_session import get_game_session
+        sid = getattr(session, "id", None)
+        return bool(sid) and get_game_session(getattr(session, "owner", None)) == sid
+    except Exception:  # noqa: BLE001 - the binding store is optional; the phase check above already ran
+        return False
+
+
 COMPACT_THRESHOLD = 0.85  # Trigger compaction at 85% of context window
+# ORW-219: the destructive trim runs at the effective INPUT budget, which is far below 85% of the raw
+# window (48K of a 1M window before; 600K now). Compaction must run FIRST, so when the caller knows the
+# budget it triggers at this fraction of it: old turns are summarized before anything is dropped.
+COMPACT_BUDGET_FRACTION = 0.75
 SUMMARY_MAX_TOKENS = 1024
 SMALL_CONTEXT_LIMIT = 8192  # Models with context <= this get aggressive trimming
 
@@ -214,12 +247,72 @@ def _truncate_message_to_token_budget(msg: Dict[str, Any], token_budget: int) ->
     return _truncate_tool_call_args(out, token_budget)
 
 
-def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: int = 512) -> List[Dict]:
-    """Trim system messages to fit within context_length.
+def _is_summary_msg(msg: Dict) -> bool:
+    """A compaction summary message (system role, written by maybe_compact)."""
+    c = msg.get("content")
+    return msg.get("role") == "system" and isinstance(c, str) and c.startswith("[Conversation summary")
 
-    For small-context models, progressively strips:
-    1. RAG/memory system messages (keep preset system prompt)
-    2. Older conversation turns
+
+def _per_message_tokens(msg: Dict) -> int:
+    return estimate_tokens([msg])
+
+
+def _trim_preserving_system(messages: List[Dict], budget: int, used: int) -> List[Dict]:
+    """ORW-219: game-turn trim. EVERY system message (the GM prompt, the per-turn grounding/steer
+    messages, the terminal HARD CONSTRAINTS block) is kept intact and in place; only conversation
+    turns are dropped, oldest first. The newest turn is never dropped (it is shrunk if it alone
+    is too big). If the system messages alone cannot fit, log a WARNING with the numbers and
+    return what we have rather than silently degrading the prompt."""
+    keep_idx = [i for i, m in enumerate(messages)
+                if m.get("_protected") or (m.get("role") == "system" and not _is_summary_msg(m))]
+    keep_set = set(keep_idx)
+    convo_idx = [i for i in range(len(messages)) if i not in keep_set]
+    dropped_idx = set()
+    dropped = 0
+    total = used
+    # Oldest raw turn first; a compaction summary ("[Conversation summary]") is the densest
+    # context per token, so it goes last. Never the newest conversation message.
+    droppable = convo_idx[:-1]
+    droppable = [i for i in droppable if not _is_summary_msg(messages[i])] + \
+                [i for i in droppable if _is_summary_msg(messages[i])]
+    for i in droppable:
+        if total <= budget:
+            break
+        total -= _per_message_tokens(messages[i])
+        dropped_idx.add(i)
+        dropped += 1
+    kept = [m for i, m in enumerate(messages) if i not in dropped_idx]
+    if total > budget and convo_idx:
+        last = messages[convo_idx[-1]]
+        system_tokens = estimate_tokens([m for m in kept if m is not last])
+        available = max(64, budget - system_tokens)
+        if system_tokens < budget:
+            shrunk = _truncate_message_to_token_budget(last, available)
+            kept = [shrunk if m is last else m for m in kept]
+    result = _sanitize_tool_messages(kept)
+    final = estimate_tokens(result)
+    if final > budget:
+        logger.warning(
+            "[context] game-turn prompt exceeds the input budget even after dropping %d old turn(s): "
+            "%d tokens > %d budget (system messages=%d tokens). System prompt NOT truncated; "
+            "raise agent_input_token_hard_max or use a larger-window model.",
+            dropped, final, budget, estimate_tokens([m for m in result if m.get("role") == "system"]),
+        )
+    else:
+        logger.info("[context] game-turn trim dropped %d oldest turn(s): %d -> %d tokens (system prompt intact)",
+                    dropped, used, final)
+    return result
+
+
+def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: int = 512,
+                     *, preserve_system: bool = False) -> List[Dict]:
+    """Trim messages to fit within context_length.
+
+    ``preserve_system=True`` (every live-game / casting turn, ORW-219): no system message is ever
+    dropped or truncated; only the oldest conversation turns go. Otherwise (non-game chat) the
+    order is unchanged: extra system messages (RAG/memory) are dropped first, then old conversation
+    turns, and only after that is the first system prompt truncated to 2,000 characters (this
+    truncation used to run BEFORE old turns were dropped; it is now a last resort and logs a WARNING).
     Reserves space for the response.
     """
     budget = context_length - reserve_tokens
@@ -228,6 +321,8 @@ def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: 
         return messages
 
     logger.info(f"Trimming messages: {used} tokens > {budget} budget (ctx={context_length})")
+    if preserve_system:
+        return _trim_preserving_system(messages, budget, used)
 
     # Separate system messages from conversation.
     # Messages marked _protected (e.g. active document) are never trimmed.
@@ -263,15 +358,6 @@ def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: 
                 break
         return _sanitize_tool_messages(result + protected_msgs + convo_msgs)
 
-    # Still too big — truncate the first system message (but keep more than 500 chars)
-    if essential_system:
-        sys_text = essential_system[0].get("content", "")
-        if len(sys_text) > 2000:
-            essential_system[0] = {"role": "system", "content": sys_text[:2000] + "\n[System prompt truncated for context limits]"}
-            trimmed = essential_system + convo_msgs
-            if estimate_tokens(trimmed) <= budget:
-                return _sanitize_tool_messages(essential_system + protected_msgs + convo_msgs)
-
     # Still too big — drop older conversation turns BUT always keep the current
     # user turn. If a pasted message alone exceeds the model context, truncate
     # that message with a visible notice instead of dropping it; otherwise the
@@ -291,6 +377,17 @@ def trim_for_context(messages: List[Dict], context_length: int, reserve_tokens: 
         while prior_convo and estimate_tokens(essential_system + prior_convo + current_msg) > budget:
             prior_convo.pop(0)
         convo_msgs = prior_convo + current_msg
+
+    # Last resort (non-game chat only): truncate the first system message. Never silent.
+    if essential_system and estimate_tokens(essential_system + protected_msgs + convo_msgs) > budget:
+        sys_text = essential_system[0].get("content", "")
+        if isinstance(sys_text, str) and len(sys_text) > 2000:
+            logger.warning(
+                "[context] truncating the system prompt as a last resort: %d chars -> 2000 "
+                "(%d tokens > %d budget after dropping old turns)",
+                len(sys_text), estimate_tokens(essential_system + protected_msgs + convo_msgs), budget,
+            )
+            essential_system[0] = {"role": "system", "content": sys_text[:2000] + "\n[System prompt truncated for context limits]"}
 
     # If the current message itself is too large, shrink only that message.
     if current_msg and estimate_tokens(essential_system + protected_msgs + convo_msgs) > budget:
@@ -371,7 +468,7 @@ def _prefix_content_digest(messages) -> tuple:
 
 
 def _schedule_background_compaction(session, split_point: int, system_msg_count: int,
-                                    summarize_fn: Callable) -> None:
+                                    summarize_fn: Callable, older_msgs: Optional[List[Dict]] = None) -> None:
     """Fire the summary LLM call + history rewrite as a fail-soft background task (F-PY-2).
 
     The current turn has already returned its (uncompacted, trim-guaranteed-to-fit) messages; this
@@ -391,6 +488,20 @@ def _schedule_background_compaction(session, split_point: int, system_msg_count:
     # (same object) — an identity check would miss it. `_run` re-derives the digest just before
     # applying; if it differs, it ABANDONS fail-soft (the next over-threshold turn re-compacts).
     effective_split = system_msg_count + split_point
+    if older_msgs:
+        # ORW-219: align to the real history rows (the context was built with the casting/slash rows and the
+        # preface filtered out, so `split_point` does NOT index session.history).
+        _span = _locate_history_rows(getattr(session, "history", None) or [], older_msgs)
+        if _span is None:
+            # Cannot align. A history carrying casting/game/slash rows is NOT safe to index positionally
+            # (that is exactly the misalignment): skip, trim is the correctness floor. A plain chat history
+            # keeps the legacy positional path.
+            if any(((getattr(m, "metadata", None) or {}).get("phase") or (getattr(m, "metadata", None) or {}).get("source"))
+                   for m in (getattr(session, "history", None) or []) if not isinstance(m, dict)):
+                return
+            older_msgs = None
+        else:
+            effective_split = _span + 1
     try:
         prefix_digest = _prefix_content_digest((getattr(session, "history", None) or [])[:effective_split])
     except Exception:  # noqa: BLE001 — an odd history shape ⇒ can't validate ⇒ skip safely
@@ -414,7 +525,7 @@ def _schedule_background_compaction(session, split_point: int, system_msg_count:
                         "Background compaction abandoned for session %s — history changed under it", sid)
                     return
                 _update_session_history(session, split_point, summary,
-                                        system_msg_count=system_msg_count)
+                                        system_msg_count=system_msg_count, older_msgs=older_msgs)
                 logger.info("Background compaction persisted for session %s", sid)
         except Exception as e:  # noqa: BLE001 — a background optimization must never surface
             logger.warning("Background compaction failed for session %s: %s", sid, e)
@@ -441,8 +552,18 @@ async def maybe_compact(
     messages: List[Dict],
     headers: Optional[Dict] = None,
     owner: Optional[str] = None,
+    input_budget_fn: Optional[Callable[[int], int]] = None,
+    persist_history: bool = True,
 ) -> tuple:
     """Check context usage and compact if above threshold.
+
+    ``input_budget_fn(context_length) -> effective input-token budget`` (ORW-219): when given, the
+    threshold is ``min(85% of window, COMPACT_BUDGET_FRACTION x budget)`` so summarizing always
+    happens before ``trim_for_context`` has to drop anything.
+
+    ``persist_history=False`` (ORW-224, every game/casting session): never summarize. Compaction ends in
+    ``replace_messages``, which deletes and re-inserts every stored row; a game transcript must never be
+    rewritten (non-degradation, mandate #4). The caller's ``trim_for_context`` shortens the prompt only.
 
     Returns (messages, context_length, was_compacted).
     """
@@ -452,7 +573,19 @@ async def maybe_compact(
     used = estimate_tokens(messages)
     pct = (used / context_length) * 100 if context_length else 0
 
-    if pct < COMPACT_THRESHOLD * 100:
+    threshold_tokens = COMPACT_THRESHOLD * context_length if context_length else float("inf")
+    if input_budget_fn is not None and context_length:
+        try:
+            budget = int(input_budget_fn(context_length) or 0)
+        except Exception:  # noqa: BLE001 — a budget lookup failure falls back to the window threshold
+            budget = 0
+        if budget > 0:
+            threshold_tokens = min(threshold_tokens, COMPACT_BUDGET_FRACTION * budget)
+    if used < threshold_tokens:
+        return messages, context_length, False
+
+    if not persist_history or is_game_or_casting_session(session):
+        logger.info("Context at %.1f%% — compaction skipped (game/casting session: stored history is never rewritten)", pct)
         return messages, context_length, False
 
     logger.info(
@@ -534,12 +667,32 @@ async def maybe_compact(
     # partially interleave), and the background pass preserves the recent tail
     # (`session.history[split:]`) — so whichever order they land in, the just-appended turns are
     # retained; nothing is lost.
-    _schedule_background_compaction(session, split_point, len(system_msgs), _summarize)
+    _schedule_background_compaction(session, split_point, len(system_msgs), _summarize, older_msgs=older)
     return messages, context_length, False
 
 
+def _row_key(m) -> tuple:
+    """(db id, role, content) identity of a history row or a context dict built from one."""
+    if isinstance(m, dict):
+        md, role, content = m.get("metadata") or {}, m.get("role"), m.get("content")
+    else:
+        md, role, content = getattr(m, "metadata", None) or {}, getattr(m, "role", None), getattr(m, "content", None)
+    return (md.get("_db_id"), role, _stable_repr(content))
+
+
+def _locate_history_rows(history: list, older_msgs: List[Dict]) -> Optional[int]:
+    """Index in ``history`` of the row matching the LAST of ``older_msgs`` (an ordered subsequence of it),
+    or None if they cannot all be found in order."""
+    p, last = 0, None
+    for i, row in enumerate(history):
+        if p < len(older_msgs) and _row_key(row) == _row_key(older_msgs[p]):
+            last = i
+            p += 1
+    return last if p == len(older_msgs) else None
+
+
 def _update_session_history(session, split_point: int, summary: str,
-                            system_msg_count: int = 0):
+                            system_msg_count: int = 0, older_msgs: Optional[List[Dict]] = None):
     """Update the in-memory session history after compaction.
 
     `split_point` is the index in `convo_msgs` (system-stripped). The
@@ -550,6 +703,30 @@ def _update_session_history(session, split_point: int, summary: str,
     otherwise be dropped.
     """
     if not session or not hasattr(session, "history"):
+        return
+
+    if older_msgs:
+        # ORW-219: replace ONLY the summarized rows (the context-visible older half) with the summary, in
+        # place. Casting/slash rows and the recent tail stay exactly where they are; the summary is stamped
+        # with the phase of what it summarizes so the casting wall and the pre-game cut treat it correctly.
+        keys = {_row_key(m) for m in older_msgs}
+        if _locate_history_rows(session.history, older_msgs) is None:
+            return
+        _phases = [((getattr(m, "metadata", None) or {}).get("phase")) for m in session.history if _row_key(m) in keys]
+        _phase = "game" if "game" in _phases else next((p for p in _phases if p), None)
+        _md = {"compacted": True, "summarized_count": len(older_msgs)}
+        if _phase:
+            _md["phase"] = _phase
+        summary_msg = ChatMessage(role="system", content=f"[Conversation summary]\n{summary}", metadata=_md)
+        new_history, placed = [], False
+        for m in session.history:
+            if _row_key(m) in keys:
+                if not placed:
+                    new_history.append(summary_msg)
+                    placed = True
+                continue
+            new_history.append(m)
+        _persist_history(session, new_history)
         return
 
     effective_split = system_msg_count + split_point
@@ -566,6 +743,11 @@ def _update_session_history(session, split_point: int, summary: str,
         metadata={"compacted": True, "summarized_count": split_point},
     )
     new_history = system_prefix + [summary_msg] + recent_history
+    _persist_history(session, new_history)
+
+
+def _persist_history(session, new_history: list) -> None:
+    """Persist (DB, so a restart keeps the summary) and swap the in-memory history."""
     try:
         from core import models as _core_models
         manager = getattr(_core_models, "_session_manager", None)

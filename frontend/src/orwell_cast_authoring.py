@@ -61,7 +61,8 @@ _SYSTEM = (
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
-    '"distinguishingMark", "ageLook", "style" } — short phrases; this single facet is what BOTH '
+    '"distinguishingMark", "ageLook", "style", "wardrobe", "onCamera" } — short phrases (wardrobe is an '
+    "array, onCamera a short prose line); this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
     "background) — never a generic default; vary it widely across the cast. When the skeleton shows a "
@@ -71,7 +72,22 @@ _SYSTEM = (
     "mark, the style, or the biography) — only a small minority of a real cast is visibly inked, and "
     "the casting office already decided who. A distinguishingMark is usually minor or absent: a scar, "
     "a birthmark, freckles, glasses, jewelry, a gap-toothed grin — or plain \"none notable\"; never "
-    "default to a tattoo,\n"
+    "default to a tattoo, "
+    "STYLE: the skeleton's presentation is this person's style FAMILY. Write \"style\" INSIDE that "
+    "family, as THIS person would wear it given their age, job and hometown; never blend in another "
+    "family (no rocker edge layered over bohemian). "
+    "WARDROBE: 2-3 specific clothing or accessory pieces in that family (each under 60 characters), "
+    "with no visible words, logos, band names or brand names. "
+    "ONCAMERA: 1-2 sentences of VISIBLE personality drawn from their story, demeanor and voice "
+    "(register, rhythm, energy, directness, humor, signature): posture, gaze, expression, grooming, one "
+    "telling clothing detail, and ONE spot in the house from: kitchen, living room, dining room, "
+    "backyard, lounge, a bedroom. Only what a camera can see; no plot, no other people, no text; at "
+    "most 240 characters. Example: \"leans toward the lens like he's about to cut in, brows up "
+    "mid-joke, a smirk that undercuts whatever he just said; shirt buttoned to the collar, apron "
+    "folded neat over one shoulder; at the kitchen counter.\" "
+    "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
+    "hair under 35 unless it is written as dyed. BUILD COHERENCE: heightBuild must not combine "
+    "opposites (for example broad-shouldered with willowy),\n"
     '  "voice": the houseguest\'s IDIOLECT — how THIS person talks, all season: { "register", '
     '"rhythm", "energy", "directness", "humor", "stressTell", "signature", "lexicon", "catchphrases" }. '
     'The first six are SHORT dial phrases (e.g. register "folksy", rhythm "rambling", humor "dry", '
@@ -104,6 +120,21 @@ _SYSTEM = (
 # that honours it returns strict JSON (no prose/reasoning leaking into the body). A provider that
 # ignores it is harmless: the prompt reinforcement above + the one-shot retry below still apply.
 _RESPONSE_FORMAT = {"type": "json_object"}
+
+
+def _response_format_for(messages) -> Optional[dict]:
+    """ORW-391: JSON mode only for a prompt that asks for JSON. DeepSeek (the OOB utility model) answers 400 "Prompt must contain the word 'json'" to a json_object request whose prompt does not, and the shared utility fn
+    is also used for PROSE calls (the ORW-271 day condense): that call failed after every bedtime and the day was never condensed. Any message mentioning "json" (any case) keeps the format exactly as before."""
+    try:
+        for m in messages or []:
+            c = m.get("content") if isinstance(m, dict) else None
+            if isinstance(c, str) and "json" in c.lower():
+                return _RESPONSE_FORMAT
+            if isinstance(c, list) and any(isinstance(b, dict) and "json" in str(b.get("text", "")).lower() for b in c):
+                return _RESPONSE_FORMAT
+    except Exception:
+        return _RESPONSE_FORMAT
+    return None
 
 # #1044: the SHARED background-utility sampling temperature. This module's `_resolve_llm_fn` is the
 # common resolver for several background lanes (zeitgeist / off-screen texture / identity / the gateway
@@ -538,48 +569,131 @@ def _gendered_descriptor_flip(text: str, pin: str) -> bool:
     return False
 
 
+# ── ORW-184: reason codes + per-dial repair (behind ORWELL_VOICE_REPAIR, default ON since ORW-242) ─────────────────
+#
+# On 2026-11-06 the check below dropped three authored voices WHOLE. Two were the model echoing the
+# engine's OWN seeded humor dial: `humor: "none"` is a real value of the engine's controlled vocabulary
+# (`VOICE_DIALS.humor` in src/engine/voice.ts; the roster clause the model is briefed with renders it
+# "none humor"), and `_DEGENERATE_DIAL_VALUES` rejects "none" as an empty answer. The third was one bad
+# OPTIONAL catchphrase (a CJK slip), which the engine itself would simply omit. With the flag ON:
+#   • `voice_conflict_reasons` names every failing field with a reason code (`script` / `degenerate` /
+#     `gender-descriptor`), list entries by index (`catchphrases[2]`);
+#   • a value the engine's own dial vocabulary uses is never "degenerate" (the shared fixture
+#     `frontend/tests/fixtures/engine_voice_vocabulary.json` + both halves of its drift gate keep this
+#     honest: tests/unit/voiceVocabularyFixture.test.ts and frontend/tests/test_orw184_voice_repair.py);
+#   • `repair_authored_voice` mends the voice per field (a bad dial → the SEEDED dial read back from the
+#     roster card's clause; a bad list entry → removed) instead of dropping the whole object, so the engine
+#     still receives a WHOLE voice (its `sanitizeAuthoredVoice` whole-or-nothing contract is unchanged).
+#     Only an unrepairable voice (a bad signature, an emptied lexicon, no seeded dial) still drops whole.
+# With the flag OFF every verdict, log line and ledger row is byte-identical to the legacy check.
+_VOICE_REPAIR_FLAG = "ORWELL_VOICE_REPAIR"
+
+# The engine's own dial values that the degenerate list would otherwise reject (normalized like
+# `_is_degenerate_dial`). Today only humor "none" collides; the FE drift test fails if the engine adds another.
+_ENGINE_DIAL_VALUES_NOT_DEGENERATE = {"humor": frozenset({"none"})}
+
+
+def voice_repair_enabled() -> bool:
+    """ORW-184 flag, default ON (Ryne's ruling on ORW-242, "fix one detail": repair only the failing dial and keep the authored voice).
+    `ORWELL_VOICE_REPAIR=0|false|no|off` turns it off (the legacy whole-voice drop); unset or anything else is on."""
+    return str(os.environ.get(_VOICE_REPAIR_FLAG, "")).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _is_engine_dial_value(key: str, value: str) -> bool:
+    norm = str(value or "").strip().strip(".").lower()
+    return norm in _ENGINE_DIAL_VALUES_NOT_DEGENERATE.get(key, frozenset())
+
+
+def _voice_field_reason(key: str, val, pin: str, vocab_aware: bool) -> Optional[str]:
+    """The FIRST failing check for one voice field, in the legacy check order, or None when it passes."""
+    if not isinstance(val, str):
+        return None
+    if _has_script_garble(val):
+        return "script"
+    # The dial fields (everything but the prose `signature`) are single short words/phrases — a degenerate
+    # non-answer here is what breaks the rendered template. `signature` is free prose, never checked for
+    # degeneracy (a real sentence is never literally "none").
+    if key != "signature" and _is_degenerate_dial(val) and not (vocab_aware and _is_engine_dial_value(key, val)):
+        return "degenerate"
+    # Every rendered dial (AND the signature) is self-referential — a gendered descriptor on ANY of them
+    # contradicts the pin exactly like it would in prose.
+    if _gendered_descriptor_flip(val, pin):
+        return "gender-descriptor"
+    return None
+
+
+def voice_conflict_reasons(profile: dict, npc: dict, *, vocab_aware: Optional[bool] = None) -> list:
+    """ORW-184: every reason the authored `voice` fails the E1 (#1733) check, as `(field, code)` pairs —
+    `field` is a dial key, `signature`, or a list entry (`lexicon[1]`, `catchphrases[2]`); `code` is
+    `script` | `degenerate` | `gender-descriptor`. Empty ⇒ coherent. Vault-free: field names and codes only,
+    never the prose. `vocab_aware` (default: the ORWELL_VOICE_REPAIR flag) accepts the engine's own dial
+    values (`humor: "none"`); off, the verdict is exactly the legacy `voice_conflicts` one."""
+    voice = profile.get("voice") if isinstance(profile, dict) else None
+    if not isinstance(voice, dict):
+        return []
+    if vocab_aware is None:
+        vocab_aware = voice_repair_enabled()
+    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
+    reasons: list = []
+    for key in _VOICE_DIAL_KEYS:  # register, rhythm, energy, directness, humor, stressTell, signature
+        code = _voice_field_reason(key, voice.get(key), pin, vocab_aware)
+        if code:
+            reasons.append((key, code))
+    for list_key in ("lexicon", "catchphrases"):
+        entries = voice.get(list_key)
+        if isinstance(entries, list):
+            for i, entry in enumerate(entries):
+                if _has_script_garble(str(entry)):
+                    reasons.append((f"{list_key}[{i}]", "script"))
+    return reasons
+
+
 def voice_conflicts(profile: dict, npc: dict) -> bool:
     """E1 (#1733): True iff the authored `voice` object (register/rhythm/energy/directness/humor/
     stressTell/signature/lexicon/catchphrases) should be dropped WHOLE before write-back — script
     garble in any dial/signature/lexicon/catchphrase entry, a degenerate non-answer dial value (an
-    "empty dial", e.g. `humor: "none"`), or a gendered self-descriptor that contradicts the pinned
+    "empty dial", e.g. `humor: "n/a"`), or a gendered self-descriptor that contradicts the pinned
     gender. Voice folds WHOLE-or-NOTHING (owner ruling 2026-06-25, mirrored by the engine's
-    `sanitizeAuthoredVoice`), so any one garbled entry drops the whole object rather than leaving a
-    Frankenstein voice half seeded-floor, half authored. A well-formed, coherent voice ⇒ False (a
-    byte-identical no-op) — the common case.
+    `sanitizeAuthoredVoice`). A well-formed, coherent voice ⇒ False (a byte-identical no-op) — the
+    common case.
 
-    P1 (Greptile on #1750): the gendered-descriptor check must run on EVERY dial `voiceFingerprint`
+    P1 (Greptile on #1750): the gendered-descriptor check runs on EVERY dial `voiceFingerprint`
     (`src/engine/voice.ts`) renders into the authoritative roster line — `register`, `rhythm`,
-    `directness`, `energy`, `humor`, `stressTell` — not just the free-prose `signature` (which never
-    reaches the template at all). A pinned woman authoring `register: "fatherly"` or `stressTell:
-    "gets paternal"` is the SAME gender-incoherent authoritative voice cue this lint already rejects
-    in a signature; it must not slip through on a dial."""
+    `directness`, `energy`, `humor`, `stressTell` — not just the free-prose `signature`.
+
+    ORW-184: now the boolean view of `voice_conflict_reasons`. With ORWELL_VOICE_REPAIR off it is the
+    legacy verdict exactly (humor "none" still trips it); with it on, the engine's own dial values pass,
+    and `_author_one` first mends the voice per field via `repair_authored_voice`, so this only fires on a
+    voice that could not be repaired."""
+    return bool(voice_conflict_reasons(profile, npc))
+
+
+def _seeded_voice_floor(npc: dict) -> dict:
+    """ORW-184: the SEEDED dials read back from the roster card's `voice` clause (the brief the model was
+    given), keeping only dials that themselves pass the check for this houseguest. `{}` when the card has
+    no parseable clause (then no dial can be repaired, and a failing dial drops the voice as before)."""
+    from src.orwell_voice_repair import parse_voice_clause
+    parsed = parse_voice_clause((npc or {}).get("voice")) or {}
+    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
+    return {k: v for k, v in parsed.items() if _voice_field_reason(k, v, pin, True) is None}
+
+
+def repair_authored_voice(profile: dict, npc: dict):
+    """ORW-184: mend the authored voice per field (see `src.orwell_voice_repair`). Returns a `VoiceRepair`:
+    `.voice` is the mended (or untouched, when nothing failed) voice, or None when it cannot be mended; the
+    mended voice is re-checked before it is offered. Pure; the caller decides what to write."""
+    from src.orwell_voice_repair import VoiceRepair, repair_voice
     voice = profile.get("voice") if isinstance(profile, dict) else None
     if not isinstance(voice, dict):
-        return False
-    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
-    for key in _VOICE_DIAL_KEYS:  # register, rhythm, energy, directness, humor, stressTell, signature
-        val = voice.get(key)
-        if not isinstance(val, str):
-            continue
-        if _has_script_garble(val):
-            return True
-        # The dial fields (everything but the prose `signature`) are single short words/phrases — a
-        # degenerate non-answer here is what breaks the rendered template. `signature` is free prose,
-        # never checked for degeneracy (a real sentence is never literally "none").
-        if key != "signature" and _is_degenerate_dial(val):
-            return True
-        # Every rendered dial (AND the signature) is self-referential — a gendered descriptor on ANY
-        # of them contradicts the pin exactly like it would in prose.
-        if _gendered_descriptor_flip(val, pin):
-            return True
-    lexicon = voice.get("lexicon")
-    if isinstance(lexicon, list) and _any_script_garble(*[str(x) for x in lexicon]):
-        return True
-    catchphrases = voice.get("catchphrases")
-    if isinstance(catchphrases, list) and _any_script_garble(*[str(x) for x in catchphrases]):
-        return True
-    return False
+        return VoiceRepair(voice=None)
+    reasons = voice_conflict_reasons(profile, npc, vocab_aware=True)
+    if not reasons:
+        return VoiceRepair(voice=voice)
+    result = repair_voice(voice, reasons, _seeded_voice_floor(npc))
+    if result.voice is not None and voice_conflict_reasons({"voice": result.voice}, npc, vocab_aware=True):
+        return VoiceRepair(voice=None, reasons=result.reasons, actions=result.actions,
+                           unrepairable=(("voice", "recheck"),))
+    return result
 
 
 def coherence_conflicts(profile: dict, npc: dict) -> list[str]:
@@ -621,7 +735,10 @@ def coherence_conflicts(profile: dict, npc: dict) -> list[str]:
 
     age = (npc or {}).get("age")
     if isinstance(age, (int, float)) and not isinstance(age, bool) and int(age) < _YOUNG_AGE_CEILING:
-        if bio and (_ELDER_LIFE_STAGE.search(bio) or _LONG_CAREER.search(bio)):
+        # ORW-356: a houseguest whose PINNED vocation is itself "retired ..." (the engine's own fact, e.g. a 24-year-old retired firefighter-paramedic after an injury) must be
+        # allowed to say so in the biography; the elder life-stage rule is for a retirement the engine did NOT pin. The multi-decade career span still applies.
+        _pinned_retired = bool(_ELDER_LIFE_STAGE.search(str((npc or {}).get("vocation") or "")))
+        if bio and (((not _pinned_retired) and _ELDER_LIFE_STAGE.search(bio)) or _LONG_CAREER.search(bio)):
             drop.add("biography")
 
     # E1 (#1733): the authored voice fingerprint — script garble, a degenerate dial ("none"/"n/a"), or
@@ -818,6 +935,133 @@ def facet_hand_conflicts(profile: dict, npc: dict) -> list:
         if authored_has or rx.search(bio):
             out.append(dim)
     return out
+
+
+# ---------------------------------------------------------------------------------------------------
+# ORW-360: the look accept path. The checks run on the authored physicalCharacteristics after the identity
+# lint; one strict retry names the problem(s); after the retry still fails each axis falls back (hair and
+# build to the seeded brief, style to the family sample and wardrobe omitted, onCamera omitted). Nothing here
+# ever logs the authored text: only the houseguest id and the reason code.
+# ---------------------------------------------------------------------------------------------------
+_GRAY_HAIR_RE = re.compile(r"\b(?:gr[ae]y(?:ing)?|silver|salt[- ]and[- ]pepper|white[- ]haired)\b", re.I)
+_DYED_RE = re.compile(r"\b(?:dyed|bleached|platinum)\b", re.I)
+_GRAY_HAIR_MIN_AGE = 35
+_BROAD_WORDS = ("broad-shouldered", "stocky", "heavyset", "burly", "thick")
+_SLIGHT_WORDS = ("willowy", "slight", "petite", "lanky", "reedy", "slender")
+_BROAD_RE = re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _BROAD_WORDS), re.I)
+_SLIGHT_RE = re.compile(r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _SLIGHT_WORDS), re.I)
+_TALL_RE = re.compile(r"\btall\b", re.I)
+_PETITE_RE = re.compile(r"\bpetite\b", re.I)
+_WARDROBE_TEXT_RE = re.compile(
+    r"\blogos?\b|\blettering\b|\blettered\b|\bslogans?\b|\bprinted (?:words?|text|lettering)\b"
+    r"|\bwords?\b|\btext\b|[\"\u201c\u201d]", re.I)
+# A short list of common band and brand names (not exhaustive: the prompt carries the rule, this is the net).
+_BAND_BRAND_NAMES = (
+    "def leppard", "metallica", "nirvana", "ramones", "ac/dc", "ac-dc", "led zeppelin", "pink floyd",
+    "the clash", "misfits", "slayer", "megadeth", "guns n' roses", "iron maiden", "black sabbath",
+    "nike", "adidas", "puma", "reebok", "gucci", "supreme", "carhartt", "levi's", "levis", "vans",
+    "converse", "patagonia", "harley", "rolex", "birkenstock", "ray-ban", "dr. martens", "doc martens",
+    "louis vuitton", "chanel", "prada", "champion", "yeezy", "jordans", "under armour", "north face",
+    "lululemon", "hollister", "abercrombie", "burberry", "versace", "off-white", "stussy", "timberland",
+)
+_BAND_BRAND_RE = re.compile(
+    r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
+_ONCAMERA_MAX = 240
+_SPOT_PATTERNS = (
+    ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
+    ("dining room", re.compile(r"\bdining room\b", re.I)), ("backyard", re.compile(r"\bback ?yard\b", re.I)),
+    ("lounge", re.compile(r"\blounge\b", re.I)), ("bedroom", re.compile(r"\bbedrooms?\b", re.I)),
+)
+
+_LOOK_PROBLEM_TEXT = {
+    "gray-hair-young": "hair reads gray/silver/salt-and-pepper for someone under 35 (write it as dyed, or pick a natural colour that fits their age)",
+    "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
+    "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
+    "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
+    "oncamera-shape": "onCamera must be at most 240 characters and name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
+}
+
+_LOOK_RETRY_TAIL = (
+    " Rewrite the COMPLETE JSON object now with those look fields fixed and everything else as before. "
+    "Only the JSON object — start with '{', end with '}', no prose, no markdown, no fences."
+)
+
+
+def look_retry_message(problems: list) -> str:
+    """The strict retry text naming each look problem (reuses the strict JSON-only instruction)."""
+    named = "; ".join(f"{p}: {_LOOK_PROBLEM_TEXT[p]}" for p in problems)
+    return (f"{_STRICT_RETRY} Your profile's look failed these checks: {named}.{_LOOK_RETRY_TAIL}")
+
+
+def _age_of(npc: dict):
+    try:
+        a = (npc or {}).get("age")
+        return int(a) if a is not None and not isinstance(a, bool) else None
+    except (TypeError, ValueError):
+        return None
+
+
+def look_problems(profile: dict, npc: dict) -> list:
+    """The look-check reason codes the authored ``physicalCharacteristics`` trips ([] when clean or when
+    there is no facet). The optional wardrobe/onCamera are checked only when present (absent = omitted,
+    ORW-361 then uses its fallback lines). Vault-free: codes only, never the authored text."""
+    from src.orwell_style_families import families_mentioned, family_for_label
+    pc = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return []
+    out = []
+    age = _age_of(npc)
+    hair = str(pc.get("hair") or "")
+    if age is not None and age < _GRAY_HAIR_MIN_AGE and _GRAY_HAIR_RE.search(hair) and not _DYED_RE.search(hair):
+        out.append("gray-hair-young")
+    hb = str(pc.get("heightBuild") or "")
+    if (_BROAD_RE.search(hb) and _SLIGHT_RE.search(hb)) or (_TALL_RE.search(hb) and _PETITE_RE.search(hb)):
+        out.append("build-contradiction")
+    wardrobe = pc.get("wardrobe")
+    items = [str(x) for x in wardrobe] if isinstance(wardrobe, list) else []
+    fam = family_for_label(str((npc or {}).get("presentation") or ""))
+    if fam is not None:
+        mentioned = families_mentioned(str(pc.get("style") or "") + " " + " ".join(items))
+        if fam["id"] not in mentioned and any(m != fam["id"] for m in mentioned):
+            out.append("style-wrong-family")
+    if "wardrobe" in pc and (
+            not isinstance(wardrobe, list) or not 2 <= len(items) <= 3
+            or any(len(i) > 60 or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
+        out.append("wardrobe-shape")
+    if "onCamera" in pc:
+        oc = str(pc.get("onCamera") or "")
+        spots = {name for name, rx in _SPOT_PATTERNS if rx.search(oc)}
+        if len(oc) > _ONCAMERA_MAX or len(spots) != 1:
+            out.append("oncamera-shape")
+    return out
+
+
+def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
+    """After the strict retry still fails: hair and build fall back to the seeded brief's value for that
+    axis; style falls back to the family sample and wardrobe is omitted; onCamera is omitted. Mutates
+    ``profile`` in place; returns the reason codes applied."""
+    from src.orwell_style_families import family_for_label
+    pc = profile.get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return []
+    seeded = (npc or {}).get("physicalCharacteristics")
+    seeded = seeded if isinstance(seeded, dict) else {}
+    for code in problems:
+        if code == "gray-hair-young" and seeded.get("hair"):
+            pc["hair"] = str(seeded["hair"])
+        elif code == "build-contradiction" and seeded.get("heightBuild"):
+            pc["heightBuild"] = str(seeded["heightBuild"])
+        elif code == "style-wrong-family":
+            fam = family_for_label(str((npc or {}).get("presentation") or ""))
+            if fam is not None:
+                pc["style"] = fam["sample"]
+            pc.pop("wardrobe", None)
+        elif code == "wardrobe-shape":
+            pc.pop("wardrobe", None)
+        elif code == "oncamera-shape":
+            pc.pop("onCamera", None)
+    return list(problems)
+
 
 
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
@@ -1025,6 +1269,17 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
     if isinstance(phys, dict):
         facet = {k: str(phys[k]).strip() for k in _PHYS_KEYS if isinstance(phys.get(k), (str, int)) and str(phys.get(k)).strip()}
         if len(facet) == len(_PHYS_KEYS):  # the facet is the text↔image source of truth — only write it whole
+            # ORW-360: the two OPTIONAL look fields ride along when present (never required, never a gate).
+            # Forwarded raw-ish (cleaned strings, no clamping) so the accept path can check them; the engine
+            # clamps again at the recordCastProfile boundary.
+            wd = phys.get("wardrobe")
+            if isinstance(wd, list):
+                wd_clean = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()]
+                if wd_clean:
+                    facet["wardrobe"] = wd_clean
+            oc = phys.get("onCamera")
+            if isinstance(oc, str) and oc.strip():
+                facet["onCamera"] = " ".join(oc.split())
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -1240,6 +1495,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     identity_pinned = 0     # F1 (#1660): NPCs whose authored STRUCTURED field crosswired the committed roster
     secret_pinned = 0       # F5 (#1660): NPCs whose hidden threads were dropped (authored around a crosswired job)
     facet_stripped = 0      # T0-6: NPCs whose biography was dropped after a failed dealt-facet regenerate
+    voice_repaired = 0      # ORW-184: NPCs whose authored voice was mended per field (flag on)
     ukey = _safe_user(user)  # M1-10: the give-up ledger scope
 
     async def _call_with_retries(npc: dict, hid: str):
@@ -1373,7 +1629,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     async def _author_one(npc: dict) -> int:
         nonlocal floor_no_json, floor_empty, floor_truncated, floor_degradation, floor_below, \
             floor_gaveup, floor_call_failed, coherence_stripped, identity_pinned, secret_pinned, \
-            facet_stripped
+            facet_stripped, voice_repaired
         hid = npc.get("id")
         if not hid or hid == "player":
             return 0
@@ -1441,76 +1697,114 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # guarantees at game start). Record a RED-eligible `identity-incoherence` health event —
             # a genuine fault surfaced even though auto-corrected (#1599). Vault-free: the id + the
             # dropped FIELD names only, never the prose. A coherent dossier ⇒ no-op (byte-identical).
-            dropped = coherence_conflicts(profile, npc)
-            if dropped:
-                for k in dropped:
-                    profile.pop(k, None)
-                coherence_stripped += 1
-                logger.warning(
-                    f"[cast-authoring] authored dossier for {hid} contradicts the pinned identity "
-                    f"(dropped {', '.join(dropped)} to the coherent floor) — identity-incoherence")
-                try:
-                    from src import enrichment_policy
-                    enrichment_policy.record_runtime_failure(
-                        user, "identity-incoherence",
-                        f"authored dossier for {hid} contradicts the pinned identity — dropped "
-                        f"{', '.join(dropped)} to the coherent seeded floor before write-back")
-                except Exception:  # pragma: no cover - the health record must never break authoring
-                    pass
-                # Only the houseguestId survived the strip — nothing coherent left to write; the whole
-                # NPC falls to the seeded floor (already RED-recorded above).
-                if len(profile) <= 1:
-                    floor_below += 1
-                    return 0
-            # F1 (#1660): roster-constrained authoring — drop any authored STRUCTURED identity field
-            # (vocation / genderPresentation / age) that CONTRADICTS the committed roster's immutable
-            # value, so the committed identity STANDS (authored fields EXTEND, never OVERWRITE). This is
-            # the "occupation-crosswired" complement to F2's prose lint. RED-recorded via log_rings
-            # (#1599 — a real fault surfaced even when auto-corrected), Vault-free (field names only).
-            id_drop = identity_contradictions(profile, npc)
-            if id_drop:
-                # F5 (#1660): a crosswired vocation means the hidden threads (secrets/goals/weakness),
-                # authored in the SAME call, were grounded in the WRONG job — compute them BEFORE the
-                # vocation is popped so they are re-derived by the engine off the committed vocation.
-                secret_drop = secret_vocation_conflicts(profile, npc)
-                for k in id_drop:
-                    profile.pop(k, None)
-                identity_pinned += 1
-                logger.warning(
-                    f"[cast-authoring] authored dossier for {hid} contradicts the committed roster "
-                    f"(dropped {', '.join(id_drop)} — the committed identity stands) — identity-contradiction")
-                try:
-                    from src import log_rings
-                    log_rings.record_soft_failure(
-                        "cast-authoring:identity-contradiction",
-                        f"authored dossier for {hid} contradicts the committed roster — dropped "
-                        f"{', '.join(id_drop)} so the committed identity stands (authored fields extend, "
-                        f"never overwrite)",
-                        corrected="committed-roster-identity", user=user, houseguest=hid)
-                except Exception:  # pragma: no cover - the health record must never break authoring
-                    pass
-                if secret_drop:
-                    for k in secret_drop:
-                        profile.pop(k, None)
-                    secret_pinned += 1
+            # The author-time identity lint (the ORW-184 voice repair, F2 coherence, F1/F5 roster) as ONE function, so a
+            # dealt-facet REGENERATE (below) is checked exactly like the first draft before it can be adopted. Before
+            # this, an adopted regenerate skipped all of it and a flipped identity could commit. Mutates `p` in place;
+            # False ⇒ nothing writable is left (the caller decides: the first draft falls to the floor, a regenerate
+            # is simply not adopted).
+            def _lint_identity(p: dict) -> bool:
+                nonlocal voice_repaired, coherence_stripped, identity_pinned, secret_pinned
+                # ORW-184 (ORWELL_VOICE_REPAIR, default ON; =0 ⇒ this block is skipped and everything below is
+                # byte-identical): mend the authored voice PER FIELD before the lint, so one bad dial or one bad
+                # optional entry no longer costs the whole voice. A mended voice is still a recorded fault
+                # (#1599: a correction is not a cloak), as auto-corrected. An unmendable one falls through to the
+                # lint below, which drops it whole as before, now with its reason codes.
+                voice_note = ""
+                if voice_repair_enabled() and isinstance(p.get("voice"), dict):
+                    from src.orwell_voice_repair import format_actions, format_reasons
+                    repair = repair_authored_voice(p, npc)
+                    if repair.repaired:
+                        p["voice"] = repair.voice
+                        voice_repaired += 1
+                        logger.warning(
+                            f"[cast-authoring] repaired the authored voice for {hid} per field "
+                            f"({format_actions(repair.actions)}) — the rest of the authored voice stands")
+                        try:
+                            from src import log_rings
+                            log_rings.record_soft_failure(
+                                "cast-authoring:voice-repaired",
+                                f"authored voice for {hid} failed the voice check on "
+                                f"{format_reasons(repair.reasons)} — repaired per field "
+                                f"({format_actions(repair.actions)}) instead of dropping the whole voice",
+                                corrected="seeded-voice-dial", user=user, houseguest=hid)
+                        except Exception:  # pragma: no cover - the health record must never break authoring
+                            pass
+                    elif repair.voice is None and repair.reasons:
+                        voice_note = f" [voice: {format_reasons(repair.reasons)}]"
+                dropped = coherence_conflicts(p, npc)
+                if dropped:
+                    for k in dropped:
+                        p.pop(k, None)
+                    coherence_stripped += 1
+                    note = voice_note if "voice" in dropped else ""
                     logger.warning(
-                        f"[cast-authoring] hidden threads for {hid} were authored around a crosswired "
-                        f"vocation (dropped {', '.join(secret_drop)}) — the engine re-grounds the hidden "
-                        f"stakes off the committed job — secret-identity-contradiction")
+                        f"[cast-authoring] authored dossier for {hid} contradicts the pinned identity "
+                        f"(dropped {', '.join(dropped)} to the coherent floor){note} — identity-incoherence")
+                    try:
+                        from src import enrichment_policy
+                        enrichment_policy.record_runtime_failure(
+                            user, "identity-incoherence",
+                            f"authored dossier for {hid} contradicts the pinned identity — dropped "
+                            f"{', '.join(dropped)} to the coherent seeded floor before write-back{note}")
+                    except Exception:  # pragma: no cover - the health record must never break authoring
+                        pass
+                    # Only the houseguestId survived the strip — nothing coherent left to write; the whole
+                    # NPC falls to the seeded floor (already RED-recorded above).
+                    if len(p) <= 1:
+                        return False
+                # F1 (#1660): roster-constrained authoring — drop any authored STRUCTURED identity field
+                # (vocation / genderPresentation / age) that CONTRADICTS the committed roster's immutable
+                # value, so the committed identity STANDS (authored fields EXTEND, never OVERWRITE). This is
+                # the "occupation-crosswired" complement to F2's prose lint. RED-recorded via log_rings
+                # (#1599 — a real fault surfaced even when auto-corrected), Vault-free (field names only).
+                id_drop = identity_contradictions(p, npc)
+                if id_drop:
+                    # F5 (#1660): a crosswired vocation means the hidden threads (secrets/goals/weakness),
+                    # authored in the SAME call, were grounded in the WRONG job — compute them BEFORE the
+                    # vocation is popped so they are re-derived by the engine off the committed vocation.
+                    secret_drop = secret_vocation_conflicts(p, npc)
+                    for k in id_drop:
+                        p.pop(k, None)
+                    identity_pinned += 1
+                    logger.warning(
+                        f"[cast-authoring] authored dossier for {hid} contradicts the committed roster "
+                        f"(dropped {', '.join(id_drop)} — the committed identity stands) — identity-contradiction")
                     try:
                         from src import log_rings
                         log_rings.record_soft_failure(
-                            "cast-authoring:secret-identity-contradiction",
-                            f"hidden threads for {hid} were authored around a crosswired vocation — "
-                            f"dropped {', '.join(secret_drop)} so the engine re-grounds the hidden stakes "
-                            f"off the committed vocation",
-                            corrected="committed-roster-vocation", user=user, houseguest=hid)
+                            "cast-authoring:identity-contradiction",
+                            f"authored dossier for {hid} contradicts the committed roster — dropped "
+                            f"{', '.join(id_drop)} so the committed identity stands (authored fields extend, "
+                            f"never overwrite)",
+                            corrected="committed-roster-identity", user=user, houseguest=hid)
                     except Exception:  # pragma: no cover - the health record must never break authoring
                         pass
-                # Nothing coherent left after the identity strip — the whole NPC falls to the seeded floor.
-                if len(profile) <= 1:
-                    floor_below += 1
-                    return 0
+                    if secret_drop:
+                        for k in secret_drop:
+                            p.pop(k, None)
+                        secret_pinned += 1
+                        logger.warning(
+                            f"[cast-authoring] hidden threads for {hid} were authored around a crosswired "
+                            f"vocation (dropped {', '.join(secret_drop)}) — the engine re-grounds the hidden "
+                            f"stakes off the committed job — secret-identity-contradiction")
+                        try:
+                            from src import log_rings
+                            log_rings.record_soft_failure(
+                                "cast-authoring:secret-identity-contradiction",
+                                f"hidden threads for {hid} were authored around a crosswired vocation — "
+                                f"dropped {', '.join(secret_drop)} so the engine re-grounds the hidden stakes "
+                                f"off the committed vocation",
+                                corrected="committed-roster-vocation", user=user, houseguest=hid)
+                        except Exception:  # pragma: no cover - the health record must never break authoring
+                            pass
+                    # Nothing coherent left after the identity strip — the whole NPC falls to the seeded floor.
+                    if len(p) <= 1:
+                        return False
+                return True
+
+            if not _lint_identity(profile):
+                floor_below += 1
+                return 0
             # T0-6 — the TRANSACTIONAL adopt-or-regenerate guard for the dealt CLOSED facets (visible-ink
             # today; table-driven for whatever else joins `_CLOSED_FACET_DIMENSIONS`). The engine's
             # generic closed-facet-diff validator (`src/engine/facetDiff.ts`) is the airtight backstop at
@@ -1534,8 +1828,11 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     retried_profile = parse_authored_profile(retry_text or "", hid)
                 except Exception as e:
                     logger.warning(f"[cast-authoring] facet-conflict regenerate call failed for {hid}: {e}")
-                if retried_profile is not None and not facet_hand_conflicts(retried_profile, npc):
-                    profile = retried_profile  # the regenerate ADOPTED the dealt hand cleanly
+                if (retried_profile is not None and not facet_hand_conflicts(retried_profile, npc)
+                        and _lint_identity(retried_profile)):
+                    # The regenerate ADOPTED the dealt hand cleanly AND passed the same identity lint as the first
+                    # draft. One that cannot pass it is not adopted: the first draft's handling below stands.
+                    profile = retried_profile
                 elif "biography" in profile:
                     # Regeneration didn't land cleanly (or the call itself failed) — ADOPT the skeleton
                     # rather than commit a graft: drop the biography (the one field the engine's per-facet
@@ -1560,6 +1857,27 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                 if len(profile) <= 1:
                     floor_below += 1
                     return 0
+            # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
+            problems = look_problems(profile, npc)
+            if problems:
+                logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
+                _spend_attempt(ukey, hid)
+                try:
+                    look_messages = build_authoring_messages(npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
+                    look_text = await llm_fn(look_messages + [
+                        {"role": "user", "content": look_retry_message(problems)}])
+                    look_profile = parse_authored_profile(look_text or "", hid)
+                except Exception as e:
+                    logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
+                    look_profile = None
+                if (look_profile is not None and not look_problems(look_profile, npc)
+                        and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
+                    profile = look_profile
+                else:
+                    applied = apply_look_fallbacks(profile, npc, problems)
+                    logger.warning(
+                        f"[cast-authoring] look fell back to the seeded brief for {hid} after the retry "
+                        f"({', '.join(applied)}) — look-fallback")
             # #1057: the write-back is SERIALIZED + degradation-retried (it must not run concurrently
             # against the orchestrator integrity checkpoint).
             res = await _write_with_retries(profile, hid)
@@ -1595,7 +1913,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         f"{coherence_stripped} identity-incoherent prose-strip(s), "
         f"{identity_pinned} roster-contradiction field-strip(s), "
         f"{secret_pinned} crosswired-vocation secret-strip(s), "
-        f"{facet_stripped} closed-facet-conflict biography-strip(s))")
+        f"{facet_stripped} closed-facet-conflict biography-strip(s)"
+        + (f", {voice_repaired} voice repair(s)" if voice_repair_enabled() else "") + ")")
     # STRICT enrichment policy (owner directive 2026-07-11): any houseguest left on the deterministic
     # floor after the bounded retry ladder is a LOUD failure — an ERROR + an admin-visible ledger
     # entry (the #1313 house-entry gate is what blocks the flow itself). Under `soft` the tally above
@@ -1604,6 +1923,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         try:
             from src import enrichment_policy
             if enrichment_policy.is_strict():
+                mark_strict_failed(user)  # ORW-260: the backstories are required - latch the loud pre-finalize gate
                 enrichment_policy.record_failure(
                     user, "cast-authoring",
                     f"{floor}/{total} houseguest(s) fell back to the deterministic floor after retries",
@@ -1803,7 +2123,7 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         # `_AUTHORING_STREAM_WALL_CLOCK_S` (e.g. a test, or a future admin knob) actually takes effect.
         async for chunk in _bounded_stream(stream_llm_with_fallback(
             candidates, messages, temperature=_temperature, policy=_policy,
-            max_tokens=cap, response_format=_RESPONSE_FORMAT), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
+            max_tokens=cap, response_format=_response_format_for(messages)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
             # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
             piece = _delta_text(chunk)
             if piece:
@@ -2019,6 +2339,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
     narration-model-first at the runtime `cast_authoring_temperature`, explicit utility fallback.
     Under the STRICT enrichment policy a missing model is LOUD (an ERROR + a failure-ledger entry,
     never a silent floor); under `soft` the legacy silent no-op stands byte-identical."""
+    clear_strict_failed(owner)  # ORW-260: a fresh run re-evaluates from clean
     llm_fn = await resolve_authoring_llm_fn(owner)
     if llm_fn is None:
         try:
@@ -2027,6 +2348,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
         except Exception:
             strict = False
         if strict:
+            mark_strict_failed(owner)  # ORW-260: no model => no backstories => the game must not start on the floor
             enrichment_policy.record_failure(
                 owner, "cast-authoring",
                 "no model resolved for the cast-authoring call class — authoring cannot run",
@@ -2349,6 +2671,38 @@ def house_ready_inline_budget() -> float:
     the full readiness window so a mis-tuned env value can never make the inline wait LONGER than the
     old inline-everything behavior."""
     return min(_HOUSE_READY_INLINE_S, _HOUSE_READY_TIMEOUT_S)
+
+
+# ── ORW-260 (Ryne, BDD card 30, option B): the deeper backstories (0058) are REQUIRED, like the cast skeleton ──────────
+# "I think if it fails, it fails. I don't want a fallback." Under the DEFAULT strict policy a cast-authoring run that leaves ANY houseguest on the
+# deterministic floor (or cannot run at all: no model) latches this, exactly like the genesis strict-failed latch, and the loud pre-finalize gate in
+# `do_create_character` refuses to start the game on it. The world snapshot / off-screen detail stay fail-soft (admin alert only). Cleared on a new season
+# and at the start of every authoring run.
+_STRICT_FAILED: set = set()
+
+
+def _skey(user: Optional[str]) -> str:
+    return str(user) if user else "default"
+
+
+def mark_strict_failed(user: Optional[str]) -> None:
+    _STRICT_FAILED.add(_skey(user))
+
+
+def clear_strict_failed(user: Optional[str]) -> None:
+    _STRICT_FAILED.discard(_skey(user))
+
+
+def strict_failed(user: Optional[str]) -> bool:
+    """True iff the last cast-authoring run for this user FAILED under the strict policy (a houseguest ended on the floor, or authoring could not run)."""
+    return _skey(user) in _STRICT_FAILED
+
+
+def refusal_message() -> str:
+    """The clear, player-visible casting-finalize refusal (strict policy, the deeper backstories failed)."""
+    return (
+        "Casting can't finalize yet: the houseguests' deeper backstories could not be written, and this game does not start on a generic fallback. "
+        "Check the chat model endpoint (Settings → Models) and try again.")
 
 
 def floor_start_allowed() -> bool:

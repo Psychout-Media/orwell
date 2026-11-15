@@ -1,7 +1,9 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { Orchestrator } from "../../src/composition/orchestrator";
+import { liveHouseEvent, isCompOrCeremonyKind } from "../../src/engine/houseEvent";
+import { Orchestrator, competitionSuppressesPrivateScenes } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { PLAYER } from "../../src/domain/ids";
 import type { AdvanceView, GameSession } from "../../src/ports/GameSession";
@@ -157,5 +159,54 @@ describe("0117 — the pacing reads are Vault-free", () => {
     expect(typeof hour).toBe("number");
     expect(JSON.stringify(hour)).not.toContain(SENT);
     expect(JSON.stringify(sb.session.perConversationClockLive())).not.toContain(SENT);
+  });
+});
+
+describe("ORW-232 slice 3 / ORW-256 — nobody schemes in private while a competition is running (Ryne 2026-11-10)", () => {
+  it("the decision: a person playing on the live clock gets no private scenes inside a competition; everything else keeps its cadence", () => {
+    // clockLive, messageMode, baselineInComp, candidateInComp
+    expect(competitionSuppressesPrivateScenes(true, true, true, true), "a round commit").toBe(true);
+    expect(competitionSuppressesPrivateScenes(true, true, false, true), "the commit that starts it").toBe(true);
+    expect(competitionSuppressesPrivateScenes(true, true, true, false), "the crown").toBe(true);
+    expect(competitionSuppressesPrivateScenes(true, true, false, false), "outside a competition the house schemes").toBe(false);
+    expect(competitionSuppressesPrivateScenes(true, false, true, true), "a headless driver (no announced messages) keeps its tick cadence: the seeded sims are untouched").toBe(false);
+    expect(competitionSuppressesPrivateScenes(false, true, true, true), "clock off (the seeded spine): never").toBe(false);
+  });
+  it("a headless driver's competition still ticks as it always did (the seeded jury-reach / UAT cadence is unchanged)", () => {
+    const { sb } = harness({ clockOn: true, seed: 7, user: "u-comp" });
+    toLiveHouse(sb);
+    let during = 0, ran = 0;
+    for (let i = 0; i < 400 && ran < 3; i++) {
+      const inComp = !!(sb.session.snapshot().live as { competition?: unknown } | undefined)?.competition;
+      const before = new Set(offscreenScenes(sb));
+      const a = sb.session.advanceGame();
+      if (a.pending) resolveLegally(sb.session, a.pending);
+      const after = !!(sb.session.snapshot().live as { competition?: unknown } | undefined)?.competition;
+      if (inComp && after) during += offscreenScenes(sb).filter((id) => !before.has(id)).length;
+      if (inComp && !after) ran++;
+      if (a.finished) break;
+    }
+    expect(during, "scenes still happen inside a competition for a headless driver").toBeGreaterThan(0);
+  });
+});
+
+describe("ORW-281 slice 3 — the private-scene suppression keys on ANY house event in session, from one derivation", () => {
+  const base = { active: ["a", "b", "c", "d"], outgoingHoh: "a" };
+  const k = (live: object, o?: { includeDraw?: boolean }) => liveHouseEvent({ ...base, ...live } as never, o)?.kind;
+  it("comps, nominations, the veto ceremony and eviction count; idle and the premiere toast do not", () => {
+    expect(k({ competition: { comp: "hoh-competition", field: ["b"] } })).toBe("hoh-competition");
+    expect(k({ pending: { kind: "nominations" } })).toBe("nominations");
+    expect(k({ pending: { kind: "veto-decision" } })).toBe("veto-ceremony");
+    expect(k({ pending: { kind: "replacement" } })).toBe("veto-ceremony");
+    expect(k({ pending: { kind: "eviction-vote" } })).toBe("eviction");
+    expect(k({ pending: { kind: "comp-intent", comp: "veto-competition" } })).toBe("veto-competition");
+    expect(k({})).toBeUndefined();
+    expect(isCompOrCeremonyKind(k({ champagneCircle: "gathered" }))).toBe(false);
+    expect(isCompOrCeremonyKind(k({ pending: { kind: "nominations" } }))).toBe(true);
+  });
+  it("the veto draw (veto-competition beat, no vetoField) counts only when asked, and not once the field is drawn without a pending", () => {
+    expect(k({ beat: "veto-competition" })).toBeUndefined();
+    expect(k({ beat: "veto-competition" }, { includeDraw: true })).toBe("veto-draw"); // ORW-281 slice 1: the draw reports as its own ceremony kind
+    expect(k({ beat: "veto-competition", vetoField: ["a"] }, { includeDraw: true })).toBeUndefined();
   });
 });

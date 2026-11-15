@@ -1,3 +1,4 @@
+import { toDayTwoMorning } from "../support/dayTwoMorning";
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,9 +29,8 @@ async function startedDay(): Promise<Day> {
   await call("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
   const session = rt.registry.sandboxFor(user).session;
   session.setPerConversationClockEnabled(true);
-  // the day-start (two advances: premiere -> 8am), as the other pace tests do
-  await call("advanceGame");
-  await call("advanceGame");
+  // the day-start (three advances: premiere exit -> the first NIGHT -> the first morning at 8am; ORW-116 a), as the other pace tests do
+  toDayTwoMorning(session as GameSessionAdapter); // ORW-116: Day 2, 8am
   return { call, hour: () => session.snapshot().live?.nightDepth ?? 0, live: () => session.snapshot().live };
 }
 
@@ -146,6 +146,9 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
       s2.setPerConversationClockEnabled(true);
       const hour = (): number => s2.snapshot().live?.nightDepth ?? 0;
       const h0 = hour();
+      // still in message mode straight after the restart (before any new announcement): a committing tool call bills the clock nothing (no fall back to per-commit billing)
+      await mcp2.callTool("diaryRoom", { entry: "a private thought" });
+      expect(hour(), "a commit after a restart, no announcement yet").toBeCloseTo(h0, 5);
       const retry = (await mcp2.callTool("noteMessage", { messageId: "m-ring-1" })) as { accepted: boolean };
       expect(retry.accepted, "a retry after a restart").toBe(false);
       expect(hour()).toBeCloseTo(h0, 5);

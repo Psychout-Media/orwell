@@ -85,3 +85,9 @@ export const BEARING_THRESHOLDS = [
 
 /** The upper bound for the last tier (adjustment cap — grudge never exceeds this). */
 export const BEARING_MAX = 0.18;
+
+/**
+ * ORW-110: how a juror's recorded MANNER toward a finalist (how they were treated on the way out) sets a floor on the finale "bearing" word. The jury-house grudge never carries the juror who took the
+ * grievance out of the house, so the manner is read too and the LARGER of the two wins. Values sit on the BEARING_THRESHOLDS tiers (0.07 = "warm" anger, 0.13 = "burning"). ASSUMED, pending Ryne.
+ */
+export const MANNER_GRUDGE = { disrespected: 0.07, wronged: 0.13 } as const;

@@ -25,4 +25,39 @@ export interface PhysicalCharacteristics {
   ageLook: string;
   /** Personal style, e.g. "streetwear and bold sneakers". */
   style: string;
+  /**
+   * ORW-360: 2-3 specific clothing or accessory pieces in the style family (each at most
+   * `WARDROBE_ITEM_MAX` chars; no visible words, logos, band or brand names). Optional: seeded floors and
+   * older saves omit it.
+   */
+  wardrobe?: string[];
+  /**
+   * ORW-360: 1-2 sentences of VISIBLE personality (posture, gaze, expression, grooming, one clothing
+   * detail, one spot in the house), at most `ON_CAMERA_MAX` chars. Optional, as `wardrobe`.
+   */
+  onCamera?: string;
+}
+
+export const WARDROBE_ITEM_MAX = 60;
+export const WARDROBE_MAX_ITEMS = 3;
+export const ON_CAMERA_MAX = 240;
+
+/** Strip control characters and collapse whitespace. */
+function cleanText(v: unknown): string {
+  // eslint-disable-next-line no-control-regex
+  return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim() : "";
+}
+
+/** Clean + clamp the authored `wardrobe` (control chars stripped, items clamped, at most 3). */
+export function cleanWardrobe(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const items = v.map((x) => cleanText(x).slice(0, WARDROBE_ITEM_MAX).trim()).filter((x) => x.length > 0)
+    .slice(0, WARDROBE_MAX_ITEMS);
+  return items.length > 0 ? items : undefined;
+}
+
+/** Clean + clamp the authored `onCamera` line. */
+export function cleanOnCamera(v: unknown): string | undefined {
+  const t = cleanText(v).slice(0, ON_CAMERA_MAX).trim();
+  return t.length > 0 ? t : undefined;
 }

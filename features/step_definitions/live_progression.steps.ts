@@ -126,9 +126,10 @@ Then("the beats are recorded as player-witnessed events", function (this: BbWorl
 // --- S3: illegal refused -------------------------------------------------------
 
 Given("a live game advanced to a nomination decision", async function (this: BbWorld) {
-  const { reg, player } = newLive("u1", 5);
+  // Seed re-selected 2026-11-13 (ORW-19 comp-win threat 0.3 -> 0.45): the player must be HOH to face a nominations decision, which depends on the seed; it holds on most seeds (seeds 1, 2, 11, 12 at both values), seed 5 no longer.
+  const { reg, player } = newLive("u1", 1);
   this.registry = reg; this.livePlayer = player;
-  await player.callTool("createCharacter", { playerName: "Player", seed: 5 });
+  await player.callTool("createCharacter", { playerName: "Player", seed: 1 });
   this.lastAdvance = await driveToKind(player, "nominations");
 });
 

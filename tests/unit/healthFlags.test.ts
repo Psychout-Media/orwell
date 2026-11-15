@@ -42,8 +42,8 @@ describe("/health flag parsing matches what the engine actually runs", () => {
 
   it("the default flip: every default-on flag (derived from the registry) reports ON unset, OFF for each of 0/false/off, and ORWELL_FLAGS_OFF=1 forces all OFF", () => {
     const FLIPPED = FEATURE_FLAGS.filter((d) => d.parser === "defaultOn");
-    expect(FLIPPED.length, "the registry carries the 71 flipped flags").toBe(71);
-    const NOT_FLIPPED: string[] = ["advanceGate"];
+    expect(FLIPPED.length, "the registry carries the 86 flipped flags").toBe(86); // +1 ORW-343 ORWELL_MOOD_CUE; +1 ORW-23 ORWELL_DISCLOSURE_ENGINE; +1 ORW-318 ORWELL_NPC_MINDS_ENDGAME; +1 ORW-315 ORWELL_HOUSE_LIFE; +1 ORW-317 ORWELL_GOAL_MOOD
+    const NOT_FLIPPED: string[] = []; // ORW-97 flipped advanceGate ON
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
     let f = bootFlagsFromEnv();
     for (const d of FLIPPED) expect(f[d.key], `${d.key} defaults ON`).toBe(true);

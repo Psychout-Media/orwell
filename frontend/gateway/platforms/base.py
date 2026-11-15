@@ -47,6 +47,14 @@ class PlatformAdapter(ABC):
         """
         return True
 
+    def inbound_dedupe_key(self, raw: dict):
+        """Return a platform-unique id for this inbound update, or ``None`` (ORW-265).
+
+        Platforms redeliver an update when the webhook is slow or non-2xx; the route uses this
+        key to run each update's turn at most once. Default ``None`` ⇒ no dedupe (unchanged).
+        """
+        return None
+
     @abstractmethod
     def parse_inbound(self, raw: dict) -> tuple[str, str]:
         """Parse an inbound webhook payload *raw* into ``(identity, text)``.

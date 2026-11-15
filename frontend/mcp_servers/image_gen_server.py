@@ -71,7 +71,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         if not model_spec:
             for candidate in ("gpt-image-1.5", "gpt-image-1", "dall-e-3"):
                 try:
-                    _resolve_model(candidate)
+                    await asyncio.to_thread(_resolve_model, candidate)
                     model_spec = candidate
                     break
                 except ValueError:

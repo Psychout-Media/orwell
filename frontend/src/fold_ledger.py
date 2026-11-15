@@ -385,6 +385,68 @@ def pending_fold_count(owner: Optional[str], session_id: Optional[str]) -> int:
     return len(_PENDING.get(_key(owner, session_id), ()))
 
 
+# ORW-26: the turn's scene belt (`_auto_record_scene`) concluded there is NO recordable scene among the houseguests actually present (every
+# proposed participant was off-scene per the engine's whereabouts). The E22 fallback must not run the SAME extraction a second time (run 0348:
+# 14 turns paid two identical utility calls that dropped the same ids twice). One flag per (owner, session), set by the belt, consumed (popped)
+# once by the next E22 guard pass, so it can never leak into a later turn.
+_BELT_DECLINED: set = set()
+
+
+def note_belt_declined(owner: Optional[str], session_id: Optional[str]) -> None:
+    _BELT_DECLINED.add(_key(owner, session_id))
+
+
+def clear_belt_declined(owner: Optional[str], session_id: Optional[str]) -> None:
+    _BELT_DECLINED.discard(_key(owner, session_id))
+
+
+def consume_belt_declined(owner: Optional[str], session_id: Optional[str]) -> bool:
+    k = _key(owner, session_id)
+    hit = k in _BELT_DECLINED
+    _BELT_DECLINED.discard(k)
+    return hit
+
+
+# ORW-346: the scene extraction answered "nobody engaged" ({"withIds":[]}, or every proposed id was off-scene): no scene with anyone, so nothing for the E22 guard to fold. One flag per owner, consumed once by the guard.
+_SCENE_NOBODY: set = set()
+
+
+def note_scene_nobody(owner: Optional[str]) -> None:
+    _SCENE_NOBODY.add(owner)
+
+
+def consume_scene_nobody(owner: Optional[str]) -> bool:
+    hit = owner in _SCENE_NOBODY
+    _SCENE_NOBODY.discard(owner)
+    return hit
+
+
+# ORW-328: houseguests who WERE in the player's room for this turn's scene and then walked out of it in the same narration (the NPC move belt
+# relocated them before the scene belt's presence check ran). Without this the check read the POST-move board, called them off-scene, dropped
+# the only participant, and the E22 guard recorded a fallback for a perfectly real talk turn. Keyed by owner, short-lived (a turn), consumed once.
+_WALKED_OUT: dict = {}
+_WALKED_OUT_TTL_S = 120.0
+
+
+def note_walked_out(owner: Optional[str], ids) -> None:
+    ids = {i for i in (ids or ()) if isinstance(i, str)}
+    if ids:
+        import time as _t
+        _WALKED_OUT[owner or ""] = (_t.monotonic(), ids)
+    else:
+        _WALKED_OUT.pop(owner or "", None)
+
+
+def consume_walked_out(owner: Optional[str]) -> set:
+    hit = _WALKED_OUT.pop(owner or "", None)
+    if not hit:
+        return set()
+    import time as _t
+    return set(hit[1]) if _t.monotonic() - hit[0] <= _WALKED_OUT_TTL_S else set()
+
+
 def clear_all() -> None:
     """Test-only reset."""
     _PENDING.clear()
+    _BELT_DECLINED.clear()
+    _WALKED_OUT.clear()

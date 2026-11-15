@@ -50,7 +50,11 @@
     catch (_) { return false; }
   }
 
+  // ORW-165: the shared game-state store serves state/roster/status (one fetch + one snapshot for every panel);
+  // whereabouts is this panel's own read.
   async function getJSON(url) {
+    const kind = { "/api/orwell/state": "state", "/api/orwell/roster": "roster", "/api/orwell/status": "status" }[url];
+    if (kind) return window.OrwellGame.get(kind);
     const r = await fetch(url, { credentials: "same-origin" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     return r.json();
@@ -98,6 +102,9 @@
     const st = document.createElement("style");
     st.id = "orwell-room-strip-css";
     st.textContent = `
+      /* ORW-246b (live, phone width): the notice zone is a height-capped scroller, and a tall card (the premiere welcome guide) above the strip pushed it out of view - it existed but sat clipped below the card.
+         Lead the zone with it (order:-1). NOT sticky: a sticky strip overlapped a tall decision card when the zone scrolled (responsive-matrix face-grid overlap at 320/390). */
+      #orwell-room-strip { order: -1; flex: 0 0 auto; }
       #orwell-room-strip .ors-row {
         display: flex; gap: 10px; align-items: flex-start; flex-wrap: nowrap;
         overflow-x: auto; overflow-y: hidden;
@@ -137,6 +144,12 @@
       #orwell-room-strip .ors-name {
         font-size: .65rem; line-height: 1.15; text-align: center; max-width: 52px;
         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .82;
+      }
+      /* ORW-246c: the empty-room chip owns an OPAQUE dark pill + light ink. The ambient notice card is glass, so inherited ink composited over whatever wallpaper sits behind it (dark ink on teal measured 3.63:1
+         in the a11y matrix; even black cannot clear 4.5 on that teal, only light ink can). A solid pill makes the contrast independent of theme and wallpaper (~15:1). */
+      #orwell-room-strip .ors-alone {
+        display: inline-block; font-size: .85rem; padding: .15rem .65rem; border-radius: 999px;
+        background: #14181f; color: #f2f5f8; opacity: 1;
       }
       @media (max-width: 480px) {
         #orwell-room-strip .ors-row { gap: 6px; }
@@ -243,7 +256,25 @@
     const { chips, next } = _diffPresence(_chipState, ctx.present);
     _chipState = next;
     if (!chips.length) {
-      if (notice.isShown()) notice.hide();
+      // ORW-246 (Ryne, phone playtest: "not accurate or always present"): the strip stays during play. An empty room reads "Just you here" instead of unmounting the whole strip, so a lone player
+      // still gets the same ground ("nobody is with me") and the strip never blinks out between rooms.
+      ensureCss();
+      const aloneBody = notice.ensure();
+      if (notice.el) {
+        const head = notice.el.querySelector(".on-head");
+        if (head) head.style.display = "none";
+        notice.el.setAttribute("aria-label", "Who's in the room with you");
+      }
+      if (aloneBody) {
+        let alone = aloneBody.querySelector(".ors-alone");
+        if (!alone) {
+          aloneBody.innerHTML = "";
+          alone = document.createElement("div");
+          alone.className = "ors-alone";
+          alone.textContent = "Just you here";
+          aloneBody.appendChild(alone);
+        }
+      }
       return;
     }
 
@@ -334,16 +365,13 @@
 
       // Portraits + role badges are enhancements over the bare NamedRef chips — a failure on
       // either never blanks the strip (it just falls back to designed monograms/no badge).
+      // ORW-246: the roster + status reads are independent of each other, so run them TOGETHER (they used to queue one behind the other, so a slow status read held the whole strip a few seconds behind the engine).
       let roster = [];
-      try {
-        const rosterData = await getJSON("/api/orwell/roster");
-        roster = (rosterData && Array.isArray(rosterData.roster)) ? rosterData.roster : [];
-      } catch (_) { /* fall back to monograms */ }
       let roles = {};
-      try {
-        const statusData = await getJSON("/api/orwell/status");
-        roles = (window.OrwellMonogram && statusData) ? window.OrwellMonogram.rolesFrom(statusData) : {};
-      } catch (_) { /* fall back to no role badges */ }
+      await Promise.all([
+        getJSON("/api/orwell/roster").then((d) => { roster = (d && Array.isArray(d.roster)) ? d.roster : []; }).catch(() => { /* fall back to monograms */ }),
+        getJSON("/api/orwell/status").then((statusData) => { roles = (window.OrwellMonogram && statusData) ? window.OrwellMonogram.rolesFrom(statusData) : {}; }).catch(() => { /* fall back to no role badges */ }),
+      ]);
 
       if (superseded()) return;
       render({ room: w.room, present: w.present, roster: roster, roles: roles, asleep: state.asleep });
@@ -352,7 +380,7 @@
       if (superseded()) return;
       _failures += 1;
       if (window.OrwellReport) window.OrwellReport.fail("roomstrip", "poll", _); // G11: fail open, never silent
-      render(null); // fail OPEN: the strip simply isn't there
+      // ORW-246: a failed poll (a blip, a 409, a slow engine) KEEPS the last-known strip instead of blanking it - stale for one cycle beats gone. Only a never-shown strip stays absent.
     } finally {
       if (timer) { clearTimeout(timer); timer = null; }
       // In WS mode the `state`/`hud` push (via orwell:gamechanged → refreshNow) supersedes the

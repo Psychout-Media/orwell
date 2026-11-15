@@ -12,10 +12,13 @@ with NO log. These pin the fix:
 Roles only (no names as data). The injectable orchestrator makes the whole pipeline testable with a
 stubbed model — but whether DeepSeek actually returns parseable JSON now can ONLY be confirmed live.
 """
+import pytest
 import json
 
 from conftest import _run
 from src import orwell_cast_authoring as A
+
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
 
 
 class _LogSink:
@@ -136,10 +139,23 @@ def test_authoring_call_threads_response_format_onto_the_payload(monkeypatch):
 
     fn = _run(A._resolve_llm_fn("u"))
     assert fn is not None
-    _run(fn([{"role": "user", "content": "author this houseguest"}]))
+    _run(fn([{"role": "user", "content": "author this houseguest as one JSON object"}]))
 
     payload = captured.get("payload") or {}
     assert payload.get("response_format") == {"type": "json_object"}, payload
+
+    # ORW-391: a PROSE prompt (the ORW-271 day condense) must NOT request JSON mode - DeepSeek answers 400 "Prompt must contain the word 'json'" and the day was never condensed.
+    captured.clear()
+    _run(fn([{"role": "system", "content": "You condense one in-game day into a short memory note. Plain prose."}, {"role": "user", "content": "Day 1: the house met."}]))
+    assert "response_format" not in (captured.get("payload") or {}), captured
+
+
+def test_orw391_response_format_only_for_a_prompt_that_asks_for_json():
+    assert A._response_format_for([{"role": "user", "content": "Return STRICT Json only"}]) == {"type": "json_object"}
+    assert A._response_format_for([{"role": "system", "content": "x"}, {"role": "user", "content": [{"type": "text", "text": "give JSON"}]}]) == {"type": "json_object"}
+    assert A._response_format_for([{"role": "system", "content": "Condense this day in plain prose."}]) is None
+    assert A._response_format_for([]) is None
+    assert A._response_format_for(None) is None
 
 
 # ── DB3 (#1026) — the authoring ledger entry logs the cap that WAS applied (not cap=0) ──────────────

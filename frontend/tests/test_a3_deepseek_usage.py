@@ -12,6 +12,8 @@ import json
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
+
 llm_core = importlib.import_module("src.llm_core")
 
 URL = "https://api.deepseek.com/chat/completions"

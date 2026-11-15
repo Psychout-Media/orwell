@@ -1177,7 +1177,7 @@ async def execute_tool_block(
         do_social_initiatives, do_diary_room, do_make_deal, do_confide, do_ask_juror, do_whereabouts, do_move_to,
         do_form_alliance, do_join_alliance,
         do_expose_secret, do_trade_secret,
-        do_confront, do_accuse_tie,
+        do_confront, do_accuse_tie, do_call_in_favor,
         do_premiere_intros, do_mark_houseguest_met,
         do_season_recap, do_season_retrospective, do_player_receipts, do_player_dossier, do_daily_recap, do_world_snapshot_view, do_npc_voice,
         do_app_api,
@@ -1637,6 +1637,9 @@ async def execute_tool_block(
     elif tool == "tradeSecret":
         desc = "tradeSecret"
         result = await do_trade_secret(content, owner=owner)
+    elif tool == "callInFavor":
+        desc = "callInFavor"
+        result = await do_call_in_favor(content, owner=owner)
     elif tool == "confront":
         desc = "confront"
         result = await do_confront(content, owner=owner)
@@ -1664,6 +1667,20 @@ async def execute_tool_block(
     elif tool == "turnIn":
         desc = "turnIn"
         result = await do_turn_in(content, owner=owner)
+        # ORW-275: a turnIn that crossed a week boundary carries `weekChapter` - save the chapter row (idempotent per week, fail-soft).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_week_chapter
+                orwell_week_chapter.save_week_chapter(owner, result)
+            except Exception:
+                pass
+        # ORW-271: after a successful turnIn, condense the closed day in the BACKGROUND (idempotent, fail-soft, never blocks sleep).
+        if isinstance(result, dict) and not result.get("error"):
+            try:
+                from src import orwell_day_condense
+                orwell_day_condense.kickoff_after_turn_in(owner, result)
+            except Exception:
+                pass
     elif tool.startswith("mcp__"):
         # MCP tool dispatch
         mcp = get_mcp_manager()
@@ -1772,7 +1789,8 @@ def format_tool_result(description: str, result: Dict) -> str:
         # serialized game VIEW, redact the player's producer-only casting material BEFORE it reaches the
         # model (the casting Vault Wall — see `_redact_producer_view_output`). Fail-open for every other
         # tool's output, so this is byte-identical for anything that isn't a leaky view.
-        parts.append(f"```\n{_redact_producer_view_output(result['output'])}\n```")
+        from src.zero_clocks import scrub_tool_output as _zc_scrub  # ORW-377: no clock time / minutes reach the model
+        parts.append(f"```\n{_zc_scrub(_redact_producer_view_output(result['output']))}\n```")
         if result.get("exit_code") not in (0, None):
             parts.append(f"**exit_code:** {result['exit_code']}")
     elif "content" in result:

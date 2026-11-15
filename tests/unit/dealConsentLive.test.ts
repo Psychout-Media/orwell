@@ -25,6 +25,9 @@ const NEUTRAL_EDGE: Edge = { trust: 0.25, affinity: 0.25, threat: 0.3 }; // the 
 const isRefusal = (r: DealView | DealRefusal | null): r is DealRefusal => !!r && (r as DealRefusal).refused === true;
 const req = (npc: string, kind: MakeDealReq["kind"] = "safety"): MakeDealReq => ({ with: npc, kind, terms: "we look out for each other" });
 
+// ORW-305: the hidden decision-WHY record is metadata about a decision (a refusal is a decision), not game state: compare snapshots without it.
+const snapNoWhy = (s: { snapshot(): unknown }): string => JSON.stringify(s.snapshot(), (k, v) => (k === "decisionWhy" ? undefined : v));
+
 describe("makeDeal — the NPC decides whether they agree", () => {
   it("the flag defaults ON", () => {
     expect(setup().p.npcDealConsentEnabledNow()).toBe(true);
@@ -64,7 +67,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
 
   it("an NPC with a remembered grudge against the player refuses ('grudge') even at neutral edges", () => {
     const { s, npc, p } = setup();
-    const core = JSON.parse(JSON.stringify(s.snapshot())) as SessionCore;
+    const core = JSON.parse(snapNoWhy(s)) as SessionCore;
     core.live!.npcMemory = { [npc]: { [PLAYER]: [{ kind: "deal-broken", week: core.live!.week, severity: 1 }] } };
     s.restore(core);
     (s as unknown as { setNpcMemoryStandaloneEnabled(on: boolean): void }).setNpcMemoryStandaloneEnabled(true);
@@ -76,7 +79,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
   it("an NPC who believes the player targets them refuses ('targeted') when the belief store is on", () => {
     const { s, npc, p } = setup();
     setEdge(p, npc, NEUTRAL_EDGE);
-    const core = JSON.parse(JSON.stringify(s.snapshot())) as SessionCore;
+    const core = JSON.parse(snapNoWhy(s)) as SessionCore;
     const week = core.live!.week;
     core.live!.beliefs = { [npc]: [{ id: "t1", holder: npc, kind: "targets-me", subject: PLAYER, object: npc, value: true, origin: "told", confidence: 0.95, week }] };
     s.restore(core);
@@ -114,11 +117,11 @@ describe("makeDeal — the NPC decides whether they agree", () => {
   it("a refusal records no deal and folds nothing: the whole snapshot is unchanged", () => {
     const { s, npc, p } = setup();
     setEdge(p, npc, { trust: 0, affinity: 0.1, threat: 0.5 });
-    const before = JSON.stringify(s.snapshot());
+    const before = snapNoWhy(s);
     const events = s.getGameState().deals?.length ?? 0;
     const r = s.makeDeal({ ...req(npc), leverage: { bluff: true, subject: npc } });
     expect(isRefusal(r)).toBe(true);
-    expect(JSON.stringify(s.snapshot())).toBe(before);
+    expect(snapNoWhy(s)).toBe(before);
     expect(s.getGameState().deals?.length ?? 0).toBe(events);
   });
 
@@ -127,9 +130,9 @@ describe("makeDeal — the NPC decides whether they agree", () => {
     setEdge(p, npc, { trust: 0, affinity: 0.1, threat: 0.5 });
     const k = { ...req(npc), idempotencyKey: "dc-key-1" };
     const r1 = s.makeDeal(k);
-    const before = JSON.stringify(s.snapshot());
+    const before = snapNoWhy(s);
     expect(s.makeDeal(k)).toEqual(r1);
-    expect(JSON.stringify(s.snapshot())).toBe(before);
+    expect(snapNoWhy(s)).toBe(before);
   });
 
   it("invalid requests keep the old contract: null (not a refusal)", () => {
@@ -158,7 +161,7 @@ describe("ORWELL_NPC_DEAL_CONSENT off — byte-identical to today", () => {
       expect(isRefusal(r)).toBe(false);
       // advance on, so any hidden shared-rng drift would show in the following beats
       s.advanceGame();
-      return JSON.stringify(s.snapshot()).replace(/dc-id-(true|false)/g, "X");
+      return snapNoWhy(s).replace(/dc-id-(true|false)/g, "X");
     };
     expect(run(true)).toBe(run(false));
   });

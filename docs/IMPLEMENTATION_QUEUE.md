@@ -18,7 +18,7 @@ tracks can run **in parallel** once their deps are met.
 >
 > **GitHub issue tracking (added 2026-06-23):** this file is a historical work record (the B/C/D/U/L
 > lanes are ✅ DONE). New and remaining open work is now tracked as **GitHub issues** (labelled
-> `type:*` / `area:*`), not appended here — e.g. the Proxmox host smoke → [#577](https://github.com/kevinhirsch/orwell/issues/577).
+> `type:*` / `area:*`), not appended here — e.g. the Proxmox host smoke → [#577](https://github.com/Psychout-Media/orwell/issues/577).
 > The finding-code → issue map for the audit ledgers lives at the top of `ROAST-LOG.md`.
 >
 > **2026-07-06 closure session (18 PRs, not tracked in this file):** per the note above, this
@@ -128,7 +128,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### A1 — Engine HTTP MCP transport  ·  Claude Code
 
-> In `kevinhirsch/orwell` (TypeScript engine), implement an **HTTP MCP transport** that exposes the
+> In `Psychout-Media/orwell` (TypeScript engine), implement an **HTTP MCP transport** that exposes the
 > existing `McpServer` (`src/adapters/mcp/McpServer.ts`) over HTTP per the MCP spec (JSON-RPC, with
 > SSE for streaming). Requirements: listen on **`ORWELL_ENGINE_PORT`** (default 8765, loopback by
 > default); be started by **`npm start`** (build/start already exist); mount **only** the
@@ -140,7 +140,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### B1 — Implement 0011 weekly loop  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0011** (`docs/features/0011-weekly-loop-orchestration.{md,feature}`)
+> In `Psychout-Media/orwell`, implement feature **0011** (`docs/features/0011-weekly-loop-orchestration.{md,feature}`)
 > in the **pure domain core**: the weekly phase state machine (HOH → nominations → veto → veto
 > ceremony → eviction → repeat) and the season → Final 2 → jury vote → winner. NPC decisions are
 > **relationship-driven** (use the existing `src/engine/relationships.ts`); player decision points
@@ -150,7 +150,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### A2 — Orwell → engine MCP client + game driver  ·  OpenHands
 
-> In `kevinhirsch/orwell`, wire the vendored **Orwell** front-end (`frontend/`, Python FastAPI +
+> In `Psychout-Media/orwell`, wire the vendored **Orwell** front-end (`frontend/`, Python FastAPI +
 > agent) to drive a *Big Brother* game through the engine's **MCP server**. Read
 > `frontend/INTEGRATION.md`, `docs/features/0009-mcp-tool-boundary.md`, and
 > `docs/features/0012-conversation-and-scene-system.md`. Tasks: (1) register the engine MCP server
@@ -166,7 +166,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### B2 — Implement 0012 conversation (engine side)  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement the engine side of feature **0012**
+> In `Psychout-Media/orwell`, implement the engine side of feature **0012**
 > (`docs/features/0012-conversation-and-scene-system.{md,feature}`): `recordInteraction` (scenes as
 > witnessed events — player-present = player knowledge, per 0002), a **`socialRead`** player tool
 > (joins the registry with `readsVault: false`; honest, Vault-free, may hint but never names
@@ -177,7 +177,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### B3 — Implement 0013 Diary Room  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0013** (`docs/features/0013-diary-room.{md,feature}`):
+> In `Psychout-Media/orwell`, implement feature **0013** (`docs/features/0013-diary-room.{md,feature}`):
 > the player DR is OOC, its content is player knowledge tagged **`NO_NPC_PATHWAY`**, and
 > `deriveNpcKnowledge` must **exclude** it (no NPC ever learns DR content); honor the public/private
 > gap (NPCs act on public speech, never the DR); NPC confessionals are **Vault-only** and never
@@ -185,7 +185,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### B4 — Implement 0014 jury & endgame  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0014** (`docs/features/0014-jury-and-endgame.{md,feature}`):
+> In `Psychout-Media/orwell`, implement feature **0014** (`docs/features/0014-jury-and-endgame.{md,feature}`):
 > jury = last 9 evictees; **jury management** shapes votes (relationship + eviction manner); Final 2
 > choreography (statements, one question per juror); the **engine decides** the vote (LLM only
 > voices), jury-management-dominant with a tunable finale weight; most votes wins, last-juror
@@ -193,7 +193,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### C1 — BB player surfaces in Orwell  ·  OpenHands
 
-> In `kevinhirsch/orwell` `frontend/`, adapt Orwell's chat shell into the *Big Brother* player
+> In `Psychout-Media/orwell` `frontend/`, adapt Orwell's chat shell into the *Big Brother* player
 > experience: a **narrated scene** view, the **hybrid decision prompts** (nominate / veto / vote
 > over the legal option set returned by the engine), a **Diary Room** panel, and a
 > **house / houseguest** view. Consume **only** MCP tool data (visible projection) — never the
@@ -201,14 +201,14 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### A3 — Deploy smoke test  ·  either
 
-> In `kevinhirsch/orwell`, add an **install smoke test** for `deploy/`: provision a container (a real
+> In `Psychout-Media/orwell`, add an **install smoke test** for `deploy/`: provision a container (a real
 > Proxmox LXC, or a Docker/Debian stand-in for CI), run `deploy/orwell-install.sh`, assert the UI
 > responds on `ORWELL_PORT`, run `deploy/orwell-update.sh`, and assert `/opt/orwell/data` survived.
 > Document how to run it on a real Proxmox host. Open a PR.
 
 ### B5 — Implement 0017 relationship model  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0017** (`docs/features/0017-relationship-model.{md,feature}`),
+> In `Psychout-Media/orwell`, implement feature **0017** (`docs/features/0017-relationship-model.{md,feature}`),
 > promoting `docs/decisions/0002-relationship-model.md` into the pure domain core (build on the
 > existing `src/engine/relationships.ts`). Relationships are **directed, graded, asymmetric edges**
 > (trust / affinity / threat / alignment / reliability / confidence) **computed from event history**
@@ -222,7 +222,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### B6 — Implement 0015 OOBE (engine side)  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement the engine side of feature **0015**
+> In `Psychout-Media/orwell`, implement the engine side of feature **0015**
 > (`docs/features/0015-character-creation-oobe.{md,feature}`): `runPlayerOOBE(input)` — validate the
 > input, reject incomplete profiles, and produce the player's **static `Character`** + **initial
 > `Soul`** (emotional baseline + volatility, empty memory, **no** relationship beliefs); then seed
@@ -236,7 +236,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### B7 — Implement 0016 God Mode / admin  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0016** (`docs/features/0016-god-mode-admin.{md,feature}`),
+> In `Psychout-Media/orwell`, implement feature **0016** (`docs/features/0016-god-mode-admin.{md,feature}`),
 > extending the existing `src/surfaces/admin/AdminPort.ts` and the `ADMIN_TOOLS` allowlist. Add
 > useful **non-Vault** admin capability — `overrideMechanic`, `configure` (tunable constants +
 > reserve-twist **count**, never content), `manageSandbox` (create/reset/save/load this sandbox) —
@@ -249,7 +249,7 @@ not just narrate), surfacing `/orwell` from the main nav/landing, and the weekly
 
 ### C2 — OOBE authoring UI in Orwell  ·  OpenHands
 
-> In `kevinhirsch/orwell` `frontend/`, add the **character-creation (OOBE) flow** to the Orwell UI:
+> In `Psychout-Media/orwell` `frontend/`, add the **character-creation (OOBE) flow** to the Orwell UI:
 > a first-run, out-of-character intake that collects the player's identity, backstory, public
 > persona, archetype lean, and private strategy, validates required fields, and calls the engine's
 > OOBE entrypoint (via the MCP client from A2) to author the player and start a new save. Consume
@@ -348,7 +348,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B12 — 0021 engine: per-user sandbox registry  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement the **engine** side of feature **0021**
+> In `Psychout-Media/orwell`, implement the **engine** side of feature **0021**
 > (`docs/features/0021-game-session-and-save-lifecycle.{md,feature}`): turn the single in-memory
 > game into a **per-user sandbox registry** — `sandboxFor(user) -> GameSession` (created on first
 > use) — and route **every** player/admin MCP tool call to the asserting user's sandbox (the MCP
@@ -364,7 +364,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### C5 — 0021 front-end: assert the authenticated user  ·  OpenHands
 
-> In `kevinhirsch/orwell` `frontend/`, make the front-end **assert the authenticated user identity**
+> In `Psychout-Media/orwell` `frontend/`, make the front-end **assert the authenticated user identity**
 > to the engine on every engine MCP call (the engine binds loopback and keys a sandbox per user —
 > B12). Use the already-authenticated account (`request.state.current_user`) as the sandbox key;
 > never let one account act as another. Each user sees only **their** game — the chat is their
@@ -373,7 +373,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### C6 — Tight, lever-complete system prompts  ·  OpenHands (+ Claude Code)  ·  **HISTORICAL — shipped (was "START NOW")**
 
-> In `kevinhirsch/orwell`, make the game agent able to **access and pull every engine lever**. The
+> In `Psychout-Media/orwell`, make the game agent able to **access and pull every engine lever**. The
 > engine's game-master prompt (`src/engine/momentPrompts.ts`, 0018) is already a **tight operating
 > manual** that names the levers and says the engine decides outcomes; this closes the gaps around
 > it. **Ready part — do now:** the drift test (3) and exposing the two levers that already exist —
@@ -397,7 +397,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B13 — 0023 consequence & memory (the live loop)  ·  Claude Code  ·  **TOP MVP-1 PRIORITY**
 
-> In `kevinhirsch/orwell`, implement feature **0023**
+> In `Psychout-Media/orwell`, implement feature **0023**
 > (`docs/features/0023-consequence-and-memory.{md,feature}`) — the MVP-1 backbone, currently the
 > biggest gap. **Wire the live game** so player actions have consequences and the house remembers.
 > Today `GameSessionAdapter` holds only house+week+phase and `recordInteraction` just logs — change
@@ -418,7 +418,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B14 — 0024 soul storage & memory recall (md + vector)  ·  Claude Code  ·  **pairs with B13**
 
-> In `kevinhirsch/orwell`, implement feature **0024**
+> In `Psychout-Media/orwell`, implement feature **0024**
 > (`docs/features/0024-soul-storage-and-memory-recall.{md,feature}`): the dynamic `Soul` as a
 > **markdown narrative** + an **engine-only vector index**, behind `SoulProvider`, with
 > **semantic recall**. `recall(hg, context, k)` returns the *k* semantically-most-relevant past
@@ -433,7 +433,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B19 — 0030 durable game persistence (survive restart)  ·  Claude Code  ·  **TOP PRIORITY (bugfix)**
 
-> In `kevinhirsch/orwell`, implement feature **0030**
+> In `Psychout-Media/orwell`, implement feature **0030**
 > (`docs/features/0030-durable-game-persistence-survive-restart.{md,feature}`). **Why it's urgent:**
 > the live game holds all state in memory — `GameSessionAdapter` (`house/week/phase/ceremony` fields)
 > and `GameSessionRegistry` (a plain `Map`) — and the only `SaveStore` is in-memory, so **every
@@ -454,7 +454,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B15 — 0025 reserve twists (Vault-sealed)  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0025**
+> In `Psychout-Media/orwell`, implement feature **0025**
 > (`docs/features/0025-reserve-twists.{md,feature}`): a small curated pool of classic
 > **non-structural** twists (secret power, double eviction, returning-juror battle-back) held in
 > **reserve**. The engine, **seeded**, decides if/when one fires at a dramatic beat — **rare**, at
@@ -467,7 +467,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B16 — 0026 relationship math (firmed update rule & constants)  ·  Claude Code  ·  **grounds B13**
 
-> In `kevinhirsch/orwell`, implement feature **0026**
+> In `Psychout-Media/orwell`, implement feature **0026**
 > (`docs/features/0026-relationship-math.{md,feature}`): firm 0017's shape into a concrete update
 > rule + a **single tunable constants module** (sibling to the temperature/richness configs). The
 > `apply` rule moves the signals by the per-type `IMPACT` (extend the existing
@@ -483,7 +483,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B17 — 0027 NarrativePort LLM adapter  ·  Claude Code (+ OpenHands)
 
-> In `kevinhirsch/orwell`, implement feature **0027**
+> In `Psychout-Media/orwell`, implement feature **0027**
 > (`docs/features/0027-narrative-port-llm-adapter.{md,feature}`): the real async LLM behind
 > `NarrativePort`, replacing `EchoNarrativePort`. Async `narrate` + `narrateStream` (token stream);
 > **provider-agnostic** (Ollama / Anthropic / OpenAI-compatible) with model/endpoint/key from
@@ -496,7 +496,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B18 — 0028 temperature & emotional-modifier constants  ·  Claude Code
 
-> In `kevinhirsch/orwell`, implement feature **0028**
+> In `Psychout-Media/orwell`, implement feature **0028**
 > (`docs/features/0028-temperature-and-emotional-constants.{md,feature}`): firm 0006's shape into a
 > **single tunable constants module** (sibling to `richnessConfig.ts` and the 0026 relationship
 > constants) — the temperature **bound/distribution**, the **per-variable weights**, the **emotional
@@ -509,7 +509,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### C7 — 0029 app admin role & user management  ·  OpenHands (+ Claude Code for any engine bit)
 
-> In `kevinhirsch/orwell` `frontend/`, implement feature **0029**
+> In `Psychout-Media/orwell` `frontend/`, implement feature **0029**
 > (`docs/features/0029-app-admin-and-user-management.{md,feature}`). Most of it exists in
 > `core/auth.py` (`AuthManager`: `setup`→admin, `create_user`/`delete_user`/`rename_user`,
 > `is_admin`, `list_users`, `privileges`, `change_password`) and `routes/auth_routes.py`
@@ -530,7 +530,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### C8 — 0032 front-end surface reduction (the "game build")  ·  OpenHands  ·  **next front-end feature**
 
-> In `kevinhirsch/orwell` `frontend/` (Python; **no engine change**), implement feature **0032**
+> In `Psychout-Media/orwell` `frontend/` (Python; **no engine change**), implement feature **0032**
 > (`docs/features/0032-frontend-surface-reduction-game-build.{md,feature}`). Reduce the vendored
 > general-purpose workspace to **just the Big Brother game surface** and remove every inherited
 > vertical. A partial prune already exists — `static/css/game-trim.css` (CSS-hide only) and 8 keys in
@@ -563,7 +563,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B20 — 0031 game orchestrator & integrity watcher  ·  Claude Code  ·  **next engine feature**
 
-> In `kevinhirsch/orwell`, implement feature **0031**
+> In `Psychout-Media/orwell`, implement feature **0031**
 > (`docs/features/0031-game-orchestrator-and-integrity-watcher.{md,feature}`). The engine is
 > **pull-only** today: nothing advances a game between tool calls, the **off-screen sim never ticks
 > on the live path**, and **no runtime process verifies integrity**. Build the hybrid:
@@ -591,7 +591,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B21 — complete the 0018 lever manifest (drift-guarded)  ·  Claude Code  ·  **small; finishes C6's engine half**
 
-> In `kevinhirsch/orwell` (TS engine), complete the **0018 lever-manifest refinement** that was specced
+> In `Psychout-Media/orwell` (TS engine), complete the **0018 lever-manifest refinement** that was specced
 > but never built. `src/engine/momentPrompts.ts` still names only the original **4** levers
 > (`getGameState`, `runCompetition`, `recordInteraction`, `surfaceInformationTo`), while the player tool
 > registry (`src/surfaces/tools/registry.ts`) now exposes many more — incl. the live-loop levers
@@ -613,7 +613,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B22 — 0033 engine: `playerTagline` (Vault-free, snarky, state-aware)  ·  Claude Code
 
-> In `kevinhirsch/orwell` (TS engine), implement the **engine** side of feature **0033**
+> In `Psychout-Media/orwell` (TS engine), implement the **engine** side of feature **0033**
 > (`docs/features/0033-dynamic-player-tagline.{md,feature}`): a Vault-free player-channel tool
 > **`playerTagline()` → { text }** — a single snarky _Big Brother_ welcome line for the caller's current
 > moment, **generated via `NarrativePort`** (0027) from the **Vault-free public projection only**
@@ -627,7 +627,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### C9 — 0033 front-end: render the dynamic hero line  ·  OpenHands  ·  **depends on B22**
 
-> In `kevinhirsch/orwell` `frontend/`, implement the **front-end** side of feature **0033**: replace the
+> In `Psychout-Media/orwell` `frontend/`, implement the **front-end** side of feature **0033**: replace the
 > static hero subtitle at `static/js/models.js:571` (`#welcome-sub` ← "Yours for the voyage.") with the
 > engine's **`playerTagline`** (B22). Fetch it Vault-free — fold a `tagline` field into the existing
 > `GET /api/orwell/state` response (`routes/orwell_routes.py` + `src/orwell_engine.py`), or add a tiny
@@ -638,7 +638,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B23 — 0034 codify the live progression & decision seam (as-built)  ·  Claude Code  ·  **mostly codification**
 
-> In `kevinhirsch/orwell` (TS engine), implement feature **0034**
+> In `Psychout-Media/orwell` (TS engine), implement feature **0034**
 > (`docs/features/0034-live-weekly-progression-and-decision-seam.{md,feature}`). The capability is
 > **already built** (`src/engine/liveSeason.ts`, `GameSessionAdapter.advanceGame()/submitDecision()`, the
 > `GameSession` port, the `advanceGame`/`submitDecision` tools + MCP client + agent tools + status panel,
@@ -657,7 +657,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 > **SUPERSEDED / REMOVED (2026-07-10, PO real-time purge; noted in the #1939 doc-drift pass):** the `GameWatcher`, `SystemClock` and `ORWELL_WATCHER_*` surface this item built were DELETED, not disabled. The house now lives one bounded off-screen tick per committed player turn on a `LogicalClock`. Kept below as the historical prompt.
 
-> In `kevinhirsch/orwell` (TS engine), implement feature **0035**
+> In `Psychout-Media/orwell` (TS engine), implement feature **0035**
 > (`docs/features/0035-live-offscreen-life-running-watcher.{md,feature}`). 0031 built the `Orchestrator` +
 > `GameWatcher` + `Clock`/`Scheduler` port (BDD-green with `FakeClock`), but the **live runtime never
 > starts them** and there's **no real-timer Clock adapter** — so the live game has **zero off-screen NPC
@@ -677,7 +677,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### B25 — 0036 live social surface: NPC approaches + Diary Room  ·  Claude Code
 
-> In `kevinhirsch/orwell` (TS engine), implement feature **0036**
+> In `Psychout-Media/orwell` (TS engine), implement feature **0036**
 > (`docs/features/0036-live-social-surface-approaches-and-diary-room.{md,feature}`): expose two
 > **built-but-unwired** capabilities as Vault-free live player tools (add to `PLAYER_TOOLS` + the McpServer
 > allowlist + the **B21** lever manifest).
@@ -694,7 +694,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 
 ### C10 — 0036 front-end: surface approaches + a Diary-Room entry point  ·  OpenHands  ·  **READY — API wired; UI only**
 
-> In `kevinhirsch/orwell` `frontend/`, build the **player-facing UI** for feature **0036** per its design
+> In `Psychout-Media/orwell` `frontend/`, build the **player-facing UI** for feature **0036** per its design
 > note **§7** (`docs/features/0036-…md`). The engine tools **and the front-end API are already wired** — you
 > only build the UI on top of these live, Vault-free routes:
 > - `GET /api/orwell/initiatives` → `{ initiatives: [{ houseguest: { id, name }, pretext }] }` — surface the
@@ -717,7 +717,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 > The B42 sentinel sweep now calls it at every beat (incl. the live finale); a behavioral test proves it is
 > null off-finale and mirrors `AdvanceView.finale` during one (no votes/script/tally/lean). arch + gate green.
 
-> In `kevinhirsch/orwell` (TS engine), promote the existing private `GameSessionAdapter.finaleView()` to a
+> In `Psychout-Media/orwell` (TS engine), promote the existing private `GameSessionAdapter.finaleView()` to a
 > **read tool** `finaleView(): FinaleView | null` on the `GameSession` port + `PLAYER_TOOLS` + `McpServer`
 > dispatch (per `docs/features/0037-…md` §8.1). `readsVault: false`; classify it **infra** (add to
 > `INFRA_LEVERS`, like `gameStatus`/`playerTagline`) so the lever-manifest drift guard doesn't require naming
@@ -737,7 +737,7 @@ B10 lands, then C4 once B11 lands. **B5/B6/B7 prompts are above; the new ones (B
 > (3, fail-open) + 184 pytest green; the 0032 headless-browser keep-set gate stays green (`orwellFinale.js`
 > loads cleanly). No new `submitDecision` kind ⇒ no C12 relay change.
 
-> In `kevinhirsch/orwell` `frontend/`, build the finale **presentation UI** for feature **0037** per its design
+> In `Psychout-Media/orwell` `frontend/`, build the finale **presentation UI** for feature **0037** per its design
 > note **§8** — the direct parallel to 0036's C10, in the same self-contained, fail-open, game-gated patterns as
 > `orwellStatusPanel.js` / `orwellSocial.js`:
 > - **Route:** `GET /api/orwell/finale` → `{ finale: FinaleView | null }` (mirror `/status`; add an
@@ -1004,7 +1004,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > All default OFF (single-tenant loopback unchanged). `tests/integration/httpBoundary.test.ts`;
 > `docs/INSTALL.md` documents the knobs and agrees with the bind. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), close the cross-user network hole. Today `createHttpMcpServer(...).listen(port)`
+> In `Psychout-Media/orwell` (TS engine), close the cross-user network hole. Today `createHttpMcpServer(...).listen(port)`
 > binds **`0.0.0.0`** (`HttpMcpServer.ts:75-77`; `main.ts:41` even logs it) while the deploy docs claim loopback,
 > identity is the client-supplied `x-orwell-user` header defaulting to `"default"` (header-less clients silently
 > **share** a sandbox), the **admin** channel is equally open, and `sandboxFor` mints a sandbox for any string (memory
@@ -1024,7 +1024,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > failure from a bad tool/args→400) and `GameWatcher.onTick` isolates each user in try/catch.
 > `tests/unit/saveCrashSafety.test.ts` + the 500-isolation case in `httpBoundary.test.ts`. Prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), stop one corrupt save from crash-looping the engine for **all** users. Today
+> In `Psychout-Media/orwell` (TS engine), stop one corrupt save from crash-looping the engine for **all** users. Today
 > `FileSaveStore.saveFor` does a non-atomic `writeFileSync` (truncation on crash), `loadLatest` does an unguarded
 > `JSON.parse` with no fallback, and `sandboxFor` runs un-caught inside the HTTP request listener (`HttpMcpServer.ts:52`)
 > and the watcher tick (`gameWatcher.ts:49-67`) — so a truncated highest-version file is an uncaughtException → process
@@ -1042,7 +1042,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > reset path (`registry.resetUser`); `confirmRestart` is not in the player tool's documented schema.
 > `tests/unit/createCharacterGuard.test.ts`. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), `GameSessionAdapter.createCharacter` (`:206-228`) unconditionally replaces the
+> In `Psychout-Media/orwell` (TS engine), `GameSessionAdapter.createCharacter` (`:206-228`) unconditionally replaces the
 > house, resets to week 1, and **persists** — wiping an active game (reachable by any GM hallucination or network
 > caller). Refuse when `started && !confirmRestart` (explicit arg), returning the existing view unchanged; route a real
 > restart through admin `manageSandbox reset` / `registry.resetUser` (wired in B58/E5). Honors the non-degradation
@@ -1059,7 +1059,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > `tests/unit/runCompetition.test.ts` (9, incl. preview==crown, evicted-never-crowned, survives-restart).
 > Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), eliminate the two-resolver fork. `runCompetition` (`GameSessionAdapter.ts:418-438`)
+> In `Psychout-Media/orwell` (TS engine), eliminate the two-resolver fork. `runCompetition` (`GameSessionAdapter.ts:418-438`)
 > resolves over the **full roster incl. evicted HGs**, accepts arbitrary caller `participantIds`, and records/persists
 > **nothing**, while the real HOH/veto winner is computed independently in `advanceGame` with a **different** RNG stream —
 > so the narrator can announce winner X while the loop crowns Y (the GM prompt tells it to call both,
@@ -1081,7 +1081,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > constants module; the move persists across restart and never reaches a player surface (0001 canary).
 > `tests/unit/ceremonyConsequence.test.ts` (3). Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the 0023 backbone is bypassed by the weekly loop itself: `liveSeason.ts` only
+> In `Psychout-Media/orwell` (TS engine), the 0023 backbone is bypassed by the weekly loop itself: `liveSeason.ts` only
 > **reads** relationships — nominations, veto saves, replacements, and eviction votes move no trust/affinity/threat
 > (`ConsequenceEngine.recordVoteAgainstPlayer`/`recordCompetitionWin` have zero production callers). The game's most
 > consequential acts are the only ones with no consequence. Per remediation principle #4 (folds in the commit path,
@@ -1101,7 +1101,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > refuses any initiator/witness that is not a LIVING houseguest (a `livingProvider` wired from the session)
 > and caps per-call folds. Specs 0002/0009 amended. `tests/unit/knowledgeIntegrity.test.ts` (6). Prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), close the anti-sycophancy hole where the narrator mints ground truth.
+> In `Psychout-Media/orwell` (TS engine), close the anti-sycophancy hole where the narrator mints ground truth.
 > `surfaceInformationTo` accepts any `fact.content` + free-string `pathway` with no check that the claimed teller holds
 > the fact or that a pathway event exists (and never persists); `recordInteraction` lets the caller set
 > initiator/witnesses/kind/**direction** freely. Per principle #3: (a) require a surfacing's `pathway` to reference a
@@ -1120,7 +1120,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > written + validated: an unknown/future version is rejected into a fresh sandbox (no crash), a
 > versionless legacy save migrates forward. `tests/unit/snapshotCompleteness.test.ts` (5). Prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the knowledge layer is **not in the snapshot**: `exportSnapshot` = core + events
+> In `Psychout-Media/orwell` (TS engine), the knowledge layer is **not in the snapshot**: `exportSnapshot` = core + events
 > + relationships only; restore builds a fresh empty `InMemoryKnowledgeService`; `toGameState` hardcodes `knowledge: []`
 > (`sessionSnapshot.ts:76`) so the 0031 superset checkpoint is structurally **blind** to the loss — after a restart,
 > everything houseguests told the player is gone (a silent mandate-#4 violation). Per principle #6 (the snapshot is the
@@ -1144,7 +1144,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > off-screen tick so the house still lives. Health reports `lastTrigger:"player-turn"`.
 > `tests/unit/orchestratorSpine.test.ts` (4). Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), player turns **bypass** the orchestrator — nothing outside tests calls
+> In `Psychout-Media/orwell` (TS engine), player turns **bypass** the orchestrator — nothing outside tests calls
 > `advance(user,"player-turn")`/`touch`, so the fail-closed integrity checkpoint (0031) **never runs on a player action**
 > (a leaky/degrading player-turn commit persists immediately via `onPersist`), and because `touch` never fires
 > `idleSince` is `-Infinity` so the watcher's idle gate is **always true** (off-screen ticks flood every wake, even
@@ -1166,7 +1166,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > asserted (no pre-reveal winner; no `votes`/`script`/`tally` serialized). Coverage check asserts every
 > `PLAYER_TOOLS`/`ADMIN_TOOLS` name was swept. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the sentinel sweep (`mcp.property.test.ts`) runs against a **standalone** adapter
+> In `Psychout-Media/orwell` (TS engine), the sentinel sweep (`mcp.property.test.ts`) runs against a **standalone** adapter
 > disconnected from the sentinel fixture, so for `advanceGame`/`submitDecision`/`gameStatus`/`playerTagline`/
 > `socialInitiatives`/`getGameState`/`getMomentPrompt`/`runCompetition` the canary **can never fire** — the live hidden
 > state these could leak (relationship numbers, NPC stats/souls, pre-reveal finale tally) carries no sentinel; the only
@@ -1208,7 +1208,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > gain the `tie-break` kind; every full-game driver/UAT handles it (terminal `else` is now kind-generic
 > so tie-break/final-eviction can't hang a drive). `tests/unit/tieBreak.test.ts` (4). Prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), a player HOH **never** breaks a tied eviction vote: `npcChoice(s.hoh!)` fires even
+> In `Psychout-Media/orwell` (TS engine), a player HOH **never** breaks a tied eviction vote: `npcChoice(s.hoh!)` fires even
 > when `s.hoh === ctx.player` (`liveSeason.ts:178-182`), deciding via the **hidden** player→NPC threat edges the player
 > has never seen (an agency + anti-sycophancy violation; guaranteed at F3, common at F5). Add a **`tie-break`** pending
 > decision kind (per principle #2): on an even tally with the player as HOH, pause and return the two nominees as the
@@ -1226,7 +1226,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > `peekCompetition` returns null while deferred; survives a restart. Ports + adapter + drivers/UAT
 > updated. `tests/unit/houseguestsChoice.test.ts` (4). Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the veto draw auto-picks for the player: `liveSeason.ts:368-371` passes
+> In `Psychout-Media/orwell` (TS engine), the veto draw auto-picks for the player: `liveSeason.ts:368-371` passes
 > `chooseStrongestBond` **unconditionally**, so when the player draws the chip the engine picks the sixth player using
 > the player's **hidden** bond edges (canon says the player "may hold Houseguest's Choice if drawn"). Make the
 > veto-competition beat two-phase (principle #2): run the draw; if `houseguestsChoice.holder === player`, set a
@@ -1245,7 +1245,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > front-end pick from them. 0034 amended. `tests/unit/compIntent.test.ts` (4) — throw measurably lowers
 > the player's win rate across seeds; the lock refuses post-beat intent. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the player **never declares competition intent** — every live resolution builds an
+> In `Psychout-Media/orwell` (TS engine), the player **never declares competition intent** — every live resolution builds an
 > empty `CompetitionIntents` (`liveSeason.ts:136`, `GameSessionAdapter.ts:435`), so the Bible-mandated, immutable
 > compete/throw/play-safe choice (and the `throwPenalty`/`playSafePenalty` constants) is dead. Surface a **`comp-intent`**
 > pending decision before each comp the player plays (default `compete` if skipped) and thread the `CompetitionIntents`
@@ -1270,7 +1270,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > 18 questions. 0014/0037 specs updated. *(An earlier build of this item shipped the pre-ruling 9-Q + neutral
 > approach in #142; this is the ruling-compliant correction.)* Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), jury management — the signature mechanic — is **inert against the player**:
+> In `Psychout-Media/orwell` (TS engine), jury management — the signature mechanic — is **inert against the player**:
 > `liveSeason.ts:209` skips recording eviction **manner** toward the player, so `juryLean`'s second-largest term
 > (betrayed −0.6 / blindsided −0.5) is structurally **zero** for a player-finalist while fully applying to NPC finalists.
 > Separately, `appealMade` back-fills `bestAppeal` for every **unasked** (finalist, juror) pair **including the player's**
@@ -1362,7 +1362,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > (3): every NPC has 3–6 distinct elements + the player none; seed-reproducible; over a season the surfacing
 > rate sits at the configured ~5% and **no** detail crosses to the player projection / their witnessed events.
 
-> In `kevinhirsch/orwell` (TS engine), live NPCs have **no hidden elements at all** — the production `CharacterFactory`
+> In `Psychout-Media/orwell` (TS engine), live NPCs have **no hidden elements at all** — the production `CharacterFactory`
 > (`characterFactory.ts:56-73`) generates archetype/style/stats/background only; "tons of hidden elements" exist solely in
 > the 0003 **test stub** (`characters.ts` HIDDEN_POOL), and `hiddenSurfaces()` has no production caller, so the rare-reveal
 > "treat" loop (a pillar of 0003 + the mandate) **cannot occur in a real game**. (Distinct from 0041, which is soul
@@ -1387,7 +1387,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > of rollovers decays pinned edges toward neutral; same seed ⇒ identical trajectory; snapshot/restore preserves
 > states. (`season.ts` stays 0.5 — it is the test-only one-shot sim, no soul source.)
 
-> In `kevinhirsch/orwell` (TS engine), the emotional modifier is structurally **zero** on every live comp —
+> In `Psychout-Media/orwell` (TS engine), the emotional modifier is structurally **zero** on every live comp —
 > `emotionalState: 0.5` is hard-coded for every competitor (`liveSeason.ts:135`, `season.ts:78`), `emotionalModifier()`
 > has no production callers, and nothing updates a soul's emotional state — so the Luck-replacement ADR exists only in
 > tests (this is the comp-input wiring, distinct from KNOWN 0041 storage). Track per-houseguest `emotionalState` in the
@@ -1410,7 +1410,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > scheming — non-vacuous); no evictee is ever offered as an approach; an evictee is rejected as a competition
 > participant and never the default winner. Jury still forms from `evictionOrder` — they stop ACTING, not existing.
 
-> In `kevinhirsch/orwell` (TS engine), evictees keep scheming: the off-screen pool (`orchestrator.ts:206-207`),
+> In `Psychout-Media/orwell` (TS engine), evictees keep scheming: the off-screen pool (`orchestrator.ts:206-207`),
 > `socialInitiatives` (`GameSessionAdapter.ts:156-168` / `conversation.ts:57-65`), and `runCompetition`'s default pool
 > (`:424-427`) all ignore `live.evictionOrder` — so an evicted houseguest folds relationship impacts, gives confessionals
 > ("I need X gone"), and can "want a word with you" weeks after leaving (a fidelity break the player will notice). Filter
@@ -1427,7 +1427,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > per-beat rng is cycle-disambiguated). Only implemented kinds load (`double-eviction` today). Three live scenarios
 > appended to 0025's .feature (+ amendments row) + `tests/unit/reserveTwistsLive.test.ts`. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), 0025's reserve twists are computed but **never fire live** —
+> In `Psychout-Media/orwell` (TS engine), 0025's reserve twists are computed but **never fire live** —
 > `loadReserveTwists`/`maybeFireTwist` are referenced only by tests/BDD; nothing in composition loads, seals, or fires a
 > twist, and `double-eviction` is a **label with no math** (`reserveTwists.ts`). (1) At `createCharacter`,
 > `loadReserveTwists(count, seededRng)` into the sandbox's Vault (sealed from player **and** admin until it fires —
@@ -1450,7 +1450,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > sim's `reveals = 1` back-stop is **deleted** (it asserted its own input); the 0003 sim gate stays green without it.
 > Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the 0003 richness property tests run `simulateSeason` (`simulation.ts`, **no
+> In `Psychout-Media/orwell` (TS engine), the 0003 richness property tests run `simulateSeason` (`simulation.ts`, **no
 > production callers**) which force-sets `reveals = 1` if none surfaced (`:113-115`) and whose `offscreenProb` is both the
 > generator input and (effectively) the asserted threshold — **the test asserts its own input**, and the live game could
 > drop to zero off-screen life with every gate green. Per principle #7: re-point the richness metrics at the **live
@@ -1474,7 +1474,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > create + restore (derived from the persisted Character — no extra serialization). Constants in
 > `RELATIONSHIP_CONSTANTS.MOVE_IN`. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), the calibration sim (`season.ts`) **diverges in rules** from the live loop —
+> In `Psychout-Media/orwell` (TS engine), the calibration sim (`season.ts`) **diverges in rules** from the live loop —
 > `vetoParticipants` without the Houseguest's-Choice chip, different comp types, no manner/appeals, and dead duplicate
 > decision helpers (`WEEK_PHASES`/`pendingNominationDecision`/`validateNominations`) — so the 0006 calibration + outcome
 > property tests verify mechanics the player **never plays**. Either implement `playSeason` **as a driver over**
@@ -1513,7 +1513,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 
 ### C12 — front-end hotfixes: finale relay + engine-down fail-closed + reset guard  ·  Claude Code (front-end lane)  ·  **Wave 0 · audit B3 + F2 + A2 (FE)** — ✅ DONE (verified 2026-06-10: finale kinds in the relay schema, the 409 reset guard, `test_c12_finale_relay.py`)
 
-> In `kevinhirsch/orwell` `frontend/`, three Wave-0 fixes. (1) **Finale is unplayable** — the agent relay's
+> In `Psychout-Media/orwell` `frontend/`, three Wave-0 fixes. (1) **Finale is unplayable** — the agent relay's
 > `submitDecision` enum allows only `nominations|veto-decision|replacement|eviction-vote` and hard-rejects everything
 > else, **silently dropping** `statement`/`appeal` (`tool_schemas.py:1319`, `tool_implementations.py:4650-4653`), so any
 > player reaching jury/Final 2 dead-stops — **the season can't be won**. Extend the schema enum with `finale-statement`/
@@ -1529,7 +1529,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 
 ### C13 — close the lever drift (`diaryRoom` + `socialInitiatives` agent tools)  ·  Claude Code (front-end lane)  ·  **Wave 4 · audit F1** — ✅ DONE (verified 2026-06-10: `test_c13_lever_drift.py` pins manifest↔FE)
 
-> In `kevinhirsch/orwell` `frontend/`, the moment prompt advertises levers the agent **cannot pull**:
+> In `Psychout-Media/orwell` `frontend/`, the moment prompt advertises levers the agent **cannot pull**:
 > `resolveCompetition`, `socialInitiatives`, `diaryRoom` are named in `momentPrompts.ts` but absent from
 > `FUNCTION_TOOL_SCHEMAS`/`TOOL_TAGS`/`ORWELL_GAME_TOOLS` — so the **Diary Room in chat is narrated but never recorded**
 > (only the HUD modal records — violating the hold-the-line rule) and the narrator can never spontaneously have an NPC
@@ -1542,7 +1542,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 
 ### C14 — game turns always act; clean the immersion bleed  ·  Claude Code (front-end lane)  ·  **Wave 4 · audit F3 + F6** — ✅ DONE (verified 2026-06-10: `test_c14_immersion.py`; restyle superseded by C19)
 
-> In `kevinhirsch/orwell` `frontend/`, two play paths **narrate without ever acting** — sync `POST /api/chat` gets the
+> In `Psychout-Media/orwell` `frontend/`, two play paths **narrate without ever acting** — sync `POST /api/chat` gets the
 > moment prompt but **no tools/no escalation**, and `can_use_agent=False` users are flipped back to plain chat **after**
 > game auto-escalation (`chat_routes.py:554-557,668-670`) — producing consequence-free imitation gameplay. For
 > game-active sessions, **force the agent path** with tools collapsed to exactly `GAME_TOOL_KEEP` (game tools aren't a
@@ -1556,7 +1556,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 
 ### C15 — onboarding holding-state + new-season history fence  ·  Claude Code (front-end lane)  ·  **Wave 4 · audit F5 + F7** — ✅ DONE (verified 2026-06-10: covered with C23 — `test_c23_onramp.py` pins the dark-house holding card + the fresh-session fence)
 
-> In `kevinhirsch/orwell` `frontend/`, (1) **onboarding fails open to a generic workspace** — engine unreachable ⇒ the
+> In `Psychout-Media/orwell` `frontend/`, (1) **onboarding fails open to a generic workspace** — engine unreachable ⇒ the
 > overlay never mounts (`orwellOnboarding.js:127-134`) and the player lands on "type /setup to get started" with tips
 > referencing **dropped** verticals ("web search and code execution", "Compare mode"). Show a game-branded **holding card**
 > ("The house is dark — Big Brother will return") when `/api/orwell/state` fails, and replace the tips/default tagline with
@@ -1575,7 +1575,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > **"previously on…" recap** is B62's `re-entry` moment (the store recalled through the narrator — the ADR-0003
 > preferred shape) plus C17's recap panel over `seasonRecap` (the record, queryable any time).
 
-> In `kevinhirsch/orwell` `frontend/`, ship the highest-value slice of the deferred **0022** rich UI, all from Vault-free
+> In `Psychout-Media/orwell` `frontend/`, ship the highest-value slice of the deferred **0022** rich UI, all from Vault-free
 > projections the engine already returns, in the self-contained/fail-open/game-gated pattern of
 > `orwellStatusPanel.js`/`orwellSocial.js`: (1) a **houseguest roster** panel (names + status from `getGameState`);
 > (2) a **"previously on…" session-open recap** (synthesized from `getVisibleStateFor` — facts the player knows +
@@ -1597,7 +1597,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > unsealed hidden story incl. the twist that never fired). Nothing in it progresses the game (B66 guard).
 > `tests/test_c17_retrospective.py`; pytest 292 + boot + headless browser smokes green.
 
-> In `kevinhirsch/orwell` `frontend/`, build the **post-season** presentation for feature **0048** (B56): a recap surface
+> In `Psychout-Media/orwell` `frontend/`, build the **post-season** presentation for feature **0048** (B56): a recap surface
 > (arc highlights from the engine's Vault-free recap read) and — **only after the winner event** — a player-triggered
 > **"watch the season back"** view over the now-unsealed hidden story (off-screen scheming, confessionals, the twist that
 > never fired) from B56's post-season read tool. Same fail-open, game-gated patterns; render **only** the route payloads.
@@ -1609,7 +1609,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 
 ### B57 — doc-hygiene pass (the authoritative docs mis-instruct)  ·  Claude Code / feature-maker  ·  **continuous · audit H1–H9** — ✅ DONE (verified 2026-06-10: the stale spec blocks are refreshed)
 
-> In `kevinhirsch/orwell`, one PR refreshing the authoritative docs that currently contradict the live status and
+> In `Psychout-Media/orwell`, one PR refreshing the authoritative docs that currently contradict the live status and
 > mis-instruct a fresh implementer (per audit §H). Refresh `bb-sim-spec.md`'s stale Refinements block ("0023 is the
 > biggest gap"), §11 (pre-ADR relationship shape), §12 (the daily-event scenario **omits** "significant house event" — a
 > literal reading fails every legal social day), §16; close out `CLAUDE_CODE_INSTRUCTIONS.md` §15 (only the embedding
@@ -1634,7 +1634,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > consecutive faults off-screen ticks SKIP the sandbox (`HealthRecord.circuitOpen`); a clean player turn closes
 > it. `tests/unit/opsHardening.test.ts`. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), three operational gaps. (1) **Unbounded disk** (E4): a full snapshot file per
+> In `Psychout-Media/orwell` (TS engine), three operational gaps. (1) **Unbounded disk** (E4): a full snapshot file per
 > mutation, never pruned, snapshot size linear in events ⇒ O(n²) disk — retain a bounded window (last K + periodic
 > checkpoints; non-degradation requires the **latest** save be a superset, not every historical file). (2) **Admin/God
 > Mode is decorative** (E5): `inspect` returns a never-updated stub, `overrideMechanic`/`manageSandbox("reset")` mutate a
@@ -1663,7 +1663,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > (test-consumed seams, no production callers — not worth churn now):* the 0019 `decisions.ts` seam,
 > `producerPrompt`/`deriveNpcKnowledge` routing, approach jitter, goodbye-tone 0.6. Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), (1) **dependency-cruiser rule gaps** (E7): OUTWARD omits
+> In `Psychout-Media/orwell` (TS engine), (1) **dependency-cruiser rule gaps** (E7): OUTWARD omits
 > `src/adapters/narrative/**` and `src/main.ts` (the most leak-sensitive outward consumers); VAULT omits
 > `EmbeddingProvider.ts` and the engine modules that **hold** hidden logic/state (`relationships.ts`, `confessionals.ts`,
 > `offscreen.ts`, `gossip.ts`, `liveSeason.ts`) — a surface could import `confessionalFor`/`relationshipLabel` today
@@ -1691,7 +1691,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > ts; the new `restoreRecord` round-trips a restored history exactly). `tests/unit/transportHardening.test.ts`.
 > Original prompt below.
 
-> In `kevinhirsch/orwell` (TS engine), harden the HTTP transport and the RNG/ts hygiene. (E9) Add a request **body-size
+> In `Psychout-Media/orwell` (TS engine), harden the HTTP transport and the RNG/ts hygiene. (E9) Add a request **body-size
 > cap** (256KB), a request **timeout**, basic per-tool **arg validation**, and map non-validation throws to **500** (today
 > all errors → 400, so engine bugs masquerade as client errors). (E10) Resolve the McpServer **inside** the `end` handler
 > (not at request start) to close the sandbox-swap race that loses a player action; ideally serialize per-user with a
@@ -1712,7 +1712,7 @@ spec style (design note + name-agnostic Gherkin) before dispatching those B-item
 > to a 3s `_FRAMING_TIMEOUT` (`ORWELL_ENGINE_FRAMING_TIMEOUT`) so a hung engine fails a turn's framing fast —
 > the fallback prompt takes over instead of a ~60s stall. F8g noted: mitigated by B36/C12's reset guard.
 
-> In `kevinhirsch/orwell` `frontend/`, the small items from audit F8: gate the `game-trim.css` `<link>` behind the build
+> In `Psychout-Media/orwell` `frontend/`, the small items from audit F8: gate the `game-trim.css` `<link>` behind the build
 > flag (today unconditional, so `ORWELL_GAME_BUILD=0` debug still hides workspace chrome); offer the five canonical
 > archetypes as suggestions in onboarding (free-text still allowed) with a hint that certain words shape hidden stats;
 > add **polling backoff** + a shared `httpx.AsyncClient` for the HUDs (today two HUDs × 20s poll forever, new client per
@@ -1764,7 +1764,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### B61 — cast voices: surface the public persona to the narrator + a light voice directive  ·  Claude Code  ·  **FE-0 · headline · audit N1+N2 (+N4/N5/N7 prompt edits)** — ✅ DONE (verified 2026-06-10: `tests/unit/castVoices.test.ts`)
 
-> In `kevinhirsch/orwell` (TS engine). **This is the single biggest immersion win and it's mostly already paid for.**
+> In `Psychout-Media/orwell` (TS engine). **This is the single biggest immersion win and it's mostly already paid for.**
 > The narrator is fed 15 names + a status word (`renderGameContext`, `momentPrompts.ts:127-140`; `HouseguestCard` =
 > `{id,name,status}`) while the engine already mints **Vault-free public facets** per NPC — archetype, strategyStyle,
 > background, age, appearance, presentation, a `PortraitDescriptor.vibe` (`characterFactory.ts:56-66, 311-335`),
@@ -1790,7 +1790,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### B62 — server-initiated lifecycle moments (premiere / re-entry / terminal), recap from the store  ·  Claude Code  ·  **FE-1 · audit J1+J7+J2 (engine half)** — ✅ DONE (verified 2026-06-10: `tests/unit/lifecycleMoments.test.ts`)
 
-> In `kevinhirsch/orwell` (TS engine), give the front-end the engine support to open and close a season with
+> In `Psychout-Media/orwell` (TS engine), give the front-end the engine support to open and close a season with
 > narration instead of dead air. Today the moment prompt attaches only on a player keystroke, so the game opens on an
 > empty chat (J1), resume is a frozen transcript (J7), and there's no ending (J2). Per **ADR 0003** ("long-term
 > memory is the store, recalled — never the chat, remembered"): add three **moment kinds** + Vault-free read support
@@ -1811,7 +1811,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 > `tests/unit/lifecycleMoments.test.ts` (roster seats distinct; role computable; no hidden-layer key on either
 > projection). No standing read ("safe"/"target") was added — that stays forbidden (0020).
 
-> In `kevinhirsch/orwell` (TS engine), the roster the FE wants to render (C21) needs two tiny **public-fact**
+> In `Psychout-Media/orwell` (TS engine), the roster the FE wants to render (C21) needs two tiny **public-fact**
 > additions: (1) mark evictees who are **jurors** (a `status:"juror"` once jury forms, or expose a public `juryStart`
 > week) so the jury can be tracked; (2) ensure the player's own **ceremony role** is derivable from public facts
 > (the player card vs `hoh`/`nominees`/`veto.holder`) — these are facts a real houseguest sees on the memory wall,
@@ -1821,7 +1821,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C19 — minimal game preamble (substitute, not append) + diegetic tool results  ·  Claude Code (front-end lane)  ·  **FE-0 · audit N3+N6 (replaces C14's restyle)** — ✅ DONE (verified 2026-06-10: the game-master prompt is the sole persona in `agent_loop.py`)
 
-> In `kevinhirsch/orwell` `frontend/`. Per **ADR 0003** ("prefer removing context to adding it"), the biggest
+> In `Psychout-Media/orwell` `frontend/`. Per **ADR 0003** ("prefer removing context to adding it"), the biggest
 > reliability+immersion win is *less* prompt, not more. Today `build_chat_context` prepends the GM prompt to
 > `_AGENT_PREAMBLE` ("You are an AI assistant with tool access…") + `_AGENT_RULES` (`agent_loop.py:62-111`) — pages of
 > email/cookbook/calendar/document rules, including *"a failed tool is not a stopping condition — improvise"* (which
@@ -1836,7 +1836,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C20 — confirm-on-binding (the light decision guardrail)  ·  Claude Code (front-end lane)  ·  **FE-0 · audit U1+U2, reframed per ADR 0003** — ✅ DONE (verified 2026-06-10: `orwellDecision.js` + `test_c20_decision_guardrail.py`)
 
-> In `kevinhirsch/orwell` `frontend/`. The engine returns a full Vault-free `pending` decision view (prompt, legal
+> In `Psychout-Media/orwell` `frontend/`. The engine returns a full Vault-free `pending` decision view (prompt, legal
 > `options[]`, `pick` count, `appeals[]`) that the FE entirely ignores, so binding choices are prose guesses with no
 > confirmation (U1/U2). **Per ADR 0003, the fix is a guardrail, NOT a decision-card-builder UI** — play stays in
 > conversation; only the *commitment* gets structured. When an `advanceGame`/`submitDecision` response carries a
@@ -1850,7 +1850,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C21 — the memory wall (roster · jury · self-status · portraits)  ·  Claude Code (front-end lane)  ·  **FE-0 · audit U3+V2 (depends B63 for jury)** — ✅ DONE (verified 2026-06-10: `test_c21_roster.py`)
 
-> In `kevinhirsch/orwell` `frontend/`. The status HUD shows 4 lines of a 16-person game (U3). **Per ADR 0003, UI here
+> In `Psychout-Media/orwell` `frontend/`. The status HUD shows 4 lines of a 16-person game (U3). **Per ADR 0003, UI here
 > serves *memory*, not play** — render the facts a real houseguest sees on the memory wall, all Vault-free and already
 > returned by the engine: the **roster** (`getGameState().house[]` `{name,status}`) grouped Active / Jury / Evicted
 > with eviction-order trail; **attrition** (N/16); the player's own **ceremony role** badge (HOH / ON THE BLOCK / VETO
@@ -1863,7 +1863,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C22 — render the lifecycle beats + a guarded new-season path  ·  Claude Code (front-end lane)  ·  **FE-1 · audit J1+J7+J2+J3 (depends B62)** — ✅ DONE (verified 2026-06-10: the premiere slice + guarded new-game in `test_fe_final_batch.py` / the 409 guard)
 
-> In `kevinhirsch/orwell` `frontend/`, render the server-initiated beats B62 exposes so the season has a curtain-up,
+> In `Psychout-Media/orwell` `frontend/`, render the server-initiated beats B62 exposes so the season has a curtain-up,
 > a way back in, and an ending (today: dead air on start, a frozen transcript on resume, no terminal state). On
 > `createCharacter` success push the **premiere** beat as the first assistant message (no user input); on session
 > re-open with `game_active` push the **re-entry** morning beat; on a season ending render a **terminal card**
@@ -1875,7 +1875,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C23 — onboarding onramp: model-gate sequencing, authoring depth, game-framed copy  ·  Claude Code (front-end lane)  ·  **FE-1 · audit J4+J5+J6+J8+J9 (extends C15)** — ✅ DONE (verified 2026-06-10: `test_c23_onramp.py`; 0050 moved authoring into the chat)
 
-> In `kevinhirsch/orwell` `frontend/`, fix the first-run path. (J4) Before mounting onboarding, probe model
+> In `Psychout-Media/orwell` `frontend/`, fix the first-run path. (J4) Before mounting onboarding, probe model
 > readiness; if no model, show a game-branded "connect a feed source to begin" step linking to setup, *then* author —
 > and never render the raw "No model selected for this chat" error on a game-active/onboarding session (today a fresh
 > install dead-ends there immediately after authoring). (J5/J6, **lightly** per ADR 0003) add an optional
@@ -1889,7 +1889,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C24 — HUD resilience · ceremony beat dividers · NPC-initiated social texture  ·  Claude Code (front-end lane)  ·  **FE-1/FE-3 · audit U4+U5+U6+U7** — ✅ DONE (verified 2026-06-10: `test_c24_hud_resilience.py`)
 
-> In `kevinhirsch/orwell` `frontend/`, three play-surface fixes. (U5) The HUDs `hidePanel()` on *any* error so they
+> In `Psychout-Media/orwell` `frontend/`, three play-surface fixes. (U5) The HUDs `hidePanel()` on *any* error so they
 > vanish on a transient engine blip — distinguish engine-error (keep last-known values + a subtle offline dot) from
 > no-active-game (hide); share one poller across the two panels. (U4) Give narrated **ceremony beats** visual weight:
 > diegetic labels for game-tool thread nodes ("📺 Production", "🗳 Your move") with raw JSON hidden under the game
@@ -1903,7 +1903,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C25 — accessibility batch (keyboard + screen-reader play)  ·  Claude Code (front-end lane)  ·  **FE-2 · audit A1–A6** — ✅ DONE (verified 2026-06-10: focus trap/inert in onboarding; A3/A4/A5 pinned in `test_fe_final_batch.py`)
 
-> In `kevinhirsch/orwell` `frontend/`, make the game layer accessible (the base app is; the game HUDs aren't). (A1)
+> In `Psychout-Media/orwell` `frontend/`, make the game layer accessible (the base app is; the game HUDs aren't). (A1)
 > Trap focus in the onboarding modal, `inert` the background, restore focus on close (today Tab walks into the dead
 > chat behind it — every new keyboard/SR player). (A2) Make the approach chips and Diary-Room actions real
 > `<button>`s (or role+tabindex+Enter/Space) and trap+Escape the DR dialog (today the core "pull someone aside"
@@ -1917,7 +1917,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C26 — mobile batch (make a full season playable on a phone)  ·  Claude Code (front-end lane)  ·  **FE-2 · audit M1–M3** — ✅ DONE (verified 2026-06-10: the responsive + coarse-pointer rules shipped in `style.css`)
 
-> In `kevinhirsch/orwell` `frontend/`, the verdict today is *a season is not playable on a phone* (fixed-position
+> In `Psychout-Media/orwell` `frontend/`, the verdict today is *a season is not playable on a phone* (fixed-position
 > HUDs overlap the composer, draggable panels strand off-screen, modals don't fit short viewports). (M1) Under a
 > mobile breakpoint, dock the two HUDs into the sidebar / a bottom sheet — never free-float over the composer (today
 > two 220px `position:fixed; z-index:9000` panels collide with the composer's own mobile machinery; **zero media
@@ -1929,7 +1929,7 @@ audit batch above; OpenHands isn't configured, so Claude Code owns both (B/C is 
 
 ### C27 — real game bundle, asset diet, visual identity & enum labels  ·  Claude Code (front-end lane)  ·  **FE-2/FE-3 · audit P1+P3+P4 + V1+V3+V5+R2** — ✅ DONE (verified 2026-06-10: `strip_dropped_scripts` is real in `app.py`; V3 enum labels pinned in `test_fe_final_batch.py`)
 
-> In `kevinhirsch/orwell` `frontend/`. (P1) The script-strip is a **no-op** — it removes files `index.html` never
+> In `Psychout-Media/orwell` `frontend/`. (P1) The script-strip is a **no-op** — it removes files `index.html` never
 > references while the multi-MB inherited bundle (`settings.js` 274KB, `chat.js` 251KB, `slashCommands.js` 268KB,
 > `admin.js` 126KB…) parses on every load. Ship a real game bundle (a tree-shaken entry importing only the game
 > keep-set + chat), or at minimum gate the inherited mega-module `<script>` tags through the same build flag.
@@ -2008,7 +2008,7 @@ possible — that section is the contract these items must satisfy. Read ADR 000
 > the B42 live sweep now exercises `npcVoice` against the secret-holding NPC; persona byte-stable across turns;
 > no co-presence fact crosses rooms; the departed return null. `tests/unit/npcVoice.test.ts`.
 
-> In `kevinhirsch/orwell` (TS engine), make "people must make sense" (ADR 0003 §8) **structural**, the
+> In `Psychout-Media/orwell` (TS engine), make "people must make sense" (ADR 0003 §8) **structural**, the
 > Vault way: an NPC can only speak from what it legitimately knows, so enforce it on the *context the
 > narrator receives*, not on the prose. Add a Vault-free **per-NPC voicing projection** — given an NPC
 > id, assemble the context to voice that NPC from **only** their legitimate knowledge: their
@@ -2036,7 +2036,7 @@ possible — that section is the contract these items must satisfy. Read ADR 000
 > (game-progressing engine calls reach routes ONLY through the two sanctioned confirm paths — the C20 decision
 > route and the 409-guarded new-game route; static JS never bypasses the FE routes to the engine transport).
 
-> In `kevinhirsch/orwell`, build the reusable test scaffolding the ADR's Testability section promises,
+> In `Psychout-Media/orwell`, build the reusable test scaffolding the ADR's Testability section promises,
 > so these principles are enforced, not aspirational, and stay green as the game grows. Add helpers +
 > property tests for: **presence coherence** (one room per HG, adjacency-only movement, seeded
 > occupancy — B64); **knowledge-scoped speech** (the per-NPC sentinel sweep — B65); **persona stability**
@@ -2060,7 +2060,7 @@ possible — that section is the contract these items must satisfy. Read ADR 000
 > ambient contract (no POST, one control); the B66 augment guard covers it structurally. pytest 275 + boot smoke
 > + the local headless browser smoke all green.
 
-> In `kevinhirsch/orwell` `frontend/`, surface presence so milling is legible **without** moving play
+> In `Psychout-Media/orwell` `frontend/`, surface presence so milling is legible **without** moving play
 > out of the chat (ADR 0003 §4: augment, never replace). Render `whereabouts()` (B64) as an **ambient**
 > ground for the conversation — who's in the room with the player and who's nearby — as a light,
 > dismissible presence strip / part of the memory wall (C21), *not* a click-to-act room navigator: the
@@ -2128,7 +2128,7 @@ PR per item).
 > `docs/INSTALL.md` updated. `frontend/tests/test_b67_engine_auth.py`; the engine-side 401/400 behavior was
 > already pinned by `tests/integration/httpBoundary.test.ts` (B34).
 
-> In `kevinhirsch/orwell`, close the engine-auth footgun. The engine **enforces**
+> In `Psychout-Media/orwell`, close the engine-auth footgun. The engine **enforces**
 > `ORWELL_ENGINE_TOKEN` on every route (`src/adapters/mcp/HttpMcpServer.ts:92`), but the front-end has
 > **no code path to send it** (`frontend/src/orwell_engine.py:24-27,172-181` send only the user header)
 > and the installer never sets it — so the documented way to turn auth on (`docs/INSTALL.md:103-104`,
@@ -2156,7 +2156,7 @@ PR per item).
 > factId + pathway + suspicion survive, `counts().knowledge` is non-decreasing, `isSuperset` holds over the
 > live path, and the resumed counters mint fresh ids (audit C3). Memory thinning stays impossible.
 
-> In `kevinhirsch/orwell` (TS engine), a real **non-degradation regression ships today**: the live
+> In `Psychout-Media/orwell` (TS engine), a real **non-degradation regression ships today**: the live
 > durable snapshot hardcodes `knowledge: []` (`src/engine/sessionSnapshot.ts:79`) and `SessionSnapshot`
 > has **no knowledge field** (`:38-41`), so the player's accumulated knowledge (facts surfaced by
 > pathway, suspicions) is **discarded on every save** and not restored on restart — the old version's
@@ -2185,7 +2185,7 @@ PR per item).
 > every confessional/scene the live loop itself generates (not planted) is verbatim-swept against every player
 > surface incl. `getMomentPrompt` (`re-entry` too) across seeds — clean.
 
-> In `kevinhirsch/orwell` (TS engine), three "green" gates measure the wrong thing — the headline
+> In `Psychout-Media/orwell` (TS engine), three "green" gates measure the wrong thing — the headline
 > invariants run against fixtures disconnected from `liveSeason.ts`. Per remediation principle #7 (gates
 > on the production path):
 > 1. **Richness (mandate #1, C2):** the property test **and the gated BDD 0003** compute
@@ -2220,7 +2220,7 @@ PR per item).
 > ⇒ fault + ROLLBACK + zero saves (a counting store proves no persist) + no aborted event left behind; the
 > finale-answer rejection path covered (illegal appeal refused, the pending question survives, legal proceeds).
 
-> In `kevinhirsch/orwell`, four gaps let mandate-violating regressions through a green gate:
+> In `Psychout-Media/orwell`, four gaps let mandate-violating regressions through a green gate:
 > 1. **C4 — the narrative adapter is outside the Vault boundary.** `.dependency-cruiser.cjs` OUTWARD
 >    covers `surfaces|services|outwardRoot|adapters/mcp` but **not** `adapters/narrative/` — the literal
 >    pipe to the model; wiring `VaultStore`/`SoulStore` into `LlmNarrativePort` to "enrich" narration
@@ -2257,7 +2257,7 @@ PR per item).
 > now store-size-keyed (the B40 pattern). Note: `advanceGame` is deliberately agent-path-only, so the smoke turn
 > advances on the engine's authed channel and binds the decision through the FE's sanctioned `/decision` route.
 
-> In `kevinhirsch/orwell` `deploy/` (+ a small `src/` runtime change), make the deploy lifecycle safe:
+> In `Psychout-Media/orwell` `deploy/` (+ a small `src/` runtime change), make the deploy lifecycle safe:
 > 1. **A4 — atomic, pinned, rollback-able updates.** `orwell-update.sh:66-72` does
 >    `git reset --hard origin/main` **then** `npm ci && build` under `set -e`, so a build failure leaves
 >    the tree on new `main` with the old `dist/`; it always pulls unpinned `main` with no rollback. Build
@@ -2291,7 +2291,7 @@ PR per item).
 > layout generations scrub correctly. (A10) `EnvironmentFile=-` (optional), the `Wants=` degraded mode documented
 > in the unit, REF/rollback documented in INSTALL.md.
 
-> In `kevinhirsch/orwell` `deploy/` + `docs/INSTALL.md`, make the box operable and least-privilege:
+> In `Psychout-Media/orwell` `deploy/` + `docs/INSTALL.md`, make the box operable and least-privilege:
 > 1. **A5 — drop root + systemd hardening.** Neither unit sets `User=`; both run as **root** with an
 >    internet-facing FastAPI app (`orwell-frontend.service:12` binds `0.0.0.0`). Create an `orwell` system
 >    user, `chown` app+data, set `User=orwell`, and add `NoNewPrivileges=yes`, `ProtectSystem=strict`,
@@ -2320,7 +2320,7 @@ PR per item).
 
 ### C29 — front-end app-security hardening + the sandbox-isolation regression test  ·  Claude Code (front-end)  ·  **R-1 · MINOR (posture) · sec §B2/B4/B5/B6/B7 + test C5** — ✅ DONE (verified 2026-06-10: hardening + isolation pins in the FE suite)
 
-> In `kevinhirsch/orwell` `frontend/`, the app-security posture is **sound** (no bypass) — these are the
+> In `Psychout-Media/orwell` `frontend/`, the app-security posture is **sound** (no bypass) — these are the
 > minor-but-worth-it hardening items the audit flagged before a multi-user/internet deploy, plus the one
 > missing regression test:
 > 1. **C5 — guard the trust path that's correct today.** Nothing asserts the engine `X-Orwell-User` key
@@ -2347,7 +2347,7 @@ PR per item).
 
 ### C30 — settings model ruling: global LLM config (admin-set, hidden from non-admins) · per-profile preferences  ·  Claude Code (front-end)  ·  **R-0 · CRITICAL (multi-user) · settings S1 + S4 · RULING 2026-06-09** — ✅ DONE (verified 2026-06-10: `_PER_USER_KEYS` model + `test_c30_settings_model.py`)
 
-> In `kevinhirsch/orwell` `frontend/`, implement the **settings model ruling** (see the addendum in
+> In `Psychout-Media/orwell` `frontend/`, implement the **settings model ruling** (see the addendum in
 > `docs/audits/2026-06-09-settings-menu-audit.md`): **the first admin sets up the LLM (services/ai)
 > and those settings are GLOBAL for all users** — logically-global things are global, unchangeable
 > by, and **hidden from** non-admins; **user-based preferences persist per-profile**, never globally.
@@ -2379,7 +2379,7 @@ PR per item).
 
 ### C31 — finish the Settings game-build prune (no dead tabs, no live JS behind hidden ones)  ·  Claude Code (front-end)  ·  **R-2 · MAJOR · settings S3 + S5 (S2 superseded by C32)** — ✅ DONE (verified 2026-06-10: pruned with the C30 settings model)
 
-> In `kevinhirsch/orwell` `frontend/`, close the cosmetic-hide-live-code pattern in the Settings
+> In `Psychout-Media/orwell` `frontend/`, close the cosmetic-hide-live-code pattern in the Settings
 > modal (`docs/audits/2026-06-09-settings-menu-audit.md` S3/S5). **Note the ruling: `search` is NOT
 > pruned — it is re-wired as a core in-game capability by C32** (the settings tab becomes
 > admin-only global config like services/ai, per C30). Remaining prune work:
@@ -2398,7 +2398,7 @@ PR per item).
 
 ### C32 — re-wire web search as an in-fiction agent capability (the house knows the real world)  ·  Claude Code (front-end + engine prompt)  ·  **R-0 · CRITICAL · RULING 2026-06-09 · amends 0032** — ✅ DONE (verified 2026-06-10: `test_c32_infiction_search.py`)
 
-> In `kevinhirsch/orwell`, implement the **search ruling**: the LLM must be able to **leverage web
+> In `Psychout-Media/orwell`, implement the **search ruling**: the LLM must be able to **leverage web
 > search in-character** — when the player references something the model doesn't know (say, a new
 > movie, mid-conversation with a houseguest), the agent quickly searches, gathers results, and
 > synthesizes an appropriate **in-game response in the voice of whoever the player is talking to**.
@@ -2434,7 +2434,7 @@ PR per item).
 
 ### C33 — the snarky hero tagline is genuinely AI-generated (not the curated fallback)  ·  Claude Code (front-end + engine)  ·  **R-2 · MINOR · RULING 2026-06-09** — ✅ DONE (verified 2026-06-10: `test_c33_ai_tagline.py`)
 
-> In `kevinhirsch/orwell`, make the player tagline (0033) **actually AI-generated** when a game is live,
+> In `Psychout-Media/orwell`, make the player tagline (0033) **actually AI-generated** when a game is live,
 > reserving curated/static text for the fail-open path only. Today it is **never** model-generated:
 > `GameSessionAdapter.playerTagline()` (`src/adapters/engine/GameSessionAdapter.ts:232-256`) only calls
 > a narrator if `this.narrator` is set, and **`setNarrator` is never called in the live composition**

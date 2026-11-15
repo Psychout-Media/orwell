@@ -98,7 +98,7 @@ def test_the_producer_byline_is_cleared_at_the_reset_boundary_but_survives_casti
     async def not_started(user=None):
         return {"started": False, "moment": "character-creation"}
 
-    async def mp_no_producer(moment=None, user=None):
+    async def mp_no_producer(moment=None, user=None, **_kw):
         return {"systemPrompt": "CASTING"}  # a new season's interview — no producer resolved yet
 
     monkeypatch.setattr(orwell_engine, "get_game_state", not_started)
@@ -115,7 +115,7 @@ def test_the_producer_byline_is_cleared_at_the_reset_boundary_but_survives_casti
 
         # (2) STEADY CASTING HICCUP (Greptile P1): a later casting turn (NOT the active→inactive edge)
         # whose get_moment_prompt THROWS must PRESERVE the already-stashed producer, not wipe it.
-        async def mp_boom(moment=None, user=None):
+        async def mp_boom(moment=None, user=None, **_kw):
             raise RuntimeError("transient engine hiccup")
 
         monkeypatch.setattr(orwell_engine, "get_moment_prompt", mp_boom)
@@ -125,7 +125,7 @@ def test_the_producer_byline_is_cleared_at_the_reset_boundary_but_survives_casti
         assert ch.last_framed_producer_name("p") == "Stable Producer"
 
         # (3) at the boundary, a new season that DOES resolve a producer yields the NEW one.
-        async def mp_new_producer(moment=None, user=None):
+        async def mp_new_producer(moment=None, user=None, **_kw):
             return {"systemPrompt": "CASTING", "producerName": "New Producer"}
 
         monkeypatch.setattr(orwell_engine, "get_moment_prompt", mp_new_producer)
@@ -245,12 +245,13 @@ def test_product_chrome_keeps_orwell():
 
 def test_game_build_slates_drop_the_done_tail():
     chat = _read("static/js/chat.js")
-    assert "(ok && isGameBuild()) ? ''" in chat, "success slates must carry no debug tail"
-    assert "'failed'" in chat, "failures stay literal (operator truth)"
+    tb = _read("static/js/orwellToolBeats.js")  # ORW-264: both paths share orwellBeatNodeView
+    assert "(ok && isGameBuild()) ? ''" in tb, "success slates must carry no debug tail"
+    assert "'failed'" in tb, "failures stay literal (operator truth)"
+    assert "orwellBeatNodeView(" in chat
     # PR #1235 review: the RELOAD path mirrors the live suppression + the outcome marker
     renderer = _read("static/js/chatRenderer.js")
-    assert "(ok && isGameBuild()) ? ''" in renderer, "reload must mirror the live done-tail rule"
-    assert "ow-slate-outcome" in renderer
+    assert "orwellBeatNodeView(" in renderer, "reload must mirror the live done-tail rule (shared builder)"
 
 
 def test_slate_styling_is_game_build_scoped():
@@ -260,5 +261,5 @@ def test_slate_styling_is_game_build_scoped():
     # outcome slates keep richer type via the PERSISTENT marker (the reveal class is
     # transient — cleared after the entrance animation)
     assert "ow-slate-outcome" in css
-    chat = _read("static/js/chat.js")
-    assert "ow-ceremony-reveal ow-slate-outcome" in chat
+    tb = _read("static/js/orwellToolBeats.js")
+    assert "' ow-slate-outcome'" in tb

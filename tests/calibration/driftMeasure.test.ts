@@ -1,4 +1,5 @@
 import { describe, it } from "vitest";
+import { GameSessionRegistry } from "../../src/composition/registry";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { playSeason } from "./calibrationArms";
@@ -16,7 +17,7 @@ type Soul = { temperamentDrift?: number };
 describe.skipIf(process.env.ORWELL_DRIFT_RUN !== "1")("drift measure (B32)", () => {
   for (const fix of [false, true]) {
     it(`ORWELL_DRIFT_FIX=${fix ? "1" : "off"}`, async () => {
-      if (fix) process.env.ORWELL_DRIFT_FIX = "1"; else delete process.env.ORWELL_DRIFT_FIX;
+      if (fix) process.env.ORWELL_DRIFT_FIX = "1"; else process.env.ORWELL_DRIFT_FIX = "0"; // the flag defaults ON since 2026-11-05, so "off" must be explicit
       const seasons = Number.parseInt(process.env.ORWELL_DRIFT_SEASONS ?? "4", 10);
       let hardened = 0, softened = 0, total = 0, nominatedPlayer = 0;
       for (const arm of ["solid", "reckless"] as const) {
@@ -39,5 +40,40 @@ describe.skipIf(process.env.ORWELL_DRIFT_RUN !== "1")("drift measure (B32)", () 
       const drifted = hardened + softened;
       console.log(`B32-DRIFT fix=${fix ? "on" : "off"} npcs=${total} drifted=${drifted} hardened=${hardened} softened=${softened} hardenedShare=${drifted ? (hardened / drifted).toFixed(2) : "n/a"}`);
     }, 3_600_000);
+  }
+});
+
+/**
+ * ORW-33: the BETRAYING arm. The scripted solid/reckless arms record few betrayals, so they cannot show hardening. Here each seed starts a house and the player records `ORWELL_DRIFT_BETRAYALS` (default 3)
+ * betrayal scenes against EVERY houseguest through the real scene-memory sink (`rememberPlayerScene`, the same call `recordInteraction` makes for a recorded scene), then counts drifted NPCs exactly as above.
+ * Acceptance: hardened >= ~25% of the drifted set with the fix on. Reported by baseline disposition: only a NEUTRAL baseline can newly read clash (clash is already clash; bond needs |drift| > 1.5, out of reach).
+ */
+describe.skipIf(process.env.ORWELL_DRIFT_RUN !== "1")("drift measure - betraying arm (ORW-33)", () => {
+  for (const fix of [false, true]) {
+    it(`betraying arm ORWELL_DRIFT_FIX=${fix ? "1" : "off"}`, () => {
+      if (fix) process.env.ORWELL_DRIFT_FIX = "1"; else process.env.ORWELL_DRIFT_FIX = "0"; // the flag defaults ON since 2026-11-05, so "off" must be explicit
+      const seasons = Number.parseInt(process.env.ORWELL_DRIFT_SEASONS ?? "4", 10);
+      const reps = Number.parseInt(process.env.ORWELL_DRIFT_BETRAYALS ?? "3", 10);
+      let hardened = 0, softened = 0, total = 0;
+      const byBase: Record<string, { n: number; hardened: number }> = {};
+      for (let seed = 1; seed <= seasons; seed++) {
+        const sb = new GameSessionRegistry().sandboxFor(`drift-betray-${fix}-${seed}`);
+        sb.session.createCharacter({ playerName: "P", archetype: "floater", seed });
+        sb.session.advanceGame(); sb.session.advanceGame();
+        const s = sb.session as unknown as { soulObj(id: EntityId): Soul | undefined; rememberPlayerScene(h: readonly EntityId[], k: string): void; house?: { npcs: Array<{ id: EntityId; character: { archetype: string } }> } };
+        const npcs = s.house?.npcs ?? [];
+        for (let r = 0; r < reps; r++) for (const n of npcs) s.rememberPlayerScene([n.id], "betrayal");
+        for (const n of npcs) {
+          const soul = s.soulObj(n.id) as never; if (!soul) continue;
+          total++;
+          const base = dispositionOf(n.character.archetype as never);
+          const eff = effectiveDisposition(base, soul);
+          const b = (byBase[base] ??= { n: 0, hardened: 0 }); b.n++;
+          if (eff !== base) { if (eff === "clash") { hardened++; b.hardened++; } else if (eff === "bond") softened++; }
+        }
+      }
+      const drifted = hardened + softened;
+      console.log(`ORW33-BETRAY fix=${fix ? "on" : "off"} reps=${reps} npcs=${total} drifted=${drifted} hardened=${hardened} softened=${softened} hardenedShare=${drifted ? (hardened / drifted).toFixed(2) : "n/a"} byBaseline=${JSON.stringify(byBase)}`);
+    }, 600_000);
   }
 });

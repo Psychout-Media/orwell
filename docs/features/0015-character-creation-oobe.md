@@ -76,7 +76,7 @@ player ⇒ reproducible house; new save ⇒ fresh identities, **no carryover** (
 CharacterFactory:
     runPlayerOOBE(input) -> PlayerCharacter      # the ONLY human-authored profile
         # input: identity, backstory, public persona, archetype lean, private strategy (optional deepeners)
-        # validates required fields; rejects an incomplete profile
+        # the name is the one required field; a blank name is rejected (everything else has a default or is authored later in the casting interview)
         # -> static Character (identity, backstory, baseline temperament, archetype, balanced P/M/S aptitudes)
         #  + initial Soul   (emotional baseline + volatility, empty memory, NO relationship beliefs)
     generateHouse(seed, player) -> { npcs: [Houseguest x15] }   # ensemble built AROUND the authored player (0004)
@@ -96,8 +96,8 @@ carryover (0004); the player carries **no** outcome guarantee (0006).
   generated (extends 0004).
 - **Character/Soul split:** the player has a static `Character` and an initial `Soul` with no
   relationship beliefs; re-serializing leaves the Character byte-stable (ties 0007).
-- **Validation:** an incomplete OOBE input is rejected; a complete one yields an internally
-  consistent profile.
+- **Validation:** the **name is required** (a blank name is rejected; ORW-286 item 5 reworded "an incomplete profile is rejected", which promised more than the engine
+  checks); a complete input yields an internally consistent profile.
 - **Anti-sycophancy bound:** over many authored inputs (incl. adversarial "max everything"), the
   player's P/M/S aptitudes stay within the NPC bounds; assert no input yields out-of-range stats.
 - **No outcome protection:** seeded competitions show the authored player can and does lose

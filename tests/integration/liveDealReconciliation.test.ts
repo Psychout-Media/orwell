@@ -51,7 +51,7 @@ function driveUntil(sb: Sandbox, stop: (adv: AdvanceView) => boolean, max = 600)
  * at the player (0044's political temperature) and the player lands on the block.
  */
 function gameWithPlayerOnTheBlock(): { sb: Sandbox; reg: GameSessionRegistry } {
-  for (let seed = 3; seed <= 60; seed++) { // start re-selected 2026-11-03, default flip (was 1); re-selected 2026-11-03, comp-win threat retune (#1953)
+  for (let seed = 5; seed <= 60; seed++) { // start re-selected 2026-11-12, ORW-19 comp-win threat 0.3 -> 0.45 (seeds 3-4 no longer land the broken-deal path); earlier: 2026-11-03 #1953 // start re-selected 2026-11-03, default flip (was 1); re-selected 2026-11-03, comp-win threat retune (#1953)
     const reg = new GameSessionRegistry();
     const sb = reg.sandboxFor("deal-user");
     sb.session.createCharacter({ playerName: "P", seed });

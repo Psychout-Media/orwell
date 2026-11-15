@@ -105,12 +105,13 @@ def test_unknown_window_falls_back_to_configured():
 
 
 def test_default_hard_max_is_cost_bounded():
-    """The auto-derived ceiling is bounded so a 1M-context model can't blow the bill —
-    but still far above the old 6000 cap."""
+    """The auto-derived ceiling is bounded so a mid-size window can't blow the bill —
+    but still far above the old 6000 cap. (ORW-219: a >=500K window now lifts the cap to
+    0.60 x window; see tests/test_orw219_narrator_context.py.)"""
     from src.context_budget import DEFAULT_HARD_MAX, compute_input_token_budget
     assert 32000 <= DEFAULT_HARD_MAX <= 64000
-    # A million-token model is held to the cost-bounded cap, not its full window.
-    assert compute_input_token_budget(6000, 1_000_000, explicit=False) == DEFAULT_HARD_MAX
+    # A 400K-window model (below the long-window threshold) is still held to the cap.
+    assert compute_input_token_budget(6000, 400_000, explicit=False) == DEFAULT_HARD_MAX
 
 
 # ───────────────────────── Bug 2: one narration per turn (no rewind) ─────────────────────────

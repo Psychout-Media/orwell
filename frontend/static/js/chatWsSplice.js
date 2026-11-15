@@ -126,13 +126,30 @@ export function _wsEnsureRound() {
   if (_wsRound && _wsRound.holder && _wsRound.holder.isConnected) return _wsRound;
   const box = document.getElementById('chat-history');
   if (!box) return null;
+  // ORW-21 (mid-gen join, two live holders): a late joiner can be attached by BOTH the SSE `resumeStream` (selectSession ->
+  // _checkServerStream) and this WS replay. The SSE reader already owns the session's live render (it holds `_resumingStreams`
+  // and its own `data-live-holder` bubble), so mounting a second live holder here paints the same run twice and the settled
+  // reconcile then sees two bubbles for one message. Yield to the SSE reader: no round of ours is live, so the lock is not ours.
+  try {
+    const _sid = sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId();
+    if (_sid && chatState._resumingStreams.has(_sid) && !_wsRound) return null;
+  } catch (_) { /* Set may be absent in a bare test import */ }
   const holder = document.createElement('div');
   holder.className = 'msg msg-ai';
   holder.dataset.liveHolder = '1'; // S17: an observer's streamed holder is never finalized in place - chatReconcile rebuilds it from history at settle
   const roleLabel = _senderLabel(_shortModel(sessionModule.getCurrentModel && sessionModule.getCurrentModel()));
   const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // ORW-365: in a game seed with the last in-world moment on screen (as chat.js `_stampSpanHtml`, ORW-259), never the real wall clock.
+  var _lastMoment = '';
+  try {
+    var _ms = document.querySelectorAll('#chat-history .role-timestamp-moment');
+    _lastMoment = _ms.length ? (_ms[_ms.length - 1].textContent || '').trim() : '';
+  } catch (_) {}
+  const _tsHtml = _lastMoment
+    ? '<span class="role-timestamp role-timestamp-moment" data-wall-clock="' + uiModule.esc(roleTs) + '">' + uiModule.esc(_lastMoment) + '</span>'
+    : '<span class="role-timestamp">' + (((document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks'))) ? '' : roleTs) + '</span>';
   holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
-    ' <span class="role-timestamp">' + roleTs + '</span></div>' +
+    ' ' + _tsHtml + '</div>' +
     '<div class="body"><div class="stream-content"></div></div>';
   box.appendChild(holder);
   _wsRound = { holder: holder, contentDiv: holder.querySelector('.stream-content'),
@@ -165,10 +182,14 @@ export function _onWsResync(ev) {
               (sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId()) || null;
   const round = _wsRound;
   const wasWedged = !!(round && round.holder);
+  // ORW-272: two reasons are ROUTINE by design and must not raise the RED health event. 'run-started-empty' is the speculative holder torn down when the state channel's <=8-event ring REPLAYS a stale
+  // run-started edge on every (re)subscribe (documented in orwellWs.js); 'reconnect-run-gone' is already reported, once, by its own ws:reconnect-run-gone site, so this heal would double-count it (the
+  // 11-06 live session logged both for every reconnect: 7 run-gone + 17 heals). Both are still logged; only an unexplained resync (engine restart, beat-backwards, ...) is RED.
+  const _routineResync = reason === 'run-started-empty' || reason === 'reconnect-run-gone';
   // #1599 — a resync is the AUTO-CORRECTION of a real interruption (engine restart mid-stream). It is
   // not a routine event: log it at WARN with disposition (reason + whether a wedged holder was torn
   // down) so the heal is observable, never silent. A42: it also raises the RED health event (a correction is not a cloak).
-  try { if (window.OrwellReport) window.OrwellReport.fail('ws:resync-heal', String(reason), wasWedged ? 'tore down a wedged live holder' : 'no wedged holder', { red: true, corrected: 'history reconcile' }); } catch (_) {}
+  try { if (window.OrwellReport) window.OrwellReport.fail('ws:resync-heal', String(reason), wasWedged ? 'tore down a wedged live holder' : 'no wedged holder', { red: !_routineResync, corrected: 'history reconcile' }); } catch (_) {}
   try {
     console.warn('[chatWsSplice #1596] ws-resync (' + reason + ') — reconciling from history' +
       (wasWedged ? '; tore down a wedged live holder' : '') + ' (auto-corrected).');
@@ -213,6 +234,15 @@ export function _onWsResync(ev) {
 // filter (sessionSync.js), which is why the SSE leg never had this divergence.
 export function _onWsRunBoundary() {
   try { if (chatState._streamSessionId) return; } catch (_) { /* observer path only */ }
+  // ORW-259 (doubled header): the `_streamSessionId` guard above can be CLEARED while this window is
+  // still the sender - the PRIOR run's late `done` releases it AFTER the new turn pinned its holder
+  // (back-to-back turns). Falling through would reset the pin and mount a SECOND holder via
+  // `_wsEnsureRound`, leaving the sender's pinned holder as an empty header-only bubble beside the one
+  // that receives the content ("PRProduction hh:mm PRProduction hh:mm"). A pinned sender round (it
+  // carries its `clientMsgId`) that is still connected and has received no content yet IS the render
+  // target for the run now starting: keep it.
+  if (_wsRound && _wsRound.clientMsgId && _wsRound.holder && _wsRound.holder.isConnected &&
+      !_wsRound.reply && !_wsRound.reasoning) return;
   const prior = _wsRound;
   const priorRich = _wsRichRun;   // capture BEFORE _wsResetRound() clears it
   if (prior && prior.holder) {
@@ -306,7 +336,9 @@ export function _onWsChatFrame(frame) {
         // SERVER-minted `d.ts` (the message_saved frame carries it) so the hover reads identically
         // across windows; fall back to the bubble's existing wall-clock text if `ts` is absent/bad.
         var _wd = d.ts ? new Date(d.ts) : null;
-        if (_wd && !isNaN(_wd.getTime())) {
+        if ((document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks'))) {
+          // ORW-379: no real time anywhere on screen
+        } else if (_wd && !isNaN(_wd.getTime())) {
           _ts.title = _wd.toLocaleString();
           _ts.dataset.wallClock = _wd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } else {
@@ -335,7 +367,9 @@ export function _onWsChatFrame(frame) {
     _wsResetRound();
     // #1570 — release the OBSERVER live-render lock (added in _wsEnsureRound) so the settle reconcile
     // below can actually rebuild. Harmless no-op for the SENDER (it never took the resuming lock).
-    if (sid) { try { chatState._resumingStreams.delete(sid); } catch (_) {} }
+    // ORW-21: only release the lock if THIS splice took it (a round existed). With no round the lock is the SSE resumeStream's,
+    // and dropping it would let the settle reconcile rebuild under a reader that is still painting (-> a second, finalized bubble).
+    if (sid && round) { try { chatState._resumingStreams.delete(sid); } catch (_) {} }
     if (sid && chatState._streamSessionId === sid) chatState._streamSessionId = null; // release the active-stream lock
     if (sid) { try { _softReloadHistory(sid); } catch (_) {} }
     return;

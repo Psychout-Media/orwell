@@ -9,7 +9,7 @@
 > `INFRA_LEVERS` (FE pipeline calls them directly), not advertised in the GM lever manifest.
 > Not in `cucumber.cjs` (no BDD scenario — unit + pytest gated, like 0033/0036). Settings reuse
 > the existing `image_gen_enabled`/`image_model`/`image_quality` card (unhidden, text-to-image
-> filter). The browser-smoke render check is still owed (playwright unavailable in the build env).
+> filter). *(Amended 2026-11-12, ORW-286 item 4, Ryne: "I don't want pictures of scenes.")* Only **cast portraits** are in scope: the scene-still promises (camera stills, "an image may depict only what the player knows", "no image asserts an unresolved outcome", production-frame declines for those) are removed. The old "browser-smoke render check is still owed" note is retired: Playwright runs in CI and the portraits path is covered by `frontend/tests/test_orwell_portraits.py` and the browser lane.
 > **Executable spec:** [`0051-in-character-images.feature`](./0051-in-character-images.feature)
 > **Provenance:** `docs/audits/2026-06-10-full-product-audit.md` "Future specs" — 0051
 > (per the 2026-06-10 ruling, a feature spec, not a defect) · **ruling #9** (image attach —
@@ -19,7 +19,7 @@
 ## 1. Summary
 
 The model can *produce* images as part of play — a houseguest's sketch, the memory-wall
-portrait, a "camera still" of a scene — rendered **inline in the chat**. This completes the
+portrait — rendered **inline in the chat**. *(Scene stills / "camera stills" were cut 2026-11-12: Ryne wants cast portraits, not pictures of scenes.)* This completes the
 analysis loop ruling #9 opened: E94 made attaching an image a first-class in-character input
 ("the player is showing something to whoever is present"); 0051 is the output direction.
 
@@ -42,9 +42,10 @@ message. Specced here so the storage + port design plans for it; built separatel
 
 The audit names the questions this spec must answer (and the .feature pins):
 
-1. **Which moments may generate** — player-requested ("draw me the memory wall") vs.
-   producer-beat (auto-fires at move-in for portraits; engine-offered at key beats such as an
-   eviction "camera still"). Both exist; neither is unbounded.
+1. **Which moments may generate** — the producer-beat that auto-fires at move-in for cast
+   portraits, plus a player-requested portrait or in-character sketch (e.g. "draw me the memory
+   wall portrait"). Neither is unbounded. *(Scene stills such as an eviction "camera still" were
+   cut 2026-11-12.)*
 2. **How generation stays Vault-free** — image prompts are built **only from the player's
    visible state** (the same projection the chat narrator gets). The E11/E15 discipline
    applies to image prompts too: no hidden stat, edge, soul, confessional, or off-screen
@@ -70,10 +71,10 @@ The audit names the questions this spec must answer (and the .feature pins):
 | Decision | Choice | Notes |
 |---|---|---|
 | **Portrait trigger** | Auto on move-in — fires as part of `createCharacter` / season-start beat, no player prompt | The cast is introduced; their faces appear with them |
-| **Visual style** | Photorealistic — reality-TV-style headshots and scene stills | The per-season style anchor is a photorealistic descriptor seeded at cast time |
+| **Visual style** | Photorealistic — reality-TV-style headshots | The per-season style anchor is a photorealistic descriptor seeded at cast time |
 | **Image provider** | Provider-agnostic `ImageGenerationPort` | First concrete adapter (DALL-E, Stability AI, etc.) wired at build time |
 | **Settings location** | Existing image gen card in the Settings modal (AI section) — currently hidden; unhide and update model filter to text-to-image models | `image_gen_enabled`, `image_model`, `image_quality` already exist in `settings.py` and `settings.js`; the card just needs to be made visible and the model filter corrected |
-| **Decline framing** | Production / show metaphor for all decline paths | "feeds are down," "production is holding the cameras," "that footage hasn't aired yet" — never a technical message, never a hint about hidden state |
+| **Decline framing** | Production / show metaphor for all decline paths | "feeds are down," "production is holding the cameras" — never a technical message, never a hint about hidden state |
 | **Image persistence** | Engine data dir — `{ORWELL_DATA_DIR}/{user}/portraits/{houseguest-id}.*` | Co-located with the save; managed by the FE; `orwell-factory-reset.sh` must scrub the portraits dir |
 | **Cast roster** | Sidebar panel — portrait + name + status (active / jury / evicted) | Status from the Vault-free public projection; evicted houseguests remain visible (dimmed/marked) for jury management reference |
 | **Chat avatars** | Planned future extension — out of this spec's DoD | The storage and port design must not preclude it; built as a follow-on |
@@ -83,12 +84,11 @@ The audit names the questions this spec must answer (and the .feature pins):
 - **Vault Wall:** the image-prompt builder takes the visible projection only; a structural
   test proves no Vault/engine-only handle is reachable from it, and a sentinel sweep proves
   no hidden content appears in any assembled image prompt.
-- **Knowledge scope:** an image may depict only what the **player knows** — witnessed events,
-  surfaced facts, public personas. A request to depict an off-screen scene the player never
-  witnessed is refused in the production frame (suspicion is not footage). No pathway, no picture.
-- **Anti-sycophancy / unresolved outcomes (the P1/P6 discipline):** no image may assert an
-  outcome the engine has not resolved and revealed — no "camera still" of an eviction before
-  the vote is revealed. Image generation narrates the record; it never front-runs it.
+- **Knowledge scope (portraits only):** a portrait is built from a houseguest's **public**
+  appearance facets (see the Vault Wall rule above), so it can never depict anything the player
+  does not know. *(2026-11-12: the scene-still rules, "an image may depict only what the player
+  knows" for off-screen scenes and "no image asserts an unresolved outcome", were removed with
+  scene stills: there are no scene pictures to gate.)*
 - **Recorded or it didn't happen:** a generated image shown in character is a beat — it is
   recorded (player-witnessed event referencing the image and its subject) like any scene.
   The E22 guard applies to image turns.
@@ -96,11 +96,11 @@ The audit names the questions this spec must answer (and the .feature pins):
   is a companion reference panel (sidebar), not a game-primary surface; no interaction that
   builds or progresses the game may *require* the image path; reduced/absent image capability
   never blocks play (cast roster falls back gracefully).
-- **No number crosses:** portrait/scene prompts use qualitative public facets (appearance,
+- **No number crosses:** portrait prompts use qualitative public facets (appearance,
   presentation, archetype-flavored wording) — never stats, edges, or tier internals. The cast
   roster status field comes from the public game projection, never the Vault.
-- **Decline framing is always the production frame:** whether the decline is budget, knowledge
-  scope, or unresolved outcome, the in-fiction explanation is drawn from the BB production
+- **Decline framing is always the production frame:** when a portrait cannot be produced
+  (budget, no image-capable model), the in-fiction explanation is drawn from the BB production
   aesthetic — never a technical message, never a hint about what the hidden state contains.
 - **Portraits are generated once per season start:** on restart, the stored portrait is served;
   re-generation is not triggered. If the portrait file is missing (first run or after a reset),
@@ -115,12 +115,12 @@ The audit names the questions this spec must answer (and the .feature pins):
 - The `ImageGenerationPort` (provider-agnostic; adapter wired at build time)
 - The Vault-free image-prompt builder over visible state + public appearance facets
 - Auto-firing cast portrait set at move-in (first deliverable, no player prompt)
-- Player-requested images and engine-offered producer-beats (beyond portraits)
+- Player-requested portraits / in-character sketches (not scene stills)
 - Budget gating (constants module; move-in portraits exempt from per-turn cap)
 - Inline chat rendering of generated images
 - Portrait persistence: `{ORWELL_DATA_DIR}/{user}/portraits/`; survive restart; no re-generation if stored
 - Cast roster sidebar: portrait + name + current status (active / jury / evicted); Vault-free; graceful fallback when no images
-- Production-frame decline and absence paths
+- Production-frame decline and absence paths (budget / no image model)
 - Recording of image beats as player-witnessed events
 - Factory reset integration (scrub portraits dir)
 
@@ -134,8 +134,7 @@ The audit names the questions this spec must answer (and the .feature pins):
 
 - **Engine/TS:** prompt-builder structural isolation (dependency-cruiser scope extension);
   sentinel sweep over assembled prompts; style-anchor persistence + same-seed reproducibility;
-  budget constants honored; production-frame refusal on unwitnessed-scene and unresolved-outcome
-  requests; image beats recorded; `ImageGenerationPort` wired behind the outward root.
+  budget constants honored; production-frame decline on budget exhaustion and a missing image model; image beats recorded; `ImageGenerationPort` wired behind the outward root.
 - **FE/pytest + smoke:** auto-portrait generation at move-in (once per season start, not on
   restart); portrait persistence to data dir; cast roster renders with portrait + name + status;
   roster status reflects live game state (active / jury / evicted); roster graceful fallback when

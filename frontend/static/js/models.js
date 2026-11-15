@@ -267,6 +267,9 @@ export async function refreshModels(force = false) {
       box.textContent = '(scan failed)';
       return;
     } finally {
+      // ORW-162: the loading spinner's 150 ms interval was never stopped (clearing the box only removed the element), so every
+      // refresh leaked a timer that ticked ~7x/s forever.
+      try { _loadingSpinner.stop(); } catch (_) {}
       box.innerHTML = '';
     }
   }

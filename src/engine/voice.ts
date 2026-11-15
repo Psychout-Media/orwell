@@ -142,6 +142,13 @@ export function generateVoice(rng: RandomnessSource, archetype: string): VoicePr
 }
 
 /**
+ * How the humor dial reads before the word "humor" in the roster clause: the dial value itself, except "none",
+ * which reads "no humor" (never the broken "none humor"). The dial VALUE stays "none" everywhere else. Shared with
+ * the FE clause parser through `frontend/tests/fixtures/engine_voice_vocabulary.json` (`humorWords`).
+ */
+export const HUMOR_WORDS: Readonly<Record<string, string>> = { none: "no" };
+
+/**
  * I6 distinct-voices fix (NARR-15 / PROMPT-2, 2026-07-05): a COMPACT, PLAYER-SURFACE-SAFE text clause
  * describing HOW a houseguest talks, for the always-present roster the narrator reads every turn.
  *
@@ -158,7 +165,8 @@ export function generateVoice(rng: RandomnessSource, archetype: string): VoicePr
  * Pure, deterministic, no I/O — a plain projection of already-public dial words.
  */
 export function voiceFingerprint(voice: VoiceProfile): string {
-  return `talks in a ${voice.register}, ${voice.rhythm}, ${voice.directness} voice — ${voice.energy}, ${voice.humor} humor; under pressure ${voice.stressTell}`;
+  const humor = Object.hasOwn(HUMOR_WORDS, voice.humor) ? HUMOR_WORDS[voice.humor] : voice.humor;
+  return `talks in a ${voice.register}, ${voice.rhythm}, ${voice.directness} voice — ${voice.energy}, ${humor} humor; under pressure ${voice.stressTell}`;
 }
 
 const mean = (xs: readonly number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0.5);

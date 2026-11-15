@@ -33,13 +33,13 @@ function stepLoop(sb: UserSandbox): boolean {
   }
   return adv.finished;
 }
-function season(fury: boolean) {
+function season(fury: boolean, seed = SEED) {
   const reg = new GameSessionRegistry();
   const sb = reg.sandboxFor("tf-blind");
-  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: SEED });
+  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
   sb.session.setJuryHouseEnabled(true);
   sb.session.setTraitorsFuryEnabled(fury);
-  const orch = new Orchestrator(reg, new FakeClock(), { seed: SEED });
+  const orch = new Orchestrator(reg, new FakeClock(), { seed });
   let finished = false;
   for (let i = 0; i < 500 && !finished; i++) {
     finished = stepLoop(sb);
@@ -66,11 +66,16 @@ describe("0135 — traitors' fury is player-blind", () => {
     expect(playerEdges(on)).toBe(playerEdges(off));
   });
   it("positive control: the blame seeding does reach at least one NPC (the check above is not vacuous)", () => {
-    const on = season(true);
-    const evicted = on.session.snapshot().live!.evictionOrder ?? [];
-    const anyNpc = evicted.some((id) => on.engine.knowledge.knownTo(id).some(isBlame));
-    const off = season(false);
-    expect(evicted.some((id) => off.engine.knowledge.knownTo(id).some(isBlame))).toBe(false);
-    expect(anyNpc || on.session.snapshot().live!.deducedCulprits === undefined).toBe(true);
+    // Pre-show ties are rare now (ORW-132), so a given seed may deal a season where no blame lands; scan a few seeds for one where it does, and require the OFF season on that seed to carry none.
+    let found = false;
+    for (let seed = SEED; seed < SEED + 12 && !found; seed++) {
+      const on = season(true, seed);
+      const evicted = on.session.snapshot().live!.evictionOrder ?? [];
+      if (!evicted.some((id) => on.engine.knowledge.knownTo(id).some(isBlame))) continue;
+      const off = season(false, seed);
+      expect(evicted.some((id) => off.engine.knowledge.knownTo(id).some(isBlame))).toBe(false);
+      found = true;
+    }
+    expect(found, "some seed in the window seeds blame into an NPC with the fury ON").toBe(true);
   });
 });

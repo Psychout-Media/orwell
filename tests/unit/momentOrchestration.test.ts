@@ -1,3 +1,4 @@
+import type { GameStateView } from "../../src/ports/GameSession";
 import { describe, it, expect } from "vitest";
 import {
   momentForPhase, momentFragment, buildSystemPrompt, renderGameContext, physicalLook,
@@ -211,7 +212,8 @@ describe("0018 — narrative & moment orchestration", () => {
   it("buildSystemPrompt is base + fragment + context (a pure read; mutates nothing)", () => {
     const game = new GameSessionAdapter();
     game.createCharacter({ playerName: "P", seed: 1 });
-    const view = game.getGameState();
+    // ORW-249: the ceremony script rides once the engine has committed the nominees (commit before voice) - give the pure prompt builder a committed board
+    const view = { ...game.getGameState(), ceremony: { hoh: null, nominees: [{ id: "npc:1", name: "A" }, { id: "npc:2", name: "B" }], veto: { holder: null, used: false, players: [] } } } as GameStateView;
     const before = view.phase;
     const prompt = buildSystemPrompt("nominations", view);
     expect(prompt).toContain(MOMENT_PROMPTS["nominations"]!.slice(0, 20));
@@ -253,7 +255,9 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
 
     // The hinge: the EXACT physical clause the portrait builds is present verbatim in the narrator
     // context — there is one description, voiced once and pictured once, never two that can diverge.
-    expect(pp.prompt).toContain(sharedLook);
+    // ORW-361: the portrait line drops the mark (said once, faint, on its own line) and keeps the rest.
+    const f = npc.physicalCharacteristics!;
+    expect(pp.prompt).toContain([f.heightBuild, f.skinTone, f.hair, f.facialFeatures, f.ageLook].join(", "));
     expect(ctx).toContain(sharedLook);
   });
 

@@ -240,8 +240,13 @@ export type CeremonyAct = "nominated" | "veto-saved" | "replaced" | "evicted" | 
  * player reached Final 2 in 29% of 300 seasons (target 12-20%). At 0.3 the same arm reaches it ~20% (20.7% on seeds 1-300, 20.0% on
  * independent seeds 301-600) with passive (~11% F2 / ~3% win) and reckless (~3% F2 / ~1% win) unmoved. The knee is at 0.3: solid reach
  * is flat for 0.3-0.4 while win-given-F2 keeps falling, so 0.3 is the gentlest value that lands reach in band. The constant is a pure threat-only impact (no rng of its own); the shared ceremony fold still applies its seeded temperature jitter to it.
+ * RETUNED 0.3 -> 0.45 (2026-11-13, ORW-19; the bands in tests/calibration/poTargetBands.ts unchanged). The real PO gate on main after #2574 (the sleep curve), seeds 1-300, reach F2 / win:
+ * threat 0.3 -> passive 9.3% / 4.7%, SOLID 31.3% / 14.7% (outside 12-20%, so the gate FAILED), reckless 5.7% / 3.7%;
+ * threat 0.45 -> passive 6.3% / 2.0%, solid 20.0% / 9.3%, reckless 5.7% / 3.3% (every band holds, the aggregate gate passes).
+ * Why 0.45 and not 0.5 / 0.6: the passive "earned wins" jury guard (a crowned passive player needs >= 2 public comp wins, a 20-seed check any trajectory shift can trip) tripped at 0.5 and 0.6
+ * (seeds 15 / 10 landed on 1 comp win) while 0.35, 0.4, 0.45, 0.55, 0.65 and 0.7 held it. Before #2574 the same lever measured, on 900 solid seeds, 0.3 -> ~22.6% / ~11.1% and 0.45 -> 20.7% / 9.9%.
  */
-const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.3 };
+const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.45 };
 
 /** A veto save is alliance-grade warmth PLUS demonstrated protection — the E54 evidence signal. */
 const VETO_SAVED_IMPACT: Partial<EdgeSignals> = { trust: +0.16, affinity: +0.14, alignment: +0.15, reliability: +0.15 };
@@ -352,6 +357,24 @@ export const THIRD_PARTY_CONSEQUENCE = {
  */
 export const DEAL_IMPACTS = {
   honored: { trust: +0.06, affinity: +0.03, alignment: +0.04, reliability: +0.1 } as Partial<EdgeSignals>,
+} as const;
+
+/**
+ * ORW-269 (Ryne 2026-11-11) - visible comp EFFORT. The result still dominates a comp-throw deal (win = broken, lose = kept); on top, a promisor who was SEEN fighting hard on most rounds they were in draws
+ * a SUSPICION fold even though they lost - deliberately a fraction of `BETRAYAL_SHOCK`. Effort is a presentation-side observable (what a witness could see per round), drawn on its OWN seeded side stream,
+ * played games only; it never changes who wins. All magnitudes here (the B59 grep gate).
+ */
+export const COMP_EFFORT = {
+  /** Share of a competitor's rounds seen at all-out effort at/above which they "visibly fought hard". */
+  hardShare: 0.5,
+  /** Base chance an NPC is seen all-out in a round; steady/light split the rest. */
+  baseHardChance: 0.35,
+  steadyChance: 0.4,
+  /** A promisor who swore to throw fights hard more readily the weaker their bond to the promisee (chance = floor + span * (1 - bond)). */
+  promisorHardFloor: 0.2,
+  promisorHardSpan: 0.6,
+  /** The suspicion fold on promisee->promisor: a small fraction of BETRAYAL_SHOCK (trust -0.32, reliability -0.3). */
+  suspicion: { trust: -0.06, reliability: -0.05 } as Partial<EdgeSignals>,
 } as const;
 
 /**

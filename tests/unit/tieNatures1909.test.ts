@@ -88,7 +88,7 @@ describe("the legacy alias and the load-time migration (#1909 C)", () => {
 });
 
 describe("calibration neutrality: the nature is flavour only (#1909)", () => {
-  it("whatever its nature, a tie folds the SAME hidden edges (rival / ex / family read exactly like a plain acquaintance)", () => {
+  it("a FRIENDLY tie folds the SAME hidden edges whatever its nature; an ex / rival starts COLD instead, from the pair's own temperaments (ORW-132, Ryne 2026-11-06)", () => {
     const edgesFor = (nature: TieNature | null): string => {
       const rel = new RelationshipModel(0.5);
       const session = new GameSessionAdapter(rel);
@@ -100,7 +100,10 @@ describe("calibration neutrality: the nature is flavour only (#1909)", () => {
       return JSON.stringify(rel.allBondStrengths()); // every directed edge's bond after the seeded fold
     };
     const baseline = edgesFor("old-acquaintance");
-    for (const nature of TIE_NATURES) expect(edgesFor(nature), nature).toBe(baseline);
+    for (const nature of TIE_NATURES) {
+      if (nature === "ex" || nature === "rival") expect(edgesFor(nature), `${nature} starts cold, not like a plain acquaintance`).not.toBe(baseline);
+      else expect(edgesFor(nature), nature).toBe(baseline);
+    }
     expect(baseline, "a tie really folds the standing bias (vs no tie at all)").not.toBe(edgesFor(null));
   });
 

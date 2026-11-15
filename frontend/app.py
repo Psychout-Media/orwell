@@ -111,8 +111,8 @@ app.add_middleware(
         "Content-Type",
         "X-API-Key",
         "X-Auth-Token",
-        "X-Orwell-Internal-Token",
-        "X-Orwell-Owner",
+        # ORW-179 / SEC-18: the loopback credential headers (X-Orwell-Internal-Token, X-Orwell-Owner) are NEVER advertised to a cross-origin page. The in-process agent tools send them server-side, and the
+        # browser FE is same-origin and never sends either.
         "X-Requested-With",
         "X-TZ-Offset",
     ],
@@ -219,6 +219,9 @@ if AUTH_ENABLED:
         # Engine-reachability probe (doctor script, monitoring, the engine-status banner pre-login).
         # Vault-free and user-free: engine up/down + a connection-error string — no game state.
         "/api/orwell/health",
+        # ORW-396: the client failure beacon (POST) promises "always 204": it must work logged-out (login page / expired session).
+        # Already per-client rate-limited and field-capped in the handler; it logs three clipped strings and touches no game data.
+        "/api/orwell/fe-report",
         "/api/version",
         "/login",
         # The local-HTTPS CA root (feature 0074): a fresh device must fetch + trust this PUBLIC cert
@@ -433,7 +436,16 @@ class _RevalidatingStatic(StaticFiles):
         return resp
 
 
-app.mount("/static", _RevalidatingStatic(directory="static"), name="static")
+# ORW-164 S1: gzip ONLY the static mount (text assets >= 1000 B when the client sends Accept-Encoding:
+# gzip). NEVER whole-app: GZipMiddleware would buffer the SSE chat stream / WS mirror. The wrapper sits
+# outside _RevalidatingStatic, so Cache-Control: no-cache, ETag and 304 pass through untouched.
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
+
+app.mount(
+    "/static",
+    GZipMiddleware(_RevalidatingStatic(directory="static"), minimum_size=1000),
+    name="static",
+)
 
 # ========= GENERATED IMAGES =========
 @app.get("/api/generated-image/{filename}")
@@ -494,8 +506,8 @@ async def serve_generated_image(filename: str, request: Request):
     )
 
 # ========= YOUTUBE INIT =========
-from services.youtube import init_youtube
-init_youtube()
+# ORW-170: the transcript library is imported on the first transcript fetch (init_youtube runs lazily), not at boot.
+import services.youtube  # noqa: F401  (the cheap handler module only)
 
 # ========= RAG (vector document RAG) =========
 # VectorRAG (ChromaDB-backed personal-document semantic search). Initialized
@@ -613,6 +625,10 @@ app.include_router(setup_session_routes(session_manager, session_config, webhook
 from routes.admin_wipe_routes import setup_admin_wipe_routes
 app.include_router(setup_admin_wipe_routes(session_manager))
 
+# Admin provider switch (ORW-199) — re-point running game sessions at another endpoint/model
+from routes.admin_provider_routes import setup_admin_provider_routes
+app.include_router(setup_admin_provider_routes(session_manager))
+
 # Admin transcript retrieval (Feature 0053, ruling #14) — quiet, read-only debug
 # access to any user's chat transcripts. Behind require_admin; no game-chrome surface.
 from routes.admin_transcript_routes import setup_admin_transcript_routes
@@ -704,8 +720,8 @@ app.include_router(setup_chat_routes(
 
 # WebSocket Phase-1 (ADR 0017 / docs/design/websocket-phase1-protocol.md) — one multiplexed socket
 # per canonical session (browser ↔ FE). The route is always registered; the client ATTEMPTS the
-# upgrade when the ORWELL_WS_TRANSPORT flag is on — default ON since 2026-07-10 (#1357); an explicit
-# off/0/false rolls back to the permanent SSE/poll fallback. The socket reuses the existing
+# upgrade in the game build, which is WebSocket-ONLY (ORW-44, 2026-11-12: the ORWELL_WS_TRANSPORT rollback flag and the SSE/poll
+# fallback are gone from the game build; the non-game build keeps SSE/poll). The socket reuses the existing
 # agent_runs / canonical-binding helpers.
 from routes.ws_routes import setup_ws_routes
 app.include_router(setup_ws_routes())
@@ -857,9 +873,15 @@ from routes.note_routes import setup_note_routes
 mount_optional(app, "notes", setup_note_routes(task_scheduler))
 
 # Email — dropped under the game build (router still built for codex below).
-from routes.email_routes import setup_email_routes
-email_router = setup_email_routes()
-mount_optional(app, "email", email_router)
+# ORW-169 slice 2: the email router module (~0.5 s to import) is only imported when email or codex (which
+# borrows its helpers) is enabled; the game build drops both, so it is neither imported nor built.
+from src.settings import is_feature_enabled as _is_feature_enabled
+if _is_feature_enabled("email") or _is_feature_enabled("codex"):
+    from routes.email_routes import setup_email_routes
+    email_router = setup_email_routes()
+    mount_optional(app, "email", email_router)
+else:
+    email_router = None
 
 # Codex integration — HTTP surface for the Codex plugin/MCP bridge. Reuses
 # api_token scopes (todos:read|write, email:read|draft|send) so external
@@ -891,19 +913,44 @@ mount_optional(app, "companion", setup_companion_routes())
 
 # ========= ROUTES (kept in app.py) =========
 
-def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
-    """Read an HTML file, inject the CSP nonce, and (game build, feature 0032) drop the
-    dropped verticals' <script> tags so their JS is never shipped."""
+# ORW-175: the processed page shell is cached in memory and only the per-request CSP nonce is substituted.
+# The key covers everything the processing reads: the file (path + mtime + size), the build id, and the
+# build/ws-transport flags plus the dropped-script set (which carries the voice flag).
+_HTML_TEMPLATE_CACHE: Dict[tuple, str] = {}
+
+
+def _html_template(file_path: str) -> str:
+    """The page shell with every per-build transform applied and the `{{CSP_NONCE}}` placeholder still in place."""
+    from src.orwell_version import get_build as _fe_build
+    from src.settings import dropped_script_srcs, game_build_enabled, ws_transport_enabled
+    st = os.stat(file_path)
+    key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
+           tuple(dropped_script_srcs()))
+    cached = _HTML_TEMPLATE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    _HTML_TEMPLATE_CACHE.clear()  # one live shell per process: a changed file or flag drops the stale entry
     with open(file_path, "r", encoding="utf-8") as f:
         html = f.read()
-    nonce = getattr(request.state, "csp_nonce", "")
-    html = html.replace("{{CSP_NONCE}}", nonce)
+    # ORW-203: stamp the shell with the build that served it, so a stale cached shell can
+    # detect (vs /api/version's "build") that a deploy happened and self-correct once.
+    from src.orwell_version import get_build as _fe_build
+    import html as _html_esc
+    html = html.replace("{{BUILD_ID}}", _html_esc.escape(_fe_build(), quote=True))
     from src.settings import strip_dropped_scripts, game_build_enabled, ws_transport_enabled
     html = strip_dropped_scripts(html)
     if game_build_enabled():
         # Let client JS/CSS branch on the build honestly (game-framed copy, tips, holding
         # states) instead of guessing from engine reachability.
         html = html.replace("<body", '<body data-game-build="1"', 1)
+        # ORW-379: "zero clocks" also means no real-world time on screen. The setting is read per page load; the
+        # client hides the wall-clock bubble stamps and the hover that carries the real time.
+        try:
+            from src.zero_clocks import zero_clocks_on
+            if zero_clocks_on():
+                html = html.replace("<body", '<body data-zero-clocks="1"', 1)
+        except Exception:  # failsoft-ok: presentation-only flag
+            pass
         # WebSocket Phase-1 transport (ADR 0017/0018) server→client flag injection.
         # orwellWs.js reads body[data-ws-transport] to decide whether to attempt the WS
         # upgrade; it's a GAME-build concern (the mirror/HUD it ports live only here).
@@ -930,7 +977,15 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
         # (ORWELL_GAME_BUILD=0 debugging) the full workspace must come back, so strip the link.
         import re as _re
         html = _re.sub(r'<link[^>]*game-trim\.css[^>]*>\s*(<!--[^>]*-->)?', "", html, count=1)
-    return HTMLResponse(html)
+    _HTML_TEMPLATE_CACHE[key] = html
+    return html
+
+
+def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
+    """Serve an HTML file with the CSP nonce injected and (game build, feature 0032) the dropped
+    verticals' <script> tags removed so their JS is never shipped. Template cached per ORW-175."""
+    nonce = getattr(request.state, "csp_nonce", "")
+    return HTMLResponse(_html_template(file_path).replace("{{CSP_NONCE}}", nonce))
 
 @app.get("/")
 async def serve_index(request: Request):
@@ -966,7 +1021,10 @@ async def get_version():
     # and cached; falls back to a committed string when git is unavailable. See
     # src/orwell_version.py.
     from src.orwell_version import get_version as _fe_version
-    return {"version": _fe_version()}
+    from src.orwell_version import get_build as _fe_build
+    # "build" = the deployed commit's short SHA (changes on EVERY deploy, unlike the
+    # PR-derived "version"); the page shell compares its stamped copy against this (ORW-203).
+    return {"version": _fe_version(), "build": _fe_build()}
 
 @app.get("/api/health")
 async def health_check() -> Dict[str, str]:
@@ -1020,6 +1078,11 @@ app.router.lifespan_context = _lifespan
 async def _startup_event():
     global upload_cleanup_task
     logger.info("Application starting up...")
+    try:  # ORW-406: a fresh process has no turn in flight; clear a stale signal left by the last one
+        from src.turn_inflight import publish_inflight as _pub_inflight
+        _pub_inflight(0)
+    except Exception:
+        pass
     # Backfill the in-memory LLM I/O ring from its durable archive BEFORE any model call, so the
     # "LLM I/O (live)" status-page view isn't blank after a restart (the ring is per-process; the
     # file persists). Must run pre-traffic so seeded history keeps lower seq than live calls.
@@ -1030,12 +1093,22 @@ async def _startup_event():
             logger.info("LLM I/O live ring seeded with %d archived record(s)", _seeded)
     except Exception as _e:
         logger.debug("LLM I/O ring seed skipped: %s", _e)
+    # ORW-202: restore the narrator's pacing / re-ground bookkeeping a restart used to drop (empty stores only; fail-soft).
+    try:
+        from src import belt_state_persist
+        _restored = belt_state_persist.restore()
+        if _restored:
+            logger.info("belt state restored: %d entr(ies)", _restored)
+    except Exception as _e:  # failsoft-ok: a missing/corrupt file must never block startup
+        logger.debug("belt-state restore skipped: %s", _e)
     # PO ruling 2026-11-02: DeepSeek's own API is the new-install default. A keyed, endpoint-less
     # first boot creates the endpoint from DEEPSEEK_API_KEY (no-op otherwise; never touches existing).
     try:
         from src.deepseek_seed import pin_legacy_model_defaults, seed_deepseek_endpoint_from_env
         pin_legacy_model_defaults()  # existing installs keep their effective models (PR #1935 review)
         seed_deepseek_endpoint_from_env()
+        from src.text_routing import migrate_saved_text_settings
+        migrate_saved_text_settings()  # ORW-287: game build text is DeepSeek direct; OpenRouter is images only
     except Exception as _e:
         logger.warning("DeepSeek endpoint seed skipped (fail-open): %s", _e)
     webhook_manager.set_loop(asyncio.get_running_loop())
@@ -1307,7 +1380,10 @@ async def _startup_event():
             except Exception as e:
                 logger.warning(f"Nightly skill audit failed: {e}")
 
-    _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
+    # ORW-169: the game build has no skills library, and the nightly audit spends model calls judging skills nobody can use - not started there.
+    from src.settings import game_build_enabled as _gb_enabled
+    if not _gb_enabled():
+        _startup_tasks.append(asyncio.create_task(_skill_audit_nightly_loop()))
 
     # Cookbook serve lifecycle — kills scheduler-launched serves whose
     # window-end has passed. Paired with the cookbook_serve builtin
@@ -1315,8 +1391,10 @@ async def _startup_event():
     # something with end_after_min set. Removing this line + the
     # cookbook_serve entry in BUILTIN_ACTIONS + src/cookbook_serve_lifecycle.py
     # removes the feature.
-    from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
-    _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
+    # ORW-169: the cookbook (local model serving) is a dropped vertical in the game build - its lifecycle sweeper is not started there.
+    if not _gb_enabled():
+        from src.cookbook_serve_lifecycle import cookbook_serve_lifecycle_loop
+        _startup_tasks.append(asyncio.create_task(cookbook_serve_lifecycle_loop()))
 
     # G20: the portrait reconciler — one background task per process that verifies the
     # active cast's portrait set is complete and retries the gap through the standard
@@ -1329,6 +1407,14 @@ async def _startup_event():
         _orwell_portraits.ensure_reconciler_started()
     except Exception as e:
         logger.warning(f"Portrait reconciler not started (non-critical): {e}")
+
+    # ORW-369: the running-season portrait upgrader — one quiet background task that re-shoots
+    # old-wording faces one houseguest at a time (idempotent; sweeps only users already seen).
+    try:
+        from src import orwell_portrait_upgrade as _orwell_portrait_upgrade
+        _orwell_portrait_upgrade.ensure_upgrader_started()
+    except Exception as e:
+        logger.warning(f"Portrait upgrader not started (non-critical): {e}")
 
     logger.info("Application startup complete")
 

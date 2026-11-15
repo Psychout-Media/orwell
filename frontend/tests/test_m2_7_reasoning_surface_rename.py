@@ -94,8 +94,11 @@ def test_reasoning_channel_split_is_intact():
     assert "let roundReplyText = '';" in chat
     assert "let roundReasoningText = '';" in chat
     # The routing line: reasoning → the reasoning buffer, everything else → the public reply.
-    assert "if (json.thinking) roundReasoningText += json.delta;" in chat
-    assert "else               roundReplyText += json.delta;" in chat
+    # ORW-59: the routing now lives in the pure applyDelta (chatStreamMachine.js); chat.js routes every delta through it.
+    machine = _read("static/js/chatStreamMachine.js")
+    assert "if (json.thinking) roundReasoningText += json.delta;" in machine
+    assert "else roundReplyText += json.delta;" in machine
+    assert "roundReplyText = _ad.roundReplyText;" in chat
 
 
 def test_reasoning_stays_collapsed_by_default():

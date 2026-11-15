@@ -47,7 +47,7 @@ def _stub_reads(monkeypatch, *, present_ids=None, whereabouts_raises=False):
     async def fake_get_game_state(user=None, timeout=None):
         return {"started": True, "house": _HOUSE}
 
-    async def fake_get_moment_prompt(moment=None, user=None, timeout=None):
+    async def fake_get_moment_prompt(moment=None, user=None, timeout=None, **_kw):
         return {"systemPrompt": "You are in the Big Brother house."}
 
     async def fake_whereabouts(user=None):

@@ -21,8 +21,8 @@ Feature: Character creation (OOBE) — authoring the player, the only human-auth
     And the player has an initial Soul carrying an emotional baseline
     And the player's Soul holds no relationship beliefs yet
 
-  Scenario: An incomplete profile is rejected; a complete one is internally consistent
-    Given a character-creation input missing a required field
+  Scenario: A missing name is rejected (the name is the one required field); a complete input is internally consistent
+    Given a character-creation input with no name
     When the input is submitted
     Then character creation is rejected
     When a complete character-creation input is submitted instead

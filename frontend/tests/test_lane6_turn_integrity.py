@@ -43,7 +43,7 @@ def _live_game(monkeypatch, *, moment="social", prompt="GM-PROMPT"):
     async def fake_state(user=None, timeout=None):
         return {"started": True, "moment": moment}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         captured["moments"].append(m)
         return {"systemPrompt": prompt}
 
@@ -91,7 +91,7 @@ def test_the_casting_session_premiere_is_not_a_re_entry(monkeypatch):
     async def pre_state(user=None, timeout=None):
         return {"started": False, "moment": "character-creation"}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         captured["moments"].append(m)
         return {"systemPrompt": "PROMPT"}
 
@@ -192,7 +192,7 @@ def test_casting_turn_drops_the_preset_persona_too(monkeypatch):
     async def pre_state(user=None, timeout=None):
         return {"started": False}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         return {"systemPrompt": "INTERVIEW"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", pre_state)
@@ -601,3 +601,126 @@ def test_chat_events_verifies_session_ownership():
     end = CHAT_ROUTES_SRC.index("session_events.subscribe(session_id)", start)
     handler = CHAT_ROUTES_SRC[start:end]
     assert "_verify_session_owner(request, session_id)" in handler
+
+
+# ── ORW-185: the E22 guard must not phantom-fold OOC asides or double-fold a staged scene ──
+
+
+def test_orw185_ooc_aside_turn_is_not_force_recorded(monkeypatch):
+    calls = _capture_record(monkeypatch)
+    narration = "((" + "Three houseguests are still on the block this week. " * 3 + "))"
+    assert _run(chat_helpers.ensure_turn_recorded("u", "ooc: who is left?", narration, [])) is False
+    assert _run(chat_helpers.ensure_turn_recorded("u", "((who is left?))", "x" * 200, [])) is False
+    assert calls == []
+
+
+def test_orw185_scene_already_staged_by_the_belt_is_not_double_folded(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    calls = _capture_record(monkeypatch)
+    fold_ledger.stage_pending_fold("u", "sess", content="c", with_ids=["npc:1"], kind="bonding",
+                                   consequence=None, felt_minutes=30, idempotency_key="k")
+    narration = "The kitchen goes quiet as the player walks in. " * 5
+    assert _run(chat_helpers.ensure_turn_recorded("u", "hi", narration, [], session_id="sess")) is False
+    assert calls == []
+    # a session with nothing staged still gets the fallback (guard not weakened)
+    assert _run(chat_helpers.ensure_turn_recorded("u", "hi", narration, [], session_id="other")) is True
+    assert len(calls) == 1
+    fold_ledger.clear_all()
+
+
+def test_orw185_call_site_passes_the_session_id():
+    i = CHAT_ROUTES_SRC.index("ensure_turn_recorded(\n")
+    assert "session_id=session" in CHAT_ROUTES_SRC[i:i + 400]
+
+
+# ── ORW-26: when the in-loop belt already found nobody present, the E22 guard must not run the same extraction again ──
+
+
+def _count_rich(monkeypatch, result=False):
+    n = {"rich": 0}
+
+    async def fake_rich(user, player_message, narration):
+        n["rich"] += 1
+        return result
+
+    monkeypatch.setattr(chat_helpers, "_e22_rich_extract", fake_rich)
+    return n
+
+
+_ORW26_NARRATION = "The kitchen goes quiet as the player walks in. " * 5
+
+
+def test_orw26_belt_declined_skips_the_second_extraction_but_keeps_the_floor_digest(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    calls = _capture_record(monkeypatch)
+    n = _count_rich(monkeypatch)
+    fold_ledger.note_belt_declined("u", "sess")
+    assert _run(chat_helpers.ensure_turn_recorded("u", "hi", _ORW26_NARRATION, [], session_id="sess")) is True
+    assert n["rich"] == 0, "the identical extraction must not run twice"
+    assert len(calls) == 1 and "Scene (auto-recorded)" in calls[0]["content"], "the floor digest still stands"
+    fold_ledger.clear_all()
+
+
+def test_orw26_without_a_belt_decline_the_rich_extraction_still_runs(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    _capture_record(monkeypatch)
+    n = _count_rich(monkeypatch)
+    _run(chat_helpers.ensure_turn_recorded("u", "hi", _ORW26_NARRATION, [], session_id="sess"))
+    assert n["rich"] == 1
+    fold_ledger.clear_all()
+
+
+def test_orw26_the_decline_is_consumed_once_and_never_leaks_into_the_next_turn(monkeypatch):
+    from src import fold_ledger
+    fold_ledger.clear_all()
+    _capture_record(monkeypatch)
+    n = _count_rich(monkeypatch)
+    fold_ledger.note_belt_declined("u", "sess")
+    _run(chat_helpers.ensure_turn_recorded("u", "hi", "short", [], session_id="sess"))  # a trivial turn returns early but still consumes it
+    _run(chat_helpers.ensure_turn_recorded("u", "hi", _ORW26_NARRATION, [], session_id="sess"))
+    assert n["rich"] == 1, "the next turn's extraction is not suppressed by a stale verdict"
+    fold_ledger.clear_all()
+
+
+def test_orw26_the_belt_notes_a_decline_when_every_proposed_id_is_off_scene():
+    import os
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_loop.py"), encoding="utf-8").read()
+    i = src.index("dropped off-scene withIds")
+    seg = src[i:i + 900]
+    assert "if not ids:" in seg and "note_belt_declined(owner, session_id)" in seg
+
+
+# ── ORW-288: a bare "keep going" prompt whose turn moved the board has no scene to fold (32 of 52 premiere turns in the 2026-11-12 live run fired the WARN) ──
+
+
+@pytest.mark.parametrize("msg", ["next", "Next.", "continue", "ok", "go on", "what's next", "let's move on", "...", "yes"])
+def test_orw288_progress_only_messages_are_recognised(msg):
+    assert chat_helpers._is_progress_only_message(msg) is True
+
+
+@pytest.mark.parametrize("msg", ["", "next week I want Alex out", "tell Dana I'll vote with her", "let's move on, but first tell me what Sam said about the veto", "hi"])
+def test_orw288_real_talk_is_not_progress_only(msg):
+    assert chat_helpers._is_progress_only_message(msg) is False
+
+
+def test_orw288_progress_prompt_with_an_advanced_board_does_not_fold(monkeypatch):
+    calls = _capture_record(monkeypatch)
+    monkeypatch.setattr(chat_helpers, "last_beat_seq", lambda user: 14)
+    narration = "The doors part and the house light hits you full in the face. " * 4
+    assert _run(chat_helpers.ensure_turn_recorded("u", "next", narration, [], beat_seq_before=12)) is False
+    assert calls == []
+
+
+def test_orw288_the_guard_still_fires_when_it_should(monkeypatch):
+    calls = _capture_record(monkeypatch)
+    narration = "The kitchen goes quiet as the player walks in. " * 5
+    # a progress prompt but the board did NOT move: the old behaviour (a record is the safe floor)
+    monkeypatch.setattr(chat_helpers, "last_beat_seq", lambda user: 12)
+    assert _run(chat_helpers.ensure_turn_recorded("u", "next", narration, [], beat_seq_before=12)) is True
+    # real talk with an advanced board: still folded
+    monkeypatch.setattr(chat_helpers, "last_beat_seq", lambda user: 14)
+    assert _run(chat_helpers.ensure_turn_recorded("u", "tell Dana I will vote with her", narration, [], beat_seq_before=12)) is True
+    assert len(calls) == 2

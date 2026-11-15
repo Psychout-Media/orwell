@@ -148,6 +148,11 @@ class _StubHandler(BaseHTTPRequestHandler):
                 emit({"content": piece})
                 if entry["delay"]:
                     time.sleep(entry["delay"])
+            # A58 (ORW-229 flake): an optional GATE (a threading.Event) holds the stream open after the last delta, before it finishes, until the test
+            # has seen what it needs while the bubble is still streaming. That removes the race between the stub's speed and settle; the timeout only
+            # keeps a broken test from hanging the stub forever.
+            if entry.get("gate") is not None:
+                entry["gate"].wait(timeout=60)
             if entry.get("drop"):  # A57b: the upstream connection silently DROPS - no finish_reason, no [DONE]
                 self.wfile.flush()
                 self.close_connection = True
@@ -191,6 +196,12 @@ import urllib.parse  # noqa: E402  (used by _post_form)
 
 @pytest.fixture(scope="module")
 def _stack():
+    yield from _boot_stack()
+
+
+def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
+    """The shared real-stack boot (engine + FE + scripted stub). Defaults are the long-standing `_stack`: a fresh engine data dir and a seeded started game. ORW-298 passes a PRE-STAGED engine
+    data dir (`engine_data_dir`, a save the engine resumes at boot) with `create_game=False`, plus extra engine env (`engine_env_extra`)."""
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except Exception:
@@ -215,8 +226,8 @@ def _stack():
     threading.Thread(target=stub.serve_forever, daemon=True).start()
 
     engine_port = _free_port()
-    engine_env = dict(os.environ, ORWELL_DATA_DIR=tempfile.mkdtemp(prefix="orwell-m03-engine-"),
-                      ORWELL_ENGINE_PORT=str(engine_port))
+    engine_env = dict(os.environ, ORWELL_DATA_DIR=engine_data_dir or tempfile.mkdtemp(prefix="orwell-m03-engine-"),
+                      ORWELL_ENGINE_PORT=str(engine_port), **(engine_env_extra or {}))
     engine = subprocess.Popen(["node", dist], cwd=REPO, env=engine_env,
                               stdout=open("/tmp/m03-engine.log", "w"), stderr=subprocess.STDOUT)
     ebase = f"http://127.0.0.1:{engine_port}"
@@ -281,10 +292,11 @@ def _stack():
 
         # A seeded, STARTED game — engine-direct (the chat casting walk is the golden
         # driver's job, not this pin's; convergence only requires started !== false).
-        r = _post_json(ebase, "/player/call",
-                       {"name": "createCharacter", "args": {"playerName": "P", "seed": SEED}})
-        if "result" not in r:
-            raise RuntimeError(f"createCharacter failed: {r}")
+        if create_game:
+            r = _post_json(ebase, "/player/call",
+                           {"name": "createCharacter", "args": {"playerName": "P", "seed": SEED}})
+            if "result" not in r:
+                raise RuntimeError(f"createCharacter failed: {r}")
 
         yield {"fe": fbase, "engine": ebase, "settings": sfile, "prior": prior_settings,
                "endpoint_id": ep["id"]}
@@ -308,18 +320,15 @@ def _stack():
 
 
 def _kick_turn_async(fbase: str, text: str, session: str):
-    """POST /api/chat_stream in a daemon thread (the 'third device' kicking the run) and
-    drain its stream so the server never blocks on backpressure."""
+    """Kick a turn over the socket in a daemon thread (the 'third device' starting the run) and drain it to completion so the server never blocks on
+    backpressure. ORW-44 S4b3: the game build is WebSocket-only, so the old plain-HTTP chat_stream POST is gone."""
+    from _ws_turn_driver import ws_turn
+
     def run():
-        body = json.dumps({"message": text, "session": session}).encode()
-        req = urllib.request.Request(f"{fbase}/api/chat_stream", data=body, method="POST",
-                                     headers={"content-type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=180) as r:
-                while r.read(65536):
-                    pass
+            ws_turn(fbase, session, text, timeout=180)
         except Exception as e:  # diagnosis must never be silent — the joiner asserts on it
-            print(f"[m03] chat_stream kick failed: {type(e).__name__}: {e}", flush=True)
+            print(f"[m03] ws turn kick failed: {type(e).__name__}: {e}", flush=True)
     t = threading.Thread(target=run, daemon=True)
     t.start()
     return t
@@ -340,7 +349,23 @@ _SAMPLE_JS = """
 """
 
 
-@pytest.mark.xfail(strict=False, reason="known client race: S17 (overseer-a/s17-midgen-reattach) removes the selectSession wipe but a soak on the runner (8 serial reruns, 5/8 pass) still shows a DUPLICATE settled bubble in window B (count 2 where 1 is expected) - the join adopts the live holder AND the history reconcile paints the settled row. Marker stays until the duplicate is fixed.")
+_SETTLED_JS = """
+() => {
+  const box = document.getElementById('chat-history');
+  if (!box) return false;
+  const els = Array.from(box.querySelectorAll('.msg.msg-ai')).filter(el => (el.textContent || '').includes('beat-79'));
+  if (els.length !== 1) return false;
+  const el = els[0];
+  const cm = window.chatModule;
+  const live = !!(cm && cm.hasActiveStream && cm.hasActiveStream(window.sessionModule && window.sessionModule.getCurrentSessionId && window.sessionModule.getCurrentSessionId()));
+  return !!(el.dataset && el.dataset.dbId) && !el.classList.contains('streaming') && !live;
+}
+"""
+
+
+# ORW-293c: no automatic rerun. Every framed turn lands in the module stack's ONE canonical session, and this test asserts "exactly one" of fixed texts, so a rerun
+# after a failed first attempt sees attempt 1's rows and fails for an unrelated reason (the CI "shown 2 times" artifact), hiding the real first failure.
+@pytest.mark.flaky(reruns=0)
 def test_second_window_joins_mid_generation_and_converges(_stack):
     from playwright.sync_api import sync_playwright
 
@@ -434,12 +459,17 @@ def test_second_window_joins_mid_generation_and_converges(_stack):
         slow.join(timeout=120)
 
         def settled(page):
+            # ORW-293: wait for the SETTLE signal, not for the last token. The old check returned as soon as "beat-79" appeared, so a window could be sampled
+            # mid-settle (the live holder before its action footer / reconcile) while the other, rendered from history, was already final: a spurious "F5 parity
+            # broken" (a trailing retry glyph and a missing space on window A). Settled = the slow bubble carries its persisted id, is no longer streaming,
+            # and the page has no stream in flight, held for two consecutive polls. The equality assertion below is unchanged.
             deadline2 = time.time() + 30
+            stable = 0
             while time.time() < deadline2:
-                s = page.evaluate(_SAMPLE_JS)
-                bodies = [b for b in (s.get("bodies") or []) if "beat-79" in b]
-                if bodies:
-                    return s
+                st = page.evaluate(_SETTLED_JS)
+                stable = stable + 1 if st else 0
+                if stable >= 2:
+                    return page.evaluate(_SAMPLE_JS)
                 page.wait_for_timeout(400)
             return page.evaluate(_SAMPLE_JS)
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { feltHoursFromMinutes, SCENE_FELT_MINUTES, SCENE, CLOCK } from "../../src/engine/sleepConstants";
+import { SCENE, CLOCK } from "../../src/engine/sleepConstants";
 import { PLAYER } from "../../src/domain/ids";
 
 /**
@@ -107,15 +107,5 @@ describe("Phase 2 — feltMinutes drives the per-conversation clock", () => {
     sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc], content: "x", feltMinutes: 200 });
     sb.session.advanceClockPerConversation();
     expect(sb.session.snapshot().live?.nightDepth).toBe(before); // clock off ⇒ nothing moves
-  });
-});
-
-describe("Phase 2 — feltHoursFromMinutes (pure)", () => {
-  it("clamps to the envelope and floors a non-proposal", () => {
-    expect(feltHoursFromMinutes(120)).toBeCloseTo(2, 5);
-    expect(feltHoursFromMinutes(5)).toBeCloseTo(SCENE_FELT_MINUTES.min / 60, 5); // below min ⇒ min
-    expect(feltHoursFromMinutes(6000)).toBeCloseTo(SCENE_FELT_MINUTES.max / 60, 5); // above max ⇒ max
-    expect(feltHoursFromMinutes(undefined)).toBeCloseTo(CLOCK.perConversationHours, 5);
-    expect(feltHoursFromMinutes(0)).toBeCloseTo(CLOCK.perConversationHours, 5);
   });
 });

@@ -35,8 +35,10 @@ def _js():
 
 def test_refresh_gate_only_acts_on_a_definitive_state():
     gate = _block(_js(), "async function refreshGate()", "// --- the panel")
-    # A non-ok response short-circuits (no hide, no close).
-    assert "if (!r.ok) return;" in gate
+    # A non-ok response short-circuits (no hide, no close): ORW-165 — the shared store REJECTS a non-ok read and the
+    # catch below leaves the button exactly as it was.
+    assert 'OrwellGame.get("state")' in gate
+    assert "catch (_) { /* engine hiccup: leave the button as it was (fail-open) */ }" in gate
     # An unreadable / ambiguous body short-circuits too — only a real boolean `started` decides.
     assert 'typeof st.started !== "boolean"' in gate
     assert "return; // ambiguous" in gate

@@ -49,31 +49,32 @@ def test_websockets_is_pinned_in_both_requirement_files():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# BLOCKER 3a — the env flag helper: DEFAULT ON (turned on 2026-07-10); an
-# explicit off/0/false/no is the rollback lever back to the SSE/poll stack.
+# BLOCKER 3a — ORW-44 S4b2: the transport is WebSocket-ONLY in the game build. The ORWELL_WS_TRANSPORT
+# rollback flag is gone: ws_transport_enabled() IS the game build, and the env var is ignored.
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_ws_transport_default_on(monkeypatch):
+def test_ws_transport_is_on_in_the_game_build(monkeypatch):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
     monkeypatch.delenv("ORWELL_WS_TRANSPORT", raising=False)
     assert ws_transport_enabled() is True
 
 
-@pytest.mark.parametrize("val", ["1", "true", "TRUE", "yes", "on", " On "])
-def test_ws_transport_truthy_values_enable(monkeypatch, val):
+@pytest.mark.parametrize("val", ["0", "false", "no", "off", "", "1", "true"])
+def test_the_old_env_flag_no_longer_does_anything(monkeypatch, val):
+    # the rollback lever was deleted: neither a falsey nor a truthy value changes the answer
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
     monkeypatch.setenv("ORWELL_WS_TRANSPORT", val)
     assert ws_transport_enabled() is True
 
 
-@pytest.mark.parametrize("val", ["0", "false", "no", "off", "", "nope"])
-def test_ws_transport_explicit_falsey_values_disable(monkeypatch, val):
-    # The rollback lever: an explicit non-truthy value forces OFF even though the
-    # default is now ON.
-    monkeypatch.setenv("ORWELL_WS_TRANSPORT", val)
+def test_ws_transport_is_off_outside_the_game_build(monkeypatch):
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "0")
+    monkeypatch.setenv("ORWELL_WS_TRANSPORT", "1")
     assert ws_transport_enabled() is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# BLOCKER 3b — the served page: attr PRESENT by default, ABSENT on explicit rollback
+# BLOCKER 3b — the served page: the ws hook is present in the game build, absent in the non-game build
 # ═══════════════════════════════════════════════════════════════════════════
 
 class _StubRequest:
@@ -86,14 +87,9 @@ class _StubRequest:
     state = _State()
 
 
-def _render_index(monkeypatch, *, ws_on: bool) -> str:
-    # Game build ON (product default) so the injection block runs at all.
-    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
-    if ws_on:
-        monkeypatch.setenv("ORWELL_WS_TRANSPORT", "1")
-    else:
-        # Default is now ON, so "off" means an EXPLICIT non-truthy value (the rollback lever).
-        monkeypatch.setenv("ORWELL_WS_TRANSPORT", "0")
+def _render_index(monkeypatch, *, game_build: bool) -> str:
+    monkeypatch.setenv("ORWELL_GAME_BUILD", "1" if game_build else "0")
+    monkeypatch.delenv("ORWELL_WS_TRANSPORT", raising=False)
     from app import _serve_html_with_nonce, BASE_DIR
     from src.app_helpers import abs_join
 
@@ -101,33 +97,13 @@ def _render_index(monkeypatch, *, ws_on: bool) -> str:
     return resp.body.decode("utf-8")
 
 
-def test_ws_transport_attr_absent_when_explicitly_off(monkeypatch):
-    html = _render_index(monkeypatch, ws_on=False)  # explicit ORWELL_WS_TRANSPORT=0
-    assert "data-ws-transport" not in html
-    # sanity: the game-build attr IS still emitted — proves we're in the injected path
-    assert 'data-game-build="1"' in html
-
-
-def test_ws_transport_attr_present_when_env_unset(monkeypatch):
-    # Default is now ON: an unset env emits the ws hook so the client attempts the upgrade.
-    monkeypatch.setenv("ORWELL_GAME_BUILD", "1")
-    monkeypatch.delenv("ORWELL_WS_TRANSPORT", raising=False)
-    from app import _serve_html_with_nonce, BASE_DIR
-    from src.app_helpers import abs_join
-    html = _serve_html_with_nonce(_StubRequest(), abs_join(BASE_DIR, "static/index.html")).body.decode("utf-8")
-    assert 'data-ws-transport="1"' in html
-
-
-def test_ws_transport_attr_present_when_env_set(monkeypatch):
-    html = _render_index(monkeypatch, ws_on=True)
+def test_ws_transport_attr_present_in_the_game_build(monkeypatch):
+    html = _render_index(monkeypatch, game_build=True)
     assert 'data-ws-transport="1"' in html
     assert 'data-game-build="1"' in html
 
 
-def test_ws_transport_attr_off_matches_on_but_for_the_attr(monkeypatch):
-    """Rollback (explicit off) carries NO ws hook, so the client (orwellWs.js _flagOn)
-    never attempts the upgrade — and the ONLY difference from the on output is that one
-    injected body attribute."""
-    off = _render_index(monkeypatch, ws_on=False)
-    on = _render_index(monkeypatch, ws_on=True)
-    assert off.replace("<body", '<body data-ws-transport="1"', 1) == on
+def test_ws_transport_attr_absent_outside_the_game_build(monkeypatch):
+    html = _render_index(monkeypatch, game_build=False)
+    assert "data-ws-transport" not in html   # the non-game build keeps the SSE/poll stack and never attempts the upgrade
+    assert 'data-game-build="1"' not in html

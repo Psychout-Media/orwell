@@ -26,18 +26,15 @@ import { onNarrowChange } from './platform.js';
   let timer = null;
 
   async function fetchStatus() {
-    const r = await fetch("/api/orwell/status", { credentials: "same-origin" });
-    if (!r.ok) throw new Error("status " + r.status);
-    return r.json();
+    // ORW-165: the shared game-state store (one fetch + one snapshot for every panel); a catch-up refetch forces.
+    return window.OrwellGame.get("status", { force: _catchupTries > 0 });
   }
 
   // The roster (C21): names + status only — Vault-free, exactly what a houseguest sees on
   // the memory wall. Best-effort: if /state fails the panel still shows the ceremony rows.
   async function fetchState() {
     try {
-      const r = await fetch("/api/orwell/state", { credentials: "same-origin" });
-      if (!r.ok) return null;
-      return await r.json();
+      return await window.OrwellGame.get("state", { force: _catchupTries > 0 });
     } catch (_) { return null; }
   }
 
@@ -143,12 +140,66 @@ import { onNarrowChange } from './platform.js';
     return !!(st && !st.hoh && st.week === 1 && !st.finished);
   }
 
-  // M2-3: the premiere's NOT-yet-met ids (the unlit tiles) — derived from the Vault-free premiere
-  // projection's `remaining` set, keyed by houseguest id (name fallback). Pure + node-testable; reads
-  // ONLY the public NamedRef (id/name), never a soul, number, or hidden field.
-  function premiereUnmetIds(prem) {
+  // ORW-363 (Ryne, playtest 11-15: "One of the wigits says the first HOH is tonight. But it's day 1. Isn't the first HOH comp on day 2?"): the pre-HOH line
+  // follows the engine's schedule instead of a fixed "tonight". Day 1 is the premiere, so the first HOH comp is TOMORROW; from Day 2 it is today. The time of day
+  // is the schedule's own phase for the HOH comp (`daySchedule.phase`, from the game state) when the engine reports it, else the ruled comp slot, the afternoon.
+  // Pure + Vault-free (public day number + public schedule), node-testable.
+  function preHohLabel(st) {
+    const gs = (st && st._state) || {};
+    const ds = gs.daySchedule;
+    const phase = (ds && ds.next === "hoh-competition" && typeof ds.phase === "string" && ds.phase) || "afternoon";
+    const day = Number.isInteger(st && st.dayNumber) ? st.dayNumber : (Number.isInteger(gs.dayNumber) ? gs.dayNumber : null);
+    return "First HOH: " + (day !== null && day >= 2 ? "this " : "tomorrow ") + phase;
+  }
+
+  // ORW-363, widened (Ryne, 11-15: "Those tools should be a guide to player on what to expect. Next. For example, when we wake up the tool should say, Nominations this
+  // evening."): the panel always names the NEXT scheduled event and when it happens, straight from the engine's `daySchedule` (next / phase / due / tomorrow) - never fixed
+  // text. Without a schedule (the premiere, before the clock runs) the pre-HOH line above stands; otherwise nothing is shown. Pure + Vault-free (the public schedule).
+  const NEXT_EVENT_NAME = {
+    "hoh-competition": "HOH competition", nominations: "Nominations", "veto-draw": "Veto player draw", "veto-competition": "Veto competition",
+    "veto-ceremony": "Veto meeting", eviction: "Eviction", "final-eviction": "Final eviction", finale: "Finale",
+  };
+  function nextEventWhen(ds) {
+    if (ds.due) return "now";
+    const p = ds.phase === "late-night" ? "night" : String(ds.phase || "");
+    if (ds.tomorrow) return "tomorrow " + p;
+    return p === "night" ? "tonight" : "this " + p;
+  }
+  function nextEventLabel(st) {
+    const ds = st && st._state && st._state.daySchedule;
+    if (ds && ds.next && NEXT_EVENT_NAME[ds.next] && ds.phase) {
+      const part = ds.next === "hoh-competition" && Number.isInteger(ds.finalHohPart) && ds.finalHohPart >= 1 && ds.finalHohPart <= 3 ? ds.finalHohPart : null; // ORW-370: the three-part Final HOH
+      const name = part ? "Final HOH part " + part : (ds.next === "hoh-competition" && isPreHoh(st) ? "First HOH" : NEXT_EVENT_NAME[ds.next]);
+      return name + ": " + nextEventWhen(ds);
+    }
+    return isPreHoh(st) ? preHohLabel(st) : null;
+  }
+
+  // M2-3: the premiere's NOT-yet-met ids (the unlit tiles). ORW-196: during the staged ENTRANCES the engine's `remaining` lists the not-yet-arrived houseguests as ANONYMOUS ordinal
+  // placeholders (`unarrived:N`, no name), so they can't be matched to roster tiles by id. When the caller passes the roster (`rosterKeys`: [{id,name}]) and the projection carries `met`,
+  // the unmet set is the roster minus the met houseguests (by id or name); otherwise (older payloads / no roster) it falls back to the `remaining` ids. Pure + node-testable; reads ONLY the
+  // public NamedRef (id/name), never a soul, number, or hidden field. Visible effect: while arrivals are staged, the tiles of houseguests who have not walked in yet are dimmed.
+  function premiereUnmetIds(prem, rosterKeys) {
     const out = [];
-    if (!prem || typeof prem !== "object" || !Array.isArray(prem.remaining)) return out;
+    if (!prem || typeof prem !== "object") return out;
+    if (Array.isArray(rosterKeys) && Array.isArray(prem.met)) {
+      const metKeys = new Set();
+      for (const fi of prem.met) {
+        const hg = fi && fi.houseguest;
+        if (hg && hg.id != null) metKeys.add(String(hg.id));
+        if (hg && hg.name != null) metKeys.add(String(hg.name));
+      }
+      for (const r of rosterKeys) {
+        if (!r) continue;
+        const id = r.id != null ? String(r.id) : null;
+        const nm = r.name != null ? String(r.name) : null;
+        if ((id != null && metKeys.has(id)) || (nm != null && metKeys.has(nm))) continue;
+        const k = id != null ? id : nm;
+        if (k != null) out.push(k);
+      }
+      return out;
+    }
+    if (!Array.isArray(prem.remaining)) return out;
     for (const fi of prem.remaining) {
       const hg = fi && fi.houseguest;
       const k = hg && (hg.id != null ? hg.id : hg.name);
@@ -354,7 +405,7 @@ import { onNarrowChange } from './platform.js';
         <div class="os-ceremony" id="os-ceremony">
           <div class="os-you" id="os-you">You<span class="os-badge" id="os-you-badge" hidden></span><span class="os-rest" id="os-you-rest" hidden title="How rested you are — your own read"></span><span class="os-hint" id="os-you-hint" hidden></span></div>
           <button type="button" class="os-skip" id="os-skip" hidden title="Re-open the skip-or-keep-watching card. Skipping is one-way: you confirm it on the card.">Skip ahead to the finale</button>
-          <div class="os-prehoh" id="os-prehoh" hidden>First HOH tonight</div>
+          <div class="os-prehoh" id="os-prehoh" hidden>First HOH</div>
           <div id="os-board">
             <div class="os-row"><span class="os-k">HOH</span><span class="os-v" id="os-hoh">—</span></div>
             <div class="os-row"><span class="os-k">Noms</span><span class="os-v os-noms" id="os-noms">—</span></div>
@@ -552,13 +603,15 @@ import { onNarrowChange } from './platform.js';
         ? "used" + (veto.holder ? " · " + veto.holder.name : "")
         : (veto.holder ? veto.holder.name : "—");
     setText(el.querySelector("#os-veto"), vetoText);
-    // M2-3: pre-HOH board reframe — swap the three dead em-dash rows for a single "First HOH tonight"
+    // M2-3: pre-HOH board reframe — swap the three dead em-dash rows for a single "First HOH: tomorrow afternoon" (ORW-363: from the schedule)
     // line until the first HOH is crowned (the rows still exist + update underneath, just hidden).
     { const preHoh = isPreHoh(st);
       const boardEl = el.querySelector("#os-board");
       const preHohEl = el.querySelector("#os-prehoh");
       if (boardEl) boardEl.hidden = preHoh;
-      if (preHohEl) preHohEl.hidden = !preHoh; }
+      // ORW-363 widened: the same line names the NEXT scheduled event all season ("Nominations: this evening"), not only before the first HOH.
+      const nextLine = nextEventLabel(st);
+      if (preHohEl) { preHohEl.hidden = !nextLine; if (nextLine) setText(preHohEl, nextLine); } }
     announceDeltas(el, st, {
       hoh: name(st.hoh),
       noms: noms.length ? noms.join(", ") : "—",
@@ -597,8 +650,9 @@ import { onNarrowChange } from './platform.js';
     // Present iff the engine is in the premiere moment — no `complete` gate (the roster shows throughout
     // the premiere, even though the whole house is met at the toast).
     if (!prem || typeof prem !== "object") { clearPremiereStrip(el); wrap.hidden = true; return; }
-    // No progress count and no still-to-meet list — everyone is met at the toast. Keep the elements in the
-    // DOM but empty/hidden; the roster strip is the only content now.
+    // No progress count and no still-to-meet list. Keep the elements in the DOM but empty/hidden; the roster
+    // strip is the only content now. (ORW-196: while the staged entrances run, tiles of houseguests who have
+    // not walked in yet are dimmed; from the toast on every tile is lit.)
     const countEl = el.querySelector("#os-prem-count");
     if (countEl) countEl.textContent = "";
     const leftEl = el.querySelector("#os-prem-left");
@@ -608,10 +662,10 @@ import { onNarrowChange } from './platform.js';
   }
 
   // M2-3 (audit B2): the PREMIERE CAST STRIP — a Vault-free row of sixteen monogram tiles (the shared
-  // OrwellMonogram kit). Since the champagne circle meets the WHOLE house at the toast (feature 0111,
-  // owner ruling 2026-07-14), this is now a pure cast ROSTER (every tile lit) — NOT a still-to-meet
-  // tracker: the premiere projection's `remaining` set is empty, so the met-flag machinery below simply
-  // lights every face. Each tile carries ONLY the public roster card (id/name/status) — no soul, number,
+  // OrwellMonogram kit). This is a cast ROSTER, not a still-to-meet checklist: with the entrances OFF the
+  // whole house is met at the toast so every tile is lit; with the staged entrances ON (default) the tiles of
+  // houseguests who have not arrived yet are dimmed until they walk in (the met-flag machinery below reads
+  // the projection's `met` list, ORW-196). Each tile carries ONLY the public roster card (id/name/status) — no soul, number,
   // or hidden field. Clicking a tile FOCUSES the chat (ADR 0003: augments, never replaces). It lives
   // inside #os-premiere, so it appears throughout the premiere and retires the moment the first HOH
   // begins (the engine drops the `premiere` field). Keyed, idempotent upsert (no flicker).
@@ -653,7 +707,7 @@ import { onNarrowChange } from './platform.js';
       clearPremiereStrip(el);
       return;
     }
-    const unmet = new Set(premiereUnmetIds(prem)); // the not-yet-lit tiles
+    const unmet = new Set(premiereUnmetIds(prem, cards.filter((c) => !c.isPlayer).map((c) => ({ id: c.id, name: c.name })))); // the not-yet-lit tiles (ORW-196: un-arrived houseguests during the entrances)
     const seen = new Set();
     for (const card of cards) {
       const key = String(card.id);

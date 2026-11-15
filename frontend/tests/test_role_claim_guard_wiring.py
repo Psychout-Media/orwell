@@ -76,7 +76,10 @@ def test_the_scene_guard_runs_the_role_screen_before_the_sentence_guard_and_mirr
     i = src.index("async def _emit_guarded_scene(")
     body = src[i: i + 9000]
     assert "chat_helpers.screen_role_claims_ex(owner, clean)" in body
-    assert body.index("screen_role_claims_ex") < body.index("_pre_emission_outcome_guard(screened, owner)")
+    # ORW-205: the headcount wall sits between the role screen and the sentence guard (role screen ->
+    # headcount wall -> sentence guard); the scene's mirror pair still starts from `screened`.
+    assert (body.index("screen_role_claims_ex") < body.index("_headcount_wall_guard(screened, owner)")
+            < body.index("_pre_emission_outcome_guard(counted, owner)"))
     assert "def _scene_ops(" in src and '(d, "")' in src, "role drops are erased WHOLE from the raw round buffer"
     # …and the sentence-level guard no longer carries a second copy of the screen
     j = src.index("async def _pre_emission_outcome_guard(")

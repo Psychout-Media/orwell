@@ -30,26 +30,11 @@ export interface OutcomeWeights {
    */
   sleepPenalty: number;
   /**
-   * Feature 0098 (confidence-calibrated reads) — OPT-IN, engine-owned, DEFAULT-INERT AT RUNTIME. When a
-   * competitor carries a `conviction < 1` (the player's hidden certainty in the read they act on — never
-   * shown), that competitor's temperature SPAN widens by `1 + convictionVarianceGain·(1 − conviction)`,
-   * clamped to `convictionVarianceCap`. The widening is SYMMETRIC about the draw's unchanged center — it
-   * fattens BOTH tails equally (a bold correct read pays off bigger, blind faith craters harder) and is
-   * MEAN-PRESERVING; the same seeded roll then falls where it falls. It NEVER aims the result
-   * (anti-sycophancy). At `conviction = 1`/undefined the factor is 1 ⇒ BYTE-IDENTICAL to the pre-0098
-   * model (the calibration spine is unmoved). NO live caller passes a conviction today — the adapter
-   * pass-through is deliberately OWNER-GATED (see the 0098 spec's standing-principle caveat), so the live
-   * game and every heavy-sim seed are byte-identical regardless of this value; it only tunes the mechanic
-   * the property tests exercise and a future opt-in would engage.
+   * ORW-322 (Ryne 2026-11-12: "I think there should be a higher competition penalty... the longer you push back going to bed, that's when the sleep debt kicks in"): the CURVE of that malus over the graded rest
+   * deficit d (0..1 = hours past midnight / 8): `min(cap, scale * d^exponent)`. Convex: gentle for a 1am chat (d=.125 -> .035), real by 2am (.10), harsh from 3am (.18) and 4am (.28), capped at `cap` so even an
+   * all-nighter plays out (a very likely loss, never a guaranteed one). `sleepPenalty` above stays the on/off switch (0 disables the whole sleep -> comp consequence). Replaced the old linear `0.20 * d`.
    */
-  convictionVarianceGain: number;
-  /**
-   * Feature 0098 — the HARD ceiling on the widened-span multiplier: even total blind faith cannot swing
-   * past this × the baseline temperature span. Temperature stays BOUNDED — it never overrides a hard rule
-   * (eligibility, the Vault Wall) or archetype-grounded weighting (the stat still anchors the center). A
-   * value of `1` here disables the widening entirely (the alternate inert setting).
-   */
-  convictionVarianceCap: number;
+  sleepCurve: { scale: number; exponent: number; cap: number };
   /**
    * Feature 0127 (mixed-type competitions) — OPT-IN, DEFAULT-INERT AT RUNTIME. When a caller passes a
    * competition's SECONDARY aptitude (a genuine hybrid comp — "crawl through mud, then solve a puzzle"),
@@ -107,10 +92,7 @@ export const TEMPERATURE_CONSTANTS: TemperatureConstants = {
   // 2026-06-28: temperature raised 0.36 → 0.40 so upsets are a TAD more common and raw comp stats are
   // a bit less dominant now that character depth also lives in emotions (0041) + sleep (0066) — a clear
   // favorite drops from ~64% to ~59% average across field sizes (juryReach EARNED-WINS re-verified).
-  // convictionVarianceGain/Cap (0098): a low-conviction read at conviction→0 widens the span up to ~2×
-  // (gain 1.0), hard-capped at 2.5×. INERT at runtime (no caller passes a conviction — owner-gated); they
-  // tune the mechanic the 0098 property tests exercise. A bold gamble is a real swing, never mean-moving.
-  outcome: { stat: 1.0, temperature: 0.40, emotion: 0.2, throwPenalty: 1.5, playSafePenalty: 0.2, sleepPenalty: 0.20, convictionVarianceGain: 1.0, convictionVarianceCap: 2.5, mixedSecondaryWeight: 0.35 },
+  outcome: { stat: 1.0, temperature: 0.40, emotion: 0.2, throwPenalty: 1.5, playSafePenalty: 0.2, sleepPenalty: 0.20, sleepCurve: { scale: 0.8, exponent: 1.5, cap: 0.6 }, mixedSecondaryWeight: 0.35 },
   emotional: { baseline: 0.5, volatilityScale: 0.5, meanReversionRate: 0.3, swingTemperatureWeight: 0.25 },
   hiddenSurfacingRate: 0.05,
 };

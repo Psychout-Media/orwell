@@ -309,6 +309,15 @@ function _applyRemoteTab(state) {
 // keyboard-shortcuts wiring, and the /settings open path keep working.
 function initKitWindow() {
   const host = el('settings-host');
+  // ORW-161: lazy-mount. index.html ships the Settings DOM inside an inert <template>; stamp it
+  // into the host now (initAll runs only on the first open()) so it is not in the live document
+  // - and not ~half its element count - until the player opens Settings.
+  const tpl = host ? host.querySelector('template#settings-template') : null;
+  if (tpl) {
+    host.appendChild(tpl.content);
+    tpl.remove();
+    try { if (window.OrwellAvatar) window.OrwellAvatar.refresh(); } catch (_) {}
+  }
   const content = host ? host.querySelector('.settings-modal-content') : null;
   if (!content) return;
   // IMPORTANT: leave `content` inside #settings-host (in the document, just hidden) until the kit's
@@ -1044,6 +1053,26 @@ async function initTimeOfDaySettings() {
         body: JSON.stringify({ time_of_day_enabled: toggle.checked }),
       });
     } catch (e) { console.warn('Failed to save time-of-day setting', e); }
+  });
+}
+
+/* ── Zero clocks in the house (ORW-377) ── */
+async function initZeroClocksSettings() {
+  const toggle = el('set-zeroClocksToggle');
+  if (!toggle) return;
+  try {
+    const res = await fetch('/api/auth/settings', { credentials: 'same-origin' });
+    const settings = await res.json();
+    toggle.checked = settings.zero_clocks !== false;
+  } catch (e) { console.warn('Failed to load zero-clocks setting', e); }
+  toggle.addEventListener('change', async function () {
+    try {
+      await fetch('/api/auth/settings', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ zero_clocks: toggle.checked }),
+      });
+    } catch (e) { console.warn('Failed to save zero-clocks setting', e); }
   });
 }
 
@@ -2898,6 +2927,7 @@ function initAll() {
   initOverseerModes();
   initImageSettings();
   initTimeOfDaySettings();
+  initZeroClocksSettings();
   initTokenEconomySettings();
   initVisionSettings();
   initTtsSettings();

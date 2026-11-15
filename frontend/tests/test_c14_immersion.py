@@ -145,7 +145,7 @@ def test_game_tool_nodes_suppress_raw_payloads():
     assert "if (_beat) cmd = ''" in js
     assert "if (_beatOut) { cmd = ''; outHtml = ''; }" in js
     # the rendered label is the beat, not the raw tool name
-    assert "_beatOut || json.tool" in js
+    assert "beat: _beatOut" in js  # ORW-264: the label (outcome || beat || tool) is built in orwellBeatNodeView
 
 
 def test_chatjs_imports_every_helper_it_calls():
@@ -316,6 +316,5 @@ def test_reload_path_applies_production_beats():
     assert "if (!_beat && ev.diff && ev.diff.text)" in js
     assert "!_beat && ev.command" in js
     # L42: the beat row renders the PUBLIC OUTCOME when present (else the plain beat label).
-    assert "orwellBeatOutcome(ev.tool, ev.output)" in js
-    assert "_evOutcome || _beat || ev.tool" in js
-    assert "esc(_evToolText)" in js
+    # (ORW-264: via the ONE shared orwellBeatNodeView builder, which holds the outcome-or-beat-or-tool text)
+    assert "orwellBeatNodeView({ tool: ev.tool, beat: _beat" in js

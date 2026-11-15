@@ -88,7 +88,9 @@ def test_once_due_the_ready_player_gets_the_one_pass_drive(monkeypatch):
     st = _state(due=True)
     _run(ch._pre_resolve_npc_ceremony("u", st, retry=False, player_msg="Run the veto competition. Who won?"))
     assert len(calls) == 3, "due: the competition runs to its result in one pass (#2044 unchanged)"
-    assert ch._SCHEDULE_STEER.get(ch._runway_key("u")) is None
+    # ORW-232: the pass now leaves the one-scene competition record for the narrator (the winner and the rounds), nothing else
+    steer = ch._SCHEDULE_STEER.get(ch._runway_key("u"))
+    assert steer is None or steer.startswith("THE COMPETITION JUST RAN")
 
 
 def test_once_due_a_lingering_player_still_has_the_event_fire_when_the_runway_is_spent(monkeypatch):

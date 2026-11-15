@@ -1,9 +1,8 @@
 # spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
-# Executable spec — PROVISIONAL; reflects the answered design (full faithfulness; hybrid detection;
+# Design contract — BUILT (PR #778) and shipped DEFAULT ACTIVE (owner ruling 2026-07-13); verified by FE tests, NOT wired into cucumber.cjs. Reflects the answered design (full faithfulness; hybrid detection;
 # judge on claim-bearing turns only; folded into the overseer's 3-state mode; correction split on
 # ADR 0005 — adopt the open set, reframe the closed set, backend re-ground the un-reframable) + the
-# invariants that hold regardless of the §10 owner rulings. NOT yet wired into cucumber.cjs; accepted
-# scenarios are pinned once §10 is ruled. HARD rule: roles only (player, NPC, HOH, nominee, admin).
+# invariants that hold regardless of the §10 owner rulings. (Header corrected 2026-11-12, ORW-286 item 8.) HARD rule: roles only (player, NPC, HOH, nominee, admin).
 # The judge's inputs and the Overseer log are Vault-free BY CONSTRUCTION; seeded fixtures only; a
 # deterministic stub / injected faithfulness verdict stands in for the model.
 
@@ -15,8 +14,8 @@ Feature: Narration-faithfulness gate — the GM never visibly errs (ground the p
   stream and flags a turn as claim-bearing; an LLM faithfulness judge runs ONLY on claim-bearing turns and
   catches the semantic remainder post-stream. When a slip is caught, active mode recovers it so it reads as
   intentional — split on ADR 0005: an open-set slip is adopted as canonical (the claim becomes true), a
-  closed-set slip is reframed in-fiction (the outcome is NEVER bent). It is opt-in, reversible, off by
-  default, live-only, and logs every attempt with context. The Vault Wall and the engine's outcome
+  closed-set slip is reframed in-fiction (the outcome is NEVER bent). It is reversible (an explicit `off`
+  still disables it), live-only, ships active by default, and logs every attempt with context. The Vault Wall and the engine's outcome
   authority are untouched.
 
   Scenario: The judge wakes only on a claim-bearing turn

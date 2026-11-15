@@ -136,6 +136,10 @@
   // provisionally at `_onRunStarted` attach-time (so a same-id replay BURST is inert even before
   // the ack lands). Never cleared by `done` — remembering the finished run is the whole point.
   var _lastRunId = null;
+  // ORW-366: true from the moment THIS window sends a turn until that run's `done` (or the turn is rejected / the
+  // socket drops). A `hasRun:false` ack for a run-started edge while this is true is NOT a stale replay — it is
+  // this window's own run racing its own re-attach — so it must retry the subscribe, never tear the live holder down.
+  var _ownTurnLive = false;
   // #1087 queued-run attach: the id of a run that QUEUED behind the run we're currently tailing.
   // ws_routes publishes a queued turn's `run-started` edge IMMEDIATELY (right after
   // `agent_runs.start(queue=True)`), stamped with the queued run's id (the registry's current run) —
@@ -153,6 +157,14 @@
   var _helloTimer = null;
   var _reconnectFails = 0;
   var _reconnectTimer = null;
+  // ORW-308 (phone play): has THIS page load ever had a live (acked) socket? Once it has, a failed reconnect is "the network is away" (screen asleep, an app switch, a wifi/cell
+  // handoff, a tunnel) and never a "this network cannot carry WebSockets" verdict, so it retries forever instead of dropping to the permanent fallback (which, in the WS-only game
+  // build, is a dead game until a reload).
+  var _everLive = false;
+  var PROBE_TIMEOUT_MS = 4000;   // ORW-308: how long a wake-up liveness ping may go unanswered before the socket is declared a zombie
+  var _probeTimer = null;
+  var _beatAtDrop = -1;           // ORW-308: the last beatSeq we held when a live socket died (-1 = unknown); a reconnect whose beat differs missed something
+  var _connectStartedAt = 0;      // ORW-308: when the current connect attempt began (a wake-up replaces only an attempt that has had its chance)
   var _closingForGood = false;
   var _lastUpgradeAttempt = 0;                    // ms of the last fallback→WS upgrade attempt
   var _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS; // grows per failed upgrade, caps at MAX; reset on activate
@@ -215,7 +227,7 @@
           // `_lastRunId` is deliberately KEPT: it is what lets a stale replayed `run-started` for
           // this now-finished run be ignored (#1087).
           var _chatDone = !!(frame.d && frame.d.done);
-          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; }
+          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; _ownTurnLive = false; }
           _emit("chat", frame);
         } else if (_handlers[frame.ch]) {
           _emit(frame.ch, frame);
@@ -396,6 +408,7 @@
       var p = _pending[cid];
       if (!p || (p.t !== "turn" && p.t !== "decision")) continue;
       delete _pending[cid];
+      if (p.t === "turn") _ownTurnLive = false;
       var err = new Error(code);
       err.code = code;
       try { p.reject(err); } catch (_) {}
@@ -544,13 +557,26 @@
     // this stale ack misread as "genuinely no live run" and tear down B's already-reconciled holder.
     // Stamp THIS reattach's own generation and require it still be current before acting at all.
     var _myReattachGen = ++_chatReattachGen;
-    _subscribeChat(0).then(function (ack) {
-      if (_myReattachGen !== _chatReattachGen) return;  // superseded by a newer reattach — no-op
-      if (ack && ack.d && ack.d.hasRun === false && !_chatTailActive) {
-        _emitWindow("orwell:ws-resync",
-          { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: "run-started-empty" });
-      }
-    }).catch(function () { _chatTailActive = false; });
+    var _tries = 0;
+    var _attach = function () {
+      return _subscribeChat(0).then(function (ack) {
+        if (_myReattachGen !== _chatReattachGen) return;  // superseded by a newer reattach — no-op
+        if (ack && ack.d && ack.d.hasRun === false && !_chatTailActive) {
+          // ORW-366: this window's OWN turn is in flight, so the empty ack is a race with its own run (the
+          // first casting reply vanished when the resync below tore the live holder down). Retry a few times.
+          if (_ownTurnLive && _tries++ < 4) {
+            return new Promise(function (r) { setTimeout(r, 350); }).then(function () {
+              if (_myReattachGen !== _chatReattachGen) return;
+              _highestChatSeq = -1; _chatSubscribed = false;
+              return _attach();
+            });
+          }
+          _emitWindow("orwell:ws-resync",
+            { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: "run-started-empty" });
+        }
+      });
+    };
+    _attach().catch(function () { _chatTailActive = false; });
   }
 
   // ── the state/hud EDGE channels (§4) — the HUD push keystone ─────────────
@@ -589,6 +615,7 @@
   }
   function sendTurn(payload) {
     payload = payload || {};
+    _ownTurnLive = true;
     return _request("turn", "chat", {
       message: payload.message,
       clientMsgId: payload.clientMsgId,
@@ -623,6 +650,28 @@
     return _request("decision", "chat", d, "decision");
   }
   // layout is fire-and-forget per-device LWW (§5) — no cid/ack.
+  // ORW-44 S2: the game build has no SSE send path any more, so a turn first makes sure the socket is up. ensure() resolves true when the socket is live (waiting out a reconnect that is already in flight, and
+  // forcing ONE immediate upgrade attempt for the two RECOVERABLE fallback causes: the canonical id was not live yet, or the per-tab id had not resolved), and false when it cannot be: a permanent
+  // fallback cause (proxy / handshake / exhausted retries = a network that blocks WebSockets) or the deadline. Never throws.
+  function ensure(timeoutMs) {
+    return new Promise(function (resolve) {
+      var deadline = _now() + (timeoutMs > 0 ? timeoutMs : 8000);
+      var kicked = false;
+      (function check() {
+        if (_mode === "ws" && _sock && _sock.readyState === 1) return resolve(true);
+        if (_mode === "fallback") {
+          var recoverable = _fallbackReason === "pregame-not-live" || _fallbackReason === "pertab-pending";
+          if (!recoverable || kicked) return resolve(false);   // permanent cause, or our one upgrade attempt already fell back again
+          kicked = true;
+          _lastUpgradeAttempt = 0; _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS;
+          _maybeUpgradeFromFallback();
+        }
+        if (_now() >= deadline) return resolve(false);
+        setTimeout(check, 150);
+      })();
+    });
+  }
+
   function sendLayout(d) { return _send({ t: "layout", ch: "layout", d: d || {} }); }
 
   // ── negotiation + lifecycle (§6) ────────────────────────────────────────
@@ -637,6 +686,12 @@
     if (_mode === "fallback") return;
     _mode = "fallback";
     _fallbackReason = reason || _fallbackReason || "handshake";
+    // ORW-44 S1 (measure before deciding whether SSE can ever go): every permanent WS -> SSE downgrade is reported, once per page load (the guard above), with its reason. NOT red: falling back is the
+    // designed behaviour today; the count per session is what the transport decision needs.
+    try { if (window.OrwellReport) window.OrwellReport.fail('ws:fallback', String(_fallbackReason), 'this page load continues on the SSE transport', { corrected: 'SSE transport' }); } catch (_) {}
+    // ORW-44 S3: a PERMANENT fallback cause in the game build means this network cannot carry the live connection: tell the player (orwellWsBlocked.js shows the banner). The two recoverable
+    // pre-game causes never announce it (the next turn's ensure() retries them).
+    if (_gameBuild() && _fallbackReason !== "pregame-not-live" && _fallbackReason !== "pertab-pending") _emitWindow("orwell:ws-blocked", { reason: _fallbackReason });
     _chatSubscribed = false;
     _chatTailActive = false;
     _edgesSubscribed = false;
@@ -663,6 +718,7 @@
 
   function _activate() {
     _mode = "ws";
+    _everLive = true;
     _reconnectFails = 0;
     // A live socket clears the fallback-recovery backoff so a FUTURE drop-to-fallback re-attempts
     // promptly rather than inheriting a grown interval.
@@ -744,6 +800,7 @@
     _pertabWaitStart = 0;
     _mode = "negotiating";
     _closingForGood = false;
+    _connectStartedAt = _now();
     var perTabId = _perTabId();
     var sock;
     try {
@@ -755,7 +812,10 @@
     // permanent fallback (§6). We never hang the player on a wedged upgrade.
     _clearHelloTimer();
     _helloTimer = setTimeout(function () {
-      if (_mode !== "ws") { try { sock.close(); } catch (_) {} _goFallback("proxy"); }
+      if (_mode === "ws") return;
+      // ORW-308: a RECONNECT whose hello is unanswered is a flaky link, not a blocked proxy: close and let onclose schedule the retry.
+      if (_everLive && _gameBuild()) { try { sock.close(); } catch (_) {} if (_sock === sock) _onSocketGone(sock); return; }
+      try { sock.close(); } catch (_) {} _goFallback("proxy");
     }, HELLO_TIMEOUT_MS);
 
     sock.onopen = function () {
@@ -764,6 +824,7 @@
       // + the run-gone reconcile below).
       var wasReconnect = _reconnectFails > 0 || _highestChatSeq >= 0;
       var runWasInFlight = _runInFlightAtDrop; // ORW-217: a live run was mid-tail when the socket dropped
+      var beatAtDrop = _beatAtDrop;           // ORW-308: what we held when the socket died
       _hello(perTabId).then(function (helloAck) {
         _clearHelloTimer();
         if (!_live) {
@@ -785,6 +846,16 @@
           } catch (_) {}
         }
         _activate();
+        // ORW-308: a RECONNECT may have missed board changes (a ceremony step that advanced, a pending card that changed) while the phone was away: the state/hud edge pings that carried
+        // them died with the old socket, and the pollers are off while a socket is live. If the server's beat at reconnect differs from the beat we held at the drop (or we did not know it),
+        // something was missed: hand the existing `state` listeners one edge ping (ids + beatSeq only, like every state frame) - platform.js's bridge turns it into the single
+        // `orwell:gamechanged` dispatch (g15), so the HUD and the pending card re-read their projections now. A reconnect that missed nothing asks for nothing. No second dispatcher here.
+        if (wasReconnect) {
+          try {
+            var _hb2 = helloAck && helloAck.d && helloAck.d.beatSeq;
+            if (typeof _hb2 !== "number" || beatAtDrop < 0 || _hb2 !== beatAtDrop) _emit("state", { t: "state", ch: "state", d: { beatSeq: _beatSeq, reason: "reconnect" } });
+          } catch (_) {}
+        }
         // Fresh window ⇒ full replay from 0; a reconnect resumes from the gap.
         _subscribeChat(wasReconnect ? _highestChatSeq + 1 : 0)
           .then(function (subAck) {
@@ -826,10 +897,16 @@
         // handshake — a fresh connect AND a reconnect (both re-enter this onopen) —
         // so a dropped socket re-arms all three channels, not just chat.
         _subscribeEdges();
-      }).catch(function () { _clearHelloTimer(); _goFallback("handshake"); });
+      }).catch(function () {
+        _clearHelloTimer();
+        // ORW-308: a rejected/stranded hello on a RECONNECT (the socket died under it) retries; only a page that never went live falls back for good.
+        if (_everLive && _gameBuild()) { try { sock.close(); } catch (_) {} if (_sock === sock) _onSocketGone(sock); return; }
+        _goFallback("handshake");
+      });
     };
 
     sock.onmessage = function (ev) {
+      _clearProbe(); // ORW-308: any inbound frame proves the socket is alive
       var frame;
       try { frame = JSON.parse(ev.data); } catch (_) { return; }
       _handleFrame(frame);
@@ -838,32 +915,68 @@
     sock.onerror = function () { /* onclose drives the retry/fallback decision */ };
 
     sock.onclose = function () {
-      _sock = null;
-      _chatSubscribed = false;
-      if (_liveRunKnown) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was known live at the drop)
-      _liveRunKnown = false;
-      _chatTailActive = false;
-      _edgesSubscribed = false;
-      _rebinding = null;
-      _clearHelloTimer();
-      if (_closingForGood) return;
-      // A genuine mid-session drop: strand no in-flight turn/decision (its ack died with the socket).
-      _rejectPending("ws-closed");
-      if (_mode === "ws") {
-        // We were live — reconnect with the gap cursor (fromSeq = highest+1) and
-        // resume the buffered tail (§3.3 monotonicity). Bounded retries; past the
-        // cap we downgrade to SSE permanently (§6).
-        _mode = "negotiating";
-        _reconnectFails += 1;
-        if (_reconnectFails > RECONNECT_GIVEUP) { _goFallback("reconnect-exhausted"); return; }
-        var wait = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, _reconnectFails - 1));
-        if (_reconnectTimer) clearTimeout(_reconnectTimer);
-        _reconnectTimer = setTimeout(function () { if (!_closingForGood) _connect(); }, wait);
-      } else {
-        // Never got live (closed before ack) ⇒ fallback.
-        _goFallback("handshake");
-      }
+      if (_sock !== sock) return; // ORW-308: a stale socket (a wake-up already replaced it) must not tear down its successor
+      _onSocketGone(sock);
     };
+  }
+
+  // ORW-308: the one place a dead socket is accounted for (called from onclose AND from the hello-timeout/hello-reject paths, which can see the death before onclose fires).
+  function _onSocketGone(sock) {
+    if (_sock !== sock) return;
+    _sock = null;
+    if (_mode === "ws") _beatAtDrop = (typeof _beatSeq === "number" ? _beatSeq : -1);
+    _chatSubscribed = false;
+    if (_liveRunKnown) _runInFlightAtDrop = true; // ORW-217: remember it BEFORE the reset below (a run was known live at the drop)
+    _liveRunKnown = false;
+    _chatTailActive = false;
+    _edgesSubscribed = false;
+    _rebinding = null;
+    _clearHelloTimer();
+    _clearProbe();
+    if (_closingForGood) return;
+    // A genuine mid-session drop: strand no in-flight turn/decision (its ack died with the socket).
+    _rejectPending("ws-closed");
+    if (_mode === "ws" || (_mode === "negotiating" && _everLive && _gameBuild())) {
+      // We were live (or a reconnect attempt just failed) - reconnect with the gap cursor (fromSeq = highest+1) and resume the buffered tail (§3.3 monotonicity).
+      // Before this page load ever went live the retries are bounded and past the cap we downgrade (§6). AFTER it has been live (ORW-308, the game build) there is no cap:
+      // the network is only away, and the backoff stays capped at RECONNECT_MAX_MS so a returning link is found within seconds.
+      _mode = "negotiating";
+      _reconnectFails += 1;
+      if (!_everLive && _reconnectFails > RECONNECT_GIVEUP) { _goFallback("reconnect-exhausted"); return; }
+      var wait = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * Math.pow(2, Math.min(_reconnectFails, 12) - 1));
+      if (_reconnectTimer) clearTimeout(_reconnectTimer);
+      _reconnectTimer = setTimeout(function () { _reconnectTimer = null; if (!_closingForGood) _connect(); }, wait);
+    } else {
+      // Never got live (closed before ack) ⇒ fallback.
+      _goFallback("handshake");
+    }
+  }
+
+  // ORW-308 - phone lifecycle. A phone that sleeps, switches apps or hops wifi/cell leaves the socket either dead-and-reported (onclose, handled above) or a ZOMBIE: readyState 1
+  // with nothing flowing, which the browser only notices minutes later. On every return signal we (a) if a reconnect is waiting out its backoff, cut the wait and reconnect now;
+  // (b) if the socket claims to be open, prove it with one ping (the server answers a client ping with a pong, ws_routes) and close it if nothing at all comes back.
+  function _clearProbe() { if (_probeTimer) { clearTimeout(_probeTimer); _probeTimer = null; } }
+
+  function _wake(reason) {
+    if (_closingForGood || !_everLive || !_flagOn() || !_gameBuild()) return;
+    if (_mode === "negotiating") {
+      if (_reconnectTimer) { clearTimeout(_reconnectTimer); _reconnectTimer = null; _reconnectFails = 0; _connect(); return; }
+      // an attempt is mid-flight: if it is older than the hello budget it is a zombie too - replace it
+      if (_sock && _sock.readyState !== 1 && _now() - _connectStartedAt > 1500) { var old = _sock; _sock = null; try { old.onclose = null; old.close(); } catch (_) {} _reconnectFails = 0; _connect(); }
+      return;
+    }
+    if (_mode === "ws" && _sock && _sock.readyState === 1) {
+      _clearProbe();
+      try { _sock.send(JSON.stringify({ t: "ping" })); } catch (_) { try { _sock.close(); } catch (__) {} return; }
+      var probed = _sock;
+      _probeTimer = setTimeout(function () {
+        _probeTimer = null;
+        if (_sock !== probed) return;
+        // no frame at all since the ping: a zombie. Treat it as dropped now rather than waiting for the browser's own timeout.
+        try { probed.onclose = null; probed.close(); } catch (_) {}
+        _onSocketGone(probed);
+      }, PROBE_TIMEOUT_MS);
+    }
   }
 
   function start() {
@@ -893,6 +1006,16 @@
   } catch (_) {}
 
   try {
+    window.addEventListener("online", function () { _wake("online"); });
+    window.addEventListener("pageshow", function () { _wake("pageshow"); });
+    if (window.document && typeof window.document.addEventListener === "function") {
+      window.document.addEventListener("visibilitychange", function () {
+        if (window.document.visibilityState === "visible") _wake("visible");
+      });
+    }
+  } catch (_) {}
+
+  try {
     window.addEventListener("beforeunload", function () {
       _closingForGood = true;
       try { if (_sock) _sock.close(); } catch (_) {}
@@ -907,6 +1030,17 @@
     sendDecision: sendDecision,
     cancelRequest: cancelRequest,
     sendLayout: sendLayout,
+    ensure: ensure,
+    // ORW-44 S4b: the WS-side bootstrap. sessionSync resolves the canonical game id over REST (no SSE in the WS-only game build); the moment one appears for a window that booted pre-game, kick() forces ONE
+    // immediate upgrade attempt (same recoverable-cause gate as ensure()), so a second window finds the live session without the old SSE run-started invitation.
+    kick: function () {
+      if (_mode !== "fallback") return false;
+      if (_fallbackReason !== "pregame-not-live" && _fallbackReason !== "pertab-pending") return false;
+      _lastUpgradeAttempt = 0; _upgradeBackoffMs = UPGRADE_BACKOFF_MIN_MS;
+      _maybeUpgradeFromFallback();
+      return true;
+    },
+    flagOn: _flagOn,   // ORW-44 S2: chat.js asks whether the WS transport is switched on (ORWELL_WS_TRANSPORT) before it treats the socket as the only send path
     rebind: rebind,
     isActive: function () { return _mode === "ws" && !!_sock && _sock.readyState === 1; },
     isFallback: function () { return _mode === "fallback"; },
@@ -918,6 +1052,7 @@
     lastRunId: function () { return _lastRunId; },   // #1087 reconcile-by-id (diagnostics/tests)
     // test seam: feed a frame straight through the router (no live socket).
     _handleFrame: _handleFrame,
+    _wake: _wake,   // test seam (ORW-308): the phone-return signal, without a real visibilitychange
     // test seam: force negotiation start (start() is auto-called on ready).
     _start: start
   };

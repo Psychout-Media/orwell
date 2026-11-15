@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import json
 import time
-import urllib.parse
 import urllib.request
 
 import pytest
 
+from _ws_turn_driver import ws_turn
 from test_m0_3_midgen_join import _post_json, _stack  # noqa: F401
 from test_p0h_day1_clock_e2e import STEP, _engine, _schedule, _send, _session, _start_day
 
@@ -20,13 +20,8 @@ pytestmark = pytest.mark.browser
 
 
 def _drop_midreply(stack, session, text, client_msg_id):
-    """POST the chat turn, read only the first bytes of the stream, then close the connection (a dropped stream)."""
-    data = urllib.parse.urlencode({"message": text, "session": session, "client_msg_id": client_msg_id}).encode()
-    req = urllib.request.Request(stack["fe"] + "/api/chat_stream", data=data, method="POST",
-                                 headers={"content-type": "application/x-www-form-urlencoded"})
-    r = urllib.request.urlopen(req, timeout=60)
-    r.read(64)   # the stream has started
-    r.close()    # ...and the client goes away mid-reply
+    """Send the chat turn over the socket and go away as soon as the server has accepted it (a client that drops mid-reply). ORW-44 S4b3: the game build is WebSocket-only."""
+    ws_turn(stack["fe"], session, text, timeout=60, client_msg_id=client_msg_id, collect=False)
 
 
 def _user_lines(stack, session, text):

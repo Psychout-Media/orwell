@@ -14,7 +14,7 @@ function toFinalThree(seed: number, on: boolean): { s: GameSessionAdapter; reg: 
   const reg = new GameSessionRegistry();
   const user = `fh3-${n++}`;
   const s = reg.sandboxFor(user).session;
-  s.setAssurancesEnabled(false); s.setVoteCountEnabled(false); s.setVetoMemoryEnabled(false); s.setDealNomsEnabled(false); s.setCampaignMemoryEnabled(false); s.setApproachMemoryEnabled(false); s.setHcMemoryEnabled(false); s.setMemoryPromisesEnabled(false); s.setForgivenessEnabled(false); s.setLobbyingEnabled(false); s.setDesireClockEnabled(false); s.setWantMovementEnabled(false); s.setMultiNightFatigueEnabled(false); s.setMorningApproachEnabled(false); s.setNpcTellsEnabled(false); s.setTellReactionsEnabled(false); s.setMoodVetoEnabled(false); s.setMoodApproachEnabled(false); s.setMoodDealEnabled(false); s.setMoodCampaignEnabled(false); s.setDriftFixEnabled(false); s.setNpcMemorySpeechEnabled(false); s.setDriveDecisionsEnabled(false); // explicit OFF: the strategy layers now default ON and change the season path this fixture assumes
+  s.setAssurancesEnabled(false); s.setPhilosophiesEnabled(false); s.setVoteCountEnabled(false); s.setVetoMemoryEnabled(false); s.setDealNomsEnabled(false); s.setCampaignMemoryEnabled(false); s.setApproachMemoryEnabled(false); s.setHcMemoryEnabled(false); s.setMemoryPromisesEnabled(false); s.setForgivenessEnabled(false); s.setLobbyingEnabled(false); s.setDesireClockEnabled(false); s.setWantMovementEnabled(false); s.setMultiNightFatigueEnabled(false); s.setMorningApproachEnabled(false); s.setNpcTellsEnabled(false); s.setTellReactionsEnabled(false); s.setMoodVetoEnabled(false); s.setMoodApproachEnabled(false); s.setMoodDealEnabled(false); s.setMoodCampaignEnabled(false); s.setDriftFixEnabled(false); s.setNpcMemorySpeechEnabled(false); s.setDriveDecisionsEnabled(false); // explicit OFF: the strategy layers now default ON and change the season path this fixture assumes
   s.createCharacter({ playerName: "P", seed });
   s.setFinalHohThreePartEnabled(on);
   for (let i = 0; i < 6000; i++) {
@@ -62,7 +62,7 @@ describe("0128 three-part Final HOH - live adapter", () => {
   });
 
   it("flag OFF: no part announcements - the single-comp path", () => {
-    const g = toFinalThree(3, false);
+    const g = toFinalThree(1, false); // seed re-selected 2026-11-12 (ORW-19 comp-win threat 0.3 -> 0.45 moved the seeded trajectories; seed 3 no longer reaches a Final 3)
     expect(g).not.toBeNull();
     const { views } = playOut(g!.s, (v) => v.pending?.kind === "final-eviction" || v.event?.beat === "final-eviction");
     expect(kinds(views).filter((x) => x === "final-hoh-part")).toHaveLength(0);

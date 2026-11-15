@@ -10,6 +10,7 @@ import { initModelPicker, updateModelPicker } from './modelPicker.js';
 import themeModule from './theme.js';
 import spinnerModule from './spinner.js';
 import { isNarrow } from './platform.js';
+import { rowsFor as _chapterRows } from './orwellChapters.js';
 
 const API_BASE = window.location.origin;
 
@@ -81,7 +82,13 @@ async function _resolveCanonicalGameSession() {
 // next loadSessions() re-resolves instead of forcing a stale id. The dispatcher is platform.js's
 // debounced orwell:gamechanged (the single g15 dispatcher) — we only LISTEN here.
 try {
-  window.addEventListener('orwell:gamechanged', () => { _canonGameCache = { id: null, at: 0 }; });
+  window.addEventListener('orwell:gamechanged', (e) => {
+    // ORW-168: a routine wave (a settled turn, the tab coming back, a decision card) never rebinds the game, so it must not drop
+    // the 4 s cache. ANY other / unknown / absent reason (next-season, reset, sync:game-updated, ws:state, a tool) still invalidates.
+    const rs = (e && e.detail && Array.isArray(e.detail.reasons)) ? e.detail.reasons : null;
+    if (rs && rs.length && rs.every((r) => r === 'turn-settled' || r === 'tab-visible' || String(r).indexOf('decision:') === 0)) return;
+    _canonGameCache = { id: null, at: 0 };
+  });
 } catch (_) {}
 
 // Research indicator tracking
@@ -1431,7 +1438,57 @@ export async function loadSessions() {
   }
 }
 
+// ORW-197: narrator-bubble parity between the history rows and what painted. Pure + exported for tests.
+// Expected = assistant rows with visible text; rendered = fromHistory .msg-ai bubbles in the container.
+export function historyRenderParity(rows, container) {
+  let expected = 0;
+  for (const m of (rows || [])) {
+    if (!m || m.role !== 'assistant') continue;
+    const c = m.content;
+    const txt = typeof c === 'string' ? c
+      : (Array.isArray(c) ? c.filter(p => p && p.type === 'text').map(p => p.text).join('\n') : '');
+    if (txt && txt.trim()) expected++;
+  }
+  const rendered = container
+    ? container.querySelectorAll('.msg-ai[data-from-history="1"]').length : 0;
+  return { ok: rendered >= expected, expected, rendered };
+}
+
+function _beaconHistoryParity(sessionId, parity, note) {
+  const msg = 'narrator bubbles ' + parity.rendered + '/' + parity.expected + (note ? ' ' + note : '');
+  console.warn('[orwell] history render parity mismatch:', msg);
+  try {
+    const body = JSON.stringify({ kind: 'history-parity', status: '', message: msg, sessionId: String(sessionId || '').slice(0, 64) });
+    let sent = false;
+    try { if (navigator.sendBeacon) sent = navigator.sendBeacon('/api/orwell/client-error', new Blob([body], { type: 'application/json' })); } catch (_) { sent = false; }
+    if (!sent) fetch('/api/orwell/client-error', { method: 'POST', credentials: 'same-origin', keepalive: true, headers: { 'Content-Type': 'application/json' }, body }).catch(() => {});
+  } catch (_) { /* a beacon is an addition, never new behavior */ }
+}
+
+/** ORW-293: re-selecting the session the player is ALREADY on, while its reply is streaming, must change nothing. selectSession detaches the in-flight stream to the
+ * background and rebuilds the history; the detached reader then sees its channel close before the completion event and the drop-recovery auto-continue fires a SECOND
+ * generation, which persisted the same reply twice (two assistant rows, e.g. seq 3 and seq 5) - the "reply shown twice after a mid-stream refresh" CI failure. The live
+ * stream already is the truth; the settle-time softReloadHistory reconciles. Pure, so it is unit-tested under node. */
+export function isLiveReselect(id, currentId, chatModule) {
+  try {
+    return !!id && id === currentId && !!chatModule && typeof chatModule.hasActiveStream === 'function' && !!chatModule.hasActiveStream(id);
+  } catch (_) { return false; }
+}
+
+/** ORW-293e: is the history snapshot BEHIND what the page already shows? True when the DOM holds a persisted message (a db id) that the snapshot does not contain. selectSession fetches the
+ * history first, then waits out a 120 ms fade, then wipes the pane and paints that snapshot. A turn that finishes in that window (its reply persisted and painted by the settle reconcile) makes
+ * the snapshot stale; painting it wipes the NEWER reply from the screen until a reload (seen in CI as "reply shown 0 times" while the server history had it). Pure, so it is unit-tested. */
+export function snapshotBehindDom(history, domDbIds) {
+  const have = new Set((history || []).map(m => String((m && (m.id || (m.metadata && m.metadata._db_id))) || '')).filter(Boolean));
+  return (domDbIds || []).some(id => id && !have.has(String(id)));
+}
+
 export async function selectSession(id, { keepSidebar = false } = {}) {
+  if (isLiveReselect(id, currentSessionId, window.chatModule)) {
+    const _el = document.querySelector(`.list-item[data-session-id="${id}"]`);
+    if (_el) _el.classList.add('active-session');
+    return;
+  }
   // Exit compare mode cleanly if active
   if (window.compareModule && window.compareModule.isActive()) {
     window.compareModule.deactivate(true);
@@ -1451,6 +1508,10 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       try { window.documentModule.clearSelection(); } catch {}
     }
     currentSessionId = id;
+    // ORW-352: selecting a real session abandons any pending New Chat (a pending chat means "no session yet"). A stray one - armed late by onboarding's async New Chat
+    // handler after the opener had already created the casting chat - survived loadSessions() converging back onto the canonical chat, and the player's first send
+    // then MATERIALIZED it: a second session row, the send's holder keyed to it, the window switched back mid-send, and the turn never settled (every later message queued).
+    _pendingChat = null;
     // #1626 increment 2: now that the active session id is known, restore its producer byline from the
     // per-session map BEFORE history renders (the module-eval restore in chat.js runs too early —
     // currentSessionId is unset then). A session with no entry resets to the "Production" default, so a
@@ -1554,6 +1615,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       const data = await res.json();
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
       msgHistory = data.history || [];
+      // ORW-275's week filter (_chapterRows) is applied just before the paint, below - NOT here: see ORW-293 there.
       modelName = data.model || null;
       // The model returned by /api/history is the authoritative one the
       // backend will use for this session. Write it back into the cached
@@ -1615,13 +1677,26 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       chatHistory.style.opacity = '0';
       await new Promise(r => setTimeout(r, 120));
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
+      // ORW-293e: a same-session rebuild whose snapshot is BEHIND the page (a reply persisted and painted while we faded) must not wipe the newer content: keep it and restore the pane.
+      if (isSameSession && !isOC && snapshotBehindDom(msgHistory, Array.from(chatHistory.querySelectorAll('.msg[data-db-id]')).map(el => el.dataset.dbId))) {
+        chatHistory.style.transition = 'opacity 0.15s ease-in';
+        chatHistory.style.opacity = '1';
+        chatHistory.classList.remove('no-animate');
+        return;
+      }
       _liveHoldersToKeep = _collectLiveHolders();
       chatHistory.innerHTML = '';
     }
 
+    // ORW-275: a played game spanning 2+ weeks shows ONE week (the current by default) with the others one tap away; with fewer weeks this returns the same array.
+    // ORW-293: chosen HERE, after the 120 ms fade, not when the history arrived. A week picked during the fade used to be painted over by the rows chosen before
+    // the pick (Week 2 drawn back over Week 1 - main red at d1dbc361).
+    if (!isOC) msgHistory = _chapterRows(id, msgHistory);
+
     // Suppress per-message entrance animations during bulk history render
     if (chatHistory) chatHistory.classList.add('no-animate');
 
+    let _paintRows = null; // ORW-197: the history paint, kept callable for the one bounded parity repaint
     // Populate new content while invisible
     if (isOC) {
       if (window.chatModule && window.chatModule.showWelcomeScreen) window.chatModule.showWelcomeScreen();
@@ -1630,6 +1705,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
          <p>Messages will be routed through your OpenClaw agent. The agent has access to tools, memory, and skills configured in your OpenClaw workspace.</p>`,
         'OpenClaw');
     } else if (msgHistory.length) {
+      _paintRows = () => {
       for (const msg of msgHistory) {
         // F5: ALWAYS tag a history render, even when the persisted row has no metadata — else an
         // untagged static bubble makes a late observer's resumeStream dup-check treat it as an
@@ -1661,6 +1737,8 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
         }
         window.chatModule.addMessage(msg.role, markdownModule.renderContent(displayContent), modelName, meta);
       }
+      };
+      _paintRows();
     } else {
       if (window.chatModule && window.chatModule.showWelcomeScreen) window.chatModule.showWelcomeScreen();
       // Don't highlight empty sessions — feels like nothing is selected
@@ -1674,6 +1752,23 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
     }
     if (_liveHoldersToKeep.length && chatHistory) {
       for (const el of _liveHoldersToKeep) { el.dataset.keptLive = '1'; chatHistory.appendChild(el); } // chatReconcile rebuilds a kept live holder at settle (it is never finalized in place)
+    }
+    // ORW-197: render-parity self-heal. If fewer narrator bubbles painted than the history has narrator
+    // rows, report it and repaint ONCE from the rows already fetched (no refetch, no loop). Pending
+    // optimistic sends and live holders are never fromHistory bubbles, so they are kept untouched.
+    if (_paintRows && chatHistory) {
+      try {
+        const _parity = historyRenderParity(msgHistory, chatHistory);
+        if (!_parity.ok) {
+          _beaconHistoryParity(id, _parity);
+          const _keep = Array.from(chatHistory.children).filter(el => !(el.dataset && el.dataset.fromHistory === '1'));
+          chatHistory.innerHTML = '';
+          _paintRows();
+          for (const el of _keep) chatHistory.appendChild(el);
+          const _after = historyRenderParity(msgHistory, chatHistory);
+          if (!_after.ok) _beaconHistoryParity(id, _after, 'after-retry');
+        }
+      } catch (e) { console.warn('history parity check error:', e); }
     }
     uiModule.scrollHistoryInstant();
 
@@ -1907,6 +2002,19 @@ export function getPendingChat() { return _pendingChat; }
 // Getters for external access
 export function getCurrentSessionId() {
   return currentSessionId;
+}
+
+// ORW-168: does `id`'s session still carry a placeholder name the server will replace (auto-name after the first turn, or the
+// "Casting interview" -> "Season N" rename at game start)? Mirrors routes/chat_helpers.py needs_auto_name(). The post-turn
+// session-list refetch only matters then; an already-named session needs no `GET /api/sessions` + sidebar re-render after every turn.
+// An id the list does not know yet answers true (refetch, the safe side).
+export function sessionMayNeedRename(id) {
+  const s = sessions.find((x) => x.id === id);
+  if (!s) return true;
+  const n = (s.name || '').trim();
+  if (!n || n === 'Chat' || n.startsWith('Chat:')) return true;
+  if (n.toLowerCase() === 'casting interview') return true;
+  return /^.+ \d{1,2}:\d{2}:\d{2}(\s*(AM|PM))?$/i.test(n);
 }
 
 export function getSessions() {
@@ -3102,9 +3210,11 @@ const sessionModule = {
   getPendingChat,
   getCurrentSessionId,
   getSessions,
+  sessionMayNeedRename,
   getCurrentModel,
   getCurrentEndpointUrl,
   setCurrentSessionId,
+  _resolveCanonicalGameSession,   // ORW-168: test seam (read-only resolver; cached)
   initDragSort,
   updateModelPicker,
   markResearching,

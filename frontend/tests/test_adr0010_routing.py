@@ -4,7 +4,10 @@ Per-session stickiness keeps OpenRouter on the cache-warm provider; above the hi
 large prompt PINS (no fallback) so it never cold-cache-misses. Default threshold 0 ⇒ pin off ⇒
 byte-identical routing. Roles only.
 """
+import pytest
 import asyncio
+
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
 
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
 

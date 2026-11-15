@@ -28,6 +28,8 @@ import os
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("non_game_text_routing")  # ORW-287: pins the OpenRouter payload shape (non-game build)
+
 lc = importlib.import_module("src.llm_core")
 llm_trace = importlib.import_module("src.llm_trace")
 

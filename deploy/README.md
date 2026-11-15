@@ -25,8 +25,9 @@ fails clearly instead of half-installing). One Proxmox LXC runs both tiers as sy
 > and `docs/INSTALL.md → Public deployment (any domain)`. Enabling local HTTPS (`orwell https`) also
 > re-pins `ORWELL_BIND_HOST=127.0.0.1` (the terminator becomes the only LAN entrypoint).
 >
-> **WebSocket transport is ON by default.** WS Phase-1 (ADR 0017, `GET /api/ws/session`) is active
-> while `ORWELL_WS_TRANSPORT=1` is set in `data/.env` (the default). Every terminator here (direct uvicorn, Caddy,
+> **The game runs over a WebSocket, and only a WebSocket.** WS Phase-1 (ADR 0017, `GET /api/ws/session`) is the game build's only transport (ORW-44, 2026-11-12:
+> the `ORWELL_WS_TRANSPORT` flag is gone; setting it does nothing, and there is no SSE/poll fallback). A network that blocks the live connection shows
+> the player a clear "this network blocks the live connection" message and cannot play. Every terminator here (direct uvicorn, Caddy,
 > Cloudflare Tunnel, Pangolin/Newt) passes the WebSocket `Upgrade` transparently — no extra config.
 > **LAN / loopback turn-on is safe today; PUBLIC turn-on is not yet** — the WS handshake lacks the
 > `Origin`/CSRF guard (a CSWSH surface on a public terminator; guard in flight on
@@ -56,7 +57,7 @@ updates and resets never re-prompt and the token never lands in a remote URL or 
 # before VAR= applies, so curl gets an EMPTY token → 404/401). Fetch via the contents API, not
 # raw.githubusercontent.com (which 404s for fine-grained PATs). Works with fine-grained OR classic.
 export GIT_TOKEN=github_pat_xxx
-bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 
 # update — host or inside the container: run the LOCAL checked-out copy (no GitHub fetch)
 bash /opt/orwell/deploy/orwell-update.sh
@@ -87,6 +88,52 @@ if you renamed the container or run more than one. A container provisioned **bef
 `bbai → orwell` rename (app in `/opt/bbai`, `bbai-*` services) is auto-detected and updated in place
 — the engine and front-end still honor the deprecated `BBAI_*` env, so its `data/.env` keeps working
 untouched.
+
+### Fast updates: what an update skips (ORW-229)
+
+An update reinstalls and rebuilds only what the new commit actually changes. After every update that
+fully succeeds, `orwell-update.sh` records in `dist/.orwell-deps-stamp` (root-owned, beside the
+`dist/.orwell-build-sha` build stamp) what each step consumed (the git ids of the lockfiles and sources
+it reads, plus the node/npm/python versions) and what it left on disk (npm's
+`node_modules/.package-lock.json`, the engine build, the venv's installed packages). On the next update:
+
+| What changed since the last successful update | Engine (`node_modules` + `dist/`) | Front-end venv |
+|---|---|---|
+| Nothing the engine reads (front end, deploy scripts, docs, tests, CI) | kept as is: no `npm ci`, no rebuild | kept if `frontend/requirements*.txt` are unchanged |
+| Engine code only (`src/`, …), same `package.json` / `package-lock.json` / `patches/` | only the build tools that `npm prune` removed come back, from the local npm cache (`npm install --include=dev --no-save --prefer-offline`), then build + prune | same as above |
+| `package.json`, `package-lock.json`, `patches/`, the node/npm version, or the npm environment (`npm_config_*` / `NPM_CONFIG_*` such as the registry, `ONNXRUNTIME_NODE_INSTALL`, `NODE_ENV`, the user or global npmrc) | full `npm ci` (as before) | same as above |
+| `frontend/requirements.lock.txt` / `requirements.txt`, or the venv's Python | (per the rows above) | `pip install` (as before) |
+
+Everything is reinstalled in full when there is no record: the first update with this updater, a
+fresh install, or right after an update or rollback that failed, was reverted or was interrupted (the
+record is deleted when a run starts and written only at its commit point). It is also redone:
+- when the disk no longer matches the record, for example after someone ran `npm` or `pip` by hand on
+  the box, or edited a file inside `node_modules` or the venv (every file's path, size and modification
+  time is part of the record; Python bytecode caches are not);
+- once after `orwell-update.sh` itself changes (its own text is part of the record);
+- when the record, `dist/`, `node_modules` or `frontend/.venv` is not owned by root, or is writable by
+  anyone else (the ownership pass then fixes the tree, and the next update can skip again).
+
+To force a full reinstall, delete `dist/.orwell-deps-stamp`.
+
+Every `npm ci` / `npm install` the updater and the installer run sets `ONNXRUNTIME_NODE_INSTALL=skip` (an
+explicit value in the environment wins): onnxruntime-node then skips downloading its GPU (CUDA / TensorRT)
+execution providers, which the engine never loads (fastembed runs on the CPU runtime that ships in the
+package). A full `npm ci` takes about 8 s instead of about 56 s on the dev box, and embeddings are unchanged
+(`orwell-doctor.sh --status`: `embeddings: provider=fastembed, degraded=false`).
+
+The React `/play` app (`frontend/web`, when the commit has it) is built by the update too, and never
+fails it: a failed build logs a warning and `/play` keeps its current build (or its "not built yet"
+page). It builds from a clean export of the commit in a temp dir (`npm ci --prefer-offline
+--ignore-scripts && npm run build`; no dependency install scripts run). As root, the build runs as an
+unprivileged account (`ORWELL_PLAY_BUILD_USER`, default `nobody`) in a clean environment, with its own npm
+cache (`ORWELL_PLAY_NPM_CACHE`, default `/var/cache/orwell/play-npm`); root then takes the output back,
+refuses it if it holds anything but plain files and directories, and copies it in as root's own. If
+privileges cannot be dropped, `/play` is not built at all (a warning). The build is swapped into
+`frontend/web/dist` only after the update commits, so `/play` keeps serving the old build while the new
+one builds, and a failed update never changes it. It is skipped when nothing under `frontend/web` or
+`frontend/static/js` (the classic markdown module it imports) changed. The previous build is kept in
+`frontend/web/dist.prev`, which `--rollback` puts back when it matches the commit it rolls back to.
 
 ## Control panel — the `orwell` menu
 
@@ -534,7 +581,7 @@ few minutes.
 # fully non-interactive example (the 4 vCPU / 8 GB baseline is the default — shown here explicitly)
 export GIT_TOKEN=github_pat_xxx
 CTID=104 CORES=4 RAM_MB=8192 DISK_GB=12 NET=dhcp ORWELL_PORT=8080 \
-  bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")" --default
+  bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")" --default
 ```
 
 ## Layout

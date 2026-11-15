@@ -35,7 +35,8 @@ export class EngineRefusal extends Error {
 
 /** The integrity checkpoint refused the commit; the sandbox was rolled back (HTTP 409). */
 export class TurnRefusedError extends Error {
-  constructor(public readonly kinds: readonly string[]) {
+  /** ORW-321: names of the failing invariants (field / count names only, never content) - the operator sees WHICH invariant broke, not just "degradation". */
+  constructor(public readonly kinds: readonly string[], public readonly invariants: readonly string[] = []) {
     super(`turn refused — integrity checkpoint failed (${kinds.join(", ")}); state unchanged`);
     this.name = "TurnRefusedError";
   }

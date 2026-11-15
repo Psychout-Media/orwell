@@ -8,6 +8,7 @@ These are agent tools — the LLM writes fenced code blocks and they execute
 through the standard agent_tools.py pipeline.
 """
 
+import asyncio
 import json
 import logging
 import uuid
@@ -55,7 +56,7 @@ def set_rag_manager(rag_mgr, personal_docs_mgr=None):
 # Model resolution
 # ---------------------------------------------------------------------------
 
-from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url, build_headers, build_models_url
+from src.endpoint_resolver import normalize_base as _normalize_base, build_chat_url, build_headers, build_models_url, resolve_session_headers
 
 
 # Auto-detect image-model candidates, tried in order when no image_model is configured (the
@@ -71,6 +72,10 @@ IMAGE_AUTODETECT_CANDIDATES = (
     "google/gemini-3-flash-image", "gemini-3-flash-image",
     "gpt-image-1.5", "gpt-image-1", "dall-e-3",
 )
+
+
+# ORW-362: model-id prefix of OpenAI GPT Image models on OpenRouter (Image API route, not chat).
+OPENROUTER_GPT_IMAGE_PREFIX = "openai/gpt-image-"
 
 
 def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Dict]:
@@ -133,6 +138,12 @@ def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Di
                     slug = model_name if "/" in model_name else FAL_SEEDREAM_EDIT_SLUG
                     return build_chat_url(base), slug, headers
                 continue  # a non-fal model spec never resolves against a fal endpoint
+
+            # ORW-362: OpenAI's GPT Image models are served on OpenRouter's Image API only, so they are
+            # NOT in the endpoint's chat model list. Accept the slug as-is for an OpenRouter endpoint
+            # (no catalog probe), the same way a fal slug is accepted above.
+            if model_name.lower().startswith(OPENROUTER_GPT_IMAGE_PREFIX) and "openrouter.ai" in base.lower():
+                return build_chat_url(base), model_name, headers
 
             if provider == "anthropic":
                 # Anthropic: match against hardcoded model list
@@ -253,7 +264,7 @@ async def do_chat_with_model(content: str, session_id: Optional[str] = None, own
         return {"error": "No message provided (line 2+ is the message)"}
 
     try:
-        url, model, headers = _resolve_model(model_spec, owner=owner)
+        url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -306,7 +317,7 @@ async def do_ask_teacher(content: str, session_id: Optional[str] = None, owner: 
             return {"error": "No teacher model configured. Specify a model name or set teacher_model in settings."}
 
     try:
-        url, model, headers = _resolve_model(model_spec, owner=owner)
+        url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -352,7 +363,7 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
     focus = lines[1].strip() if len(lines) > 1 else ""
 
     try:
-        reviewer_url, reviewer_model, reviewer_headers = _resolve_model(model_spec, owner=owner)
+        reviewer_url, reviewer_model, reviewer_headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -421,7 +432,7 @@ async def do_second_opinion(content: str, session_id: Optional[str] = None, owne
     if sess:
         original_url = sess.endpoint_url
         original_model = sess.model
-        original_headers = getattr(sess, "headers", None) or {}
+        original_headers = resolve_session_headers(sess) or {}
 
         unify_system = (
             "Another AI model just reviewed the conversation you've been having with the user. "
@@ -493,7 +504,7 @@ async def do_create_session(content: str, session_id: Optional[str] = None, owne
         return {"error": "Session name cannot be empty"}
 
     try:
-        url, model, headers = _resolve_model(model_spec, owner=owner)
+        url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
     except ValueError as e:
         return {"error": str(e)}
 
@@ -648,7 +659,7 @@ async def do_send_to_session(content: str, session_id: Optional[str] = None, own
 
         response = await llm_call_async(
             sess.endpoint_url, sess.model, context,
-            headers=sess.headers,
+            headers=resolve_session_headers(sess),
             timeout=AI_CHAT_TIMEOUT,
         )
 
@@ -731,7 +742,7 @@ async def do_pipeline(content: str, session_id: Optional[str] = None, owner: Opt
         if not model_spec or not instruction:
             return {"error": f"Step {i + 1}: both 'model' and 'instruction' are required"}
         try:
-            url, model, headers = _resolve_model(model_spec, owner=owner)
+            url, model, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
             resolved.append((url, model, headers, instruction))
         except ValueError as e:
             return {"error": f"Step {i + 1}: {e}"}
@@ -1218,7 +1229,9 @@ async def do_list_models(content: str, session_id: Optional[str] = None, owner: 
                 model_ids = list(ANTHROPIC_MODELS)
             else:
                 try:
-                    r = httpx.get(build_models_url(base), headers=headers, timeout=5)
+                    # ORW-177: this is inside an async def, so a blocking httpx.get stalled the whole event loop for up to 5 s per endpoint.
+                    async with httpx.AsyncClient(timeout=5) as _client:
+                        r = await _client.get(build_models_url(base), headers=headers)
                     r.raise_for_status()
                     data = r.json()
                     model_ids = [m.get("id") for m in (data.get("data") or []) if m.get("id")]
@@ -1442,7 +1455,7 @@ async def do_ui_control(content: str, session_id: Optional[str] = None, owner: O
 
         # Resolve the model to validate it exists
         try:
-            url, model_id, headers = _resolve_model(model_spec, owner=owner)
+            url, model_id, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)
         except ValueError as e:
             return {"error": str(e)}
 
@@ -1697,7 +1710,7 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
     if not model_spec:
         for candidate in IMAGE_AUTODETECT_CANDIDATES:
             try:
-                _resolve_model(candidate, owner=owner)
+                await asyncio.to_thread(_resolve_model, candidate, owner=owner)  # ORW-177: blocking /models probe, off the event loop
                 model_spec = candidate
                 break
             except ValueError:
@@ -1739,7 +1752,7 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
 
     # Resolve the model to find the right endpoint
     try:
-        url, model_id, headers = _resolve_model(model_spec, owner=owner)
+        url, model_id, headers = await asyncio.to_thread(_resolve_model, model_spec, owner=owner)  # ORW-177: off the event loop
     except ValueError:
         return {"error": f"No endpoint found with image model '{model_spec}'. "
                 "Configure an OpenAI-compatible endpoint with image generation support."}
@@ -1836,7 +1849,7 @@ async def do_generate_image(content: str, session_id: Optional[str] = None, owne
             elif img.get("url"):
                 # Download external URL and save locally (DALL-E returns temp URLs)
                 try:
-                    dl_resp = httpx.get(img["url"], timeout=60)
+                    dl_resp = await asyncio.to_thread(httpx.get, img["url"], timeout=60)  # ORW-177: off the event loop
                     if dl_resp.status_code == 200:
                         img_dir = Path("data/generated_images")
                         img_dir.mkdir(parents=True, exist_ok=True)

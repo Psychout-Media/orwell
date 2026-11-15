@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp01Raw } from "../domain/num";
 
 /**
  * #2017 slice S0a — the NPC belief store: DATA MODEL + PLUMBING ONLY. Behind `ORWELL_NPC_BELIEFS` (default ON; `=0` opts out).
@@ -84,7 +85,7 @@ export const REFUTE_REVERSAL_FRACTION = 0.5;
 
 const COMPONENTS = ["trust", "affinity", "threat"] as const;
 type MutableEdge = { trust: number; affinity: number; threat: number };
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
+const clamp01 = clamp01Raw;
 
 /** The edge delta between two reads of the SAME edge (after − before), components that did not move omitted. */
 export function edgeDelta(before: MutableEdge, after: MutableEdge): EdgeDelta {

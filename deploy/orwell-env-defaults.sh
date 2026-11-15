@@ -62,12 +62,21 @@
 #   ORWELL_NPC_DEAL_OFFERS      NPC-initiated deal offers (0123) — a motivated NPC floats a deal at a lull.
 #   ORWELL_SOUL_DEPTH           Deeper character evolution (0124) — hidden layer; CHARACTER byte-stable.
 #   ORWELL_BEDTIME_GATE         A turn-in in the morning/afternoon is refused (typed held); a narrator bedtime no longer loses a day.
+#   ORWELL_ADVANCE_GATE         The engine holds an ordinary advanceGame (typed held) until the schedule says an event is due; played games only (ORW-97).
+#   ORWELL_WEEK_CHAPTERS        Week chapters (ORW-275) - the bed on eviction night closes the week with a recap.
 #   ORWELL_COMP_MECHANICS_PLUS  Expanded competition mechanics (0126) — 12 => 30 no-repeat pool.
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
+#   ORWELL_DISCLOSURE_ENGINE    A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a PLAYED game npcVoice.knows is only what the player also holds; a declined press carries deflect. ON 2026-11-14; read-only projection, moves no outcome.
+#   ORWELL_MOOD_CUE             ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood WORD as the player last saw it (a memory, not a live feed; no number, no cause). ON 2026-11-14; read-only projection, moves no outcome.
+#   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
+#   ORWELL_HOUSE_LIFE           ORW-315 (ORW-253 slice 3): hour-by-hour house life from goals replaces the 7-stock-scene tick in a PLAYED game. ON 2026-11-13; balance reported, not gated.
+#   ORWELL_GOAL_MOOD            ORW-317 (ORW-253 slice 4): a settled goal moves mood; the cause is told only to the trusted. ON 2026-11-13.
+#   ORWELL_TIE_REVEAL           Pre-show ties overhear scheduler (0095) - ON 2026-11-06 (ORW-16 follow-up; the 'dark for first playtest' direction was replaced by 'built means on').
+#   ORWELL_GOSSIP_CONSEQUENCE   Distorted-gossip consequences for confront (0094) - ON 2026-11-06 (ORW-16 follow-up).
 #   ORWELL_HANGOUT              'Hang out until X' (the safe fast-forward): short 15-30 min engine-timed beats that stop at the FIRST of the scheduled event coming due, the player
 #       being pulled, an NPC approaching, something observed, or bedtime. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
 #   ORWELL_PREMIERE_ENTRANCES    A9: the premiere opens with ONE-AT-A-TIME entrances (a seeded order, the player at a random slot), then the living-room champagne toast with a speech
@@ -130,12 +139,19 @@ ORWELL_NPC_BELIEF_NOMS=1
 ORWELL_NPC_DEAL_OFFERS=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_BEDTIME_GATE=1
+ORWELL_ADVANCE_GATE=1
+ORWELL_WEEK_CHAPTERS=1
 ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_INTENT=1
 ORWELL_FINAL_HOH_THREE_PART=1
 ORWELL_WIPEOUT_REEL=1
 ORWELL_JUROR_PROFILES=1
+ORWELL_NPC_MINDS_ENDGAME=1
+ORWELL_HOUSE_LIFE=1
+ORWELL_GOAL_MOOD=1
+ORWELL_TIE_REVEAL=1
+ORWELL_GOSSIP_CONSEQUENCE=1
 ORWELL_HANGOUT=1
 ORWELL_PREMIERE_ENTRANCES=1
 ORWELL_MYTH_MAKING=1
@@ -158,6 +174,9 @@ ORWELL_DEAL_NOMS=1
 ORWELL_CAMPAIGN_MEMORY=1
 ORWELL_APPROACH_MEMORY=1
 ORWELL_HC_MEMORY=1
+ORWELL_ENDGAME_MEMORY=1
+ORWELL_HC_STRATEGY=1
+ORWELL_DAY_CONDENSE=1
 ORWELL_MEMORY_PROMISES=1
 ORWELL_FORGIVENESS=1
 ORWELL_LOBBYING=1
@@ -173,15 +192,20 @@ ORWELL_MOOD_DEAL=1
 ORWELL_MOOD_CAMPAIGN=1
 ORWELL_DRIFT_FIX=1
 ORWELL_NPC_MEMORY_SPEECH=1
+ORWELL_MOOD_CUE=1
+ORWELL_DISCLOSURE_ENGINE=1
 ORWELL_DRIVE_DECISIONS=1
 ORWELL_LIES_CAUGHT=1
 ORWELL_HEARD_ABOUT_ME=1
 ORWELL_NO_HARD_CAPS=1
 ORWELL_JURY_MEMORY=1
+ORWELL_ROOM_CANON=1
 ORWELL_MEMORY_FRIENDS=1
 ORWELL_ACCUSE_COST=1
 ORWELL_CREDIBILITY=1
 ORWELL_GOSSIP_COPRESENCE=1
+ORWELL_PHILOSOPHIES=1
 ORWELL_CALM_PRESENCE=1
+ORWELL_TIE_BEHAVIOR=1
 EOF
 }

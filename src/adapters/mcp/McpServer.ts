@@ -6,7 +6,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -81,7 +81,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["content"])) refuse("content", "a non-empty string");
       if (args["kind"] !== undefined && typeof args["kind"] !== "string") refuse("kind", "a string when present");
       if (args["toward"] !== undefined && !isEntityIdArray(args["toward"])) refuse("toward", "an array of houseguest ids ('player' or 'npc:<n>') when present");
-      // Phase 2 — the LLM's per-scene felt duration in minutes; the engine clamps it (feltHoursFromMinutes).
+      // Phase 2 — the LLM's per-scene felt duration in minutes; the engine clamps it.
       if (args["feltMinutes"] !== undefined && typeof args["feltMinutes"] !== "number") refuse("feltMinutes", "a number of minutes when present");
       if (args["assurance"] !== undefined) {
         const a = args["assurance"];
@@ -131,6 +131,25 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (cons["rationale"] !== undefined && typeof cons["rationale"] !== "string") refuse("consequence.rationale", "a string when present");
       }
       return;
+    case "getMomentPrompt": {
+      // Showrunner memory — the OPTIONAL Show Brief request (ORWELL_SHOW_BRIEF on the FE). Shape-guard only; the
+      // engine re-validates every field and builds the brief from its own Vault-free view. Absent ⇒ unchanged.
+      if (args["zeroClocks"] !== undefined && typeof args["zeroClocks"] !== "boolean") refuse("zeroClocks", "a boolean when present");
+      const b = args["brief"];
+      if (b === undefined) return;
+      if (typeof b !== "object" || b === null || Array.isArray(b)) refuse("brief", "an object when present");
+      const br = b as Record<string, unknown>;
+      if (br["seen"] !== undefined && (typeof br["seen"] !== "object" || br["seen"] === null || Array.isArray(br["seen"]))) {
+        refuse("brief.seen", "an object when present");
+      }
+      if (br["askedAbout"] !== undefined && (!isStrArray(br["askedAbout"]) || br["askedAbout"].length > 32)) {
+        refuse("brief.askedAbout", "an array of at most 32 houseguest ids when present");
+      }
+      if (br["lastShown"] !== undefined && (typeof br["lastShown"] !== "string" || br["lastShown"].length > 4000)) {
+        refuse("brief.lastShown", "a string of at most 4000 characters when present");
+      }
+      return;
+    }
     case "surfaceInformationTo": {
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       if (!isStr(args["entity"])) refuse("entity", "an entity id (string)");
@@ -186,6 +205,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["terms"])) refuse("terms", "a non-empty string");
       // B55 - the optional direction of an ACTIVE-obligation deal (who promises): exactly "offer" or "ask" when present.
       if (args["direction"] !== undefined && args["direction"] !== "offer" && args["direction"] !== "ask") refuse("direction", '"offer" or "ask" when present');
+      // 0142 - the optional third houseguest of a protect-third deal: a houseguest id (string) when present (the engine refuses a protect-third without a valid one).
+      if (args["third"] !== undefined && !isStr(args["third"])) refuse("third", "a houseguest id (string) when present");
+      // 0142 - the optional bundled promises of a package deal: an array when present (the engine gates each part and refuses a malformed package).
+      if (args["parts"] !== undefined && !Array.isArray(args["parts"])) refuse("parts", "a list of two promises when present");
       // 0109 / #1993 — the optional negotiated term must be an object when present; the ENGINE bounds its
       // contents (a junk `weeks` is ignored there), so only the container shape is refused at the boundary.
       if (args["term"] !== undefined && (typeof args["term"] !== "object" || args["term"] === null || Array.isArray(args["term"]))) {
@@ -213,6 +236,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       if (!isStr(args["aId"])) refuse("aId", "a houseguest id (string)");
       if (!isStr(args["bId"])) refuse("bId", "a houseguest id (string)");
+      return;
+    case "callInFavor": // 0142
+      guardSyncFields(false);
+      if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
       return;
     case "confront": // 0094
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
@@ -334,6 +361,45 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (typeof p !== "object" || p === null || Array.isArray(p)) refuse("profile", "an object when present");
         if (!isStr((p as Record<string, unknown>)["houseguestId"])) refuse("profile.houseguestId", "a houseguest id (string)");
       }
+      return;
+    case "recordLookExtras":
+      // ORW-369: look-only write-back; shape guard only, the engine cleans, clamps and guards.
+      if (!isStr(args["houseguestId"])) refuse("houseguestId", "a houseguest id (string)");
+      if (args["wardrobe"] !== undefined && !Array.isArray(args["wardrobe"])) refuse("wardrobe", "an array when present");
+      if (args["onCamera"] !== undefined && typeof args["onCamera"] !== "string") refuse("onCamera", "a string when present");
+      return;
+    case "recordRoomCanon":
+      // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
+      // the length and every content rule, and rejects extra keys.
+      if (!isStr(args["roomId"])) refuse("roomId", "a room id (string)");
+      if (!isStr(args["feature"])) refuse("feature", "a one-line feature (string)");
+      return;
+    case "recordDaySummary": {
+      if (!Number.isFinite(args["day"] as number) || typeof args["day"] !== "number") refuse("day", "a number");
+      if (!isStr(args["text"])) refuse("text", "a string");
+      if (args["tier"] !== undefined && args["tier"] !== "day" && args["tier"] !== "week") refuse("tier", "'day' or 'week' when present");
+      const cd = args["coversDays"];
+      if (cd !== undefined && !(Array.isArray(cd) && cd.length === 2 && cd.every((n) => typeof n === "number" && Number.isFinite(n)))) refuse("coversDays", "a [from,to] number pair when present");
+      return;
+    }
+    case "recordNpcTraits":
+      // ORW-319: `traits` must be an array of objects with a string id; each value is validated inside the adapter (closed sets).
+      if (!Array.isArray(args["traits"])) refuse("traits", "an array");
+      for (const t of args["traits"] as unknown[]) if (typeof t !== "object" || t === null || typeof (t as Record<string, unknown>)["id"] !== "string") refuse("traits[]", "objects with a string id");
+      return;
+    case "recordNpcReflections":
+      // ORW-320: `reflections` must be an array of objects with a string id, a numeric night and a string reflection; the engine validates deeper and refuses until the season is finished.
+      if (!Array.isArray(args["reflections"])) refuse("reflections", "an array");
+      for (const r of args["reflections"] as unknown[]) {
+        const o = r as Record<string, unknown> | null;
+        if (typeof o !== "object" || o === null || typeof o["id"] !== "string" || typeof o["night"] !== "number" || typeof o["reflection"] !== "string") refuse("reflections[]", "objects with a string id, a numeric night and a string reflection");
+      }
+      return;
+    case "recordHouseCulture":
+      // ORW-319: every part OPTIONAL; refuse only a present part of the wrong shape (validated deeper in the adapter).
+      if (args["spots"] !== undefined && !Array.isArray(args["spots"])) refuse("spots", "an array when present");
+      if (args["rituals"] !== undefined && !Array.isArray(args["rituals"])) refuse("rituals", "an array when present");
+      if (args["runningJoke"] !== undefined && !isStr(args["runningJoke"])) refuse("runningJoke", "a string when present");
       return;
     case "recordWorldSnapshot":
       // 0062: the FE zeitgeist write-back. `slices` is OPTIONAL — refuse only if present and not an
@@ -468,6 +534,21 @@ export class McpServer {
         // floor / name validators / closed hidden-element kinds / tie-graph sanity / hidden-weight stripping) and
         // fold the committed skeleton onto the pre-warmed cast. Structured Vault-free violations out; pre-game only.
         return this.deps.session.recordCastGenesis(args as unknown as RecordCastGenesisReq);
+      case "recordLookExtras":
+        // ORW-369: store the two look fields for one existing houseguest, nothing else. Public fields only.
+        return this.deps.session.recordLookExtras(args as unknown as RecordLookExtrasReq);
+      case "recordRoomCanon":
+        // ORW-223: record a narrated room feature as canon (Vault-free; never an event, outcome or secret).
+        return this.deps.session.recordRoomCanon(args as unknown as RecordRoomCanonReq);
+      case "recordNpcTraits":
+        // ORW-319: freeze each houseguest's model-read habits + aim hint (validated, write-once, engine-side).
+        return this.deps.session.recordNpcTraits(args as unknown as RecordNpcTraitsReq);
+      case "recordNpcReflections":
+        // ORW-320: post-crown nightly reflections (refused until finished; validated; write-once per houseguest-night).
+        return this.deps.session.recordNpcReflections(args as unknown as RecordNpcReflectionsReq);
+      case "recordHouseCulture":
+        // ORW-319: freeze the season's house culture (validated, write-once).
+        return this.deps.session.recordHouseCulture(args as unknown as RecordHouseCultureReq);
       case "recordWorldSnapshot":
         // 0062: freeze the FE-captured move-in zeitgeist (public flavor; never a game input). Idempotent.
         return this.deps.session.recordWorldSnapshot(args as unknown as RecordWorldSnapshotReq);
@@ -569,6 +650,11 @@ export class McpServer {
         return this.deps.session.accuseTie(
           args["aId"] as EntityId, args["bId"] as EntityId, args["expectedBeatSeq"] as number | undefined,
         );
+      case "callInFavor":
+        // 0142 - the engine prices whether the houseguest honors a favor they owe the player.
+        return this.deps.session.callInFavor(
+          args["npcId"] as EntityId, args["ask"] as Parameters<GameSession["callInFavor"]>[1], args["expectedBeatSeq"] as number | undefined,
+        );
       case "confront":
         // 0094 — the closed-set confrontation: the engine classifies the cited belief + resolves the
         // outcome against reality; the model only voices the result (landed/misfired).
@@ -614,6 +700,10 @@ export class McpServer {
         );
       case "seasonRecap":
         return this.deps.session.seasonRecap();
+      case "recordDaySummary":
+        return this.deps.session.recordDaySummary(args as unknown as RecordDaySummaryReq);
+      case "dayLedger":
+        return this.deps.session.dayLedger();
       case "dailyRecap":
         return this.deps.session.dailyRecap();
       case "seasonRetrospective":

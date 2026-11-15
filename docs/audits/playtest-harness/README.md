@@ -248,7 +248,7 @@ messages with the repo's required trailers.
 |---|---|
 | `lib.mjs` | capture helpers: full-page PNGs at both breakpoints, the in-page **defect scan** (overflow/offscreen/whitespace/tap-targets), innerText dump, optional API login. |
 | `playSession.mjs` | the **interactive roleplay daemon** (mailbox protocol, robust `waitDone`, decision/ask_user auto-resolve, per-turn leak check + screenshot). |
-| `namesCheck.mjs` | single clean API turn that **forces a named scene** and checks GM names vs the engine roster. |
+| `namesCheck.mjs` | **retired (ORW-44 S4b3)** — single clean API turn that forced a named scene over `POST /api/chat_stream` (refused in the WebSocket-only game build). |
 | `coreScenes.mjs` / `gameScenes.mjs` / `state1.mjs` | scripted captures of login/home/settings/themes and the game windows (cast, finale, decision card, social, diary, status HUD). |
 | `gameLoopUI.mjs` | a *mechanical* through-the-UI driver (sends agent turns, answers cards/ask_user) — useful to confirm the engine integration works under explicit prompting, and to reach late states fast. **Not** a substitute for persona roleplay. |
 | `mirror_live_parity.mjs` + `run_mirror_gate.sh` | the **F5 two-window live-parity gate** (§10) — boots the stack + a deterministic streamed fake model and asserts window B mirrors window A's **LIVE** render (renders DURING A's stream, through the same incremental renderer), not just the settled transcript. Model-independent, no key. Sends a **warm-up** turn first so B is a pre-subscribed mirror, and widens A's reply stream (`FAKE_TOKEN_DELAY_MS`, default 300 ms) so the gate is host-speed-independent (§10 "Timing model"). Self-test knobs: `MIRROR_B_CPU_THROTTLE=N`, `MIRROR_SKIP_WARMUP=1`. |

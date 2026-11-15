@@ -26,8 +26,7 @@
 >   FICTION and points the player at the sanctioned "New season" button.
 > - Gates: `frontend/tests/test_0057_ui.py`, `frontend/tests/test_0057_reapproach.py`.
 >
-> **Owed:** live browser validation of the progress-% fill behavior and the panel placement
-> (the parent's browser-smoke / responsive-matrix jobs).
+> **Browser validation (landed):** `frontend/scripts/browser_smoke.py` (the "0057 — SEASONS-AS-LEVELS render" block) asserts the season-progress bar, the "Season N" chip and the post-season "New season" panel in a real browser (this note previously said it was owed; corrected 2026-11-12, ORW-286 item 8).
 
 ## Concept — a completed season is a "level"
 
@@ -115,7 +114,7 @@ number; never shows Vault data.
 2. ✅ **The two HUD indicators** — the **season progress bar** (4px ≤ 5px, bottom-of-viewport,
    accent, cadence-driven 0→100%, resets per season; FE-computed from Vault-free state) + the quiet
    **"Season N" chip** (shown ≥ 2). `orwellSeasonProgress.js`; source/route-gated by
-   `test_0057_ui.py`; live browser-smoke validation owed.
+   `test_0057_ui.py`; live browser-smoke validation landed (`browser_smoke.py`, "0057 — SEASONS-AS-LEVELS render").
 3. ✅ **The finale "New season" surface** — the persistent post-season panel/button with
    keep/recreate (0056) + the portrait keep/upload/regenerate toggle (shared G26/G27 studio), wired
    to the next-season endpoint; the in-reunion UI nudge. Plus the settings **red-zone**

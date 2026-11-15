@@ -12,7 +12,7 @@
 ## 1. Summary
 
 Every new game is a new save: a player authored at first-run OOBE plus a brand-new house of
-**15 generated, randomly-named NPCs** within plausible *Big Brother* archetype bounds, for a
+**15 generated NPCs** (live casting: model-authored, validated names; the deterministic factory used by tests and the non-strict floor: seeded samples from the vendored real-name corpora) within plausible *Big Brother* archetype bounds, for a
 cast of **16**. The cast is a **curated ensemble** — like real BB casting, `CharacterFactory`
 deliberately balances archetypes, strategy styles, and backgrounds so every house has built-in
 friction and variety (never a clump of near-identical types). **No identity carries over**
@@ -48,7 +48,7 @@ SoulProvider:
 ```
 
 **Invariants:** exactly 16 houseguests (1 player + 15 NPCs); display names unique within a
-house and never drawn from a hard-coded/sample list; different seeds ⇒ disjoint identities.
+house and never drawn from a hard-coded/sample list (live names are model-authored and validated; the corpora feed only the deterministic factory); different seeds ⇒ disjoint identities.
 Each houseguest splits into **static `Character`** (baseline: archetype, core P/M/S aptitudes,
 identity) and **dynamic `Soul`** (evolving: emotional state, accumulated memory, and
 **relationship beliefs** — graded and computed, not binary ally/bff flags) — see
@@ -60,7 +60,7 @@ identity) and **dynamic `Soul`** (evolving: emotional state, accumulated memory,
 - **Seeded** generation; assert cast size, authorship origin, uniqueness, archetype bounds.
 - **No-carryover:** generate two houses with different seeds and assert disjoint identities;
   generate with the same seed and assert reproducibility.
-- **Name-agnostic & no-sample-content:** assert generated names are not members of any fixed
+- **Name-agnostic & no-sample-content:** assert deterministic-factory names are not members of any fixed
   list, and tests reference roles only (this feature is itself a guard against name hard-coding).
 - **Archetype plausibility:** assert each NPC satisfies the internal-consistency / plausible-
   archetype constraints (a schema/ruleset the factory must honor).

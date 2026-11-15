@@ -32,6 +32,11 @@ def get_rag_manager():
     if rag_instance is not None:
         return rag_instance
 
+    # ORW-237: the GAME BUILD has no ChromaDB (issue #636): never attempt VectorRAG there - the failed attempt only logged noise on every start. The full workspace (ORWELL_GAME_BUILD=0) still tries.
+    from src.settings import game_build_enabled
+    if game_build_enabled():
+        return None
+
     now = time.monotonic()
     if now - _last_attempt < _RETRY_INTERVAL:
         return None  # too soon to retry — last attempt failed

@@ -522,8 +522,10 @@ function ensureCss() {
       background-size: 240% 100%; animation: ow-load-sweep 1.1s linear infinite;
       pointer-events: none; z-index: 2;
     }
+    /* The hint is visible UI text, so it keeps the --fs-2xs floor (~11px): .7em of a 13px title was 9.1px, and the responsive
+       matrix's crowding sweep failed whenever a slow fill (>200ms, TRANS-10) put the hint on screen at capture time (ORW-229). */
     .ow-title .ow-load-hint {
-      margin-left: .4rem; font-size: .7em; font-weight: 400; opacity: .55;
+      margin-left: .4rem; font-size: max(.7em, var(--fs-2xs, .6875rem)); font-weight: 400; opacity: .55;
       letter-spacing: 0; white-space: nowrap;
     }
     @keyframes ow-load-sweep {

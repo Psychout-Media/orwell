@@ -22,12 +22,12 @@ run build`) and run on :8765 with the deterministic embedding fallback.
 >
 > | Finding | Issue | Finding | Issue |
 > |---|---|---|---|
-> | LIVE-7 | [#540](https://github.com/kevinhirsch/orwell/issues/540) | NARR-NEW-2 | [#549](https://github.com/kevinhirsch/orwell/issues/549) |
-> | LIVE-4 | [#541](https://github.com/kevinhirsch/orwell/issues/541) | NARR-NEW-3 | [#550](https://github.com/kevinhirsch/orwell/issues/550) |
-> | NARR-7 | [#542](https://github.com/kevinhirsch/orwell/issues/542) | NAME-1 / CARRY-2 | [#547](https://github.com/kevinhirsch/orwell/issues/547) |
-> | EVT-1 | [#569](https://github.com/kevinhirsch/orwell/issues/569) | CARRY-1 | [#545](https://github.com/kevinhirsch/orwell/issues/545) |
-> | NARR-NEW-1 | [#548](https://github.com/kevinhirsch/orwell/issues/548) | CARRY-3 (PO-confirm) | [#607](https://github.com/kevinhirsch/orwell/issues/607) |
-> | CARRY-4 (housekeeping) | [#608](https://github.com/kevinhirsch/orwell/issues/608) | | |
+> | LIVE-7 | [#540](https://github.com/Psychout-Media/orwell/issues/540) | NARR-NEW-2 | [#549](https://github.com/Psychout-Media/orwell/issues/549) |
+> | LIVE-4 | [#541](https://github.com/Psychout-Media/orwell/issues/541) | NARR-NEW-3 | [#550](https://github.com/Psychout-Media/orwell/issues/550) |
+> | NARR-7 | [#542](https://github.com/Psychout-Media/orwell/issues/542) | NAME-1 / CARRY-2 | [#547](https://github.com/Psychout-Media/orwell/issues/547) |
+> | EVT-1 | [#569](https://github.com/Psychout-Media/orwell/issues/569) | CARRY-1 | [#545](https://github.com/Psychout-Media/orwell/issues/545) |
+> | NARR-NEW-1 | [#548](https://github.com/Psychout-Media/orwell/issues/548) | CARRY-3 (PO-confirm) | [#607](https://github.com/Psychout-Media/orwell/issues/607) |
+> | CARRY-4 (housekeeping) | [#608](https://github.com/Psychout-Media/orwell/issues/608) | | |
 >
 > Not filed (no product action): OPS-1 (environmental egress), CHAIN-1 / POS-1/2/3 (positives),
 > the loop-sweep clean re-verifications.

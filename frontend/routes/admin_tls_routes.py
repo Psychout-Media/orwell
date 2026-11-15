@@ -26,6 +26,7 @@ same deploy data tree the public-deployment lane uses), so a missing root watche
 the same ops-progress channel the status page polls.
 """
 
+import asyncio
 import datetime as _dt
 import json
 import os
@@ -148,7 +149,7 @@ def setup_admin_tls_routes() -> APIRouter:
             "secureCookies": (env.get("SECURE_COOKIES", "false") or "").strip().lower() == "true",
             "caddy": {
                 "installed": shutil.which("caddy") is not None,
-                "active": _caddy_active(),
+                "active": await asyncio.to_thread(_caddy_active),
             },
             "rootCa": {
                 "available": _root_ca_present(),

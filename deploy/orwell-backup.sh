@@ -30,9 +30,49 @@ mkdir -p "$DEST"
 # EXCLUDE data/models — that is the fastembed ONNX embedding cache (ORWELL_EMBED_CACHE). It is
 # re-fetchable and RE-WARMS on the engine's first boot, so it is game-irrelevant weight: a daily
 # backup × the 30-day retention would otherwise bloat the very disk the saves/portraits live on.
-tar -czf "$OUT" -C "$APP_DIR" --exclude='data/models' \
-  $( [[ -d "${APP_DIR}/data" ]] && echo "data" ) \
-  $( [[ -d "${APP_DIR}/frontend/data" ]] && echo "frontend/data" )
+# ORW-403: the FE database runs in SQLite WAL mode and is LIVE. The old approach (checkpoint, then tar
+# the raw app.db/-wal/-shm) cannot work under the unit's sandbox (only backups/ is writable, so the
+# checkpoint failed and its stderr was discarded) and could capture a torn db/wal pair. Instead take a
+# consistent copy with python3's Connection.backup() from a READ-ONLY connection (python3 -I; prod has
+# python3 but no sqlite3 CLI) into a temp file inside the backups dir, verify it with
+# PRAGMA integrity_check, and archive THAT copy in place of the live db/-wal/-shm. Errors are printed.
+FE_DB="${APP_DIR}/frontend/data/app.db"
+SNAP=""
+trap '[[ -n "$SNAP" ]] && rm -f "$SNAP"' EXIT
+if [[ -f "$FE_DB" ]]; then
+  command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to snapshot ${FE_DB}" >&2; exit 1; }
+  SNAP="$(mktemp "${DEST}/.app.db.snapshot.XXXXXX")"
+  SNAPPY='
+import sqlite3, sys
+src_path, dst_path = sys.argv[1], sys.argv[2]
+src = sqlite3.connect("file:" + src_path + "?mode=ro", uri=True, timeout=30)
+dst = sqlite3.connect(dst_path)
+try:
+    src.backup(dst)
+    dst.commit()
+    res = dst.execute("PRAGMA integrity_check").fetchall()
+finally:
+    dst.close()
+    src.close()
+if [r[0] for r in res] != ["ok"]:
+    sys.exit("integrity_check failed: " + "; ".join(str(r[0]) for r in res))
+'
+  DB_OWNER="$(stat -c %U "$FE_DB" 2>/dev/null || true)"
+  if [[ "$(id -u)" -eq 0 && -n "$DB_OWNER" && "$DB_OWNER" != "root" ]] && command -v runuser >/dev/null 2>&1; then
+    chown "$DB_OWNER" "$SNAP"
+    runuser -u "$DB_OWNER" -- python3 -I -c "$SNAPPY" "$FE_DB" "$SNAP" || { echo "ERROR: database snapshot failed; no backup written" >&2; exit 1; }
+  else
+    python3 -I -c "$SNAPPY" "$FE_DB" "$SNAP" || { echo "ERROR: database snapshot failed; no backup written" >&2; exit 1; }
+  fi
+fi
+TAR_ARGS=(-czf "$OUT" -C "$APP_DIR" --exclude='data/models'
+  --exclude='frontend/data/app.db' --exclude='frontend/data/app.db-wal' --exclude='frontend/data/app.db-shm')
+[[ -d "${APP_DIR}/data" ]] && TAR_ARGS+=(data)
+[[ -d "${APP_DIR}/frontend/data" ]] && TAR_ARGS+=(frontend/data)
+if [[ -n "$SNAP" ]]; then
+  TAR_ARGS+=(--transform "s,^$(basename "$SNAP")\$,frontend/data/app.db," -C "$DEST" "$(basename "$SNAP")")
+fi
+tar "${TAR_ARGS[@]}"
 chmod 600 "$OUT"
 echo "backup written: ${OUT}"
 echo "contents: <app>/data (engine .env + saves; the models/ embedding cache is EXCLUDED and re-warms on first boot) + <app>/frontend/data (FE SQLite + uploads)"

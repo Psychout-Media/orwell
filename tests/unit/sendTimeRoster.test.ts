@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync } from "node:fs";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
@@ -11,9 +12,10 @@ import type { Room } from "../../src/domain/house";
  */
 type P = { presence: Map<string, Room>; noteMessage(r: { messageId: string }): unknown; movePlayer(room: string): unknown };
 function game() {
+  GameSessionAdapter.setTimeOfDayEnabled(false); // ORW-116: the clock now starts at the first player message; this contract is about the SEND-time roster, not the clock
   const sb = new GameSessionRegistry().sandboxFor(`sendroster-${Math.random()}`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
-  sb.session.advanceGame(); sb.session.advanceGame();
+  sb.session.advanceGame(); // the champagne-circle close (ORW-116: the exit advance is no longer a day-break, so it is not part of this setup)
   const p = sb.session as unknown as P;
   const npcs = sb.session.livingIds().filter((i) => i !== PLAYER);
   const [here, late, away] = npcs as [string, string, string];
@@ -21,6 +23,8 @@ function game() {
   return { sb, p, here, late, away };
 }
 const witnessesOf = (sb: ReturnType<typeof game>["sb"], eventId: string): readonly string[] => sb.engine.events.queryAll().find((e) => e.id === eventId)!.witnessSet;
+
+afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
 describe("only the people in the room when the player SENDS can have heard it", () => {
   it("a houseguest who walks in AFTER the send is not a witness of the scene (no fold, no memory path)", () => {

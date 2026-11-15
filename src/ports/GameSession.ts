@@ -97,6 +97,8 @@ export interface PlayerCard {
 export interface HouseguestCard {
   id: EntityId;
   name: string;
+  /** ORW-343 (ORWELL_MOOD_CUE): the mood WORD as the player last saw this (active) houseguest while sharing a room with them, e.g. "tense" or "at ease but tired". A memory of what was seen, not a live read; absent until seen together. Never a number, never a cause. */
+  lastSeenMood?: string;
   /** active | jury (evicted into the last-9) | evicted (pre-jury). Public ceremony fact. */
   status: string;
   archetype?: string;
@@ -186,6 +188,9 @@ export interface DealView {
   status: "open" | "kept" | "broken";
   /** 0109 — the NEGOTIATED term, when one exists (the player's own knowledge; never a derived magnitude). */
   term?: { expiresWeek?: number; vague?: boolean };
+  /** 0142 (package): the id the two parts of a package share. On the `package` view itself, `parts` lists both. */
+  packageId?: string;
+  parts?: DealView[];
 }
 
 /**
@@ -194,8 +199,10 @@ export interface DealView {
  */
 export interface DealRefusal {
   refused: true;
-  reason: "distrust" | "threat" | "targeted" | "grudge" | "cost";
+  reason: "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
   narratable: string;
+  /** 0142: a lukewarm houseguest (reason `cost`) answers with terms instead of a flat no. Present only when one now stands as the open `openDealOffer` (the player accepts or declines it with submitDecision deal-offer). */
+  counteroffer?: { kind: string; terms: string };
 }
 
 /** A portrait prompt for one houseguest (0051) — returned at season start for the FE to call the image API. */
@@ -242,6 +249,17 @@ export interface RecordWorldSnapshotReq {
   /** Any subset of the public slices (each bounded to the budget; empty keeps the fallback's value). */
   slices?: Partial<WorldSnapshotSlices>;
 }
+
+/**
+ * ORW-319 (ORW-253 slice 5, spec 0146 lane 1): the FE-driven write-back of what the utility model read from each houseguest's PUBLIC
+ * profile: habits (2-3 from the closed set) and a season-aim hint (closed set) with a short why. The engine validates every value and
+ * keeps each houseguest's first accepted record (frozen, like the zeitgeist). Engine-side only (an aim is a motive: Vault-class).
+ */
+export interface RecordNpcTraitsReq { traits: Array<{ id: EntityId; habits: string[]; aimHint?: string; aimWhy?: string }> }
+export interface RecordNpcTraitsResult { accepted: number; rejected: number }
+/** ORW-319 (spec 0146 lane 2): the FE-driven house-culture write-back (spots, rituals, a running joke), from the cast's PUBLIC facets. Once per season. */
+export interface RecordHouseCultureReq { spots?: Array<{ room: string; nickname: string }>; rituals?: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }
+export interface RecordHouseCultureResult { accepted: boolean; reason?: string }
 
 /** Whether the zeitgeist write-back was accepted, and the resulting source tier (0062). */
 export interface RecordWorldSnapshotResult {
@@ -429,6 +447,13 @@ export interface GameStateView {
    * told to name no other time. Absent pre-game / clock dormant => byte-identical.
    */
   clockLabel?: string;
+  /** ORW-377: zero-clocks narration view only (set by `getMomentPrompt` when `zeroClocks`, which also drops `clockLabel`): the part of the day + Day N ("small hours, Day 5"), never minutes. Never on the HUD / getGameState view. */
+  clockBand?: string;
+  /**
+   * ORW-345: the in-game DAY number behind `clockLabel` ("..., Day 4" -> 4), public and Vault-free, present under the same gate as `clockLabel`. The front end stamps it onto every saved chat row (`metadata.game_day`) so the
+   * closed-day condensing of the narrator's prompt (ORW-271) can tell which rows belong to a closed day. It was only on `gameStatus`, never on this view, so on the live path no row was ever stamped and nothing condensed.
+   */
+  dayNumber?: number;
   /**
    * ADR 0006 — the houseguests who've TURNED IN for the night (the complement of the awake set). Names
    * only; Vault-free and OBSERVABLE (the bedtime derivation stays hidden). Present only when the clock is
@@ -569,8 +594,8 @@ export interface GameStateView {
    * calibration spine / golden replay, which pin that clock off) ⇒ byte-identical (the 0108 golden fixture this once referenced was decommissioned 2026-07-21; nothing to re-record).
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
-  interruption?: { npc: string; desire: string };
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number };
+  interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
+  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3 };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -593,6 +618,11 @@ export interface GameStateView {
    * `createRefused` is.
    */
   createRefusedReason?: string;
+  /**
+   * ORW-208 - present ONLY when the strategy style the caller asked for was NOT one of the chosen archetype's own styles and the engine
+   * stored the archetype's first style instead (it drives hidden stats/leakiness). Previously this substitution was silent. Public labels only.
+   */
+  strategyStyleAdjusted?: { requested: string; applied: string; archetype: string };
   /**
    * RC5 / feature 0116 / #1599 — the cast-identity COHERENCE outcome of this game start (Vault-free
    * diagnostic; NEVER player content, never a secret). A model-authored dossier is assembled across three
@@ -639,6 +669,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
 }
 
 /**
@@ -774,12 +806,20 @@ export interface SecretLeverDescriptor {
   subject?: EntityId;
 }
 
+/** The single-promise deal kinds a `makeDeal` may name (a `package` bundles two of these). */
+export type DealReqKind = "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save" | "protect-third" | "conditional" | "information";
+
 export interface MakeDealReq {
   with: EntityId;
   // 0121 — the two ACTIVE-obligation kinds (comp-throw / veto-save) are accepted only when the deal-depth
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
-  kind: "safety" | "vote" | "final-two" | "target-other" | "comp-throw" | "veto-save";
+  kind: DealReqKind | "package";
   terms: string;
+  /**
+   * 0142 (ORW-88 idea 3) - for `protect-third` only: the THIRD houseguest the NPC swears not to move against (nominate, replace or vote out). The NPC is always the promisor (the player
+   * asked them); a played game with the deal-depth layer on is required. Ignored for every other kind.
+   */
+  third?: EntityId;
   /**
    * B55 - for the ACTIVE kinds only (comp-throw / veto-save): who promises. `offer` (the default - "I'll throw it for you") binds the PLAYER; `ask` ("will you throw it for me?") binds the NPC. Ignored for the defensive kinds.
    */
@@ -793,6 +833,11 @@ export interface MakeDealReq {
    * byte-identical to 0039.
    */
   term?: { weeks?: number; vague?: boolean };
+  /**
+   * 0142 (ORW-88 idea 3) - for `package` only: the TWO promises bundled in one deal with `with` (each `{ kind, third?, terms? }`, the kinds being any of the defensive kinds, `protect-third`, `conditional` or
+   * `information`; `third` as for `protect-third`). Each is adjudicated on its own; a break of either costs the package's reliability. Played games with deal depth on only. Ignored for every other kind.
+   */
+  parts?: Array<{ kind: Exclude<DealReqKind, "comp-throw" | "veto-save">; third?: EntityId; terms?: string }>;
   /**
    * 0093 — OPTIONAL leverage: a secret the player holds ABOUT the deal partner (`with`), pressed to make
    * them more likely to enter/honor the deal. The threat persists while the deal is open (owner R4);
@@ -921,6 +966,12 @@ export interface ConfrontResult {
   landed: boolean;
 }
 
+/** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
+export interface OwedFavorView { from: NamedRef; n: number }
+
+/** 0142: a called-in favor. The ENGINE priced it; `honored` => an ordinary deal of `kind` now binds the houseguest; otherwise they ignored it (the favor is spent and the player's read of them drops). */
+export interface CallInFavorResult { honored: boolean; kind: string; narratable: string }
+
 /**
  * The result of a `confide` (feature 0075). The engine decided WHETHER the houseguest opened up,
  * WHICH tier (how much), and whether it was a real confidence or a fabricated one (a lie). The
@@ -1020,6 +1071,83 @@ export interface CreateCharacterReq {
 export interface MomentPromptReq {
   /** Override the phase-derived beat (e.g. "diary-room", "character-creation"). */
   moment?: string;
+  /**
+   * Showrunner memory, Show Brief v1 skeleton (K6 §3, ORWELL_SHOW_BRIEF): present ONLY when the caller wants the
+   * terminal Show Brief for this turn. Absent ⇒ the response is byte-identical to before (no `showBrief`).
+   */
+  brief?: ShowBriefReq;
+  /**
+   * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
+   */
+  zeroClocks?: boolean;
+}
+
+/**
+ * What the FE sends when it asks for a Show Brief. Every field is optional and re-validated by the engine; the
+ * brief itself is built from the engine's own Vault-free projections, never from these strings (the FE echoes
+ * are only used to say what CHANGED and which absences to state).
+ */
+export interface ShowBriefReq {
+  /** The `seen` state the PREVIOUS brief of this conversation returned (the narrator's last view). Absent on the first brief. */
+  seen?: BriefSeenState;
+  /** Houseguest ids the player's latest message or the last scene named (resolved by the FE from the public roster). */
+  askedAbout?: EntityId[];
+  /** The last lines the player saw: the tail of the previous narrated reply, out-of-character asides removed. */
+  lastShown?: string;
+}
+
+/** The player-visible state a brief was built from, echoed back by the FE next turn (no hidden position ever). */
+export interface BriefSeenState {
+  v: 1;
+  beatSeq: number;
+  /** The in-game clock label at that brief, when the clock runs. */
+  clock?: string;
+  /** The player's room. */
+  room: string;
+  /** Who was with the player (ids, sorted). */
+  here: EntityId[];
+  /** Each room in the player's sightline and who was in it (ids, sorted). */
+  inView: Array<{ room: string; ids: EntityId[] }>;
+}
+
+/** The Show Brief v1 skeleton: one terminal system message, fixed section order, Vault-free by construction. */
+/** ORW-223: the room-canon write-back request. Exactly these two fields; extra keys are rejected. */
+export interface RecordRoomCanonReq {
+  roomId: string;
+  /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
+  feature: string;
+}
+
+/** ORW-369: a look-only write-back for ONE existing houseguest: the clothing pieces and the on-camera line, nothing else. */
+export interface RecordLookExtrasReq {
+  houseguestId: string;
+  wardrobe?: string[];
+  onCamera?: string;
+}
+
+export interface RecordLookExtrasResult {
+  accepted: boolean;
+  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  fields: string[];
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+}
+
+export interface RecordRoomCanonResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+}
+
+export interface ShowBriefView {
+  text: string;
+  /** Echo this back as `brief.seen` on the next turn. */
+  seen: BriefSeenState;
+  beatSeq: number;
+  /** chars / 4.1 (the K6 estimator). */
+  tokens: number;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1040,6 +1168,12 @@ export interface MomentPromptView {
    *  feature). Vault-free (public voice flavor only). The FE uses it as the chat sender name so the
    *  producer reads as a real person, not the generic "Production" label. Always present. */
   producerName: string;
+  /**
+   * Showrunner memory — the Show Brief v1 skeleton, present ONLY when the request carried `brief` and a season is
+   * live with the player in the house. Meant to be appended as a terminal system message, after the transcript,
+   * so the cached prompt prefix is untouched.
+   */
+  showBrief?: ShowBriefView;
 }
 
 /**
@@ -1148,6 +1282,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0142: favors houseguests owe the player (present only while any are banked). */
+  owedFavors?: OwedFavorView[];
   /**
    * F3: whether the season is OVER (a winner is crowned). Mirrors the same public over-signal as
    * `AdvanceView.finished` / `SeasonRecap.finished` (`this.live.finished`). Surfaced here so a client
@@ -1246,6 +1382,7 @@ export interface NamedRef {
 export type BeatAnnouncementKind =
   | "hoh-winner"
   | "nominations"
+  | "veto-field"
   | "veto-winner"
   | "veto-decision"
   | "replacement-nominee"
@@ -1318,13 +1455,23 @@ export interface OpenDealOfferView {
   terms: string;
   /** The in-game week it was floated — it lapses when the week rolls past this. */
   madeWeek: number;
+  /** 0142 idea 4: set when the houseguest is asking to SWAP an existing deal (the public id of that deal) rather than float a new one. */
+  replacesDealId?: string;
   /** The narrator's voicing instruction for this offer (carried here, not in the base prompt). */
   howToVoice: string;
 }
 
+/** ORW-281 slice 4a: the staged-ceremony step handle (`step` is 1-based; `of` is null when a ceremony's length is open-ended). */
+export interface CeremonyStepView {
+  kind: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | "final-eviction";
+  step: number;
+  of: number | null;
+  stepId: string;
+}
+
 /** A decision the live loop is blocked on until the player resolves it (0011 + the finale, 0037). */
 export interface PendingDecisionView {
-  kind: "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
+  kind: "ceremony-step" | "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
     | "goodbye-message" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote"
     // --- exit interview (0130): the player, as the evictee, answers the producers on the way out with their
     // own posture (gracious / defiant / bitter) + optional words, never engine-authored. `evictee` echoes who
@@ -1399,6 +1546,13 @@ export interface PendingDecisionView {
    * stakes decision. Absent for every other kind.
    */
   binding?: boolean;
+  /**
+   * ORW-281 slice 4a: present on EVERY pending that is a step of a staged ceremony (the `ceremony-step` watch pending AND a ceremony's binding step such as the
+   * nominations `choose`). Vault-free: the ceremony kind, the 1-based step, the step count and a stable engine step id.
+   */
+  ceremony?: CeremonyStepView;
+  /** ORW-281 4a: the short Vault-free line of a `ceremony-step` watch pending (public names + the step id only - never an outcome ahead of the engine). */
+  text?: string;
   /** How many to pick (nominations = 2; others = 1; finale-statement / juror-question = 0). */
   pick: number;
 }
@@ -1459,10 +1613,16 @@ export interface EvictionView {
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */
+/** ORW-275 - the week-chapter recap (public ceremony facts only). */
+export interface WeekChapterView {
+  week: number;
+  recap: { evicted: string[]; hoh: string | null; standing: string };
+}
+
 export interface AdvanceView {
   started: boolean;
   /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
-  held?: { next: string; minutesUntil: number };
+  held?: { next: string; minutesUntil: number; /** ORW-97: present ("schedule") only on the A65 schedule hold (an event not yet due); absent on the night/bedtime holds. */ reason?: "schedule" };
   /**
    * The monotonic per-sandbox beat counter (0065 Part A) AFTER this advance/decision committed — see
    * `GameStateView.beatSeq`. The FE captures it as the new last-seen token. On an idempotency REPLAY
@@ -1470,6 +1630,8 @@ export interface AdvanceView {
    * nothing). Vault-free; restart-safe.
    */
   beatSeq: number;
+  /** ORW-281 slice 4a: the staged-ceremony step this result opened (or, on a ceremony's closing Continue, the step that just closed). Absent outside a staged ceremony. */
+  ceremony?: CeremonyStepView;
   /** The beat that just resolved (null if blocked on a decision or the game is over). */
   event: BeatEventView | null;
   /** Set when the loop now needs a player decision before it can continue. */
@@ -1488,6 +1650,11 @@ export interface AdvanceView {
    * or nothing closed (a quiet/no-op turn-in) — the narrator voices it only when present, never invents one.
    */
   dailyRecap?: DailyRecapView;
+  /**
+   * ORW-275 - present ONLY on the played-game `turnIn` that crosses a week boundary (the bed on eviction night): the Vault-free
+   * "new chapter" recap. `week` is the NEW week. No numbers except the houseguest count in `standing`.
+   */
+  weekChapter?: WeekChapterView;
   /**
    * T0-3 — the Vault-free broadcast chyron(s) for every committed ceremony fact THIS advance/decision
    * just produced, in commit order (a T0-2 auto-advanced beat chained onto a resolved pending can
@@ -1557,7 +1724,7 @@ export interface FirstImpressionView {
  * answer to "who has the player met, and who is still to introduce, before the first HOH?". The
  * narrator is HANDED this so it never has to REMEMBER who's been introduced (the real bug: the
  * model under-tracked and skipped people). `complete` is the ALL-MET tally — true once the player has
- * met all 15 NPCs (the player counts themselves). It is NOT the power gate: the first HOH is REACHABLE
+ * met all 15 NPCs (the player counts themselves); with the staged entrances ON it reads false until the last arrival. It is NOT the power gate: the first HOH is REACHABLE
  * earlier, via `powerReachable` below (0111 — a couple of hot reads + nobody left invisible), WITHOUT
  * every formal introduction first.
  *
@@ -1571,12 +1738,10 @@ export interface PremiereIntrosView {
   metCount: number;
   total: number;
   /**
-   * @deprecated BL-005 — VESTIGIAL under the champagne circle (0111). The whole house is met at the
-   * opening toast (`meetWholeHouseAtChampagneCircle`), so this is ALWAYS `[]` during a live premiere —
-   * there is no roll-call left to grind through. Kept only as an always-empty back-compat field (a
-   * removal would break existing consumers/snapshots); it no longer advertises a progressive tracker.
-   * Read `met` for the whole cast; never treat this as a checklist to work through (the narrator prompt
-   * says "you do NOT track introductions").
+   * The houseguests still to meet. With the staged entrances OFF (champagne circle, 0111) the whole house is met at the opening toast, so this is `[]`. With the entrances ON
+   * (default) it is non-empty only while `entrance.stage === "entrances"`: one ANONYMOUS placeholder per houseguest who has not walked in yet (ordinal id `unarrived:N`,
+   * name "(not yet arrived)", no persona facets) - so the count is honest while the arrival order stays hidden - and `[]` from the toast on. Not a checklist to work through
+   * (the narrator prompt says "you do NOT track introductions"); nothing in the engine is gated on it.
    */
   remaining: FirstImpressionView[];
   /** Everyone met so far — the player's early observable reads, for a "first impressions" surface. */
@@ -1628,6 +1793,13 @@ export interface PremiereIntrosView {
     justArrived?: NamedRef;
     playerJustEntered?: boolean;
     speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true }>;
+    /**
+     * ORW-368 (Ryne's playtest: "it seems to want me to go every time... after a few people it comes back to me as if I need to go again"): where the PLAYER'S OWN toast slot stands, derived from the engine's own done list (`spoke`, which
+     * the player's slot is part of): `later` = their slot has not come up yet, `now` = it is in the latest batch (the narrator invites the player ONCE), `done` = it has passed. Toast stage only.
+     */
+    playerToast?: "later" | "now" | "done";
+    /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
+    toastRemaining?: number;
   };
 }
 
@@ -1676,6 +1848,14 @@ export interface WhereaboutsView {
   turnsHere: number;
   companions: Array<{ id: EntityId; name: string; turnsHere: number }>;
   /**
+   * ORW-376 - the engine-owned HEADCOUNTS, the player INCLUDED, so the narrator quotes a number instead of counting a list of the
+   * OTHER people's names (which is always one short of "us"). `room` = everyone in the player's room (the player + `others`);
+   * `others` = the houseguests with the player; `house` = everyone still in the game (the player included); `voters` = on
+   * eviction night, who casts a ballot (the house minus the HOH and the nominees). Counts of people the player can already
+   * see - Vault-free; a read-side projection only (no rng, no fold).
+   */
+  counts?: { room: number; others: number; house: number; voters?: number };
+  /**
    * TRACKED OCCUPANCY (0077 Phase 2 — the privacy payoff): who the player BELIEVES is behind a closed
    * door, learned by WATCHING them head in (never the live map). Each carries the believed room (+ zone),
    * how long ago the sighting was (`sinceTurns`), a Vault-safe `stale` flag (derived from AGE, never the
@@ -1694,6 +1874,11 @@ export interface WhereaboutsView {
    */
   conspicuous?: string[];
   /**
+   * ORW-249 - who walked into / out of the player's room SINCE THE PLAYER LAST SENT (the engine re-seats the house after the send; the narrator was handed the send-time roster). Names only, Vault-free;
+   * present only when someone changed - so the story can voice a short arrival/departure beat and story and widget move together. Absent when nothing changed or the player changed rooms.
+   */
+  sinceSend?: { arrived: string[]; departed: string[] };
+  /**
    * 0106 — a LIVE whole-house EVENT is in session: an EXCLUSIVE set-piece (a competition, or a
    * nomination / veto / eviction ceremony). When present, the whole house is gathered for it — so
    * `present` lists everyone and `nearby` is empty (there are no side rooms to slip into, and the player
@@ -1708,6 +1893,7 @@ export interface WhereaboutsView {
       | "hoh-competition"
       | "veto-competition"
       | "nominations"
+      | "veto-draw" // ORW-281: the veto player draw (a mini ceremony; also the Houseguest Choice card)
       | "veto-ceremony"
       | "eviction"
       // FEATURE 0111 — the premiere's GATHERED champagne circle. The whole house is convened in the
@@ -1761,11 +1947,38 @@ export interface HouseguestMoveResult {
  * (that is the game); other houseguests' private knowledge, the Vault, souls, and every number
  * stay out by construction.
  */
+/**
+ * ORW-314 (ORW-253 slice 2): a reason a houseguest GAVE ALOUD for a public act already on the board (the stated KIND from a closed set, and the SUBJECT by name).
+ * The ONLY thing about a decision's why that reaches the narrator. Never the candor (truth / part-truth / cover), never the goal, never the terms: those stay engine-side.
+ */
+export interface StatedReasonView {
+  decision: "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+  kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it";
+  about: NamedRef;
+}
+
 export interface NpcVoiceView {
+  /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): the engine declined a live press on this houseguest this beat, so they deflect: they do not give the thing up. Absent otherwise. */
+  deflect?: true;
+  /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
+  statedReasons?: StatedReasonView[];
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default OFF): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default OFF): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
   rememberedAboutYou?: string[];
+  /**
+   * ORW-317 (ORW-253 slice 4): what this houseguest holds about OTHER houseguests in the room with them, first person, public names filled
+   * in, with a recency word. ONLY memories of things the whole house saw (nominations, the veto used or withheld, being named the replacement),
+   * so voicing one can never surface hidden off-screen content; private memories (deals, exposed secrets) reach speech only through the
+   * engine's disclosure rules (theme 2). Up to 3. Absent when the memory-speech flag is off or they hold none about anyone present.
+   */
+  rememberedAboutOthers?: string[];
+  /**
+   * ORW-317 (ORW-253 slice 4): WHY this houseguest feels the way they do this week (a plan that worked or fell apart), in their own first-person
+   * words with public names filled in - present ONLY when they would tell the player (enough trust and candor; a cause that reveals a plan or a
+   * grudge needs more). Their mood is always visible as tells; the cause is theirs to share (Ryne 2026-11-12: no motive hints).
+   */
+  moodCause?: string;
   /** A54: the engine decided this houseguest may raise the past unprompted THIS beat (seeded, salience-barred, at most once per in-game day). The model only words it. */
   bringUp?: true;
   houseguest: NamedRef;
@@ -1900,6 +2113,12 @@ export interface PresentKnowledgeView {
   mood?: string;
   currentRead?: { toward: string; drift: "warming" | "cooling" | "steady" };
   rivalry?: { tone: "simmering" | "open" };
+  /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
+  statedReasons?: StatedReasonView[];
+  /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
+  moodCause?: string;
+  /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
+  rememberedAboutOthers?: string[];
 }
 
 /**
@@ -1942,6 +2161,33 @@ export interface DailyRecapHook {
  * layer never appears. `hook` is present only when an in-motion, player-perceivable thread is
  * eligible (a quiet day closes with none — never a manufactured cliffhanger).
  */
+export interface DaySummary {
+  day: number;
+  tier: "day" | "week";
+  events: string[];
+  themes: string[];
+  /** Model-authored summary (FE write-back), capped; absent = floor entry only. */
+  text?: string;
+  /** Week tier: the inclusive day range this entry condenses. */
+  coversDays?: [number, number];
+  /** Day tier: true once a week entry has condensed it (kept in the ledger, never deleted). */
+  merged?: boolean;
+}
+
+/** ORW-271 — FE-driven write-back: the model-authored summary for a closed day (or a week of days). */
+export interface RecordDaySummaryReq {
+  day: number;
+  text: string;
+  tier?: "day" | "week";
+  coversDays?: [number, number];
+}
+
+export interface RecordDaySummaryResult {
+  accepted: boolean;
+  /** Why not accepted (absent when accepted). */
+  reason?: "absent" | "unknown-day" | "empty";
+}
+
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
@@ -1949,6 +2195,8 @@ export interface DailyRecapView {
   highlights: string[];
   /** Gossip that reached the player's own knowledge today via a real in-game pathway (0002). */
   surfaced: string[];
+  /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), when no ceremony/deal made the highlights - so every bedtime, the premiere night included, has something to review. Absent when empty. */
+  yourDay?: string[];
   /** The non-committal forward tease, when an eligible in-motion thread exists; absent on a quiet day. */
   hook?: DailyRecapHook;
 }
@@ -1959,7 +2207,80 @@ export interface DailyRecapView {
  * off-screen scheming, the confessionals, and the producer's sealed twists. While a season is
  * live this is unreachable — there is a game to spoil; afterwards it is the payoff.
  */
+/**
+ * ORW-313 - the DEBUG producer-vault dump: the retrospective render PLUS every NPC's agenda (goals, reasons, history), name-resolved. The agendas ride ONLY this dump (the owner-ruled DEBUG door 1 of mandate #2):
+ * never the post-season retrospective view, never an advertised tool, never the player channel.
+ */
+export interface AgendaDumpGoal {
+  horizon: "season" | "week";
+  kind: string;
+  /** Who the goal is about (a NAME), when it has a target. */
+  target?: string;
+  /** Why the goal exists: each cause as a readable line (kind, who it is about, how much it counted). */
+  why: string[];
+  /** The closed test the engine evaluates, as a readable sentence. */
+  test: string;
+  /** How committed the holder is, 0..100. */
+  commitment: number;
+  status: string;
+  formed: string;
+  resolved?: string;
+  /** For a replaced / dropped goal: what replaced it or why it was let go. */
+  endNote?: string;
+}
+
+export interface AgendaDumpHouseguest {
+  houseguest: string;
+  goals: AgendaDumpGoal[];
+  history: AgendaDumpGoal[];
+}
+
+export interface ProducerVaultView extends RetrospectiveView {
+  agendas: AgendaDumpHouseguest[];
+}
+
+/**
+ * ORW-320 (ORW-253 slice 7, spec 0146 "the house you never saw"): one houseguest's real story, unsealed ONLY in the post-season retrospective
+ * (`RetrospectiveView.houseYouNeverSaw`, behind the `finished` gate). Plain sentences: names and days only, no weights, no raw ids.
+ */
+export interface HouseStoryGoal { horizon: "season" | "week"; aim: string; from: string; why: string[]; ended: string }
+export interface HouseStoryDecision {
+  week: number; day: number;
+  /** What they did, in words ("nominated <name>"). */
+  act: string;
+  /** The REAL reason: the goal and the strongest inputs. */
+  real: string;
+  /** What they SAID (the stated reason, in quotes). A secret ballot is stored but was never aired (`aired: false`). */
+  said: string;
+  aired: boolean;
+  /** `lie` = the line they gave was a cover story; `part-truth` = a softened version of the real reason. */
+  honesty: "truth" | "part-truth" | "lie";
+}
+export interface HouseStory {
+  houseguest: NamedRef;
+  /** The week they were sent out; absent for a finalist or the winner. */
+  leftWeek?: number;
+  seasonAim?: { aim: string; why: string[] };
+  goals: HouseStoryGoal[];
+  decisions: HouseStoryDecision[];
+  longCon?: { mark: string; from: string; plan: string; ended: string; why: string[] };
+  /** The nights (in-game days) this houseguest's story moved: the nights a reflection may be written for. */
+  reflectionNights: number[];
+  /** Their nightly reflections (first person), written after the crown by the utility model; empty until written (the engine invents none). */
+  reflections: Array<{ night: number; text: string }>;
+}
+
+/** ORW-320: the FE-driven post-crown write-back of nightly reflections (utility model; one houseguest-night each). Refused until the season is finished; write-once per houseguest-night. */
+export interface RecordNpcReflectionsReq { reflections: Array<{ id: EntityId; night: number; reflection: string }> }
+export interface RecordNpcReflectionsResult { accepted: number; rejected: number; reason?: string }
+
 export interface RetrospectiveView {
+  /**
+   * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
+   * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
+   * (`seasonRetrospective()`), never on the debug dump and never before the crown. Complete for an early evictee.
+   */
+  houseYouNeverSaw?: HouseStory[];
   winner: NamedRef | null;
   /**
    * 0115 — the player's OWN Diary-Room confessionals, in the order they recorded them: their side of
@@ -2069,7 +2390,8 @@ export interface BehavioralFlags {
 
 /** A player's answer to the current `PendingDecisionView`. */
 export interface SubmitDecisionReq {
-  kind: "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
+  // "ceremony-step" (ORW-281 4a) is a WATCH step answered by advanceGame; it is in this union only so a pending's kind is assignable - submitDecision REFUSES it (typed).
+  kind: "ceremony-step" | "nominations" | "veto-decision" | "comp-intent" | "comp-round" | "houseguests-choice" | "replacement" | "eviction-vote" | "tie-break" | "final-eviction"
     | "goodbye-message" | "finale-statement" | "finale-answer" | "juror-question" | "juror-vote"
     // --- exit interview (0130): the player-evictee's own posture leaving (gracious / defiant / bitter)
     // rides the shared `vote` field like a goodbye tone, with optional words on `statement`. Recorded for
@@ -2149,6 +2471,8 @@ export interface HangOutView {
   beats: number;
   /** In-game minutes spent. */
   minutes: number;
+  /** ORW-22: the player-facing line for the stop (public facts only), present for every stop kind. */
+  stopLine?: string;
   /** Vault-free public detail of the stop (names, never ids/numbers). */
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
@@ -2636,6 +2960,11 @@ export interface GameSession {
    * marker. `null` pre-game / for an unknown or non-active houseguest / an unrecognized `factId`.
    */
   confront(npcId: EntityId, factId: string, expectedBeatSeq?: number): ConfrontResult | null;
+  /**
+   * 0142 (ORW-88 idea 2) - call in a favor a houseguest owes the player (they kept a deal). `ask` is the deal kind requested (default "vote": "you owe me a vote"). Returns null when no favor is
+   * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
+   */
+  callInFavor(npcId: EntityId, ask?: DealReqKind, expectedBeatSeq?: number): CallInFavorResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /
@@ -2750,6 +3079,18 @@ export interface GameSession {
   dailyRecap(): DailyRecapView | null;
 
   /**
+   * ORW-271 — the append-only per-night day ledger (Vault-free; `[]` before any night closed). FE read.
+   */
+  dayLedger(): DaySummary[];
+
+  /**
+   * ORW-271 — FE-driven write-back (like `recordWorldSnapshot`; NOT a model lever): attach the
+   * model-authored summary `text` to a closed day (idempotent per day+tier), or add a week-tier entry
+   * covering `coversDays` and mark those day entries `merged` (kept, never deleted).
+   */
+  recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult;
+
+  /**
    * The Vault unsealing (0048 §1): the hidden story of THIS user's FINISHED season. Returns `null`
    * for a live (or not-started) season — the gate is the terminal state, enforced in code, never
    * by prompt. The one sanctioned Vault-reading seam, post-season only, player-triggered.
@@ -2763,7 +3104,7 @@ export interface GameSession {
    * only `readsVault: true` tools) and fired only behind an explicit FE "unseal" action. Returns the
    * same scrubbed, name-resolved `RetrospectiveView` as the retrospective; `null` when no game exists.
    */
-  producerVaultDump(): RetrospectiveView | null;
+  producerVaultDump(): ProducerVaultView | null;
 
   /**
    * The knowledge-bounded voicing projection for ONE active houseguest (B65 / ADR 0003 §8) —
@@ -2824,6 +3165,32 @@ export interface GameSession {
    * the fallback's value (a partial capture never thins the snapshot — non-degradation).
    */
   recordWorldSnapshot(req: RecordWorldSnapshotReq): RecordWorldSnapshotResult;
+  /** ORW-319: freeze each houseguest's model-read habits + season-aim hint (validated, write-once). Not a model lever. */
+  recordNpcTraits(req: RecordNpcTraitsReq): RecordNpcTraitsResult;
+  /** ORW-320 (spec 0146 slice 7): freeze post-crown nightly reflections (refused until the season is finished; validated; write-once per houseguest-night). */
+  recordNpcReflections(req: RecordNpcReflectionsReq): RecordNpcReflectionsResult;
+  /** ORW-319: freeze the season's house culture (validated, write-once). Not a model lever. */
+  recordHouseCulture(req: RecordHouseCultureReq): RecordHouseCultureResult;
+
+  /**
+   * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that
+   * records a narrated TEXTURE feature of a room as append-only canon, so later turns stay consistent. Accepts
+   * ONLY `{ roomId, feature }` (a known room, a one-line feature of at most `ROOM_CANON_FEATURE_MAX` chars);
+   * anything else is rejected with a code. An invention can never create an event, outcome, secret, new place,
+   * plot device, relationship change, knowledge or number (the canon ledger's own fence rejects those), and this
+   * method touches no hidden state. A played game only; no rng; durable via the background seam (no beatSeq bump).
+   * Not a model lever (FE-driven, like `recordWorldSnapshot`).
+   */
+  recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+
+  /**
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
+   * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
+   * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,
+   * and persists in the background without a beat. Vault-free: public fields only.
+   */
+  recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto

@@ -117,10 +117,21 @@ describe("0059 live wiring — Vault-sealed, never projected, folds a behavioral
     const ab = sb.engine.relationships.edge(tie.a, tie.b);
     const ba = sb.engine.relationships.edge(tie.b, tie.a);
     const { baseline } = RELATIONSHIP_CONSTANTS;
-    expect(ab.affinity).toBeGreaterThan(baseline.affinity);
-    expect(ba.affinity).toBeGreaterThan(baseline.affinity);
-    // it is SMALL — never a deterministic advantage (well under a full point)
-    expect(ab.affinity - baseline.affinity).toBeLessThanOrEqual(TIE_AFFINITY_BIAS + 0.2);
+    // ORW-132: a FRIENDLY tie starts a touch warmer; an ex / rival starts a touch COLDER (each side by its own temperament). The delta is measured against a same-seed CONTROL game with no ties at all,
+    // so the move-in scatter around the baseline cancels out and only the tie's own fold remains.
+    const control = new GameSessionRegistry().sandboxFor("sr-fold-control");
+    (control.session as unknown as { tieBudget: number; showmanceBudget: number }).tieBudget = 0;
+    (control.session as unknown as { showmanceBudget: number }).showmanceBudget = 0; // a different tie budget shifts the showmance draws, so the control draws neither
+    control.session.createCharacter({ playerName: "The Player", seed });
+    const dAB = ab.affinity - control.engine.relationships.edge(tie.a, tie.b).affinity;
+    const dBA = ba.affinity - control.engine.relationships.edge(tie.b, tie.a).affinity;
+    void baseline;
+    const hostile = tie.nature === "ex" || tie.nature === "rival";
+    if (hostile) { expect(dAB).toBeLessThan(0); expect(dBA).toBeLessThan(0); }
+    else { expect(dAB).toBeCloseTo(TIE_AFFINITY_BIAS, 9); expect(dBA).toBeCloseTo(TIE_AFFINITY_BIAS, 9); }
+    // it is SMALL - never a deterministic advantage (well under a full point)
+    expect(Math.abs(dAB)).toBeLessThanOrEqual(TIE_AFFINITY_BIAS + 0.2);
+    expect(Math.abs(dBA)).toBeLessThanOrEqual(TIE_AFFINITY_BIAS + 0.2);
   });
 
   it("nextShowmanceStage advances one step at a time, never skipping visible, only on sustained affinity", () => {

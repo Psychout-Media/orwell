@@ -1,0 +1,112 @@
+{
+  "summary": {
+    "advance": {
+      "seasons": 5,
+      "gameDays": 262,
+      "scenes": 4483,
+      "scenesPerGameDay": 17.11,
+      "scenesPerNpcPerDay": 2.28,
+      "npcDaysWithZeroScenes": 0.516,
+      "typeShare": {
+        "bonding": 0.239,
+        "conflict": 0.228,
+        "alliance": 0.164,
+        "strategy": 0.157,
+        "gossip": 0.14,
+        "showmance": 0.046,
+        "betrayal": 0.026
+      },
+      "distinctSceneTypes": 7,
+      "meanDistinctPartnersPerNpcPerSeason": 11.25,
+      "sameTargetNextDay": 0.464,
+      "sceneMatchesInitiatorsDrive": 0.573,
+      "otherHiddenEvents": {
+        "deal": 3136,
+        "confessional": 1472,
+        "evt": 3302
+      }
+    },
+    "chat": {
+      "seasons": 5,
+      "gameDays": 115,
+      "scenes": 12567,
+      "scenesPerGameDay": 109.28,
+      "scenesPerNpcPerDay": 14.57,
+      "npcDaysWithZeroScenes": 0.087,
+      "typeShare": {
+        "bonding": 0.236,
+        "conflict": 0.219,
+        "strategy": 0.178,
+        "alliance": 0.164,
+        "gossip": 0.126,
+        "showmance": 0.041,
+        "betrayal": 0.036
+      },
+      "distinctSceneTypes": 7,
+      "meanDistinctPartnersPerNpcPerSeason": 14,
+      "sameTargetNextDay": 0.912,
+      "sceneMatchesInitiatorsDrive": 0.582,
+      "otherHiddenEvents": {
+        "deal": 1688,
+        "confessional": 4189,
+        "evt": 21506
+      }
+    }
+  },
+  "perSeason": {
+    "advance": [
+      {
+        "seed": 1,
+        "days": 50,
+        "scenes": 891
+      },
+      {
+        "seed": 2,
+        "days": 54,
+        "scenes": 936
+      },
+      {
+        "seed": 3,
+        "days": 54,
+        "scenes": 869
+      },
+      {
+        "seed": 4,
+        "days": 50,
+        "scenes": 866
+      },
+      {
+        "seed": 5,
+        "days": 54,
+        "scenes": 921
+      }
+    ],
+    "chat": [
+      {
+        "seed": 1,
+        "days": 23,
+        "scenes": 2379
+      },
+      {
+        "seed": 2,
+        "days": 23,
+        "scenes": 2694
+      },
+      {
+        "seed": 3,
+        "days": 23,
+        "scenes": 2637
+      },
+      {
+        "seed": 4,
+        "days": 23,
+        "scenes": 2433
+      },
+      {
+        "seed": 5,
+        "days": 23,
+        "scenes": 2424
+      }
+    ]
+  }
+}

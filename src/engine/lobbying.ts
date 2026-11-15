@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clampGuarded } from "../domain/num";
 
 /**
  * B6 / #2017 slice 1 (design S5) - NPC<->NPC LOBBYING of the HOH before nominations. A non-HOH NPC with a stake issues a `Pitch`; the HOH folds a bounded per-week `pitchTilt(subject)`
@@ -26,7 +27,7 @@ export const LOBBY = {
   kindWeight: { safety: 0.14, deal: 0.16, favor: 0.1, info: 0.12, threat: 0.08 } as Readonly<Record<OfferKind, number>>,
 } as const;
 
-const clamp = (x: number, lo: number, hi: number): number => (Number.isNaN(x) ? lo : Math.max(lo, Math.min(hi, x)));
+const clamp = clampGuarded;
 
 /** The signed nomination-score tilt for `subject`: negative = protected by pitches, positive = steered toward. `credibility(pitcher)` is the HOH's trust in the pitcher, 0..1. */
 export function pitchTilt(subject: EntityId, pitches: readonly Pitch[], credibility: (pitcher: EntityId) => number): number {

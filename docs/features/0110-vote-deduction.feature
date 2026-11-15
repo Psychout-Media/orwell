@@ -78,7 +78,7 @@ Feature: Vote deduction — a secret ballot becomes a deduced belief, by process
     Scenario: The HOH and nominations still drive grudges directly
       Given an evictee moved against by the HOH's nominations
       When the eviction manner is recorded
-      Then the evictee holds a grudge toward the HOH without any deduction
+      Then the HOH is the public cause of the move with no deduction involved
       # Only the SECRET vote half is routed through deduction; the public half is untouched.
 
   Rule: The Vault Wall holds for player AND admin

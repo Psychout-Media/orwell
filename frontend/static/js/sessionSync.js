@@ -51,6 +51,13 @@
     } catch (_) { return false; }
   }
 
+  // ORW-44 S4b: the game build with the WS transport on carries chat/state/layout over the socket ONLY: this module opens NO EventSource there (the non-game build keeps it). It still resolves the canonical id over REST
+  // while the socket is not live, which is how a window that booted pre-game finds the session (see OrwellWs.kick()).
+  function wsOnlyGame() {
+    try { return gameBuildOn() && !!(window.OrwellWs && window.OrwellWs.flagOn && window.OrwellWs.flagOn() && window.OrwellWs.kick); }
+    catch (_) { return false; }
+  }
+
   // #985 (P2-C): the bound CANONICAL game session — the id the server keys a framed run on and
   // publishes `run-started` to (chat_routes.py `run_key = ctx.canonical_session or session`). A peer
   // whose per-tab `currentSession()` hasn't yet converged to this id would otherwise subscribe to the
@@ -91,6 +98,13 @@
           // canonical channel BEFORE the next peer turn (it then receives the run-started invitation
           // and live-attaches during the stream). tick() is idempotent (no-op if already on this id).
           if (_canon.id && _canon.id !== prev) { try { tick(); } catch (_) {} }
+          // ORW-44 S4b: in the WS-only game build there is no SSE invitation to wake a window that booted before the game was live. The canonical id just resolved over REST, so nudge the socket to upgrade now.
+          // A window with NO session of its own (a fresh second window) has no perTabId to say hello with, and the old SSE run-started handler is what used to select the canonical session for it: do that here, THEN kick.
+          if (_canon.id && wsOnlyGame()) {
+            var _cid = _canon.id;
+            var _kick = function () { try { window.OrwellWs.kick(); } catch (_) {} };
+            if (!currentSession()) { convergeView(_cid).then(_kick); } else { _kick(); }
+          }
         })
         .catch(function () { _canon = { id: null, at: Date.now(), inflight: false }; });
     } catch (_) { _canon = { id: null, at: Date.now(), inflight: false }; }
@@ -100,7 +114,10 @@
   // re-resolves instead of staying pinned to a stale id. We only LISTEN (platform.js's debounced
   // orwell:gamechanged is the ONE g15 dispatcher — we never dispatch it).
   try {
-    window.addEventListener('orwell:gamechanged', function () {
+    window.addEventListener('orwell:gamechanged', function (e) {
+      // ORW-168: a routine wave (settled turn / tab visible / decision card) never rebinds the game - keep the cached canonical id.
+      var rs = (e && e.detail && Array.isArray(e.detail.reasons)) ? e.detail.reasons : null;
+      if (rs && rs.length && rs.every(function (r) { return r === 'turn-settled' || r === 'tab-visible' || String(r).indexOf('decision:') === 0; })) return;
       _canon = { id: null, at: 0, inflight: false };
       // R2: a game just bound/changed — re-resolve the canonical id and (re)bind the SSE channel
       // PROMPTLY (refreshCanonical re-ticks on a new id) so this window subscribes to the new canonical
@@ -329,6 +346,7 @@
   function connect(id) {
     disconnect();
     if (!id) return;
+    if (wsOnlyGame()) return;   // ORW-44 S4b: WebSocket-only game build - no SSE mirror
     boundSession = id;
     try {
       es = new EventSource(API_BASE + '/api/chat/events/' + encodeURIComponent(id));

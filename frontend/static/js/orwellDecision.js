@@ -543,9 +543,99 @@
     return cues[kind] || "I've made my decision — let's see how the house takes it.";
   }
 
+  // ORW-281 4b: a staged-ceremony WATCH step. Not a decision - no options, no Confirm, no stakes skin: the
+  // engine's one Vault-free line and a Continue that moves the ceremony exactly one step (advanceGame via
+  // POST /api/orwell/ceremony-continue). Mounts through the same sheet -> notice -> stream chain as the
+  // decision card so it sits where the player already looks.
+  function renderCeremonyStep(pending) {
+    ensureStyles();
+    const chatBox = document.getElementById("chat-history");
+    const hasKit = !!(window.OrwellNoticeKit && document.querySelector(".chat-input-bar"));
+    if (!chatBox && !hasKit) return;
+    const cer = pending.ceremony || {};
+    const card = document.createElement("div");
+    card.id = CARD_ID;
+    card.classList.add("odec", "odec-watch");
+    card.role = "group";   // ARIA reflection: a watch step is not a form (the decision card keeps role=form)
+    card.setAttribute("aria-label", "Ceremony");
+    card.dataset.binding = "false";
+    card.dataset.ceremony = String(cer.kind || "");
+    card.dataset.step = String(cer.step || "");
+    const head = document.createElement("div");
+    head.className = "odec-head";
+    const stepOf = (cer.step && cer.of) ? " \u00b7 " + cer.step + " of " + cer.of : "";
+    head.innerHTML = `<span class="odec-title">${esc(_ceremonyTitle(cer.kind))}${esc(stepOf)}</span>`;
+    const body = document.createElement("p");
+    body.className = "odec-note";
+    body.textContent = String(pending.text || pending.prompt || "");
+    const btn = document.createElement("button");
+    btn.className = "ow-btn ow-btn-prominent odec-confirm"; btn.type = "button";
+    btn.textContent = "Continue";
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try {
+        const r = await fetch("/api/orwell/ceremony-continue", { method: "POST", credentials: "same-origin" });
+        if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
+        const res = await r.json().catch(() => ({}));
+        // ORW-293: this step is DONE - record it like a submitted decision, so a status read that started before the press (rearm / backstop) and lands after it can
+        // never mount it again (the stranded "2 of 2 - Continue" flake: the engine was already past it). The NEXT step has its own signature and arms normally.
+        _userDismissed = true;
+        _dismissedSig = _sig(pending);
+        removeCard();
+        if (window.orwellGameChanged) window.orwellGameChanged("ceremony-step", res && res.beatSeq);
+        // The next step (or the next binding decision) arrives on the same view: mount it now.
+        const nxt = res && res.pending;
+        if (nxt && nxt.kind) window.dispatchEvent(new CustomEvent("orwell:pending", { detail: { pending: nxt } }));
+      } catch (_) {
+        if (window.OrwellReport) window.OrwellReport.fail("decision", "ceremony-continue", _); // G11: fail open, never silent
+        btn.disabled = false;
+        btn.textContent = "Continue (try again)";
+      }
+    });
+    card.appendChild(head); card.appendChild(body); card.appendChild(btn);
+    const hasSheet = !!(window.OrwellSheetKit && window.OrwellSheetKit.create &&
+      (document.querySelector(".chat-input-bar") || document.getElementById("chat-bar") ||
+       (window.OrwellNoticeKit && window.OrwellNoticeKit.ensureZone)));
+    if (hasSheet) {
+      _sheet = window.OrwellSheetKit.create({ id: "orwell-decision-sheet", anchored: true,
+        title: _ceremonyTitle(cer.kind), role: "group", dismissible: false });
+      const host = _sheet.ensure();
+      const sheetHead = _sheet.el && _sheet.el.querySelector(".ow-sheet-head");
+      if (sheetHead) sheetHead.style.display = "none";
+      host.appendChild(card);
+    } else if (hasKit) {
+      _notice = window.OrwellNoticeKit.create({ id: "orwell-decision-notice", kind: "decision",
+        title: _ceremonyTitle(cer.kind), role: "presentation", dismissible: false, persistDismiss: false });
+      const host = _notice.ensure();
+      const kitHead = _notice.el && _notice.el.querySelector(".on-head");
+      if (kitHead) kitHead.style.display = "none";
+      host.appendChild(card);
+    } else {
+      chatBox.appendChild(card);
+    }
+    card.scrollIntoView({ block: "nearest" });
+    card.setAttribute("tabindex", "-1");
+    card.focus();
+  }
+  // ORW-281: a decision card that is one step of a staged ceremony reads "... · 2 of 4" like the watch cards do.
+  function _stepSuffix(pending) {
+    const c = pending && pending.ceremony;
+    return (c && c.step && c.of) ? " \u00b7 " + c.step + " of " + c.of : "";
+  }
+  function _ceremonyTitle(kind) {
+    return ({ "nominations": "Nominations", "veto-draw": "Veto draw", "veto-ceremony": "Veto ceremony",
+              "eviction": "Eviction night", "final-eviction": "Final 2 eviction" })[kind] || "Ceremony";
+  }
+
   function render(pending) {
+    // ORW-359 (found when a live run's eviction vote card never enabled Confirm): the same pending is dispatched again by several seams (the chat tool-output seam, the surface-the-pending belt, a socket state frame,
+    // the backstop poll). Each one rebuilt the card from scratch, so a player who had already picked a name (or a tone, or a nominee) saw their pick cleared and Confirm go grey under their cursor. A card already
+    // mounted for the SAME decision (same kind, options and prompt) is left exactly as it is; a different decision (or none) still replaces it.
+    const mounted = document.getElementById(CARD_ID);
+    if (mounted && pending && pending.kind && pending.kind !== "ceremony-step" && !mounted.classList.contains("odec-done") && mounted.dataset.sig === _sig(pending)) return;
     removeCard();
     if (!pending || !pending.kind) return;
+    if (pending.kind === "ceremony-step") { renderCeremonyStep(pending); return; }
     ensureStyles();
     // #642: the card mounts into the OrwellNotice kit's above-composer zone (the kit anchors it
     // above .chat-input-bar). Require the kit + the composer anchor; fall back to the in-stream
@@ -593,12 +683,13 @@
     // (flavor over an already-decided result) is inspectable/testable — not only distinguishable
     // via the confirm label. `pending.binding === false` ⇒ "false"; everything else binds ⇒ "true".
     card.dataset.binding = String(pending.binding !== false);
+    card.dataset.sig = _sig(pending); // ORW-359: which decision this card is for (a repeat of the same one must not rebuild it)
 
     const head = document.createElement("div");
     head.className = "odec-head";
     // J5-20: append the risk badge after the title — "⚠ Irreversible" carries the stakes in
     // text + an icon, so the signal survives without color (the SR companion to the red tint).
-    head.innerHTML = `<span class="odec-title">${esc(titleFor(kind, pending.binding))}</span>`
+    head.innerHTML = `<span class="odec-title">${esc(titleFor(kind, pending.binding))}${esc(_stepSuffix(pending))}</span>`
       + (risk ? `<span class="odec-risk-badge" role="note">⚠ Irreversible — binding</span>` : "");
     // J5-21: the dismiss × is created here (so the keydown/Escape handler can reference it) but is
     // NOT appended to the head — it is appended to the card LAST (after the row) so it falls last in
@@ -1179,15 +1270,30 @@
   // (or the status re-poll) re-arms a genuinely NEW decision but NEVER re-shoves the SAME card
   // the player just waved away to decide in conversation.
   let _dismissedSig = null;
+  // ORW-293: a ceremony WATCH step has no options and often no prompt, so every step used to share ONE signature; it now carries its ceremony kind and step
+  // number, so "this step is done" never hides the NEXT step.
   const _sig = (p) => (p && p.kind)
     ? p.kind + "|" + ((p.options || []).map((o) => o && o.id).join(",")) + "|" + (p.prompt || "")
+      + (p.ceremony ? "|" + String(p.ceremony.kind || "") + ":" + String(p.ceremony.step || "") : "")
     : "";
+  // ORW-298: a mounted ceremony WATCH card must follow the engine's pending. A typed progress message
+  // ("next") advances the step with no button press, so the card's own Continue handler never runs and the
+  // card (plus its stale Continue, which would fire an extra advanceGame) lingered and blocked the real next
+  // card from mounting. Drop it when the engine's pending is gone or is a different step/kind.
+  function _dropStaleWatchCard(pending) {
+    const c = document.getElementById(CARD_ID);
+    if (!c || !c.classList.contains("odec-watch")) return;
+    const cer = (pending && pending.kind === "ceremony-step" && pending.ceremony) || null;
+    const same = cer && String(cer.kind || "") === c.dataset.ceremony && String(cer.step || "") === c.dataset.step;
+    if (!same) removeCard();
+  }
   async function rearmFromStatus() {
     try {
       const r = await fetch("/api/orwell/status", { credentials: "same-origin" });
       if (!r.ok) return;
       const st = await r.json();
       const pending = st && st.pending && st.pending.kind ? st.pending : null;
+      _dropStaleWatchCard(pending);
       if (!pending) return;
       // F2: don't re-nag the EXACT card the player dismissed — a `gamechanged` / re-poll of the
       // SAME pending must stay dismissed; only a genuinely DIFFERENT pending re-arms.
@@ -1238,13 +1344,15 @@
       // a STALE/duplicate card after the WS `state` push has already taken over. (`_wsActive` is a
       // hoisted fn declaration below.)
       if (_wsActive()) return;
-      if (document.getElementById(CARD_ID)) return;    // a card is already showing
+      const _up = document.getElementById(CARD_ID);
+      if (_up && !_up.classList.contains("odec-watch")) return;   // a decision card is already showing
       if (!document.getElementById("chat-history")) return;
       const r = await fetch("/api/orwell/status", { credentials: "same-origin" });
       if (!r.ok || _wsActive()) return;                // WS took over while the fetch was in flight
       const st = await r.json();
       if (_wsActive()) return;                          // …or while parsing the body — do not dispatch
       const pending = st && st.pending && st.pending.kind ? st.pending : null;
+      _dropStaleWatchCard(pending);                     // ORW-298: a watch card follows the engine pending
       // F-NEW-4: respect a dismissal PER SIGNATURE, not as a blanket flag — the old
       // unconditional `if (_userDismissed) return` let a dismissed low-stakes pending
       // suppress a genuinely DIFFERENT, later card (e.g. nominations) on this backstop.
@@ -1321,12 +1429,14 @@
     "veto-decision": "\u{1F48E}", "replacement-nominee": "\u{1F528}", "secret-veto": "\u{1F575}",
     "eviction-ballot": "\u{1F5F3}️", "eviction-result": "\u{1F5F3}️", "comp-round-result": "\u{1F3C1}", "final-hoh-part": "\u{1F3C6}",
     "correction": "\u{1F4FC}",  // #1785 AC3: diegetic control-room correction card
+    "veto-field": "\u{1F48E}",  // ORW-281 4b: the veto field is set (the six who play)
   };
   const _CHYRON_KICKER = {
     "hoh-winner": "Head of Household", nominations: "Nominations", "veto-winner": "Power of Veto",
     "veto-decision": "Veto Ceremony", "replacement-nominee": "Replacement Nominee", "secret-veto": "Secret Veto",
     "eviction-ballot": "Live Vote", "eviction-result": "Eviction", "comp-round-result": "Competition", "final-hoh-part": "Final HOH",
     "correction": "Control Room",  // #1785 AC3: diegetic control-room correction card
+    "veto-field": "Power of Veto",  // ORW-281 4b
   };
   // F4: dedup by announcement id — a chyron renders exactly once per session. Backed ALSO by a DOM
   // check (`data-chyron-id`) so a transcript replay on reload — which re-delivers the SAME historical

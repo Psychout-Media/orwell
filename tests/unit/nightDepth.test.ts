@@ -4,7 +4,7 @@ import {
   accrueFatigue, combinedRestDeficit, WAKE_HOUR, DAY_END_HOUR,
 } from "../../src/engine/timeOfDay";
 import { CLOCK } from "../../src/engine/sleepConstants";
-import { advanceClock, playerTurnIn, playerRestDeficit, npcRestDeficit } from "../../src/engine/liveSeason";
+import { advanceClock, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit } from "../../src/engine/liveSeason";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 
 /**
@@ -70,19 +70,29 @@ describe("sleepDeficitForBedHour — graded, only past midnight (no normal-night
 });
 
 describe("advanceClock — advances the clock-hour, projects the phase, wraps at the 8am wake", () => {
-  it("rolls over several beats (no whole-phase lurch) and a full night banks the max deficit", () => {
-    const s = {} as LiveSeasonState;
-    advanceClock(s); // first beat starts the morning wake
-    expect(s.timeOfDay).toBe("morning");
-    expect(s.nightDepth).toBe(WAKE_HOUR);
-    let beats = 0;
-    while (s.timeOfDay !== "late-night" && beats < 50) { advanceClock(s); beats++; }
-    expect(beats).toBeGreaterThan(3); // a phase takes MORE than one beat (the cadence: ~3h/beat over 4h phases)
-    // run out the night without the player turning in ⇒ wrap to the 8am wake, banked running-on-empty
-    for (let i = 0; i < 50 && s.nightDepth !== WAKE_HOUR; i++) advanceClock(s);
-    expect(s.timeOfDay).toBe("morning");
-    expect(s.lastSleepDepth).toBe(DAY_END_HOUR);  // outlasted the whole house to the 8am wake
-    expect(playerRestDeficit(s)).toBeCloseTo(1);  // ⇒ max deficit
+  it("rolls over several beats (no whole-phase lurch); a night only the BEATS carried banks nothing, a night the player lingered through banks the max deficit", () => {
+    const run = (linger: boolean) => {
+      const s = {} as LiveSeasonState;
+      advanceClock(s); // first beat starts the morning wake
+      expect(s.timeOfDay).toBe("morning");
+      expect(s.nightDepth).toBe(WAKE_HOUR);
+      let beats = 0;
+      while (s.timeOfDay !== "late-night" && beats < 50) { advanceClock(s); beats++; }
+      expect(beats).toBeGreaterThan(3); // a phase takes MORE than one beat (the cadence: ~3h/beat over 4h phases)
+      if (linger) advanceClockPerMessage(s, 5 / 60); // the player talks on into the night (their own choice)
+      // run out the night without the player turning in ⇒ wrap to the 8am wake
+      for (let i = 0; i < 50 && s.nightDepth !== WAKE_HOUR; i++) advanceClock(s);
+      expect(s.timeOfDay).toBe("morning");
+      return s;
+    };
+    // deliberate re-pin (ORW-322, Coordinator ruling on #2574: debt only from CHOOSING to stay up): ceremony-beat hours are presentation, so a wrap they alone cause banks nothing...
+    const beatsOnly = run(false);
+    expect(beatsOnly.lastSleepDepth).toBeUndefined();
+    expect(playerRestDeficit(beatsOnly)).toBe(0);
+    // ...while a night the player lingered through still banks the full "running on empty".
+    const lingered = run(true);
+    expect(lingered.lastSleepDepth).toBe(DAY_END_HOUR);
+    expect(playerRestDeficit(lingered)).toBeCloseTo(1);
   });
 
   it("the player's bedtime lever grades the deficit by the clock-hour they were up to", () => {

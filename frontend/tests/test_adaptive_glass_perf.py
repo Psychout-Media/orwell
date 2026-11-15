@@ -69,7 +69,9 @@ def test_full_triggers_mark_all_dirty():
     assert "_markAllDirty();" in JS
     init = _init_body()
     assert re.search(r'addEventListener\("resize",\s*fullSchedule', init)
-    assert re.search(r'addEventListener\("scroll",\s*fullSchedule', init)
+    # ORW-158: scroll is still a full trigger (it marks all dirty) but is DEBOUNCED to the burst's end.
+    assert re.search(r'addEventListener\("scroll",\s*scrollSchedule', init)
+    assert "function scrollSchedule(" in JS and "_markAllDirty();" in JS[JS.index("function scrollSchedule("):JS.index("function init(")]
     # the body (theme/backdrop) observer is a full trigger too.
     assert "new MutationObserver(fullSchedule)" in init
 
@@ -177,3 +179,36 @@ def test_bubble_and_hero_math_helpers_are_intact():
 def test_still_debounced_and_fail_soft():
     assert "DEBOUNCE_MS" in JS
     assert JS.count("catch (_)") >= 10  # pervasive fail-soft preserved
+
+
+def test_scroll_burst_runs_one_pass_not_one_per_120ms():
+    """ORW-158: execute the real scrollSchedule against fake timers. 100 scroll events 30ms apart (3s of auto-scroll) used to be ~25 passes; now a handful (max-wait bound), and one trailing pass after idle."""
+    import json, shutil, subprocess
+    node = shutil.which("node")
+    if not node:
+        import pytest
+        pytest.skip("node unavailable")
+    start = JS.index("  var SCROLL_IDLE_MS")
+    end = JS.index("  function init()")
+    snippet = JS[start:end]
+    harness = """
+let now = 0, timers = [], passes = 0, marks = 0, id = 0;
+const Date_ = { now: () => now };
+function setTimeout_(fn, ms) { const t = { id: ++id, at: now + ms, fn }; timers.push(t); return t.id; }
+function clearTimeout_(i) { timers = timers.filter(t => t.id !== i); }
+function _markAllDirty() { marks++; }
+function schedule() { passes++; }
+const run = new Function('Date', 'setTimeout', 'clearTimeout', '_markAllDirty', 'schedule', %s + '; return scrollSchedule;');
+const scrollSchedule = run(Date_, setTimeout_, clearTimeout_, _markAllDirty, schedule);
+function advance(to) { while (true) { timers.sort((a, b) => a.at - b.at); const t = timers[0]; if (!t || t.at > to) break; timers.shift(); now = t.at; t.fn(); } now = to; }
+for (let i = 0; i < 100; i++) { scrollSchedule(); advance(now + 30); }
+const during = passes;
+advance(now + 2000);
+console.log(JSON.stringify({ during, total: passes, marks }));
+""" % json.dumps(snippet)
+    out = subprocess.run([node, "-e", harness], capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0, out.stderr
+    r = json.loads(out.stdout.strip())
+    assert r["marks"] == 100, "every scroll still marks all dirty (correctness: a later pass re-samples everything)"
+    assert r["during"] <= 3, f"3s of continuous scroll must not run a pass per 120ms: {r}"
+    assert r["total"] == r["during"] + 1, f"exactly one trailing pass after the burst goes idle: {r}"

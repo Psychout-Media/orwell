@@ -114,7 +114,7 @@ export interface RecordInteractionReq {
    * (a quick word ~15–30, a chat ~60, a long strategy summit ~150). When supplied AND the in-game clock is
    * running, the engine advances the day's clock by this scene's bounded duration on the next per-turn tick
    * (instead of the flat per-conversation floor), so time tracks the play the player actually did. The
-   * value is CLAMPED to a sane envelope (`feltHoursFromMinutes`) — the model proposes, the engine bounds
+   * value is CLAMPED to a sane envelope — the model proposes, the engine bounds
    * it (ADR 0005 for time). ABSENT ⇒ the flat floor ⇒ byte-identical; clock OFF ⇒ inert (the seeded sims).
    */
   feltMinutes?: number;

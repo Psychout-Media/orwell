@@ -25,6 +25,7 @@ import type { BeatEvent, EvictionProgress, LiveSeasonState } from "./liveSeason"
 export type BeatAnnouncementKind =
   | "hoh-winner"
   | "nominations"
+  | "veto-field"
   | "veto-winner"
   | "veto-decision"
   | "replacement-nominee"
@@ -103,6 +104,8 @@ export function buildBeatAnnouncements(ev: BeatEvent, s: LiveSeasonState): BeatA
       if (!hoh || !a || !b) return [];
       return [{ kind: "nominations", week, subjects: [a, b], detail: { by: hoh } }];
     }
+    case "veto-draw": // ORW-281 4b: announced ONLY at a staged draw's 'field' step (the ceremony is still open at commit); a one-beat (headless) draw announces nothing, as before
+      return s.ceremony?.kind === "veto-draw" && ev.participants.length > 0 ? [{ kind: "veto-field", week, subjects: [...ev.participants] }] : [];
     case "veto-competition": {
       // The crown event's participants are the FULL comp field (so the soul fold sees everyone who
       // played) — the actual winner is `s.vetoHolder`, already set by `crownCompetition` before commit.
@@ -203,6 +206,8 @@ export function announcementHeadline(a: BeatAnnouncement, nameOf: NameResolver):
       const nominator = by ? `${nameOf(by)} has nominated` : "The house has nominated";
       return `${nominator} ${nameOf(n1!)} and ${nameOf(n2!)} for eviction.`;
     }
+    case "veto-field":
+      return `The Power of Veto players are ${a.subjects.map((id) => nameOf(id)).join(", ")}.`;
     case "veto-winner":
       return `${nameOf(a.subjects[0]!)} wins the Power of Veto.`;
     case "veto-decision": {

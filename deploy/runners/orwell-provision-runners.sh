@@ -3,7 +3,7 @@
 # orwell — Proxmox provisioner for GitHub Actions self-hosted CI runners.
 #
 # Runs on the Proxmox HOST (uses `pct`). Spins up N unprivileged Debian/Ubuntu LXCs, each running
-# one auto-restarting GitHub Actions runner agent registered to kevinhirsch/orwell with the default
+# one auto-restarting GitHub Actions runner agent registered to Psychout-Media/orwell with the default
 # `self-hosted` label — exactly what `.github/workflows/ci.yml` (`runs-on: self-hosted`) targets.
 # With several runners the engine, heavy-sims shards, coverage, deploy-smoke and front-end jobs
 # fan out in parallel instead of queuing on a single box.
@@ -44,7 +44,7 @@ warn() { echo -e "${C_RED}!${C_OFF} $*" >&2; }
 die()  { echo "ERROR: $*" >&2; exit 1; }
 
 # ── Constants ───────────────────────────────────────────────────────────────────────────────────
-OWNER_REPO="${OWNER_REPO:-kevinhirsch/orwell}"
+OWNER_REPO="${OWNER_REPO:-Psychout-Media/orwell}"
 REPO_URL="https://github.com/${OWNER_REPO}"
 API="https://api.github.com/repos/${OWNER_REPO}"
 RUNNER_LABELS="self-hosted"          # the label .github/workflows/ci.yml targets (runs-on: self-hosted)
@@ -89,7 +89,7 @@ ${C_BOLD}OPTIONS${C_OFF} (env var in parens; flag overrides env)
   --token PAT          GitHub PAT (prefer GIT_TOKEN env)        (GIT_TOKEN)
   --reg-token TOK      Pre-minted registration token (Settings → Actions → Runners → New runner);
                        provisions with NO PAT — one token registers all runners  (REG_TOKEN_IN)
-  --repo OWNER/NAME    Target repository (default kevinhirsch/orwell)            (OWNER_REPO)
+  --repo OWNER/NAME    Target repository (default Psychout-Media/orwell)            (OWNER_REPO)
   --add-to-existing    Add a co-tenant runner for --repo onto the EXISTING CTIDs (ADD_EXISTING)
                        (reuses each box's Node/Python/chromium; own dir+service)
   --env-file PATH      Read GIT_TOKEN= from here                (ENV_FILE, default <repo>/data/.env)
@@ -170,7 +170,7 @@ done
 REPO_URL="https://github.com/${OWNER_REPO}"
 API="https://api.github.com/repos/${OWNER_REPO}"
 REPO_NAME="${OWNER_REPO##*/}"
-if [[ "$OWNER_REPO" == "kevinhirsch/orwell" ]]; then
+if [[ "$OWNER_REPO" == "Psychout-Media/orwell" ]]; then
   NAME_PREFIX="${NAME_PREFIX:-orwell-runner}"
   RUNNER_HOME="${RUNNER_HOME:-/opt/actions-runner}"
 else

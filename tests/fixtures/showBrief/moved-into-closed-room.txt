@@ -1,0 +1,20 @@
+SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.
+If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.
+
+1. NOW
+It is 10:25am, Day 1.
+You are in bedroom A (just arrived).
+Nobody else is here.
+You cannot see into any other room from here.
+NOT HERE: NPC A is NOT here, and you cannot see where NPC A is. NPC B is NOT here, and you cannot see where NPC B is.
+Not in view (you cannot see where they are): NPC C, NPC D, NPC E, NPC F, NPC G, NPC H, NPC I, NPC J, NPC K, NPC L, NPC M, NPC N and NPC O.
+
+2. CHANGED SINCE YOUR LAST TURN
+- You moved from the living room to bedroom A.
+- No longer with you: NPC A (out of view), NPC B (out of view).
+- Out of view now: NPC C (was in the kitchen), NPC D (was in the kitchen), NPC E (was in the backyard).
+
+3. WHAT YOU ESTABLISHED
+Built into bedroom A: beds; nightstands; dresser; closet; shared hamper; lamp; window with blinds; wall mirror; themed decor piece. That is the whole list.
+Loose things that may be lying around: clothes, shoes and flip-flops, jewelry, books and magazines, toiletries, a watch or an earbuds case, plants and flowers, towels.
+HOW THE LAST SCENE ENDED: not available (a fresh conversation).

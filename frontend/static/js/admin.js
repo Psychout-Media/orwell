@@ -1488,6 +1488,7 @@ const TOOL_META = {
   tradeSecret:         { name: 'Trade Secret',       desc: 'Trade a secret for a favor',       cat: 'Game', ctx: '~150' },
   confront:            { name: 'Confront',           desc: 'Confront over a learned fact',     cat: 'Game', ctx: '~150' },
   accuseTie:           { name: 'Accuse Tie',         desc: 'Accuse a pre-show connection',     cat: 'Game', ctx: '~100' },
+  callInFavor:         { name: 'Call In Favor',      desc: 'Call in a favor a houseguest owes', cat: 'Game', ctx: '~100' },
   diaryRoom:           { name: 'Diary Room',         desc: 'Record a private player confessional', cat: 'Game', ctx: '~100' },
   turnIn:              { name: 'Turn In',            desc: 'End the player\'s night',          cat: 'Game', ctx: '~150' },
   dailyRecap:          { name: 'Daily Recap',        desc: 'Re-fetch the closed day\'s digest', cat: 'Game', ctx: '~150' },

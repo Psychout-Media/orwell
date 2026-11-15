@@ -1,3 +1,4 @@
+import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { Orchestrator } from "../../src/composition/orchestrator";
@@ -43,6 +44,7 @@ function playLiveStretch(seed: number) {
 
   for (let i = 0; i < 600; i++) {
     const v = sb.session.advanceGame();
+    if (v.held) endHeldNightSync(sb.session, { direct: true }); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) resolve(sb.session, v.pending);
     if (v.status.week > WEEKS || v.finished) break;
   }

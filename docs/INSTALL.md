@@ -20,7 +20,7 @@ projections, never Vault data.
 
 ## Quick install (Proxmox)
 
-The repo is **private**: create a fine-grained PAT once (scope: `kevinhirsch/orwell`,
+The repo is **private**: create a fine-grained PAT once (scope: `Psychout-Media/orwell`,
 **Contents: Read-only**, nothing else), then run on the **Proxmox host shell** — this is the
 **single authenticated moment**; the token is persisted into the container's `data/.env` and
 every later update/reset reads it from there via a git credential helper (no re-prompt, never
@@ -28,7 +28,7 @@ in a URL or `.git/config`):
 
 ```bash
 export GIT_TOKEN=github_pat_xxx   # fine-grained (Contents: Read-only) OR classic (repo scope)
-bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/kevinhirsch/orwell/contents/deploy/orwell.sh?ref=main")"
+bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" -H "Accept: application/vnd.github.raw" "https://api.github.com/repos/Psychout-Media/orwell/contents/deploy/orwell.sh?ref=main")"
 ```
 
 This creates a Debian LXC and installs everything. Override defaults via env before the command:
@@ -128,7 +128,7 @@ touched.**
 # Private repo: authenticate the clone once with your PAT, then keep the token OUT of git config
 # (the credential helper reads it from data/.env at fetch time — set it up below).
 git -c credential.helper='!f(){ echo username=x-access-token; echo password=$GIT_TOKEN; };f' \
-  clone https://github.com/kevinhirsch/orwell.git /opt/orwell && cd /opt/orwell
+  clone https://github.com/Psychout-Media/orwell.git /opt/orwell && cd /opt/orwell
 npm ci && npm run build                                  # engine
 ( cd frontend && python3 -m venv .venv && ./.venv/bin/pip install -r requirements.lock.txt )
 mkdir -p data && cp frontend/.env.example data/.env      # then edit data/.env (LLM + ports)

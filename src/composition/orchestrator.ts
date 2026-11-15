@@ -1,7 +1,7 @@
 import type { GameSessionRegistry, UserSandbox } from "./registry";
 import type { Clock } from "../ports/Clock";
 import type { SessionSnapshot } from "../engine/sessionSnapshot";
-import { toGameState, sessionCoreCounts, sessionCoreCountsNonDecreasing, sessionCoreIsSuperset } from "../engine/sessionSnapshot";
+import { toGameState, sessionCoreCounts, sessionCoreCountsNonDecreasing, sessionCoreSupersetViolation } from "../engine/sessionSnapshot";
 import { counts, isSuperset, countsNonDecreasing } from "../domain/saveState";
 import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
@@ -11,8 +11,11 @@ import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP }
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
 import { SOCIETY_TICK_HOURS } from "../engine/sleepConstants";
+import { loopFingerprint } from "./chatProgress";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "../engine/characterFactory";
+import { milestoneDue } from "../engine/daySchedule";
+import { liveHouseEvent, isCompOrCeremonyKind } from "../engine/houseEvent";
 import { PLAYER } from "../domain/ids";
 import type { EntityId } from "../domain/ids";
 import type { VoiceProfile } from "../domain/voiceProfile";
@@ -32,12 +35,39 @@ import { TurnRefusedError, PersistFailureError } from "../domain/errors";
  * drop persisted detail or leak hidden state is refused, the prior save is left intact,
  * and a fault is recorded — never a degraded/leaky commit (mandate #4).
  */
+/**
+ * ORW-232 slice 3 / ORW-256 (Ryne 2026-11-10): while a staged competition is running everyone is out in it, so a commit inside it earns no private off-screen scenes. Applies only to a game a
+ * person is PLAYING on the live clock (`messageMode`): a headless calibration / UAT driver never announces messages and keeps its long-standing tick cadence byte-for-byte (suppressing ticks
+ * would shift the shared per-user rng stream and re-roll whole seeded seasons - measured: it moved the jury-reach reweight band's seed 10). Pure.
+ */
+export function competitionSuppressesPrivateScenes(clockLive: boolean, messageMode: boolean, baselineInCompetition: boolean, candidateInCompetition: boolean): boolean {
+  return clockLive && messageMode && (baselineInCompetition || candidateInCompetition);
+}
+
+/**
+ * ORW-256 (Ryne 2026-11-10): the background world runs in proportion to ELAPSED game time, but only the kind of life the hours allow. Pure.
+ *  - sleep (`slept`: the commit rolled the day over): nobody schemes (no scenes, deals, alliances, gossip) - only INNER processing, one mood-settling step per SOCIETY_TICK_HOURS slept (cap SETTLE_CAP).
+ *  - waking beat: the base tick already stands for the first SOCIETY_TICK_HOURS; each further whole SOCIETY_TICK_HOURS earns one more tick (cap EXTRA_TICK_CAP), as chat already does.
+ *  - competition hours never reach here (the commit is suppressed above: everything in a comp is public, its effects ride the crown's own fold).
+ *  - `playing` false (a headless calibration/UAT driver: clock off or no announced messages) => nothing, so the seeded per-user rng stream is byte-identical.
+ */
+export const EXTRA_TICK_CAP = 3;
+export const SETTLE_CAP = 4;
+export function elapsedWorldPlan(playing: boolean, slept: boolean, elapsedHours: number): { extraTicks: number; settleSteps: number } {
+  if (!playing || !(elapsedHours > 0)) return { extraTicks: 0, settleSteps: 0 };
+  const units = Math.floor(elapsedHours / SOCIETY_TICK_HOURS);
+  if (slept) return { extraTicks: 0, settleSteps: Math.min(SETTLE_CAP, units) };
+  return { extraTicks: Math.min(EXTRA_TICK_CAP, Math.max(0, units - 1)), settleSteps: 0 };
+}
+
 export type Trigger = "player-turn" | "offscreen-tick" | "audit";
 
 export interface Fault {
   when: number;
   /** `persist-failure` is its OWN class (audit E7): a disk failure is never misread as degradation. */
   kind: "degradation" | "no-daily-event" | "vault-leak" | "persist-failure";
+  /** ORW-321: the NAME of the first failing invariant (a field / count name only - never game content or a Vault value), so a refusal is diagnosable in one look. */
+  detail?: string;
 }
 
 /** Vault-free health metadata for God Mode (0016) — never game content, never Vault. */
@@ -62,6 +92,8 @@ export interface HealthRecord {
    * neither advances nor resets the corruption streak.
    */
   circuitOpen: boolean;
+  /** ORW-277: present only after the Show Brief failed to build in a played game; codes and a count, never content. */
+  briefAlarm?: { failures: number; first: "threw" | "empty" };
 }
 
 export interface AdvanceResult {
@@ -140,6 +172,8 @@ export class Orchestrator {
    *  tick is debounced on ELAPSED in-game hours (SOCIETY_TICK_HOURS) so the house schemes "with the
    *  clock", not once per tool call. Set on every fired tick (beat and social alike); cleared on reset. */
   private readonly lastSocietyTickHour = new Map<string, number>();
+  /** ORW-256 - the ABSOLUTE in-game hour (day*24 + clock hour; never wraps at midnight) of the user's last society tick, so a beat/sleep commit knows how much game time it covered. */
+  private readonly lastSocietyTickAbs = new Map<string, number>();
   /** R3 — commits since this user's last FULL (untrusted-prefix) non-degradation verification. */
   private readonly commitsSinceFullCheck = new Map<string, number>();
   private seq = 0;
@@ -259,7 +293,7 @@ export class Orchestrator {
   /** Surface a fault where an operator can see it (B58/E6) — stderr, with user + kinds. */
   private logFaults(user: string, trigger: Trigger, faults: Fault[]): void {
     console.error(
-      `[orwell] integrity fault user=${user} trigger=${trigger} kinds=${faults.map((f) => f.kind).join(",")}` +
+      `[orwell] integrity fault user=${user} trigger=${trigger} kinds=${faults.map((f) => f.kind).join(",")}${faults.some((f) => f.detail) ? ` invariant=${faults.map((f) => f.detail).filter(Boolean).join(",")}` : ""}` +
       (this.circuitOpen(user) ? " circuit=OPEN" : ""),
     );
   }
@@ -270,7 +304,7 @@ export class Orchestrator {
    *  nothing to add is a clean no-op, not a `no-daily-event` fault (the daily-event invariant is
    *  the live loop's own beats, not this supplementary tick). Non-degradation and the Vault Wall are
    *  still enforced. A direct off-screen tick (no flag) keeps the daily-event check. */
-  advance(user: string, trigger: Trigger, opts: { baseline?: SessionSnapshot; supplementary?: boolean } = {}): AdvanceResult {
+  advance(user: string, trigger: Trigger, opts: { baseline?: SessionSnapshot; supplementary?: boolean; rng?: SeededRandom } = {}): AdvanceResult {
     // The circuit breaker (B58/E6): after repeated identical faults, off-screen ticks SKIP this
     // sandbox instead of blindly retrying — the flag shows in health; a good player turn resets it.
     if (trigger === "offscreen-tick" && this.circuitOpen(user)) {
@@ -293,7 +327,7 @@ export class Orchestrator {
 
     let produced = 0;
     if (trigger !== "audit") {
-      produced = this.applyFn(sandbox, trigger, this.rngFor(user), this.clock.now(), this.offscreenInteractions);
+      produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
       // R3 — `applyFn` mutated the sandbox OUTSIDE the `commit` seam (it never fires `onPersist`), so the
       // registry's snapshot cache must be invalidated before we read the candidate, or it would hand back
       // the pre-tick capture. (An `audit` produces nothing, so its candidate IS the current cache.)
@@ -402,7 +436,7 @@ export class Orchestrator {
     // Fail-closed: roll the in-memory sandbox back to the last good state, DO NOT persist, and
     // surface the refusal as an ERROR to the caller (E3) — state unchanged, request failed.
     this.recordFault(user, "player-turn", when, faults, baseline);
-    throw new TurnRefusedError(faults.map((f) => f.kind));
+    throw new TurnRefusedError(faults.map((f) => f.kind), faults.map((f) => f.detail).filter((d): d is string => !!d));
   }
 
   /** Roll back (when a good baseline exists), count the fault, log it, and record health. */
@@ -443,17 +477,22 @@ export class Orchestrator {
     // one that closes the toast) earns NO off-screen tick. Flag off => the live state has no `premiereEntrance` => this never fires (byte-identical).
     const peStage = (x: SessionSnapshot | undefined): string | undefined => (x?.live as { premiereEntrance?: { stage?: string } } | undefined)?.premiereEntrance?.stage;
     if ((peStage(candidate) !== undefined && peStage(candidate) !== "done") || (peStage(baseline) !== undefined && peStage(baseline) !== "done")) return;
+    // ORW-232 slice 3 / ORW-256 (Ryne 2026-11-10: "If everyone is outside in a comp, everything that happens is very public ... houseguests can't leave and make alliances or something like that"):
+    // while a house event (comp or ceremony) is in session everyone is gathered in it, so a commit inside it (a round, a chat message, the crown) earns NO private off-screen scenes. Public reactions ride the
+    // crown's own fold. Only a live-clock game has a competition "running" in game time; the seeded calibration spine (clock off) never reaches this, so it is byte-identical.
+    // ORW-281 slice 3 (Ryne: comps and ceremonies are built the same way): ANY comp-or-ceremony house event in session (comp, veto draw, nominations, veto ceremony, eviction), via the single
+    // pure derivation the adapter's houseEventInSession also uses.
+    const compRunning = (x: SessionSnapshot | undefined): boolean => isCompOrCeremonyKind(liveHouseEvent(x?.live as never, { includeDraw: milestoneDue(x?.live as never) })?.kind) // the draw counts only once its morning slot is due, not for the whole idle stretch before it;
+    // Only for a game a person is PLAYING: `live.playedGame` (ORW-281 slice 5: the one played-game flag) is set once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
+    // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
+    const sess = this.registry.sandboxFor(user).session;
+    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;
     // Once the FE announces player messages (`noteMessage`), the announcement itself steps the in-game clock INSIDE the tool - so a clock-only change must not make this commit look like a
     // beat commit (which would earn an un-debounced society tick every message). Strip ONLY the clock fields from the comparison in that mode.
-    const clockFree = (l: SessionSnapshot["live"] | undefined): string => {
-      if (!l || !session.messageModeNow()) return JSON.stringify(l ?? null);
-      const { nightDepth: _n, timeOfDay: _t, ...rest } = l as unknown as Record<string, unknown>;
-      void _n; void _t;
-      return JSON.stringify(rest);
-    };
+    const clockFree = (l: SessionSnapshot["live"] | undefined): string => loopFingerprint(l, session.messageModeNow()); // ORW-323: see chatProgress.ts
     const progressed = !baseline || !baseline.started
       || baseline.week !== candidate.week
       || baseline.phase !== candidate.phase
@@ -478,6 +517,7 @@ export class Orchestrator {
         const lastHour = this.lastSocietyTickHour.get(user);
         if (hour !== undefined && lastHour !== undefined && hour - lastHour < SOCIETY_TICK_HOURS) return; // not enough time yet
         if (hour !== undefined) this.lastSocietyTickHour.set(user, hour);
+        this.noteTickAbs(user, session);
         this.lastTurnTickAt.set(user, this.clock.now());
         this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
         return;
@@ -502,14 +542,32 @@ export class Orchestrator {
     session.billClockForCommit();
     const beatHour = session.inGameHour();
     if (beatHour !== undefined) this.lastSocietyTickHour.set(user, beatHour);
+    // ORW-256: how much game time did this beat cover, and was it a night? (read BEFORE re-anchoring.) Only a game a person is PLAYING gets it.
+    const absNow = session.inGameAbsHour();
+    const lastAbs = this.lastSocietyTickAbs.get(user);
+    const slept = ((candidate.live as { dayNumber?: number } | undefined)?.dayNumber ?? 1) > ((baseline?.live as { dayNumber?: number } | undefined)?.dayNumber ?? 1);
+    const plan = elapsedWorldPlan(session.perConversationClockLive() && session.messageModeNow(), slept,
+      absNow !== undefined && lastAbs !== undefined ? absNow - lastAbs : 0);
+    this.noteTickAbs(user, session);
+    if (plan.settleSteps > 0) session.settleOvernight(plan.settleSteps); // inner processing while the house sleeps: deterministic, draws no rng
     // R3: the commit just exported this. A9: a supplementary tick — an empty society this tick is
     // a clean no-op, not a daily-event fault (the live loop owns that invariant via its beats).
     this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
+    // ORW-256: the waking hours this beat covered beyond the first tick. Each extra tick draws from its OWN seeded side stream (user, absolute hour, index) - never the shared per-user stream the
+    // competition/vote spine reads - so the seeded season is untouched and a retried commit rolls the same dice.
+    for (let i = 0; i < plan.extraTicks; i++) {
+      this.advance(user, "offscreen-tick", { supplementary: true, rng: new SeededRandom(hashSeed(`${this.seed}:${user}:elapsed-tick:${absNow ?? 0}:${i}`)) });
+    }
     // "Hang out until X": the house lived through those hours too - one extra society tick per SOCIETY_TICK_HOURS spent (cap 3), consumed once.
     const hungHours = session.consumeHangOutHours();
     for (let i = 0, n = Math.min(3, Math.floor(hungHours / SOCIETY_TICK_HOURS)); i < n; i++) {
       this.advance(user, "offscreen-tick", { supplementary: true });
     }
+  }
+
+  private noteTickAbs(user: string, session: { inGameAbsHour(): number | undefined }): void {
+    const a = session.inGameAbsHour();
+    if (a !== undefined) this.lastSocietyTickAbs.set(user, a);
   }
 
   /**
@@ -569,11 +627,22 @@ export class Orchestrator {
     // history, texture overrides, …) — a regression there was invisible to this gate. `sessionCore*`
     // (src/engine/sessionSnapshot.ts) is the engine-layer companion check, same discipline, always
     // fully verified (these maps are small — no fast-path relaxation needed).
-    if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })
-        || !countsNonDecreasing(counts(gsCand), counts(gsBase))
-        || !sessionCoreIsSuperset(candidate, baseline)
-        || !sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
-      faults.push({ when, kind: "degradation" });
+    const firstDropped = (later: object, earlier: object): string | null => {
+      for (const k of Object.keys(earlier)) if ((later as Record<string, number>)[k] < (earlier as Record<string, number>)[k]) return k;
+      return null;
+    };
+    let degradation: string | null = null;
+    if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })) degradation = "gameState";
+    else if (!countsNonDecreasing(counts(gsCand), counts(gsBase))) degradation = `gameState.counts.${firstDropped(counts(gsCand), counts(gsBase)) ?? "?"}`;
+    else {
+      const core = sessionCoreSupersetViolation(candidate, baseline);
+      if (core !== null) degradation = `sessionCore.${core}`;
+      else if (!sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
+        degradation = `sessionCore.counts.${firstDropped(sessionCoreCounts(candidate), sessionCoreCounts(baseline)) ?? "?"}`;
+      }
+    }
+    if (degradation !== null) {
+      faults.push({ when, kind: "degradation", detail: degradation });
     }
     // Daily-event (0008): a progression advance must produce ≥1 new event. A player-turn COMMIT
     // (B41) opts out — not every player tool call adds a beat (a deal, a surfacing, a DR entry).
@@ -645,9 +714,15 @@ export class Orchestrator {
   /** Vault-free health metadata for God Mode (0016). Per-user, or all sandboxes. */
   sandboxHealth(user?: string): HealthRecord | HealthRecord[] {
     if (user !== undefined) {
-      return this.health.get(user) ?? this.freshHealth(user);
+      return this.withBriefAlarm(user, this.health.get(user) ?? this.freshHealth(user));
     }
-    return this.registry.usernames().map((u) => this.health.get(u) ?? this.freshHealth(u));
+    return this.registry.usernames().map((u) => this.withBriefAlarm(u, this.health.get(u) ?? this.freshHealth(u)));
+  }
+
+  /** ORW-277: overlay the session's Show Brief alarm at read time (absent until a failure, so the record is otherwise unchanged). */
+  private withBriefAlarm(user: string, rec: HealthRecord): HealthRecord {
+    const a = this.registry.sandboxFor(user).session.briefAlarmStatus();
+    return a ? { ...rec, briefAlarm: a } : rec;
   }
 
   private freshHealth(user: string): HealthRecord {
@@ -712,7 +787,12 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // The session assembles both predicates from its Vault-sealed identities + seeded showmances (engine-
   // only — neither is projected); an ineligible draw is demoted to `bonding` inside the stretch.
   const showmanceGate = sandbox.session.offscreenShowmanceGate();
-  const scenes = awakeIds.length >= 2
+  // ORW-315 (ORW-253 slice 3, Ryne approved the NPC minds design 2026-11-12): for a game a person is PLAYING, every awake houseguest acts
+  // once this stretch from their own goals (houseLife), replacing "a pair and 1 of 7 stock scenes". Headless calibration drivers never
+  // play (no announced message), so they keep the old stretch below and their seeded spine is byte-identical.
+  const scenes = sandbox.session.houseLifeActiveNow()
+    ? sandbox.session.houseLifeStretch(sandbox.engine.events, awakeIds, before)
+    : awakeIds.length >= 2
     ? richOffscreenStretch({
         events: sandbox.engine.events, rng, npcs: awakeIds, interactions,
         hiddenElementsOf: (id) => hiddenOf.get(id) ?? [],
@@ -850,6 +930,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default OFF): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
   // while on (so the OFF path, which never reaches this branch, is byte-identical). Dedicated rng per (holder, listener, tick); hidden layer only; the player is never a node (off-screen scenes exclude them).
   if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
+    // ORW-334: each pair's roll is its own purpose stream: keyed on the pair, the in-game time and the scene's order within the tick, never on how many events the store holds (so an event another feature records cannot re-roll it).
+    let sceneOrdinal = 0;
     const npcsById = new Map(core.house.npcs.map((n) => [n.id, n] as const));
     const relm = sandbox.engine.relationships;
     const beliefObs = sandbox.session.beliefReceiptObserver();
@@ -858,7 +940,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
       {
         knowledge: sandbox.engine.knowledge,
         told: sandbox.session.copresenceToldLedger(),
-        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${before}`)),
+        rngFor: (h, l) => new SeededRandom(hashSeed(`${core.seed ?? ""}:copresence:${h}:${l}:${clockNow}:${sceneOrdinal++}`)),
         trust: (a, b) => relm.edge(a, b).trust,
         affinity: (a, b) => relm.edge(a, b).affinity,
         threat: (a, b) => relm.edge(a, b).threat,
@@ -929,10 +1011,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // 0089 — the off-screen confessional REACTS to the confessor's OWN witnessed events too (the scenes
     // they were just part of are already recorded this tick). `selectRecentForConfessional` bounds to
     // `witnessedBy: confessor` and returns only Vault-safe class-keyed gists — never another houseguest's
-    // hidden read (mandate #2/#3). The tiebreak rng is DEDICATED (derived off confessor + clock + log
-    // size), never the shared society/vote stream `rng`, so the seeded calibration spine is untouched
+    // hidden read (mandate #2/#3). The tiebreak rng is DEDICATED (derived off confessor + clock), never the shared society/vote stream `rng`, so the seeded calibration spine is untouched
     // (the selection draws no rng at all unless two of the confessor's events fully tie).
-    const recentRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-recent:${confessor}:${clockNow}:${before}`));
+    const recentRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-recent:${confessor}:${clockNow}`));
     const recentEvents = selectRecentForConfessional(sandbox.engine.events.queryAll(), confessor, clockNow, { rng: recentRng });
     // BB-2/SG-8 — without these three, EVERY confessional all season rendered the identical first
     // template (`pick()` falls back to `lines[0]` with no rng) and named the player with the bare
@@ -942,7 +1023,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // 0084 voice colors which pool it draws from (never a fact, only texture); `nameOf` bakes the
     // confessor's actual read/display name for their target/ally — including the player's real name
     // in place of the literal "player" token.
-    const phrasingRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-phrasing:${confessor}:${clockNow}:${before}`));
+    const phrasingRng = new SeededRandom(hashSeed(`${core.seed ?? ""}:confessional-phrasing:${confessor}:${clockNow}`));
     const houseguests = core.house?.npcs ?? [];
     const voice = houseguests.find((n) => n.id === confessor)?.character.voice;
     const nameOf = (id: EntityId): string =>
@@ -1025,7 +1106,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     }
     if (!alreadyToday) {
       const ambientRng = new SeededRandom(
-        hashSeed(`${core.seed ?? ""}:house-event:${core.week}:${core.phase}:${before}`),
+        hashSeed(`${core.seed ?? ""}:house-event:${core.week}:${core.phase}:${clockNow}`),
       );
       sandbox.engine.events.record({
         id: `orch:day:${clockNow}:${before}`,

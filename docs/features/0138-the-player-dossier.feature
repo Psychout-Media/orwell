@@ -1,4 +1,4 @@
-# spec-only: BUILT (retrospective, 2026-11-03) but NOT wired into cucumber.cjs; behavior is gated by unit tests (see the design note). Feature 0138 - The Player Dossier. Roles only.
+# Wired into cucumber.cjs by ORW-300 (steps in features/step_definitions/player_dossier.steps.ts); also gated by unit tests (see the design note). Feature 0138 - The Player Dossier. Roles only.
 
 Feature: The Player Dossier
 

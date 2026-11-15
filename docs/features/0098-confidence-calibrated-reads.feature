@@ -1,3 +1,4 @@
+# RETIRED 2026-11-11 (owner ruling, "retire and remove"): not planned, code and tests removed (card ORW-267). Kept as history only; not wired.
 # spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 Feature: 0098 — Confidence-calibrated reads (bold correct reads pay off; blind faith burns)
   When the player ACTS on a belief, the strength of that belief sets the VARIANCE of the

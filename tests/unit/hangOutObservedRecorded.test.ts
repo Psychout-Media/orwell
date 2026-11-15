@@ -43,8 +43,8 @@ describe("hang-out observed stop leaves a recorded, witnessed trace", () => {
           seen++; break;
         }
         if (r.stopReason === "event-due" || r.stopReason === "bedtime") break;
-        // any non-observed stop adds no such event
-        expect(g.sb.engine.events.queryAll().length).toBe(before);
+        // ORW-22: approach / pulled / bedtime now leave their own single recorded line (hangOutStopLines.test.ts); the rest (max-beats) add nothing
+        if (r.stopReason === "max-beats") expect(g.sb.engine.events.queryAll().length).toBe(before);
       }
     }
     expect(seen, "an observed stop was reached on screen-able seeds").toBeGreaterThan(0);

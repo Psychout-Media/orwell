@@ -32,7 +32,7 @@ def _framed_engine(monkeypatch, *, tod_enabled, set_tod):
     async def fake_state(user=None, timeout=None):
         return {"started": True, "moment": "social"}
 
-    async def fake_mp(m=None, user=None):
+    async def fake_mp(m=None, user=None, **_kw):
         return {"systemPrompt": "GM"}
 
     monkeypatch.setattr(orwell_engine, "get_game_state", fake_state)

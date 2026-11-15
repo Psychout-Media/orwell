@@ -277,6 +277,38 @@ def _host_key(url: str) -> str:
     s = urlsplit(url)
     return f"{s.scheme}://{s.netloc}" if s.scheme and s.netloc else url
 
+_LOG_REDACT_RES = (
+    re.compile(r"(?i)authorization\s*[:=]\s*(?:bearer\s+)?[^\s,;\"']+"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._~+/=-]+"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{6,}"),
+    re.compile(r"(?i)(api[_-]?key|x-api-key)(\"?\s*[:=]\s*\"?)[^\s,;\"']+"),
+)
+
+
+def _redact_for_log(text, limit: int = 300) -> str:
+    """Whitespace-collapse, strip keys/Authorization text, cap length (log-safe)."""
+    t = " ".join(str(text or "").split())
+    t = _LOG_REDACT_RES[0].sub("Authorization: [redacted]", t)
+    t = _LOG_REDACT_RES[1].sub("Bearer [redacted]", t)
+    t = _LOG_REDACT_RES[2].sub("sk-[redacted]", t)
+    t = _LOG_REDACT_RES[3].sub(lambda m: m.group(1) + m.group(2) + "[redacted]", t)
+    return t[:limit]
+
+
+def _log_stream_failure(what, target_url, model, started, body=None) -> None:
+    """One WARNING per provider-stream failure so a player-visible interlude is attributable.
+    Host only (never the URL/query), never headers/payload/keys."""
+    try:
+        elapsed = time.monotonic() - started
+        msg = (f"[orwell] provider stream failed: {what} host={_host_key(target_url)} "
+               f"model={model} elapsed={elapsed:.1f}s")
+        if body is not None:
+            msg += f" body={_redact_for_log(body)!r}"
+        logger.warning(msg)
+    except Exception:
+        pass
+
+
 def _is_host_dead(url: str) -> bool:
     key = _host_key(url)
     with _host_health_lock:
@@ -601,6 +633,40 @@ def _host_match(url: str, *domains: str) -> bool:
     return any(host == d or host.endswith("." + d) for d in domains)
 
 
+def _keep_system_order_enabled() -> bool:
+    """ORW-296: ``ORWELL_KEEP_SYSTEM_ORDER=1`` stops the streaming request from hoisting every system message into the first one (default ON since the 2026-11-12 live A/B; =0 turns it off)."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_KEEP_SYSTEM_ORDER", "")).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _consolidate_system_messages(messages, url: str, provider: str):
+    """Fold the system messages into ONE at the start (some models, e.g. Qwen3.5, reject a system message that is not first).
+
+    ORW-296 (found with a live cache probe, 2026-11-12): hoisting EVERY system message to the top moves the per-turn ones (the Show Brief, production notes, the volatile game-state tail) into the first message, so the
+    request prefix changes every turn at the very top and the provider's prefix cache covers only the first ~18k tokens - the whole chat history after it is re-billed uncached each turn. For a host known to accept
+    system messages anywhere (DeepSeek's own API) and with the flag on (the default), only the LEADING run of system messages is merged; later ones stay exactly where they are, so the history stays a stable cacheable prefix.
+    Every other provider, and the flag off, is byte-identical to the old behaviour."""
+    if _keep_system_order_enabled() and provider == "openai" and _host_match(url, "deepseek.com"):
+        i = 0
+        while i < len(messages) and messages[i].get("role") == "system":
+            i += 1
+        if i == 0:
+            return messages
+        lead = "\n\n".join((m.get("content") or "") for m in messages[:i])
+        return [{"role": "system", "content": lead}] + list(messages[i:])
+    sys_parts = []
+    non_sys = []
+    for m in messages:
+        if m.get("role") == "system":
+            sys_parts.append(m.get("content") or "")
+        else:
+            non_sys.append(m)
+    if sys_parts:
+        return [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
+    return non_sys
+
+
 def _detect_provider(url: str) -> str:
     """Detect the API provider from a configured endpoint URL.
 
@@ -633,7 +699,7 @@ def _provider_headers(provider: str, headers: Optional[Dict] = None) -> Dict[str
     if isinstance(headers, dict):
         h.update(headers)
     if provider == "openrouter":
-        h.setdefault("HTTP-Referer", "https://github.com/kevinhirsch/orwell")
+        h.setdefault("HTTP-Referer", "https://github.com/Psychout-Media/orwell")
         h.setdefault("X-OpenRouter-Title", "Orwell")
     if provider == "copilot":
         # Ensure the Copilot-required headers are present even when the caller
@@ -1440,10 +1506,17 @@ def normalize_model_id(endpoint_url: str, requested: str, timeout: int = LLMConf
             return a
     return None
 
+def _enforce_text_route(url, model, headers):
+    """ORW-287: the game build sends no TEXT call to OpenRouter (see src/text_routing.py). Raises TextRoutingRefused."""
+    from src.text_routing import enforce_text_destination
+    return enforce_text_destination(url, model, headers if isinstance(headers, dict) else None)
+
+
 def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LLMConfig.DEFAULT_TEMPERATURE,
              max_tokens: int = LLMConfig.DEFAULT_MAX_TOKENS, headers: Optional[Dict] = None, 
              timeout: int = LLMConfig.DEFAULT_TIMEOUT, prompt_type: Optional[str] = None) -> str:
     """Synchronous LLM call with optional prompt type enhancement."""
+    url, model, headers = _enforce_text_route(url, model, headers)
     h = _provider_headers(_detect_provider(url))
     # Tolerate headers that arrive as a JSON string (some sessions stored them
     # double-encoded) — otherwise h.update() throws "dictionary update sequence
@@ -1679,7 +1752,9 @@ async def _llm_call_async_traced(
             policy = None
     # Only allocate a usage sink when we will actually meter (call_class + user) — otherwise the impl
     # stays byte-identical (no usage-accounting request, no capture).
-    _usage: Optional[Dict] = {} if (call_class and user) else None
+    # ORW-292: ALSO allocate it when the I/O trace is on, so a traced non-stream call's record carries the
+    # provider's usage even when it is not metered (no user). The ledger write stays call_class + user gated.
+    _usage: Optional[Dict] = {} if ((call_class and user) or llm_trace.enabled()) else None
     # The meta sink carries the terminal finish_reason (ADR 0010 #3 ledger field). Defined here so the
     # meter can read it regardless of whether the I/O trace is enabled; populated by both impl calls.
     _meta: Dict = {}
@@ -1787,6 +1862,7 @@ async def _llm_call_async_impl(
     ``obs_metadata`` (optional, feature 0112): a Vault-free correlation object attached as the
     OpenRouter/OpenAI ``metadata`` field so OpenRouter Broadcast forwards correlatable traces.
     ``None`` (observability disabled — the default) ⇒ the key is never added ⇒ byte-identical."""
+    url, model, headers = _enforce_text_route(url, model, headers)  # ORW-287
     provider = _detect_provider(url)
     messages_copy = _sanitize_llm_messages(messages)
 
@@ -2029,22 +2105,16 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
       - event: error                       — errors
       - data: [DONE]                       — end of stream
     """
+    try:
+        url, model, headers = _enforce_text_route(url, model, headers)  # ORW-287
+    except Exception as _refused:  # TextRoutingRefused: surface as the outage UX, never a silent OpenRouter text call
+        yield f'event: error\ndata: {json.dumps({"error": "text-provider-refused", "status": 503, "text": str(_refused), "error_type": "text-routing"})}\n\n'
+        yield "data: [DONE]\n\n"
+        return
     provider = _detect_provider(url)
     messages_copy = _sanitize_llm_messages(messages)
 
-    # Consolidate multiple system messages into one at the start.
-    # Some models (e.g. Qwen3.5) reject system messages that aren't first.
-    sys_parts = []
-    non_sys = []
-    for m in messages_copy:
-        if m.get("role") == "system":
-            sys_parts.append(m.get('content') or '')
-        else:
-            non_sys.append(m)
-    if sys_parts:
-        messages_copy = [{"role": "system", "content": "\n\n".join(sys_parts)}] + non_sys
-    else:
-        messages_copy = non_sys
+    messages_copy = _consolidate_system_messages(messages_copy, url, provider)
 
     if provider == "anthropic":
         target_url = _normalize_anthropic_url(url)
@@ -2129,6 +2199,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         yield f'event: error\ndata: {json.dumps({"error": f"Upstream {_host_key(target_url)} unreachable (cooldown active)", "status": 503})}\n\n'
         return
     note_model_activity(target_url, model)
+    _stream_t0 = time.monotonic()
 
     # ── Native Ollama streaming ──
     if provider == "ollama":
@@ -2140,6 +2211,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 _clear_host_dead(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
+                    _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
                     friendly = _format_upstream_error(r.status_code, raw, target_url)
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                     return
@@ -2184,8 +2256,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             logger.warning(f"Ollama stream connect to {target_url} failed: {e}{_tail}")
             yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503, "error_type": "connect"})}\n\n'
         except httpx.ReadTimeout:
+            _log_stream_failure("read-timeout", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
         except httpx.NetworkError:
+            _log_stream_failure("network-error", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Network error", "status": 502})}\n\n'
         except Exception as e:
             logger.error(f"Ollama stream error: {e}")
@@ -2206,6 +2280,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 _clear_host_dead(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
+                    _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
                     friendly = _format_upstream_error(r.status_code, raw, target_url)
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                     return
@@ -2291,8 +2366,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             logger.warning(f"Anthropic stream connect to {target_url} failed: {e}{_tail}")
             yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503, "error_type": "connect"})}\n\n'
         except httpx.ReadTimeout:
+            _log_stream_failure("read-timeout", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
         except httpx.NetworkError:
+            _log_stream_failure("network-error", target_url, model, _stream_t0)
             yield f'event: error\ndata: {json.dumps({"error": "Network error", "status": 502})}\n\n'
         except Exception as e:
             logger.error(f"Anthropic stream error: {e}")
@@ -2384,6 +2461,7 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             _diag["status"] = r.status_code
             if r.status_code != 200:
                 raw = (await r.aread()).decode(errors="replace")
+                _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
                 friendly = _format_upstream_error(r.status_code, raw, target_url)
                 yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                 return
@@ -2687,8 +2765,10 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         logger.warning(f"Stream connect to {target_url} failed: {e}{_tail}")
         yield f'event: error\ndata: {json.dumps({"error": f"Cannot reach {_host_key(target_url)}", "status": 503, "error_type": "connect"})}\n\n'
     except httpx.ReadTimeout:
+        _log_stream_failure("read-timeout", target_url, model, _stream_t0)
         yield f'event: error\ndata: {json.dumps({"error": "Read timeout", "status": 504})}\n\n'
     except httpx.NetworkError:
+        _log_stream_failure("network-error", target_url, model, _stream_t0)
         yield f'event: error\ndata: {json.dumps({"error": "Network error", "status": 502})}\n\n'
     except Exception as e:
         logger.error(f"Stream error: {e}")

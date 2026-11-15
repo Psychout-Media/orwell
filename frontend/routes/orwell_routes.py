@@ -270,6 +270,8 @@ async def _advance_through_eviction_night(res: dict, user: Optional[str], dec_ik
             logger.warning(f"[orwell] post-goodbye follow-up advance skipped: {_adv_e}")
             return res
         res = nxt
+        if isinstance(res, dict) and res.get("held") and not res.get("event"):
+            break  # ORW-97: a held advance committed nothing - re-calling it would only spin
         if _eviction_night_over(res):
             break
     return res
@@ -487,6 +489,8 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": False,
             "portrait": orwell_portraits.portrait_ref(user, hid),
             "authored": bool(hg.get("authored")),
+            # ORW-343: the engine's last-seen mood WORD (active houseguests the player has shared a room with); carried only when it is a short string, so nothing else can ride this field.
+            **({"lastSeenMood": hg["lastSeenMood"]} if isinstance(hg.get("lastSeenMood"), str) and 0 < len(hg["lastSeenMood"]) <= 40 else {}),
         })
     return cards
 
@@ -496,6 +500,26 @@ def roster_cards(state: dict, user: Optional[str]) -> list:
     derives authoring completeness (and the house-entry gate's readiness) from the SAME cards the
     routes serve; exported here so callers stop importing the private `_roster_cards` helper."""
     return _roster_cards(state, user)
+
+
+def _etag_json_response(request: Request, body):
+    """ORW-166 slice 4 - conditional GET for the HUD poller. The ETag hashes the WHOLE serialized body (not
+    the engine's beatSeq alone), because the house-entry and casting-finalize overlays can change the body
+    without a beat bump. A matching `If-None-Match` answers 304 with no body; otherwise a normal 200 whose
+    JSON bytes are exactly what FastAPI would have sent for the same dict. `no-cache` makes the browser
+    revalidate every poll (the 304 is what saves the payload), never serve a stale state."""
+    import hashlib
+    from fastapi.encoders import jsonable_encoder
+    resp = JSONResponse(content=jsonable_encoder(body))
+    etag = 'W/"' + hashlib.sha1(resp.body).hexdigest() + '"'  # nosec B324 - a cache validator, not a security hash
+    headers = {"ETag": etag, "Cache-Control": "no-cache"}
+    inm = request.headers.get("if-none-match")
+    if inm:
+        wanted = {t.strip() for t in inm.split(",")}
+        if "*" in wanted or etag in wanted or etag[2:] in wanted:
+            return Response(status_code=304, headers=headers)
+    resp.headers.update(headers)
+    return resp
 
 
 def _house_entry_overlay(user: Optional[str], st):
@@ -883,7 +907,7 @@ def setup_orwell_routes() -> APIRouter:
             # chat-blocking frame — so it uses the wider POLL timeout, not the tight framing default.
             # A generation-busy engine briefly slowed this read enough to ReadTimeout at 3s (prod
             # bundle 2026-06-22); the poll bound lets the transient resolve instead of 502-ing.
-            st = await orwell_engine.get_game_state(
+            st = await orwell_engine.get_game_state_polled(
                 user=_current_user(request), timeout=orwell_engine._POLL_TIMEOUT)
             _clear_warn("state")
             # #1313: while the house-entry gate holds, report the casting/holding state, never a
@@ -891,8 +915,10 @@ def setup_orwell_routes() -> APIRouter:
             # S2-1: the casting-finalize affordance is composed on the RAW engine truth FIRST (so it
             # reads the real `started`), then the house-entry latch wraps it — the two phases are
             # mutually exclusive, so `enterHouse` never survives into a house-entry hold.
-            return _house_entry_overlay(
-                _current_user(request), _casting_finalize_overlay(st))
+            def _project():
+                return _house_entry_overlay(
+                    _current_user(request), _casting_finalize_overlay(st))
+            return _etag_json_response(request, _project())
         except Exception as e:
             detail = _err_detail(e)
             _warn_throttled("state", f"[orwell] state failed: {detail}")
@@ -919,7 +945,7 @@ def setup_orwell_routes() -> APIRouter:
         Pre-game ("no active game") is an honest 200 {started:false} — NOT a fake 502 outage
         (field bug: the panel's poll logged a 502 per refresh on a healthy, game-less box)."""
         try:
-            st = await orwell_engine.game_status(user=_current_user(request))
+            st = await orwell_engine.game_status_polled(user=_current_user(request))
             # D3/E66: the current pending decision rides along so the decision card can re-arm after
             # a reload. The engine's own `pending` (now on gameStatus, persisted 0030) is AUTHORITATIVE
             # — a present value, INCLUDING null, is engine truth and is trusted as-is. Only fall back to
@@ -1018,6 +1044,12 @@ def setup_orwell_routes() -> APIRouter:
             return JSONResponse(status_code=502, content={"error": f"engine unreachable: {detail}"})
         if retro is None:
             return JSONResponse(status_code=404, content={"error": "The season is still live — the Vault opens only after a winner is crowned."})
+        # ORW-320: the post-crown nightly reflections (utility model; background, fail-soft, retry-once-then-skip + alert). The engine's own story stands without them.
+        try:
+            from src import orwell_house_reflections
+            orwell_house_reflections.kickoff_house_reflections(_current_user(request), retro)
+        except Exception as e:  # never let the enrichment break the retrospective route
+            logger.info(f"[orwell] house reflections kickoff skipped: {e}")
         return {"retrospective": retro}
 
     @router.get("/whereabouts")
@@ -1087,7 +1119,7 @@ def setup_orwell_routes() -> APIRouter:
         # L15: a roster read tolerates a busier engine than a chat-framing read — use the wider
         # POLL timeout (still bounded) so a generation-busy queue doesn't blank the cast on every poll.
         try:
-            state = await orwell_engine.get_game_state(user=user, timeout=orwell_engine._POLL_TIMEOUT)
+            state = await orwell_engine.get_game_state_polled(user=user, timeout=orwell_engine._POLL_TIMEOUT)
         except Exception as e:
             # Transient read failure (e.g. the per-user queue is busy committing portraits): keep
             # the cast on screen by serving the last roster we built, never an empty one.
@@ -1161,7 +1193,7 @@ def setup_orwell_routes() -> APIRouter:
         # often under load.
         state: dict = {}
         try:
-            got = await orwell_engine.get_game_state(user=user, timeout=orwell_engine._POLL_TIMEOUT)
+            got = await orwell_engine.get_game_state_polled(user=user, timeout=orwell_engine._POLL_TIMEOUT)
             if isinstance(got, dict):
                 state = got
         except Exception as e:
@@ -1179,7 +1211,7 @@ def setup_orwell_routes() -> APIRouter:
         Vault-freedom argument."""
         user = _current_user(request)
         try:
-            state = await orwell_engine.get_game_state(user=user, timeout=orwell_engine._POLL_TIMEOUT)
+            state = await orwell_engine.get_game_state_polled(user=user, timeout=orwell_engine._POLL_TIMEOUT)
         except Exception as e:
             _warn_throttled("dossier", f"[orwell] dossier state read failed: {_err_detail(e)}")
             return {"found": False}
@@ -1685,6 +1717,45 @@ def setup_orwell_routes() -> APIRouter:
             _warn_throttled(f"decision-fail:{user or ''}", f"[orwell] decision failed: {e}")
             return JSONResponse(status_code=502, content={"error": f"engine unreachable: {e}"})
 
+    @router.post("/ceremony-continue")
+    async def orwell_ceremony_continue(request: Request):
+        """ORW-281 4b: the player pressed Continue on a staged-ceremony WATCH step (pending kind
+        `ceremony-step`). That kind is NOT a decision (the engine refuses submitDecision for it): it is
+        answered by advanceGame, which moves the ceremony exactly one step. Stale-beat safe (CAS on the
+        last-seen beatSeq) and idempotent per press; Vault-free (returns the engine's AdvanceView)."""
+        user = _current_user(request)
+        try:
+            from routes.chat_helpers import last_beat_seq as _lbs, _refresh_beat_seq, _mint_idempotency_key
+            ebs, ik = _lbs(user), _mint_idempotency_key()
+        except Exception:  # failsoft-ok: sync-spine token unavailable; the engine call stands un-CAS'd, as an un-wired caller would
+            _refresh_beat_seq = None  # type: ignore
+            ebs = ik = None
+        try:
+            res = await orwell_engine.advance_game(expected_beat_seq=ebs, idempotency_key=ik, user=user)
+            if _refresh_beat_seq is not None:
+                _refresh_beat_seq(user, res if isinstance(res, dict) else {})
+            if isinstance(res, dict):
+                orwell_engine.remember_pending(res, user=user)
+            _publish_game_updated(user)
+            return res
+        except orwell_engine.EngineToolError as e:
+            if e.no_game:
+                return JSONResponse(status_code=409, content={"started": False, "error": "no active game"})
+            try:
+                from routes.chat_helpers import _is_stale_beat_error, _handle_stale_beat
+                if _is_stale_beat_error(e):
+                    await _handle_stale_beat(user, e)
+                    cur = await orwell_engine.get_game_state(user=user)
+                    orwell_engine.remember_pending(cur, user=user)
+                    _publish_game_updated(user)
+                    return cur
+            except Exception:  # failsoft-ok: reconcile failed; fall through to the typed error below
+                pass
+            status = e.status if isinstance(e.status, int) and 400 <= e.status < 600 else 502
+            return JSONResponse(status_code=status, content={"error": str(e)})
+        except Exception as e:
+            return JSONResponse(status_code=502, content={"error": f"engine unreachable: {e}"})
+
     @router.post("/self-eviction/request")
     async def orwell_self_eviction_request(request: Request):
         """0061 step 1 — the player expressed an OOC intent to LEAVE/quit. Raise the self-evict
@@ -2078,8 +2149,11 @@ def setup_orwell_routes() -> APIRouter:
     @router.post("/fe-report")
     async def orwell_fe_report(request: Request):
         # Manual parse: sendBeacon may land as text/plain — content-type is no gate.
+        raw = await request.body()
+        if len(raw) > 16384:  # ORW-396: size cap now that the beacon is reachable logged-out (three short strings never need more)
+            return Response(status_code=204)
         try:
-            data = json.loads((await request.body()).decode("utf-8", "replace") or "{}")
+            data = json.loads(raw.decode("utf-8", "replace") or "{}")
         except Exception:
             return Response(status_code=204)  # malformed body: drop silently
         if not isinstance(data, dict):
@@ -2114,6 +2188,36 @@ def setup_orwell_routes() -> APIRouter:
         level = logging.DEBUG if data.get("startup") is True else logging.INFO
         logger.log(level, "[fe-fail] %s: %s — %s",
                    fields["surface"], fields["errorClass"], fields["detail"])
+        return Response(status_code=204)
+
+    # ORW-270: the player sees the "technical interlude" line on a stream error; this beacon makes the
+    # CLIENT side of that attributable in journalctl. Same posture as /fe-report (player-context JS,
+    # not admin-gated, always 204, shape-validated, rate-limited per process), but logs at WARNING.
+    _client_error_limiter = RateLimiter(max_requests=30, window_seconds=60)
+
+    @router.post("/client-error")
+    async def orwell_client_error(request: Request):
+        try:
+            data = json.loads((await request.body()).decode("utf-8", "replace") or "{}")
+        except Exception:
+            return Response(status_code=204)
+        if not isinstance(data, dict):
+            return Response(status_code=204)
+        if not _client_error_limiter.check("client-error:process"):
+            return Response(status_code=204)
+        try:
+            from src.llm_core import _redact_for_log
+
+            def _clean(v, cap):
+                v = "" if v is None else str(v)
+                v = "".join(ch if (ch.isprintable() or ch == " ") else " " for ch in v)
+                return _redact_for_log(v, cap)
+            logger.warning(
+                "[orwell] client stream error: kind=%s status=%s session=%s message=%r",
+                _clean(data.get("kind"), 40), _clean(data.get("status"), 20),
+                _clean(data.get("sessionId"), 64), _clean(data.get("message"), 200))
+        except Exception:
+            pass
         return Response(status_code=204)
 
     return router

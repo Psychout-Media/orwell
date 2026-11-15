@@ -1532,7 +1532,7 @@ surface already on the correct sizing idiom — the model for the rest.
 
 ## A4 [Ruling #17 + spec] ✅ PR #218 — Going private on GitHub — one PAT prompt, ever
 
-**Ruling (2026-06-10):** `kevinhirsch/orwell` becomes a private repo; no deploy/update-adjacent
+**Ruling (2026-06-10):** `Psychout-Media/orwell` becomes a private repo; no deploy/update-adjacent
 script may break, and the user is asked for a credential **at most once**.
 
 **What breaks today (inventory):** anonymous `git clone` (`orwell-install.sh:8,42`,
@@ -1545,10 +1545,10 @@ model fetch (not GH-hosted).
 
 **The design (auth once, then never again):**
 
-1. **One fine-grained PAT, captured at install only.** Scope: repo `kevinhirsch/orwell`,
+1. **One fine-grained PAT, captured at install only.** Scope: repo `Psychout-Media/orwell`,
    permission **Contents: Read-only**, nothing else. The bootstrap one-liner becomes the
    single authenticated moment:
-   `GIT_TOKEN=github_pat_xxx bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" https://raw.githubusercontent.com/kevinhirsch/orwell/main/deploy/orwell.sh)"`
+   `GIT_TOKEN=github_pat_xxx bash -c "$(curl -fsSL -H "Authorization: Bearer $GIT_TOKEN" https://raw.githubusercontent.com/Psychout-Media/orwell/main/deploy/orwell.sh)"`
    (authenticated raw works on private repos). `orwell.sh` passes `GIT_TOKEN` into the
    container; `orwell-install.sh` clones with it and then **persists it to
    `${APP_DIR}/data/.env`** (`GIT_TOKEN=…`) — the one file every reset already preserves, so

@@ -1,6 +1,7 @@
 import type { Beat, LiveSeasonState } from "./liveSeason";
+import { nightBreakPending, vetoDrawStage } from "./liveSeason";
 import type { TimeOfDay } from "./timeOfDay";
-import { WAKE_HOUR, eventSpanHours } from "./timeOfDay";
+import { WAKE_HOUR, eventSpanHours, DAY_END_HOUR } from "./timeOfDay";
 import { CLOCK } from "./sleepConstants";
 
 /**
@@ -18,6 +19,7 @@ import { CLOCK } from "./sleepConstants";
 export type StructuralMilestone =
   | "hoh-competition"
   | "nominations"
+  | "veto-draw"
   | "veto-competition"
   | "veto-ceremony"
   | "eviction"
@@ -33,9 +35,11 @@ export type StructuralMilestone =
  */
 export const DAY_SCHEDULE: Record<StructuralMilestone, TimeOfDay> = {
   "hoh-competition": "afternoon",
-  "nominations": "afternoon",
+  "nominations": "evening",
+  // ORW-281 / ORW-116 (Ryne: "veto player draw in the morning"): the draw is a mini ceremony of its own, in the MORNING of the veto day; the competition follows that afternoon.
+  "veto-draw": "morning",
   "veto-competition": "afternoon",
-  "veto-ceremony": "afternoon",
+  "veto-ceremony": "evening",
   "eviction": "evening",
   "final-eviction": "evening",
   "finale": "evening",
@@ -45,12 +49,28 @@ export const DAY_SCHEDULE: Record<StructuralMilestone, TimeOfDay> = {
 export const MILESTONE_LABEL: Record<StructuralMilestone, string> = {
   "hoh-competition": "HOH competition",
   "nominations": "nomination ceremony",
+  "veto-draw": "veto player draw",
   "veto-competition": "Power of Veto competition",
   "veto-ceremony": "veto ceremony",
   "eviction": "eviction",
   "final-eviction": "final eviction",
   "finale": "finale",
 };
+
+/**
+ * ORW-370 (Ryne, 11-15: the panel is "a guide to player on what to expect"): the three-part Final HOH (0128) runs as THREE competitions on the one `hoh-competition` milestone. The schedule
+ * (hold, due-ness, hours, narrator priming) is untouched - this only NAMES which part is next, so the panel can say "Final HOH part 2: this afternoon". Pure read; `null` for an ordinary
+ * HOH (not the final three, or the flag off). `threePartOn` is the session's flag (`ctx().finalHohThreePart`).
+ */
+export function finalHohPartOf(live: LiveSeasonState | null | undefined, threePartOn: boolean): 1 | 2 | 3 | null {
+  if (!threePartOn || !live || live.beat !== "hoh-competition" || live.active.length !== 3) return null;
+  return live.finalHohPart ?? 1;
+}
+
+/** The readable name of a milestone, naming the Final HOH part when there is one (narration priming + the HUD cue). */
+export function milestoneLabel(m: StructuralMilestone, finalHohPart?: 1 | 2 | 3 | null): string {
+  return m === "hoh-competition" && finalHohPart ? `Final HOH part ${finalHohPart}` : MILESTONE_LABEL[m];
+}
 
 const MILESTONE_BEATS: ReadonlySet<Beat> = new Set<Beat>(Object.keys(DAY_SCHEDULE) as Beat[]);
 
@@ -83,7 +103,9 @@ export interface NextMilestone {
 export function nextMilestone(live: LiveSeasonState | null | undefined): NextMilestone | null {
   const beat = live?.beat;
   if (!beat || !MILESTONE_BEATS.has(beat)) return null;
-  const m = beat as StructuralMilestone;
+  // ORW-281: the veto DRAW is its own milestone. The structural beat stays `veto-competition` (the draw is its first stage, so the seeded stream is untouched), but the schedule reads it as `veto-draw`
+  // (the morning of the veto day) until the field exists, and as the competition (afternoon) after.
+  const m: StructuralMilestone = vetoDrawStage(live!) ? "veto-draw" : (beat as StructuralMilestone);
   const phase = DAY_SCHEDULE[m];
   return { beat: m, phase, targetHour: phaseStartHour(phase) };
 }
@@ -97,6 +119,9 @@ export function milestoneDue(live: LiveSeasonState | null | undefined): boolean 
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return false;
   const hour = live.nightDepth ?? WAKE_HOUR;
+  // ORW-116 (a): the first HOH is the afternoon of the NEXT day after the premiere evening and the social night - never that same night (the clock reads past the afternoon hour at night).
+  // ORW-258 (Ryne: every event gets its own day): while the NIGHT between this event and the previous one has not passed, the event is NOT due - it belongs to the next day, whatever the hour reads tonight. Unless the night has run out: then the advance IS the day-break.
+  if (nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01) return false;
   // Float-safe: the clock accrues in 0.2h steps (0.2 * 20 = 3.999999999999986...), so a scene that reaches EXACTLY the scheduled hour (the 8am wake + a 4h scene
   // cap = the 12:00 afternoon start) landed at 11.999999999999986 and was never "due" - a stall once the front-end stopped firing events ahead of the schedule.
   return hour + 1e-6 >= m.targetHour;
@@ -112,6 +137,7 @@ const DURATION_CATEGORY: Partial<Record<Beat, "competition" | "ceremony" | "evic
   "hoh-competition": "competition",
   "final-hoh-part": "competition", // 0128: each part of the three-part Final HOH costs a competition's time
   "veto-competition": "competition",
+  "veto-draw": "ceremony", // ORW-281: the chip draw is a mini ceremony - ceremony hours, not the flat default
   "nominations": "ceremony",
   "veto-ceremony": "ceremony",
   "eviction": "eviction",
@@ -141,5 +167,50 @@ export function minutesUntilDue(live: LiveSeasonState | null | undefined): numbe
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return null;
   const hour = live.nightDepth ?? WAKE_HOUR;
+  // ORW-258: behind a pending night gate the event is due the next day at its hour: the rest of tonight plus the morning-to-hour span.
+  if (nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01) return Math.max(0, Math.ceil(((DAY_END_HOUR - hour) + (m.targetHour - WAKE_HOUR)) * 60 - 1e-6));
   return Math.max(0, Math.ceil((m.targetHour - hour) * 60 - 1e-6));
+}
+
+
+/**
+ * ORW-363 (Ryne, playtest 11-15: "Those tools should be a guide to player on what to expect. Next."): is the next milestone on a LATER day than now - behind the night that
+ * has not passed yet? The HUD says "tomorrow afternoon" then, and "this afternoon" otherwise. The same rule `minutesUntilDue` / `milestoneDue` use. `false` with no milestone or
+ * no clock. A pure read - never mutates, never draws rng.
+ */
+export function dueTomorrow(live: LiveSeasonState | null | undefined): boolean {
+  const m = nextMilestone(live);
+  if (!m || live?.timeOfDay === undefined) return false;
+  const hour = live.nightDepth ?? WAKE_HOUR;
+  return nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01;
+}
+
+/**
+ * ORW-258: a pending night gate defers an event's due-ness ONLY for a game a person is playing (`playedGame`) - plus the premiere's own week-1 HOH rule, which predates it. A headless driver (calibration sims,
+ * UAT) never announces a message, so for it "due" stays exactly what it was: the seeded season is byte-identical.
+ */
+function nightGatePendingForDue(live: LiveSeasonState): boolean {
+  if (!nightBreakPending(live)) return false;
+  return live.playedGame === true || (live.beat === "hoh-competition" && live.week === 1);
+}
+
+/**
+ * ORW-258 (Ryne, 2026-11-11: "every event gets its own day"): the event that belongs to TODAY while the next one waits behind its night. The header must name it (the HOH day reads
+ * HOH, not Nominations). `null` when the next milestone is itself today's event (its night has passed). A fixed map of the weekly order; pure, no rng.
+ */
+const EVENT_BEFORE: Partial<Record<StructuralMilestone, StructuralMilestone>> = {
+  nominations: "hoh-competition",
+  "veto-draw": "nominations",
+  "veto-competition": "veto-draw",
+  "veto-ceremony": "veto-competition",
+  eviction: "veto-ceremony",
+  "hoh-competition": "eviction",
+};
+export function todaysEvent(live: LiveSeasonState | null | undefined): StructuralMilestone | null {
+  const m = nextMilestone(live);
+  if (!m || live?.timeOfDay === undefined || !nightBreakPending(live!)) return null;
+  const hour = live!.nightDepth ?? WAKE_HOUR;
+  if (hour >= DAY_END_HOUR - 0.01) return null;
+  if (m.beat === "hoh-competition" && live!.week === 1) return null; // the premiere evening: no event of its own
+  return EVENT_BEFORE[m.beat] ?? null;
 }

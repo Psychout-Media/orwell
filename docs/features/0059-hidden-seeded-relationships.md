@@ -16,8 +16,8 @@
 > `src/engine/seededTieSurfacing.ts` + tunables in `src/engine/seededRelationshipConstants.ts`): as a
 > sealed tie's live edge warms past an observable floor, a positioned observer notices, a Vault-free read
 > ("they seem unusually tight") diffuses NPC↔NPC (0038) and rarely/capped reaches the player (0002, never
-> the sealed `nature`), and the discovery folds a third-party re-read (0023). **Opt-in, default OFF**
-> (`ORWELL_SEEDED_TIE_SURFACING`) on a **dedicated rng** ⇒ provably calibration-neutral when off (the
+> the sealed `nature`), and the discovery folds a third-party re-read (0023). **Default ON**
+> (`ORWELL_SEEDED_TIE_SURFACING`; `defaultOn` in `src/featureFlags.ts`, `=1` in the deploy defaults; it began opt-in/default-off, corrected 2026-11-12, ORW-286 item 8) on a **dedicated rng** ⇒ provably calibration-neutral when off (the
 > off-screen stream is byte-identical to the pre-feature build; `tests/unit/seededTieSurfacing.test.ts` is
 > the §6 gate — organic-only surfacing, the wall on player AND admin, monotonicity + persistence,
 > player-showmance-earned, and the neutrality battery; `juryReach` re-verified green). Consolidates ledger
@@ -124,3 +124,10 @@ prompt/output is aliased forward (`normalizeTieNature`, `migrateSeededRelationsh
 `prior-romance`, `family`, `ex`, `old-friend`, `rival`, plus the two PROPOSED extras `former-teammate` and `online-acquaintance` (still
 pending coordinator confirmation per that log entry — treat them as provisional vocabulary). A nature is flavour only; the standing
 affinity bias is identical for every tie, so no nature is a competition or vote input.
+
+
+## ORW-132 (Ryne, 2026-11-06): ties are a huge minority, marked secret or public from the start
+- Rare, like reserve twists: a budgeted tie slot loads with `TIE_LOAD_PROB` (ASSUMED 0.25, pending Ryne; reserve twists load at 0.5), so most seasons have no pre-show tie at all.
+- Every tie carries a `visibility` mark, `secret` or `public`, decided at season start from a dedicated seeded draw whose chance depends on the pair (`PUBLIC_TIE_CHANCE`: family and former teammates are usually out in the open, an ex or a prior romance usually kept quiet; ASSUMED pending Ryne).
+- A PUBLIC tie starts at exposure `public` and is announced on Day 1 as an event the whole house (player included) witnessed, so it is an ordinary house fact. A SECRET tie stays sealed and spreads only by the normal rules (0059 section 5, 0095).
+- Hostility is the pair's own: an ex or a rival starts cold, each side by its own temperament (`tieDirectedBias`: strategy style and volatility); every friendly nature keeps the original small warm bias. Engine: `src/engine/tieVisibility.ts`. Tests: `tests/unit/preShowTiesVisibility.test.ts`.

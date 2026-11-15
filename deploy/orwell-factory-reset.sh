@@ -6,7 +6,7 @@
 # LLM credentials — the API keys + the provider endpoint(s) — so you never have to re-enter your
 # provider config. The SELECTED MODELS are RESET to the OOB defaults (issue #860) — whatever
 # frontend/src/settings.py DEFAULT_SETTINGS says (today: default + utility model `deepseek-flash`,
-# image model google/gemini-3.1-flash-image) — so a stale/placeholder pick can never ride across a reset.
+# image model openai/gpt-image-2.6-sunburst) — so a stale/placeholder pick can never ride across a reset.
 # EVERYTHING ELSE is wiped: every per-user game sandbox (saves,
 # souls, the hidden Vault layer) and the ENTIRE front-end store — all accounts, chats/sessions,
 # memory, MCP configs, uploads, EVERY cast portrait / avatar / headshot, presets, and every other

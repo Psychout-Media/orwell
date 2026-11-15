@@ -26,13 +26,17 @@ def test_the_label_day_rises_when_the_schedule_rolls_and_never_goes_backwards(_s
     sid = _session(_stack, "a69-days")
     _start_day(_stack, sid)
     day0, _, _ = _label(_stack)
-    assert day0 == 1
+    assert day0 == 2  # ORW-116: _start_day now plays the premiere night and starts Day 2 at 8am
     last_day, last_min, rolled = day0, None, 0
-    for i in range(1, 140):
+    for i in range(1, 320):
         _, st = _schedule(_stack)
+        if st.get("timeOfDay") in ("evening", "night", "late-night") and not (st.get("pending") or {}).get("kind"):
+            _engine(_stack, "turnIn")  # ORW-116: the night is the player's - a player who goes to bed is what rolls the day (nothing else does)
         p = st.get("pending") or {}
         if p.get("kind") in ("comp-round", "comp-intent"):
             _engine(_stack, "submitDecision", {"kind": p["kind"], "intent": "compete"})
+        elif p.get("kind") == "ceremony-step":
+            _engine(_stack, "advanceGame")  # ORW-281: a staged ceremony step is a WATCH step - answered by advanceGame, refused by submitDecision
         elif p.get("kind"):
             opts = [o["id"] for o in (p.get("options") or [])]
             _engine(_stack, "submitDecision", {"kind": p["kind"], **({"choice": opts[:2]} if p["kind"] == "nominations" else {"use": False} if p["kind"] == "veto-decision" else {"vote": opts[0]} if opts else {})})

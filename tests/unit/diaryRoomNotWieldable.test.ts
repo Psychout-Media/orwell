@@ -55,3 +55,45 @@ describe("D2 — a Diary Room note is never wieldable or confrontable", () => {
     expect(sb2.session.exposeSecret({ factId: "fact:w-expose" })).toMatchObject({ exposed: true });
   });
 });
+
+/**
+ * ORW-286 item 5 (Ryne, BDD cards 30-33): the CASTING path is walled from the house exactly like the Diary Room. What the player tells the producers in the casting interview (the
+ * private strategy, the interview notes) is the player's own producer-only material; it has no in-game pathway to any houseguest. Added NEXT TO the diary-room wall above (not
+ * replacing it): after a cast, no houseguest's KNOWLEDGE holds it and no houseguest's VOICE carries it, for every houseguest, through the first day's play. The probe is
+ * proven live by a positive control: seeding the same sentence into a houseguest's knowledge trips it. Roles only.
+ */
+describe("ORW-286 item 5 — casting-authored private strategy and interview notes stay off every houseguest's knowledge and voice", () => {
+  const PRIVATE = "SENTINEL-CAST-WALL-private-plan-to-flip-the-house-in-week-three";
+  const NOTE = "SENTINEL-CAST-WALL-producer-only-self-description-of-the-player";
+
+  function castGame(tag: string): ReturnType<GameSessionRegistry["sandboxFor"]> {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor(`cast-wall-${tag}`);
+    sb.session.createCharacter({ playerName: "The Player", seed: 7, privateStrategy: PRIVATE, interviewNotes: [NOTE] });
+    for (let i = 0; i < 6; i++) sb.session.advanceGame();   // a little play, so any lazy copy into the house would have happened
+    return sb;
+  }
+
+  function leaks(sb: ReturnType<typeof castGame>): string[] {
+    const found: string[] = [];
+    for (const hg of sb.session.getGameState().house) {
+      if (hg.status !== "active") continue;
+      const blob = JSON.stringify([sb.engine.knowledge.knownTo(hg.id), sb.session.npcVoice(hg.id)]);
+      for (const s of [PRIVATE, NOTE]) if (blob.includes(s)) found.push(`${hg.id} holds ${s}`);
+    }
+    return found;
+  }
+
+  it("no houseguest's knowledge or voice carries the casting private strategy or interview notes", () => {
+    const sb = castGame("clean");
+    expect(sb.session.getGameState().house.filter((h) => h.status === "active").length).toBeGreaterThan(1); // the sweep is not vacuously empty
+    expect(leaks(sb)).toEqual([]);
+  });
+
+  it("the probe is live: the same sentence seeded into a houseguest's knowledge is caught (positive control)", () => {
+    const sb = castGame("control");
+    const npcId = sb.session.snapshot().house!.npcs[0]!.id;
+    sb.engine.knowledge.seedBelief(npcId, { content: NOTE, factId: "fact:cast-wall-control", subject: PLAYER, distortion: 0, confidence: 1 }, "witnessed");
+    expect(leaks(sb).some((l) => l.includes(npcId) && l.includes(NOTE))).toBe(true);
+  });
+});
