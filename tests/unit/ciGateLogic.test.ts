@@ -18,7 +18,7 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "test", "bdd", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "fast-checks", "test", "bdd", "test-unit", "coverage-shard", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 const HEAVY_TIER = ["bdd", "coverage-shard", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
@@ -41,10 +41,16 @@ describe("ci-gate (two-tier CI)", () => {
     expect(gate(true, { "fe-browser-tests": "skipped" }).rc).toBe(1));
   it("passes a full run where a job was skipped because its path filter is false", () =>
     expect(gate(true, { "fe-browser-tests": "skipped", "fe-unit": "skipped" }, { FRONTEND: "false" }).rc).toBe(0));
-  it("a draft with an all-green fast tier STILL fails, with the plain message", () => {
+  it("a run that was not the full suite (full=false) STILL fails, with the plain message (ORW-413: a draft is now a full run, but the rule stays fail-closed)", () => {
     const r = gate(false, skipHeavy);
     expect(r.rc).toBe(1);
-    expect(r.out).toContain("draft: fast checks only — mark ready for the full suite");
+    expect(r.out).toContain("this run was not the full suite");
+  });
+  it("fast-checks is a required input: its failure or an applicable skip fails the gate; with both engine and front-end filters false a skip is fine (docs-only)", () => {
+    expect(gate(true, { "fast-checks": "failure" }).rc).toBe(1);
+    expect(gate(true, { "fast-checks": "skipped" }).rc).toBe(1);
+    expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false", FRONTEND: "false" }).rc).toBe(0);
+    expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false" }).rc).toBe(1);
   });
   it("a draft fails on a fast-tier failure too, and on a skipped applicable fast job", () => {
     expect(gate(false, { ...skipHeavy, "test-unit": "failure" }).rc).toBe(1);
@@ -77,18 +83,19 @@ describe("ci.yml wiring (two-tier CI)", () => {
     }
   });
   it("the fast-tier jobs are NOT gated on the full tier", () => {
-    for (const job of ["test", "test-unit", "fe-unit"]) {
+    for (const job of ["fast-checks", "test", "test-unit", "fe-unit"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m![1], job).not.toContain("full");
     }
   });
-  it("the BDD gate runs in its own heavy-tier job; the fast-tier test job is typecheck + build only (ORW-229 re-shard)", () => {
+  it("the BDD gate runs in its own job (three legs, ORW-413); the test job is build + arch only, the typecheck lives in fast-checks (ORW-229 re-shard, ORW-413)", () => {
     const testJob = yml.slice(yml.indexOf("\n  test:\n"), yml.indexOf("\n  bdd:\n"));
     const bddJob = yml.slice(yml.indexOf("\n  bdd:\n"), yml.indexOf("\n  test-unit:\n"));
-    expect(testJob).toContain("run: npm run typecheck");
+    expect(testJob).not.toContain("run: npm run typecheck");
     expect(testJob).toContain("run: npm run build");
+    expect(yml.slice(yml.indexOf("\n  fast-checks:\n"), yml.indexOf("\n  test:\n"))).toContain("run: npm run ci:fast");
     for (const gone of ["run: npm run test:bdd", "uses: actions/setup-python", "uses: ./.github/actions/setup-fe-python", "run: pip install"]) expect(testJob, gone).not.toContain(gone);
-    expect(bddJob).toContain("run: npm run test:bdd");
+    expect(bddJob).toContain("run: node ci/bdd-shard.mjs ${{ matrix.shard }}/3");
     expect(bddJob).toContain("uses: ./.github/actions/setup-fe-python");
   });
   it("calibration-nightly has NO pull_request trigger (ORW-218, Ryne 2026-11-12: balance is not CI); the draft-PR guard stays harmless for dispatch/schedule", () => {
@@ -100,8 +107,9 @@ describe("ci.yml wiring (two-tier CI)", () => {
     expect(cal).not.toMatch(/^  pull_request:/m);
     expect(cal).toMatch(/workflow_dispatch:/);
   });
-  it("triggers: PR (incl. ready_for_review), merge_group and main", () => {
-    expect(yml).toMatch(/types: \[opened, synchronize, reopened, ready_for_review\]/);
+  it("triggers: PR (NOT ready_for_review: one run per PR, ORW-413), merge_group and main", () => {
+    expect(yml).toMatch(/types: \[opened, synchronize, reopened\]/);
+    expect(yml).not.toContain("ready_for_review]");
     expect(yml).toMatch(/merge_group:\n    types: \[checks_requested\]/);
     expect(yml).toMatch(/push:\n    branches: \[main\]/);
   });
