@@ -327,3 +327,57 @@ def test_author_cast_dedupes_then_fires_on_authored_after_the_pass():
 def test_authoring_instruction_keeps_the_fitness_level_of_the_seeded_build():
     t = ca._SYSTEM
     assert "FITNESS LEVEL" in t and "athletic person stays athletic" in t and "neutral, flattering" in t
+
+
+# ---- ORW-437 review (#2665, #2677): the dedupe write-back clears an omitted offender; a holding-store run never writes live ----
+
+def test_dedupe_clears_the_offending_field_the_rewrite_omitted():
+    cards = [_cast_card(i, p, "kitchen") for i, p in ((1, "a leather jacket"), (2, "a flannel shirt"), (3, "a green parka"), (4, "a navy blazer"))]
+    stored = []
+
+    async def llm(msgs):  # a rewrite whose onCamera still names a scene: the field is omitted
+        return json.dumps({"wardrobe": ["a rust corduroy blazer", "dark jeans"], "photoHair": "a neat low bun",
+                           "onCamera": "She says hello and then leaves the kitchen to talk to everyone."})
+
+    async def write_look(hid, fields):
+        stored.append((hid, fields))
+        return {"accepted": True}
+
+    _run(ca.dedupe_photo_sheets(cards, llm, write_look))
+    assert stored and stored[0][0] == "npc:4"            # the 4th kitchen
+    f = stored[0][1]
+    assert "onCamera" not in f and f["clear"] == ["onCamera"]
+
+
+def test_holding_store_run_never_writes_the_live_cast(monkeypatch):
+    from src import orwell_engine
+    live_looks, held = [], []
+
+    async def fake_look(h, fields, user=None):
+        live_looks.append(h)
+        return {"accepted": True}
+
+    async def fake_resolver(owner):
+        async def llm(msgs):
+            if msgs[0]["content"] == ca.PHOTO_SHEET_SYSTEM:
+                return json.dumps({"wardrobe": ["a rust corduroy blazer", "dark jeans"], "photoHair": "a neat low bun",
+                                   "onCamera": "She sits in the lounge, chin on fist, eyes on the camera, the one who misses nothing."})
+            return json.dumps({"biography": "A blunt person from Texas who came up the hard way. Friends call her loyal.",
+                               "vocation": "rancher",
+                               "physicalCharacteristics": {
+                                   "heightBuild": "tall and lean", "skinTone": "tan", "hair": "dark hair", "facialFeatures": "a square jaw",
+                                   "distinguishingMark": "none notable", "ageLook": "youthful", "style": "soft tailoring and boots",
+                                   "wardrobe": ["a leather jacket", "dark jeans"], "photoHair": "a neat low bun",
+                                   "onCamera": "She stands in the kitchen, arms folded, eyes on the camera, the one who misses nothing."}})
+        return llm
+
+    async def holding(profile):
+        held.append(profile.get("houseguestId"))
+        return {"accepted": True}
+
+    monkeypatch.setattr(orwell_engine, "record_look_extras", fake_look)
+    monkeypatch.setattr(ca, "resolve_authoring_llm_fn", fake_resolver)
+    cast = [_author_npc(i) for i in range(1, 4)]
+    n = _run(ca.run_authoring(cast, "u", None, holding, seed=1))
+    assert n == 3 and len(held) == 3          # all three duplicate the same leather jacket: the pass WOULD fire live
+    assert live_looks == []                   # but a holding-store run never touches the live cast

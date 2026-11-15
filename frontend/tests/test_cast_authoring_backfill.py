@@ -79,7 +79,9 @@ _STATE = {
     "started": True,
     "player": {"id": "player", "name": "The Player", "status": "active", "authored": False},
     "house": [
-        {"id": "npc:1", "name": "Houseguest One", "status": "active", "authored": True},
+        {"id": "npc:1", "name": "Houseguest One", "status": "active", "authored": True,
+         "biography": "Grew up near the water and still fixes boats.", "identityConcept": "a boat-fixer who reads a room",
+         "physicalCharacteristics": {"wardrobe": ["tee"], "onCamera": "arms folded", "photoHair": "short"}},  # a real authored entry carries its story (ORW-437)
         {"id": "npc:2", "name": "Houseguest Two", "status": "active", "authored": False},
         {"id": "npc:3", "name": "Houseguest Three", "status": "jury", "authored": False},
         {"id": "npc:4", "name": "Houseguest Four", "status": "active"},  # absent ⇒ floor

@@ -68,11 +68,11 @@ def background_codes(card: dict) -> list:
     return ["background-years"] if a and b and not (a & b) else []
 
 
-def mend(profile: dict, npc: dict) -> list:
+def mend(profile: dict, npc: dict, cast=None) -> list:
     """Deterministic repairs on the profile in place: the story repairs (name, pronoun, age, feature, show name for
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
-    done = list(A.repair_story(profile, npc))
+    done = list(A.repair_story(profile, npc, cast))
     return done
 
 
@@ -193,7 +193,7 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
     gate.checked += 1
     first = card_codes(profile, npc, cast, gate.registry)
     gate.count(first)
-    if mend(profile, npc):
+    if mend(profile, npc, cast):
         gate.repaired += 1
     codes = card_codes(profile, npc, cast, gate.registry)
     tries = 0
@@ -209,7 +209,7 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
         if isinstance(fresh, dict):
             # keep the first draft's look/voice/hidden fields the re-write did not return; the story text is the new one
             merged = {**profile, **{k: v for k, v in fresh.items() if v not in (None, "", [], {})}}
-            mend(merged, npc)
+            mend(merged, npc, cast)
             profile.clear()
             profile.update(merged)
         codes = card_codes(profile, npc, cast, gate.registry)

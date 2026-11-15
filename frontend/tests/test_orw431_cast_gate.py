@@ -320,3 +320,19 @@ def test_none_notable_is_not_a_repeated_mark():
         n["physicalCharacteristics"]["distinguishingMark"] = "none notable beyond a faint scar"
         g.accept(n["id"], {}, n, cast)
     assert "rep-mark" not in g.codes
+
+
+# ---- ORW-437 review: a nickname is a shortening, never a longer different name ----------------------------
+def test_longer_distinct_name_is_not_a_nickname():
+    npc = {"id": "npc:1", "name": "Samir Nesbitt"}
+    bio = "Samira grew up in Macon. Samira fixes boats. Samira dislikes noise."
+    assert "story-name" in ca.story_name_codes(bio, npc)
+
+
+def test_shortening_is_a_nickname_unless_it_is_another_cast_first_name():
+    npc = {"id": "npc:1", "name": "Samuel Nesbitt"}
+    bio = "Sam grew up in Macon. Sam fixes boats. Sam dislikes noise."
+    assert ca.story_name_codes(bio, npc) == []
+    other = [npc, {"id": "npc:2", "name": "Sam Ortiz"}]
+    assert "story-cast-name" in ca.story_name_codes(bio, npc, other)
+    assert ca.repair_story_name(bio, npc, other).startswith("Samuel grew")

@@ -455,6 +455,9 @@ async def _capture_season_outcome(user: Optional[str]) -> bool:
         return False
 
 
+_ROSTER_STORY_KEYS = ("biography", "identityConcept", "physicalCharacteristics")
+
+
 def _roster_cards(state: dict, user: Optional[str]) -> list:
     """The Vault-free roster cards (0051) from the engine's public projection: id, name,
     status, isPlayer, the persisted portrait ref (or null), and the engine's deep-profile
@@ -489,6 +492,10 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": False,
             "portrait": orwell_portraits.portrait_ref(user, hid),
             "authored": bool(hg.get("authored")),
+            # ORW-437 (review of #2733): the engine's PUBLIC story/look fields, carried (None when absent) so
+            # `orwell_cast_authoring.card_missing_story` sees what the real house entry holds. The key being present
+            # marks a full card; `_roster_payload` strips them so the /roster body is unchanged.
+            **{k: hg.get(k) for k in _ROSTER_STORY_KEYS},
             # ORW-343: the engine's last-seen mood WORD (active houseguests the player has shared a room with); carried only when it is a short string, so nothing else can ride this field.
             **({"lastSeenMood": hg["lastSeenMood"]} if isinstance(hg.get("lastSeenMood"), str) and 0 < len(hg["lastSeenMood"]) <= 40 else {}),
         })
@@ -615,7 +622,7 @@ def _roster_payload(user: Optional[str], cards: list, *, stale: bool) -> dict:
     except Exception:
         last_run = None
     payload = {
-        "roster": cards,
+        "roster": [{k: v for k, v in c.items() if k not in _ROSTER_STORY_KEYS} if isinstance(c, dict) else c for c in cards],
         "portraitLastRun": last_run,
         "imagesAvailable": images_available,
         "portraitsPresent": counts["present"],

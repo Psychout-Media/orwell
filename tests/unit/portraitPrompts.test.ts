@@ -409,3 +409,26 @@ describe("ORW-380 — portrait photo brief v3", () => {
     if (process.env.ORW380_PRINT) console.log(`\nFULL:\n${full}\n\nNONE:\n${none}\n\nLEGACY:\n${legacy}\n`);
   });
 });
+
+describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prompt through the real public path", () => {
+  it("recordLookExtras on the adapter, then the public card and getPortraitPrompt carry and use all three", () => {
+    const adapter = new GameSessionAdapter();
+    const view = adapter.createCharacter({ playerName: "The Player", seed: 31 });
+    const npc = view.house.find((h) => h.physicalCharacteristics)!;
+    const id = npc.id as EntityId;
+    const before = adapter.getPortraitPrompt(id)!.prompt;
+    const r = adapter.recordLookExtras({
+      houseguestId: id, wardrobe: ["a faded grey hoodie", "dark jeans"], photoHair: "a neat low bun",
+      onCamera: "Leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
+    });
+    expect(r.accepted).toBe(true);
+    const card = adapter.getGameState().house.find((h) => h.id === id)!;   // the typed public projection, no cast
+    expect(card.physicalCharacteristics?.wardrobe).toEqual(["a faded grey hoodie", "dark jeans"]);
+    expect(card.physicalCharacteristics?.onCamera).toContain("kitchen island");
+    const after = adapter.getPortraitPrompt(id)!.prompt;
+    expect(after).not.toBe(before);
+    expect(after).toContain("faded grey hoodie");
+    expect(after).toContain("a neat low bun");
+    expect(after).toContain("Setting: the house kitchen");
+  });
+});
