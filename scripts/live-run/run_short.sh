@@ -15,7 +15,10 @@ if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; the
 RUN=$(cat $RIG_RUN_PTR)
 python3 - <<P || { echo "LIVE-SHORT COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
 import json
-f="$WT/frontend/data/settings.json"; d=json.load(open(f)); d["image_gen_enabled"]=False; json.dump(d,open(f,"w"))
+f="$WT/frontend/data/settings.json"; d=json.load(open(f)); d["image_gen_enabled"]=False
+import os
+if os.environ.get("RIG_ZERO_CLOCKS") == "0": d["zero_clocks"]=False  # the known-bad proof: the ORW-377 setting OFF brings back clock times
+json.dump(d,open(f,"w"))
 P
 TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
 PY=${ORWELL_PY:-/home/ryne/orwell/frontend/.venv/bin/python3}
