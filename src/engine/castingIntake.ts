@@ -362,11 +362,41 @@ const RELATIVE_SUBJECT_RE =
  * whose subject is a relative states the relative's span, so neither counts. A predicative "40 years old" still
  * counts (it is usually the houseguest's own age).
  */
-function statedYearSpans(text: string): number[] {
+function statedYearSpans(text: string, vocation?: string): number[] {
   const spans: number[] = [];
-  for (const sentence of text.split(/(?<=[.!?])\s+/)) {
-    if (RELATIVE_SUBJECT_RE.test(sentence)) continue;
-    const lower = sentence.toLowerCase();
+  for (const sentence of splitSentences(text)) spans.push(...sentenceYearSpans(sentence, vocation));
+  return spans;
+}
+
+/**
+ * ORW-430: a sentence names another person or role (a relative, a boss, a customer), so a span in it is that
+ * person's, not the houseguest's ("her father has run the diner for thirty years"). Mirrors the front end's
+ * `_OTHER_PERSON_RE`; the houseguest's OWN vocation words do not count as another person (a "coach" who is a coach).
+ */
+const OTHER_PERSON_WORD_RE =
+  /\b(?:mother|mom|mum|mama|father|dad|papa|sister|brother|sibling|wife|husband|spouse|partner|fianc[eé]e?|boyfriend|girlfriend|ex|daughter|son|kids?|child|children|aunt|uncle|cousin|niece|nephew|grandmother|grandfather|grandma|grandpa|grandparents?|parents?|twin|friend|best friend|roommate|neighbou?r|boss|manager|coach|mentor|teacher|professor|student|clients?|customers?|patients?|crew|team|colleagues?|coworkers?|rivals?|family|someone|girls|boys|men|women|guys)\b/i;
+/** A span that measures a THING's age ("a diner open thirty years"), not the houseguest's. */
+const THING_SPAN_RE = /\b(?:open|opened|founded|established|in business|been around|standing|operated|operating|history|tradition)\b/i;
+/** "all 22 years of her life": the span IS the houseguest's age, said as a lifetime. */
+const LIFETIME_RE = /\byears?\s+of\s+(?:her|his|their|my)\s+(?:whole\s+)?life\b|\b(?:her|his|their)\s+whole\s+life\b|\ball\s+(?:her|his|their)\s+life\b/i;
+
+function splitSentences(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+/);
+}
+
+function plainlyAboutHouseguest(sentence: string, vocation?: string): boolean {
+  let s = sentence;
+  for (const w of (vocation ?? "").toLowerCase().match(/[a-z']{3,}/g) ?? []) s = s.replace(new RegExp(`\\b${w}\\b`, "gi"), " ");
+  return !OTHER_PERSON_WORD_RE.test(s) && !RELATIVE_SUBJECT_RE.test(sentence);
+}
+
+function sentenceYearSpans(sentence: string, vocation?: string): number[] {
+  // Clause by clause: "After her parents divorced, she spent thirty years in Ohio" has the houseguest's own span in
+  // its second clause, while "her father has run the diner for thirty years" is one clause about someone else.
+  const spans: number[] = [];
+  for (const clause of sentence.split(/[,;\u2014]/)) {
+    if (!plainlyAboutHouseguest(clause, vocation) || THING_SPAN_RE.test(clause) || LIFETIME_RE.test(clause)) continue;
+    const lower = clause.toLowerCase();
     const digitRe = /(\d{1,3})[\s-]+years?\b(?!-old)/g;
     for (let m = digitRe.exec(lower); m; m = digitRe.exec(lower)) spans.push(parseInt(m[1]!, 10));
     const wordRe = /\b(ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-]+years?\b(?!-old)/g;
@@ -414,6 +444,34 @@ function significantWords(s: string): Set<string> {
     s.toLowerCase().replace(/[^a-z\s]/g, " ").split(/\s+/).filter((w) => w.length > 2 && !stop.has(w)),
   );
 }
+
+/** The indexes of the sentences that break the age rules, and the first offending span. Pure. */
+function offendingStorySentences(text: string, age: number, vocation?: string): { indexes: number[]; span?: number; grandparent: boolean } {
+  const indexes: number[] = [];
+  let span: number | undefined;
+  let grandparent = false;
+  splitSentences(text).forEach((sentence, i) => {
+    const over = sentenceYearSpans(sentence, vocation).find((n) => n >= age);
+    const grand = age < GRANDPARENT_MIN_AGE && grandparentSelfReference(sentence);
+    if (over !== undefined && span === undefined) span = over;
+    if (grand) grandparent = true;
+    if (over !== undefined || grand) indexes.push(i);
+  });
+  return { indexes, span, grandparent };
+}
+
+/**
+ * ORW-430: mend a biography or background that broke an age rule by dropping ONLY the offending sentences (the rest
+ * is a correct story). Returns undefined when too little is left to be a story (the caller clears the field and the
+ * card counts as not authored). No text is invented.
+ */
+export function dropOffendingStorySentences(text: string, age: number, vocation?: string): string | undefined {
+  const { indexes } = offendingStorySentences(text, age, vocation);
+  if (indexes.length === 0) return text;
+  const kept = splitSentences(text).filter((_, i) => !indexes.includes(i)).join(" ").trim();
+  return kept.length >= STORY_MIN_KEPT_CHARS ? kept : undefined;
+}
+const STORY_MIN_KEPT_CHARS = 40;
 
 /**
  * Validate one assembled dossier for INTERNAL coherence against the pinned `genderPresentation` spine
@@ -492,17 +550,14 @@ export function validateDossierCoherence(d: DossierForCoherence): DossierCoheren
     contradictions.push({ field, rule: "self-referential binary pronoun contradicts genderPresentation 'nonbinary'", severity: "soft" });
   }
 
-  // (ii) Age vs biography year-spans + grandparent self-reference.
-  const bioText = [d.biography, d.background].filter((s): s is string => typeof s === "string" && s.length > 0).join(" ");
-  if (bioText && typeof d.age === "number" && Number.isFinite(d.age)) {
-    for (const span of statedYearSpans(bioText)) {
-      if (span >= d.age) {
-        contradictions.push({ field: "biography", rule: `states a ${span}-year span at age ${d.age}`, severity: "hard" });
-        break;
-      }
-    }
-    if (d.age < GRANDPARENT_MIN_AGE && grandparentSelfReference(bioText)) {
-      contradictions.push({ field: "biography", rule: `grandparent self-reference at age ${d.age}`, severity: "hard" });
+  // (ii) Age vs biography year-spans + grandparent self-reference. ORW-430: judged per field (biography,
+  // background), and only on sentences plainly about the houseguest, so a correct biography is never flagged.
+  if (typeof d.age === "number" && Number.isFinite(d.age)) {
+    for (const [field, text] of [["biography", d.biography], ["background", d.background]] as const) {
+      if (typeof text !== "string" || !text) continue;
+      const bad = offendingStorySentences(text, d.age, d.vocation);
+      if (bad.span !== undefined) contradictions.push({ field, rule: `states a ${bad.span}-year span at age ${d.age}`, severity: "hard" });
+      if (bad.grandparent) contradictions.push({ field, rule: `grandparent self-reference at age ${d.age}`, severity: "hard" });
     }
   }
 
@@ -618,6 +673,11 @@ export function repairDossierCoherence<T extends DossierForCoherence>(d: T): { r
       if (pc && typeof pc === "object") {
         out.physicalCharacteristics = { ...(pc as Record<string, unknown>), distinguishingMark: undefined };
       }
+      continue;
+    }
+    // ORW-430: a biography or background that broke an age rule keeps its correct sentences.
+    if ((field === "biography" || field === "background") && typeof out[field] === "string" && typeof d.age === "number") {
+      out[field] = dropOffendingStorySentences(out[field] as string, d.age, d.vocation);
       continue;
     }
     if (field.includes(".")) {

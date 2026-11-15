@@ -33,6 +33,6 @@ describe("ORW-356 — a houseguest who IS the grandparent still fails (negative 
   ])("fails: %s", (text) => {
     const res = dossier(text, 25);
     expect(res.ok).toBe(false);
-    expect(res.repairFields).toContain("biography");
+    expect(res.repairFields).toContain("background"); // ORW-430: judged per field; this text is the background
   });
 });

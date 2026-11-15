@@ -6441,6 +6441,10 @@ export class GameSessionAdapter implements GameSession {
       if (c.physicalCharacteristics && typeof scrubbedMark === "string" && scrubbedMark.trim()) {
         c.physicalCharacteristics.distinguishingMark = scrubbedMark;
       }
+      // ORW-430: a biography/background that broke an age rule keeps its correct sentences (the repair dropped only the
+      // offending ones); only a story with too little left stays cleared.
+      if (repairedFields.includes("biography") && typeof repaired.biography === "string" && repaired.biography.trim()) c.biography = repaired.biography;
+      if (repairedFields.includes("background") && typeof repaired.background === "string" && repaired.background.trim()) c.background = repaired.background;
       const after = validateDossierCoherence(project());
       let action: "repaired" | "floored" = "repaired";
       let fields = [...repairedFields];
@@ -6453,6 +6457,9 @@ export class GameSessionAdapter implements GameSession {
         this.clearCoherenceFields(c, floorFields);
         fields = [...new Set([...fields, ...floorFields])];
       }
+      // ORW-430: never leave a card marked authored with no biography. The front end's backfill (`unauthored_ids`) reads
+      // `authored`, so an emptied card is marked unauthored and gets written again.
+      if (!(typeof c.biography === "string" && c.biography.trim())) c.deepProfileAuthored = false;
       affected.push({ id: n.id, fields, action });
       // #1599 — a genuine fault, surfaced even though auto-corrected (never swallowed). Vault-free: ids +
       // public field names only, never a secret value or the offending prose.
