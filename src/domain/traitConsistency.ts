@@ -139,10 +139,16 @@ export const VOICE_TEMPER_CONFLICTS: readonly { readonly temper: Temper; readonl
  * template carries all six dials and is exactly invertible (the front end parses them back).
  */
 export const VOICE_LINE_TEMPLATES: readonly string[] = [
-  "talks in a {register}, {rhythm}, {directness} voice — {energy}, {humor} humor; under pressure {stressTell}",
-  "{energy} and {directness}, with a {register} way of putting things and a {rhythm} rhythm; {humor} humor; when pressed, {stressTell}",
+  "talks in {a:register}, {rhythm}, {directness} voice — {energy}, {humor} humor; under pressure {stressTell}",
+  "{energy} and {directness}, with {a:register} way of putting things and {a:rhythm} rhythm; {humor} humor; when pressed, {stressTell}",
   "{register} and {rhythm} on a good day, {directness} on a bad one; {energy} energy, {humor} humor; if it gets tense, {stressTell}",
-  "a {directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
+  "{a:directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
+  // ORW-464: four more shapes, so the first shape opens about one card in eight instead of one in four. The first four stay at the
+  // same positions, so a card whose hash lands on 0-3 of 8 keeps its line; the others move to the new shapes.
+  "{directness} and {register}, {rhythm} in rhythm and {energy} in energy; {humor} humor; under pressure {stressTell}",
+  "sounds {register} and {rhythm}, {directness} when it counts; {energy}, {humor} humor; when it gets hard, {stressTell}",
+  "{rhythm} delivery, {register} word choice, {directness} when asked; {energy} presence, {humor} humor; at the limit {stressTell}",
+  "known for {a:energy}, {directness} manner, {register} and {rhythm}; {humor} humor; when cornered, {stressTell}",
 ];
 
 /** A voice-trait vs demeanor rule applies unless the demeanor also carries the opposite temper (loud with quiet is ambiguous). */

@@ -46,19 +46,24 @@ _ENTRY_RE = re.compile(r"^(lexicon|catchphrases)\[(\d+)\]$")
 # read it back as "none".
 _HUMOR_FROM_WORD = {"no": "none"}
 VOICE_LINE_TEMPLATES = (
-    "talks in a {register}, {rhythm}, {directness} voice \u2014 {energy}, {humor} humor; under pressure {stressTell}",
-    "{energy} and {directness}, with a {register} way of putting things and a {rhythm} rhythm; {humor} humor; when pressed, {stressTell}",
+    "talks in {a:register}, {rhythm}, {directness} voice \u2014 {energy}, {humor} humor; under pressure {stressTell}",
+    "{energy} and {directness}, with {a:register} way of putting things and {a:rhythm} rhythm; {humor} humor; when pressed, {stressTell}",
     "{register} and {rhythm} on a good day, {directness} on a bad one; {energy} energy, {humor} humor; if it gets tense, {stressTell}",
-    "a {directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
+    "{a:directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
+    "{directness} and {register}, {rhythm} in rhythm and {energy} in energy; {humor} humor; under pressure {stressTell}",
+    "sounds {register} and {rhythm}, {directness} when it counts; {energy}, {humor} humor; when it gets hard, {stressTell}",
+    "{rhythm} delivery, {register} word choice, {directness} when asked; {energy} presence, {humor} humor; at the limit {stressTell}",
+    "known for {a:energy}, {directness} manner, {register} and {rhythm}; {humor} humor; when cornered, {stressTell}",
 )
-_SLOT_RE = re.compile(r"\{(\w+)\}")
+_SLOT_RE = re.compile(r"\{(a:)?(\w+)\}")
 
 
 def _template_regex(template: str):
     out, pos = [], 0
     for m in _SLOT_RE.finditer(template):
         out.append(re.escape(template[pos:m.start()]))
-        out.append(f"(?P<{m.group(1)}>[^,;]+?)")
+        # `{a:slot}` is "a" or "an" plus the word (the engine picks by the next sound; older saved lines say "a evasive")
+        out.append((r"an? " if m.group(1) else "") + f"(?P<{m.group(2)}>[^,;]+?)")
         pos = m.end()
     out.append(re.escape(template[pos:]))
     return re.compile("^" + "".join(out) + "$")
