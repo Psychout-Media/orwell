@@ -34,6 +34,8 @@ export const OPEN_LEDGER_DUE_OFFERS_MAX = 3;
 /** ORW-448: at most this many due entries are handed to the front end per read. */
 export const OPEN_LEDGER_DUE_MAX = 3;
 /** ORW-448: the fixed notes of the resolutions the ENGINE makes (never model words). */
+/** ORW-456: the kind of an open-ledger line that stands for a formal deal (struck by the engine, or spoken and not yet matched to one). */
+export const OPEN_LEDGER_DEAL_KIND = "deal";
 export const OPEN_LEDGER_NOTE_LEFT = "left the house";
 /** The fixed note when the entry has more than one houseguest among its parties (a group pact): not everyone left. No names. */
 export const OPEN_LEDGER_NOTE_LEFT_GROUP = "one of them left the house";
@@ -57,7 +59,7 @@ export interface OpenLedgerEntry {
   readonly about?: string;
   /** ORW-448: the in-game day it was created (absent on an older entry). Never changes; the last-touched day lives in `OpenLedger.touched`. */
   readonly day?: number;
-  /** ORW-448: the id of an engine deal (between the same two people) active when this was recorded. Never changes. */
+  /** ORW-448: the id of an engine deal (between the same two people) active when this was recorded. ORW-456: once set it never changes; a spoken deal line may gain it once, when the engine records the deal. */
   readonly dealId?: string;
   readonly status: OpenLedgerStatus;
   /** Slice 2: why it was marked kept, broken or withdrawn (free text), and the turn it was marked. */
@@ -172,6 +174,50 @@ export function recordOpenEntry(
   };
   return { ledger: { ...ledger, nextId: ledger.nextId + 1, entries: [...ledger.entries, entry] }, outcome: "recorded", id };
 }
+
+/** ORW-456: is this free-text kind the deal kind (the whole kind, case-insensitive)? Only such a spoken entry is ever matched to a deal. */
+const isDealKind = (kind: string): boolean => normalizeCanonText(kind).toLowerCase() === OPEN_LEDGER_DEAL_KIND;
+
+/**
+ * ORW-456 (Kevin: "Also in the ledger, linked"): the ENGINE's own line for a deal it has just recorded between the player and
+ * one houseguest, linked by the deal id. One line per deal, never doubled: (1) a line already linked to this deal is the answer
+ * (a replay or a second call changes nothing); (2) else a SPOKEN deal line (kind "deal", open, not linked, between exactly the
+ * player and this houseguest, made within `maxAge` beats) is LINKED to this deal instead of adding a second line; (3) else a new
+ * line is written. The text is the engine's own words from the deal's public terms. No presence check (the deal is the engine's
+ * own fact: the player and the partner are its witnesses, plus whoever `ctx.witnesses` lists). Nothing here reads a ballot.
+ */
+export function recordDealEntry(
+  ledger: OpenLedger,
+  d: { dealId: string; partner: string; text: string },
+  ctx: { turn: number; beatSeq: number; room: string; witnesses: readonly string[]; day?: number; maxAge: number },
+): { ledger: OpenLedger; outcome: "recorded" | "linked" | "duplicate" | "full"; id?: string } {
+  const have = ledger.entries.find((e) => e.dealId === d.dealId);
+  if (have) return { ledger, outcome: "duplicate", id: have.id };
+  const spoken = [...ledger.entries].reverse().find((e) =>
+    e.status === "open" && e.dealId === undefined && !e.about && isDealKind(e.kind)
+    && partiesOf(e).length === 2 && partiesOf(e).includes(OPEN_LEDGER_PLAYER) && partiesOf(e).includes(d.partner)
+    && ctx.beatSeq >= e.beatSeq && ctx.beatSeq - e.beatSeq <= ctx.maxAge);
+  if (spoken) {
+    const entries = ledger.entries.map((e) => (e.id === spoken.id ? { ...e, dealId: d.dealId } : e));
+    return { ledger: { ...ledger, entries }, outcome: "linked", id: spoken.id };
+  }
+  const text = normalizeCanonText(d.text).slice(0, OPEN_LEDGER_TEXT_MAX).trim();
+  if (!text) return { ledger, outcome: "duplicate" };
+  const openCount = ledger.entries.reduce((n, e) => n + (e.status === "open" ? 1 : 0), 0);
+  if (openCount >= OPEN_LEDGER_MAX_ENTRIES || ledger.entries.length >= OPEN_LEDGER_TOTAL_CEILING) return { ledger, outcome: "full" };
+  const witnesses = [...new Set([OPEN_LEDGER_PLAYER, d.partner, ...ctx.witnesses])].sort();
+  const id = `open:${ledger.nextId}`;
+  const entry: OpenLedgerEntry = {
+    id, text, speaker: OPEN_LEDGER_PLAYER, addressedTo: [d.partner], kind: OPEN_LEDGER_DEAL_KIND,
+    turn: ctx.turn, beatSeq: ctx.beatSeq, room: ctx.room, witnesses,
+    quoteHash: dupKey(OPEN_LEDGER_PLAYER, [OPEN_LEDGER_PLAYER, d.partner], text),
+    ...(ctx.day !== undefined ? { day: ctx.day } : {}), dealId: d.dealId, status: "open",
+  };
+  return { ledger: { ...ledger, nextId: ledger.nextId + 1, entries: [...ledger.entries, entry] }, outcome: "recorded", id };
+}
+
+/** ORW-456: the open line already tied to this deal (the engine's, or a spoken one matched to it), for the "never doubled" check on a spoken deal. */
+export const openLedgerDealLine = (ledger: OpenLedger, dealId: string): OpenLedgerEntry | undefined => ledger.entries.find((e) => e.dealId === dealId);
 
 /** The last day an entry was touched: a re-statement or first sighting (`touched`), else its creation day, else unknown. */
 export const lastTouchedDay = (ledger: OpenLedger, e: OpenLedgerEntry): number | undefined => ledger.touched?.[e.id] ?? e.day;
@@ -422,7 +468,7 @@ export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems:
 }
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-const IMMUTABLE_FIELDS = ["text", "speaker", "addressedTo", "kind", "turn", "beatSeq", "room", "witnesses", "quoteHash", "parties", "about", "day", "dealId"] as const;
+const IMMUTABLE_FIELDS = ["text", "speaker", "addressedTo", "kind", "turn", "beatSeq", "room", "witnesses", "quoteHash", "parties", "about", "day"] as const;
 
 function sideMapsOk(earlier: OpenLedger, later: OpenLedger): boolean {
   const ids = new Map(later.entries.map((e) => [e.id, e] as const));
@@ -459,6 +505,8 @@ export function openLedgerSuperset(earlier: OpenLedger, later: OpenLedger): bool
     if (hit.i <= lastAt) return false; // the earlier entries keep their order: it decides the recency ranking in the brief
     lastAt = hit.i;
     if (!IMMUTABLE_FIELDS.every((k) => same(e[k], l[k]))) return false;
+    // ORW-456: the deal link never changes once set, but an entry with NONE may gain one (a spoken deal matched to the deal struck later), and only while it was open.
+    if (e.dealId !== undefined ? e.dealId !== l.dealId : (l.dealId !== undefined && e.status !== "open")) return false;
     // A resolved entry stays as resolved; an entry still open carries no note or turn (only a resolution may add them).
     if (e.status !== "open" || l.status === "open") return l.status === e.status && same(e.note, l.note) && same(e.resolvedTurn, l.resolvedTurn);
     return true;

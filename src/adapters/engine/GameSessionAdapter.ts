@@ -244,7 +244,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -15354,7 +15354,34 @@ export class GameSessionAdapter implements GameSession {
   private dealMadeBeat = new Map<string, number>();
   private static readonly DEAL_LINK_BEATS = 3;
   private trackDealMade(deal: Deal): void {
-    if (deal.parties.includes(PLAYER)) this.dealMadeBeat.set(deal.id, this.beatSeq);
+    if (deal.parties.includes(PLAYER)) {
+      this.dealMadeBeat.set(deal.id, this.beatSeq);
+      this.ledgerDealLine(deal);
+    }
+  }
+
+  /**
+   * ORW-456 (Kevin: formal deals are ALSO in the open ledger, linked): the engine writes ONE open-ledger line for each deal struck
+   * with the player, linked by the deal id, so a deal that was only spoken is never lost; a spoken deal line already in the ledger is
+   * linked to it instead of doubled (`recordDealEntry`). It closes with the deal through `syncOpenLedger` (the deal's PUBLIC ending
+   * only: a deal broken by a sealed ballot still reads open, so nothing here reveals or depends on who voted how). Text is the
+   * engine's own words from the deal's terms. Quiet when the ledger is off, locked, or the game is not a played one.
+   */
+  private ledgerDealLine(deal: Deal): void {
+    if (!this.openLedgerEnabled || this.openLedgerAsLoaded !== undefined || this.live?.playedGame !== true || !this.house) return;
+    const partner = deal.parties.find((p) => p !== PLAYER);
+    if (!partner) return;
+    const wa = this.whereabouts();
+    const terms = (deal.terms ?? "").trim();
+    const day = this.ledgerDay();
+    const out = recordDealEntry(this.openLedger, {
+      dealId: deal.id, partner: partner as string,
+      text: `You and ${this.nameOf(partner)} struck a ${deal.kind} deal${terms ? `: ${terms}` : ""}`,
+    }, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, room: wa?.room ?? "", witnesses: (wa?.present ?? []).map((x) => x.id as string),
+      ...(day !== undefined ? { day } : {}), maxAge: GameSessionAdapter.DEAL_LINK_BEATS,
+    });
+    if (out.ledger !== this.openLedger) this.openLedger = out.ledger; // every caller persists right after (a deal is a board commit)
   }
 
   /** ORW-448: the in-game day the ledger counts in (the day number the HUD shows); undefined while the game has none (the week is NOT a stand-in: it would run backwards when the day counter starts). */
@@ -15427,6 +15454,11 @@ export class GameSessionAdapter implements GameSession {
         && this.beatSeq - (this.dealMadeBeat.get(d.id) ?? -Infinity) <= GameSessionAdapter.DEAL_LINK_BEATS).pop()
       : undefined;
     const day = this.ledgerDay();
+    // ORW-456: a spoken deal ("kind: deal") whose real deal already has its ledger line is that line, not a second one.
+    if (linked && p.kind.toLowerCase() === "deal") {
+      const line = openLedgerDealLine(this.openLedger, linked.id);
+      if (line) return { accepted: true, duplicate: true, entryId: line.id };
+    }
     const out = recordOpenEntry(this.openLedger, p, {
       turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string),
       ...(day !== undefined ? { day } : {}), ...(linked ? { dealId: linked.id } : {}),
