@@ -180,3 +180,42 @@ def test_doctor_names_the_emergency_opt_out_separately():
     blk = doctor[i:doctor.index("\n}\n", i)]
     assert "orwell-update.sh --force\"" in blk
     assert "orwell-update.sh --force-now\"" in blk and "emergency only" in blk and "may be lost" in blk
+
+
+def _bridge_forward(env):
+    i = UPDATE.index("  FWD_LG=\"\"\n")
+    blk = UPDATE[i:UPDATE.index("  FWD_ENV=", i)]
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail\n{blk}\necho \"FWD=[$FWD_LG]\""], capture_output=True, text=True, timeout=30,
+                       env={**{k: v for k, v in os.environ.items() if not k.startswith("ORWELL_")}, **env})
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+@needs_bash
+@pytest.mark.parametrize("name", ["ORWELL_UPDATE_LOCK_WAIT", "ORWELL_UPDATE_TURN_WAIT_SECONDS", "ORWELL_UPDATE_WARM_WAIT_SECONDS"])
+def test_bridge_caps_the_wait_bounds(name):
+    assert f"{name}='86400'" in _bridge_forward({name: "86400"})
+    for bad in ("86401", "99999999999999999999"):
+        out = _bridge_forward({name: bad})
+        assert name + "='" not in out and "ignored" in out and "FWD=[]" in out
+
+
+@needs_bash
+@pytest.mark.parametrize("value,waits", [("120", "120"), ("86400", "86400"), ("99999999999999999999", "3600"), ("86401", "3600"), ("abc", "3600")])
+def test_lock_wait_is_capped(value, waits):
+    i = UPDATE.index('    local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"')
+    blk = UPDATE[i:UPDATE.index("    _flock_args=(-w", i)]
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail\nf() {{\n{blk}\necho \"W=$_w\"\n}}\nf"], capture_output=True, text=True, timeout=30,
+                       env={**os.environ, "ORWELL_UPDATE_LOCK_WAIT": value})
+    assert r.returncode == 0, r.stderr
+    assert f"W={waits}" in r.stdout
+
+
+@needs_bash
+def test_helper_ignores_a_wrapping_turn_wait(tmp_path):
+    var = "ORWELL_UPDATE_TURN_WAIT_SECONDS"
+    f = tmp_path / "turns-in-flight"
+    f.write_text("1\n")
+    # a 20-digit value falls back to the default bound (120 s => 60 two-second naps), never wraps to a 1 s wait
+    out = bash(_run(f, ":", force_now="0"), env={var: "99999999999999999999"})
+    assert "SLEEPS=60" in out

@@ -176,7 +176,12 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
   FWD_LG=""
   for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS ORWELL_UPDATE_TURN_WAIT_SECONDS ORWELL_UPDATE_WARM_WAIT_SECONDS ORWELL_UPDATE_LOCK_WAIT; do
-    [[ "${!__k:-}" =~ ^[0-9]+$ ]] && FWD_LG="${FWD_LG} ${__k}='${!__k}'"
+    [[ "${!__k:-}" =~ ^[0-9]+$ ]] || continue
+    # The wait bounds are capped (24 h): a huge value would make flock fail and be reported as "another update is running".
+    case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT)
+      __v="${!__k}"; if (( ${#__v} > 6 )) || (( 10#$__v > 86400 )); then echo "==> ${__k}=${__v} ignored (more than 86400); the default applies"; continue; fi ;;
+    esac
+    FWD_LG="${FWD_LG} ${__k}='${!__k}'"
   done
   FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
   if [[ -n "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]:-}" ]]; then
@@ -279,7 +284,8 @@ acquire_update_lock() {
   local _flock_args=(-n)
   if [[ "${__UD_SUPERSEDED:-0}" == 1 ]]; then
     local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
-    [[ "$_w" =~ ^[0-9]+$ ]] || _w=3600
+    if ! [[ "$_w" =~ ^[0-9]{1,6}$ ]] || (( 10#$_w > 86400 )); then echo "==> ORWELL_UPDATE_LOCK_WAIT=${ORWELL_UPDATE_LOCK_WAIT:-} ignored (not 0 to 86400); using 3600"; _w=3600; fi
+    _w=$((10#$_w))
     _flock_args=(-w "$_w")
     echo "==> waiting (up to ${_w}s) for the run that holds the update lock, then re-checking whether it finished this update"
   fi
@@ -1681,7 +1687,7 @@ else
       ops_progress_step 4 "warming the new build" 2>/dev/null || true
       update_wait_for_warm "http://127.0.0.1:${WARM_ENG_PORT}/health" \
         "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" \
-        "$(update_probe_host "${ALLOWED_HOSTS:-$(sed -n 's/^ALLOWED_HOSTS=//p' "$ENV_FILE" 2>/dev/null | tail -n1 || true)}")" || true
+        "$(! declare -F update_probe_host >/dev/null || update_probe_host "${ALLOWED_HOSTS:-$(sed -n 's/^ALLOWED_HOSTS=//p' "$ENV_FILE" 2>/dev/null | tail -n1 || true)}")" || true
     fi
     trap - EXIT
     ops_progress_done "updated — services restarting"

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,9 +14,13 @@ function run(report: unknown): { status: number | null; stderr: string; before: 
   try {
     const file = join(dir, "report.json");
     writeFileSync(file, JSON.stringify(report));
-    const before = readFileSync(table, "utf8");
-    const r = spawnSync(process.execPath, [script, "--replace", "--json", file], { encoding: "utf8" });
-    return { status: r.status, stderr: r.stderr, before, after: readFileSync(table, "utf8") };
+    // The script runs on a TEMP COPY of the table: a regressed guard must never overwrite the tracked file.
+    const copy = join(dir, "test-durations.json");
+    copyFileSync(table, copy);
+    const tracked = readFileSync(table, "utf8");
+    const r = spawnSync(process.execPath, [script, "--replace", "--json", file], { encoding: "utf8", env: { ...process.env, ORWELL_DURATIONS_TABLE: copy } });
+    expect(readFileSync(table, "utf8")).toBe(tracked); // the tracked table is byte-identical afterwards
+    return { status: r.status, stderr: r.stderr, before: tracked, after: readFileSync(copy, "utf8") };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

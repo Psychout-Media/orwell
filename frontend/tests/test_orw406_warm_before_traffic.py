@@ -89,7 +89,9 @@ def test_line_is_written_once_when_stdout_is_the_log(tmp_path):
 
 @needs_bash
 @pytest.mark.parametrize("allowed,host", [("", ""), ("*", ""), ("game.example.com,www.example.com", "game.example.com"),
-                                          ("*.example.com", "example.com"), ('"game.example.com"', "game.example.com")])
+                                          # Starlette matches "*.x" only for a subdomain, never the bare domain: probe a label in front of it
+                                          ("*.example.com", "probe.example.com"), ("*.example.com,game.example.com", "game.example.com"),
+                                          ("*,game.example.com", "game.example.com"), ('"game.example.com"', "game.example.com")])
 def test_probe_host_comes_from_allowed_hosts(allowed, host):
     assert run(f"update_probe_host '{allowed}'") == host
 
@@ -120,3 +122,17 @@ def test_reset_waits_for_warm_only_when_a_service_was_started():
     i = oobe.index("type update_wait_for_warm")
     cond = oobe[oobe.rindex("\n", 0, i):i]
     assert "${#STARTED[@]} -gt 0" in cond
+
+
+@needs_bash
+@pytest.mark.parametrize("script,env_setup", [("orwell-update.sh", "ENV_FILE=/dev/null"), ("orwell-oobe-reset.sh", "env_val() { :; }")])
+def test_probe_host_call_survives_an_old_installed_helper(script, env_setup):
+    # An old installed helper has no update_probe_host: the new script must carry on with no Host header, not print "command not found".
+    src = (ROOT / "deploy" / script).read_text()
+    line = next(l for l in src.splitlines() if "declare -F update_probe_host" in l).strip().rstrip("|| true").strip().rstrip("\\").strip()
+    expr = line[line.index('"$(!'):line.rindex(')"') + 2]
+    old_helper = "update_wait_for_no_turn() { :; }"
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail; {old_helper}; {env_setup}; ALLOWED_HOSTS=game.example.com; echo \"HOST=[{expr}]\""],
+                       capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and "command not found" not in r.stderr, r.stderr
+    assert "HOST=[]" in r.stdout

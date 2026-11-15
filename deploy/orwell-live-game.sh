@@ -391,7 +391,7 @@ update_turn_in_flight() {
 # $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).
 update_wait_for_no_turn() {
   local f="$1" force_now="${2:-0}" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
-  [[ "$max" =~ ^[0-9]+$ ]] || max=120
+  [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=120   # at most six digits: a 20-digit value would wrap the arithmetic below
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
   if [[ "$force_now" == "1" ]]; then
@@ -420,12 +420,20 @@ update_wait_for_no_turn() {
 # $2 = the most seconds this probe may take (default 3): the warm wait passes what is left of its own bound.
 # $3 (optional) is sent as the Host header: a front end with ALLOWED_HOSTS pinned to its public domain rejects Host: 127.0.0.1 (TrustedHostMiddleware).
 _update_probe() { local -a h=(); [[ -z "${3:-}" ]] || h=(-H "Host: $3"); curl -fsS --noproxy '*' --max-time "${2:-3}" "${h[@]}" "$1" 2>/dev/null || true; }
-# The Host header the front end accepts, from an ALLOWED_HOSTS value (comma list): the first entry, a leading "*." dropped; empty for unset or "*" (any Host is accepted).
+# The Host header the front end accepts, from an ALLOWED_HOSTS value (comma list): the first non-wildcard entry; else probe.<domain> for the first "*.<domain>" entry; empty for unset or "*" (any Host is accepted).
 update_probe_host() {
-  local raw="${1:-}" first
-  first="$(printf '%s' "$raw" | tr -d '\r"'"'"' ' | cut -d, -f1)"
-  first="${first#\*.}"
-  [[ -z "$first" || "$first" == "*" ]] || printf '%s' "$first"
+  local raw="${1:-}" h wild=""
+  raw="$(printf '%s' "$raw" | tr -d '\r"'"'"' ')"
+  local -a hs=()
+  IFS=, read -ra hs <<<"$raw"   # read, not word splitting: an unquoted "*" would glob
+  for h in ${hs[@]+"${hs[@]}"}; do
+    [[ -n "$h" && "$h" != "*" ]] || continue
+    # Starlette's "*.example.com" matches only a subdomain (host ends with ".example.com"), never the bare domain.
+    if [[ "$h" == \*.* ]]; then [[ -n "$wild" ]] || wild="${h#\*.}"; continue; fi
+    printf '%s' "$h"; return 0
+  done
+  [[ -z "$wild" ]] || printf 'probe.%s' "$wild"
+  return 0
 }
 
 # update_wait_for_warm <engine /health url or ""> <front-end health url or ""> [<ops log>] [<Host header for the front-end probe>]
@@ -437,7 +445,7 @@ update_probe_host() {
 _warm_log() { [[ -n "$1" ]] || return 0; [[ /proc/self/fd/1 -ef "$1" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
   local eng="${1:-}" fe="${2:-}" log="${3:-}" fehost="${4:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
-  [[ "$max" =~ ^[0-9]+$ ]] || max=60
+  [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=60
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
   start="$(_update_defer_now)"

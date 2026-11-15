@@ -502,7 +502,7 @@ if [[ "$RESTART" -eq 1 && "$have_systemd" -eq 1 ]]; then
     ops_step 5 "warming the new build" 2>/dev/null || true
     update_wait_for_warm "http://127.0.0.1:${WARM_ENG_PORT}/health" \
       "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" \
-      "$(update_probe_host "${ALLOWED_HOSTS:-$(env_val ALLOWED_HOSTS || true)}")" || true
+      "$(! declare -F update_probe_host >/dev/null || update_probe_host "${ALLOWED_HOSTS:-$(env_val ALLOWED_HOSTS || true)}")" || true
   fi
   if [[ ${#START_FAILED[@]} -gt 0 ]]; then
     die "the data was reset, but ${START_FAILED[*]} did not come back up — check: journalctl -u ${START_FAILED[0]} -n 50; then: systemctl start ${START_FAILED[*]}"

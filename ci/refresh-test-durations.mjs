@@ -11,7 +11,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
-const table = resolve(import.meta.dirname, "test-durations.json");
+// ORWELL_DURATIONS_TABLE points the script at another table file (the unit test runs it on a temp copy, never the tracked table).
+const table = process.env.ORWELL_DURATIONS_TABLE ? resolve(process.env.ORWELL_DURATIONS_TABLE) : resolve(import.meta.dirname, "test-durations.json");
 const args = process.argv.slice(2);
 const replace = args.includes("--replace");
 const durations = replace ? {} : JSON.parse(readFileSync(table, "utf8"));
