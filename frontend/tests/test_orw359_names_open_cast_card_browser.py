@@ -314,3 +314,40 @@ def test_phone_width_has_no_sideways_scroll_and_keyboard_only_path(fe):
             assert _dossier_name(page) == "Dana Cho"
         finally:
             browser.close()
+
+
+def test_roster_cleared_unlinks_the_chat_names(fe):
+    # ORW-437 (review of #2748): a row linked against an earlier roster must not keep links to those ids once the roster is empty.
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = _page(browser, fe, 1440, 900)
+            _rows(page)
+            assert page.evaluate("document.querySelectorAll('#r1 span.ow-name-link[data-ow-auto]').length") > 0
+            page.evaluate("window.OrwellMonogram.allCards = () => []; window.OrwellChatNames.refresh();")
+            _until(page, "document.querySelectorAll('#r1 span.ow-name-link[data-ow-auto]').length === 0 && document.getElementById('r1').dataset.owNames === undefined")
+            assert "Priya Nair's plan is thin" in page.evaluate("document.getElementById('p2').textContent"), "the words stay, only the links go"
+        finally:
+            browser.close()
+
+
+def test_a_failed_dossier_photo_is_retried_on_the_next_refresh(fe):
+    # ORW-437 (review of #2748): the render signature must not make a transient photo failure stick.
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = _page(browser, fe, 1440, 900)
+            state = {"fail": True}
+            page.route("**/api/orwell/portrait/npc:2*", lambda r: r.fulfill(status=500, body="no") if state["fail"]
+                       else r.fulfill(status=200, content_type="image/png", body=PNG))
+            _rows(page)
+            page.click("#r1 #bold1")
+            _dossier_name(page)
+            _until(page, "!document.querySelector('#orwell-dossier .od-portrait img.od-photo-img') && !!document.querySelector('#orwell-dossier .od-portrait')")
+            state["fail"] = False
+            page.evaluate("window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")
+            _until(page, "(() => { const i = document.querySelector('#orwell-dossier .od-portrait img.od-photo-img'); return !!i && i.complete && i.naturalWidth === 1024; })()", 10000)
+        finally:
+            browser.close()

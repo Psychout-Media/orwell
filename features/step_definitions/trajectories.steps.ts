@@ -204,7 +204,7 @@ Then("the trajectory direction reflects the proposed shape", function (this: BbW
   assert.ok(["cooling", "souring"].includes(tw(this).twTraj!.phase), `cooler shape ⇒ falling arc (${tw(this).twTraj!.phase})`);
 });
 
-Then("the momentum magnitude is the engine's own bounded, seeded amount", function (this: BbWorld) {
+Then("the momentum magnitude is the engine's own bounded amount", function (this: BbWorld) {
   // The magnitude comes from the engine's constants (buildRate × consistency), NOT from any model number.
   assert.ok(tw(this).twTraj!.momentum > 0 && tw(this).twTraj!.momentum <= 1, "bounded, engine-derived");
 });

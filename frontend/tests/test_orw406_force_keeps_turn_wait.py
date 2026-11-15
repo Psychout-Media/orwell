@@ -172,3 +172,11 @@ def test_host_bridge_forwards_the_wait_bounds(name):
     # the host-to-container bridge forwards digits-only tunables; a bound set on the host must reach the container run
     m = re.search(r"for __k in ([A-Z_ ]+); do", UPDATE)
     assert m and name in m.group(1).split()
+
+
+def test_doctor_names_the_emergency_opt_out_separately():
+    doctor = (ROOT / "deploy" / "orwell-doctor.sh").read_text()
+    i = doctor.index("update_deferred_check() {")
+    blk = doctor[i:doctor.index("\n}\n", i)]
+    assert "orwell-update.sh --force\"" in blk
+    assert "orwell-update.sh --force-now\"" in blk and "emergency only" in blk and "may be lost" in blk

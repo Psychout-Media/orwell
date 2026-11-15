@@ -98,13 +98,14 @@ Then("every houseguest in the house is listed as one or the other", function () 
 });
 
 // --- 0078: headcounts include the player (ORW-376) ---------------------------------------------------------------------------------
-function seasonAt(pred: (s: GameSessionAdapter) => boolean): GameSessionAdapter {
+function seasonAt(pred: (s: GameSessionAdapter, startHouse: number) => boolean): GameSessionAdapter {
   for (let seed = 1; seed <= 40; seed++) {
     const s = new GameSessionRegistry().sandboxFor(`rulings-hc-${n++}`).session as GameSessionAdapter;
     s.createCharacter({ playerName: "The Player", seed });
+    const startHouse = s.livingIds().length;
     for (let i = 0; i < 4000; i++) {
       const v = s.advanceGame();
-      if (pred(s)) return s;
+      if (pred(s, startHouse)) return s;
       if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
       if (v.finished) break;
     }
@@ -116,8 +117,9 @@ Given("a season that has reached its nominations", function () {
   bag(this).s = seasonAt((s) => s.getGameState().phase === "nominations");
 });
 
-Given("a season that has reached an eviction vote", function () {
-  bag(this).s = seasonAt((s) => s.getGameState().pending?.kind === "eviction-vote");
+// After a real eviction, so a count fixed at the opening house size (or any constant) cannot pass: the house must already have shrunk.
+Given("a season that has reached an eviction vote after an eviction", function () {
+  bag(this).s = seasonAt((s, startHouse) => s.getGameState().pending?.kind === "eviction-vote" && s.livingIds().length < startHouse);
 });
 
 Then("the player's room count is the houseguests with them plus the player", function () {

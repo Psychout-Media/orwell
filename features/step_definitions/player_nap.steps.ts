@@ -135,7 +135,7 @@ Then("the nap ended at the start of the evening", function () {
   const c = n(this);
   assert.equal(c.r.wokenBy, "evening"); assert.equal(c.r.timeOfDay, "evening"); close(hourOf(c.s), 16, "the evening starts at 16");
 });
-Then("the player is still awake: only going to bed ends the day", function () {
+Then("the player is still awake: only going to bed ends the night", function () {
   const l = priv(n(this).s).live;
   assert.equal(l.playerRetired, false); assert.equal(l.lastSleepDepth, 28, "the night's bedtime stamp is untouched");
 });

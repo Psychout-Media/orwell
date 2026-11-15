@@ -113,3 +113,10 @@ def test_front_end_probe_sends_the_pinned_host_header(tmp_path):
 def test_both_callers_pass_the_allowed_host():
     oobe = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
     assert "update_probe_host" in oobe and "update_probe_host" in UPDATE
+
+
+def test_reset_waits_for_warm_only_when_a_service_was_started():
+    oobe = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    i = oobe.index("type update_wait_for_warm")
+    cond = oobe[oobe.rindex("\n", 0, i):i]
+    assert "${#STARTED[@]} -gt 0" in cond

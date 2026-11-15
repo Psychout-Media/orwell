@@ -296,6 +296,8 @@
       img.alt = "";
       img.onerror = () => {
         img.onerror = null;
+        // A failed load must not stick: drop the signature so the next refresh re-renders and retries the photo.
+        delete fresh.dataset.sig;
         // Photo failed: the monogram takes over and there is nothing bigger to view.
         const m = monogram();
         fresh.replaceChildren(...(m ? [m] : []));
