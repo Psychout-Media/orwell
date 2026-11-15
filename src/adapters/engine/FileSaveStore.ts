@@ -417,14 +417,16 @@ export class FileSaveStore implements UserSaveStore {
       } catch { /* logging must never break the game */ }
       return;
     }
-    // The FILE is durable now; the directory entry is tracked separately and retried with the next save.
-    this.markDurable(dir, st, v);
-    stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
+    // The FILE is synced; the save is NOT durable until the directory entries owed to it are too (review of
+    // #2747): the marker moves only after they succeed. A failed one stays flagged and is retried with the
+    // next save or the shutdown flush; the marker then stays put (prune keeps the older files meanwhile).
+    let entriesOk = true;
     if (dirToo) {
       try {
         await this.syncDir(dir);
         if (st.dirSeq === dirSeq) st.dirDirty = false;
       } catch (e) {
+        entriesOk = false;
         try {
           this.onError(`[orwell] save.dirsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
         } catch { /* ignore */ }
@@ -436,11 +438,15 @@ export class FileSaveStore implements UserSaveStore {
         await this.syncDir(this.dataDir);
         if (st.parentSeq === parentSeq) st.parentDirty = false;
       } catch (e) {
+        entriesOk = false;
         try {
           this.onError(`[orwell] save.parentsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
         } catch { /* ignore */ }
       }
     }
+    if (entriesOk) this.markDurable(dir, st, v);
+    // After the marker: a throwing timing sink is reported by the caller's handler but never decides durability.
+    stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
   }
 
   /** Last-resort recorder for a failure inside the sync handlers themselves. Never throws. */

@@ -232,7 +232,17 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
   // closing the sandbox-swap race (a reset racing a player action) and future-proofing an async
   // narrator. Different users still run fully concurrently (isolation, 0021).
   const queues = new Map<string, Promise<void>>();
+  // Review of #2747: the shutdown drain waits for the JOBS, not only for responses. A response closes early
+  // (the response-budget 503, a client abort) while its job keeps running and can still write a save, so
+  // each enqueued job is counted until it settles and the drain waits for requests AND jobs.
+  let inflight = 0;
+  let jobsPending = 0;
+  let idleWaiters: Array<() => void> = [];
+  const notifyIdle = (): void => {
+    if (inflight === 0 && jobsPending === 0) { const w = idleWaiters; idleWaiters = []; for (const f of w) f(); }
+  };
   const enqueue = (user: string, job: () => Promise<void>): void => {
+    jobsPending++;
     // Audit E30: a rejecting job on a drained queue (e.g. `send` racing a timeout-destroyed
     // socket) had no `.catch` — an unhandled rejection exits the process on modern Node. Every
     // job body is wrapped so the chain can NEVER reject; the request's own structured error
@@ -242,6 +252,9 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
         await job();
       } catch {
         /* swallowed by design — the per-request handlers own error responses */
+      } finally {
+        jobsPending--;
+        notifyIdle();
       }
     };
     const tail = (queues.get(user) ?? Promise.resolve()).then(run, run);
@@ -287,8 +300,6 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
   };
 
   // ORW-404: tool requests in flight (passed the shutdown gate, response not yet finished / socket not closed).
-  let inflight = 0;
-  let idleWaiters: Array<() => void> = [];
   const enterInflight = (res: import("node:http").ServerResponse): void => {
     inflight++;
     let done = false;
@@ -296,7 +307,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
       if (done) return;
       done = true;
       inflight--;
-      if (inflight === 0) { const w = idleWaiters; idleWaiters = []; for (const f of w) f(); }
+      notifyIdle();
     });
   };
   const server = createServer((req, res) => {
@@ -595,7 +606,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
   // New tool requests are refused by the 503 gate once `shuttingDown` is set (listening stays open so /health
   // keeps answering), so during a drain the count can only fall.
   const drain = (timeoutMs: number): Promise<void> => {
-    if (inflight === 0) return Promise.resolve();
+    if (inflight === 0 && jobsPending === 0) return Promise.resolve();
     return new Promise<void>((resolve) => {
       const t = setTimeout(() => { idleWaiters = idleWaiters.filter((f) => f !== fin); resolve(); }, timeoutMs);
       t.unref?.();

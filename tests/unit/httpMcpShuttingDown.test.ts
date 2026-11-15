@@ -169,3 +169,44 @@ describe("shutdown drains requests in flight (ORW-404)", () => {
     });
   });
 });
+
+describe("shutdown drains JOBS, not only responses (review of #2747)", () => {
+  it("a call whose response already closed (budget 503) but whose job still runs is awaited: its save is on disk and flushed before exit; a call after shutdown starts is refused", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { FileSaveStore } = await import("../../src/adapters/engine/FileSaveStore");
+    const dir = mkdtempSync(join(tmpdir(), "orw-drainjob-"));
+    const store = new FileSaveStore(dir, { fsyncMode: "background", syncFile: async () => {}, syncDir: async () => {}, onError: () => {} });
+    let flag = false;
+    let started!: () => void;
+    const began = new Promise<void>((r) => { started = r; });
+    // The tool takes 1.2 s then saves; the response budget (100 ms) answers 503 long before, closing the response.
+    const stub = { listTools: () => [], callTool: async () => { started(); await new Promise((r) => setTimeout(r, 1200)); store.saveFor("u", { started: true, week: 9, events: [] } as never); return {}; } } as unknown as McpServer;
+    const server = createHttpMcpServer({ resolve: () => stub }, { shuttingDown: () => flag, responseBudgetMs: 100 });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const order: string[] = [];
+      const first = post(base, "/player/call");
+      await began;
+      expect((await first).status).toBe(503); // budget answered; response closed; job still running
+      const shutdown = createShutdown({
+        onStart: () => { flag = true; },
+        drain: () => server.drainInflight(5_000),
+        drainMs: 5_000,
+        flush: async () => { order.push(`flush saved=${store.loadLatest("u") !== null}`); await store.flushDurableAsync(6_000); },
+        exit: () => { order.push("exit"); },
+        hardExitMs: 12_000, // drain 5 s + flush 6 s = 11 s < 12 s
+      });
+      const done = shutdown();
+      expect((await post(base, "/player/call")).status).toBe(503); // refused after shutdown started
+      await done;
+      expect(order).toEqual(["flush saved=true", "exit"]);
+      expect(store.durability().saveDurableVersion).toBe(1);
+    } finally {
+      await new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections(); });
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

@@ -80,13 +80,14 @@ describe("ORW-404 follow-up: new-directory durability (background mode)", () => 
     await settle();
     expect(errors.some((l) => l.includes("save.dirsync"))).toBe(true);
     expect(errors.every((l) => !l.includes(data))).toBe(true);
-    expect(store.durability().saveDurableVersion, "the file itself is durable").toBe(1);
+    expect(store.durability().saveDurableVersion, "not durable while its directory entry failed to sync (review of #2747)").toBe(0);
     // Only the user dir was attempted (it failed); the data dir stays owed.
     fail = false;
     dirCalls.length = 0;
     store.saveFor("a", snap(2));
     await settle();
     expect(dirCalls).toEqual([join(data, hex("a")), data]);
+    expect(store.durability().saveDurableVersion).toBe(2); // the retry succeeded: now durable
   });
 
   it("a failed data-dir sync is logged separately and retried with the next save", async () => {
