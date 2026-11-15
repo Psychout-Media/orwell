@@ -5691,6 +5691,13 @@ def _split_complete_sentences(buf: str):
 
 _TOOL_RESULT_PLACEHOLDER_RE = re.compile(r"[ \t]*<\s*tool[ _]results?\b[^<>\n]{0,80}>[ \t]*", re.IGNORECASE)
 
+# ORW-440: bare tool-markup tags echoed as the whole reply ("\n</tool_use>"). Tag-only: an angle-bracket tag whose NAME is one of these (open/close, optional attributes), or a `<|...|>` special token. Prose and quoted in-fiction uses of the words never match (no angle brackets).
+_TOOL_MARKUP_TAG_RE = re.compile(
+    r"[ \t]*(?:</?\s*(?:tool_use(?:_id)?|tool_calls?|function_calls?|function_results?|antml:[a-z_]+)\b[^<>\n]{0,120}/?>"
+    r"|<\|[^<>|\n]{1,40}\|>)[ \t]*",
+    re.IGNORECASE,
+)
+
 
 def _scrub_game_leak(text: str) -> str:
     """Drop whole sentences that are operator asides / tool-process narration; keep the rest
@@ -5704,6 +5711,7 @@ def _scrub_game_leak(text: str) -> str:
         return text
     # ORW-442: an echoed harness placeholder ("<tool result has been redacted>") has no sentence punctuation, so it would take the NEXT sentence with it; cut just the placeholder first.
     text = _TOOL_RESULT_PLACEHOLDER_RE.sub("", text)
+    text = _TOOL_MARKUP_TAG_RE.sub("", text)  # ORW-440
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
