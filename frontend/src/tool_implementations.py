@@ -5831,38 +5831,6 @@ PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_tex
 PLAYER_OWN_WORDS: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_own_words", default="")
 
 _GENDER_KEYS = ("genderpresentation", "gender_presentation", "gender", "pronouns")
-_GENDER_PAIR_RE = re.compile(r"\b(he|she|they)\s*(?:/|\bor\b|\band\b)\s*(him|her|them)\b", re.I)
-_GENDER_SELF_RE = re.compile(
-    r"\b(?:i\s*(?:am|'m|\u2019m)|im|as\s+an?|identify\s+as|i\s+was\s+born\s+an?)\s+(?:an?\s+)?(?:[\w-]+\s+){0,2}?"
-    r"(man|male|guy|dude|boy|gentleman|woman|female|girl|lady|gal|non-?\s?binary|enby|genderqueer)\b", re.I)
-_GENDER_PRONOUN_STMT_RE = re.compile(r"\b(?:my\s+pronouns?\s+(?:are|is)|pronouns?\s*[:=]|use\s+(he|she|they)\b)", re.I)
-
-
-def player_stated_genders(words: str) -> set:
-    """ORW-476: the genders the player STATED in their own words ("I'm a woman", "he/him", "my pronouns are they/them").
-    Never inferred from a name. Empty set = the player has stated none."""
-    out: set = set()
-    text = words or ""
-    for m in _GENDER_PAIR_RE.finditer(text):
-        out.add({"he": "man", "she": "woman", "they": "nonbinary"}[m.group(1).lower()])
-    for m in _GENDER_SELF_RE.finditer(text):
-        t = re.sub(r"[\s-]+", "", m.group(1).lower())
-        if t in ("man", "male", "guy", "dude", "boy", "gentleman"):
-            out.add("man")
-        elif t in ("woman", "female", "girl", "lady", "gal"):
-            out.add("woman")
-        else:
-            out.add("nonbinary")
-    for m in _GENDER_PRONOUN_STMT_RE.finditer(text):
-        if m.group(1):
-            out.add({"he": "man", "she": "woman", "they": "nonbinary"}[m.group(1).lower()])
-    if re.search(r"\bmy\s+pronouns?\s+(?:are|is)\s+(?:he|him)\b", text, re.I):
-        out.add("man")
-    if re.search(r"\bmy\s+pronouns?\s+(?:are|is)\s+(?:she|her)\b", text, re.I):
-        out.add("woman")
-    if re.search(r"\bmy\s+pronouns?\s+(?:are|is)\s+(?:they|them)\b", text, re.I):
-        out.add("nonbinary")
-    return out
 
 
 def gate_player_gender(args: dict) -> dict:
@@ -5870,13 +5838,14 @@ def gate_player_gender(args: dict) -> dict:
     player's own words state that gender. Anything else (a guess from the name, a default) is dropped here, before it
     reaches the engine, so the player stays unset and the narrator keeps ORW-444's "unstated" line. Returns a new dict."""
     out = dict(args or {})
+    from src.orwell_player_gender import player_stated_genders
     stated = player_stated_genders(PLAYER_OWN_WORDS.get() or PLAYER_TURN_TEXT.get())
     for k in list(out):
         if str(k).lower() not in _GENDER_KEYS:
             continue
         v = str(out[k] or "").strip().lower().replace(" ", "")
         v = {"nonbinary": "nonbinary", "non-binary": "nonbinary"}.get(v, v)
-        if v not in stated:
+        if v != "unset" and v not in stated:  # "unset" clears (the heal); it never sets a gender
             logger.info("[orwell] ORW-476: dropped a player genderPresentation the player never stated")
             del out[k]
     return out

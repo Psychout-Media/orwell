@@ -7531,6 +7531,13 @@ export class GameSessionAdapter implements GameSession {
     // model narrate a fresh casting interview post-season while the engine never started one. The
     // refusal names whether a season is live (`in-progress`) or already crowned (`over`).
     if (this.house) {
+      // ORW-476: the ONE thing a running season takes from here: `genderPresentation: "unset"` clears the PLAYER's recorded gender
+      // (the front end sends it when no words of the player's own state one, healing a guess saved before the player-gender check).
+      // It can only clear; no value can be set after casting. Persisted so the clear survives a restart.
+      if ((req as { genderPresentation?: unknown }).genderPresentation === "unset" && this.house.player.character.genderPresentation !== undefined) {
+        delete this.house.player.character.genderPresentation;
+        this.persist();
+      }
       return { known: {}, missing: [], next: null, ready: false, finalizable: false, refused: this.live?.finished ? "over" : "in-progress" };
     }
     const before = this.intake;

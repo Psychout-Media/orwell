@@ -88,13 +88,91 @@ def test_create_character_keeps_a_stated_gender(words, seen):
     assert seen["create"][0].get("gender_presentation") == "man"
 
 
-@pytest.mark.parametrize("text,expected", [
-    ("I'm a woman", {"woman"}), ("I’m non-binary", {"nonbinary"}), ("he/him", {"man"}),
-    ("Brianna from Ohio, I love my sister, she is a girl scout", set()),
-    ("my brother is a guy who plays chess", set()),
-])
-def test_stated_detector(text, expected):
-    assert ti.player_stated_genders(text) == expected
+STATED = [
+    ("woman", "woman"), ("female", "woman"), ("male", "man"), ("man", "man"), ("non-binary", "nonbinary"), ("enby", "nonbinary"),
+    ("they", "nonbinary"), ("he", "man"), ("she", "woman"), ("Woman.", "woman"), ("pronouns: he", "man"),
+    ("I'm a dad of two", "man"), ("I'm a mom", "woman"), ("I am a husband", "man"), ("I'm a wife and a nurse", "woman"),
+    ("I'm a father", "man"), ("I'm a mother of 3", "woman"), ("I'm a son", "man"), ("I'm a daughter", "woman"),
+    ("I'm a brother", "man"), ("I'm a sister", "woman"), ("I'm a guy", "man"), ("I'm a girl", "woman"),
+    ("I'm a dude", "man"), ("I'm a lady", "woman"), ("I'm a 45 year old woman", "woman"), ("I'm Alex, a man", "man"),
+    ("I'm a gurl", "woman"), ("I'm a woamn", "woman"), ("I'm a femlae", "woman"), ("I'm a trans woman", "woman"),
+    ("actually I go by they", "nonbinary"), ("call me she", "woman"), ("my pronouns are they/them", "nonbinary"),
+    ("I'm a woman", "woman"), ("I’m non-binary", "nonbinary"), ("he/him", "man"),
+    ("I'm a guy\nsorry, I'm a woman", "woman"), ("I'm a woman\nactually I'm a guy", "man"),
+    ("I'm a woman\nI'm not a man", "woman"),
+]
+NOT_STATED = [
+    "Brianna", "My name is Brianna", "Brianna from Ohio, I love my sister, she is a girl scout", "my brother is a guy who plays chess",
+    "I'm a barista and my husband is a man", "I'm not a man", "I'm not a woman", "I'm other than expected", "I'm in a boy band",
+    "I'm a girl scout", "I'm lazy", "I'm a lazy person", "I'm rude", "I'm a barista", "call me Sam", "",
+]
+
+
+@pytest.mark.parametrize("text,expected", STATED)
+def test_stated_detector_accepts_how_players_really_say_it(text, expected):
+    from src.orwell_player_gender import stated_gender
+    assert stated_gender(text) == expected
+
+
+@pytest.mark.parametrize("text", NOT_STATED)
+def test_stated_detector_rejects_what_is_not_a_statement(text):
+    from src.orwell_player_gender import stated_gender
+    assert stated_gender(text) is None
+
+
+@pytest.mark.parametrize("text,value", [(t, v) for t, v in STATED])
+def test_filed_value_is_kept_only_when_it_matches_the_latest_statement(words, seen, text, value):
+    words(text)
+    other = "woman" if value != "woman" else "man"
+    _run(ti.do_update_casting(json.dumps({"genderPresentation": value})))
+    _run(ti.do_update_casting(json.dumps({"genderPresentation": other})))
+    assert seen["casting"] == [{"genderPresentation": value}, {}]
+
+
+def test_a_name_alone_never_sets_it(words, seen):
+    words("Brianna")
+    _run(ti.do_update_casting(json.dumps({"playerName": "Brianna", "genderPresentation": "woman"})))
+    assert seen["casting"] == [{"playerName": "Brianna"}]
+
+
+def test_a_houseguest_line_or_production_cue_never_sets_it():
+    import src.agent_loop as al
+    cue = al._PRODUCTION_CUE_PREFIX + " she is a woman. I'm a woman"
+    own = al._player_own_words([
+        {"role": "assistant", "content": "I'm a woman, says Dana. She/her"},
+        {"role": "user", "content": cue},
+        {"role": "user", "content": "call me Sam"},
+    ])
+    from src.orwell_player_gender import stated_gender
+    assert stated_gender(own) is None
+
+
+def test_heal_clears_a_saved_gender_no_words_support(monkeypatch):
+    import src.agent_loop as al
+    sent = []
+
+    async def _state(user=None, timeout=None):
+        return {"started": True, "player": {"genderPresentation": "woman"}}
+
+    async def _uc(fields=None, user=None):
+        sent.append(dict(fields))
+        return {}
+    monkeypatch.setattr(oe, "get_game_state", _state)
+    monkeypatch.setattr(oe, "update_casting", _uc)
+    al._GENDER_HEAL_DONE.discard("u1")
+    assert _run(al._heal_unstated_player_gender("u1", "I'm Brianna and I love this")) is True
+    assert sent == [{"genderPresentation": "unset"}]
+    al._GENDER_HEAL_DONE.discard("u2")
+    assert _run(al._heal_unstated_player_gender("u2", "I'm a woman")) is False  # supported: kept
+    al._GENDER_HEAL_DONE.discard("u3")
+    assert _run(al._heal_unstated_player_gender("u3", "")) is False  # no player words at all: silence is not evidence
+    assert sent == [{"genderPresentation": "unset"}]
+
+
+def test_unset_passes_the_gate_but_a_value_cannot_be_set_post_season(words, seen):
+    words("nothing about gender")
+    _run(ti.do_update_casting(json.dumps({"genderPresentation": "unset"})))
+    assert seen["casting"] == [{"genderPresentation": "unset"}]
 
 
 def test_player_own_words_collects_every_typed_turn_but_no_production_cue():

@@ -713,6 +713,29 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
     return ""
 
 
+_GENDER_HEAL_DONE: set = set()
+
+
+async def _heal_unstated_player_gender(owner, own_words: str) -> bool:
+    """ORW-476: once per owner per process, when the saved player card holds a gender and NONE of the player's own typed words
+    state it, clear it (the engine's updateCasting `unset`). A conversation with no player words at all (history not loaded) heals
+    nothing: silence is not evidence. Returns True when it cleared one."""
+    if owner is None or owner in _GENDER_HEAL_DONE or not (own_words or "").strip():
+        return False
+    from src import orwell_engine as _oe
+    from src.orwell_player_gender import player_stated_genders
+    st = await _oe.get_game_state(user=owner)
+    if not isinstance(st, dict) or not st.get("started"):
+        return False
+    _GENDER_HEAL_DONE.add(owner)
+    g = ((st.get("player") or {}).get("genderPresentation"))
+    if not g or g in player_stated_genders(own_words):
+        return False
+    await _oe.update_casting({"genderPresentation": "unset"}, user=owner)
+    logger.info("[orwell] ORW-476: cleared a saved player gender that no words of the player's support")
+    return True
+
+
 def _player_own_words(messages) -> str:
     """ORW-476: the player's own typed words across the conversation (user turns that are not hidden production cues)."""
     parts = []
@@ -7889,6 +7912,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     except Exception:
         _ptt = None
     _pow = None
+    try:  # ORW-476: heal a saved season whose player gender no words of theirs support (a guess from the name, saved before the check)
+        _msgs_h = kwargs.get("messages") if "messages" in kwargs else (args[2] if len(args) > 2 else None)
+        await _heal_unstated_player_gender(kwargs.get("owner"), _player_own_words(_msgs_h))
+    except Exception as _e:  # failsoft-ok: healing is best-effort; the next turn tries again
+        logger.debug("ORW-476: gender heal failed: %s", _e)
     try:  # ORW-476: every word the player typed this conversation (no production cues), for the player-gender check
         from src.tool_implementations import PLAYER_OWN_WORDS as _pow
         _pow.set(_player_own_words(_msgs))
