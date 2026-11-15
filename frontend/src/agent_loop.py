@@ -1887,7 +1887,7 @@ def _bedtime_clock_note(turn_in_output) -> str:
             from src.zero_clocks import narrator_clock, zero_clocks_on  # ORW-377
             from routes.chat_helpers import _clock_is_before_house_wake  # ORW-422
             _early = _clock_is_before_house_wake(lab) or (isinstance(st, dict) and st.get("earlyMorning") is True)
-            _x = (" The player went to bed early, so they wake EARLY, before the house's 8am wake-up call: they wake ALONE in the dark early morning, and every houseguest is still asleep. "
+            _x = (" The player went to bed early, so they wake EARLY, before the house's morning wake-up call: they wake ALONE in the dark early morning, and every houseguest is still asleep. "
                   "Nobody greets them or comes in, and never write \"the house is up\" or \"everyone is awake\", morning light, breakfast, or any people up and about; voice only the quiet dark and what the result shows. "
                   "Name the part of the day (early morning), never a clock time.") if _early else ""
             if zero_clocks_on():
