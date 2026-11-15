@@ -349,7 +349,7 @@ async def condense_day(owner, closed_day: int, *, llm_fn: Optional[LlmFn], histo
         logger.warning("[day-condense] day condense failed: %s", e)
         try:
             from src import log_rings
-            log_rings.record_soft_failure("day-condense:condense-failed", e, corrected="raw history stays in the prompt")
+            log_rings.record_soft_failure("day-condense:condense-failed", e, corrected="raw history stays in the prompt", user=owner)
         except Exception:  # failsoft-ok: recorder-self
             pass
         return {"accepted": False, "reason": "error"}
@@ -464,7 +464,7 @@ def kickoff_after_turn_in(owner, result) -> None:
                 logger.warning("[day-condense] background task failed: %s", e)
                 try:
                     from src import log_rings
-                    log_rings.record_soft_failure("day-condense:background-failed", e, corrected="raw history stays in the prompt")
+                    log_rings.record_soft_failure("day-condense:background-failed", e, corrected="raw history stays in the prompt", user=owner)
                 except Exception:  # failsoft-ok: recorder-self
                     pass
             finally:
@@ -511,7 +511,7 @@ def kickoff_heal(owner, ledger: list) -> None:
                 logger.warning("[day-condense] heal task failed: %s", e)
                 try:
                     from src import log_rings
-                    log_rings.record_soft_failure("day-condense:heal-task-failed", e, corrected="raw history stays in the prompt")
+                    log_rings.record_soft_failure("day-condense:heal-task-failed", e, corrected="raw history stays in the prompt", user=owner)
                 except Exception:  # failsoft-ok: recorder-self
                     pass
             finally:
@@ -525,6 +525,6 @@ def kickoff_heal(owner, ledger: list) -> None:
         logger.debug("[day-condense] heal kickoff skipped: %s", e)
         try:
             from src import log_rings
-            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="raw history stays in the prompt")
+            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="raw history stays in the prompt", user=owner)
         except Exception:  # failsoft-ok: recorder-self
             pass

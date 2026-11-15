@@ -159,3 +159,15 @@ def test_orw437_a_dotted_time_and_a_semicolon_clause_are_handled_per_sentence(se
     assert "3 a.m" not in out and "The kettle clicks off." in out and "The player stays put." in out
     out = _guard("The kettle clicks off; it is 9 p.m. by the light; the player stays put.")
     assert "p.m" not in out and "the player stays put." in out and "The kettle clicks off;" in out
+
+
+@pytest.mark.parametrize("clocky", ["Ten to eight, by the light.", "It is twenty to nine.", "The clock says 9.15am.", "At 4.30pm the doors open."])
+def test_orw437_dotted_and_to_form_times_are_dropped(setting, clocky):
+    out = _guard(f"The kettle clicks off. {clocky} The player stays put.")
+    assert clocky not in out and "The kettle clicks off." in out
+
+
+@pytest.mark.parametrize("fine", ["It takes five to ten minutes.", "Ten to twelve of them nod.", "Version 2.5pm is not a time."])
+def test_orw437_the_new_forms_leave_durations_alone(fine):
+    from src.zero_clocks import sentence_states_zero_clock_time_raw as raw  # the detector itself (the loop's other closed-set screens read "five to ten" as a vote tally)
+    assert not raw(fine)

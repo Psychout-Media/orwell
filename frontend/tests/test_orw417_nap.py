@@ -267,3 +267,17 @@ def test_engine_wrapper_calls_the_nap_tool_with_the_right_args(monkeypatch):
     assert sent == {"tool": "nap", "args": {"hours": 1.5, "expectedBeatSeq": 4, "idempotencyKey": "k"}}
     asyncio.get_event_loop().run_until_complete(orwell_engine.nap(user="u"))
     assert sent["args"] == {}
+
+
+def test_orw437_malformed_nap_arguments_are_an_error_not_a_one_hour_nap(monkeypatch):
+    from src import orwell_engine
+    from src import tool_implementations as ti
+    called = []
+
+    async def fake_nap(**kw):
+        called.append(kw)
+        return {"ok": True}
+
+    monkeypatch.setattr(orwell_engine, "nap", fake_nap)
+    out = asyncio.get_event_loop().run_until_complete(ti.do_nap("{not json", owner="orw437-nap"))
+    assert out.get("exit_code") == 1 and "error" in out and called == []

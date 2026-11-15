@@ -249,9 +249,10 @@ def setup_history_routes(session_manager) -> APIRouter:
                 try:
                     from src.auth_helpers import effective_user
                     from src import fold_ledger as _fl
-                    _fl.discard_pending_fold(effective_user(request), session_id, keep_count)
+                    _discarded = _fl.discard_pending_fold(effective_user(request), session_id, keep_count)
                     from src import belt_state_persist as _bsp  # ORW-399: the persisted copy follows the discard
-                    _bsp.save_now()
+                    if _discarded:  # review of #2671: only when something was discarded, and off the event loop (fsync'd write)
+                        await asyncio.to_thread(_bsp.save_now)
                 except Exception as _fold_e:
                     logger.warning(f"Discarding staged fold on truncate failed {session_id}: {_fold_e}")
             return {"status": "ok", "kept": keep_count, "truncated": result}

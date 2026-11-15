@@ -162,3 +162,13 @@ def test_malformed_saved_state_is_ignored(pacing, folds):
     assert bsp.restore() == 0
     assert not fl._PENDING
     assert not any(_pacing()[0].values())
+
+
+def test_orw437_a_saved_fold_missing_a_key_settle_reads_is_skipped():
+    """review of #2671: an entry without consequence / felt_minutes / row_anchor would KeyError at settle or truncate, so restore must drop it."""
+    base = {"content": "c", "with_ids": [], "kind": "k", "idempotency_key": "i"}
+    assert bsp._valid_fold_entry({**base, "consequence": None, "felt_minutes": None, "row_anchor": None})
+    for missing in ("consequence", "felt_minutes", "row_anchor"):
+        e = {**base, "consequence": None, "felt_minutes": None, "row_anchor": None}
+        del e[missing]
+        assert not bsp._valid_fold_entry(e), missing
