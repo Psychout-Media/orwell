@@ -147,7 +147,7 @@ export function _wsEnsureRound() {
   } catch (_) {}
   const _tsHtml = _lastMoment
     ? '<span class="role-timestamp role-timestamp-moment" data-wall-clock="' + uiModule.esc(roleTs) + '">' + uiModule.esc(_lastMoment) + '</span>'
-    : '<span class="role-timestamp">' + roleTs + '</span>';
+    : '<span class="role-timestamp">' + (((document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks'))) ? '' : roleTs) + '</span>';
   holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
     ' ' + _tsHtml + '</div>' +
     '<div class="body"><div class="stream-content"></div></div>';
@@ -336,7 +336,9 @@ export function _onWsChatFrame(frame) {
         // SERVER-minted `d.ts` (the message_saved frame carries it) so the hover reads identically
         // across windows; fall back to the bubble's existing wall-clock text if `ts` is absent/bad.
         var _wd = d.ts ? new Date(d.ts) : null;
-        if (_wd && !isNaN(_wd.getTime())) {
+        if ((document.body && document.body.hasAttribute && document.body.hasAttribute('data-zero-clocks'))) {
+          // ORW-379: no real time anywhere on screen
+        } else if (_wd && !isNaN(_wd.getTime())) {
           _ts.title = _wd.toLocaleString();
           _ts.dataset.wallClock = _wd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         } else {
