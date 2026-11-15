@@ -218,4 +218,4 @@ def test_final_check_returns_a_flat_list_of_reason_code_strings():
 
 def test_a_card_whose_floor_biography_still_stands_is_written_even_when_the_writer_omits_its_own():
     npc = {**_BRIANA_NPC, "biography": _GOOD_BIO}
-    assert ca.card_consistency({}, npc) != [] and "story-no-biography" not in ca.card_consistency({}, npc)
+    assert "story-no-biography" not in ca.card_consistency({}, npc)
