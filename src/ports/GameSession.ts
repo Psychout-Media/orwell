@@ -467,6 +467,8 @@ export interface GameStateView {
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).
    */
   asleep?: NamedRef[];
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  awake?: NamedRef[];
   /**
    * The season is OVER — a winner is crowned (audit B6-01). Vault-free (whether the game ended is
    * public). Lets the FE gate the season lifecycle (0057 next-season) and fill the progress bar to
@@ -515,6 +517,12 @@ export interface GameStateView {
    * is out of the house. Also feeds the "Where you are" gadget (L26).
    */
   whereabouts?: WhereaboutsView | null;
+  /**
+   * ORW-419 - the player's OWN move this turn, resolved by the engine from the player's words BEFORE the narrator ran
+   * (`resolvePlayerMove`): `{from, to}` room ids/names, or `{refused: true, reason}` when a house event pinned them. Absent when the
+   * player did not move this turn. Words and room names only, never a number. The narrator VOICES it; it never decides it.
+   */
+  playerMove?: PlayerMoveView;
   player: PlayerCard | null;
   house: HouseguestCard[];
   /** Deals the player is party to (0039) — fact + status only, never the hidden opinion numbers. */
@@ -1291,6 +1299,8 @@ export interface PublicGameStatus {
    * Vault-free; present only when the clock is running.
    */
   asleep?: NamedRef[];
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  awake?: NamedRef[];
   /**
    * The in-game DAY within the current HOH week (E58): hoh=1, nominations=2, veto=3,
    * veto-ceremony=4, eviction=5 — the canonical `dayOfWeek(phase)` mapping that already feeds the
@@ -1887,6 +1897,16 @@ export interface HouseSearchView {
  * NEVER motives, numbers, hidden state, or the occupancy of non-adjacent rooms (you can't see
  * through walls — fog of war is gameplay).
  */
+/** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
+export type PlayerMoveView =
+  | { from: string; to: string; refused?: undefined }
+  | { refused: true; reason: string; from?: string; to?: string };
+
+/** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
+export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+/** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
+export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
+
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
@@ -2599,6 +2619,14 @@ export interface RecordCastProfileReq {
   vocation?: string;
   /** A real multi-sentence backstory (the presentable parts). */
   biography?: string;
+  /**
+   * ORW-388: a REPAIRED freeform identity concept. Genesis writes `identityConcept` once, before the card's gender,
+   * exact age and look are final; the authoring accept path mends a contradiction in it (a wrong pronoun, a wrong
+   * age, a look feature the look lacks, "Big Brother") and sends the mended text here. Folded ONLY onto a houseguest
+   * that already has an identityConcept (a repair, never an invention), capped at 300 characters, and refused when it
+   * names the player. Absent ⇒ the stored identity concept stands.
+   */
+  identityConcept?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
   physicalCharacteristics?: PhysicalCharacteristics;
   /**
@@ -3128,6 +3156,16 @@ export interface GameSession {
    * (`stale-beat` / 409, no move) when the board moved under it; absent ⇒ byte-identical to today.
    */
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null;
+
+  /**
+   * ORW-419 (intent-first moves) - FE-driven INFRA lever (NOT a model lever, never named in the narrator prompt): resolve the player's OWN
+   * move from their message text, BEFORE the narrator runs, and perform it through the same code as `movePlayer` (so a comp/ceremony pin
+   * refuses it with an in-fiction reason and nothing else moves). Records the Vault-free `playerMove` on live state for this turn
+   * (persisted; cleared by the next resolve) and exposes it on `getGameState` / the moment view. No clear move => `playerMove: null`
+   * (the FE's post-reply move belt stays the fallback). Optional `expectedBeatSeq` CAS + `idempotencyKey` (a repeat key returns the
+   * prior result without re-moving).
+   */
+  resolvePlayerMove(req: ResolvePlayerMoveReq): ResolvePlayerMoveResult;
 
   /**
    * ADR 0009 — RECORD a narrated houseguest relocation (the model narrates the open texture of who

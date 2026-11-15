@@ -48,6 +48,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "updateCasting", coveredBy: "advance", note: "pre-game casting status (no hidden state exists pre-game; liveSentinel sweeps it)" },
   { method: "runCompetition", coveredBy: "advance", note: "CompetitionResultView (liveSentinel sweeps per beat)" },
   { method: "movePlayer", coveredBy: "advance", note: "WhereaboutsView (moveTo; liveSentinel)" },
+  { method: "resolvePlayerMove", coveredBy: "advance", note: "ORW-419: playerMove {from,to}/{refused,reason} + WhereaboutsView (room ids and an in-fiction reason only)" },
   { method: "markHouseguestMet", coveredBy: "advance", note: "PremiereIntrosView (liveSentinel)" },
   { method: "makeDeal", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "formAlliance", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },

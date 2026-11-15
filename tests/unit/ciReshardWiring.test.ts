@@ -18,11 +18,11 @@ function job(name: string): string {
 }
 
 describe("re-shard wiring", () => {
-  it("fe-browser-tests runs five duration-balanced legs", () => {
+  it("fe-browser-tests runs ten duration-balanced legs (ORW-413)", () => {
     const j = job("fe-browser-tests");
-    expect(j).toContain("shard: [1, 2, 3, 4, 5]");
-    expect(j).toContain("ORWELL_CI_SHARD: ${{ matrix.shard }}/5");
-    expect(j).toContain("name: fe-browser-tests (${{ matrix.shard }}/5)");
+    expect(j).toContain("shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]");
+    expect(j).toContain("ORWELL_CI_SHARD: ${{ matrix.shard }}/10");
+    expect(j).toContain("name: fe-browser-tests (${{ matrix.shard }}/10)");
   });
   it("mirror-parity runs three WebSocket-only jobs (ORW-44 S4d), and each of the three gate steps belongs to exactly one of them", () => {
     const j = job("mirror-parity");
@@ -56,7 +56,8 @@ describe("re-shard wiring", () => {
     const gate = job("ci-gate");
     expect(gate).toMatch(/needs:\n(?:\s+- [\w-]+\n)*\s+- bdd\n/);
     expect(gate).toContain("bdd=${{ needs.bdd.result }}");
-    expect(gate).toContain('test|bdd|test-unit|coverage-shard|coverage) echo "$ENGINE" ;;');
+    expect(gate).toContain('test|bdd|test-unit|coverage) echo "$ENGINE" ;;');
+    expect(gate).toMatch(/needs:\n(?:\s+- [\w-]+\n)*\s+- fast-checks\n/);
   });
 
   // Bot review (greptile + cubic): the shared composite actions are part of every job that uses them, so a change to ONLY an action must run each

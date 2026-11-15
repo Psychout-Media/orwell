@@ -291,10 +291,12 @@ async def _summarise_day(day: int, text: str, llm_fn) -> str:
         r = await llm_fn(_chunk_messages(day, i, len(pieces), piece, per)) or ""
         if looks_like_error(r):
             return r
-        if r.strip():
-            notes.append(" ".join(r.split()))
-    if not notes:
-        return ""
+        if not r.strip():
+            # A chunk that came back empty (a provider error mid-run) must not leave a hole: the engine keeps the first
+            # authored text for good, so write nothing and let the day be retried.
+            logger.warning("[day-condense] day %s: chunk %s of %s came back empty; nothing written", day, i, len(pieces))
+            return ""
+        notes.append(" ".join(r.split()))
     return await llm_fn(_merge_messages(day, notes, words)) or ""
 
 

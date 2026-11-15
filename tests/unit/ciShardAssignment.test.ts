@@ -89,26 +89,29 @@ describe("duration-aware shard assignment (ORW-218)", () => {
   // ORW-367: the six coverage-shard legs. The table used to be ~135 files stale (a fresh heavy file was balanced at the median weight), and shard 2 ran
   // 9.4 min next to 2-5 min for the others. The split now has to be balanced on the table's OWN numbers for exactly the file set a CI leg runs
   // (the heavy sims are excluded there), with unknown files weighed as the sequencer weighs them (the median).
-  describe("six coverage legs, by measured duration (ORW-367)", () => {
+  describe("eight coverage legs, by measured duration (ORW-367, 8 legs since ORW-413)", () => {
     const heavy = (f: string): boolean => /^tests\/(uat|calibration)\//.test(f) || /^tests\/property\/(juryReach|calibrationGradient)/.test(f);
     const legFiles = files.filter((f) => !heavy(f));
     const unknownWeight = Math.max(MIN_WEIGHT_MS, [...Object.values(durations)].sort((a, b) => a - b)[Math.floor(Object.keys(durations).length / 2)]!);
     const w = (f: string): number => Math.max(MIN_WEIGHT_MS, durations[f] ?? unknownWeight);
-    const loads = assignShards(legFiles, durations, 6).map((l) => l.reduce((n, f) => n + w(f), 0));
+    const loads = assignShards(legFiles, durations, 8).map((l) => l.reduce((n, f) => n + w(f), 0));
     const median = [...loads].sort((a, b) => a - b)[Math.floor(loads.length / 2)]!;
 
     it("the heaviest leg is within 1.3x the median leg", () => {
       expect(Math.max(...loads) / median).toBeLessThanOrEqual(1.3);
     });
 
-    it("the table is fresh: at least 95% of the test files a leg runs have a measured entry (refresh with `npm run ci:refresh-durations`)", () => {
+    // ORW-413 PR 2: a feature PR never needs a hand edit of the table. A file with no entry weighs the median (the sequencer), so this WARNS instead of failing; the refresh is the
+    // scheduled job's work, not the author's (the check only proves the sequencer's default is what the split above was computed with).
+    it("a file with no measured entry only warns (it weighs the median), it never fails a PR", () => {
       const missing = legFiles.filter((f) => durations[f] === undefined);
-      expect(missing.length, `not in ${DURATIONS_RELATIVE_PATH}: ${missing.slice(0, 15).join(", ")}`).toBeLessThanOrEqual(Math.floor(legFiles.length * 0.05));
+      if (missing.length > 0) console.warn(`::warning::${missing.length} test file(s) not in ${DURATIONS_RELATIVE_PATH} (weighed at the median until the next refresh): ${missing.slice(0, 15).join(", ")}`);
+      expect(assignShards(legFiles, durations, 8).flat().length).toBe(legFiles.length);
     });
 
-    it("the split is identical when run twice and every file is in exactly one of the six legs", () => {
-      const a = assignShards(legFiles, durations, 6);
-      expect(assignShards(legFiles, durations, 6)).toEqual(a);
+    it("the split is identical when run twice and every file is in exactly one of the eight legs", () => {
+      const a = assignShards(legFiles, durations, 8);
+      expect(assignShards(legFiles, durations, 8)).toEqual(a);
       expect(() => assertPartition(legFiles, a)).not.toThrow();
     });
   });

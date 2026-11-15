@@ -129,7 +129,7 @@
       if (st.hasAttribute("data-hg")) {
         // markdown.js already carried the id (speaker name) — just make it operable.
         if (!st.hasAttribute("tabindex")) {
-          st.classList.add("ow-name-link"); st.setAttribute("role", "button"); st.tabIndex = 0;
+          st.classList.add("ow-name-link", "tap-exempt"); st.setAttribute("role", "button"); st.tabIndex = 0;
         }
         return;
       }
@@ -142,7 +142,9 @@
       } catch (_) { id = null; }
       if (!id) return;
       st.setAttribute("data-hg", String(id));
-      st.classList.add("ow-name-link");
+      // ORW-359: a name inside a sentence is an inline target (WCAG 2.5.5/2.5.8 inline exception): `tap-exempt`
+      // keeps the 44px touch floor (responsive matrix) for real controls and off running text.
+      st.classList.add("ow-name-link", "tap-exempt");
       st.setAttribute("role", "button");
       st.tabIndex = 0;
     });
@@ -170,7 +172,7 @@
         if (!frag) frag = document.createDocumentFragment();
         if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
         const sp = document.createElement("span");
-        sp.className = "ow-name-link";
+        sp.className = "ow-name-link tap-exempt";
         sp.setAttribute("data-hg", id);
         sp.setAttribute("data-ow-auto", "1");
         sp.setAttribute("role", "button");

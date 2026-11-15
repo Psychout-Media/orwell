@@ -74,7 +74,7 @@ def test_orw246_strip_stays_present_accurate_and_live(fe, name, w, h):
             page.wait_for_selector("#orwell-room-strip .ors-chip", timeout=8000)
             state["fail"] = True  # a failed poll keeps the last strip
             page.evaluate("window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(1200)  # elapsed-time hold: a NEGATIVE check (the strip must not blank after a failed poll), so the window is the test
             assert _strip(page)["shown"], "a failed poll must not blank the strip"
         finally:
             browser.close()

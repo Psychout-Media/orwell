@@ -627,8 +627,8 @@ _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called t
 def _reconcile_hang_out_steer(steer: str, game_state) -> str:
     """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
     owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
-    ds = game_state.get("daySchedule") if isinstance(game_state, dict) else None
-    if steer and isinstance(ds, dict) and "due" in ds and not ds.get("due"):
+    from routes.briefing import build_briefing
+    if steer and build_briefing(game_state).due is False:  # ORW-409: due-ness is the briefing's fact
         return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE)
     return steer
 
@@ -675,18 +675,13 @@ _PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
-def _schedule_when(scheduled_phase: str, tomorrow: bool, default: str) -> str:
-    """ORW-394: the in-fiction "when" for an event not yet called: "tomorrow <part of day>" when the engine's schedule says tomorrow, "this <part of day>" when it is today."""
-    if tomorrow:
-        return f"tomorrow {scheduled_phase}" if scheduled_phase else "tomorrow"
-    return f"this {scheduled_phase}" if scheduled_phase else default
-
-
-def _premiere_not_yet_steer(ds: Optional[dict] = None) -> str:
+def _premiere_not_yet_steer(ds: Optional[dict] = None, briefing=None) -> str:
     """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call - never on demand.
     ORW-394: with the engine clock live (`ds` = the board's daySchedule) the when comes from the schedule (never "this afternoon" when it is not today); without it, the premiere morning's "this afternoon"."""
     ds = ds if isinstance(ds, dict) else {}
-    when = _schedule_when(str(ds.get("phase") or ""), bool(ds.get("tomorrow")), "this afternoon") if ds else "this afternoon"
+    from routes.briefing import Briefing
+    b = briefing if briefing is not None else Briefing.from_schedule(ds)  # ORW-409: the when comes from the briefing's schedule facts
+    when = b.when("this afternoon") if ds or briefing is not None else "this afternoon"
     return (f"PRODUCTION HASN'T CALLED IT YET - the first Head of Household competition is scheduled for {when} and it is not that time yet. The player cannot start, skip to or "
             f"move it, and it is NOT available on request. Keep this scene social (the house is still settling in). If they ask for it, let a houseguest or the house itself say production "
             f"hasn't called it yet - it will be {when}; do NOT offer it on demand, and do NOT narrate the competition starting, a result, or anyone being called to it.")
@@ -800,7 +795,7 @@ def note_premiere_turn(user, game_state) -> None:
         if phase == "premiere" and isinstance(ds, dict) and "due" in ds:
             _PREMIERE_CLOCK_HOLD[key] = not bool(ds.get("due"))
             if _PREMIERE_CLOCK_HOLD[key]:
-                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds)
+                _SCHEDULE_STEER[key] = _premiere_not_yet_steer(ds, briefing=_briefing_of(game_state))
             return
         _PREMIERE_CLOCK_HOLD.pop(key, None)
         if phase == "premiere":
@@ -7312,18 +7307,35 @@ def _audit_framed_briefing(user, messages) -> None:
         logger.debug("[orwell] briefing audit skipped: %s", e)
 
 
+def _unify_part_of_day(prompt, briefing):
+    from routes.briefing import unify_part_of_day_lines
+    return unify_part_of_day_lines(prompt, briefing)
+
+
+def _briefing_of(game_state):
+    """ORW-409: the turn's single hard-fact briefing from the board; None when it cannot be built (callers then use the raw schedule facts, as before)."""
+    try:
+        from routes.briefing import build_briefing
+        return build_briefing(game_state)
+    except Exception as e:
+        record_soft_failure("briefing:build-failed", e, corrected="old-path")
+        return None
+
+
 def _runway_sig(game_state: dict) -> str:
     """The `(week:phase)` signature of the beat the player is currently sitting in. A change in this
     signature means a ceremony resolved and we entered a new beat — the cue to arm a fresh runway."""
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
-def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False) -> str:
+def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False, briefing=None) -> str:
     """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only.
     ORW-394: the event is labelled from the engine's schedule (`daySchedule.next`) when given - not the game phase, which can still be the previous event's - and says "tomorrow" when the schedule does."""
-    event = next_beat or phase
+    from routes.briefing import Briefing
+    b = briefing if briefing is not None and briefing.next_event else Briefing(next_event=next_beat, next_day="tomorrow" if tomorrow else "today", next_part=scheduled_phase)  # ORW-409: facts from the briefing
+    event = b.next_event or phase
     label = _MOMENT_PHASE_LABELS.get(event) or event.replace("-", " ")
-    when = _schedule_when(scheduled_phase, tomorrow, "later today")
+    when = b.when("later today")
     return (f"PRODUCTION HASN'T CALLED IT YET - the {label} is scheduled for {when} and it is not that time yet. The player cannot start, skip to or move it. "
             f"Keep this scene social. If they ask for it, let a houseguest or the house itself say production hasn't called it yet (it is {when}); "
             "do NOT narrate the event starting, a result, or anyone being called to it.")
@@ -7782,7 +7794,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if not _ds.get("due"):
                 if _hn < _PRODUCTION_HOLD_CAP:
                     _PRODUCTION_HOLD[_hkey] = (sig, _hn + 1)
-                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")))
+                    _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")), briefing=_briefing_of(game_state))
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
                         _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
@@ -8313,6 +8325,13 @@ async def apply_game_framing(
             else:
                 mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
+            try:  # ORW-409: the part of the day is stated once, from the briefing (the engine's "Time of day" line restates it)
+                _b409 = _briefing_of(game_state)
+                if _b409 is not None:
+                    gm_prompt = _unify_part_of_day(gm_prompt, _b409)
+                    mp = {**mp, "systemPrompt": gm_prompt} if isinstance(mp, dict) and mp.get("systemPrompt") else mp
+            except Exception as e:
+                record_soft_failure("briefing:time-of-day-unify-failed", e, corrected="engine-lines-kept")
             try:  # ORW-405: remember this turn's volatile slice (fail-open)
                 _mp_txt = (mp or {}).get("systemPrompt")
                 _vi = _mp_txt.find("\n- Week: ") if isinstance(_mp_txt, str) else -1
@@ -9519,6 +9538,12 @@ async def build_chat_context(
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
     if not incognito:
         await note_player_message(client_msg_id, user)
+        # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
+        # prompt is built below, so the briefing already shows the new room + `playerMove`. Fail-soft; unsure parses move nothing.
+        from src.settings import game_build_enabled as _gbe_pm
+        if _gbe_pm():
+            from src.orwell_player_move import resolve_player_move_before_narrator
+            await resolve_player_move_before_narrator(message, user, client_msg_id)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no
