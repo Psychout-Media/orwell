@@ -135,7 +135,7 @@ Then("an open assurance exists from the promiser to the assured", function (this
 
 // --- Nominations: kept protects, broken costs --------------------------------------------------------------------------
 
-Given("an NPC HOH about to nominate a houseguest, who holds a \"safe\" assurance toward them that the HOH means to keep", function (this: BbWorld) {
+Given("an NPC HOH who has given a \"safe\" assurance to a houseguest and means to keep it, about to nominate them", function (this: BbWorld) {
   st(this).contest = findNominations("an NPC HOH who would nominate a houseguest they mean to keep safe", (parked, control, hoh) => {
     for (const assured of (liveOf(control.snap).nominees ?? []).filter((n) => n !== PLAYER)) {
       const a: AsrInput = { from: hoh, to: assured, kind: "safe", sincerity: 1, source: "npc" };
@@ -161,7 +161,7 @@ Then("the assured houseguest is not nominated", function (this: BbWorld) {
   assert.ok(!noms.includes(c.assured), `the assured stays off the block (nominees ${noms.join(", ")})`);
 });
 
-Given("an NPC HOH about to nominate a houseguest, who holds an open \"safe\" assurance toward them that the HOH will not keep", function (this: BbWorld) {
+Given("an NPC HOH who has given an open \"safe\" assurance to a houseguest and will not keep it, about to nominate them", function (this: BbWorld) {
   st(this).contest = findNominations("an NPC HOH who nominates a houseguest they assured anyway", (parked, control, hoh) => {
     for (const assured of (liveOf(control.snap).nominees ?? []).filter((n) => n !== PLAYER)) {
       // a room for the trust drop to show: the assured's control trust in the HOH must exceed the drop

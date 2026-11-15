@@ -24,7 +24,7 @@ def test_status_panel_keeps_last_known_on_engine_hiccup():
     assert "_shown" in src
     ref = src[src.index("async function refresh("): src.index("async function refresh(") + 800]
     # hiccup -> keep the readout; the offline dot shows only once the feed has been down for a release-sized gap (ORW-406: 10 s)
-    assert "if (_shown && Date.now() - _failSince >= 10000) markStale(true)" in ref
+    assert "Date.now() - _failSince >= 10000)) markStale(true)" in ref and "if (_shown && ((typeof navigator" in ref  # ORW-437: a browser with no link (navigator.onLine === false) also flags the feed at once
     assert "else if (_shown) _scheduleStaleCheck()" in ref
     assert "else hidePanel()" in ref                      # never shown → nothing to keep
 

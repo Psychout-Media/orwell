@@ -100,7 +100,7 @@
       const existing = document.getElementById(ID);
       if (existing && _gadget) { _gadget.hide(); existing.removeAttribute("title"); }
       _lastAnnounced = null;
-      _lastAwake = null;
+      if (state) _lastAwake = null; // a real state that says no clock is running clears the list; a failed fetch (state null) keeps the last known one (review of #2678)
       return;
     }
     const el = ensureEl();
@@ -118,7 +118,7 @@
     const body = el.querySelector("[data-role='body']");
     if (awakeList) {
       if (!awakeList.length) {
-        body.innerHTML = '<span class="onight-quiet">Everyone has turned in.</span>';
+        body.innerHTML = '<span class="onight-quiet">All the houseguests have turned in.</span>';
         el.removeAttribute("title");
       } else {
         const names = awakeList.map((p) => esc(firstName(p.name))).filter(Boolean).join(", ");
@@ -135,7 +135,7 @@
     }
     // A11Y-1: announce the nightfall phase + sleep summary ONLY when it changes (not every poll).
     const announce = awakeList
-      ? (awakeList.length ? (label + "; awake: " + awakeList.map((p) => firstName(p.name)).filter(Boolean).join(", ")) : (label + "; everyone has turned in"))
+      ? (awakeList.length ? (label + "; awake: " + awakeList.map((p) => firstName(p.name)).filter(Boolean).join(", ")) : (label + "; all the houseguests have turned in"))
       : (asleep.length
         ? (label + "; turned in: " + asleep.map((p) => firstName(p.name)).filter(Boolean).join(", "))
         : (label + "; the whole house is still up"));
