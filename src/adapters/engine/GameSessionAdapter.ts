@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -60,6 +60,7 @@ import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } fr
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
+import { parsePlayerMoveIntent } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
@@ -241,7 +242,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { emptyOpenLedger, openLedgerProposal, openLedgerSection, recordOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { emptyOpenLedger, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -318,6 +319,7 @@ import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
+import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
@@ -1681,6 +1683,8 @@ export class GameSessionAdapter implements GameSession {
    * continuity in `whereabouts()` so the narrator voices who has lingered vs. who just arrived.
    */
   private presenceTenure: Map<EntityId, number> | null = null;
+  /** ORW-419 - the player's own move resolved from their words this turn (see `resolvePlayerMove`); persisted, replaced by the next resolve. */
+  private playerMove: PlayerMoveView | null = null;
   /**
    * The CALIBRATION-NEUTRAL base occupancy (L21/L24). The off-screen society pairs co-present NPCs to
    * generate hidden scenes whose relationship folds feed (downstream) nominations/votes — so the
@@ -3666,7 +3670,7 @@ export class GameSessionAdapter implements GameSession {
       // off the name and leave the portrait rendering the name's gender). The given-name token is swapped to
       // the final presentation, surname kept, so name + portrait + narration read the same gender. (The
       // display name lives on the Houseguest wrapper — `n.name` — not on the static Character.)
-      if (pub.name !== undefined) n.name = pub.name;
+      if (pub.name !== undefined) this.renameHouseguest(n, pub.name);
       if (proposed[n.id]) applied++;
     }
 
@@ -3833,7 +3837,7 @@ export class GameSessionAdapter implements GameSession {
       used.delete(given); // free the wrong-gender given before picking its replacement
       const next = pickGivenNameFor(gender, rng, used);
       used.add(next);
-      n.name = parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next;
+      this.renameHouseguest(n, parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next);
     }
   }
 
@@ -4245,6 +4249,7 @@ export class GameSessionAdapter implements GameSession {
       // society's positions stay reproducible across a restart and never reseed from the weighted view.
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
+      ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
       ...(this.presenceTickCount > 0 ? { presenceTickCount: this.presenceTickCount } : {}),
@@ -4577,6 +4582,7 @@ export class GameSessionAdapter implements GameSession {
     // re-seeds it from the weighted positions, which `societyOccupancy` falls back to in the meantime).
     this.presenceBase = core.presenceBase ? new Map(Object.entries(core.presenceBase) as [EntityId, Room][]) : null;
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
+    this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
     this.tellOnsetCount = core.tellOnsetCount ?? 0;
@@ -5229,6 +5235,46 @@ export class GameSessionAdapter implements GameSession {
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.persist();
     return this.whereabouts();
+  }
+
+  /**
+   * ORW-419 - intent-first moves: resolve the player's OWN move from their words (never the narration) BEFORE the narrator runs, and
+   * perform it through `movePlayer` (same pin: a comp/ceremony refuses it, in fiction, with nothing else moving). Records the Vault-free
+   * `playerMove` for this turn (replacing any earlier one) so the narrator is handed the result to voice. No clear move => null (the FE's
+   * post-reply belt is the fallback). At-most-once per `idempotencyKey`.
+   */
+  resolvePlayerMove(req: ResolvePlayerMoveReq): ResolvePlayerMoveResult {
+    const idemKey = this.foldLedgerKey("resolvePlayerMove", req.idempotencyKey);
+    const replay = this.foldReplay<ResolvePlayerMoveResult>(idemKey);
+    if (replay.hit) return replay.value;
+    this.guardBeatSeq(req.expectedBeatSeq);
+    if (!this.house || !this.presence) return { playerMove: null, whereabouts: null };
+    const me = this.house.player.id;
+    const here = this.presence.get(me) ?? null;
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here);
+    const hadMove = this.playerMove !== null;
+    this.playerMove = null; // a new player message: last turn's move is over
+    let result: ResolvePlayerMoveResult;
+    if (dest === null || here === null || dest === here) {
+      if (hadMove) this.persist();
+      result = { playerMove: null, whereabouts: this.whereabouts() };
+    } else if (this.houseEventInSession()) {
+      this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else {
+      const w = this.movePlayer(dest);
+      const now = this.presence.get(me) ?? null;
+      if (now === dest) {
+        this.playerMove = { from: here, to: dest };
+        this.persist();
+        result = { playerMove: { ...this.playerMove }, whereabouts: w };
+      } else {
+        result = { playerMove: null, whereabouts: w };
+      }
+    }
+    result.beatSeq = this.beatSeqNow();
+    return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
   }
 
   /**
@@ -7308,7 +7354,23 @@ export class GameSessionAdapter implements GameSession {
       used.delete(given); // free the colliding given before picking the replacement
       const next = pickGivenNameFor(g, rng, used);
       used.add(next);
-      n.name = parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next;
+      this.renameHouseguest(n, parts.length > 1 ? `${next} ${parts.slice(1).join(" ")}` : next);
+    }
+  }
+
+  /**
+   * ORW-430: change a houseguest's display name AND carry the change into the public prose written around the old
+   * given name (genesis writes the name, identity and first biography together; a later gender or cross-season
+   * re-pick must not leave a biography about "Nia" on Samir's card). Public text only; a no-op when the given name
+   * did not change or the prose never used it.
+   */
+  private renameHouseguest(n: { name: string; character: Character }, next: string): void {
+    const prior = n.name;
+    n.name = next;
+    const c = n.character;
+    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation"] as const) {
+      const v = c[k];
+      if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
   }
 
@@ -14712,6 +14774,29 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
+  /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
+  resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
+    if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq);
+    if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    this.backgroundPersist(); // durable, but NOT a board beat
+    return { accepted: true };
+  }
+
+  /** ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only. */
+  openLedgerHere(): OpenLedgerItemView[] {
+    if (!this.openLedgerEnabled || !this.house || !this.live || this.live.playedGame !== true) return [];
+    const wa = this.whereabouts();
+    if (!wa) return [];
+    const open = { ...this.openLedger, entries: this.openLedger.entries.filter((e) => e.status === "open") };
+    return openLedgerRelevant(open, wa.present.map((x) => x.id as string)).map(({ e }) => ({
+      id: e.id, text: e.text, speaker: e.speaker, parties: partiesOf(e), ...(e.about ? { about: e.about } : {}), kind: e.kind,
+    }));
+  }
+
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto
    * the seeded off-camera casting producer so the ENGINE stays the source of truth (the
@@ -15132,6 +15217,7 @@ export class GameSessionAdapter implements GameSession {
       // L21/L24: the player's live whereabouts (room, who's with them + tenure, adjacent rooms) so the
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
       whereabouts: this.whereabouts(),
+      ...(this.playerMove ? { playerMove: { ...this.playerMove } as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in

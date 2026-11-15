@@ -528,3 +528,15 @@ export function showmancePlausible(a: ShowmanceIdentity, b: ShowmanceIdentity): 
 
 // re-export so the cap is a single source of truth in tests/imports
 export { MAX_PER_AGE_BAND };
+
+/**
+ * ORW-430: carry a given-name change into a public prose string. Swaps the old FIRST name (whole word, with its
+ * possessive) for the new first name, only when the first name changed. Pure; a no-op otherwise.
+ */
+export function renameGivenNameInProse(text: string, priorName: string, nextName: string): string {
+  const oldGiven = priorName.trim().split(/\s+/)[0] ?? "";
+  const newGiven = nextName.trim().split(/\s+/)[0] ?? "";
+  if (!oldGiven || !newGiven || oldGiven === newGiven) return text;
+  const esc = oldGiven.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`\\b${esc}\\b`, "g"), newGiven);
+}

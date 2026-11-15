@@ -7,7 +7,11 @@ APP_VERSION = "1.0.0"
 # Base paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + "/"
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-DATA_DIR = os.path.join(BASE_DIR, "data")
+# ORW-414: opt-in per-process data directory. Unset in every deployment (DATA_DIR stays <frontend>/data); the browser tests set it so each test
+# stack gets its own sessions/settings/game-session/layout files instead of all sharing one checkout directory (which forced them to run one at a time).
+DATA_DIR = os.environ.get("ORWELL_DATA_DIR_FE") or os.path.join(BASE_DIR, "data")
+if os.environ.get("ORWELL_DATA_DIR_FE"):
+    os.makedirs(DATA_DIR, exist_ok=True)
 
 # Data file paths
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")

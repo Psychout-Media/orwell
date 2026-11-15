@@ -7,6 +7,8 @@ import subprocess
 
 import pytest
 
+from _settle import app_ready
+
 STATIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static", "js")
 
 
@@ -135,7 +137,7 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
         page.goto(_stack["fe"] + "/", wait_until="load")
-        page.wait_for_timeout(2500)
+        app_ready(page, names=("chatModule", "sessionModule"))
         _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
         txt = lambda: page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")  # noqa: E731
@@ -210,7 +212,7 @@ def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack)
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
         page.goto(_stack["fe"] + "/", wait_until="load")
-        page.wait_for_timeout(2500)
+        app_ready(page, names=("chatModule", "sessionModule"))
         _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
         page.wait_for_selector(".ow-week-card", timeout=15000)
@@ -276,7 +278,7 @@ def test_orw161_a_long_chat_renders_its_newest_rows_and_reveals_earlier_ones_on_
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
         page.goto(_stack["fe"] + "/", wait_until="load")
-        page.wait_for_timeout(2500)
+        app_ready(page, names=("chatModule", "sessionModule"))
         _select(page, sid)
         page.wait_for_selector("#orwell-history-more", timeout=15000)
         count = lambda: page.evaluate("() => document.querySelectorAll('#chat-history .msg[data-from-history]').length")  # noqa: E731

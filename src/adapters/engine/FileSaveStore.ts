@@ -2,8 +2,9 @@ import {
   mkdirSync, readdirSync, readFileSync, renameSync, existsSync, unlinkSync,
   openSync, writeSync, fsyncSync, closeSync,
 } from "node:fs";
+import { open as openAsync } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
-import type { UserSaveStore } from "../../ports/UserSaveStore";
+import type { UserSaveStore, SaveDurability } from "../../ports/UserSaveStore";
 import type { SessionSnapshot } from "../../engine/sessionSnapshot";
 import { stallTimer } from "../stallTiming";
 
@@ -24,6 +25,101 @@ import { stallTimer } from "../stallTiming";
  * segment (no traversal). ENGINE-ONLY (persists souls + the hidden relationship
  * layer).
  */
+/** ORW-404: how a save's fsync is paid. `background` (default) moves it off the request path. */
+export type SaveFsyncMode = "sync" | "background";
+
+export interface FileSaveStoreOptions {
+  /** Default: `ORWELL_SAVE_FSYNC=sync` => "sync", anything else => "background". */
+  fsyncMode?: SaveFsyncMode;
+  /** Async fsync of a file's content (background mode). Tests inject a controllable one. */
+  syncFile?: (path: string) => Promise<void>;
+  /** Async fsync of a directory (background mode). */
+  syncDir?: (path: string) => Promise<void>;
+  /** Blocking fsync of a file (shutdown flush). */
+  syncFileSync?: (path: string) => void;
+  /** Blocking fsync of a directory (shutdown flush). */
+  syncDirSync?: (path: string) => void;
+  /** Monotonic-ish ms clock for backlog age and the flush deadline. */
+  nowMs?: () => number;
+  /** Receives one line per failed background fsync (never throws into a save). */
+  onError?: (line: string) => void;
+  /** Alarm (one onError line, at most once per `backlogAlarmMs` per user) when the oldest unsynced save is older than this. Default 60 000. */
+  backlogAlarmMs?: number;
+}
+
+/** Per-user-dir durability bookkeeping (in memory only; derived, never persisted). */
+interface DirState {
+  latest: number;
+  /** Newest version whose fsync completed AND whose file still exists (0 = none known yet). */
+  durable: number;
+  /** Newest version waiting for a sync (coalesced: only the newest is ever synced). */
+  pending: number | null;
+  /** The version whose fsync is running right now (never pruned while it runs). */
+  inFlight: number | null;
+  /** Waiting in the module-level sync queue. */
+  queued: boolean;
+  /**
+   * Versions that were already on disk when this process first touched the dir. They are NOT known
+   * durable (a kill, a crash or a timed-out flush can leave an unsynced tail), so none of them is
+   * pruned until one fsync has completed; then this is cleared and the normal rule applies.
+   */
+  bootVersions: Set<number> | null;
+  /** Save times of versions newer than `durable`, oldest first (backlog age). */
+  unsynced: { v: number; t: number }[];
+  /** A checkpoint rename happened since the last directory fsync. */
+  dirDirty: boolean;
+  /** Last time the backlog alarm fired for this user (null = never). */
+  lastAlarmAt: number | null;
+  /** The no-synced-save cap warning was already logged for this user. */
+  capWarned: boolean;
+}
+
+async function defaultSyncFile(path: string): Promise<void> {
+  const fh = await openAsync(path, "r");
+  try { await fh.sync(); } finally { await fh.close(); }
+}
+/**
+ * Module-level cap on concurrent BACKGROUND fsyncs across every store and user: each one occupies a
+ * libuv pool thread (4 by default), and a stalled disk must not starve DNS and outbound calls. Waiting
+ * users sit in one FIFO, each at most once (the newest pending version per user wins).
+ */
+const MAX_CONCURRENT_SYNCS = 2;
+/**
+ * One EXTRA slot used only for a never-synced user's first fsync (a user with no durable version yet
+ * must not wait behind stalled syncs of users who already have one). Such jobs also sit at the front.
+ */
+const FIRST_SYNC_EXTRA_SLOTS = 1;
+interface SyncJob { st: DirState; first: boolean; run: (epoch: number, extra: boolean) => void }
+const limiter = { epoch: 0, active: 0, extraActive: 0, queue: [] as SyncJob[] };
+
+function drainSyncQueue(): void {
+  while (limiter.queue.length > 0) {
+    const head = limiter.queue[0]!; // never-synced jobs are kept at the front
+    let extra = false;
+    if (limiter.active >= MAX_CONCURRENT_SYNCS) {
+      if (!head.first || limiter.extraActive >= FIRST_SYNC_EXTRA_SLOTS) return;
+      extra = true;
+    }
+    limiter.queue.shift();
+    head.st.queued = false;
+    if (extra) limiter.extraActive++; else limiter.active++;
+    head.run(limiter.epoch, extra);
+  }
+}
+
+/** Test hook: forget every running/queued sync slot (a test that stalls a sync on purpose). */
+export function resetSaveSyncLimiterForTests(): void {
+  limiter.epoch++;
+  limiter.active = 0;
+  limiter.extraActive = 0;
+  limiter.queue.length = 0;
+}
+
+function defaultSyncFileSync(path: string): void {
+  const fd = openSync(path, "r");
+  try { fsyncSync(fd); } finally { closeSync(fd); }
+}
+
 export class FileSaveStore implements UserSaveStore {
   /** Newest versions always retained (the working window incl. crash-recovery slack). */
   private static readonly RETAIN_RECENT = 5;
@@ -31,12 +127,33 @@ export class FileSaveStore implements UserSaveStore {
   private static readonly CHECKPOINT_EVERY = 50;
   /** ...of which only the newest few are retained (the long-tail archive stays bounded). */
   private static readonly RETAIN_CHECKPOINTS = 3;
+  /** While a user has no durable version yet, keep every file up to this many (never below). */
+  private static readonly UNSYNCED_KEEP_CAP = 200;
 
   private readonly dataDir: string;
+  private readonly fsyncMode: SaveFsyncMode;
+  private readonly syncFile: (path: string) => Promise<void>;
+  private readonly syncDir: (path: string) => Promise<void>;
+  private readonly syncFileSync: (path: string) => void;
+  private readonly syncDirSync: (path: string) => void;
+  private readonly nowMs: () => number;
+  private readonly onError: (line: string) => void;
+  private readonly backlogAlarmMs: number;
+  private readonly states = new Map<string, DirState>();
 
-  constructor(dataDir?: string) {
+  constructor(dataDir?: string, opts: FileSaveStoreOptions = {}) {
     this.dataDir =
       dataDir ?? process.env.ORWELL_DATA_DIR ?? process.env.BBAI_DATA_DIR ?? "./.orwell-data";
+    // ORW-404 kill switch: ORWELL_SAVE_FSYNC=sync restores the fully synchronous save.
+    this.fsyncMode = opts.fsyncMode
+      ?? ((process.env.ORWELL_SAVE_FSYNC ?? "").trim().toLowerCase() === "sync" ? "sync" : "background");
+    this.syncFile = opts.syncFile ?? defaultSyncFile;
+    this.syncDir = opts.syncDir ?? defaultSyncFile;
+    this.syncFileSync = opts.syncFileSync ?? defaultSyncFileSync;
+    this.syncDirSync = opts.syncDirSync ?? defaultSyncFileSync;
+    this.nowMs = opts.nowMs ?? (() => performance.now());
+    this.onError = opts.onError ?? ((l) => console.error(l));
+    this.backlogAlarmMs = opts.backlogAlarmMs ?? 60_000;
   }
 
   /**
@@ -85,7 +202,8 @@ export class FileSaveStore implements UserSaveStore {
   saveFor(user: string, snapshot: SessionSnapshot): void {
     const dir = this.userDir(user);
     mkdirSync(dir, { recursive: true });
-    const version = this.latestVersion(dir) + 1;
+    const existing = this.versionsDescending(dir);
+    const version = (existing[0] ?? 0) + 1;
     const file = this.fileFor(dir, version);
     // Atomic + DURABLE write (audit E2 + E8): a crash mid-write must never leave a truncated file as
     // the "latest" version — write a temp, fsync the temp's CONTENT, then rename (atomic on the same
@@ -94,6 +212,7 @@ export class FileSaveStore implements UserSaveStore {
     // or keeps it (the content was already flushed to disk) — never a truncated winner. That is what
     // protects non-degradation (feature 0007/0030) against a mid-write crash.
     const tmp = `${file}.tmp`;
+    const background = this.fsyncMode === "background";
     const t0 = stallTimer.now();
     const json = JSON.stringify(snapshot);
     const t1 = stallTimer.now();
@@ -103,7 +222,10 @@ export class FileSaveStore implements UserSaveStore {
     try {
       writeSync(fd, json, null, "utf8");
       t2 = stallTimer.now();
-      fsyncSync(fd);
+      // ORW-404: the content fsync is the step that froze a turn for 32 s on a stalled shared disk.
+      // Default (background): skip it here — the file is renamed complete (process-crash safe) and a
+      // background fsync hardens it afterwards. `ORWELL_SAVE_FSYNC=sync` keeps today's blocking fsync.
+      if (!background) fsyncSync(fd);
       t3 = stallTimer.now();
     } finally {
       closeSync(fd);
@@ -113,34 +235,278 @@ export class FileSaveStore implements UserSaveStore {
     stallTimer.record("save.persist", t4 - t0, { chars: json.length }, {
       serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, rename: t4 - t3,
     });
-    // F-EN-1 (#1562): the DIRECTORY fsync ONLY hardens the rename's directory ENTRY against a sudden
-    // power loss (the OS's own dirty-page writeback makes that entry durable within a few seconds
-    // regardless). It is a SECOND blocking `fsyncSync` on the single Node thread, sitting on the hot
-    // per-turn commit path — it stalls EVERY concurrent user on every committed beat (in tension with
-    // "unlimited users concurrently"). Since the content fsync + atomic rename above already guarantee
-    // a truncated file can NEVER win, we AMORTIZE the directory fsync to the periodic checkpoint cadence
-    // (the same CHECKPOINT_EVERY boundary `prune` keeps in the long-tail archive): the long-lived
-    // checkpoint renames get a hard power-loss guarantee. The un-hardened window is the directory entries
-    // for the renames SINCE the last checkpoint — up to CHECKPOINT_EVERY-1 of them — whose durability the
-    // amortized fsync no longer forces synchronously; in practice the OS's own dirty-page writeback makes
-    // those entries durable within a few seconds regardless, so a power cut in that narrow window loses at
-    // most that un-hardened tail, never the newest durable checkpoint and never a corrupt "latest".
-    // (RETAIN_RECENT governs RETENTION — how many recent versions we keep on disk — not durability; the two
-    // are independent.) Owner-sanctioned in #1562 ("drop/amortize the second (directory) fsync").
-    if (version % FileSaveStore.CHECKPOINT_EVERY === 0) {
-      try {
-        const dirFd = openSync(dir, "r");
-        try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
-      } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+    const st = this.stateFor(dir, existing, background);
+    st.latest = version;
+    const isCheckpoint = version % FileSaveStore.CHECKPOINT_EVERY === 0;
+    if (background) {
+      // The directory fsync (amortized to checkpoints, F-EN-1 #1562) rides the background sync too.
+      if (isCheckpoint) st.dirDirty = true;
+      st.unsynced.push({ v: version, t: this.nowMs() });
+      this.checkBacklogAlarm(dir, st);
+      st.pending = version; // coalesce: only the newest pending version is ever synced
+      this.kick(dir, st);
+    } else {
+      // F-EN-1 (#1562): the DIRECTORY fsync ONLY hardens the rename's directory ENTRY against a sudden
+      // power loss; amortized to the periodic checkpoint cadence (the same CHECKPOINT_EVERY boundary
+      // `prune` keeps in the long-tail archive). Content fsync + atomic rename already guarantee a
+      // truncated file can NEVER win. Owner-sanctioned in #1562.
+      if (isCheckpoint) {
+        try {
+          const dirFd = openSync(dir, "r");
+          try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
+        } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+      }
+      st.durable = version;
+      st.unsynced = [];
+      st.bootVersions = null;
     }
-    // `version` IS the newest on disk after the rename (single-threaded write), so `prune` needs no
-    // second readdir to rediscover the latest — one fewer directory scan on the hot path, byte-identical.
-    this.prune(dir, version);
+    // `version` IS the newest on disk after the rename (single-threaded write). Prune never deletes a
+    // version whose fsync is in flight, the highest existing version <= durable, or (until one fsync
+    // has completed since boot) anything that was on disk at boot.
+    this.prune(dir, version, st);
+  }
+
+  private stateFor(dir: string, existing: number[], background: boolean): DirState {
+    let st = this.states.get(dir);
+    if (!st) {
+      st = {
+        latest: existing[0] ?? 0, durable: 0, pending: null, inFlight: null, queued: false,
+        unsynced: [], dirDirty: false, bootVersions: null, lastAlarmAt: null, capWarned: false,
+      };
+      this.states.set(dir, st);
+      if (existing.length > 0 && background) {
+        // Versions on disk at first use are NOT assumed durable: harden the newest one now and keep
+        // everything that existed at boot until one fsync has completed.
+        st.bootVersions = new Set(existing);
+        st.unsynced.push({ v: existing[0]!, t: this.nowMs() });
+        st.pending = existing[0]!;
+        this.kick(dir, st);
+      }
+    }
+    return st;
+  }
+
+  /** Queue a background sync of the newest pending version (global cap, fair per-user FIFO). */
+  private kick(dir: string, st: DirState): void {
+    if (st.inFlight !== null || st.queued || st.pending === null) return;
+    st.queued = true;
+    const first = st.durable === 0;
+    const job: SyncJob = { st, first, run: (epoch, extra) => this.runSync(dir, st, epoch, extra) };
+    if (first) {
+      // never-synced users go ahead of everyone with a durable version (FIFO among themselves)
+      let i = 0;
+      while (i < limiter.queue.length && limiter.queue[i]!.first) i++;
+      limiter.queue.splice(i, 0, job);
+    } else {
+      limiter.queue.push(job);
+    }
+    drainSyncQueue();
+  }
+
+  private releaseSlot(epoch: number, extra: boolean): void {
+    if (epoch !== limiter.epoch) return;
+    if (extra) limiter.extraActive--; else limiter.active--;
+  }
+
+  private runSync(dir: string, st: DirState, epoch: number, extra: boolean): void {
+    const v = st.pending;
+    if (v === null) {
+      this.releaseSlot(epoch, extra);
+      return;
+    }
+    st.pending = null;
+    st.inFlight = v;
+    const dirToo = st.dirDirty;
+    st.dirDirty = false;
+    this.syncOne(dir, st, v, dirToo)
+      .catch((e: unknown) => this.reportFailure(v, e))
+      .finally(() => {
+        st.inFlight = null;
+        this.releaseSlot(epoch, extra);
+        this.kick(dir, st); // the newest save that landed meanwhile, behind other waiting users
+        drainSyncQueue();
+      })
+      .catch(() => { /* terminal: nothing here may become an unhandled rejection */ });
+  }
+
+  private async syncOne(dir: string, st: DirState, v: number, dirToo: boolean): Promise<void> {
+    const t0 = stallTimer.now();
+    try {
+      await this.syncFile(this.fileFor(dir, v));
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code;
+      if (code === "ENOENT") return; // the file is gone (rotated/quarantined): not an error
+      if (dirToo) st.dirDirty = true;
+      try { stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v, failed: 1 }); } catch { /* ignore */ }
+      try {
+        this.onError(`[orwell] save.fsync failed version=${v} code=${code ?? "unknown"} (retried with the next save)`);
+      } catch { /* logging must never break the game */ }
+      return;
+    }
+    // The FILE is durable now; the directory entry is tracked separately and retried with the next save.
+    this.markDurable(dir, st, v);
+    stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v });
+    if (dirToo) {
+      try {
+        await this.syncDir(dir);
+      } catch (e) {
+        st.dirDirty = true;
+        try {
+          this.onError(`[orwell] save.dirsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
+        } catch { /* ignore */ }
+      }
+    }
+  }
+
+  /** Last-resort recorder for a failure inside the sync handlers themselves. Never throws. */
+  private reportFailure(v: number, e: unknown): void {
+    try { stallTimer.record("save.fsync", 0, { version: v, failed: 1, handler: 1 }); } catch { /* ignore */ }
+    try {
+      this.onError(`[orwell] save.fsync handler failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"}`);
+    } catch { /* ignore */ }
+  }
+
+  /** Advance the durable marker ONLY onto a file that still exists (a pruned file is not a save). */
+  private markDurable(dir: string, st: DirState, v: number): void {
+    if (!existsSync(this.fileFor(dir, v))) return;
+    if (v > st.durable) st.durable = v;
+    st.bootVersions = null; // one fsync has completed since boot: the normal rule applies
+    st.unsynced = st.unsynced.filter((u) => u.v > st.durable);
+  }
+
+  /** Unsynced backlog size: versions behind the marker, or the saves awaiting their first fsync. */
+  private backlogOf(st: DirState): number {
+    return st.durable > 0 ? st.latest - st.durable : st.unsynced.length;
+  }
+
+  /**
+   * One alarm line (through `onError`) when the oldest unsynced save is older than `backlogAlarmMs`;
+   * at most once per `backlogAlarmMs` per user. No ids in the line. Never throws.
+   */
+  private checkBacklogAlarm(_dir: string, st: DirState): void {
+    const first = st.unsynced[0];
+    if (!first) return;
+    const now = this.nowMs();
+    const age = now - first.t;
+    if (age < this.backlogAlarmMs) return;
+    if (st.lastAlarmAt !== null && now - st.lastAlarmAt < this.backlogAlarmMs) return;
+    st.lastAlarmAt = now;
+    try {
+      this.onError(`[orwell] save.durability behind: oldest unsynced save is ${Math.round(age / 1000)}s old, ${st.unsynced.length} unsynced version(s)`);
+    } catch { /* logging must never break the game */ }
+  }
+
+  /** Backlog view for `/health` (operational numbers only). Reports the user with the largest backlog. */
+  durability(): SaveDurability {
+    const now = this.nowMs();
+    let latest = 0;
+    let durable = 0;
+    let worstLag = -1;
+    let oldest = 0;
+    let unsyncedUsers = 0;
+    let pendingBoot = false;
+    for (const [dir, st] of this.states) {
+      const lag = this.backlogOf(st);
+      if (lag > 0) {
+        unsyncedUsers++;
+        const first = st.unsynced[0];
+        if (first) oldest = Math.max(oldest, Math.max(0, Math.round(now - first.t)));
+        this.checkBacklogAlarm(dir, st);
+        if (st.durable === 0) pendingBoot = true;
+      }
+      if (lag > worstLag || (lag === worstLag && st.latest > latest)) {
+        worstLag = lag; latest = st.latest; durable = st.durable;
+      }
+    }
+    // A marker of 0 means "nothing synced yet since boot", not "lag == version": say so explicitly.
+    return {
+      saveLatestVersion: latest, saveDurableVersion: durable, saveOldestUnsyncedAgeMs: oldest,
+      saveUnsyncedUsers: unsyncedUsers, saveDurabilityPending: pendingBoot && durable === 0,
+    };
+  }
+
+  /**
+   * Non-blocking shutdown flush: fsync (async) the newest version of every user with a backlog,
+   * largest backlog first, up to 3 at a time, and resolve by `timeoutMs` even if a sync never settles
+   * (a blocking fsyncSync cannot be interrupted and also blocks the hard-exit timer). Never rejects.
+   */
+  async flushDurableAsync(timeoutMs = 10_000): Promise<void> {
+    const todo = [...this.states.entries()]
+      .filter(([, st]) => st.latest > 0 && (st.latest > st.durable || st.dirDirty))
+      .sort((x, y) => this.backlogOf(y[1]) - this.backlogOf(x[1]));
+    if (todo.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"deadline">((res) => {
+      timer = setTimeout(() => res("deadline"), timeoutMs);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < todo.length) {
+        const [dir, st] = todo[next++]!;
+        try {
+          await this.syncFile(this.fileFor(dir, st.latest));
+          if (st.dirDirty) { try { await this.syncDir(dir); st.dirDirty = false; } catch { /* best-effort */ } }
+          this.markDurable(dir, st, st.latest);
+        } catch (e) {
+          try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
+        }
+      }
+    };
+    const all = Promise.all([worker(), worker(), worker()]).then(() => "done" as const);
+    const r = await Promise.race([all, deadline]);
+    if (timer) clearTimeout(timer);
+    if (r === "deadline") {
+      try { this.onError("[orwell] save.flush deadline reached; remaining saves not fsynced"); } catch { /* ignore */ }
+    }
+  }
+
+  /**
+   * Shutdown flush (ORW-404): synchronously fsync the newest version of every user with an un-synced
+   * save, so a deploy-time restart is fully durable. Bounded: no NEW sync is started once `timeoutMs`
+   * has elapsed (a single in-progress fsync cannot be interrupted). Never throws.
+   */
+  flushDurable(timeoutMs = 10_000): void {
+    const deadline = this.nowMs() + timeoutMs;
+    for (const [dir, st] of this.states) {
+      if (st.latest <= st.durable && !st.dirDirty) continue;
+      if (this.nowMs() >= deadline) {
+        try { this.onError("[orwell] save.flush deadline reached; remaining saves not fsynced"); } catch { /* ignore */ }
+        return;
+      }
+      try {
+        this.syncFileSync(this.fileFor(dir, st.latest));
+        if (st.dirDirty) { try { this.syncDirSync(dir); } catch { /* best-effort */ } st.dirDirty = false; }
+        this.markDurable(dir, st, st.latest);
+        st.pending = null;
+      } catch (e) {
+        try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
+      }
+    }
   }
 
   /** Bounded retention (B58/audit E4): keep the recent window + the newest periodic checkpoints. */
-  private prune(dir: string, latest: number): void {
+  private prune(dir: string, latest: number, st: DirState): void {
     const keep = new Set<number>();
+    const existing = this.versionsDescending(dir);
+    // ORW-404: always keep the highest EXISTING version <= durable (the newest fully synced save),
+    // never delete a version whose fsync is in flight, and keep everything that was on disk at boot
+    // until one fsync has completed.
+    if (st.durable === 0) {
+      // No fsynced version is known for this user: every file may be unsynced, so keep them all up to
+      // a generous cap (never prune a never-synced user down to a few unsynced files).
+      const cap = FileSaveStore.UNSYNCED_KEEP_CAP;
+      if (existing.length <= cap) return;
+      for (const v of existing.slice(0, cap)) keep.add(v);
+      if (!st.capWarned) {
+        st.capWarned = true;
+        try { this.onError(`[orwell] save.prune running without a synced save: ${existing.length} unsynced versions, oldest being pruned`); } catch { /* ignore */ }
+      }
+    }
+    const synced = existing.find((v) => v <= st.durable);
+    if (synced !== undefined && st.durable > 0) keep.add(synced);
+    if (st.inFlight !== null) keep.add(st.inFlight);
+    if (st.bootVersions) for (const v of st.bootVersions) keep.add(v);
     for (let v = latest; v > latest - FileSaveStore.RETAIN_RECENT && v > 0; v--) keep.add(v);
     // PERSIST-11: whenever `latest % CHECKPOINT_EVERY` is small, the FIRST checkpoint candidate
     // (`latest - (latest % CHECKPOINT_EVERY)`) can land INSIDE the recent-retention window already
@@ -155,7 +521,7 @@ export class FileSaveStore implements UserSaveStore {
       keep.add(v);
       checkpoints++;
     }
-    for (const v of this.versionsDescending(dir)) {
+    for (const v of existing) {
       if (!keep.has(v)) {
         try { unlinkSync(this.fileFor(dir, v)); } catch { /* best-effort: already pruned */ }
       }
@@ -174,6 +540,7 @@ export class FileSaveStore implements UserSaveStore {
    */
   resetUser(user: string): void {
     const dir = this.userDir(user);
+    this.states.delete(dir);
     if (!existsSync(dir)) return;
     let target = `${dir}.retired-${Date.now()}`;
     for (let i = 1; existsSync(target); i++) target = `${dir}.retired-${Date.now()}-${i}`;
@@ -191,6 +558,7 @@ export class FileSaveStore implements UserSaveStore {
     const dir = this.userDir(user);
     const latest = this.latestVersion(dir);
     if (latest <= 0) return;
+    this.states.delete(dir);
     const file = this.fileFor(dir, latest);
     let target = `${file}.incompatible`;
     for (let i = 1; existsSync(target); i++) target = `${file}.incompatible-${i}`;
@@ -221,6 +589,7 @@ export class FileSaveStore implements UserSaveStore {
       try {
         return JSON.parse(readFileSync(file, "utf8")) as SessionSnapshot;
       } catch {
+        this.states.delete(dir);
         try { renameSync(file, `${file}.corrupt`); } catch { /* best-effort quarantine */ }
       }
     }

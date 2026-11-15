@@ -195,6 +195,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     // ADR 0009: record a narrated NPC relocation — a houseguest id + a room name. The result is a
     // Vault-free HouseguestMoveResult ({status, whereabouts}); no hidden state may cross.
     case "moveHouseguest": return { id: npc(1), room: "kitchen" };
+    case "resolvePlayerMove": return { text: "I go to the kitchen" }; // ORW-419
     case "recordImageBeat": return { houseguestId: npc(1), imageRef: "img-ref" };
     // 0065: the FE authoring write-back (live house — the season is already running here) + the pre-warm
     // (a no-op refusal once started). Both are Vault-free by construction; the sweep proves the canary
@@ -216,6 +217,8 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
     case "recordLookExtras": return { houseguestId: npc(1), wardrobe: ["a plain grey cardigan", "dark jeans"], onCamera: "Laughs easily in the kitchen." };
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
+    case "resolveOpenLedger": return { entryId: "open:1", status: "kept", note: "she did" };
+    case "openLedgerHere": return {};
     case "recordOpenLedger": return { text: "I will keep your secret", speaker: "player", addressedTo: [], kind: "promise" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes
     // voiced prose — content-only. Point it at the real sentinel-bearing hidden event so the sweep

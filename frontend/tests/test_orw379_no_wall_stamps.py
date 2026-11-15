@@ -2,13 +2,14 @@
 hover). The in-world moment stamp stays. Drives the REAL chatRenderer.addMessage in headless chromium."""
 import os
 import re
-import socket
 import subprocess
 import sys
 import time
 import urllib.request
 
 import pytest
+
+from _settle import app_ready
 
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -28,21 +29,20 @@ async () => {
 """
 
 
-def _free_port():
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); p = s.getsockname()[1]; s.close(); return p
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 def _boot(env, port):
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
                             cwd=FRONTEND, env=env, stdout=open(f"/tmp/fe-379-{port}.log", "w"), stderr=subprocess.STDOUT)
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             raise RuntimeError("uvicorn exited early")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2); return proc, base
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     proc.terminate(); raise RuntimeError("server never ready")
 
 
@@ -60,7 +60,7 @@ def test_no_real_wall_time_on_bubbles_with_zero_clocks():
                 br = pw.chromium.launch()
             except Exception as e:
                 pytest.skip(f"chromium unavailable: {e}")
-            pg = br.new_page(); pg.goto(base + "/", wait_until="load", timeout=30000); pg.wait_for_timeout(3500)
+            pg = br.new_page(); pg.goto(base + "/", wait_until="load", timeout=30000); app_ready(pg)
             res = pg.evaluate(_HARNESS); br.close()
     finally:
         if proc is not None:
