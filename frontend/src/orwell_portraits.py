@@ -1111,6 +1111,73 @@ async def _generate_via_chat_completions(client, chat_url: str, model_id: str,
     return None
 
 
+async def _generate_via_openrouter_images(client, base_url: str, model_id: str, prompt: str,
+                                          headers: dict, reference_png: Optional[bytes] = None,
+                                          quality: Optional[str] = None,
+                                          user: Optional[str] = None) -> Optional[bytes]:
+    """ORW-362: OpenRouter's Image API (POST {base}/images) for OpenAI GPT Image models, which have
+    no chat-completions image output. Returns PNG bytes, or None after recording the reason with
+    `_note_gen_error("gpt-image-failed", reason)` (the caller then falls back to Gemini once).
+    Spend goes to the token ledger (call class "portrait"). Never raises."""
+    q = quality if quality in ("low", "medium", "high") else "medium"
+    body = {"model": model_id, "prompt": prompt, "n": 1, "aspect_ratio": PORTRAIT_ASPECT_RATIO,
+            "quality": q, "output_format": "png"}
+    if reference_png:
+        body["input_references"] = [{"type": "image_url", "image_url": {"url": _data_url_png(reference_png)}}]
+    try:
+        resp = await client.post(base_url.rstrip("/") + "/images", json=body, headers=headers)
+        if resp.status_code != 200:
+            logger.info("[portraits] openrouter images %s: %s", resp.status_code, (resp.text or "")[:200])
+            _note_gen_error("gpt-image-failed", f"http-{resp.status_code}: {_provider_error_reason(resp) or ''}".strip(": "))
+            return None
+        data = resp.json()
+        items = data.get("data") if isinstance(data, dict) else None
+        if not items:
+            _note_gen_error("gpt-image-failed", "empty-data")
+            return None
+        b64 = (items[0] or {}).get("b64_json")
+        if not b64:
+            _note_gen_error("gpt-image-failed", "missing-b64")
+            return None
+        try:
+            png = base64.b64decode(b64)
+        except Exception:  # failsoft-ok: handled-by-caller (reason recorded, then the Gemini fallback)
+            png = b""
+        if not png:
+            _note_gen_error("gpt-image-failed", "undecodable-b64")
+            return None
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        cost = usage.get("cost")
+        try:
+            from src import orwell_token_ledger
+            orwell_token_ledger.record_turn(user, call_class="portrait",
+                                            output_tokens=usage.get("completion_tokens") or 0,
+                                            cost=cost or 0.0, provider="openrouter")
+        except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
+            pass
+        logger.info("[portraits] gpt-image %s cost %s", model_id, cost)
+        return png
+    except Exception as e:  # failsoft-ok: handled-by-caller (reason recorded, then the Gemini fallback)
+        logger.info("[portraits] gpt-image failed: %s", e)
+        _note_gen_error("gpt-image-failed", type(e).__name__)
+        return None
+
+
+async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
+                              reference_png: Optional[bytes]) -> Optional[bytes]:
+    """ORW-362: after a GPT Image failure, make this ONE portrait with the first resolvable
+    IMAGE_AUTODETECT_CANDIDATES entry on the OpenRouter chat route. One attempt, no loop."""
+    from src.ai_interaction import _resolve_model, IMAGE_AUTODETECT_CANDIDATES
+    for cand in IMAGE_AUTODETECT_CANDIDATES:
+        try:
+            fb_url, fb_model, fb_headers = await asyncio.to_thread(_resolve_model, cand, owner=user or None)
+        except Exception:  # failsoft-ok: capability-probe (an unresolvable candidate is skipped)
+            continue
+        return await _generate_via_chat_completions(client, fb_url, fb_model, prompt, fb_headers,
+                                                    reference_png=reference_png)
+    return None
+
+
 async def _generate_one(prompt: str, user: Optional[str],
                         reference_png: Optional[bytes] = None,
                         keep_identity: bool = True) -> Optional[bytes]:
@@ -1140,7 +1207,7 @@ async def _generate_one(prompt: str, user: Optional[str],
     if image_gen_disabled():
         return None
     import httpx
-    from src.ai_interaction import _resolve_model, IMAGE_AUTODETECT_CANDIDATES
+    from src.ai_interaction import _resolve_model, IMAGE_AUTODETECT_CANDIDATES, OPENROUTER_GPT_IMAGE_PREFIX
 
     enabled, model_spec, quality = _image_settings(user)
     if not enabled or not prompt:
@@ -1214,6 +1281,14 @@ async def _generate_one(prompt: str, user: Optional[str],
                 if not png:
                     _note_gen_error(reason or "fal-generation-failed", detail)
                 return png
+            if is_openrouter and model_id.lower().startswith(OPENROUTER_GPT_IMAGE_PREFIX):
+                # ORW-362: GPT Image is served on OpenRouter's Image API only. On any failure make
+                # this one portrait with Gemini on the chat route (one attempt, no loop).
+                png = await _generate_via_openrouter_images(client, base_url, model_id, prompt,
+                                                            headers, reference_png, quality, user=user)
+                if png:
+                    return png
+                return await _gpt_image_fallback(client, user, prompt, reference_png)
             if is_openrouter:
                 # OpenRouter does image-to-image natively via the chat image part (G26).
                 return await _generate_via_chat_completions(client, url, model_id, prompt,
