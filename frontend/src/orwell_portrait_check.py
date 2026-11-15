@@ -140,7 +140,8 @@ def facts_block(facts: dict) -> str:
     if facts.get("age"):
         lines.append(f"Stated age: {int(facts['age'])}")
     if facts.get("gender"):
-        lines.append(f"Stated gender presentation: {facts['gender']}")
+        note = " (any clothing fits; never report wrong-presentation)" if facts["gender"] == "nonbinary" else ""
+        lines.append(f"Stated gender presentation: {facts['gender']}{note}")
     if facts.get("clothing"):
         lines.append(f"Main clothing piece: {facts['clothing']}")
     if facts.get("spot"):
@@ -300,6 +301,9 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
         return None
     _record_spend(user, data)
     problems = _parse_problems(data)
+    if problems and facts.get("gender") == "nonbinary":
+        # no clothing contradicts a nonbinary presentation: the rule has no meaning there (review of #2748)
+        problems = [p for p in problems if p != "wrong-presentation"]
     if problems is None:
         return None
     return {"ok": not problems, "problems": problems}

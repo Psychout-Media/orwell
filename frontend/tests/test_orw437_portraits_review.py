@@ -20,7 +20,9 @@ def test_prompt_version_rejects_fractional_bool_and_malformed_numbers():
 def test_check_retry_ids_survives_a_malformed_counter():
     man = {"a": {"check": {"ok": False}, "checkRetries": "two"}, "b": {"check": {"ok": False}, "checkRetries": 2.5},
            "c": {"check": {"ok": False}, "checkRetries": 2}, "d": {"check": {"ok": False}}}
-    assert P.check_retry_ids(man) == ["a", "b", "d"]
+    # review of #2748 (changes the wave-1 expectation on purpose): a corrupt counter is a spent budget, not a fresh one,
+    # because every retry is a paid image; only a MISSING counter ("d") means no attempt yet
+    assert P.check_retry_ids(man) == ["d"]
 
 
 def test_a_failed_legacy_stamp_never_raises(monkeypatch):
@@ -57,5 +59,5 @@ def test_a_gpt_image_429_is_transient_for_the_retry_budget(monkeypatch, tmp_path
         P._note_gen_error("gpt-image-failed", "http-429: slow down")
         return None
     monkeypatch.setattr(P, "_generate_one", fake)
-    _run(P.generate_and_store([{"houseguestId": "npc:1", "name": "Cole", "prompt": "a prompt"}], "u", record_beats=False))
+    _run(P.generate_and_store([{"houseguestId": "npc:1", "name": "Zorvan", "prompt": "a prompt"}], "u", record_beats=False))
     assert P._is_transient_gen_error(P.last_gen_error_class("u", "npc:1"))
