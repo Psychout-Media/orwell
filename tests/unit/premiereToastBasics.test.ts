@@ -56,9 +56,8 @@ describe("the champagne toast gives real first impressions", () => {
       // the houseguest's own roster line(s): the archetype label may appear there ONLY inside the fenced cue
       const lines = prompt.split("\n").filter((l) => l.includes(c.houseguest.name) && l.includes("(private cue"));
       expect(lines.length, `${c.houseguest.id}: a roster line with the fenced cue`).toBeGreaterThan(0);
-      // KNOWN FINDING (ORW-286, on the card): the deterministic FLOOR background is the template "a <job> who plays as a <archetype>" (characterFactory.ts:814/875), which puts the label in a PUBLIC field. Live
-      // casting replaces it with the model-authored background (Ryne: no fallback), so it only reaches a prompt when authoring is off; the template is stripped here and tracked separately.
-      for (const l of lines) expect(l.replace(fenced, "").replace(`who plays as a ${label}`, ""), `${c.houseguest.id}: archetype outside the fenced cue`).not.toContain(label);
+      // ORW-458: the floor background no longer carries "who plays as a <archetype>", so the label appears nowhere outside the fenced cue.
+      for (const l of lines) expect(l.replace(fenced, ""), `${c.houseguest.id}: archetype outside the fenced cue`).not.toContain(label);
     }
   });
 

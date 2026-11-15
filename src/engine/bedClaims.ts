@@ -8,7 +8,7 @@
  * - Doubles (Ryne: "there could definitely be doubles in the mix"; the layout and spot ids are the Auditor's, `beds.ts`): everyone claims ONE SPOT; for half of a double the bedmate counts far more
  *   than the room - a strong pull toward someone they like, a stronger aversion to someone they don't (`BED_RULES.bedmatePull` / `bedmateAversion`), and sharing a bed at all has a bar to clear.
  * - A taken bed: the player may ask the owner to swap; the owner decides from how they feel about the player and how much they cared about their spot (`decideSwap`). Half of a double: only the
- *   spot's owner decides; the other half's sleeper has no veto (`BED_RULES.halfDoublePartnerVeto`).
+ *   spot's owner decides, and the other half's sleeper has a say too (`BED_RULES.halfDoublePartnerVeto`, Ryne 2026-11-15).
  * - A player who never picks gets the bed left over at their first bedtime (`BED_RULES.leftoverAtFirstBedtime`, applied in the adapter's `bedThePlayer`).
  *
  * Every rule Ryne has not answered yet (Q3 6/5/5 singles lives in `BEDROOM_LAYOUT`; Q4 leftover; Q5 swaps / when a free bed may be taken) is DATA in `BED_RULES`, so an answer is a one-line change.
@@ -22,8 +22,9 @@ import { BED_CROWD_PULL, EMPTY_DOUBLE_PENALTY, NOISE_WEIGHT, SHARE_DOUBLE_AT, pi
 export const BED_RULES = {
   /** Q4: a player who never picks gets the bed left over at their first bedtime (as on the show). false: they own no bed until they pick one. */
   leftoverAtFirstBedtime: true,
-  /** Q5: when the player may claim a free bed in their own words. "move-in": during the premiere, or any time before they own one (slice 2). "any-time": whenever a bed is free. */
-  playerClaimWindow: "move-in" as "move-in" | "any-time",
+  /** Q5: when the player may claim a free bed in their own words. "move-in": during the premiere, or any time before they own one (slice 2). "any-time": whenever a bed is free (slice 3, Ryne 2026-11-15: "You are also welcome to swap or change beds as people get evicted. You don't need
+   *  permission if they are no longer present."): a free spot (an evictee's included) is taken without asking anyone; an occupied one only by a swap its owner (and a double's other half) agrees to. */
+  playerClaimWindow: "any-time" as "move-in" | "any-time",
   /** Q5: the player may ask the owner of a taken bed to swap; false: a taken bed is simply taken. */
   swapsAllowed: true,
   /** Q5: the owner says yes when (affinity to the player above a stranger's) - SWAP_CARE_WEIGHT * (how much more they want their room than the one they would get) >= this. */
@@ -34,8 +35,9 @@ export const BED_RULES = {
   bedmatePull: 3,
   /** ...and times this for a bedmate they are cold to (aversion is stronger than pull, so that half ranks below a single and an empty double). */
   bedmateAversion: 6,
-  /** Q5 (doubles): swapping into or out of half of a double needs only the spot owner's yes. true: the other half's sleeper must also be warm to the player. */
-  halfDoublePartnerVeto: false,
+  /** Q5 answered (Ryne 2026-11-15: "Yeah I think they should get a say. It's like basic logic and human decency. Swapping should be a shared trade. You can't steal."): swapping into
+   *  half of a double needs the spot owner's yes AND the other half's sleeper's (they get a say). A spot freed by an eviction needs nobody's ("You don't need permission if they are no longer present"). */
+  halfDoublePartnerVeto: true,
   /** How much an NPC's warmth to a room's sleepers counts (per sleeper, on affinity above a stranger's); a strategic nature (mental over social) multiplies it up to 2x. */
   tieWeight: 1,
 } as const;
@@ -130,11 +132,100 @@ export function swapBeds(state: BedsState, player: EntityId, owner: EntityId, ow
   if (mine) {
     state.owner[player] = theirs;
     state.owner[owner] = mine;
-    state.claims.push({ who: owner, bed: mine, day, why: "move-in" }, { who: player, bed: theirs, day, why: "move-in" });
+    state.claims.push({ who: owner, bed: mine, day, why: "swap" }, { who: player, bed: theirs, day, why: "swap" });
     return true;
   }
-  if (!ownerTo || !claimBed(state, owner, ownerTo, day, "move-in", inHouse, layout)) return false;
-  return claimBed(state, player, theirs, day, "move-in", inHouse, layout);
+  if (!ownerTo || !claimBed(state, owner, ownerTo, day, "swap", inHouse, layout)) return false;
+  return claimBed(state, player, theirs, day, "swap", inHouse, layout);
+}
+
+// ---- later moves (slice 3) ------------------------------------------------------------------------------------------------------------------------------------
+
+/**
+ * ORW-466 slice 3 - later moves, as data. An NPC moves only for a GOAL (toward an ally or a showmance, away from someone who betrayed them, or into a spot an evicted houseguest left), only into a FREE
+ * spot, and rarely: the house gets one seeded roll per in-game day (`dailyChance`), at most `maxPerDay` goal moves on a day it hits, and the new spot must beat the old one by more than `careAbove`.
+ * No season cap. Every magnitude of the relationship folds lives here (the B59 rule: never an inline number at a call site).
+ */
+export const BED_MOVES = {
+  /** The chance, per in-game day, that anyone moves at all (one roll per day, side stream `${seed}:bed-moves:${day}`). */
+  dailyChance: 0.25,
+  /** Goal moves on one day, at most. */
+  maxPerDay: 1,
+  /** How much better (goal-weighted spot value) the new spot must be before anyone bothers to move. */
+  careAbove: 0.3,
+  /** Per goal person (a named-alliance co-member, the showmance) sleeping in the new spot's room. */
+  towardPull: 0.6,
+  /** Per betrayer sleeping in the spot's room (a recorded betrayal against the mover). */
+  awayPush: 0.8,
+  /** Without a seeded showmance, the strongest MUTUAL affinity counts as one only at or above this. */
+  showmanceAffinity: 0.7,
+  /** Moving away from someone: a tiny slight on their edge toward the mover. */
+  slight: { affinity: -0.02, trust: -0.01 },
+  /** Moving toward someone: a tiny warm signal on their edge toward the mover. */
+  signal: { affinity: 0.015 },
+  /** Move-in day: the spot they wanted most was taken by an earlier arrival and they wanted it this much more than what they got: a tiny grudge toward the taker. */
+  lostBedGrudgeAbove: 0.3,
+  lostBedGrudge: { affinity: -0.015 },
+} as const;
+
+/** Who an NPC wants to sleep near (`toward`) and away from (`away`). */
+export interface BedGoals { toward: readonly EntityId[]; away: readonly EntityId[] }
+
+export interface BedMove {
+  who: EntityId;
+  from: BedId;
+  to: BedId;
+  /** Goal people the move brings them in with (the new room's / the new double's), and the ones it leaves behind (the old room's betrayers, the old bedmate). */
+  joined: EntityId[];
+  left: EntityId[];
+  /** The evicted houseguest whose spot this was, when it was one. */
+  freedBy?: EntityId;
+}
+
+/** `who`'s goal-weighted value of `spot`: the spot itself (`spotScore`) plus the goal people in that room. */
+function goalValue(state: BedsState, who: EntityId, spot: BedId, inHouse: ReadonlySet<EntityId>, r: BedReader, share: (who: EntityId, other: EntityId) => number, g: BedGoals): number {
+  const mates = roommatesIn(state, roomOfBed(spot), inHouse).filter((m) => m !== who);
+  const count = (xs: readonly EntityId[]) => xs.filter((x) => mates.includes(x)).length;
+  return spotScore(state, who, spot, inHouse, r, share) + BED_MOVES.towardPull * count(g.toward) - BED_MOVES.awayPush * count(g.away);
+}
+
+/**
+ * The one goal move worth making now, if any (the mover who gains the most over `careAbove`). Free spots only; a move needs a reason (a goal person joined or left behind, or an evicted houseguest's
+ * spot) - a vague "slightly nicer bed" never moves anyone. Pure; changes nothing. Ties break by id order.
+ */
+export function planGoalMove(
+  state: BedsState, movers: readonly EntityId[], inHouse: ReadonlySet<EntityId>, r: BedReader, share: (who: EntityId, other: EntityId) => number,
+  goalsOf: (who: EntityId) => BedGoals, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT,
+): BedMove | undefined {
+  const free = freeBeds(state, inHouse, layout);
+  if (!free.length) return undefined;
+  const lastOwner = (spot: BedId): EntityId | undefined => Object.entries(state.owner).find(([o, s]) => s === spot && !inHouse.has(o))?.[0];
+  let best: { move: BedMove; gain: number } | undefined;
+  for (const who of [...movers].sort()) {
+    const from = state.owner[who];
+    if (!from || !inHouse.has(who)) continue;
+    const g = goalsOf(who);
+    const cur = goalValue(state, who, from, inHouse, r, share, g);
+    const oldMates = roommatesIn(state, roomOfBed(from), inHouse).filter((m) => m !== who);
+    const oldMate = otherHalf(state, from, inHouse, who);
+    for (const to of free) {
+      const gain = goalValue(state, who, to, inHouse, r, share, g) - cur;
+      if (gain <= BED_MOVES.careAbove || (best && gain <= best.gain)) continue;
+      const newMates = roomOfBed(to) === roomOfBed(from) ? oldMates : roommatesIn(state, roomOfBed(to), inHouse).filter((m) => m !== who);
+      const newMate = otherHalf(state, to, inHouse, who);
+      const joined = g.toward.filter((x) => (newMates.includes(x) && !oldMates.includes(x)) || (x === newMate && x !== oldMate));
+      const left = [...new Set([...g.away.filter((x) => oldMates.includes(x) && !newMates.includes(x)), ...(oldMate !== undefined && oldMate !== newMate ? [oldMate] : [])])];
+      const freedBy = lastOwner(to);
+      if (!joined.length && !g.away.some((x) => left.includes(x)) && freedBy === undefined) continue; // no goal behind it
+      best = { move: { who, from, to, joined, left, ...(freedBy !== undefined ? { freedBy } : {}) }, gain };
+    }
+  }
+  return best?.move;
+}
+
+/** Make the move (a free spot only; appended as a "move" claim). False and nothing changed when the spot is not free. */
+export function applyMove(state: BedsState, m: BedMove, day: number, inHouse: ReadonlySet<EntityId>, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT): boolean {
+  return claimBed(state, m.who, m.to, day, "move", inHouse, layout);
 }
 
 // ---- the player's own words -------------------------------------------------------------------------------------------------------------------------------
@@ -161,6 +252,8 @@ export function bedroomNames(room: Room, display: string): string[] {
   return [...new Set([d, room.replace(/-/g, " "), ...(idx ? [`bedroom ${idx}`, `room ${letter}`] : []), ...(ord ? [`${ord} bedroom`] : [])])].filter(Boolean);
 }
 
+/** Lowercase with accents dropped ("Séance" => "seance"), so a themed room name matches however the player types it. */
+const fold = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const findName = (clause: string, name: string): number => {
   const m = new RegExp(`\\b${esc(name)}\\b`).exec(clause);
@@ -183,15 +276,15 @@ export function parsePlayerBedIntent(
   const clauses = unquoted.match(/[^.!;\n]+[.!;\n?]*/g) ?? [];
   let out: PlayerBedIntent | null = null;
   for (const raw of clauses) {
-    const c = ` ${raw.toLowerCase().replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim()} `;
+    const c = ` ${fold(raw).replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim()} `;
     if (!BED_WORD.test(c) || HEDGE.test(c)) continue;
-    const named = people.map((p) => ({ id: p.id, at: Math.max(...p.names.map((n) => findName(c, n.toLowerCase()))), names: p.names })).filter((p) => p.at >= 0);
-    const possessed = named.find((p) => p.names.some((n) => new RegExp(`\\b${esc(n.toLowerCase())}'s\\s+(?:bed|bunk|spot)\\b`).test(c)));
+    const named = people.map((p) => ({ id: p.id, at: Math.max(...p.names.map((n) => findName(c, fold(n)))), names: p.names })).filter((p) => p.at >= 0);
+    const possessed = named.find((p) => p.names.some((n) => new RegExp(`\\b${esc(fold(n))}'s\\s+(?:bed|bunk|spot)\\b`).test(c)));
     if (possessed) { out = { kind: "swap", who: possessed.id }; continue; }
     if (SWAP_VERB.test(c) && named.length > 0) { out = { kind: "swap", who: named[0]!.id }; continue; }
     if (/\?\s*$/.test(raw.trim()) && !/^\s*(?:can|could|may) i (?:take|have|grab|claim)\b/.test(c.trim())) continue; // "is that bed free?" asks, "can I take it?" claims
     if (!CLAIM_VERB.test(c)) continue;
-    const room = rooms.find((r) => r.names.some((n) => findName(c, n) >= 0));
+    const room = rooms.find((r) => r.names.some((n) => findName(c, fold(n)) >= 0));
     const prefer = /\b(?:double|queen|king)\b/.test(c) ? "double" as const : /\bsingle\b/.test(c) ? "single" as const : undefined;
     if (room) { out = { kind: "claim", room: room.room, ...(prefer ? { prefer } : {}) }; continue; }
     const near = named.find((p) => NEAR.test(c.slice(0, p.at)));

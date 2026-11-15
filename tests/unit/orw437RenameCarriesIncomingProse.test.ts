@@ -4,6 +4,21 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 // Review of #2748: a writer profile that renames the houseguest and carries a biography/identity written around the
 // OLD given name must not store a card whose story names someone else.
 describe("ORW-437 recordCastProfile: the incoming story follows the rename", () => {
+  it("review of #2775: a rename that lengthens the identity concept is clipped to 300 code points again", () => {
+    const s = new GameSessionAdapter();
+    s.preSeedCast({ seed: 7 });
+    const npc = s.snapshot().prewarm!.npcs[0]!;
+    const oldGiven = npc.name.split(" ")[0]!;
+    const surname = npc.name.split(" ").slice(1).join(" ");
+    const longGiven = "Namexyzabcde";
+    const filler = "x".repeat(Math.max(0, 300 - oldGiven.length * 6 - 6 * 2));
+    const concept = `${Array(6).fill(oldGiven).join(", ")}, ${filler}`.slice(0, 300);
+    const res = s.recordCastProfile({ houseguestId: npc.id, name: `${longGiven} ${surname}`, identityConcept: concept });
+    expect(res.accepted).toBe(true);
+    const out = s.snapshot().prewarm!.npcs[0]!.character.identityConcept!;
+    expect(out).toContain(longGiven);
+    expect(Array.from(out).length).toBeLessThanOrEqual(300);
+  });
   it("renames at the name field and the biography and identity that arrive with the old given name use the new one", () => {
     const s = new GameSessionAdapter();
     s.preSeedCast({ seed: 7 }); // pre-game: nobody has been introduced yet, so the name is still free to change
@@ -11,7 +26,7 @@ describe("ORW-437 recordCastProfile: the incoming story follows the rename", () 
     const npc = warm();
     const oldGiven = npc.name.split(" ")[0]!;
     const surname = npc.name.split(" ").slice(1).join(" ");
-    const next = `Zorvan ${surname}`;
+    const next = `Namex ${surname}`;
     const res = s.recordCastProfile({
       houseguestId: npc.id, name: next,
       biography: `${oldGiven} grew up in Converse and fixes boats. ${oldGiven}'s sister keeps the books.`,
@@ -20,8 +35,8 @@ describe("ORW-437 recordCastProfile: the incoming story follows the rename", () 
     expect(res.accepted).toBe(true);
     const live = warm();
     expect(live.name).toBe(next);
-    expect(live.character.biography).toBe("Zorvan grew up in Converse and fixes boats. Zorvan's sister keeps the books.");
-    expect(live.character.identityConcept).toBe("Zorvan hums through every silence.");
+    expect(live.character.biography).toBe("Namex grew up in Converse and fixes boats. Namex's sister keeps the books.");
+    expect(live.character.identityConcept).toBe("Namex hums through every silence.");
   });
 });
 
