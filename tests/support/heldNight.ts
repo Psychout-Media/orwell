@@ -16,6 +16,9 @@ export async function endHeldNight(
   if (opts.direct) { await call("turnIn", {}); return; }
   // ORW-445 `stopWhenDue`: for a driver that calls `advanceGame` in a loop with NO messages between holds. A scheduled event due the moment the clock crosses into the evening (nominations, 4pm) must be let to fire, not
   // turned in on: bed at 4pm wakes at 4am (bed + 8h), the clock ticks back to the same 4pm edge, and the driver would sleep the same due event away forever. Opt-in so every other driver's seeded trajectory is untouched.
+  // The tick-driven drivers (jurySequester, playerPerspective, movementStreamIsolation, postGoodbyeBeatChain: in-process 5-minute ticks, `advanceGame` in a loop) all hit the same loop once the phase agrees with milestoneDue at the 4pm edge, so
+  // for them stopping on a due schedule event is the default; a noteMessage-driven driver keeps its old path (its trajectories are pinned). `opts.stopWhenDue` still overrides either way.
+  const stopWhenDue = opts.stopWhenDue ?? tick !== undefined;
   let scheduleHold = false;
   for (let i = 0; i < 800; i++) {
     const st = (await call("gameStatus", {})) as { timeOfDay?: string } | null;
@@ -24,7 +27,7 @@ export async function endHeldNight(
     // the hold means "not due yet", NOT "go to bed", which burned a whole in-game day per event). Polling status + turnIn + state after every 5-minute tick made a long driver (the jury scenario) take minutes.
     let ticks = 1;
     if (tod === "evening" || tod === "night" || tod === "late-night") {
-      if (opts.stopWhenDue && scheduleHold) {
+      if (stopWhenDue && scheduleHold) {
         const gs = (await call("getGameState", {})) as { daySchedule?: { due?: boolean } } | null;
         if (gs?.daySchedule?.due) return;
       }
