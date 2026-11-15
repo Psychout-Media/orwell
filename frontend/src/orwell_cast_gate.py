@@ -132,7 +132,7 @@ def plural_verb(v: str):
 # Given names that are also everyday words or months: for these only the capitalised form is the name ("may" the verb is not). Same list as src/engine/commonWordNames.ts.
 _COMMON_WORD_NAMES = frozenset((
     "may will grace hope summer faith mark art rose june april august dawn joy ivy pearl amber frank lane chase cliff drew gene guy hunter miles "
-    "autumn winter storm river sky rain bill jack rich ray jay pat").split())
+    "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
 # Words after which a name is the subject of a new clause ("... and Namea stands").
 _SUBJECT_INTRODUCERS = frozenset("and but while as then when because so if that where though until".split())
 

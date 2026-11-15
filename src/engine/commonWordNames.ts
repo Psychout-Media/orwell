@@ -2,5 +2,5 @@
 export const COMMON_WORD_NAMES: ReadonlySet<string> = new Set([
   "may", "will", "grace", "hope", "summer", "faith", "mark", "art", "rose", "june", "april", "august", "dawn", "joy", "ivy", "pearl",
   "amber", "frank", "lane", "chase", "cliff", "drew", "gene", "guy", "hunter", "miles", "autumn", "winter", "storm", "river", "sky",
-  "rain", "bill", "jack", "rich", "ray", "jay", "pat",
+  "rain", "bill", "jack", "rich", "ray", "jay", "pat", "griffin", "penny", "trinity", "violet", "wade", "willow",
 ]);
