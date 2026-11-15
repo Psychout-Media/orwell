@@ -1,4 +1,9 @@
-"""ORW-369: upgrade a running season's old-wording portraits in the background, one houseguest at a time.
+"""ORW-369: upgrade a running season's old-wording portraits in the background.
+
+ORW-378: while a game is live (a player message within the last 15 minutes, the SAME signal the
+updater uses to defer an update: deploy/orwell-live-game.sh) it is one houseguest at a time with the
+15 s gap below. With nobody playing it upgrades up to `portrait_parallel` (default 3, 1-4) at once with
+no pause. A provider 429 drops the rest of that season's upgrade to one at a time.
 
 When the portrait prompt wording changes (ORW-361, PORTRAIT_PROMPT_VERSION) a season already being
 played keeps faces shot under the old wording. This module walks them quietly:
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -41,6 +47,8 @@ _PHYS_PUBLIC_FIELDS = ("presentation", "style", "styleFamily", "family")
 #                       "started_at", "done": int, "failed": int}
 _STATE: dict = {}
 _TASK = None
+LIVE_IDLE_MINUTES_DEFAULT = 15  # same default as ORWELL_UPDATE_IDLE_MINUTES in deploy/orwell-live-game.sh
+_LIVE_SQL = "SELECT CAST(strftime('%s','now') - strftime('%s', max(timestamp)) AS INTEGER) FROM chat_messages WHERE role='user'"
 _BUSY: set = set()  # safe users with an upgrade step in flight (never two at once for one user)
 
 
@@ -48,7 +56,33 @@ def _st(user) -> dict:
     from src import orwell_portraits as P
     return _STATE.setdefault(P._safe_user(user), {"sig": None, "armed_at": None, "next_ok_at": 0.0,
                                                   "fails": {}, "retry_at": {}, "started_at": None,
-                                                  "done": 0, "failed": 0})
+                                                  "done": 0, "failed": 0, "rate_limited": False})
+
+
+def _player_idle_seconds() -> Optional[int]:
+    """Age in seconds of the newest PLAYER chat message (the updater's live-game signal), or None when
+    there is none or it cannot be read."""
+    try:
+        from sqlalchemy import text
+        from core.database import SessionLocal
+        db = SessionLocal()
+        try:
+            row = db.execute(text(_LIVE_SQL)).fetchone()
+        finally:
+            db.close()
+        return int(row[0]) if row and row[0] is not None else None
+    except Exception:  # failsoft-ok: expected-empty (an unreadable signal reads as idle, as the updater does)
+        return None
+
+
+async def game_is_live() -> bool:
+    """True when a player message arrived within the idle window (default 15 min). Unknown = idle."""
+    try:
+        minutes = max(1, min(120, int(os.environ.get("ORWELL_UPDATE_IDLE_MINUTES") or LIVE_IDLE_MINUTES_DEFAULT)))
+    except ValueError:
+        minutes = LIVE_IDLE_MINUTES_DEFAULT
+    idle = await asyncio.to_thread(_player_idle_seconds)
+    return idle is not None and idle < minutes * 60
 
 
 def look_fill_supported() -> bool:
@@ -214,7 +248,7 @@ async def upgrade_one(user, sid: str, card: dict) -> bool:
 
 
 async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
-    """One scheduling step for one user: at most ONE houseguest is upgraded. Returns a short status
+    """One scheduling step for one user: one houseguest while a game is live (or after a 429), else up to `portrait_parallel` at once. Returns a short status
     ('idle', 'waiting', 'busy', 'upgraded', 'failed', 'done')."""
     from src import orwell_engine
     from src import orwell_portraits as P
@@ -234,7 +268,7 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
     sig = _season_sig(state)
     if st["sig"] != sig:  # first sight, or a different season was loaded: restart the quiet window
         st.update(sig=sig, armed_at=now, next_ok_at=0.0, fails={}, retry_at={}, started_at=None,
-                  done=0, failed=0)
+                  done=0, failed=0, rate_limited=False)
     cands = stale_candidates(user, state, P.load_manifest(user))
     if not cands:
         if st["started_at"] is not None:  # this season's upgrade just finished: one line with its cost
@@ -242,6 +276,7 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
             logger.info("[portrait-upgrade] season upgrade finished for %s: %d upgraded, %d failed this run, "
                         "portrait spend this upgrade $%.4f", safe, st["done"], st["failed"], cost)
             st["started_at"] = None
+        st["rate_limited"] = False
         return "done" if st["done"] else "idle"
     if now < st["armed_at"] + START_DELAY_S or now < st["next_ok_at"]:
         return "waiting"
@@ -250,18 +285,32 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
     ready = [c for c in cands if st["retry_at"].get(c, 0.0) <= now]
     if not ready:
         return "waiting"
-    sid = ready[0]
-    card = next((h for h in state.get("house", []) if isinstance(h, dict)
-                 and P._safe_id(str(h.get("id") or h.get("name"))) == sid), {})
+    live = await game_is_live()
+    width = 1 if (live or st["rate_limited"]) else P.portrait_parallel(user)
+    batch = ready[:width]
     if st["started_at"] is None:
         st["started_at"] = int(time.time() * 1000)
+    gap = GAP_S if live else 0.0
     _BUSY.add(safe)
+    try:
+        results = await asyncio.gather(*[_upgrade_sid(user, safe, state, sid, st, now, gap) for sid in batch],
+                                       return_exceptions=True)
+    finally:
+        _BUSY.discard(safe)
+    ok = [r for r in results if r == "upgraded"]
+    return "upgraded" if ok else "failed"
+
+
+async def _upgrade_sid(user, safe: str, state: dict, sid: str, st: dict, now: float, gap: float) -> str:
+    from src import orwell_portraits as P
+    card = next((h for h in state.get("house", []) if isinstance(h, dict)
+                 and P._safe_id(str(h.get("id") or h.get("name"))) == sid), {})
     try:
         await upgrade_one(user, str(card.get("id") or sid), card)
         st["fails"].pop(sid, None)
         st["retry_at"].pop(sid, None)
         st["done"] += 1
-        st["next_ok_at"] = now + GAP_S
+        st["next_ok_at"] = now + gap
         logger.info("[portrait-upgrade] %s upgraded for %s", sid, safe)
         return "upgraded"
     except Exception as e:  # failsoft-ok: handled-by-terminal (the old photo stays; recorded RED below; retried later)
@@ -270,14 +319,14 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
         st["fails"][sid] = n
         st["retry_at"][sid] = now + retry_wait_s(n)
         st["failed"] += 1
-        st["next_ok_at"] = now + GAP_S
+        st["next_ok_at"] = now + gap
+        if P.is_rate_limited(reason):  # ORW-378: the rest of this season's upgrade goes one at a time
+            st["rate_limited"] = True
         P._note_gen_error("portrait-upgrade-failed", reason)
         P._note_generation_failure(user, sid, f"portrait-upgrade-failed: {reason}")
         logger.info("[portrait-upgrade] %s failed for %s (%s); old photo kept, retry in %.0fs",
                     sid, safe, reason, retry_wait_s(n))
         return "failed"
-    finally:
-        _BUSY.discard(safe)
 
 
 async def upgrade_once() -> dict:

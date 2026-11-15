@@ -84,6 +84,9 @@ DEFAULT_SETTINGS = {
     # family — see IMAGE_AUTODETECT_CANDIDATES in src/ai_interaction.py.)
     "image_model": "openai/gpt-image-2.6-sunburst",
     "image_quality": "medium",
+    # ORW-378: portraits generated at once (new casts, backfills, the background upgrader). Clamped 1-4
+    # where read (orwell_portraits.portrait_parallel); a provider 429 drops a run to one at a time.
+    "portrait_parallel": 3,
     "vision_model": "",
     "vision_enabled": True,
     # Ordered fallback chain for the Vision model (image analysis, OCR, tagging).
