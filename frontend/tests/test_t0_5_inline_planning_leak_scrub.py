@@ -206,7 +206,16 @@ def test_mirror_call_wired_at_both_scrub_call_sites_before_cleaned_round_derives
     ) == 1
     # ...and both mirror calls must appear BEFORE `cleaned_round` is derived from round_response,
     # so the persisted/reload text reflects the mirrored drop.
-    cleaned_round_at = src.index("cleaned_round = strip_tool_blocks(round_response).strip()")
+    # ORW-453: the stored round text is derived in ONE place from `_store_src`, which is `round_response` itself (normal path) or `round_response[:_oi]` (the opener-cut path). Pin all three so
+    # neither path can derive the stored text before the mirrors ran, and no second derivation can appear unpinned. (Behaviour tests of the order: test_orw408_sentence_rewrite.py
+    # test_orw453_*, which drive the real loop and compare shown with stored.)
+    assert src.count("cleaned_round = strip_tool_blocks(") == 1
+    assert src.count("cleaned_round = strip_tool_blocks(_store_src).strip()") == 1
+    normal_src_at = src.index("_store_src = round_response\n")
+    opener_src_at = src.index("_store_src = round_response[:_oi]")
+    derive_at = src.index("cleaned_round = strip_tool_blocks(_store_src).strip()")
+    assert normal_src_at < opener_src_at < derive_at
+    cleaned_round_at = normal_src_at  # the earliest point either path reads round_response for the stored text
     mid_loop_mirror_at = src.index(
         "round_response = _mirror_wall_drop(\n                                    round_response, _complete, _clean")
     flush_mirror_at = src.index(
