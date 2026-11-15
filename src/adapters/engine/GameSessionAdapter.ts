@@ -5899,7 +5899,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
     this.ceremonyHeld = kind!;
     const away = this.notYetArrived();
-    const ids = [...this.presenceActive(), this.house.player.id];
+    const playerOut = (this.live?.evictionOrder ?? []).includes(this.house.player.id); // an evicted player has left: never gathered back into the house
+    const ids = playerOut ? this.presenceActive() : [...this.presenceActive(), this.house.player.id];
     for (const id of ids) {
       if (away?.has(id)) continue;
       if (this.presence.get(id) !== room) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
