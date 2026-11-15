@@ -6,7 +6,7 @@ import { streakHolds, nextStreak, DESIRE } from "../../src/engine/desireClock";
 
 /** ORW-423: a pile of same-purpose approaches is capped per stretch in a PLAYED game only; the brief carries no "N people asked" count. Roles only. */
 type S = GameSessionAdapter;
-type Live = { playedGame?: boolean; approachStreak?: { desire: string; count: number; lastHour: number }; interruption?: { npc: string; desire: string }; desireApproachedAt?: Record<string, number> };
+type Live = { approachHeld?: true; playedGame?: boolean; approachStreak?: { desire: string; count: number; lastHour: number }; interruption?: { npc: string; desire: string }; desireApproachedAt?: Record<string, number> };
 const live = (s: S): Live => (s.snapshot() as unknown as { live: Live }).live;
 const liveRef = (s: S): Live => (s as unknown as { live: Live }).live;
 
