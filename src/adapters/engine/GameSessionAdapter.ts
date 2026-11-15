@@ -244,7 +244,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { emptyOpenLedger, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -1240,6 +1240,8 @@ export class GameSessionAdapter implements GameSession {
   private openLedger: OpenLedger = emptyOpenLedger();
   /** A loaded `openLedger` that failed the shape check: saved back exactly as loaded; nothing may write while set. */
   private openLedgerAsLoaded: unknown;
+  /** ORW-448: the week whose veto ceremony already flagged entries due (memory only, cleared on restore, so a refused commit that is rolled back flags again once). One ceremony flags once. */
+  private ledgerVetoFlaggedWeek: number | undefined;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -2037,11 +2039,12 @@ export class GameSessionAdapter implements GameSession {
 
   /**
    * The ONE pre-save sequence (review of #2778: it was copied in `persist()` and the `inOneCommit` tail, and the copies drifted): the mood each houseguest
-   * the player shares a room with is remembered as last seen (ORW-343), one recap is made per crossed day with its day-roll reset (ORW-282/400), then the
+   * the player shares a room with is remembered as last seen (ORW-343), the open ledger closes what the engine knows is over (ORW-448), one recap is made per crossed day with its day-roll reset (ORW-282/400), then the
    * state is saved. `onPersist` may throw (a refused or failed commit) - after all state mutation (E3).
    */
   private runPersistSequence(): void {
     this.captureSeenMoods();
+    this.syncOpenLedger(); // ORW-448: what the engine knows is over (an eviction, a linked deal ending, an entry left untouched for a week) closes in the same commit
     this.catchUpDailyRecaps();
     this.onPersist?.();
   }
@@ -4872,6 +4875,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-407: restore the open ledger (absent on an older save => empty); an unreadable one is kept exactly as saved.
     const ol = restoreOpenLedger(core.openLedger);
     this.openLedger = ol.ledger;
+    this.ledgerVetoFlaggedWeek = undefined;
     this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
     if (ol.problems > 0) console.warn(`[orwell] open ledger loaded with ${ol.problems} problem(s), kept exactly as saved`); // counts only, never a recorded word
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
@@ -8318,7 +8322,7 @@ export class GameSessionAdapter implements GameSession {
     if (!refusal) {
       const terms = "a favor called in";
       const evId = this.onPlayerEvent?.(`${this.nameOf(PLAYER)} calls in a favor and ${this.nameOf(npcId)} honors it with a ${ask} deal`, [PLAYER, npcId], "deal");
-      this.deals.make(direction === "ask" ? [npcId, PLAYER] : [PLAYER, npcId], ask, terms, evId, s.week);
+      this.trackDealMade(this.deals.make(direction === "ask" ? [npcId, PLAYER] : [PLAYER, npcId], ask, terms, evId, s.week));
       this.persist();
       return { honored: true, kind: ask, narratable: "they honor the favor they owed" };
     }
@@ -12427,6 +12431,7 @@ export class GameSessionAdapter implements GameSession {
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
     const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
+    this.trackDealMade(deal);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
     // 0093 — OPTIONAL leverage: a secret the player holds ABOUT the partner colors the deal's formation
@@ -13620,10 +13625,14 @@ export class GameSessionAdapter implements GameSession {
     // pending still stands, short-circuits BEFORE ever calling `advanceBeat`/`commit` again — so this
     // branch cannot double-fire for one pending, and no extra bookkeeping is needed to prevent it.
     if (ev === null && s.vetoUsed === true && s.saved !== undefined && s.vetoHolder !== undefined && s.pending?.kind === "replacement") {
-      this.emitAnnouncement({ kind: "veto-decision", week: s.week, subjects: [s.vetoHolder], detail: { used: true, saved: s.saved } });
+      const fact: BeatAnnouncement = { kind: "veto-decision", week: s.week, subjects: [s.vetoHolder], detail: { used: true, saved: s.saved } };
+      this.emitAnnouncement(fact);
+      this.flagLedgerDue([fact]); // ORW-448: the same public veto result as the other path (the week guard in flagLedgerDue keeps it to one flag per ceremony)
     }
     if (!ev) return;
-    for (const fact of buildBeatAnnouncements(ev, s)) this.emitAnnouncement(fact);
+    const facts = buildBeatAnnouncements(ev, s);
+    for (const fact of facts) this.emitAnnouncement(fact);
+    this.flagLedgerDue(facts); // ORW-448: the public ceremony facts decide which open entries come due, nothing else
   }
 
   /** Resolve one engine-internal `BeatAnnouncement` to a public `BeatAnnouncementView`, assign it a
@@ -14303,7 +14312,7 @@ export class GameSessionAdapter implements GameSession {
           `${this.nameOf(PLAYER)} accepts ${this.nameOf(o.from)}'s ${o.kind} deal: ${o.terms}`,
           [PLAYER, o.from], "deal",
         );
-        this.deals.make([PLAYER, o.from], o.kind, o.terms, evId, o.madeWeek);
+        this.trackDealMade(this.deals.make([PLAYER, o.from], o.kind, o.terms, evId, o.madeWeek));
         // 0142 idea 4: a renegotiation retires the deal it replaces, neutrally (both sides agreed to swap it; not kept, not broken, no fold).
         const old = o.replacesDealId ? this.deals.all.find((d) => d.id === o.replacesDealId && d.status === "open") : undefined;
         if (old) old.status = "lapsed";
@@ -15313,6 +15322,61 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
   }
 
+  /** ORW-448: the beat each deal with the player was made at (memory only; used to link an open-ledger entry to a deal made moments before it). */
+  private dealMadeBeat = new Map<string, number>();
+  private static readonly DEAL_LINK_BEATS = 3;
+  private trackDealMade(deal: Deal): void {
+    if (deal.parties.includes(PLAYER)) this.dealMadeBeat.set(deal.id, this.beatSeq);
+  }
+
+  /** ORW-448: the in-game day the ledger counts in (the day number the HUD shows); undefined while the game has none (the week is NOT a stand-in: it would run backwards when the day counter starts). */
+  private ledgerDay(): number | undefined {
+    const s = this.live;
+    return s?.dayNumber; // undefined until the first night passes (it is never initialised): then nothing is stamped and nothing lapses
+  }
+
+  /**
+   * ORW-448: the engine closes what it knows for certain, inside whatever commit it is already making (no extra save, no extra
+   * beat): a houseguest who has left the house closes their open entries; an entry linked to a deal closes when that deal's ending
+   * is PUBLIC to the player (the same projection `dealView` shows: a deal broken by a sealed ballot still reads open, so its entry
+   * stays open); an open entry untouched for a week of in-game days lapses. A no-op with no entries (every headless run).
+   */
+  private syncOpenLedger(): void {
+    const s = this.live;
+    if (!this.openLedgerEnabled || this.openLedgerAsLoaded !== undefined || !s || !this.house || s.playedGame !== true) return;
+    if (this.openLedger.entries.length === 0) return;
+    const next = syncOpenLedger(this.openLedger, {
+      turn: this.beatSeq,
+      ...(this.ledgerDay() !== undefined ? { day: this.ledgerDay()! } : {}),
+      gone: new Set(s.evictionOrder.filter((id) => id !== PLAYER).map((id) => id as string)),
+      dealEnd: (dealId) => {
+        const d = this.deals.all.find((x) => x.id === dealId);
+        if (!d) return undefined; // an unknown id: treated as unlinked
+        const shown = this.dealView(d).status;
+        return shown === "kept" || shown === "broken" || shown === "open" ? shown : undefined;
+      },
+    });
+    if (next !== this.openLedger) this.openLedger = next;
+  }
+
+  /**
+   * ORW-448: after a public ceremony beat, flag as DUE the open entries whose parties include a houseguest who took a PUBLIC action
+   * in it, with one public result line. Built from the same broadcast facts the chyron shows (`buildBeatAnnouncements` +
+   * `announcementHeadline`: who is nominated, whether the veto was used and on whom, who was evicted, whether the Head of
+   * Household broke a tied vote), never from a ballot, a relationship number or any hidden state.
+   */
+  private flagLedgerDue(facts: readonly BeatAnnouncement[]): void {
+    if (!this.openLedgerEnabled || this.openLedgerAsLoaded !== undefined || this.live?.playedGame !== true || this.openLedger.entries.length === 0) return;
+    const name = (id: EntityId): string => this.nameOf(id);
+    let next = this.openLedger;
+    for (const f of facts) {
+      if (f.kind === "nominations" && f.detail?.by) next = flagOpenEntriesDue(next, [f.detail.by as string], `Public result of the nominations: ${announcementHeadline(f, name)}`);
+      else if (f.kind === "veto-decision" && f.subjects[0] && this.ledgerVetoFlaggedWeek !== f.week) { this.ledgerVetoFlaggedWeek = f.week; next = flagOpenEntriesDue(next, [f.subjects[0] as string], `Public result of the veto ceremony: ${announcementHeadline(f, name)}`); }
+      else if (f.kind === "eviction-result" && f.detail?.tieBroken && f.detail.by) next = flagOpenEntriesDue(next, [f.detail.by as string], `Public result of the eviction: ${announcementHeadline(f, name)}`);
+    }
+    if (next !== this.openLedger) this.openLedger = next;
+  }
+
   /**
    * ORW-407 - keep a commitment or claim made to or by the player in narration, as free text. The engine re-validates the
    * shape, the speakers (the player or a houseguest in the house) and that everyone involved is present now, derives the
@@ -15327,10 +15391,22 @@ export class GameSessionAdapter implements GameSession {
     if (typeof p === "string") return { accepted: false, reason: p };
     const wa = this.whereabouts();
     if (!wa) return { accepted: false, reason: "no-game" };
+    // ORW-448: a COMMITMENT-like entry (not about a third person) between exactly the player and one houseguest, made within a few beats of an active deal between those two, is that agreement: remember its id.
+    const everyone = [...new Set([p.speaker, ...p.addressedTo, ...(p.parties ?? [])])];
+    const hg = everyone.filter((id) => id !== OPEN_LEDGER_PLAYER);
+    const linked = openLedgerLinkable(p) && everyone.length === 2 && everyone.includes(OPEN_LEDGER_PLAYER) && hg.length === 1
+      ? this.deals.forParty(PLAYER).filter((d) => d.status === "open" && d.parties.includes(hg[0] as EntityId)
+        && this.beatSeq - (this.dealMadeBeat.get(d.id) ?? -Infinity) <= GameSessionAdapter.DEAL_LINK_BEATS).pop()
+      : undefined;
+    const day = this.ledgerDay();
     const out = recordOpenEntry(this.openLedger, p, {
       turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string),
+      ...(day !== undefined ? { day } : {}), ...(linked ? { dealId: linked.id } : {}),
     });
-    if (out.outcome === "duplicate") return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
+    if (out.outcome === "duplicate") {
+      if (out.ledger !== this.openLedger) { this.openLedger = out.ledger; this.backgroundPersist(); } // ORW-448: a re-statement moved the lapse deadline
+      return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
+    }
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
@@ -15342,6 +15418,16 @@ export class GameSessionAdapter implements GameSession {
     if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
     if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    // ORW-448: the front end reports the end of a due entry's judgment pass (`offered`: judged, drop the flag; `unjudged`: the model call failed, keep it, bounded). Not resolutions.
+    const sr = (req ?? {}) as { entryId?: unknown; status?: unknown };
+    if (sr.status === "offered" || sr.status === "unjudged") {
+      if (typeof sr.entryId !== "string") return { accepted: false, reason: "bad-shape" };
+      const settled = settleOpenEntryDue(this.openLedger, sr.entryId, sr.status);
+      if (!settled) return { accepted: false, reason: "not-due" };
+      this.openLedger = settled;
+      this.backgroundPersist(); // durable, NOT a board beat
+      return { accepted: true };
+    }
     const out = resolveOpenEntry(this.openLedger, req, this.beatSeq);
     if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
@@ -15349,15 +15435,22 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true };
   }
 
-  /** ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only. */
+  /**
+   * ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only.
+   * ORW-448: entries DUE after a public ceremony come first (at most 3, anyone, here or not: the result is public), each with its
+   * `due` line; then the entries relevant to those here, so the list is at most 6 and a turn with nothing due is as before.
+   */
   openLedgerHere(): OpenLedgerItemView[] {
     if (!this.openLedgerEnabled || !this.house || !this.live || this.live.playedGame !== true) return [];
     const wa = this.whereabouts();
-    if (!wa) return [];
     const open = { ...this.openLedger, entries: this.openLedger.entries.filter((e) => e.status === "open") };
-    return openLedgerRelevant(open, wa.present.map((x) => x.id as string)).map(({ e }) => ({
-      id: e.id, text: e.text, speaker: e.speaker, parties: partiesOf(e), ...(e.about ? { about: e.about } : {}), kind: e.kind,
-    }));
+    const due = openLedgerDueEntries(open);
+    const here = wa ? openLedgerRelevant(open, wa.present.map((x) => x.id as string), Math.min(OPEN_LEDGER_BRIEF_MAX, 6 - due.length)) : [];
+    const dueIds = new Set(due.map(({ e }) => e.id));
+    const view = (e: (typeof open.entries)[number], line?: string): OpenLedgerItemView => ({
+      id: e.id, text: e.text, speaker: e.speaker, parties: partiesOf(e), ...(e.about ? { about: e.about } : {}), kind: e.kind, ...(line ? { due: line } : {}),
+    });
+    return [...due.map(({ e, line }) => view(e, line)), ...here.filter(({ e }) => !dueIds.has(e.id)).map(({ e }) => view(e))];
   }
 
   /**
