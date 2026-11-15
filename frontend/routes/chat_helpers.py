@@ -7415,6 +7415,14 @@ def _interruption_steer(game_state) -> str:
             "invent no outcome, vote or secret beyond that.")
 
 
+def _approach_held_steer(game_state) -> str:
+    """ORW-443: the engine's approach cap withheld a houseguest this turn (`approachHeld`). One-turn, closed-set: the room settles; no new request goes to the player. Never a count, never a time."""
+    if not isinstance(game_state, dict) or game_state.get("approachHeld") is not True:
+        return ""
+    return ("NO ONE NEW STEPS UP TO THE PLAYER THIS BEAT: the room settles. Let the houseguests who are already present talk among themselves or drift off; "
+            "do not stage another request, pitch or demand on the player, and do not recount how many have already come to them.")
+
+
 # A7 (PO 2026-11-04): production's voice. A WARNING beat when the clock is within this many in-game minutes of a scheduled event, and a CALL when it comes due mid-conversation.
 _PRODUCTION_WARN_MINUTES = 30
 
@@ -8545,6 +8553,12 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _int_steer
         except Exception as e:
             logger.warning("[orwell] interruption steer framing skipped for user=%s: %s", _gkey, e)
+        try:
+            _ah_steer = _approach_held_steer(game_state)
+            if _ah_steer:
+                gm_prompt = gm_prompt + "\n\n" + _ah_steer
+        except Exception as e:
+            logger.warning("[orwell] approach-held steer framing skipped for user=%s: %s", _gkey, e)
         try:
             _ho_steer = _HANGOUT_STEER.pop(_runway_key(user), None)
             if _ho_steer:

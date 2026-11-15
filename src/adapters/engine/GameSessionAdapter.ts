@@ -9160,11 +9160,13 @@ export class GameSessionAdapter implements GameSession {
     // A8: an NPC whose desire clock has crossed its threshold CUTS INTO the conversation (shown for exactly the next framing). Flag off => nothing written.
     if (this.desireClockEnabled && this.house) {
       delete this.live.interruption; // the previous one was already shown
+      delete this.live.approachHeld; // ORW-443: per-turn
       const evicted = new Set(this.live.evictionOrder ?? []);
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
       if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (hit.capped && this.live.playedGame === true) this.live.approachHeld = true; // ORW-443: narration-only - the view tells the narrator nobody new steps up this turn
         if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
           const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
@@ -15573,6 +15575,7 @@ export class GameSessionAdapter implements GameSession {
       // 0118: the telegraphed day schedule (present only when the per-conversation clock is live).
       ...(daySchedule ? { daySchedule } : {}),
       ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire, ...(this.live.interruption.tells ? { tells: this.live.interruption.tells } : {}) } } : {}), // A8: an NPC is cutting into the conversation (names only)
+      ...(this.desireClockEnabled && this.live?.approachHeld ? { approachHeld: true as const } : {}), // ORW-443: the #2736 cap withheld an approach this turn (Vault-free boolean)
     };
   }
 
