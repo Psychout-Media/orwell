@@ -543,7 +543,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.full == 'true' && needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # ORW-390: 15 -> 20 min. Shard 5/5 ran 12-14 min on main (0697c631 13, d581fcbf 14, 08734b14 13, 5953710f 12) against 4-9 for shards 1-4, so PR #2647 was
+    # cancelled at the limit twice and #2659 once (its tests had passed in 856 s). A job is ~1-2 min of setup (checkout, python, playwright, npm ci, build) PLUS the tests.
+    # The root cause (21 browser files missing from _ci_durations.json) is fixed too, and test_ci_shard.py now fails on a missing entry; this is the headroom.
+    timeout-minutes: 20
     # ORW-193: parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Still serial WITHIN a
     # shard (fixed ports, one real page at a time) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
     # ORW-229 re-shard: five legs, files balanced by MEASURED seconds (frontend/tests/_ci_durations.json). Simulated on the 49 browser files:

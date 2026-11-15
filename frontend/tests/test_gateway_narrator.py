@@ -30,7 +30,7 @@ def test_import_target_is_correct():
     src = open(os.path.join(_FRONTEND, "gateway", "handler.py"), encoding="utf-8").read()
     # must import from the module that DEFINES it, and resolve it as an async fn keyed by user
     assert "from src.orwell_cast_authoring import _resolve_llm_fn" in src
-    assert "await _resolve_llm_fn(user)" in src
+    assert "await resolve_prose_llm_fn(_resolve_llm_fn, user)" in src  # ORW-387: gateway narration is prose (no response_format)
     # and call the resolved LlmFn with the messages-list contract (no system=/stream= kwargs)
     assert "await llm_fn(messages)" in src
 
