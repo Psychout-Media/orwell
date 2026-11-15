@@ -150,7 +150,8 @@ def test_a_sustained_502_eventually_raises(monkeypatch):
 
 
 def test_a_sustained_connection_error_eventually_raises(monkeypatch):
-    _patch_seq(monkeypatch, [httpx.ConnectError("refused") for _ in range(5)])
+    _Clock(monkeypatch)  # ORW-404: a refused connection now rides the ~20 s budget, on the virtual clock
+    _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
     with pytest.raises(httpx.ConnectError):
         _run(orwell_engine._call("gameStatus", {}, user="x"))
 
@@ -252,6 +253,131 @@ def test_a_short_timeout_read_is_not_held_for_twenty_seconds(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         _run(orwell_engine.game_status(user="x"))     # status poll: 8 s budget
     assert clock.now <= orwell_engine._POLL_TIMEOUT + 0.001
+
+
+class _RefusingEngine:
+    """Models the engine across a deploy: `script(now)` says what the call does at the virtual time, one of
+    "503" (restarting answer), "refuse" (ConnectError), or an exception instance to raise; anything else succeeds.
+    Constructed with a callable of no args for the simple "always refuse" case."""
+
+    def __init__(self, fn, clock=None):
+        self.fn, self.clock, self.calls = fn, clock, 0
+
+    async def post(self, *_a, **_k):
+        self.calls += 1
+        what = self.fn() if self.clock is None else self.fn(self.clock.now)
+        if what is True or what == "refuse":
+            raise httpx.ConnectError("refused")
+        if what == "503":
+            r = _resp(503, payload=_RESTARTING)
+            r.headers["retry-after"] = "1"
+            return r
+        if isinstance(what, Exception):
+            raise what
+        return _resp(200, payload={"result": {"ok": True}})
+
+
+def test_503_then_refused_connections_then_success_is_ridden_out(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RefusingEngine(lambda t: "503" if t < 0.5 else ("refuse" if t < 6.5 else "ok"), clock)
+    _patch_engine(monkeypatch, eng)
+    assert _run(orwell_engine._call("recordInteraction", {}, user="x")) == {"ok": True}  # a MUTATING-style call
+    assert orwell_engine.last_engine_error() is None
+    assert 6.5 <= clock.now < 8.0
+
+
+def test_refused_connections_for_six_seconds_then_success(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RefusingEngine(lambda t: "refuse" if t < 6.0 else "ok", clock)
+    _patch_engine(monkeypatch, eng)
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert clock.sleeps == [1.0] * 6 and eng.calls == 7  # 1 s between tries, no Retry-After
+    assert orwell_engine.last_engine_error() is None
+
+
+def test_reconnecting_is_marked_before_each_refused_wait(monkeypatch):
+    clock = _Clock(monkeypatch)
+    seen = []
+    real_sleep = orwell_engine.asyncio.sleep
+
+    async def _spy(s):
+        seen.append(orwell_engine.reconnecting())
+        await real_sleep(s)
+
+    monkeypatch.setattr(orwell_engine.asyncio, "sleep", _spy)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda t: "refuse" if t < 3.0 else "ok", clock))
+    _run(orwell_engine._call("advanceGame", {}, user="x"))
+    assert seen and all(seen)
+
+
+def test_refused_longer_than_the_budget_ends_unreachable_not_a_tool_error(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RefusingEngine(lambda: True)
+    _patch_engine(monkeypatch, eng)
+    with pytest.raises(httpx.ConnectError):
+        _run(orwell_engine._call("advanceGame", {}, user="x"))
+    assert 20.0 <= clock.now <= 21.0
+    assert eng.calls == 21
+    le = orwell_engine.last_engine_error()
+    assert le and le["kind"] == "unreachable"
+
+
+def test_connect_timeout_gets_the_long_wait_too(monkeypatch):
+    clock = _Clock(monkeypatch)
+    req = httpx.Request("POST", "http://x/")
+    eng = _RefusingEngine(lambda t: httpx.ConnectTimeout("t", request=req) if t < 4.0 else "ok", clock)
+    _patch_engine(monkeypatch, eng)
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert clock.now >= 4.0
+
+
+def test_the_budget_is_shared_between_503_and_refused_waits(monkeypatch):
+    clock = _Clock(monkeypatch)
+    # 503 for the first 10 s, then refused forever: total wait stays ~20 s, not 20 + 20.
+    eng = _RefusingEngine(lambda t: "503" if t < 10.0 else "refuse", clock)
+    _patch_engine(monkeypatch, eng)
+    with pytest.raises(httpx.ConnectError):
+        _run(orwell_engine._call("advanceGame", {}, user="x"))
+    assert 20.0 <= clock.now <= 21.0
+
+
+def test_a_short_timeout_read_gives_up_at_its_own_timeout_when_refused(monkeypatch):
+    clock = _Clock(monkeypatch)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
+    with pytest.raises(httpx.ConnectError):
+        _run(orwell_engine.get_game_state(user="x"))  # 3 s framing read
+    assert clock.now <= orwell_engine._FRAMING_TIMEOUT + 0.001
+    clock.now = 0.0
+    with pytest.raises(httpx.ConnectError):
+        _run(orwell_engine.game_status(user="x"))     # 8 s status poll
+    assert clock.now <= orwell_engine._POLL_TIMEOUT + 0.001
+
+
+@pytest.mark.parametrize("make", [
+    lambda req: httpx.ReadError("reset", request=req),
+    lambda req: httpx.RemoteProtocolError("closed", request=req),
+    lambda req: httpx.WriteError("w", request=req),
+])
+def test_after_send_errors_keep_the_short_retry_exactly(monkeypatch, make):
+    # These can happen AFTER the engine got the call: no long wait, today's 3 tries / 0.25 s, 0.5 s.
+    clock = _Clock(monkeypatch)
+    req = httpx.Request("POST", "http://x/")
+    client = _patch_seq(monkeypatch, [make(req) for _ in range(6)])
+    with pytest.raises(httpx.TransportError):
+        _run(orwell_engine._call("advanceGame", {}, user="x"))
+    assert client.calls == 3
+    assert clock.sleeps == [0.25, 0.5]
+    le = orwell_engine.last_engine_error()
+    assert le and le["kind"] == "unreachable"
+
+
+def test_after_send_read_timeout_on_a_mutating_tool_keeps_the_short_retry(monkeypatch):
+    clock = _Clock(monkeypatch)
+    req = httpx.Request("POST", "http://x/")
+    client = _patch_seq(monkeypatch, [httpx.ReadTimeout("slow", request=req) for _ in range(6)])
+    with pytest.raises(httpx.ReadTimeout):
+        _run(orwell_engine._call("advanceGame", {}, user="x"))
+    assert client.calls == 3 and clock.sleeps == [0.25, 0.5]
 
 
 def test_other_structured_503s_are_still_the_engine_answering(monkeypatch):

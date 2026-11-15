@@ -180,4 +180,37 @@ describe("ORW-404 follow-up 2: directory sync bookkeeping", () => {
     await settle();
     expect(dirCalls).toEqual([data]);
   });
+  it("after a failed first write the NEXT successful save syncs the user directory entry too", async () => {
+    const data = tmp();
+    const dirCalls: string[] = [];
+    const store = new FileSaveStore(data, { fsyncMode: "background", syncFile: async () => {}, syncDir: async (p) => { dirCalls.push(p); } });
+    const bad = { toJSON() { throw new Error("boom"); } } as unknown as SessionSnapshot;
+    expect(() => store.saveFor("a", bad)).toThrow("boom");
+    await settle();
+    dirCalls.length = 0;
+    store.saveFor("a", snap(1)); // neither first-save-since-boot nor a new directory any more
+    await settle();
+    expect(dirCalls).toContain(join(data, hex("a")));
+  });
+
+  it("the shutdown flush retries the directory syncs owed by a failed first write, though no version exists", async () => {
+    const data = tmp();
+    const dirCalls: string[] = [];
+    let fail = true;
+    const store = new FileSaveStore(data, {
+      fsyncMode: "background", syncFile: async () => {}, onError: () => {},
+      syncDir: async (p) => { dirCalls.push(p); if (fail) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+    });
+    const bad = { toJSON() { throw new Error("boom"); } } as unknown as SessionSnapshot;
+    expect(() => store.saveFor("a", bad)).toThrow("boom");
+    await settle();
+    fail = false;
+    dirCalls.length = 0;
+    await store.flushDurableAsync(1_000);
+    expect(dirCalls).toContain(join(data, hex("a")));
+    expect(dirCalls).toContain(data);
+    dirCalls.length = 0;
+    await store.flushDurableAsync(1_000); // settled: nothing is owed any more
+    expect(dirCalls).toEqual([]);
+  });
 });

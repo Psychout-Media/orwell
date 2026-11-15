@@ -314,6 +314,9 @@ export class FileSaveStore implements UserSaveStore {
     if (!dirIsNew || !background) return;
     const st = this.stateFor(dir, [], background);
     this.markParentDirty(st);
+    // The directory itself is also unsynced and, now that a state exists, the next save sees neither "first
+    // save since boot" nor "directory is new": flag it so that save (or the shutdown flush) syncs it.
+    this.markDirDirty(st);
     const seq = st.parentSeq;
     void this.syncDir(this.dataDir)
       .then(() => { if (st.parentSeq === seq) st.parentDirty = false; })
@@ -499,7 +502,7 @@ export class FileSaveStore implements UserSaveStore {
    */
   async flushDurableAsync(timeoutMs = 10_000): Promise<void> {
     const todo = [...this.states.entries()]
-      .filter(([, st]) => st.syncing !== null || (st.latest > 0 && (st.latest > st.durable || st.dirDirty || st.parentDirty)))
+      .filter(([, st]) => st.syncing !== null || st.dirDirty || st.parentDirty || (st.latest > 0 && st.latest > st.durable))
       .sort((x, y) => this.backlogOf(y[1]) - this.backlogOf(x[1]));
     if (todo.length === 0) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -517,7 +520,9 @@ export class FileSaveStore implements UserSaveStore {
           // sync has not finished is still owed here and is done now, concurrently with it.
           const running = st.syncing;
           if (st.latest <= 0) {
-            if (st.parentDirty) { const sq = st.parentSeq; await this.syncDir(this.dataDir); if (st.parentSeq === sq) st.parentDirty = false; }
+            // No version file exists (a failed first write) but a directory sync may still be owed.
+            if (st.dirDirty) { const sq = st.dirSeq; try { await this.syncDir(dir); if (st.dirSeq === sq) st.dirDirty = false; } catch { /* best-effort */ } }
+            if (st.parentDirty) { const sq = st.parentSeq; try { await this.syncDir(this.dataDir); if (st.parentSeq === sq) st.parentDirty = false; } catch { /* best-effort */ } }
             if (running) { try { await running; } catch { /* handled inside */ } }
             continue;
           }

@@ -219,6 +219,7 @@ def _engine_client_no_retry_backoff(request, monkeypatch) -> None:
     try:
         from src import orwell_engine
         monkeypatch.setattr(orwell_engine, "_RETRY_ATTEMPTS", 0)
+        monkeypatch.setattr(orwell_engine, "_RESTART_WAIT_BUDGET_S", 0.0)  # ORW-404: no ~20 s restart wait either
     except Exception:
         pass
 

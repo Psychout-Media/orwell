@@ -213,6 +213,7 @@ _TRANSIENT_STATUSES = frozenset({502, 503, 504})
 _RESTART_WAIT_BUDGET_S = float(os.environ.get("ORWELL_ENGINE_RESTART_WAIT_S") or "20")
 _RESTART_RETRY_AFTER_CAP_S = 3.0   # longest single wait between restart retries
 _RESTART_RETRY_AFTER_DEFAULT_S = 1.0  # when the 503 carries no usable Retry-After
+_NEVER_SENT_RETRY_S = 1.0  # ORW-404: pause between tries while the engine refuses connections (no Retry-After exists)
 _monotonic = time.monotonic  # indirection so tests can drive a virtual clock
 _RECONNECTING_UNTIL = 0.0    # monotonic deadline; while now < this, a call is mid-retry
 _RECONNECTING_FOR_S = 8.0    # how long the soft state lingers after the last retry began
@@ -252,6 +253,23 @@ def _restart_wait_s(exc: Exception) -> float | None:
     if wait != wait or wait <= 0:  # NaN / non-positive
         wait = _RESTART_RETRY_AFTER_DEFAULT_S
     return min(wait, _RESTART_RETRY_AFTER_CAP_S)
+
+
+# ORW-404: errors that PROVE the request never reached the engine (the connection was never established),
+# so re-sending is safe for ANY tool, mutating ones included. Deliberately NOT here: ReadError,
+# RemoteProtocolError, ReadTimeout, WriteError, a reset mid-response - those can happen after the engine
+# received (and maybe applied) the call, so they keep the short-blip retry exactly as before.
+_NEVER_SENT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+
+
+def _long_wait_s(exc: Exception) -> float | None:
+    """How long to wait before the next try of the LONG restart wait, or None if this error does not get it:
+    the engine's restarting 503 (its Retry-After, capped) or a connection that was never established
+    (a flat 1 s - the engine is down between exit and boot)."""
+    wait = _restart_wait_s(exc)
+    if wait is None and isinstance(exc, _NEVER_SENT_ERRORS):
+        return _NEVER_SENT_RETRY_S
+    return wait
 
 
 def _is_transient(exc: Exception) -> bool:
@@ -432,7 +450,9 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             last_exc = e
             # ORW-404: the engine is restarting (503 sent before any state change): ride it out, bounded by the
             # call's own time budget, and do NOT spend the short-blip attempts on it.
-            wait = _restart_wait_s(e)
+            # ORW-404: the same wait (one shared budget) for a connection that was never established: the engine is
+            # DOWN between exit and boot, so calls are refused rather than answered 503.
+            wait = _long_wait_s(e)
             if wait is not None:
                 remaining = restart_budget - (_monotonic() - started)
                 attempt -= 1
