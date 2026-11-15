@@ -924,8 +924,13 @@ def _html_template(file_path: str) -> str:
     from src.orwell_version import get_build as _fe_build
     from src.settings import dropped_script_srcs, game_build_enabled, ws_transport_enabled
     st = os.stat(file_path)
+    try:  # review of #2662: the shell bakes `data-zero-clocks` in, so the setting is part of the cache key
+        from src.zero_clocks import zero_clocks_on
+        _zc = bool(zero_clocks_on())
+    except Exception:  # failsoft-ok: presentation-only flag
+        _zc = False
     key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
-           tuple(dropped_script_srcs()))
+           tuple(dropped_script_srcs()), _zc)
     cached = _HTML_TEMPLATE_CACHE.get(key)
     if cached is not None:
         return cached

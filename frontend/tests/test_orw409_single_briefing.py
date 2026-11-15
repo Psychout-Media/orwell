@@ -113,3 +113,12 @@ def test_prompt_does_not_grow():
 
 
 BASELINE_CHARS = 1134  # measured on origin/main before this change: same turn, old blocks
+
+
+def test_orw437_the_engines_real_part_line_with_a_day_suffix_is_unified():
+    """review of #2722: the engine's real line is "- Part of the day: small hours, Day 3 (engine truth)", carrying ", Day N"."""
+    board = _board("4:15am, Day 3", "late-night", None)
+    ctx = _ctx("late-night", "small hours, Day 3")
+    out = unify_part_of_day_lines(ctx, build_briefing(board, zero_clocks=True))
+    assert "Time of day:" not in out, "the duplicate Time of day line must go"
+    assert "- Part of the day: early morning, Day 3 (engine truth)" in out, out
