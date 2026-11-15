@@ -16,7 +16,7 @@ const R = new Map<string, Res>();
 const rec = (id: string, ok: boolean, why: string): void => { const r = R.get(id) ?? { pass: 0, fail: [] }; if (ok) r.pass++; else r.fail.push(why); R.set(id, r); };
 
 type Status = { timeOfDay?: string; dayNumber?: number; week?: number; phase?: string; asleep?: Array<{ id: string }>; awake?: Array<{ id: string }>; earlyMorning?: boolean };
-type State = Status & { clockLabel?: string; whereabouts?: { counts?: { house?: number; room?: number } } | null; daySchedule?: { next?: string; due?: boolean } | null; started?: boolean };
+type State = Status & { hoh?: { id?: string } | null; clockLabel?: string; whereabouts?: { counts?: { house?: number; room?: number } } | null; daySchedule?: { next?: string; due?: boolean } | null; started?: boolean };
 
 /** Clock hours on the engine's 8..32 night-depth scale, from "h:mmam, Day N" (an hour before 8am belongs to the night that started the day before). */
 function depthOf(label?: string): { h: number; day: number } | null {
@@ -44,7 +44,12 @@ async function main() {
       if (st.awake) {
         rec("awake list never names the player", !awake.has("player"), `seed ${seed} ${where}: player in awake`);
         rec("awake and asleep never overlap", [...awake].every((id) => !asleep.has(id)), `seed ${seed} ${where}: ${[...awake].filter((id) => asleep.has(id)).join(",")}`);
+        const npcsIn = ((st as State & { house?: Array<{ id: string; status?: string }> }).house ?? []).filter((r) => r.status === "active").length;
+        if (st.phase !== "premiere") rec("N7 awake + asleep = everyone in the house", awake.size + asleep.size === npcsIn, `seed ${seed} ${where}: ${awake.size} awake + ${asleep.size} asleep vs ${npcsIn} houseguests in`);
       }
+      const mo = (st as State & { moment?: string }).moment;
+      const mw = typeof mo === "string" ? /Week (\d+)/.exec(mo) : null;
+      if (mw && typeof st.week === "number" && st.week > 0) rec("W10 the week in the moment label = the engine week", Number(mw[1]) === st.week, `seed ${seed} ${where}: moment "${mo}" vs week ${st.week}`);
       const house = st.whereabouts?.counts?.house;
       const full = st as State & { house?: Array<{ status?: string }>; player?: { status?: string } };
       if (typeof house === "number" && st.phase !== "premiere" && Array.isArray(full.house)) {
@@ -54,9 +59,18 @@ async function main() {
       }
     };
 
+    let lastHoh: string | null = null, hohWeek = 0;
     for (let i = 0; i < MESSAGES; i++) {
       await note();
       if (i % 12 !== 11) continue;
+      {
+        const gs = await call<{ hoh?: { id?: string } | null; week?: number; whereabouts?: { houseEvent?: { kind?: string; competing?: Array<{ id: string }> } } }>("getGameState");
+        const he = gs.whereabouts?.houseEvent;
+        if (he?.kind === "hoh-competition" && Array.isArray(he.competing) && lastHoh && (gs.week ?? 0) > hohWeek)
+          rec("W4 the outgoing HOH does not play the next HOH comp", !he.competing.some((c) => c.id === lastHoh), `seed ${seed} week ${gs.week}: outgoing HOH ${lastHoh} is in the field`);
+        const st2 = await call<{ hoh?: { id?: string } | null; week?: number }>("gameStatus");
+        if (st2.hoh?.id && (st2.week ?? 0) > hohWeek) { lastHoh = st2.hoh.id; hohWeek = st2.week ?? hohWeek; }
+      }
       const adv = (await call<{ pending?: { kind: string; options?: Array<{ id: string }> }; held?: { next?: string; minutesUntil?: number } }>("advanceGame"));
       if (adv.pending) {
         const k = adv.pending.kind, o = (j: number) => adv.pending!.options?.[j]?.id;
@@ -77,7 +91,14 @@ async function main() {
       const before = await call<State>("getGameState");
       await checkState("before bed");
       const b = depthOf(before.clockLabel);
-      const ti = await call<{ held?: unknown; dailyRecap?: unknown; weekChapter?: { week?: number } }>("turnIn");
+      const key = `${user}-bed-${nights}`;
+      const ti = await call<{ held?: unknown; dailyRecap?: unknown; weekChapter?: { week?: number } }>("turnIn", { idempotencyKey: key });
+      if (!ti.held && nights % 4 === 0) {
+        const dayA = (await call<State>("getGameState")).clockLabel;
+        const ti2 = await call<{ held?: unknown }>("turnIn", { idempotencyKey: key });
+        const dayB = (await call<State>("getGameState")).clockLabel;
+        rec("N3 a repeated bed (same key) replays and never rolls a second day", JSON.stringify(ti2) === JSON.stringify(ti) && dayA === dayB, `seed ${seed} night ${nights}: clock ${dayA} -> ${dayB}, same view ${JSON.stringify(ti2) === JSON.stringify(ti)}`);
+      }
       if (ti.held) { await note(); continue; } // not bedtime yet (the gate): the next held advance tries again
       nights++;
       const after = await call<State>("getGameState");
@@ -96,8 +117,19 @@ async function main() {
       lastBedWeek = before.week ?? lastBedWeek;
       void weekNow;
       await checkState("after wake");
+      // N5: before 6am nobody is up (an early riser's own wake can come before 8am - "no houseguest awake until their own wake" - so 6-8am is not checked here).
+      if (a && ((a.h >= 24 && a.h - 24 < 6) || a.h < 6)) rec("N5 an early bed wakes alone (no houseguest awake before 6am)", (after.awake ?? []).length === 0, `seed ${seed} night ${nights}: woke ${after.clockLabel} with ${(after.awake ?? []).length} awake`);
+      if (nights % 3 === 1) { // N1: a goodnight right after waking (the morning) is refused and the clock does not move
+        const again = await call<{ held?: unknown }>("turnIn");
+        const st3 = await call<State>("getGameState");
+        rec("N1 a morning goodnight is refused and the clock stays", !!again.held && st3.clockLabel === after.clockLabel, `seed ${seed} night ${nights}: held ${!!again.held}, clock ${after.clockLabel} -> ${st3.clockLabel}`);
+      }
       const ds = (await call<State>("getGameState")).daySchedule;
-      if (before.phase === "hoh-competition" && (after.week ?? 0) > 1) rec("after an eviction night the next HOH is on the schedule", ds?.next === "hoh-competition", `seed ${seed} night ${nights}: next ${ds?.next}`);
+      if (before.phase === "hoh-competition" && (after.week ?? 0) > 1) {
+        rec("W3 after an eviction night the next HOH is on the schedule", ds?.next === "hoh-competition", `seed ${seed} night ${nights}: next ${ds?.next}`);
+        rec("W3 the HOH comp is in the afternoon of the new day", (ds as { phase?: string } | null)?.phase === "afternoon", `seed ${seed} night ${nights}: scheduled ${(ds as { phase?: string } | null)?.phase}`);
+        rec("W1 eviction night ended on the player's bed (no HOH on the eviction night)", !before.hoh, `seed ${seed} night ${nights}: HOH already crowned before the bed`);
+      }
     }
     console.log(`seed ${seed}: ${nights} nights, last week ${(await call<State>("getGameState")).week}`);
   }
