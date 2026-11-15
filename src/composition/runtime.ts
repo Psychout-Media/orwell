@@ -161,8 +161,12 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // state outside the commit seam; re-seed the non-degradation baseline to the freshly-saved state so the
   // next player-turn commit isn't refused as a "degradation" against the stale floor baseline (the same
   // seedBaseline discipline a resume-from-disk uses — audit E6).
-  registry.setOnResume((user) => orchestrator.seedBaselineIfAbsent(user));
   registry.setOnBackgroundCommit((user) => orchestrator.seedBaseline(user));
+  // Every from-disk rebuild (boot warm-up, a request that arrives first, a resume after an LRU unload) re-baselines
+  // unconditionally: a baseline kept from a previous in-memory object graph is the stale case `seedBaseline`
+  // documents (review of #2747). The unload drops it, so an idle user pins no snapshot.
+  registry.setOnResume((user) => orchestrator.seedBaseline(user));
+  registry.setOnUnload((user) => orchestrator.dropBaseline(user));
   // God Mode can SEE sandbox health (B58/audit E5+E6): integrity, faults, the circuit state.
   registry.setHealthProvider((user) => orchestrator.sandboxHealth(user));
   // Preload saved users at boot (B60/audit E11): without this, every deploy froze each house until
@@ -174,7 +178,7 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     for (const user of saveStore?.listUsers?.() ?? []) {
       try {
         registry.sandboxFor(user);
-        orchestrator.seedBaseline(user);
+        orchestrator.seedBaselineIfAbsent(user); // the resume hook seeded it; do not export the save twice
       } catch { /* skip an unresumable save; the rest still boot */ }
     }
   };
@@ -189,7 +193,7 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
         await new Promise<void>((r) => setImmediate(r));
         try {
           registry.sandboxFor(user);
-          orchestrator.seedBaseline(user);
+          orchestrator.seedBaselineIfAbsent(user); // the resume hook seeded it; do not export the save twice
         } catch { /* skip an unresumable save; the rest still warm */ }
       }
     } finally {

@@ -95,7 +95,7 @@ def env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(settings, "get_user_setting", gus)
 
-    async def fake(prompt, user, reference_png=None):
+    async def fake(prompt, user, reference_png=None, keep_identity=True):
         st.shots.append((prompt, reference_png))
         return b"PNG%d" % len(st.shots)
 
@@ -105,7 +105,7 @@ def env(tmp_path, monkeypatch):
 
 
 def _entry(hid="npc:1", prompt=V3):
-    return {"houseguestId": hid, "name": "Cole", "prompt": prompt}
+    return {"houseguestId": hid, "name": "Zorvan", "prompt": prompt}
 
 
 def _store(entry=None, **kw):
@@ -232,7 +232,7 @@ def test_request_body_is_image_plus_allowed_facts_only(env):
     for want in ("Stated age: 35", "Stated gender presentation: man", "crisp white oxford shirt with the sleeves rolled",
                  "the house kitchen", "Eyes on camera was asked: yes"):
         assert want in text
-    for leak in (SECRET, "Cole", "Black American", "deep brown", "Official cast portrait", "85mm"):
+    for leak in (SECRET, "Zorvan", "Black American", "deep brown", "Official cast portrait", "85mm"):
         assert leak not in text
     assert set(body) == {"model", "messages", "temperature", "max_tokens"}
 
@@ -350,7 +350,7 @@ def test_a_deepseek_endpoint_resolves_to_its_own_host(env, monkeypatch):
 def test_upgrade_reshoot_is_checked_and_reuses_the_old_face_on_the_fix(env):
     """The ORW-369/380 upgrader re-shoots through generate_and_store(force_ids=[id], silent=True) with the
     old face as the reference: the new photo is checked, and the fix re-shoot reuses that same reference."""
-    P._write_portrait("u", "npc:1", b"OLD-FACE", "Cole", source="generated")
+    P._write_portrait("u", "npc:1", b"OLD-FACE", "Zorvan", source="generated")
     env.replies = [_reply(["messy-hair"]), _reply([])]
     _run(P.generate_and_store([_entry()], "u", record_beats=False, force_ids=["npc:1"], silent=True))
     assert len(env.posts) == 2 and len(env.shots) == 2
@@ -358,3 +358,80 @@ def test_upgrade_reshoot_is_checked_and_reuses_the_old_face_on_the_fix(env):
     assert "Fix in this version" in env.shots[1][0] and "Fix in this version" not in env.shots[0][0]
     assert P.portrait_file("u", "npc:1").read_bytes() == b"PNG2"
     assert _manifest()[P._safe_id("npc:1")]["check"] == {"ok": True, "problems": [], "reshot": True}
+
+
+# ---- ORW-437 review of #2677 and #2731 -----------------------------------------------------------------------
+
+def test_a_reply_without_a_dollar_cost_is_ledgered_with_an_estimate(env):
+    env.replies = [_Resp(200, {"choices": [{"message": {"content": json.dumps({"problems": []})}}], "model": "deepseek-flash",
+                               "usage": {"prompt_tokens": 900000, "completion_tokens": 12000}})]
+    _store()
+    rows = [e for e in ledger.get_recent("u", 50) if e["callClass"] == "portrait-check"]
+    assert len(rows) == 1 and rows[0]["cost"] > 0 and rows[0].get("costEstimated") is True
+
+
+def test_a_persisted_string_false_disables_the_check(env):
+    for off in ("false", "False", "0", "off"):
+        env.settings["portrait_check_enabled"] = off
+        assert C.check_enabled("u") is False
+    env.settings["portrait_check_enabled"] = "true"
+    assert C.check_enabled("u") is True
+
+
+def test_a_verdict_of_only_unknown_codes_skips_the_check_instead_of_passing_the_photo(env):
+    env.replies = [_reply(["made-up-code"])]
+    assert _run(C.check_portrait(b"PNG", {}, "u")) is None
+    env.replies = [_reply(["not-one-person", "made-up-code"])]  # a known code beside an unknown one still counts
+    assert _run(C.check_portrait(b"PNG", {}, "u"))["problems"] == ["not-one-person"]
+
+
+def test_hair_colour_and_length_are_read_from_the_hair_clause_in_any_order():
+    pr = "Waist-up portrait of a 30-year-old woman. Hair: tight black curls. Setting: the house kitchen"
+    assert "black hair" in C.visible_features(pr)
+    pr2 = "Waist-up portrait of a 30-year-old woman. Hair: shoulder-length waves, jet black. Setting: the house kitchen"
+    f = C.visible_features(pr2)
+    assert "jet black hair" in f and "shoulder-length hair" in f
+    assert C.visible_features("Hair: a neat low bun. Setting: x") == []
+    assert C.visible_features("a woman with short brown hair") == ["brown hair", "short brown hair"]  # older wording still parses, exactly
+    assert "short hair" in C.visible_features("a woman with short hair")
+
+
+def test_an_accessory_colour_in_the_hair_clause_is_not_the_hair_colour():
+    pr = "Waist-up portrait of a 30-year-old woman. Hair: a neat low bun tied with a red ribbon. Setting: the house kitchen"
+    assert not any("red" in f for f in C.visible_features(pr))
+    pr2 = "Waist-up portrait of a 30-year-old woman. Hair: long black waves held back with a white clip. Setting: x"
+    f = C.visible_features(pr2)
+    assert "black hair" in f and "long hair" in f and not any("white" in x for x in f)
+
+
+def test_nonbinary_has_no_wrong_presentation_verdict(env):
+    assert "never report wrong-presentation" in C.facts_block({"gender": "nonbinary"})
+    assert "never report wrong-presentation" not in C.facts_block({"gender": "woman"})
+    env.replies = [_reply(["wrong-presentation", "messy-hair"])]
+    assert _run(C.check_portrait(b"PNG", {"gender": "nonbinary"}, "u"))["problems"] == ["messy-hair"]
+    env.replies = [_reply(["wrong-presentation"])]
+    assert _run(C.check_portrait(b"PNG", {"gender": "nonbinary"}, "u")) == {"ok": True, "problems": []}
+    env.replies = [_reply(["wrong-presentation"])]
+    assert _run(C.check_portrait(b"PNG", {"gender": "woman"}, "u"))["problems"] == ["wrong-presentation"]
+
+
+def test_an_unpriced_model_ledgers_no_made_up_zero_cost(env):
+    C._record_spend("u", {"model": "an-unpriced-model", "usage": {"prompt_tokens": 100, "completion_tokens": 5}})
+    assert [e for e in ledger.get_recent("u", 50) if e["callClass"] == "portrait-check"] == []
+
+
+def test_a_forced_upgrade_check_reshoot_keeps_the_upgrade_identity_prefix(env):
+    P._write_portrait("u", "npc:1", b"OLD-FACE", "Zorvan", source="generated")
+    env.replies = [_reply(["messy-hair"]), _reply([])]
+    entry = {**_entry(), "identityPrefix": True}
+    _run(P.generate_and_store([entry], "u", record_beats=False, force_ids=["npc:1"], silent=True))
+    assert len(env.shots) == 2
+    assert env.shots[0][0].startswith(P.UPGRADE_IDENTITY_PREFIX)          # the first upgrade shot
+    assert env.shots[1][0].startswith(P.UPGRADE_IDENTITY_PREFIX)          # the fix re-shoot too (ORW-437)
+    assert "Fix in this version" in env.shots[1][0]
+
+
+def test_nonbinary_and_mustache_are_read_from_the_brief():
+    nb = "Waist-up portrait of a 30-year-old West African nonbinary person with a soft androgynous look. Hair: short dark curls. Wearing a grey hoodie."
+    assert C.facts_from_prompt(nb)["gender"] == "nonbinary" and "Stated gender presentation: nonbinary" in C.facts_block(C.facts_from_prompt(nb))
+    assert "moustache" in C.visible_features("a man with a mustache") and "moustache" in C.visible_features("a man with a moustache")

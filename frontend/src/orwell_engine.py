@@ -142,6 +142,11 @@ _REFUSED_TURN: dict = {}
 _MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "nap", "createCharacter", "noteMessage", "runCompetition"})
 
 
+def _is_structured_nap_refusal(name: str, data) -> bool:
+    """The engine answered a `nap` with ``{"ok": false, ...}``: refused, no state change."""
+    return name == "nap" and isinstance(data, dict) and data.get("ok") is False
+
+
 def _refusal_key(user) -> str:
     return user or "__anon__"
 
@@ -467,7 +472,11 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
     return data["result"]
 
 
-async def _post_tool(path: str, name: str, args: dict | None, user: str | None, timeout: float | None = None) -> dict:
+#: ORW-439: a QUIET (diagnostic) call is bounded by its own timeout; this is the default when the caller gives none.
+_QUIET_TIMEOUT_S = 2.0
+
+
+async def _post_tool(path: str, name: str, args: dict | None, user: str | None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """POST one tool call to the engine; shared by the player and admin channels.
 
     Raises :class:`EngineToolError` when the engine answers with a structured ``{"error": ...}`` body
@@ -486,6 +495,11 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
+    if quiet:
+        # ORW-439: a diagnostic read. ONE attempt, bounded by its own timeout, then raise: no retry, no restart wait, no reconnecting
+        # marker, no recorded/cleared banner error and no integrity-refusal bookkeeping - the player must never see an engine-error
+        # banner for (or lose a real error to) a call made only to explain a counter.
+        return await _post_tool_once(path, name, args, user, timeout if timeout is not None else _QUIET_TIMEOUT_S)
     # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
     # Other wider-timeout pollers keep retrying every transient kind.
     _tnum = timeout if isinstance(timeout, (int, float)) and not isinstance(timeout, bool) else None  # a structured httpx.Timeout is not comparable
@@ -511,8 +525,10 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             never_sent = isinstance(e, _NEVER_SENT_ERRORS)
             if never_sent:
                 _note_engine_unreachable()
-            elif isinstance(e, (EngineToolError, httpx.HTTPStatusError)):
-                _clear_engine_down()  # an ANSWER (a tool error, a 5xx, the restarting 503): the engine is listening
+            elif isinstance(e, EngineToolError) or (isinstance(e, httpx.HTTPStatusError) and (wait is not None or e.response.status_code not in _TRANSIENT_STATUSES)):
+                # an ANSWER (a structured tool error, the recognized restarting 503, a non-gateway status): the engine is listening. A bare gateway 502/503/504 proves only that a proxy answered
+                # (review of #2744), so it must not restart the outage clock of an established outage
+                _clear_engine_down()
             if wait is not None and never_sent and not long_waiting and _engine_down():
                 wait = None  # the outage is established: a refused connection fails fast (short retry below)
             if wait is not None:
@@ -557,7 +573,7 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
             _clear_engine_down()   # ... and the "unreachable since" stamp
-            if name in _MUTATING_OK_CLEARS:
+            if name in _MUTATING_OK_CLEARS and not _is_structured_nap_refusal(name, data):  # review of #2737: a refused nap changed nothing, so it must not clear the standing red
                 _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
 
@@ -645,7 +661,7 @@ def _note_ledger_write(user: str | None, name: str, res) -> None:
         pass
 
 
-async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
+async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
 
@@ -658,20 +674,25 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    res = None
     if name not in engine_read_cache.PURE_READS:
         engine_read_cache.invalidate(user)  # ORW-166: a possible mutation starts - nothing cached for this user may be served or joined
     if name in _DISCLOSURE_TOOLS:
         _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
         try:
-            res = await _call_inner(name, args, user=user, timeout=timeout)
+            res = await (_call_inner(name, args, user=user, timeout=timeout, quiet=True) if quiet
+                         else _call_inner(name, args, user=user, timeout=timeout))
             if name not in engine_read_cache.PURE_READS:
-                _note_ledger_write(user, name, res)  # ORW-435: the single seam every FE-owned engine write passes through
+                # Deliberate trade-off (review of #2743): a write that TIMED OUT or failed client-side is NOT counted, although the engine may have applied it. Counting it would hide a real
+                # dropped fold behind a write that never landed; not counting errs toward the louder alarm (a false `sync:dropped-fold` that the ORW-439 beatLog explanation then classifies).
+                _note_ledger_write(user, name, res)  # ORW-435: the seam every FE-owned player-channel write passes through (`_admin_call` has its own, for the admin channel)
         finally:
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
                 engine_read_cache.invalidate(user)
-                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
+                if not _is_structured_nap_refusal(name, res):  # review of #2737: a refused nap is a no-op, not a mutation (a failed/timed-out call still counts: res is None)
+                    _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
@@ -688,10 +709,12 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
         raise
 
 
-async def _call_inner(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
+async def _call_inner(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """Invoke a player-channel tool over the engine's HTTP MCP transport, for `user`'s sandbox.
     `timeout` overrides the default for latency-sensitive FRAMING calls (C18: a hung engine must
     fail a turn's framing in ~2s, not stall it for the full default)."""
+    if quiet:
+        return await _post_tool("/player/call", name, args, user, timeout=timeout, quiet=True)
     return await _post_tool("/player/call", name, args, user, timeout=timeout)
 
 
@@ -1216,6 +1239,16 @@ async def state_delta(since_beat_seq: int | None = None, user: str | None = None
     return await _call("stateDelta", args, user=user)
 
 
+async def beat_log(since_beat_seq: int, user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-439 - which engine tool caused each beatSeq bump after `since_beat_seq`.
+
+    Returns ``{ beatSeq, bumps:[{seq, tool, at}], truncated }``: tool NAMES, counter values and timestamps only (the engine's diagnostic
+    ring; in memory there, never saved). A pure read: it commits and bumps nothing. An engine without the tool raises
+    :class:`EngineToolError`; the caller decides what that means (the sync ledger leaves its alarm as it was). QUIET: one attempt, no
+    retry or restart wait, and it never records, clears or marks anything the player's health banner reads."""
+    return await _call("beatLog", {"sinceBeatSeq": int(since_beat_seq)}, user=user, timeout=timeout, quiet=True)
+
+
 async def get_visible_state(user: str | None = None) -> dict:
     """The player's own visible projection: witnessed events + things they know for certain."""
     return await _call("getVisibleStateFor", {}, user=user)
@@ -1336,7 +1369,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1346,6 +1379,10 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["expectedBeatSeq"] = expected_beat_seq
     if max_beats is not None:
         args["maxBeats"] = max_beats
+    if max_minutes is not None:  # ORW-445: the player's own stated wait length (engine hard-caps at 180)
+        args["maxMinutes"] = max_minutes
+    if until_band_end:
+        args["untilBandEnd"] = True
     return await _call("hangOut", args, user=user)
 
 
@@ -1617,9 +1654,9 @@ async def knowledge_scope_manifest(user: str | None = None):
 
 async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
     """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
-    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those two cleaned fields into the
+    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those three cleaned fields into the
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
-    narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
+    narrator's appearance string. ``look["clear"]`` (a list of those three field names) clears stale fields. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
     for k in ("wardrobe", "onCamera", "photoHair"):
         if look.get(k):
@@ -1639,7 +1676,7 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
 
 async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
-    (``recordOpenLedger``). Sends exactly ``{text, speaker, addressedTo, kind}``; the engine re-validates, derives the
+    (``recordOpenLedger``). Sends ``{text, speaker, addressedTo, kind}`` plus, when present, ``parties`` (a group pact) and ``about`` (free text); the engine re-validates, derives the
     witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
     played games only; changes no relationship number."""
     args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}
@@ -1757,7 +1794,10 @@ async def _admin_call(name: str, args: dict | None = None, user: str | None = No
     outages propagate as httpx errors, and failures feed the visible health banner."""
     engine_read_cache.invalidate(user)  # ORW-166: an admin tool may mutate (override, reset...): never serve a cached read across it
     try:
-        return await _post_tool("/admin/call", name, args, user)
+        res = await _post_tool("/admin/call", name, args, user)
+        if name not in engine_read_cache.PURE_READS:
+            _note_ledger_write(user, name, res)  # review of #2743: the admin channel is a second engine write seam; a God Mode `advanceToFinale` bumps beatSeq like any FE-owned write (the ledger's own lists decide what counts)
+        return res
     finally:
         engine_read_cache.invalidate(user)
 

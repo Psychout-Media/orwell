@@ -41,7 +41,7 @@ Feature: 0148 — the player's nap
     Given it is late afternoon, one hour before the evening
     When the player naps for 3 hours
     Then the nap ended at the start of the evening
-    And the player is still awake: only going to bed ends the day
+    And the player is still awake: only going to bed ends the night
 
   Scenario Outline: A nap is refused when it is not the player's time to sleep
     Given <situation>

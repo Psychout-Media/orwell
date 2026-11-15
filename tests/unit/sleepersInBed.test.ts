@@ -32,9 +32,21 @@ describe("sleepers belong in bedrooms; the state names who is awake", () => {
     expect(others.some((id) => !BEDS.has(s.occupancy()!.get(id)!))).toBe(true);
     s.turnIn({});
     const after = s.occupancy()!;
-    const npcRooms = [...after.entries()].filter(([id]) => id !== (me ?? "player")).map(([, r]) => r);
-    expect(npcRooms.length).toBeGreaterThan(0);
-    expect(npcRooms.every((r) => BEDS.has(r))).toBe(true);
+    // Only those STILL ASLEEP when the player wakes are seated; whoever is up keeps the evening's room.
+    const sleepers = ((s.getGameState() as { asleep?: { id: string }[] }).asleep ?? []).map((x) => x.id);
+    expect(sleepers.length, "someone is still asleep at the wake, so the assertion bites").toBeGreaterThan(0);
+    for (const id of sleepers) expect(BEDS.has(after.get(id)!), `${id} is asleep and in a bedroom`).toBe(true);
+  });
+  it("a sleeper's bed does not change when an earlier houseguest has been evicted (stable per houseguest)", () => {
+    const { s } = game();
+    s.setSleepersInBedEnabled(true);
+    const priv = s as unknown as { seatInBedrooms(ids: string[], into: Map<string, string>): void; house: { npcs: { id: string }[] } };
+    const ids = priv.house.npcs.map((n) => n.id);
+    const seat = () => { const m = new Map<string, string>(ids.map((id) => [id, "living-room"])); priv.seatInBedrooms(ids, m); return m; };
+    const before = seat();
+    (s as unknown as { live: { evictionOrder?: string[] } }).live.evictionOrder = [ids[0]!];
+    const after = seat();
+    for (const id of ids.slice(1)) expect(after.get(id), `${id} keeps its bed`).toBe(before.get(id));
   });
   it("the state carries `awake` and `asleep` as disjoint lists and never lists the player", () => {
     const { s } = game();
@@ -44,8 +56,7 @@ describe("sleepers belong in bedrooms; the state names who is awake", () => {
     const a = new Set((st.awake ?? []).map((x) => x.id)), z = new Set((st.asleep ?? []).map((x) => x.id));
     for (const id of a) expect(z.has(id)).toBe(false);
     const npcCount = s.getGameState().house.filter((h) => h.id !== (s.getGameState() as unknown as { player?: { id: string } }).player?.id).length;
-    expect(a.size + z.size, "awake and asleep together cover every arrived houseguest").toBeLessThanOrEqual(npcCount);
-    expect(a.size + z.size).toBeGreaterThan(0);
+    expect(a.size + z.size, "awake and asleep together cover every arrived houseguest").toBe(npcCount);
     expect(a.has("player")).toBe(false);
   });
 });

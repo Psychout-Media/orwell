@@ -166,3 +166,18 @@ def test_fe_report_stops_reading_at_the_cap_and_logs_nothing(client, caplog):
         r = client.post("/api/orwell/fe-report", content=padded, headers={"content-length": "10"})
     assert r.status_code == 204
     assert "ws:capped-probe" not in caplog.text, "an over-cap body must be dropped, never parsed and logged"
+
+
+def test_fe_report_client_abort_mid_read_is_204_not_500(client, monkeypatch):
+    """review of #2745: a stream error while the body is being read (the client went away mid-upload) is silence (204), never a 500, and nothing is logged as a report."""
+    from starlette.requests import ClientDisconnect, Request
+
+    async def broken_stream(self):
+        yield b'{"surface": "ws:abort-probe"'
+        raise ClientDisconnect()
+
+    monkeypatch.setattr(Request, "stream", broken_stream)
+    _clear()
+    r = client.post("/api/orwell/fe-report", content=b'{"surface": "ws:abort-probe", "errorClass": "x", "detail": "y"}')
+    assert r.status_code == 204
+    assert _overseer() == []

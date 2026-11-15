@@ -62,7 +62,7 @@ Then("every houseguest except the player gave a toast that states their name, ag
     assert.ok(b.prompt.includes(c.houseguest.name), `${sp.id}: named in their batch`);
     assert.ok(b.prompt.includes(`${c.age}, works as ${c.vocation}`), `${sp.id}: age then job`);
     assert.ok(b.prompt.includes(`from ${c.hometown}`), `${sp.id}: hometown`);
-    assert.match(b.prompt, /Voice EVERY speaker named here/, "the batch tells the narrator to voice each speaker");
+    assert.match(b.prompt, /Voice EVERY houseguest speaker named here/, "the batch tells the narrator to voice each speaker");
   }
 });
 

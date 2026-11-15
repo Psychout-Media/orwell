@@ -191,8 +191,12 @@ export interface CardTraits {
   voice?: string;
 }
 
+/** Gender-neutral labels (review of #2666) whose id kept its old name, so a saved card's id and seeded deals do not move. */
+const LABEL_TO_ID: Readonly<Record<string, string>> = { "showstopper": "diva", "distinguished-one": "silver-fox" };
+
 const idOfLabel = (label: string): string | undefined => {
   const norm = label.trim().toLowerCase().replace(/^the\s+/, "").replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
+  if (Object.hasOwn(LABEL_TO_ID, norm)) return LABEL_TO_ID[norm];
   return Object.hasOwn(CASTING_TYPE_FIT, norm) ? norm : undefined;
 };
 

@@ -29,12 +29,14 @@ def _mark_rings():
 def _tmp_ledger(tmp_path, monkeypatch):
     monkeypatch.setattr(ledger, "LEDGER_PATH", tmp_path / "orwell_sync_ledger.json")
     for d in (ledger._PENDING_STALE, ledger._LAST_BEAT_AFTER, ledger._PENDING_FE_WRITES,
-              ledger._PENDING_BELTS, ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED):
+              ledger._PENDING_BELTS, ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED,
+              ledger._IN_TURN, ledger._WINDOW_DISPATCHED):  # review of #2743: `_IN_TURN` makes the seam skip a write, so a leftover open turn from an earlier test made these order-dependent
         d.clear()
     _mark_rings()
     yield
     for d in (ledger._PENDING_STALE, ledger._LAST_BEAT_AFTER, ledger._PENDING_FE_WRITES,
-              ledger._PENDING_BELTS, ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED):
+              ledger._PENDING_BELTS, ledger._PENDING_FORCED, ledger._PARKED_BELTS, ledger._PARKED_FORCED,
+              ledger._IN_TURN, ledger._WINDOW_DISPATCHED):  # review of #2743: `_IN_TURN` makes the seam skip a write, so a leftover open turn from an earlier test made these order-dependent
         d.clear()
 
 
@@ -128,3 +130,16 @@ def test_the_casting_turn_end_hook_parks_in_the_agent_loop():
     import inspect
     src = inspect.getsource(importlib.import_module("src.agent_loop"))
     assert "park_pending_unledgered_turn(owner)" in src
+
+
+def test_an_admin_channel_write_is_counted_at_the_seam_like_a_player_write(_tmp_ledger, monkeypatch):
+    """review of #2743: `_admin_call` never reached `_call`, so a God Mode `advanceToFinale` (a beatSeq bump) between turns read as a dropped fold. Levers the ledger classes as non-bumping still count nothing."""
+    async def post(path, name, args, user, timeout=None, *, quiet=False):
+        return {"ok": True}
+
+    monkeypatch.setattr(orwell_engine, "_post_tool", post)
+    _run(orwell_engine.advance_to_finale(user="player"))
+    assert ledger._PENDING_FE_WRITES.get("player") == 1
+    _run(orwell_engine.override_mechanic("x", 1, user="player"))   # classified non-bumping: not counted
+    _run(orwell_engine.inspect_non_vault_state(user="player"))      # a read: not counted
+    assert ledger._PENDING_FE_WRITES.get("player") == 1

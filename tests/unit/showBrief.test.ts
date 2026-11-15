@@ -83,6 +83,24 @@ describe("buildShowBrief: golden text (fixed order, engine truth, explicit absen
     golden("changed-since-last-turn", b.text);
   });
 
+  it("zero clocks (ORW-377): a view with clockBand and no clockLabel gets the band NOW line, a band-only change line, and stores the band", () => {
+    const bandView = (band: string) => view({ room: "living-room", turnsHere: 2 }, { clockLabel: undefined, clockBand: band } as Partial<GameStateView>);
+    const first = buildShowBrief(bandView("morning, Day 1"))!;
+    expect(first.text).toContain("It is morning, Day 1 (the house has no clocks: name the part of the day, never a clock time).");
+    expect(first.text).not.toMatch(/\d{1,2}:\d{2}/);
+    expect(first.seen.clock, "the band is what is stored for the next brief").toBe("morning, Day 1");
+    // same band: no change line
+    expect(buildShowBrief(bandView("morning, Day 1"), { seen: first.seen })!.text).not.toContain("Part of the day:");
+    // the band moved: the new band only
+    const moved = buildShowBrief(bandView("afternoon, Day 1"), { seen: first.seen })!;
+    expect(moved.text).toContain("- Part of the day: now afternoon, Day 1.");
+    expect(moved.seen.clock).toBe("afternoon, Day 1");
+    // the stored value was a RAW clock (a save from before zero clocks): the old raw time is never echoed back
+    const fromRaw = buildShowBrief(bandView("afternoon, Day 1"), { seen: buildShowBrief(livingRoom())!.seen })!;
+    expect(fromRaw.text).toContain("- Part of the day: now afternoon, Day 1.");
+    expect(fromRaw.text).not.toContain("10:25am");
+  });
+
   it("the player moved into a closed room: nothing in view, everyone else out of view", () => {
     const first = buildShowBrief(livingRoom())!;
     const b = buildShowBrief(view({ room: "bedroom-a", turnsHere: 0 }), { seen: first.seen })!;

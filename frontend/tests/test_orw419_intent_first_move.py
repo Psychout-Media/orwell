@@ -21,7 +21,7 @@ class _Engine:
 
 
 def run(coro):
-    return asyncio.new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)  # closes its loop (review of #2724)
 
 
 def test_returns_the_engines_move_and_keys_the_call_by_message_id():

@@ -18,13 +18,14 @@ import type {
   WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
-  StateDeltaView, DeltaEventView,
+  StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
   BehavioralFlags,
   BeatAnnouncementView,
   NotorietyLegendView,
 } from "../../ports/GameSession";
 import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
+import { currentBeatCause } from "../../ports/BeatCause";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
 import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./humanize";
 import { singlePickId } from "./decisionFields";
@@ -36,7 +37,7 @@ import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTe
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
-import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent, dueTomorrow, finalHohPartOf } from "../../engine/daySchedule";
+import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, hoursUntilDue, beatFeltHours, todaysEvent, dueTomorrow, finalHohPartOf } from "../../engine/daySchedule";
 /** ORW-262: an eviction night / finale reveals over ~5 steps; its ~2h budget is spread across them for a played game. */
 const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
@@ -219,7 +220,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -802,9 +803,9 @@ const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
  * outcome-neutral by construction — which is exactly why it ships behind its own flag, gated by the
  * calibration heavy-sims (juryReach / gradient / UAT run ON) rather than an on/off SHA256 identity.
  *
- * WITH IT UNSET (the default), `scheduleStoryThreads` never re-orders (it iterates the unchanged derive
- * order) ⇒ the seeded `juryReach`/gradient/UAT spine is BYTE-IDENTICAL to today AND to Phase-1 (proven by
- * `showrunnerReweight.test.ts`'s off-vs-today SHA256, on top of the still-green `showrunnerOutcomeNeutral`).
+ * WITH IT DISABLED (`ORWELL_SHOWRUNNER_REWEIGHT=0`/`false`/`off`; unset now means ON), `scheduleStoryThreads` never re-orders (it iterates the unchanged derive
+ * order) ⇒ the seeded `juryReach`/gradient/UAT spine is BYTE-IDENTICAL to the pre-reweight model AND to Phase-1 (proven by
+ * `showrunnerReweight.test.ts`'s off-vs-today SHA256, on top of the still-green `showrunnerOutcomeNeutral`). That byte-identical claim holds ONLY while it is disabled.
  * The reweight IMPLIES note composition (you cannot re-weight without a note): when ON it composes notes
  * itself, so `ORWELL_SHOWRUNNER_REWEIGHT=1` alone yields the full arc-pacing showrunner. Read once at
  * module load (like the sibling flags), with a PROCESS-GLOBAL static override (mirroring `secretPacing` /
@@ -2044,6 +2045,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
+      this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
       this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)
       // BEFORE the deferred `onPersist` above ran, so `out.beatSeq` was captured PRE-commit-funnel:
@@ -2085,7 +2087,48 @@ export class GameSessionAdapter implements GameSession {
    */
   bumpBeatSeq(): void {
     this.beatSeq++;
+    // ORW-439 - DIAGNOSTIC ONLY: name the tool whose call caused this bump (tool name, counter value, timestamp - nothing else).
+    // In memory, never persisted, never read by game logic; it cannot change the counter, the snapshot or any result.
+    this.beatLogRing.push({ seq: this.beatSeq, tool: currentBeatCause(), at: Date.now() });
+    if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) {
+      // Review of #2757: remember the few just-evicted entries so a restore that rolls this very bump back can still give them back.
+      this.beatLogEvicted.push(...this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP));
+      if (this.beatLogEvicted.length > GameSessionAdapter.BEAT_LOG_SPILL) this.beatLogEvicted.splice(0, this.beatLogEvicted.length - GameSessionAdapter.BEAT_LOG_SPILL);
+    }
     this.captureBeatCheckpoint();
+  }
+
+  /** ORW-439 - the last BEAT_LOG_CAP bumps, oldest first. In-memory diagnostic; copies, so a caller cannot edit the ring. */
+  private static readonly BEAT_LOG_CAP = 64;
+  private beatLogRing: BeatBumpEntry[] = [];
+  private static readonly BEAT_LOG_SPILL = 16;
+  private beatLogEvicted: BeatBumpEntry[] = [];
+
+  /**
+   * ORW-439 - which tool caused each beat bump after `sinceBeatSeq`. A pure read: no commit, no bump, no save, no read-cache change.
+   * `truncated` is true when the ring cannot account for every bump in (since, current] (it holds only the last 64, and a resumed
+   * session starts with an empty ring), so a caller never mistakes a partial list for a complete one.
+   */
+  beatLog(sinceBeatSeq: number): BeatLogView {
+    const since = Number.isFinite(sinceBeatSeq) ? Math.max(0, Math.floor(sinceBeatSeq)) : 0;
+    const bumps = this.beatLogRing.filter((b) => b.seq > since).map((b) => ({ seq: b.seq, tool: b.tool, at: b.at }));
+    const expected = Math.max(0, this.beatSeq - since);
+    return { beatSeq: this.beatSeq, bumps, truncated: bumps.length < expected };
+  }
+
+  /** ORW-439 - the ring's entries (the registry carries them across a restore). */
+  beatLogEntries(): readonly BeatBumpEntry[] {
+    return [...this.beatLogEvicted, ...this.beatLogRing].map((b) => ({ ...b }));
+  }
+
+  /**
+   * ORW-439 - carry the pre-restore ring onto the rebuilt session, keeping only bumps at or below the restored counter: a
+   * refused commit's bump was rolled back with the counter, so the log must not still claim it.
+   */
+  adoptBeatLog(entries: readonly BeatBumpEntry[]): void {
+    this.beatLogRing = entries.filter((b) => b.seq <= this.beatSeq).map((b) => ({ ...b }));
+    this.beatLogEvicted = [];
+    if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP);
   }
 
   /**
@@ -3317,11 +3360,17 @@ export class GameSessionAdapter implements GameSession {
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
       const photoHair = cleanPhotoHair(rawPhotoHair);
+      // ORW-437: a write-back that omits an optional look field keeps the one already stored (the whole facet is replaced
+      // below, so without this a later profile would silently erase it); removal goes through recordLookExtras `clear`.
+      const prior = target.character.physicalCharacteristics as (PhysicalCharacteristics & { wardrobe?: string[]; onCamera?: string; photoHair?: string }) | undefined;
+      const keepWardrobe = wardrobe === undefined && prior?.wardrobe !== undefined ? prior.wardrobe : wardrobe;
+      const keepOnCamera = onCamera === undefined && prior?.onCamera !== undefined ? prior.onCamera : onCamera;
+      const keepPhotoHair = photoHair === undefined && prior?.photoHair !== undefined ? prior.photoHair : photoHair;
       req = {
         ...req,
         physicalCharacteristics: {
-          ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
-          ...(photoHair !== undefined ? { photoHair } : {}),
+          ...rest, ...(keepWardrobe !== undefined ? { wardrobe: keepWardrobe } : {}), ...(keepOnCamera !== undefined ? { onCamera: keepOnCamera } : {}),
+          ...(keepPhotoHair !== undefined ? { photoHair: keepPhotoHair } : {}),
         },
       };
     }
@@ -3411,7 +3460,7 @@ export class GameSessionAdapter implements GameSession {
       const collides = name.toLowerCase() === ctx.playerName.toLowerCase()
         || ctx.npcs.some((n) => n.id !== target.id && (n.name ?? "").trim().toLowerCase() === name.toLowerCase());
       if (isReasonableName(name) && !collides) {
-        target.name = name;
+        this.renameHouseguest(target, name); // ORW-437: the public prose written around the old given name follows the new one (a later biography field still overwrites it)
         publicFields.push("name");
       }
     }
@@ -3449,12 +3498,17 @@ export class GameSessionAdapter implements GameSession {
     );
     if (req.biography !== undefined && !facetGuard.dropBiography) {
       target.character.biography = req.biography;
+      delete target.character.biographyDraft; // ORW-438: the writer's biography replaces genesis's draft
       publicFields.push("biography");
     }
-    // ORW-388: the repaired identity concept replaces the stored one only (never creates one), single line, capped.
-    if (typeof req.identityConcept === "string" && target.character.identityConcept !== undefined) {
-      const repaired = req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300);
-      if (repaired.length > 0 && repaired !== target.character.identityConcept) {
+    // ORW-388 / ORW-431b: the writer's identity concept becomes the card's identity: it replaces a stored one, and fills a card whose genesis
+    // draft was dropped (genesis strips an identity that repeats a hidden element), since the writer runs after every pin and the gate has
+    // checked it. Same guards either way: one line, capped at 300, public text only, refused whole above when it names the player.
+    // "identityConcept" is listed in publicFields whenever the card now HOLDS the writer's text (new, replaced or already equal), so the front
+    // end can verify what the engine stored instead of assuming it.
+    if (typeof req.identityConcept === "string") {
+      const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
+      if (repaired.length > 0) {
         target.character.identityConcept = repaired;
         publicFields.push("identityConcept");
       }
@@ -3684,7 +3738,8 @@ export class GameSessionAdapter implements GameSession {
       // off the name and leave the portrait rendering the name's gender). The given-name token is swapped to
       // the final presentation, surname kept, so name + portrait + narration read the same gender. (The
       // display name lives on the Houseguest wrapper — `n.name` — not on the static Character.)
-      if (pub.name !== undefined) this.renameHouseguest(n, pub.name);
+      // ORW-437: the same name freeze `recordCastProfile` applies: a name the player has been told never changes on a live fold.
+      if (pub.name !== undefined && !this.introducedNames.has(n.id)) this.renameHouseguest(n, pub.name);
       if (proposed[n.id]) applied++;
     }
 
@@ -3780,7 +3835,7 @@ export class GameSessionAdapter implements GameSession {
       const target = cast.npcs.find((n) => n.id === c.id);
       if (!target) continue;
       let touched = false;
-      if (c.name !== undefined) { target.name = c.name; touched = true; }
+      if (c.name !== undefined) { this.renameHouseguest(target, c.name); touched = true; } // ORW-437: a name-only update carries into the floor prose
       if (c.identityConcept !== undefined) { target.character.identityConcept = c.identityConcept; touched = true; }
       if (c.archetype !== undefined) { target.character.archetype = c.archetype; touched = true; }
       if (c.stats !== undefined) { target.character.stats = { ...c.stats }; touched = true; }
@@ -3792,7 +3847,7 @@ export class GameSessionAdapter implements GameSession {
       // Authoring the biography over the floor placeholder is the same season-start UPGRADE as
       // recordCastProfile (#1067): mark the provenance so the 0031 superset check reads it as an
       // accretion, not degradation, once the cast goes live.
-      if (c.biography !== undefined) { target.character.biography = c.biography; target.character.deepProfileAuthored = true; touched = true; }
+      if (c.biography !== undefined) { target.character.biography = c.biography; target.character.deepProfileAuthored = true; target.character.biographyDraft = true; touched = true; }
       if (c.presentation !== undefined) { target.character.presentation = c.presentation; touched = true; }
       if (c.appearance !== undefined) { target.character.appearance = c.appearance; touched = true; }
       if (touched) committed++;
@@ -4798,6 +4853,7 @@ export class GameSessionAdapter implements GameSession {
     const ol = restoreOpenLedger(core.openLedger);
     this.openLedger = ol.ledger;
     this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
+    if (ol.problems > 0) console.warn(`[orwell] open ledger loaded with ${ol.problems} problem(s), kept exactly as saved`); // counts only, never a recorded word
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];
@@ -4807,6 +4863,7 @@ export class GameSessionAdapter implements GameSession {
    * Rebuild the (derived) soul recall index from the persisted arc after a restore (0030/0041). The
    * AUTHORITATIVE arc lives in each houseguest's `soul.memory`/`emotionalHistory` (persisted
    * losslessly with the house); the vector index is re-derived so `recall` keeps working post-restart.
+   * The `resume.indexRebuild` stall entry covers the synchronous enqueue only; the embedding work it queues finishes later and is attributed to `embed.call`.
    */
   private rebuildSoulIndex(): void {
     if (!this.house || !this.soul) return;
@@ -4815,7 +4872,8 @@ export class GameSessionAdapter implements GameSession {
     for (const hg of [this.house.player, ...this.house.npcs]) {
       for (const note of hg.soul.memory) { this.soul.recordToSoul(hg.id, note); notes++; }
     }
-    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes });
+    // This times only the synchronous ENQUEUE of the notes; the embeddings drain after it, asynchronously, and are timed as `embed.call`. `enqueueOnly` says so, so /health does not read it as the whole rebuild.
+    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes, enqueueOnly: 1 });
   }
 
   /** Engine/loop-internal: record the public ceremony facts the status panel projects. */
@@ -4864,7 +4922,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -5370,6 +5428,12 @@ export class GameSessionAdapter implements GameSession {
     return overlay;
   }
 
+  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
+  foldWindowKey(): string | null {
+    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
+    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
+  }
+
   /**
    * The houseguests still AWAKE right now (ADR 0006 — the diegetic bound, the SOCIAL half of the sleep
    * economy). When the clock is running, anyone past their character-driven bedtime has turned in for
@@ -5381,12 +5445,6 @@ export class GameSessionAdapter implements GameSession {
    * reads no soul/Vault number.
    */
   /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
-  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
-  foldWindowKey(): string | null {
-    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
-    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
-  }
-
   awakeIds(): ReadonlySet<EntityId> | null {
     return this.awakeNow();
   }
@@ -5513,12 +5571,6 @@ export class GameSessionAdapter implements GameSession {
     if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === (this.live?.wakeHour ?? WAKE_HOUR)) this.nightConflicts.clear();
   }
 
-  /**
-   * The living houseguests who have TURNED IN for the night (ADR 0006) — the complement of the awake set
-   * among the NPCs. Vault-free and OBSERVABLE (you'd see who's no longer around / an empty bed); the
-   * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
-   * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
-   */
   /** ORW-383 - the houseguests who are UP and available now (day or night): the arrived, active NPCs in the awake set. Vault-free; `undefined` when the clock is off. */
   private awakeNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
@@ -5529,17 +5581,18 @@ export class GameSessionAdapter implements GameSession {
       .map((id) => ({ id, name: this.nameOf(id) }));
   }
 
-  /**
-   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
-   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom.
-   */
   /** ORW-383: OFF by default. Seating the asleep in bedrooms at wake clumps the house into three rooms and moves the seeded house-life mix about 4 points (bonding 44.9 -> 41.0 on the mix guard's seeds), which is the owner's agreed mix to re-agree, not mine; so it waits for that call. */
   private sleepersInBedEnabled = process.env.ORWELL_SLEEPERS_IN_BED === "1";
   setSleepersInBedEnabled(on: boolean): void { this.sleepersInBedEnabled = on; }
+  /**
+   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
+   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom. Called ONLY from `turnIn` (the player's own wake); the bitter-end clock wrap and `crossToNextDay` do not seat anyone (review of #2678: left for Ryne on ORW-437, the flag is still off pending the mix re-agreement).
+   */
   private seatInBedrooms(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
     if (!into || !this.sleepersInBedEnabled) return;
     const beds: Room[] = ["bedroom-a", "bedroom-b", "bedroom-c"];
-    const order = this.presenceActive();
+    // Index in the cast roster (it never shrinks), not the living roster: an eviction must not shift anyone else's bed.
+    const order = this.house ? this.house.npcs.map((n) => n.id) : this.presenceActive();
     for (const id of ids) {
       if (id === PLAYER || !into.has(id)) continue;
       const room = beds[Math.max(0, order.indexOf(id)) % beds.length]!;
@@ -5547,6 +5600,12 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /**
+   * The living houseguests who have TURNED IN for the night (ADR 0006) — the complement of the awake set
+   * among the NPCs. Vault-free and OBSERVABLE (you'd see who's no longer around / an empty bed); the
+   * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
+   * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
+   */
   private asleepNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
@@ -5750,7 +5809,8 @@ export class GameSessionAdapter implements GameSession {
         nearby: [],                       // no side rooms during a whole-house event
         turnsHere: this.presenceTenure?.get(me) ?? 0,
         companions: others.map((id) => ({ ...named(id), turnsHere: 0 })),
-        counts: this.headCounts(others.length),
+        // The player is counted in `room`/`house`: until their own entrance is staged they are not in the room, so publish no headcount then.
+        ...(notHere?.has(me) ? {} : { counts: this.headCounts(others.length) }),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
       };
@@ -6193,8 +6253,9 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      // ORW-368: `toastRemaining` ("N more after this batch") exists only once a batch has been released; before the first one there is no "this batch" to count from.
       // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
-      ...(pe.stage === "toast" ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
+      ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
       ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
     };
   }
@@ -6425,6 +6486,8 @@ export class GameSessionAdapter implements GameSession {
               facialFeatures: c.physicalCharacteristics.facialFeatures,
               hair: c.physicalCharacteristics.hair,
               heightBuild: c.physicalCharacteristics.heightBuild,
+              photoHair: (c.physicalCharacteristics as { photoHair?: string }).photoHair,
+              onCamera: (c.physicalCharacteristics as { onCamera?: string }).onCamera,
             },
           }
           : {}),
@@ -6513,6 +6576,12 @@ export class GameSessionAdapter implements GameSession {
           break;
         case "physicalCharacteristics.heightBuild":
           if (c.physicalCharacteristics) c.physicalCharacteristics.heightBuild = "";
+          break;
+        case "physicalCharacteristics.photoHair":
+          if (c.physicalCharacteristics) delete (c.physicalCharacteristics as { photoHair?: string }).photoHair;
+          break;
+        case "physicalCharacteristics.onCamera":
+          if (c.physicalCharacteristics) delete (c.physicalCharacteristics as { onCamera?: string }).onCamera;
           break;
         default: break; // an unknown/`genderPresentation` label is never cleared (spine preserved)
       }
@@ -6986,6 +7055,7 @@ export class GameSessionAdapter implements GameSession {
       // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
       // target the still-floor cards.
       ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.biographyDraft === true ? { biographyDraft: true } : {}),
       ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
       // I6 distinct-voices fix: the SAFE rendered voice-fingerprint clause (0084) the live `view()`
       // mapping now carries — keeps this pre-warm/portrait shape in sync with the live roster card
@@ -7407,7 +7477,7 @@ export class GameSessionAdapter implements GameSession {
     const prior = n.name;
     n.name = next;
     const c = n.character;
-    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation"] as const) {
+    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation", "demeanor"] as const) {
       const v = c[k];
       if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
@@ -7474,6 +7544,7 @@ export class GameSessionAdapter implements GameSession {
       const pub = layer.public[n.id];
       if (!pub) continue;
       n.character.biography = pub.biography;
+      delete n.character.biographyDraft; // ORW-438: the seeded floor biography replaces any draft
       n.character.physicalCharacteristics = pub.physicalCharacteristics;
       n.character.castingType = { id: pub.castingType.id, label: pub.castingType.label, read: pub.castingType.read }; // ORW-381
       // 0063: GROUND the skin tone from the houseguest's ethnicity identity facet, so the structured
@@ -8908,6 +8979,8 @@ export class GameSessionAdapter implements GameSession {
   consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
   /** 0148: in-game hours the player's last nap slept, read-and-cleared by the orchestrator so the house lives them (unseen) on its existing per-turn off-screen machinery. */
   consumeNapHours(): number { const h = this.napPendingHours; this.napPendingHours = 0; if (h > 0) this.napAsleep = true; return h; }
+  /** 0148: a nap tick rolled the sandbox back to a fresh session mid-nap: mark the player asleep again for the remaining ticks (the flag is memory-only). */
+  resumeNapTicks(): void { this.napAsleep = true; }
   /** 0148: the orchestrator has lived the nap's hours - the player is awake again for every later read. */
   endNapTicks(): void { this.napAsleep = false; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
@@ -9160,11 +9233,13 @@ export class GameSessionAdapter implements GameSession {
     // A8: an NPC whose desire clock has crossed its threshold CUTS INTO the conversation (shown for exactly the next framing). Flag off => nothing written.
     if (this.desireClockEnabled && this.house) {
       delete this.live.interruption; // the previous one was already shown
+      delete this.live.approachHeld; // ORW-443: per-turn
       const evicted = new Set(this.live.evictionOrder ?? []);
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
       if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (hit.capped && this.live.playedGame === true) this.live.approachHeld = true; // ORW-443: narration-only - the view tells the narrator nobody new steps up this turn
         if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
           const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
@@ -11773,13 +11848,17 @@ export class GameSessionAdapter implements GameSession {
       };
       const started = firstCeremonyBeatResolved(live);
       const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
+      // ORW-445: the player's own stated wait (FE-parsed from their words) => a minutes target; "the rest of the <band>" => the next part-of-day edge. The smaller wins; none => unchanged.
+      let statedMinutes: number | null = typeof req.maxMinutes === "number" && Number.isFinite(req.maxMinutes) && req.maxMinutes > 0 ? req.maxMinutes : null;
+      if (req.untilBandEnd === true) {
+        const nowH = live.nightDepth ?? WAKE_HOUR;
+        const edge = [CLOCK.phaseStartsHour.afternoon, CLOCK.phaseStartsHour.evening, CLOCK.phaseStartsHour.night, CLOCK.phaseStartsHour.lateNight].find((e) => e > nowH + 1e-6);
+        if (edge !== undefined) { const m = Math.max(5, Math.round((edge - nowH) * 60)); statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
+      }
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
-        hoursUntilEvent: () => {
-          const mins = minutesUntilDue(live);
-          return mins === null ? null : mins / 60;
-        },
+        hoursUntilEvent: () => hoursUntilDue(live), // exact hours: the minute-rounded value could overshoot the event by up to a minute
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
         bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
@@ -11826,7 +11905,10 @@ export class GameSessionAdapter implements GameSession {
           this.onPlayerEvent?.(what, [PLAYER, ...uniq], kind === "someone-moved" ? "house-event" : "conversation");
           return { kind, who: uniq.map((id) => this.nameOf(id)) };
         },
-      }, rng, req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {});
+      }, rng, {
+        ...(req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {}),
+        ...(statedMinutes !== null ? { maxMinutes: statedMinutes } : {}),
+      });
       const hour = live.nightDepth ?? WAKE_HOUR;
       const stopLine = hangOutStopLine(result);
       // ORW-22: the stops that had no witnessed record (approach / pulled / bedtime) get one - public and content-free, so the player-visible record shows EVERY stop (observed records itself in its probe; event-due is the ceremony's own record).
@@ -11908,7 +11990,9 @@ export class GameSessionAdapter implements GameSession {
       let slept = 0;
       let wokenBy: "event" | "evening" | undefined;
       while (slept + 1e-9 < want) {
-        const step = Math.min(NAP.clockStepHours, want - slept);
+        // Clamp the step to the exact time left before a scheduled event (same night-gate rule as milestoneDue), so the wake lands ON the dot and no time past it counts as slept.
+        const untilEvent = hoursUntilDue(live);
+        const step = Math.min(NAP.clockStepHours, want - slept, untilEvent !== null && untilEvent > 1e-9 ? untilEvent : Infinity);
         advanceClockPerMessage(live, step);
         slept += step;
         if (milestoneDueOf(live) && (live.nightDepth ?? 0) < eveningStart - 1e-6) { wokenBy = "event"; break; } // an evening milestone is also the evening cut: that wake is "evening", never "event"
@@ -14705,7 +14789,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never)) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -15461,7 +15545,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.playerMove ? { playerMove: { ...this.playerMove } as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
       ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1), dayNumber: this.live.dayNumber ?? 1 } : {}), // P0: the exact clock the narrator must use; ORW-345: + the day number the FE stamps on each saved row
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
@@ -15544,6 +15628,7 @@ export class GameSessionAdapter implements GameSession {
         // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
         // target the still-floor cards.
         ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.biographyDraft === true ? { biographyDraft: true } : {}),
         ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
         // I6 distinct-voices fix (NARR-15/PROMPT-2): a COMPACT, player-surface-SAFE voice-fingerprint
         // clause (0084), rendered from the controlled voice DIAL vocab only (register/rhythm/energy/
@@ -15580,6 +15665,7 @@ export class GameSessionAdapter implements GameSession {
       // 0118: the telegraphed day schedule (present only when the per-conversation clock is live).
       ...(daySchedule ? { daySchedule } : {}),
       ...(this.desireClockEnabled && this.live?.interruption ? { interruption: { npc: this.nameOf(this.live.interruption.npc), desire: this.live.interruption.desire, ...(this.live.interruption.tells ? { tells: this.live.interruption.tells } : {}) } } : {}), // A8: an NPC is cutting into the conversation (names only)
+      ...(this.desireClockEnabled && this.live?.approachHeld ? { approachHeld: true as const } : {}), // ORW-443: the #2736 cap withheld an approach this turn (Vault-free boolean)
     };
   }
 

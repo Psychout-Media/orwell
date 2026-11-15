@@ -225,9 +225,9 @@ def test_stale_genesis_identity_without_a_writer_one_is_mended_by_name():
     prof = {"biography": CARDS["Thomas Sizemore"]["biography"].replace("Thomas", "Samir")}
     assert any(c.startswith("identity-") for c in gate.card_codes(prof, npc, [npc]))
     n, w, _ = _go(run([npc], lambda h, i: profile_json(prof["biography"])))
-    if n:
-        assert "Nia" not in w["npc:5"].get("identityConcept", "Samir") and not any(
-            c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
+    assert n == 1  # ORW-437: the card is written (a refusal must not let this test pass without checking the mend)
+    assert "Nia" not in w["npc:5"].get("identityConcept", "") and not any(
+        c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
 
 
 # ---- the worst case: one card never gets onCamera and never gets a biography --------------------------------
@@ -320,3 +320,143 @@ def test_none_notable_is_not_a_repeated_mark():
         n["physicalCharacteristics"]["distinguishingMark"] = "none notable beyond a faint scar"
         g.accept(n["id"], {}, n, cast)
     assert "rep-mark" not in g.codes
+
+
+# ---- ORW-437 review: a nickname is a shortening, never a longer different name ----------------------------
+# (opaque tokens, not real names: the rule under test is about letters, not about who is cast)
+def test_longer_distinct_name_is_not_a_nickname():
+    npc = {"id": "npc:1", "name": "Zorvan Qell"}
+    bio = "Zorvana grew up in Macon. Zorvana fixes boats. Zorvana dislikes noise."
+    assert "story-name" in ca.story_name_codes(bio, npc)
+
+
+def test_shortening_is_a_nickname_unless_it_is_another_cast_first_name():
+    npc = {"id": "npc:1", "name": "Zorvan Qell"}
+    bio = "Zor grew up in Macon. Zor fixes boats. Zor dislikes noise."
+    assert ca.story_name_codes(bio, npc) == []
+    other = [npc, {"id": "npc:2", "name": "Zor Wick"}]
+    assert "story-cast-name" in ca.story_name_codes(bio, npc, other)
+    assert ca.repair_story_name(bio, npc, other) == "Zorvan grew up in Macon. Zorvan fixes boats. Zorvan dislikes noise."
+
+
+# ---- ORW-437 review of #2731 --------------------------------------------------------------------------------
+def test_spelled_out_and_numeric_year_counts_agree():
+    from src import orwell_cast_gate as G
+    assert G.background_codes({"background": "ran a kitchen for eight years", "biography": "He spent 8 years on the line."}) == []
+    assert G.background_codes({"background": "ran a kitchen for eight years", "biography": "He spent 9 years on the line."}) == ["background-years"]
+
+
+def test_hyphenated_compound_year_counts_are_read_whole():
+    from src import orwell_cast_gate as G
+    assert G._year_counts("thirty-five years and twenty-one years and 8 years and ninety years") == {"35", "21", "8", "90"}
+    assert G.background_codes({"background": "ran a kitchen for thirty-five years", "biography": "He spent 35 years on the line."}) == []
+    assert G.background_codes({"background": "ran a kitchen for thirty-five years", "biography": "He spent five years on the line."}) == ["background-years"]
+
+
+def test_oversize_or_many_sentence_biography_is_reported_non_blocking():
+    from src import orwell_cast_gate as G
+    base = {"id": "npc:1", "name": "Samir Nesbitt", "genderPresentation": "man", "age": 23, "identityConcept": "a quiet welder who reads a room first",
+            "physicalCharacteristics": dict(LOOK), "voice": dict(VOICE)}
+    four = "Samir grew up in Macon. He welds. He reads a room. He keeps lists."
+    assert "bio-format" in G.card_codes({"biography": four}, base)
+    assert "bio-format" in G.card_codes({"biography": "Samir " + "welds well. " * 80}, base)
+    assert not G.is_blocking("bio-format")
+    assert "bio-format" not in G.card_codes({"biography": "Samir grew up in Macon and welds. He reads a room before he speaks."}, base)
+
+
+def test_a_rewrite_keeps_the_first_drafts_look_subfields_it_omitted():
+    from src import orwell_cast_gate as G
+    npc = npc_of("npc:1", "Zorvan Qell", "man", 23)
+    first = json.loads(profile_json("x"))
+    del first["biography"]  # a blocking draft the mend cannot repair, so the gate must call the rewrite
+    calls = []
+
+    async def rewrite(_n, codes):
+        calls.append(codes)
+        return {"biography": "Zorvan grew up in Macon and welds boats. He keeps lists of everything and never sleeps.",
+                "physicalCharacteristics": {"hair": "short"}}
+    got, left = _go(G.run_gate(G.SeasonGate("u"), first, npc, [npc], rewrite))
+    assert len(calls) == 1 and "story-no-biography" in calls[0]
+    assert got is not None and got["physicalCharacteristics"].get("wardrobe") == LOOK["wardrobe"]
+    assert got["physicalCharacteristics"]["hair"] == "short" and got["biography"].startswith("Zorvan grew up")
+
+# ---- ORW-431b: an authored card never has an empty identity line --------------------------------------------
+class _Engine:
+    """A stub engine that mirrors the real write-back: it stores the writer's identity only when `keep_identity`, and reports
+    "identityConcept" in publicFields only when the card holds it. `stored` is what the card shows afterwards."""
+    def __init__(self, keep_identity=True, keep_for=None):
+        self.stored, self.writes, self.keep, self.keep_for = {}, {}, keep_identity, keep_for
+
+    async def write(self, profile):
+        hid = profile["houseguestId"]
+        self.writes[hid] = self.writes.get(hid, 0) + 1
+        fields = ["biography"]
+        if profile.get("identityConcept") and (self.keep if self.keep_for is None else hid in self.keep_for):
+            self.stored[hid] = profile["identityConcept"]
+            fields.append("identityConcept")
+        return {"accepted": True, "publicFields": fields, "hiddenFields": []}
+
+
+def _blank_cast():
+    cast = [npc_of("npc:5", "Samir Nesbitt", "man", 23), npc_of("npc:6", "Thomas Sizemore", "man", 41)]
+    for n in cast:
+        n["identityConcept"] = ""  # genesis dropped the draft (it repeated a hidden element)
+    return cast
+
+
+async def _run_engine(cast, engine):
+    async def llm(messages):
+        hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+        bio = CARDS[n_name(hid, cast)]["biography"]
+        return profile_json(bio, identityConcept=f"A dependable {n_name(hid, cast).split()[0]}-sized presence who keeps the house steady.")
+    return await ca.author_cast(cast, llm, engine.write, user="t431b")
+
+
+def n_name(hid, cast):
+    return next(n["name"] for n in cast if n["id"] == hid)
+
+
+def test_writer_identity_reaches_cards_whose_genesis_identity_is_empty():
+    cast, eng = _blank_cast(), _Engine()
+    assert _go(_run_engine(cast, eng)) == 2
+    assert set(eng.stored) == {"npc:5", "npc:6"} and all(v.strip() for v in eng.stored.values())
+
+
+def test_a_dropped_identity_is_blocking_and_the_card_is_left_not_authored():
+    cast, eng = _blank_cast(), _Engine(keep_identity=False)
+    done = []
+    assert _go(run_with_cb(cast, eng, done)) == 0
+    assert done == [] and eng.writes["npc:5"] == 1 + gate.GATE_REWRITE_BOUND
+
+
+async def run_with_cb(cast, eng, done):
+    async def llm(messages):
+        hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+        return profile_json(CARDS[n_name(hid, cast)]["biography"], identityConcept="A dependable presence who keeps the house steady.")
+    return await ca.author_cast(cast, llm, eng.write, user="t431b", on_authored=done.append)
+
+
+def test_identity_dropped_once_is_retried_then_accepted():
+    cast = _blank_cast()
+    eng = _Engine()
+    seen = {"n": 0}
+    orig = eng.write
+
+    async def flaky(profile):
+        seen["n"] += 1
+        if seen["n"] == 1:
+            return {"accepted": True, "publicFields": ["biography"], "hiddenFields": []}
+        return await orig(profile)
+    done = []
+
+    async def llm(messages):
+        hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+        return profile_json(CARDS[n_name(hid, cast)]["biography"], identityConcept="A dependable presence who keeps the house steady.")
+    assert _go(ca.author_cast(cast[:1], llm, flaky, user="t431b", on_authored=done.append)) == 1
+    assert done == ["npc:5"] and eng.stored["npc:5"]
+
+
+def test_a_stub_reply_without_publicfields_is_not_read_as_a_drop():
+    assert not ca._identity_dropped({"identityConcept": "A line that is long enough."}, {"accepted": True})
+    assert ca._identity_dropped({"identityConcept": "A line that is long enough."}, {"accepted": True, "publicFields": []})
+    assert not ca._identity_dropped({"biography": "x"}, {"accepted": True, "publicFields": []})

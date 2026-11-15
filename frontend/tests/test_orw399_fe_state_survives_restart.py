@@ -91,11 +91,66 @@ def test_an_anonymous_owner_key_round_trips():
 
 
 def test_truncate_discard_then_restart_does_not_resurrect_the_fold(monkeypatch):
-    _stage()
+    """Driven through the REAL truncate route (review of #2671): the route's own save after the discard is what keeps the fold from coming back, so the restart
+    below restores from the disk WITHOUT an implicit save first. Remove the route's `save_now` and this fails."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes import history_routes
+
+    class _Mgr:
+        def truncate_messages(self, sid, keep):
+            return True
+
+    monkeypatch.setattr(history_routes, "_verify_session_owner", lambda *a, **k: None)
+    monkeypatch.setattr("src.auth_helpers.effective_user", lambda request: _P)
     monkeypatch.setattr(fl, "_resolve_positions_for_ids", lambda sid, ids: {i: 5 for i in ids})
-    assert fl.discard_pending_fold(_P, _SID, 2) == 1  # anchored past keep_count: discarded
-    assert _restart() == 0
+    _stage()
+    bsp.save_now()  # the staged fold is on disk, as it is at the end of the turn that staged it
+    assert bsp.BELT_STATE_PATH.exists()
+    app = FastAPI()
+    app.include_router(history_routes.setup_history_routes(_Mgr()))
+    r = TestClient(app).post(f"/api/session/{_SID}/truncate", json={"keep_count": 2})
+    assert r.status_code == 200 and fl.pending_fold_count(_P, _SID) == 0
+    _wipe()  # a process restart: memory gone ...
+    assert bsp.restore() == 0  # ... and the disk copy the route saved holds no fold
     assert fl.pending_fold_count(_P, _SID) == 0
+
+
+def test_truncate_snapshots_the_ledger_on_the_event_loop_not_in_the_write_thread(monkeypatch):
+    """Review of #2751 (P1): the fold ledger has no lock and its mutators run on the event loop, so the route
+    must copy the ledger THERE and hand only the fsync'd write to the worker thread."""
+    import threading
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from routes import history_routes
+
+    class _Mgr:
+        def truncate_messages(self, sid, keep):
+            return True
+
+    monkeypatch.setattr(history_routes, "_verify_session_owner", lambda *a, **k: None)
+    monkeypatch.setattr("src.auth_helpers.effective_user", lambda request: _P)
+    monkeypatch.setattr(fl, "_resolve_positions_for_ids", lambda sid, ids: {i: 5 for i in ids})
+    _stage()
+    seen = {}
+    real_snapshot, real_write = bsp.snapshot, bsp.atomic_write_json
+    monkeypatch.setattr(bsp, "snapshot", lambda: seen.setdefault("snap", threading.get_ident()) and real_snapshot())
+    monkeypatch.setattr(bsp, "atomic_write_json", lambda *a, **k: (seen.setdefault("write", threading.get_ident()), real_write(*a, **k))[1])
+    app = FastAPI()
+    app.include_router(history_routes.setup_history_routes(_Mgr()))
+    r = TestClient(app).post(f"/api/session/{_SID}/truncate", json={"keep_count": 2})
+    assert r.status_code == 200
+    assert seen["snap"] != seen["write"], "the snapshot ran in the write thread, racing the ledger's mutators"
+
+
+def test_an_older_prepared_snapshot_never_overwrites_a_newer_write():
+    _stage()
+    older = bsp.prepare_save()
+    fl.clear_all()
+    bsp.save_now()  # a newer save (the timer's) lands first: no folds on disk
+    bsp.save_now(older)  # the offloaded write of the older snapshot arrives late and is dropped
+    _wipe()
+    assert bsp.restore() == 0 and fl.pending_fold_count(_P, _SID) == 0
 
 
 def test_the_pacing_stores_survive_a_restart():
@@ -162,3 +217,27 @@ def test_malformed_saved_state_is_ignored(pacing, folds):
     assert bsp.restore() == 0
     assert not fl._PENDING
     assert not any(_pacing()[0].values())
+
+
+def test_orw437_a_saved_fold_missing_a_key_settle_reads_is_skipped():
+    """review of #2671: an entry without consequence / felt_minutes / row_anchor would KeyError at settle or truncate, so restore must drop it."""
+    base = {"content": "c", "with_ids": [], "kind": "k", "idempotency_key": "i"}
+    assert bsp._valid_fold_entry({**base, "consequence": None, "felt_minutes": None, "row_anchor": None})
+    for missing in ("consequence", "felt_minutes", "row_anchor"):
+        e = {**base, "consequence": None, "felt_minutes": None, "row_anchor": None}
+        del e[missing]
+        assert not bsp._valid_fold_entry(e), missing
+
+
+@pytest.mark.parametrize("field,bad", [("row_anchor", {"id": 1}), ("row_anchor", 7), ("consequence", "text"), ("felt_minutes", "5"), ("felt_minutes", True), ("assurance", [1]), ("heard_about_me", "x")])
+def test_a_restored_fold_with_a_wrong_shaped_nullable_field_is_skipped(field, bad):
+    """review of #2751: presence of the keys was checked, not their values; a JSON object for `row_anchor` reached a DB equality at settle."""
+    _stage()
+    snap = bsp.snapshot()
+    snap["folds"][0]["entries"][0][field] = bad
+    fl.clear_all()
+    assert bsp._restore_folds(snap["folds"]) == 0 and fl.pending_fold_count(_P, _SID) == 0
+    fl.stage_pending_fold(_P, _SID, content="c", with_ids=[], kind="talk", consequence=None, felt_minutes=None, idempotency_key="idem-null")
+    saved = bsp.snapshot()["folds"]
+    fl.clear_all()
+    assert bsp._restore_folds(saved) == 1, "an entry whose nullable fields are all null still restores"

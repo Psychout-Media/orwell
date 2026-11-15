@@ -3,7 +3,8 @@
 # meant to finish in about a minute, so a typecheck error, a pinned-source guard or a leaked word is red long before the slow lanes finish.
 # Run it before you push: every failure it can report would otherwise cost a full CI round.
 #
-# What is in it (all pure source checks, no browser, no game simulation; each also runs again in its full lane, nothing is removed from there):
+# What is in it (all pure source checks, no browser, no game simulation). The guard tests and word scans (2 to 4) also run again in their full lanes; the typecheck (1), the
+# py_compile and the ES-module syntax check (5) were MOVED here from the slower lanes and run only here (`ci-gate` requires this job):
 #   0. every workflow and composite-action file parses as YAML (ORW-413: a colon in a step name made ci.yml unparseable and the PR got no checks)
 #   1. typecheck (tsc --noEmit)
 #   2. the engine guard tests: the CI wiring pins (gate logic, path filter, shard tables, flaky rule), the Vault-Wall dependency test, the

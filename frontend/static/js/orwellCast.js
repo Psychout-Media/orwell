@@ -469,7 +469,7 @@
     // the same src is never re-assigned, so a loaded face never reloads.
     entry.portrait = url || null;
     entry.holder.textContent = "";
-    if (entry.expandBtn) entry.expandBtn.hidden = !url; // ORW-359: nothing to enlarge without a photo
+    if (entry.expandBtn) entry.expandBtn.hidden = true; // ORW-359: nothing to enlarge without a photo; ORW-437: nor before it has decoded (shown in reveal())
     // J2-15: until a portrait (0051) backfills, a single shared 👤 silhouette made the
     // "meet 15 distinct people" payoff read as interchangeable placeholders. Render a
     // per-houseguest monogram instead — the name's initial over a deterministic tint
@@ -516,6 +516,7 @@
     // shows through) and turns visible only once its bytes decoded, so neither the empty
     // pending box, the alt text, nor the broken-image glyph ever paints as the tile.
     img.className = "oc-img-pending";
+    entry.portraitImg = img; // ORW-437: the img now in the holder; a stale img of an earlier url (A to B to A) must not unhide the expand button
     // Photo decoded ⇒ the monogram loading-base retires (one face per card — the
     // browser-smoke "no placeholder glyph on provider-on cards" gate). Idempotent:
     // a url re-transition may have already wiped the holder before a timer fires.
@@ -524,6 +525,7 @@
     const reveal = () => {
       if (revealed) return; // load can follow a synchronous cache-hot reveal — run once
       revealed = true;
+      if (entry.expandBtn && entry.portrait === url && entry.portraitImg === img) entry.expandBtn.hidden = false; // ORW-437: the photo is on screen now
       img.classList.remove("oc-img-pending");
       if (justLanded) {
         // The G22 arrival fade (reduced-motion guarded in the CSS above); drop the

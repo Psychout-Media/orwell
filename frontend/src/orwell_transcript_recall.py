@@ -118,12 +118,12 @@ def build_recall(original: list, view: list, query: str, names=()) -> str:
     if not dropped:
         return ""
     nm = _name_tokens(names)
-    qnames = nm & {t for t in _WORD.findall(query.lower())}
+    qnames = nm & {t[:-2] if t.endswith("'s") else t for t in _WORD.findall(query.lower())}
     scored: list = []
     for order, player, narr in _exchanges(dropped):
         ex_words = _words(player) | _words(narr)
         # names are matched on the raw tokens: a houseguest named "Will" is a stop word in `_words` but still a name
-        ex_raw = set(_WORD.findall((player + " " + narr).lower()))
+        ex_raw = {t[:-2] if t.endswith("'s") else t for t in _WORD.findall((player + " " + narr).lower())}  # review of #2745: "Role's" counts as the name
         score = float(len(q & ex_words)) + 1.5 * len(qnames & ex_raw)
         if score >= MIN_SCORE:
             scored.append((score, order, player, narr))
@@ -160,7 +160,7 @@ def apply_recall(original: list, view: list, names=()) -> list:
         text = build_recall(original, view, _last_user_text(view), names)
         if not text:
             return view
-        return view[: story_idx + 1] + [{"role": "user", "content": text}] + view[story_idx + 1:]
+        return view[: story_idx + 1] + [{"role": "user", "content": text, "_protected": True}] + view[story_idx + 1:]  # review of #2745: user-role, so without the flag `_trim_preserving_system` would drop it first (the oldest droppable turn); agent_loop strips the key before the request
     except Exception as e:
         logger.warning("[transcript-recall] skipped: %s", e)
         try:

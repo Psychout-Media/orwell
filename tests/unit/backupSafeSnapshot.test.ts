@@ -70,13 +70,16 @@ describe("orwell-backup.sh database snapshot (ORW-403)", () => {
     expect(r.stderr.length).toBeGreaterThan(30);
     const out = join(root, "out");
     expect(existsSync(out) ? readdirSync(out).filter((f) => f.endsWith(".tar.gz")) : []).toEqual([]);
+    expect(existsSync(out) ? readdirSync(out).filter((f) => f.startsWith(".app.db.snapshot")) : [], "the failure path removes its temporary snapshot too").toEqual([]);
   });
 
   it("takes the snapshot inside its own temp directory (SQLite needs a journal beside it) and removes it", () => {
     const data = join(root, "app", "frontend", "data");
     mkdirSync(data, { recursive: true });
     const db = join(data, "app.db");
-    spawnSync("python3", ["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table t(v)'); c.commit()", db]);
+    const seed = spawnSync("python3", ["-c", "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('create table t(v)'); c.commit()", db], { encoding: "utf8" });
+    expect(seed.status, `seeding the database failed: ${seed.stderr}`).toBe(0);
+    expect(existsSync(db), "the seeded database exists").toBe(true);
     const bin = join(root, "pybin"); mkdirSync(bin);
     const real = spawnSync("bash", ["-c", "command -v python3"], { encoding: "utf8" }).stdout.trim();
     const log = join(root, "snap-path.log");

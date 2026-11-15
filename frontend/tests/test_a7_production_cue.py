@@ -86,3 +86,14 @@ def test_no_cue_without_a_schedule(monkeypatch):
     st = _state(False, 10); st.pop("daySchedule")
     _run(ch._pre_resolve_npc_ceremony("u", st, retry=False, player_msg="hi"))
     assert "GIVES NOTICE" not in ch._SCHEDULE_STEER.get(ch._runway_key("u"), "")
+
+
+def test_warning_cue_names_the_scheduled_event_not_the_phase(monkeypatch):
+    # ORW-437 (review of #2670, and the ORW-394 wiring test): the game phase can still be the previous event's while the schedule's
+    # next event is another one; the warning must name the event the clock is counting to (as the not-yet cue already does).
+    _wire(monkeypatch, "veto-competition")
+    gs = _state(False, 20, "veto-competition")
+    gs["daySchedule"]["next"] = "eviction"
+    _run(ch._pre_resolve_npc_ceremony("u", gs, retry=False, player_msg="So what do you think of Sam?"))
+    steer = ch._SCHEDULE_STEER.get(ch._runway_key("u"), "").lower()
+    assert "about to be called" in steer and "eviction" in steer and "veto" not in steer

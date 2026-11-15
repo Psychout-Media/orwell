@@ -5,6 +5,7 @@ import { PLAYER_TOOLS, PLAYER_AGENT_LEVERS } from "../../src/surfaces/tools/regi
 import { BASE_GAME_MASTER_PROMPT } from "../../src/engine/momentPrompts";
 import { restDeficitForDepth, phaseForHour } from "../../src/engine/timeOfDay";
 import { napFactor } from "../../src/engine/liveSeason";
+import { hoursUntilDue } from "../../src/engine/daySchedule";
 import { NAP } from "../../src/engine/sleepConstants";
 import { priv, setup, at, quiet } from "../support/napWorld";
 import type { NapView } from "../../src/ports/GameSession";
@@ -89,6 +90,38 @@ describe("0148 - the nap lever: waking", () => {
     near(r.slept, 1);
     near(priv(s).live.napHoursToday!, 1);
     expect((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(true);
+    // the slept hours are lived by the house during the nap's own commit, not carried past the event the nap woke for
+    expect((s as unknown as { napPendingHours: number }).napPendingHours, "nap hours consumed by the nap's commit").toBe(0);
+  });
+  it("a failed nap tick (sandbox rolled back to a fresh session) does not wake the player for the ticks after it", () => {
+    const { s, orch, reg } = setup();
+    at(s, 8);
+    type Adv = (user: string, trigger: string, opts?: unknown) => unknown;
+    const o = orch as unknown as { advance: Adv };
+    const orig = o.advance.bind(orch);
+    const asleepAtTick: boolean[] = [];
+    let ticks = 0;
+    o.advance = (user, trigger, opts) => {
+      if (trigger !== "offscreen-tick") return orig(user, trigger, opts);
+      asleepAtTick.push((reg.sandboxFor(user).session as unknown as { napAsleep: boolean }).napAsleep);
+      const out = orig(user, trigger, opts);
+      if (ticks++ === 0) reg.restore(user, reg.snapshot(user)); // what a faulted tick does: a fresh session built from the baseline
+      return out;
+    };
+    s.nap({ hours: 3 });
+    expect(asleepAtTick.length, "the nap lives more than one tick").toBeGreaterThan(1);
+    expect(asleepAtTick.every(Boolean), "the player is out of the awake set on every nap tick, before and after the rollback").toBe(true);
+    expect((reg.sandboxFor("u").session as unknown as { napAsleep: boolean }).napAsleep, "and awake again afterwards").toBe(false);
+  });
+  it("a nap steps to the event's exact hour: a wake 0.03h before it sleeps 0.03h, not a whole 0.1h step", () => {
+    const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === false && quiet(x) && priv(x).live.beat === "veto-competition");
+    const l = priv(s).live;
+    const exactDue = l.nightDepth + hoursUntilDue(l as unknown as Parameters<typeof hoursUntilDue>[0])!;
+    at(s, exactDue - 0.03);
+    const r = s.nap({ hours: 3 });
+    expect(r.wokenBy).toBe("event");
+    near(r.slept, 0.03);
+    near(hourOf(s), exactDue);
   });
   it("a nap never runs into the night: cut at the start of the evening, the night has not ended", () => {
     const { s } = setup(3, (x) => quiet(x) && ["nominations", "veto-ceremony", "eviction"].includes(priv(x).live.beat!));
@@ -102,11 +135,15 @@ describe("0148 - the nap lever: waking", () => {
     expect(priv(s).live.playerRetired).toBe(false);
     expect(priv(s).live.lastSleepDepth).toBe(28); // only a bed re-stamps the night
   });
-  it("the player sleeps in their own bedroom (the HOH room when they hold the crown)", () => {
+  it("the player sleeps in a bedroom, and in the HOH room when they hold the crown", () => {
     const { s } = setup();
     at(s, 8);
     s.nap({ hours: 1 });
-    expect(["bedroom-a", "bedroom-b", "bedroom-c", "hoh-room"]).toContain(priv(s).presence.get("player"));
+    expect(["bedroom-a", "bedroom-b", "bedroom-c"], "not the HOH, so a plain bedroom").toContain(priv(s).presence.get("player"));
+    const h = setup(); at(h.s, 8);
+    (priv(h.s).live as { hoh?: string }).hoh = "player"; // the player holds the crown
+    h.s.nap({ hours: 1 });
+    expect(priv(h.s).presence.get("player"), "the crown holder naps in the HOH room").toBe("hoh-room");
   });
 });
 
@@ -139,9 +176,13 @@ describe("0148 - the nap lever: refusals leave the clock unmoved", () => {
     unchanged(s, () => s.nap({ hours: 1 }), "premiere");
   });
   it("an event that is due right now", () => {
-    const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === true && !priv(x).live.competition && !priv(x).live.ceremony && !priv(x).live.pending && (priv(x).live.dayNumber ?? 1) >= 3);
-    if ((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due !== true) return;
-    const l = priv(s).live; l.timeOfDay = "afternoon";
+    // Build the due state directly (no seed search): a quiet day-3+ morning world parked on a milestone beat, the clock set to that milestone's own hour.
+    const { s } = setup(3, (x) => (x.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due === false && quiet(x) && priv(x).live.beat === "veto-competition");
+    const l = priv(s).live;
+    const exactDue = l.nightDepth + hoursUntilDue(l as unknown as Parameters<typeof hoursUntilDue>[0])!;
+    l.nightDepth = exactDue; l.timeOfDay = phaseForHour(exactDue); // the milestone's hour: due, and still before the evening
+    expect(["morning", "afternoon"], "setup reached a nap-eligible phase").toContain(l.timeOfDay);
+    expect((s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due, "the engine reads this state as event-due").toBe(true);
     unchanged(s, () => s.nap({ hours: 1 }), "event-due");
   });
   it("the flag off: refused as not available, nothing changes", () => {

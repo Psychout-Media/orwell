@@ -652,6 +652,27 @@ def test_legacy_entry_without_fingerprint_is_not_mass_reshot(tmp_portraits, monk
     assert (tmp_portraits / "u" / "npc_1.png").read_bytes() == b"PNG:facet-B"
 
 
+def test_pre_fingerprint_and_pre_version_entry_is_not_reshot_and_records_version_1(tmp_portraits, monkeypatch):
+    """ORW-437 (review of #2646): an entry with NEITHER a fingerprint NOR a promptVersion is the oldest legacy shape: it is
+    not re-shot and it ends up stamped with version 1."""
+    monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
+    calls = {"n": 0}
+
+    async def fake_gen(prompt, user, reference_png=None):
+        calls["n"] += 1
+        return b"PNG:new"
+    monkeypatch.setattr(orwell_portraits, "_generate_one", fake_gen)
+    d = tmp_portraits / "u"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "npc_1.png").write_bytes(b"PNG:legacy")
+    orwell_portraits._save_manifest("u", {"npc_1": {"file": "npc_1.png", "name": "Houseguest One", "source": "generated"}})
+    summary = _run(orwell_portraits.generate_and_store(
+        [{"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "facet-A"}], "u", record_beats=False))
+    assert summary == {"generated": 0, "skipped": 1, "total": 1} and calls["n"] == 0  # counted as skipped, not shot
+    assert (d / "npc_1.png").read_bytes() == b"PNG:legacy"
+    assert orwell_portraits.load_manifest("u")["npc_1"]["promptVersion"] == 1
+
+
 def _seed_old_entry(tmp_portraits, version):
     d = tmp_portraits / "u"
     d.mkdir(parents=True, exist_ok=True)

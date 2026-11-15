@@ -44,7 +44,7 @@ export const RAW_BEHAVIOUR: Readonly<Record<string, { kind: "toggle" | "seam" | 
   ORWELL_DISABLE_DIVERSITY: { kind: "seam", default: "off", reason: "TEST SEAM (#338 RNG-isolation golden test): =1 skips the diversity pass" },
   ORWELL_HANGOUT_P_SCALE: { kind: "knob", default: "1", reason: "live-verification knob (A15): scales the hang-out stop chances; the deploy never sets it" },
   ORWELL_WANT_MOVEMENT_K: { kind: "knob", default: "1", reason: "calibration-measurement override of the want-movement strength; the deploy never sets it" },
-  ORWELL_SAVE_FSYNC: { kind: "knob", default: "background", reason: "ORW-404 kill switch: =sync restores the fully synchronous per-save fsync (default: the fsync runs off the request path); never changes the saved bytes, but =sync changes the durability guarantee (the default can lose the last saves on a host power loss; =sync does not)" },
+  ORWELL_SAVE_FSYNC: { kind: "knob", default: "background", reason: "ORW-404 kill switch: =sync restores the fully synchronous per-save fsync (default: the fsync runs off the request path); never changes the saved bytes, but =sync changes the durability guarantee (the default can lose the last saves on a host power loss; =sync is stronger, though the directory is still fsynced only at checkpoints, so a recent rename can be lost in either mode)" },
 };
 
 const walk = (dir: string, out: string[] = []): string[] => {
