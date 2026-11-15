@@ -66,7 +66,7 @@ def test_a_repeated_identity_opening_is_rewritten_on_the_later_card_only():
 
 def test_a_repeated_oncamera_ending_is_rewritten_and_only_that_line_changes():
     def fix(p):
-        p["physicalCharacteristics"]["onCamera"] = "leaning on the counter, laughing at nothing"
+        p["physicalCharacteristics"]["onCamera"] = "He leans on the counter in the kitchen, laughing at nothing, the one who never sleeps."
         p["identityConcept"] = "Something else entirely."
         return p
     cam = "arms folded, watching the room first"
@@ -80,7 +80,7 @@ def test_a_repeated_oncamera_ending_is_rewritten_and_only_that_line_changes():
         assert "onCamera" in message and "identityConcept" not in message
         return fix(copy.deepcopy(pb))
     got, _ = _go(gate.run_gate(g, pb, b, cast, rw))
-    assert got["physicalCharacteristics"]["onCamera"].startswith("leaning")
+    assert got["physicalCharacteristics"]["onCamera"].startswith("He leans")
     assert got["identityConcept"] == "Nameb is a welder who keeps the lights on."
     assert g.rep_fixed == 1
 
@@ -132,3 +132,52 @@ def test_no_writer_means_no_repetition_rewrite():
     _go(gate.run_gate(g, _profile("Namea", "A thirty-year-old welder who fixes boats."), a, [a, b], None))
     got, _ = _go(gate.run_gate(g, _profile("Nameb", "A thirty-year-old welder who reads."), b, [a, b], None))
     assert got is not None and g.codes.get("rep-ident-open") == 1
+
+
+# ---- review: a rewritten line goes through the same checks as a first-pass one ---------------------------------
+def _woman_pair(cam_fix=None, ident_fix=None):
+    g = gate.SeasonGate("t")
+    a = _npc(1, "Namea", genderPresentation="woman")
+    b = _npc(2, "Nameb", genderPresentation="woman", age=25)
+    cast = [a, b]
+    cam = "She sits in the kitchen, arms folded, the one who misses nothing."
+    pa = _profile("Namea", "A welder who fixes boats and hums.", cam)
+    pa["biography"] = pa["biography"].replace("He ", "She ")
+    _go(gate.run_gate(g, pa, a, cast, None))
+    pb = _profile("Nameb", "Nameb is a welder who keeps the lights on.", cam)
+    pb["biography"] = pb["biography"].replace("He ", "She ")
+    pb["physicalCharacteristics"]["hair"] = "espresso brown hair"
+    pb["physicalCharacteristics"]["photoHair"] = "espresso brown hair brushed back"
+    before = copy.deepcopy(pb)
+
+    async def rw(npc, codes, message=None):
+        p = copy.deepcopy(pb)
+        if cam_fix:
+            p["physicalCharacteristics"]["onCamera"] = cam_fix
+        if ident_fix:
+            p["identityConcept"] = ident_fix
+        return p
+    got, _ = _go(gate.run_gate(g, pb, b, cast, rw))
+    return got, before, g
+
+
+@pytest.mark.parametrize("bad", [
+    "He stands in the doorway, his arms folded, the one who reads the room first.",
+    "She stands in the kitchen in round gold glasses and a nose ring, the one who reads the room first.",
+    "She stands in the kitchen with bright pink hair, the one who reads the room first.",
+    "She stands in the doorway, the one who reads the room first.",
+])
+def test_a_rewritten_oncamera_line_that_fails_the_look_checks_is_not_stored(bad):
+    got, before, g = _woman_pair(cam_fix=bad)
+    assert got["physicalCharacteristics"]["onCamera"] == before["physicalCharacteristics"]["onCamera"]
+    assert g.rep_fixed == 0
+
+
+def test_a_good_rewritten_oncamera_line_is_stored():
+    got, before, g = _woman_pair(cam_fix="She leans on the counter in the kitchen, brown hair loose, the one who reads the room first.")
+    assert got["physicalCharacteristics"]["onCamera"].startswith("She leans") and g.rep_fixed >= 1
+
+
+def test_a_rewritten_identity_over_the_first_pass_length_is_not_stored():
+    got, before, g = _woman_pair(ident_fix="Nameb " + "keeps the lights on and " * 30 + "reads a room.")
+    assert got["identityConcept"] == before["identityConcept"]

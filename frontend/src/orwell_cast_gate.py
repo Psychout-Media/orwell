@@ -243,6 +243,36 @@ def repetition_message(repeats: dict, taken: dict) -> str:
             "person: same name, pronouns, age, voice, biography and look; change nothing except the wording named above.")
 
 
+_ACCESSORY_RE = re.compile(r"\b(?:nose (?:ring|stud|piercing)|lip (?:ring|stud)|septum|eyebrow (?:ring|piercing)|piercings?|ear ?rings?|hoops?)\b", re.I)
+_HAIR_COLOUR_RE = re.compile(
+    r"\b(pink|blue|green|purple|violet|orange|teal|blond|blonde|red|auburn|ginger|copper|black|brown|chestnut|grey|gray|silver|white|platinum)\s+hair\b", re.I)
+
+
+def _oncamera_ok(cand: dict, npc: dict, cast) -> bool:
+    """The rewritten on-camera line goes through the same look checks as a first-pass one, and may not invent a look feature
+    (glasses, a piercing, a tattoo, a hair colour) the card's own look lacks."""
+    from src import orwell_cast_authoring as A
+    if A.look_problems(cand, npc):
+        return False
+    pc = dict(cand.get("physicalCharacteristics") or {})
+    cam = str(pc.pop("onCamera", "") or "")
+    base = {**cand, "physicalCharacteristics": pc}
+    if A.story_missing_features(cam, base, npc):
+        return False
+    look = A._look_text(base, npc)
+    if _ACCESSORY_RE.search(cam) and not _ACCESSORY_RE.search(look):
+        return False
+    hair = (str(pc.get("hair") or "") + " " + str(pc.get("photoHair") or "")).lower()
+    for m in _HAIR_COLOUR_RE.finditer(cam):
+        if m.group(1).lower() not in hair:
+            return False
+    return True
+
+
+def _identity_ok(text: str) -> bool:
+    return isinstance(text, str) and 12 <= len(" ".join(text.split())) <= 250  # the same bounds a first-pass identity gets
+
+
 async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn, hid: str) -> None:
     """At most ONE re-write of the repeated field(s) of a LATER card (the first card to use a phrasing keeps it), inside the
     gate's budget. Only identityConcept and physicalCharacteristics.onCamera can change, and only when the new text passes
@@ -276,6 +306,10 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
             cand["physicalCharacteristics"] = base
         mend(cand, npc, cast)
         if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):
+            continue
+        if key == "identity" and not _identity_ok(cand.get("identityConcept")):
+            continue
+        if key == "oncamera" and not _oncamera_ok(cand, npc, cast):
             continue
         if key in gate.repeats(hid, cand, npc, cast):
             continue  # it still repeats: that field ships as it is (fail open, the code is counted as before)
