@@ -530,7 +530,14 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
         }
         return;
       }
-      if (!haveWall || _zeroClocks()) return;  // ORW-379
+      if (_zeroClocks()) {  // ORW-379: no wall clock, and (review of #2662) no leftover in-world moment either: a live bubble seeded with the previous bubble's moment must not keep showing it when THIS beat carries none
+        span.textContent = '';
+        span.classList.remove('role-timestamp-moment');
+        span.removeAttribute('title');
+        if (span.dataset) delete span.dataset.wallClock;
+        return;
+      }
+      if (!haveWall) return;
       span.textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       if (!_zeroClocks()) span.title = d.toLocaleString();
     } catch (_) {}
@@ -1750,7 +1757,8 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
             // err.detail.beatSeq was already adopted by orwellWs.js _adoptBeat, so
             // our next sendTurn will get the fresh expectedBeatSeq from lastBeatSeq().
             try {
-              await window.OrwellWs.sendTurn({
+              // review of #2719: the same reconnect-aware wrapper as the first send, so a socket drop after the stale-beat answer is ridden out, not a failed turn that was never resent.
+              await (window.OrwellWs.sendTurnWhenLive || window.OrwellWs.sendTurn)({
                 message: _finalMsgWithInject,
                 clientMsgId: _clientMsgId,
                 mode: isAgentMode ? 'agent' : 'chat',

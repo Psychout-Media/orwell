@@ -1093,8 +1093,10 @@ function _speakerChipHtml(id, name) {
   const rid = _seed && _seed !== nm ? _seed : null; // seed === name means the roster could not resolve it
   const idAttr = id ? ` data-hg-id="${escapeHtml(String(id))}"` : '';
   const hgAttr = rid ? ` data-hg="${escapeHtml(String(rid))}"` : '';
+  // A resolved chip opens the dossier on click, so it must be reachable and operable from the keyboard too (orwellChatNames.js activates role="button" on Enter/Space); an unresolved one stays an inert image.
+  const roleAttr = rid ? ' role="button" tabindex="0"' : ' role="img"';
   return `<span class="ow-speaker-chip"${idAttr}${hgAttr} data-hg-name="${safe}" title="${safe}" `
-    + `aria-label="${safe}" role="img">${face}</span>`;
+    + `aria-label="${safe}"${roleAttr}>${face}</span>`;
 }
 
 // CodeRabbit fix: the speaker pass below runs on RAW markdown (before mdToHtml extracts fenced
