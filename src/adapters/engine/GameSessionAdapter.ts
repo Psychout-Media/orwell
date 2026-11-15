@@ -513,9 +513,10 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  */
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
+const DAY_LEDGER_KEYS_CHARS = 1000; // the 'Key list:' line is bounded on its own, so a long prose never clips it away (review of #2685)
 const DAY_LEDGER_TEXT_CHARS = 3200; // ORW-402: a whole-day summary (up to ~400 words) plus its key list
 /** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
-const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
+const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:\s*error\b|data:\s*[{\[])|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -5418,7 +5419,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
   foldWindowKey(): string | null {
     if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
-    return `d${this.live.dayNumber ?? 1}:${this.live.timeOfDay}`;
+    return `d${this.live.dayNumber ?? this.live.week}:${this.live.timeOfDay}`;
   }
 
   awakeIds(): ReadonlySet<EntityId> | null {
@@ -11546,13 +11547,12 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!;
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
-    const highlights = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal"))
-      .map((e) => e.content);
+    const isHighlight = (e: (typeof allEvents)[number]): boolean => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal");
+    const highlights = allEvents.slice(evFrom).filter(isHighlight).map((e) => e.content);
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !highlights.includes(e.content) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
@@ -11656,8 +11656,13 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     const ledger = s?.dayLedger;
     if (!s || !ledger) return { accepted: false, reason: "absent" };
-    const text = String(req.text ?? "")
-      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
+    let text = String(req.text ?? "")
+      .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+    {
+      const cut = text.indexOf("Key list:");
+      text = cut < 0 ? text.slice(0, DAY_LEDGER_TEXT_CHARS)
+        : `${text.slice(0, cut).trim().slice(0, DAY_LEDGER_TEXT_CHARS)} ${text.slice(cut).slice(0, DAY_LEDGER_KEYS_CHARS)}`.trim();
+    }
     if (!text) return { accepted: false, reason: "empty" };
     if (DAY_SUMMARY_ERROR_TEXT.test(text)) return { accepted: false, reason: "error-text" };
     const stale = (t?: string) => !t || DAY_SUMMARY_ERROR_TEXT.test(t); // a stored error (a save from before ORW-387) may be replaced once

@@ -210,3 +210,91 @@ def test_casting_context_has_no_time_dimension():
     v = j.verdict_from_reply(reply, "narr", {}, "casting")
     assert v is None or not (v.dimension == "time" or v.is_slip)
     assert j.verdict_from_reply(reply, "narr", {}).lever == "reground"   # in-game unchanged
+
+
+def test_a_deferred_check_that_rebuilds_its_projection_carries_no_time_block(monkeypatch, tmp_path):
+    """ORW-434: a turn judged LATER (the retro queue) with no stored projection gets a projection built at the later moment.
+    Its board fields are still a fair reference, but its `time` block describes a different moment than the narration,
+    so it is withheld (a stored projection, taken at the turn's own moment, keeps its time block)."""
+    import tests.test_1659_r5_guard_down as r5
+    from src import agent_loop
+    r5._set_mode(monkeypatch, tmp_path, "shadow")
+    r5._patch_engine_reads(monkeypatch)
+    q = r5._isolate_queue(monkeypatch)
+    r5._capture_llmio(monkeypatch)
+    r5._capture_overseer(monkeypatch)
+
+    async def later_projection(owner):
+        return {"board": {"week": 1}, "time": {"partOfDay": "morning", "asleep": ["Sleeper"]}}
+
+    monkeypatch.setattr(agent_loop, "_faith_build_projection", later_projection)
+    prompts = []
+    clean = json.dumps({"dimension": "none", "classification": "none", "lever": "none", "rationale": ""})
+
+    def llm(prompt):
+        prompts.append(str(prompt))
+        return clean
+
+    q["u1"] = [{"narration": "an old night scene", "projection": None, "beat_before": 3, "context": "in-game"},
+               {"narration": "a turn with its own projection", "projection": {"board": {"week": 1}, "time": {"partOfDay": "night"}},
+                "beat_before": 4, "context": "in-game"}]
+    r5._run(agent_loop._faith_drain_retro("u1", llm))
+    assert len(prompts) == 2
+    assert '"partOfDay"' not in prompts[0] and "Sleeper" not in prompts[0]      # rebuilt later: no time block
+    assert '"partOfDay": "night"' in prompts[1]                                   # stored at its own moment: kept
+
+
+def test_a_deferred_time_verdict_with_no_time_facts_is_not_a_slip(monkeypatch, tmp_path):
+    """ORW-434: the deferred check follows the live check's rule. When the judge was given no time block for a turn, a
+    time verdict has nothing to stand on: it is recorded as discarded, not as a slip. With a stored time block the same
+    reply IS a slip."""
+    import tests.test_1659_r5_guard_down as r5
+    from src import agent_loop
+    r5._set_mode(monkeypatch, tmp_path, "shadow")
+    r5._patch_engine_reads(monkeypatch)
+    q = r5._isolate_queue(monkeypatch)
+    r5._capture_llmio(monkeypatch)
+    logged = r5._capture_overseer(monkeypatch)
+    q["u1"] = [{"narration": "a turn that crossed into morning", "projection": {"board": {"week": 1}},
+                "beat_before": 3, "context": "in-game"},
+               {"narration": "a turn with its own time block", "projection": {"board": {"week": 1}, "time": {"partOfDay": "night"}},
+                "beat_before": 4, "context": "in-game"}]
+    r5._run(agent_loop._faith_drain_retro("u1", lambda prompt: _TIME_REPLY))
+    tags = [(a[1], k.get("beat_before"), k.get("ok")) for a, k in logged]
+    assert ("faith:retro-time-unfounded", 3, True) in tags
+    assert ("faith:retro:time", 4, False) in tags
+    assert ("faith:retro:time", 3, False) not in tags
+    assert not q.get("u1")                                   # both judged of record; nothing requeued
+
+
+def test_a_guard_down_turn_that_advanced_time_defers_without_the_time_block(monkeypatch, tmp_path):
+    """ORW-434: when the judge model cannot be resolved the turn is deferred with the projection pinned at the turn. On a
+    turn that advanced the clock that board is END-of-turn, so the pinned projection carries no time block (a turn that
+    did not advance the clock keeps it)."""
+    import tests.test_1659_r5_guard_down as r5
+    from src import agent_loop
+    r5._set_mode(monkeypatch, tmp_path, "shadow")
+    r5._patch_engine_reads(monkeypatch)
+    q = r5._isolate_queue(monkeypatch)
+    r5._capture_llmio(monkeypatch)
+    r5._capture_overseer(monkeypatch)
+
+    async def end_of_turn_projection(owner):
+        return {"board": {"week": 1}, "time": {"partOfDay": "morning", "asleep": []}}
+
+    monkeypatch.setattr(agent_loop, "_faith_build_projection", end_of_turn_projection)
+
+    async def _no_model(owner=None, **kw):
+        raise RuntimeError("no judge model")
+    monkeypatch.setattr("src.orwell_cast_authoring._resolve_llm_fn", _no_model)
+
+    def check(**kw):
+        return _faith_check("lights out, then the sun comes up", claim_bearing=True, engaged_scene=False, owner="u1",
+                            endpoint_url="http://x", model="m", headers={}, last_user="hi", **kw)
+
+    r5._run(check(time_advanced=True))
+    r5._run(check())
+    entries = q.get("u1") or []
+    assert len(entries) == 2
+    assert "time" not in entries[0]["projection"] and entries[0]["projection"]["board"] == {"week": 1}
+    assert entries[1]["projection"]["time"]["partOfDay"] == "morning"

@@ -778,6 +778,7 @@ export class GameSessionRegistry {
     let sb = this.sandboxes.get(user);
     if (!sb) {
       sb = buildUserSandbox(user);
+      let resumedFromSave = false;
       if (this.saveStore?.hasSave(user)) {
         const snap = this.saveStore.loadLatest(user);
         // Resume from the durable save — but an incompatible/corrupt snapshot must REJECT into a fresh
@@ -785,6 +786,7 @@ export class GameSessionRegistry {
         if (snap) {
           try {
             importSnapshot(sb, snap); // resume instead of fresh setup (the welcome-overlay fix)
+            resumedFromSave = true;
           } catch {
             // G12: a refused resume may already have flooded the shared soul-index lane
             // (`rebuildSoulIndex` runs before the part that threw) — drop the dead graph's
@@ -803,6 +805,9 @@ export class GameSessionRegistry {
       this.wireHooks(user, sb);
       this.sandboxes.set(user, sb);
       this.bumpRev(user); // R3 — a freshly built/resumed object graph; never reuse a prior life's cache
+      // Review of #2720: a sandbox resumed from disk must have a non-degradation baseline BEFORE its first
+      // player-turn commit, whichever path built it (the boot warm-up, or a request that arrives first).
+      if (resumedFromSave) { try { this.onResume?.(user); } catch { /* a baseline hook never breaks the resume */ } }
     } else {
       // LRU touch (R4): Map iteration is insertion-ordered — re-inserting keeps the oldest first.
       this.sandboxes.delete(user);
@@ -973,6 +978,11 @@ export class GameSessionRegistry {
    *  fail-soft background enrichment (e.g. the season-start cast-authoring upgrade) re-seeds the
    *  non-degradation baseline to the freshly-saved state — exactly like a resume-from-disk. */
   private onBackgroundCommit?: (user: string) => void;
+  /** Resume hook (review of #2720): the runtime wires this to seed the non-degradation baseline if none exists. */
+  private onResume?: (user: string) => void;
+  setOnResume(fn: (user: string) => void): void {
+    this.onResume = fn;
+  }
 
   setOnBackgroundCommit(fn: (user: string) => void): void {
     this.onBackgroundCommit = fn;

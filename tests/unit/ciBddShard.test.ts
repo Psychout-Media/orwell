@@ -28,7 +28,7 @@ describe("BDD shard assignment (ORW-413)", () => {
     expect((assignBddShards(files, durations, 3) as string[][]).flat().length).toBe(files.length);
   });
 
-  it("the three legs are balanced: heaviest <= 1.15 x the mean (or the mean plus the heaviest single feature)", () => {
+  it("the three legs are balanced: heaviest <= 1.15 x the mean (or the mean plus half the heaviest single feature)", () => {
     const loads = (assignBddShards(files, durations, 3) as string[][]).map((l) => l.reduce((n, f) => n + w(f), 0));
     const mean = loads.reduce((a, b) => a + b, 0) / 3;
     expect(Math.max(...loads)).toBeLessThanOrEqual(Math.max(mean * 1.15, mean + Math.max(...files.map(w)) / 2));
