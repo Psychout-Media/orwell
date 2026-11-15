@@ -23,11 +23,49 @@ export const DESIRE = {
   goalFreshHours: 3,
   /** ORW-340: below this trust in the player an NPC avoids them: their goal does not bring them over. */
   goalMinTrust: 0.25,
-  /** ORW-423 (played games only): at most this many CONSECUTIVE approaches of the same purpose (desire) reach the player in one stretch; the next one is HELD: the player is not interrupted, but that houseguest's desire is SPENT with the normal 3-hour cooldown (not kept, not queued). */
+  /** ORW-423 (played games only): at most this many CONSECUTIVE approaches of the same purpose (desire) reach the player in one stretch; the next one is HELD: the player is not interrupted. What that houseguest does NEXT comes from their own sheet (ORW-452 point 2, `heldOutcome`): comes back soon, waits the normal cooldown, goes elsewhere, or gives up. Never queued. */
   streakCap: 2,
   /** ORW-423: in-game hours without any approach that end a stretch (the cap releases). */
   streakQuietHours: 2,
 } as const;
+
+/**
+ * ORW-452 point 2 (ruling: "dynamic based on character sheets involved"): what a houseguest held back by the cap does next, from THEIR OWN sheet. PURE: no rng, no Vault; only a public strategy style
+ * and the houseguest's own edge toward the player are read, and neither the score nor the outcome ever crosses to the player (only the cooldown stamp changes, as the old 3 h one did).
+ * score = persistenceWeight * persistence(style) + (1 - persistenceWeight) * want(affinity, trust toward the player).
+ */
+export const HELD = {
+  /** How stubborn each strategy style is about a want (0..1): the pushy and the loyal return, the quiet and the strategic bide. */
+  persistence: { aggressive: 0.9, loyal: 0.8, emotional: 0.6, social: 0.5, strategic: 0.4, "under-the-radar": 0.2 } as Record<string, number>,
+  /** Persistence for a style not in the table (a model-authored one): the middle. */
+  persistenceDefault: 0.5,
+  /** Share of the score that is persistence (the rest is how much they want the player). */
+  persistenceWeight: 0.5,
+  /** score at/over this: COMES BACK soon (keeps the want). */
+  comeBackAt: 0.65,
+  /** score under this: GIVES UP. */
+  giveUpBelow: 0.25,
+  /** Driven (persistence at/over `elsewherePersistence`) but wanting the player under `elsewhereWantBelow`: GOES TO SOMEONE ELSE. */
+  elsewherePersistence: 0.5,
+  elsewhereWantBelow: 0.2,
+  /** In-game hours until the want can build again, per outcome. `wait` is the old fixed 3 h (DESIRE.cooldownHours). */
+  cooldownHours: { "come-back": 2, wait: 3, elsewhere: 5, "give-up": 6 } as const,
+} as const;
+
+export type HeldOutcome = keyof typeof HELD.cooldownHours;
+export interface HeldSheet { strategyStyle: string; /** their edge toward the player, each -1..1 */ affinity: number; trust: number }
+
+/** ORW-452 point 2: the held houseguest's next step and its cooldown, from their own sheet. Same sheet => same outcome. */
+export function heldOutcome(sheet: HeldSheet): { outcome: HeldOutcome; cooldownHours: number } {
+  const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+  const persistence = HELD.persistence[sheet.strategyStyle] ?? HELD.persistenceDefault;
+  const want = clamp01((sheet.affinity + sheet.trust) / 2);
+  const score = HELD.persistenceWeight * persistence + (1 - HELD.persistenceWeight) * want;
+  const outcome: HeldOutcome = score < HELD.giveUpBelow ? "give-up"
+    : persistence >= HELD.elsewherePersistence && want < HELD.elsewhereWantBelow ? "elsewhere"
+    : score >= HELD.comeBackAt ? "come-back" : "wait";
+  return { outcome, cooldownHours: HELD.cooldownHours[outcome] };
+}
 
 /** ORW-423: the running run of same-purpose approaches (Vault-free: a coarse desire, a count, an hour). */
 export interface ApproachStreak { desire: string; count: number; lastHour: number }

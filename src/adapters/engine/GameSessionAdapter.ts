@@ -86,7 +86,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
-import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, heldOutcome, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
@@ -9131,7 +9131,7 @@ export class GameSessionAdapter implements GameSession {
     for (const id of ids) {
       const desire = desireFor(m?.beat, { isHoh: this.ceremony.hoh === id, isNominee: noms.has(id) });
       if (!desire) continue;
-      cands.push({ npc: id, desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! });
+      cands.push({ npc: id, desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! - (live.desireRestShift?.[id] ?? 0) });
     }
     const until = m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
     const best = mostUrgent(cands, until);
@@ -9139,7 +9139,7 @@ export class GameSessionAdapter implements GameSession {
     const goalCands: Candidate[] = ids.flatMap((id) => {
       const g = live.goalApproaches?.[id];
       if (!g || this.absHour() - g.hour > DESIRE.goalFreshHours) return [];
-      return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
+      return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! - (live.desireRestShift?.[id] ?? 0) }];
     });
     const byGoal = goalDriven(goalCands);
     const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
@@ -9186,6 +9186,12 @@ export class GameSessionAdapter implements GameSession {
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
   private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
     const live = this.live!;
+    // ORW-452 point 2: a HELD pick in a played game rests for as long as THEIR sheet says: the stamp is still now (movement unchanged) and a per-houseguest shift moves when the approach pick sees them rested.
+    if (live.desireRestShift) delete live.desireRestShift[npc]; // a fresh approach clears any earlier hold's shift
+    if (capped && live.playedGame === true) {
+      const n = this.house?.npcs.find((x) => x.id === npc);
+      if (n) { const e = this.rel.edge(npc, PLAYER); (live.desireRestShift ??= {})[npc] = heldOutcome({ strategyStyle: n.character.strategyStyle, affinity: e.affinity, trust: e.trust }).cooldownHours - DESIRE.cooldownHours; }
+    }
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
     if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
@@ -12109,7 +12115,7 @@ export class GameSessionAdapter implements GameSession {
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
             this.noteApproach(hit.npc, hit.desire, hit.capped);
-            if (hit.capped) { if (live.playedGame === true) live.approachHeld = true; return null; } // ORW-423: the want is spent (3 h cooldown), the player is not stopped; ORW-452: narration-only held flag, as the conversation tick
+            if (hit.capped) { if (live.playedGame === true) live.approachHeld = true; return null; } // ORW-423: the player is not stopped; the want rests per the houseguest's sheet (ORW-452 heldOutcome, via noteApproach); ORW-452: narration-only held flag, as the conversation tick
             delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }

@@ -2,11 +2,11 @@ import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { resolvePending } from "../../features/support/answerPending";
-import { streakHolds, nextStreak, DESIRE } from "../../src/engine/desireClock";
+import { streakHolds, nextStreak, heldOutcome, HELD, DESIRE } from "../../src/engine/desireClock";
 
 /** ORW-423: a pile of same-purpose approaches is capped per stretch in a PLAYED game only; the brief carries no "N people asked" count. Roles only. */
 type S = GameSessionAdapter;
-type Live = { approachHeld?: true; playedGame?: boolean; approachStreak?: { desire: string; count: number; lastHour: number }; interruption?: { npc: string; desire: string }; desireApproachedAt?: Record<string, number> };
+type Live = { desireRestShift?: Record<string, number>; approachHeld?: true; playedGame?: boolean; approachStreak?: { desire: string; count: number; lastHour: number }; interruption?: { npc: string; desire: string }; desireApproachedAt?: Record<string, number> };
 const live = (s: S): Live => (s.snapshot() as unknown as { live: Live }).live;
 const liveRef = (s: S): Live => (s as unknown as { live: Live }).live;
 
@@ -55,7 +55,7 @@ describe("ORW-423 pure cap", () => {
 });
 
 describe("ORW-423 live", () => {
-  it("played game: never more than the cap in a row, the cap releases after a quiet stretch, and a held houseguest's desire is spent (normal 3-hour cooldown), not kept", () => {
+  it("played game: never more than the cap in a row, the cap releases after a quiet stretch, and a held houseguest rests per their own sheet (ORW-452), not a fixed 3 h", () => {
     let checked = 0;
     for (const seed of [3, 5, 8, 11, 13]) {
       const s = parked(seed, `cap${seed}`); if (!s) continue;
@@ -66,7 +66,7 @@ describe("ORW-423 live", () => {
     }
     expect(checked).toBeGreaterThan(0);
   });
-  it("controlled: with the cap reached the same pick comes back marked capped (the pick itself is unchanged; the caller spends the 3-hour cooldown), and a quiet gap releases it", () => {
+  it("controlled: with the cap reached the same pick comes back marked capped (the pick itself is unchanged; the caller rests them per their sheet), and a quiet gap releases it", () => {
     type P = { desireApproach(ids: string[]): { npc: string; desire: string; capped?: true } | null; awakeNow(): Set<string> | null; absHour(): number };
     let exercised = 0;
     for (const seed of [3, 5, 8, 11, 13]) {
@@ -192,5 +192,44 @@ describe("ORW-452 approachHeld on the hang-out path", () => {
     liveRef(s).approachStreak = undefined;
     s.hangOut({ maxBeats: 1 });
     expect("approachHeld" in stateOf(s) && stateOf(s).approachHeld).toBe(false);
+  });
+});
+
+describe("ORW-452 point 2: a held houseguest's next step comes from their own sheet", () => {
+  const warm = { affinity: 0.8, trust: 0.8 }; const cold = { affinity: 0, trust: 0 };
+  it("pure: a persistent, high-want houseguest returns sooner than a proud, low-want one; deterministic", () => {
+    const keen = heldOutcome({ strategyStyle: "aggressive", ...warm });
+    const proud = heldOutcome({ strategyStyle: "under-the-radar", ...cold });
+    expect(keen.outcome).toBe("come-back");
+    expect(proud.outcome).toBe("give-up");
+    expect(keen.cooldownHours).toBeLessThan(proud.cooldownHours);
+    expect(heldOutcome({ strategyStyle: "strategic", affinity: 0.4, trust: 0.4 }).outcome).toBe("wait");
+    expect(heldOutcome({ strategyStyle: "aggressive", ...cold }).outcome, "driven but not toward the player").toBe("elsewhere");
+    expect(heldOutcome({ strategyStyle: "aggressive", ...warm })).toEqual(keen);
+    expect(keen.cooldownHours).toBe(HELD.cooldownHours["come-back"]);
+  });
+  it("live: the same held pick rests longer or shorter by sheet; the hold itself still withholds the interruption", () => {
+    type P = { desireApproach(ids: string[]): { npc: string; desire: string; capped?: true } | null; awakeNow(): Set<string> | null; absHour(): number; noteApproach(n: string, d?: string, c?: boolean): void; house: { npcs: { id: string; character: { strategyStyle: string } }[] }; rel: { edge(a: string, b: string): { affinity: number; trust: number } } };
+    let exercised = 0;
+    for (const seed of [3, 5, 8, 11, 13]) {
+      const s = parked(seed, `sh${seed}`); if (!s) continue;
+      const p = s as unknown as P; const l = liveRef(s); l.playedGame = true;
+      const npc = p.house.npcs[0]!; const e = p.rel.edge(npc.id, "player");
+      const rest = (style: string, aff: number) => {
+        npc.character.strategyStyle = style; e.affinity = aff; e.trust = aff; delete l.desireApproachedAt;
+        const t = p.absHour(); p.noteApproach(npc.id, "campaign", true);
+        expect(l.desireApproachedAt![npc.id], "movement keeps the plain stamp").toBe(t);
+        return l.desireRestShift![npc.id]!;
+      };
+      const keen = rest("aggressive", 0.9); const proud = rest("under-the-radar", 0);
+      expect(keen).toBeLessThan(0); expect(proud).toBeGreaterThan(0);
+      expect(rest("aggressive", 0.9)).toBe(keen); // deterministic
+      delete l.desireApproachedAt; p.noteApproach(npc.id, "campaign", false);
+      expect(l.desireApproachedAt![npc.id], "an un-held approach stamps now").toBe(p.absHour());
+      l.playedGame = false; npc.character.strategyStyle = "aggressive"; delete l.desireApproachedAt; p.noteApproach(npc.id, "campaign", true);
+      expect(l.desireApproachedAt![npc.id], "headless: unchanged").toBe(p.absHour()); expect(l.desireRestShift?.[npc.id]).toBeUndefined();
+      exercised++;
+    }
+    expect(exercised).toBeGreaterThan(0);
   });
 });

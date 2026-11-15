@@ -841,6 +841,8 @@ export interface LiveSeasonState {
    * when off => byte-identical. Persisted with the season.
    */
   desireApproachedAt?: Record<string, number>;
+  /** ORW-452 point 2 (played games only): per houseguest, in-game hours added to / taken off their approach cooldown after being HELD by the cap (their own sheet: negative = comes back sooner, positive = longer). Read ONLY by the approach pick (movement keeps the plain stamp). Absent in headless sims => byte-identical. */
+  desireRestShift?: Record<string, number>;
   /** ORW-423 (played games only): the running run of same-purpose approaches to the player (desire, count, last in-game hour); caps lobbying pile-ups. Absent in headless sims => byte-identical. */
   approachStreak?: { desire: string; count: number; lastHour: number };
   /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
