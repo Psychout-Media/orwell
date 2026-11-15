@@ -581,6 +581,7 @@
         // never mount it again (the stranded "2 of 2 - Continue" flake: the engine was already past it). The NEXT step has its own signature and arms normally.
         _userDismissed = true;
         _dismissedSig = _sig(pending);
+        _continuedSteps.add(_sig(pending)); if (_continuedSteps.size > 24) _continuedSteps.delete(_continuedSteps.values().next().value);
         removeCard();
         if (window.orwellGameChanged) window.orwellGameChanged("ceremony-step", res && res.beatSeq);
         // The next step (or the next binding decision) arrives on the same view: mount it now.
@@ -628,6 +629,9 @@
   }
 
   function render(pending) {
+    // #2636 review (P1): a ceremony step the player already continued past is over for good. A late status read, socket frame or backstop answer naming it must neither tear down
+    // the live next-step card nor mount the finished step again.
+    if (pending && pending.kind === "ceremony-step" && _continuedSteps.has(_sig(pending))) return;
     // ORW-359 (found when a live run's eviction vote card never enabled Confirm): the same pending is dispatched again by several seams (the chat tool-output seam, the surface-the-pending belt, a socket state frame,
     // the backstop poll). Each one rebuilt the card from scratch, so a player who had already picked a name (or a tone, or a nominee) saw their pick cleared and Confirm go grey under their cursor. A card already
     // mounted for the SAME decision (same kind, options and prompt) is left exactly as it is; a different decision (or none) still replaces it.
@@ -1271,6 +1275,8 @@
   // route's cached `pending` — the engine's own legal-options view. Without this,
   // refreshing mid-decision left the player with no card and no signal.
   let _userDismissed = false;   // set when the player explicitly dismisses (×/Escape)
+  // #2636 review: the ceremony steps the player continued past (their signatures, bounded). A step is never re-armed once continued.
+  const _continuedSteps = new Set();
   // F2 (audit): the signature of the pending the player dismissed, so a later `gamechanged`
   // (or the status re-poll) re-arms a genuinely NEW decision but NEVER re-shoves the SAME card
   // the player just waved away to decide in conversation.
@@ -1298,6 +1304,8 @@
       if (!r.ok) return;
       const st = await r.json();
       const pending = st && st.pending && st.pending.kind ? st.pending : null;
+      // #2636 review (P1): a stale read of a step the player already continued past changes nothing (checked BEFORE the stale-card drop, which would otherwise remove the live next step).
+      if (pending && pending.kind === "ceremony-step" && _continuedSteps.has(_sig(pending))) return;
       _dropStaleWatchCard(pending);
       if (!pending) return;
       // F2: don't re-nag the EXACT card the player dismissed — a `gamechanged` / re-poll of the
@@ -1357,6 +1365,7 @@
       const st = await r.json();
       if (_wsActive()) return;                          // …or while parsing the body — do not dispatch
       const pending = st && st.pending && st.pending.kind ? st.pending : null;
+      if (pending && pending.kind === "ceremony-step" && _continuedSteps.has(_sig(pending))) return; // #2636 review: a stale read of a continued step changes nothing
       _dropStaleWatchCard(pending);                     // ORW-298: a watch card follows the engine pending
       // F-NEW-4: respect a dismissal PER SIGNATURE, not as a blanket flag — the old
       // unconditional `if (_userDismissed) return` let a dismissed low-stakes pending

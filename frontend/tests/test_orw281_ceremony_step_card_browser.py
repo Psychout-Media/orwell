@@ -115,6 +115,36 @@ def test_the_same_step_announced_again_leaves_the_watch_card_alone(fe):
             browser.close()
 
 
+def test_a_late_read_of_a_step_already_continued_neither_drops_the_next_card_nor_brings_the_old_one_back(fe):
+    """#2636 review (P1): after the player presses Continue, a status read or frame that started earlier and still names the FINISHED step must change nothing - the live next-step card
+    stays, and the finished step is never mounted again."""
+    sync_api = pytest.importorskip("playwright.sync_api")
+    first = _step(2, 3, "The host reads the veto result aloud.")
+    nxt = _step(3, 3, "The host turns to the nominee.")
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True).new_page()
+            page.route("**/api/orwell/state", lambda r: r.fulfill(**_j({"started": True, "asleep": []})))
+            page.route("**/api/orwell/status", lambda r: r.fulfill(**_j({"pending": first})))   # a STALE read: still the finished step
+            page.route("**/api/orwell/roster", lambda r: r.fulfill(**_j({"roster": []})))
+            page.route("**/api/orwell/whereabouts", lambda r: r.fulfill(**_j({"whereabouts": {"room": "kitchen", "present": []}})))
+            page.route("**/api/orwell/ceremony-continue", lambda r: r.fulfill(**_j({"beatSeq": 12, "pending": nxt})))
+            page.goto(fe, wait_until="domcontentloaded")
+            page.wait_for_selector("#chat-history", timeout=15000)
+            fire = "(p) => window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: p } }))"
+            page.evaluate(fire, first)
+            page.wait_for_selector(".odec-watch", timeout=10000)
+            page.click(".odec-watch button.odec-confirm")
+            page.wait_for_selector(".odec-watch[data-step='3']", timeout=10000)
+            page.evaluate(fire, first)                                                   # a late frame naming the finished step
+            page.evaluate("window.dispatchEvent(new Event('orwell:gamechanged'))")      # a rearm whose status read is stale
+            page.wait_for_timeout(800)
+            assert page.evaluate("(document.getElementById('orwell-decision-card') || {}).dataset?.step") == "3", "the finished step came back or the next card was dropped"
+        finally:
+            browser.close()
+
+
 def test_a_status_read_that_lands_late_and_agrees_keeps_the_card_and_one_that_disagrees_drops_it(fe):
     """ORW-298 by design: the watch card follows the engine. A status answer that lands AFTER the card mounted (slow runner) and still shows the same step changes nothing; one that
     shows no pending removes the card. The first half is what the continue test above depends on; the second pins why its old `{}` stub raced."""
