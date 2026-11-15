@@ -65,7 +65,7 @@ describe("ORW-381 age looks", () => {
   it("each band reads as specified and nothing says weathered", () => {
     expect(ageLookFor(22)).toBe("fresh, early-twenties energy");
     expect(ageLookFor(28)).toBe("bright, late-twenties look");
-    expect(ageLookFor(35)).toBe("polished, thirties confidence");
+    expect(ageLookFor(35)).toBe("polished, thirties poise");
     expect(ageLookFor(45)).toBe("fit and well-kept, forties ease, a few laugh lines");
     expect(ageLookFor(55)).toBe("distinguished, fit fifties, laugh lines and presence");
     for (let a = 18; a < 90; a++) expect(ageLookFor(a)).not.toMatch(/weathered/i);

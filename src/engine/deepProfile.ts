@@ -290,7 +290,7 @@ export const MAX_PER_MARK = 1;
 export function ageLookFor(age: number): string {
   if (age < 25) return "fresh, early-twenties energy";
   if (age < 32) return "bright, late-twenties look";
-  if (age < 40) return "polished, thirties confidence";
+  if (age < 40) return "polished, thirties poise";
   if (age < 50) return "fit and well-kept, forties ease, a few laugh lines";
   return "distinguished, fit fifties, laugh lines and presence";
 }

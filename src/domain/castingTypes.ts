@@ -16,7 +16,7 @@ export interface CastingType {
 export interface CastingTypeCard { label: string; read: string }
 
 export const CASTING_TYPES: readonly CastingType[] = [
-  { id: "charmer", label: "the charmer", read: "easy smile, relaxed confidence, plays to the camera" },
+  { id: "charmer", label: "the charmer", read: "easy smile, relaxed and assured, plays to the camera" },
   { id: "firecracker", label: "the firecracker", read: "quick, bright-eyed, chin up, ready to argue" },
   { id: "jock", label: "the jock", read: "athletic ease, competitive grin" },
   { id: "sweetheart", label: "the sweetheart", read: "open face, warm soft smile" },
