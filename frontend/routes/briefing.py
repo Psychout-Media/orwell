@@ -100,25 +100,6 @@ def unify_part_of_day_lines(prompt: str, b: Briefing) -> str:
     return re.sub(r"^- Time of day:[^\n]*\n", "", out, count=1, flags=re.MULTILINE)
 
 
-_MOVE_RE = re.compile(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*?)\.\s+Voice it as a natural beat")
-
-
-def _clause_names(s: str) -> set:
-    return {n.strip() for n in re.split(r",|\band\b", re.sub(r"\([^)]*\)", "", s)) if n.strip()}
-
-
-def movement_sets(text: str):
-    """(left, came) name sets of the "MOVEMENT IN THE ROOM" cue in `text`, or None when it has none."""
-    m = _MOVE_RE.search(text or "") or re.search(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*)", text or "")
-    if not m:
-        return None
-    left, came = set(), set()
-    for clause in m.group(1).split(";"):
-        who = _clause_names(re.sub(r"\s+(?:has|have)\s+(?:left|come into)\b.*", "", clause))
-        (left if re.search(r"\bleft\b", clause) else came).update(who)
-    return left, came
-
-
 _MOVE_CUE_RE = re.compile(r"\n*MOVEMENT IN THE ROOM[^\n]*(?:\n(?!\n)[^\n]*)*")
 
 
@@ -127,23 +108,3 @@ def drop_movement_cue(prompt: str) -> str:
     if not isinstance(prompt, str):
         return prompt
     return _MOVE_CUE_RE.sub("", prompt, count=1)
-
-
-def drop_stale_movement(prompt: str, b: Briefing) -> str:
-    """The "who walked in / left" cue is a difference computed BEFORE the turn's later writes. When the turn's final briefing contradicts it (someone it says left is in the room, someone it says came in is
-    not there or is asleep, or the room it names is not the player's room) it describes a room that no longer exists: drop that one cue, the engine's "With you" line states the room as it is.
-    Unchanged without a location."""
-    if not isinstance(prompt, str) or not b.location:
-        return prompt
-    sets = movement_sets(prompt)
-    if sets is None:
-        return prompt
-    left, came = sets
-    here = set(b.awake_present)
-    from routes.briefing_audit import _LEFT_RE, _MOVE_ROOM_RE  # the audit's own cue-room parser
-    mv = _LEFT_RE.search(prompt)
-    rooms = {r.strip().lower().replace(" ", "-") for r in _MOVE_ROOM_RE.findall(mv.group(1))} if mv else set()
-    wrong_room = bool(rooms) and rooms != {b.location.lower()}
-    if not ((left & here) or (came - here) or wrong_room):
-        return prompt
-    return drop_movement_cue(prompt)

@@ -6,7 +6,7 @@ import importlib
 import pytest
 
 from routes import chat_helpers as ch
-from routes.briefing import Briefing, build_briefing, drop_stale_movement
+from routes.briefing import Briefing, build_briefing, drop_movement_cue
 from routes.briefing_audit import audit_briefing
 
 orwell_engine = importlib.import_module("src.orwell_engine")
@@ -166,18 +166,10 @@ def test_morning_after_turn_in_drops_the_stale_movement_cue():
     b = build_briefing(morning, zero_clocks=True)
     stale = _msgs(_ctx("morning", "Houseguest A, Houseguest B"), move)
     assert any(c["fact"] == "presence" for c in audit_briefing(stale, b)), "the night cue disagrees with the morning room"
-    fixed = drop_stale_movement(stale[0]["content"], b)
+    fixed = drop_movement_cue(stale[0]["content"])          # what the turn-in rebuild does
     assert "MOVEMENT IN THE ROOM" not in fixed and "With you: Houseguest A, Houseguest B." in fixed
     assert audit_briefing(_msgs(fixed), b) == []
     assert len(fixed) < len(stale[0]["content"])
-
-
-def test_a_movement_cue_the_final_board_still_supports_is_kept():
-    move = _night_move()
-    b = build_briefing(_board("evening", None, present=("Houseguest A",)), zero_clocks=True)
-    text = _ctx("evening", "Houseguest A") + "\n\n" + move
-    assert drop_stale_movement(text, b) == text
-    assert drop_stale_movement(text, Briefing()) == text, "no room in the briefing: unchanged"
 
 
 def test_movement_after_side_is_the_briefing_not_the_signature():
@@ -409,9 +401,6 @@ def _night_kitchen_cue(user):
 def test_turn_in_drops_a_movement_cue_that_names_last_nights_room(monkeypatch):
     # B left the kitchen at night; the player turns in and wakes in the bedroom where B is not: the people check alone kept the cue
     cue = _night_kitchen_cue("u409m1")
-    b = build_briefing(_morning(None, room="bedroom", present=("Houseguest A",)), zero_clocks=True)
-    text = _ctx("morning", "Houseguest A", room="bedroom") + "\n\n" + cue
-    assert "MOVEMENT IN THE ROOM" not in drop_stale_movement(text, b), "the cue's room is not the player's room"
     from src import agent_loop as al
     user = "u409m2"
     _reset(user)
@@ -435,9 +424,6 @@ def test_turn_in_drops_a_night_arrival_who_is_still_there(monkeypatch):
     # an arrival the morning board still shows is last night's news: the people check kept it, the turn-in rebuild drops it
     cue = ch._render_presence_movement({"room": "kitchen", "present": ["Houseguest A"]}, {"room": "kitchen", "present": ["Houseguest A", "Houseguest B"]})
     assert "Houseguest B has come into the kitchen" in cue
-    b = build_briefing(_morning(None, present=("Houseguest A", "Houseguest B")), zero_clocks=True)
-    text = _ctx("morning", "Houseguest A, Houseguest B") + "\n\n" + cue
-    assert drop_stale_movement(text, b) == text, "the people check alone keeps it"
     from src import agent_loop as al
     user = "u409m3"
     _reset(user)
@@ -488,17 +474,16 @@ def test_a_houseguest_who_turned_in_keeps_an_exit_beat_and_is_never_present_or_a
     cur = {"room": "kitchen", "present": ["Houseguest B"]}
     b = Briefing(location="kitchen", present=("Houseguest B",), asleep=("Houseguest A",))
     cue = ch._render_presence_movement(prev, cur, briefing=b)
-    assert "Houseguest A has left the kitchen (turned in for the night)" in cue
+    assert "Houseguest A has gone to sleep" in cue and "has left" not in cue      # true whether they left the room or fell asleep in it
     assert "come into" not in cue and "show them heading out or arriving" in cue
     msgs = [{"role": "system", "content": _ctx("night", "Houseguest B", asleep="- Still asleep (1): Houseguest A. They are NOT awake.\n") + "\n\n" + cue}]
     assert audit_briefing(msgs, build_briefing(_board("night", None, present=("Houseguest B",), asleep=("Houseguest A",)), zero_clocks=True)) == []
-    assert drop_stale_movement(msgs[0]["content"], b) == msgs[0]["content"], "a sleeper-departure cue is not stale"
 
 
 def test_a_sleeper_who_left_alongside_an_awake_leaver_is_split_in_the_cue():
     prev = {"room": "kitchen", "present": ["Houseguest A", "Houseguest B", "Houseguest C"]}
     cue = ch._render_presence_movement(prev, {"room": "kitchen", "present": ["Houseguest C"]}, briefing=Briefing(location="kitchen", present=("Houseguest C",), asleep=("Houseguest A",)))
-    assert "Houseguest B has left the kitchen;" in cue and "Houseguest A has left the kitchen (turned in for the night)" in cue
+    assert "Houseguest B has left the kitchen; Houseguest A has gone to sleep." in cue
 
 
 # ---- the audit compares the engine's "With you" line (awake people only) with the awake set -------------------------------------------------------------------------------------------------

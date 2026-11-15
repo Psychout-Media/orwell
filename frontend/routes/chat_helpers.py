@@ -7237,7 +7237,8 @@ def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefin
     """A 'someone came/went' cue from two beat signatures, or None when there is nothing to voice
     (no prior signature, the player changed rooms, or the room's company is unchanged).
     ORW-409: the BEFORE side stays the previous turn's signature (a difference needs the old state); the AFTER side (room and who is there) is the turn's briefing when it has a room.
-    A sleeper is never on the ARRIVED side or "here now" (the awake list), but a houseguest who WAS here and has since turned in is still on the LEFT side, stated as having turned in."""
+    A sleeper is never on the ARRIVED side or "here now" (the awake list). A houseguest who WAS awake here and is now in the asleep set gets their own clause, "has gone to sleep": that is the one
+    statement the board supports in every case (they may have left the room or fallen asleep in it), and it keeps their exit beat."""
     if not isinstance(prev, dict) or not isinstance(cur, dict):
         return None
     asleep: set = set()
@@ -7255,10 +7256,12 @@ def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefin
         return None
     room_label = str(cr).replace("-", " ")
     parts: list[str] = []
-    for group, tail in (([n for n in departed if n not in asleep], ""), ([n for n in departed if n in asleep], " (turned in for the night)")):
-        if group:
-            verb = "has" if len(group) == 1 else "have"
-            parts.append(f"{_join_names(group)} {verb} left the {room_label}{tail}")
+    left_awake = [n for n in departed if n not in asleep]
+    now_asleep = [n for n in departed if n in asleep]
+    if left_awake:
+        parts.append(f"{_join_names(left_awake)} {'has' if len(left_awake) == 1 else 'have'} left the {room_label}")
+    if now_asleep:
+        parts.append(f"{_join_names(now_asleep)} {'has' if len(now_asleep) == 1 else 'have'} gone to sleep")
     if arrived:
         verb = "has" if len(arrived) == 1 else "have"
         parts.append(f"{_join_names(arrived)} {verb} come into the {room_label}")

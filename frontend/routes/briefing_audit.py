@@ -18,7 +18,8 @@ _LEFT_RE = re.compile(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*?)(?:\.\s+Voice 
 _ASLEEP_RE = re.compile(r"Still asleep \(\d+\):\s*(.+?)\.\s", re.IGNORECASE)
 _INTERRUPT_RE = re.compile(r"AN INTERRUPTION \(engine-decided\):\s*(.+?) steps into")
 _ROOM_RE = re.compile(r"^\s*Your room: the ([A-Za-z -]+?) \(", re.MULTILINE)
-_MOVE_ROOM_RE = re.compile(r"(?:left|come into) the ([A-Za-z -]+?)(?:;|\.\s|\s\(|$)")
+_MOVE_ROOM_RE = re.compile(r"(?:left|come into) the ([A-Za-z -]+?)(?:;|\.\s|$)")
+_GONE_RE = re.compile(r"\b(?:left|gone to sleep)\b")  # a movement clause whose people are no longer awake in the room
 _DAY_RE = re.compile(r"-\s*Clock:[^\n]*?\bDay (\d+)", re.IGNORECASE)
 
 
@@ -52,8 +53,8 @@ def audit_briefing(messages, briefing=None) -> list:
         here = _names(w.group(1)) if not w.group(1).lower().startswith("no one") else set()
         left, came = set(), set()
         for clause in mv.group(1).split(";"):
-            who = _names(re.sub(r"\s+(?:has|have)\s+(?:left|come into)\b.*", "", clause))
-            (left if re.search(r"\bleft\b", clause) else came).update(who)
+            who = _names(re.sub(r"\s+(?:has|have)\s+(?:left|come into|gone to sleep)\b.*", "", clause))
+            (left if _GONE_RE.search(clause) else came).update(who)
         bad = sorted((left & here) | (came - here))
         if bad:
             found.append({"fact": "presence", "detail": "movement cue and 'With you' disagree about: " + ", ".join(bad)})
@@ -73,7 +74,7 @@ def _audit_asleep_room_day(t: str, w, mv, briefing) -> list:
             talking |= _names(w.group(1))
         if mv:
             for clause in mv.group(1).split(";"):
-                if not re.search(r"\bleft\b", clause):
+                if not _GONE_RE.search(clause):
                     talking |= _names(re.sub(r"\s+(?:has|have)\s+come into\b.*", "", clause))
         i = _INTERRUPT_RE.search(t)
         if i:
