@@ -23,7 +23,8 @@ def bash(script, env=None):
 
 @needs_bash
 @pytest.mark.parametrize("paths,expected", [
-    ("frontend/static/js/a.js\\nfrontend/static/css/b.css", "none"),
+    ("frontend/static/js/a.js\\nfrontend/static/css/b.css", "frontend"),
+    ("frontend/static/js/theme.js", "frontend"),
     ("frontend/static/js/a.js\\nfrontend/routes/chat_routes.py", "frontend"),
     ("frontend/requirements.lock.txt", "frontend"),
     ("frontend/routes/x.py\\nsrc/engine.ts", "both"),
@@ -81,7 +82,7 @@ def test_updater_wiring():
     assert 'update_restart_scope' in blk and 'update_wait_for_no_turn' in blk
     assert blk.index("update_wait_for_no_turn") < blk.index('systemctl restart "$FRONTEND_SVC"')
     assert 'systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"' in blk
-    assert "none" in blk
+    assert "restarted-sha" in blk or "update_restarted_sha_write" in blk
 
 
 def test_frontend_publishes_turns_in_flight(tmp_path, monkeypatch):
