@@ -396,6 +396,19 @@ def test_hair_colour_and_length_are_read_from_the_hair_clause_in_any_order():
     assert "short hair" in C.visible_features("a woman with short hair")
 
 
+def test_an_accessory_colour_in_the_hair_clause_is_not_the_hair_colour():
+    pr = "Waist-up portrait of a 30-year-old woman. Hair: a neat low bun tied with a red ribbon. Setting: the house kitchen"
+    assert not any("red" in f for f in C.visible_features(pr))
+    pr2 = "Waist-up portrait of a 30-year-old woman. Hair: long black waves held back with a white clip. Setting: x"
+    f = C.visible_features(pr2)
+    assert "black hair" in f and "long hair" in f and not any("white" in x for x in f)
+
+
+def test_an_unpriced_model_ledgers_no_made_up_zero_cost(env):
+    C._record_spend("u", {"model": "an-unpriced-model", "usage": {"prompt_tokens": 100, "completion_tokens": 5}})
+    assert [e for e in ledger.get_recent("u", 50) if e["callClass"] == "portrait-check"] == []
+
+
 def test_a_forced_upgrade_check_reshoot_keeps_the_upgrade_identity_prefix(env):
     P._write_portrait("u", "npc:1", b"OLD-FACE", "Cole", source="generated")
     env.replies = [_reply(["messy-hair"]), _reply([])]
