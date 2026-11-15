@@ -2766,9 +2766,13 @@ _NOM_WORRY_RE = re.compile(
     r"\b(?:nervous|nervously|afraid|worr(?:y|ies|ied|ying)|anxious|anxiety|scared|fear(?:s|ed|ing)?|dread(?:s|ed|ing)?|uneasy|on edge|panick\w*|wonder(?:s|ed|ing)?|"
     r"(?:who|whom|which of (?:us|them))\s+(?:\w+\s+){0,2}?(?:will|would|might|may|could|is going to|are going to|'ll)|"
     r"(?:will|going to|gonna|about to|might|may|could)\s+be\s+(?:the\s+)?(?:next\s+)?(?:nominated|up|on the block|put)|next\s+(?:to|up)\s+(?:go|for)|"
-    r"(?:about|of|over|for)\s+(?:the\s+|this\s+)?(?:vote|block|nominations?|eviction)|(?:of|about)\s+(?:\w+\s+){0,2}?going\s+up\b)",
+    r"(?:about|of)\s+(?:the\s+|this\s+)?(?:vote|block|nominations?|eviction)|(?:of|about)\s+(?:\w+\s+){0,2}?going\s+up\b)",
     re.IGNORECASE,
 )
+
+
+# ORW-429: an explicit nomination ACT stays a claim even after a worry word in the same sentence ("Nervous, Hoh Person nominates Nom Alpha").
+_NOM_EXPLICIT_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|has nominated|have nominated|had nominated)\b|\bnominated\s+(?:@|[A-Z])")
 
 
 def _nomination_claims_all_hypothetical(text: str) -> bool:
@@ -2779,7 +2783,7 @@ def _nomination_claims_all_hypothetical(text: str) -> bool:
         return False
     for sent in hits:
         m = _CLAIM_NOMINATED_RE.search(sent)
-        if not _NOM_HYPOTHETICAL_RE.search(sent[:m.start() + 1]) and not _NOM_WORRY_RE.search(sent[:m.end()]):
+        if not _NOM_HYPOTHETICAL_RE.search(sent[:m.start() + 1]) and not (_NOM_WORRY_RE.search(sent[:m.end()]) and not _NOM_EXPLICIT_ACT_RE.search(sent)):
             return False
     return True
 
@@ -5853,9 +5857,12 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             _res = drop_early_claim_sentences(text, before, live)
             _st = _EARLY_DROPS.get(_dkey)
             if not _st or _st["before"] is not before:
-                _st = _EARLY_DROPS[_dkey] = {"before": before, "n": 0}
-            if _res is not None and _st["n"] + _res[1] <= _EARLY_DROP_BUDGET and not _early_drop_leaves_a_stub(text, _res[0]) and not _narration_claims_outcome(_res[0], before, live):
+                _st = _EARLY_DROPS[_dkey] = {"before": before, "n": 0, "orig": 0, "kept": 0}
+            # ORW-429: the stub rule is judged on the claim chunks' RUNNING totals this turn (the stream is screened chunk by chunk), not one chunk.
+            _orig_tot, _kept_tot = _st.get("orig", 0) + len(text.strip()), _st.get("kept", 0) + (len(_res[0].strip()) if _res else 0)
+            if _res is not None and _st["n"] + _res[1] <= _EARLY_DROP_BUDGET and not _early_drop_leaves_a_stub("x" * _orig_tot, "x" * _kept_tot) and not _narration_claims_outcome(_res[0], before, live):
                 _st["n"] += _res[1]
+                _st["orig"], _st["kept"] = _orig_tot, _kept_tot
                 _SCENE_REWRITE[_dkey] = _res[0]
                 logger.warning("[orwell] scene circuit-breaker: early ceremony claim - dropped the sentence(s) only, scene kept for user=%s (%s)", user, next((m for m in _EARLY_CLAIM_MARKERS if m in directive), "?"))
                 return None
@@ -5950,7 +5957,7 @@ def _unbacked_outcome_absent(text: str, live: dict) -> Optional[str]:
         return any(_committed_claim(rx, t) for rx in regexes)
     if _claims(_CLAIM_NEW_HOH_RE, _CLAIM_SELF_HOH_WIN_RE) and not live.get("hoh"):
         return "a HEAD OF HOUSEHOLD win (no Head of Household reigns yet)"
-    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []):
+    if _claims(_CLAIM_NOMINATED_RE) and not (live.get("noms") or []) and not _nomination_claims_all_hypothetical(t):  # ORW-429: worry about the block is not a nomination here either
         return "a NOMINATION (no houseguest is on the block yet)"
     if _claims(_CLAIM_VETO_WINNER_RE, _CLAIM_SELF_VETO_WIN_RE) and not live.get("vetoHolder"):
         return "a POWER OF VETO win (no one holds the veto yet)"

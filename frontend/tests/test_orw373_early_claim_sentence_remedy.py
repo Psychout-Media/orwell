@@ -331,3 +331,32 @@ def test_the_stub_floor_leaves_short_chunks_and_real_remainders_alone():
     assert not ch._early_drop_leaves_a_stub("Hoh Person turns the first key.", "")
     assert not ch._early_drop_leaves_a_stub("x" * 900, "y" * 600)
     assert ch._early_drop_leaves_a_stub("x" * 1540, "The room is waiting on her.")
+
+
+# ---- ORW-429 review fixes ----
+
+def test_up_for_eviction_is_not_excused_as_worry():
+    assert not ch._nomination_claims_all_hypothetical("Two houseguests are up for eviction this week, the keys all handed out.")
+
+
+def test_an_explicit_nomination_act_after_a_worry_word_is_still_a_claim():
+    assert not ch._nomination_claims_all_hypothetical("Nervous about the vote, Hoh Person nominates Nom Alpha and Nom Beta.")
+    assert not ch._nomination_claims_all_hypothetical("Afraid of the block, the room watches as Hoh Person has nominated Nom Alpha.")
+    assert ch._nomination_claims_all_hypothetical("Houseguest A is afraid of the block and wonders who will be nominated.")
+
+
+def test_worry_about_the_block_is_not_a_premiere_absence_fabrication():
+    live = _sig(phase="premiere", hoh=None, hohName=None)
+    assert ch._unbacked_outcome_absent("Houseguest A is nervous about the block and afraid of being on the block.", live) is None
+    assert ch._unbacked_outcome_absent("Hoh Person nominates Nom Alpha and Nom Beta.", live)
+
+
+def test_the_stub_rule_is_judged_on_the_turns_running_totals_not_one_chunk(_state):
+    sig = _sig(phase="nominations")
+    _state.arm(sig)
+    chunk = "Hoh Person nominates Nom Alpha and Nom Beta for eviction and the whole room reels at the news of it, every houseguest turning toward the pair and talking over each other, voices rising through the living room until nobody can be heard at all. Ok."
+    assert 200 < len(chunk) < ch._EARLY_DROP_SCENE_MIN_CHARS < 2 * len(chunk)
+    assert _run(ch.screen_streamed_scene_break(_USER, chunk)) is None  # alone, a short chunk keeps the rewrite
+    assert ch.take_scene_rewrite(_USER)
+    d = _run(ch.screen_streamed_scene_break(_USER, chunk))  # running total is now a scene, almost all of it dropped (2 drops: inside the budget): full cut
+    assert d and ch.take_scene_rewrite(_USER) is None
