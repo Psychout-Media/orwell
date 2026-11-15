@@ -8024,17 +8024,18 @@ async def _stream_agent_loop_impl(
                     # ORW-402 layer 3: verbatim excerpts of condensed-out days that match the player's newest message.
                     try:
                         from src import orwell_transcript_recall as _tr
-                        if _tr.enabled() and messages is not _pre_view_dc:
+                        # review of #2703: no content word in the newest message => recall cannot fire, so skip the roster round-trip
+                        if _tr.enabled() and messages is not _pre_view_dc and _tr._words(_tr._last_user_text(messages)):
                             _tr_names = []
                             try:
                                 _gs_tr = await _oe_dc.get_game_state(owner)
                                 _tr_names = [h.get("name") for h in ((_gs_tr or {}).get("house") or [])
                                              if isinstance(h, dict) and h.get("name")]
                             except Exception as _e_trn:
-                                logger.debug("[transcript-recall] names skipped: %s", _e_trn)
+                                logger.warning("[transcript-recall] names skipped (excerpt name matching degraded): %s", _e_trn)
                             messages = _tr.apply_recall(_pre_view_dc, messages, _tr_names)
                     except Exception as _e_tr:
-                        logger.debug("[transcript-recall] skipped: %s", _e_tr)
+                        logger.warning("[transcript-recall] skipped: %s", _e_tr)
                     orwell_day_condense.kickoff_heal(owner, _ledger_dc)  # ORW-387: a closed day with no real summary is re-authored in the background
         except Exception as _e_dc:
             logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
@@ -10040,14 +10041,14 @@ async def _stream_agent_loop_impl(
                                 or _is_nondiegetic_scene_text(_turn_narration)):
                             try:
                                 from src import orwell_room_canon as _rc
-                                await _rc.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                                await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _rc_e:
                                 logger.debug(f"[room-canon] skipped: {_rc_e}")
                             # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
                             # free text (engine-validated; fail-soft; same gating as the room canon above).
                             try:
                                 from src import orwell_open_ledger as _ol
-                                await _ol.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                                await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _ol_e:
                                 logger.debug(f"[open-ledger] skipped: {_ol_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
