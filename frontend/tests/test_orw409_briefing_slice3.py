@@ -492,3 +492,23 @@ def test_a_correct_prompt_with_a_sleeper_in_the_room_raises_no_presence_report()
     asleep = "- Still asleep (1): Houseguest B. They are NOT awake in this scene.\n"
     assert audit_briefing(_msgs(_ctx("early morning", "Houseguest A (lingering, 3 turns)", room="bedroom", asleep=asleep)), b) == []
     assert [c["fact"] for c in audit_briefing(_msgs(_ctx("early morning", "Houseguest A, Houseguest B", room="bedroom", asleep=asleep)), b)].count("presence") == 1
+
+
+def test_after_turn_in_a_morning_board_with_no_schedule_drops_last_nights_production_cue():
+    """review of #2755: `_reconcile_schedule_steer` returned the steer untouched when the briefing had no schedule (`due is None`), even after a turnIn."""
+    cue = "PRODUCTION GIVES NOTICE - the nomination ceremony is about to be called."
+    other = "Keep the scene social."
+    steer = cue + "\n\n" + other
+    arm = {"event": "nominations", "day": 3, "resolved": False}
+    b = Briefing(location="kitchen")  # due is None: the morning board has no daySchedule
+    assert ch._reconcile_schedule_steer(steer, b, arm, after_turn_in=True) == other
+    assert ch._reconcile_schedule_steer(steer, b, arm) == steer  # mid-turn: no schedule facts means unchanged, as before
+
+
+def test_the_gone_to_sleep_clause_is_voiced_as_sleep_not_as_a_walk_out():
+    """review of #2755: the one instruction line told the narrator to show everyone "heading out", including the person who went to sleep."""
+    prev = {"room": "kitchen", "present": ["Houseguest A", "Houseguest B"]}
+    asleep = ch._render_presence_movement(prev, {"room": "kitchen", "present": ["Houseguest B"]}, briefing=Briefing(location="kitchen", present=("Houseguest B",), asleep=("Houseguest A",)))
+    assert "settles down to sleep" in asleep and "not heading out the door" in asleep
+    left = ch._render_presence_movement(prev, {"room": "kitchen", "present": ["Houseguest B"]})
+    assert "settles down to sleep" not in left and "show them heading out or arriving" in left

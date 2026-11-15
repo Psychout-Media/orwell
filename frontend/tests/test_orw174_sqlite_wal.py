@@ -50,7 +50,9 @@ def test_the_backup_script_snapshots_the_db_before_tar():
     src = (REPO / "deploy" / "orwell-backup.sh").read_text()
     assert src.index("src.backup(dst)") < src.index('dst.execute("PRAGMA integrity_check")') < src.index('\ntar "${TAR_ARGS[@]}"')
     # the archive must hold the verified snapshot INSTEAD of the live pair (review of #2695/#2698/#2697)
-    for live in ("frontend/data/app.db", "frontend/data/app.db-wal", "frontend/data/app.db-shm"):
+    for live in ("frontend/data/app.db", "frontend/data/app.db-wal", "frontend/data/app.db-shm", "frontend/data/app.db-journal"):
         assert f"--exclude='{live}'" in src, live
     assert '--transform "s,^$(basename "$SNAP")\\$,frontend/data/app.db,"' in src
+    # pins the SNAPSHOT copy only: sqlite creates it with the caller's umask and tar records that member mode, so it must be chmod 600 BEFORE the tar runs. The tarball file's own mode is not pinned here (review of #2751, #2767)
+    assert src.index('chmod 600 "$SNAP"') < src.index('\ntar "${TAR_ARGS[@]}"')
     assert subprocess.run(["bash", "-n", str(REPO / "deploy" / "orwell-backup.sh")]).returncode == 0

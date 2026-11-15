@@ -363,3 +363,13 @@ def test_a_stale_allowance_cannot_launder_extra_bumps_of_a_counted_tool(_led):
     # allowance 2 = 1 stale rejection + 1 counted write; two counted-tool bumps are in the log: the ledger counted only one write
     out = _classify(["recordInteraction", "recordInteraction"], {"recordInteraction": 1}, counted=2, counted_writes=1)
     assert out["kind"] == "unexplained" and "counted tool(s) bumped 2" in out["note"]
+
+
+def test_the_cause_text_adds_an_ellipsis_only_when_bumps_were_really_cut(_led):
+    """review of #2757: an exactly-16-bump gap got "; ..." though nothing was truncated."""
+    n = ledger._MAX_GAP_BUMPS
+    exact = _classify(["recordRoomCanon"] * n, {"recordRoomCanon": n})
+    assert "more" not in exact and not ledger._describe_causes(ledger._clean_gap_explanation(exact)).endswith("...")
+    over = _classify(["recordRoomCanon"] * (n + 1), {"recordRoomCanon": n + 1})
+    assert over["more"] is True and len(over["bumps"]) == n
+    assert ledger._describe_causes(ledger._clean_gap_explanation(over)).endswith("; ...")

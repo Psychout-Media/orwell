@@ -59,7 +59,7 @@ import tempfile
 # preserves ONLY the API key(s) + the provider endpoint record(s) (the model_endpoints rows, carried
 # separately) — it does NOT preserve the SELECTED MODELS. After a reset the model selections revert
 # to the OOB defaults (narrator + utility deepseek-flash on DeepSeek's own API (PO 2026-11-02; was the OpenRouter glm-4.7 + qwen pair — the ADR
-# 0016 pair, narrator per the 2026-07-13 owner ruling; portrait openai/gpt-image-2.6-sunburst via OpenRouter's Image API since ORW-362, falling back per portrait to a resolvable Gemini image model), so a
+# 0016 pair, narrator per the 2026-07-13 owner ruling; portrait openai/gpt-image-2.6-sunburst via OpenRouter's Image API since ORW-362, falling back per portrait to the first resolvable IMAGE_AUTODETECT_CANDIDATES entry: a Gemini image model first, else a later OpenAI one), so a
 # stale/placeholder pick (e.g. the "sakana/fugu-ultra" the owner was stuck on) can never ride across
 # a reset.
 #

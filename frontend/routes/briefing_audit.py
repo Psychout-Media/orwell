@@ -113,8 +113,8 @@ def _audit_against(t: str, parts: set, b) -> list:
     # src/adapters/engine/GameSessionAdapter.ts:5761-5765); sleepers are named by the front end's own "Still asleep" line. So it is compared with the awake set, never with everyone in the room.
     here = {n.lower() for n in b.awake_present}
     wm = _WITH_RE.search(t)
-    if wm and not wm.group(1).lower().startswith("no one"):
-        said = {n.lower() for n in _names(wm.group(1))}
+    if wm:
+        said = set() if wm.group(1).lower().startswith("no one") else {n.lower() for n in _names(wm.group(1))}  # review of #2755: "No one" is the empty set, compared like any other
         if b.location and said != here:
             out.append({"fact": "presence", "detail": "'With you' differs from the briefing's present list"})
     return out

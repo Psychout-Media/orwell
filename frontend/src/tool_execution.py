@@ -1802,11 +1802,13 @@ def format_tool_result(description: str, result: Dict) -> str:
         from src.zero_clocks import scrub_tool_output as _zc_scrub_c  # review of #2657: same scrub on every model-facing text branch
         parts.append(f"**content ({result.get('size', '?')} chars):**\n```\n{_zc_scrub_c(result['content'])}\n```")
     elif "response" in result:
+        from src.zero_clocks import scrub_tool_output as _zc_scrub_resp  # review of #2751: the response branch is model-facing text too
+        _resp = _zc_scrub_resp(result["response"])
         model = result.get("model", result.get("session_name", ""))
         if model:
-            parts.append(f"**{model} responded:**\n{result['response']}")
+            parts.append(f"**{model} responded:**\n{_resp}")
         else:
-            parts.append(result["response"])
+            parts.append(_resp)
     elif "results" in result:
         from src.zero_clocks import scrub_tool_output as _zc_scrub_r  # review of #2657
         parts.append(_zc_scrub_r(result["results"]))
@@ -1835,7 +1837,8 @@ def format_tool_result(description: str, result: Dict) -> str:
     extra = {k: v for k, v in result.items() if k not in _FORMATTER_HANDLED_KEYS}
     if extra:
         try:
-            extra_json = json.dumps(extra, indent=2, default=str, ensure_ascii=False)
+            from src.zero_clocks import scrub_tool_output as _zc_scrub_x  # review of #2751: the serialized extra payload carries clockLabel / minutesUntil too
+            extra_json = _zc_scrub_x(json.dumps(extra, indent=2, default=str, ensure_ascii=False))
             # Cap to avoid blowing the context window on huge payloads.
             if len(extra_json) > 8000:
                 extra_json = extra_json[:8000] + f"\n... (truncated, {len(extra_json)} chars total)"

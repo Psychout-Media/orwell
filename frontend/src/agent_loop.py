@@ -4335,7 +4335,8 @@ def _faith_time_block(gs: dict) -> dict:
         out["nextEvent"] = ev
     if b.location:
         out["playerRoom"] = b.location
-    out["asleep"] = list(b.asleep)
+    if isinstance(gs, dict) and isinstance(gs.get("asleep"), list):
+        out["asleep"] = list(b.asleep)  # review of #2741: only when the board carries the fact; an absent roster must not read as "everyone is awake"
     return out
 
 
@@ -4722,7 +4723,23 @@ _FAITH_TIME_ADVANCING_TOOLS = frozenset({"turnIn", "advanceGame", "nap", "hangOu
 
 def _faith_turn_advanced_time(tool_events) -> bool:
     """True when the turn's own tool events include a time-advancing engine write (the loop holds no start-of-turn board to diff)."""
-    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS for ev in (tool_events or []))
+    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS and _faith_event_applied(ev) for ev in (tool_events or []))
+
+
+def _faith_event_applied(ev: dict) -> bool:
+    """False for a tool event that did not apply: a failed call (non-zero exit code) or an engine `held` / `error` refusal in its output. A held or failed write left the clock where it was,
+    so it must not switch the judge's time dimension off (review of #2741). An event with no output (the belts' own calls) is judged on its exit code alone."""
+    if ev.get("exit_code") not in (0, None):
+        return False
+    out = ev.get("output")
+    if isinstance(out, str) and out.strip().startswith("{"):
+        try:
+            data = json.loads(out)
+        except ValueError:
+            return True
+        if isinstance(data, dict) and (data.get("held") or data.get("error")):
+            return False
+    return True
 
 
 async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_before=None,
@@ -5812,13 +5829,15 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
 def _split_sentences_keep_dotted_times(text: str) -> list:
     """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
     zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
-    parts = re.split(r"(?<=[.!?\n])", text)
+    parts = re.split(r"(?<=[.!?\n])(?!(?<=\d\.)\d)", text)  # review of #2751: no cut inside a dotted numeric time ("9.15am", "4.30pm"): the digit after a digit-dot continues the number
     out: list = []
     for p in parts:
         if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):
             out[-1] += p
-        elif out and re.search(r"\b[ap]\.m\.$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z]", p):
-            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it)
+        elif out and re.search(r"\d\s?[ap]\.$", out[-1], re.IGNORECASE) and re.match(r"m(?![\w'])", p):
+            out[-1] += p  # review of #2751: "3 a.m and ..." / "9 p.m, Sam ..." (no closing period): the "m" belongs to the time
+        elif out and re.search(r"\b[ap]\.m\.?$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z,;:)]", p):
+            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it); so does the punctuation that follows it ("At 9 p.m., Sam left.")
         else:
             out.append(p)
     return out
@@ -5861,7 +5880,13 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
                 and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
-                and not chat_helpers.sentence_states_zero_clock_time(text)):
+                and not chat_helpers.sentence_states_zero_clock_time(text)
+                # review of #2751: these predicates carry a whole-text "exempt" word list ("not", "quiet", "asleep"), so a negative word in a
+                # NEIGHBOURING sentence hid a positive claim here; ask each sentence on its own before declaring the chunk claim-free
+                and not any(chat_helpers._sentence_has_house_awake_claim(_p) or chat_helpers._sentence_has_unbacked_morning_claim(_p)
+                            or chat_helpers._sentence_has_in_the_clock_claim(_p) or chat_helpers._sentence_has_nominee_status(_p)
+                            or chat_helpers._sentence_has_met_everyone_claim(_p)
+                            for _p in _split_sentences_keep_dotted_times(text))):
             return text
     except Exception:
         return text
@@ -6478,6 +6503,9 @@ def _scene_ops(raw: str, g) -> tuple:
 _GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed", "mirror_ops"])
 
 
+_DOTTED_STEM_TAIL_RE = re.compile(r"[^.!?\n]*\b\d\s?[ap]\.m$", re.IGNORECASE)  # the unfinished last sentence of a chunk when it stops at "3 a.m" (no closing period yet)
+
+
 def _apply_mirror_ops(round_response: str, ops) -> str:
     """Mirror a guarded chunk's EXACT drops back into the raw round buffer: each op is a (raw_before, after) pair for ONE
     segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
@@ -6521,11 +6549,18 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
     text = pending + (clean or "")
     segs, still_open = _ooc_segments(text, False)
     if not any(is_aside for _t, is_aside in segs):
+        held = ""
+        if not flush:
+            # review of #2767: a chunk that ends inside a dotted time ("It was 3 a.m" with the "." in the NEXT chunk) is held until that chunk arrives, so a dropped clock sentence
+            # takes its terminator with it instead of leaving a bare "." behind ("settles.. Then"). The round's flush resolves it if nothing follows.
+            _stem = _DOTTED_STEM_TAIL_RE.search(text)
+            if _stem:
+                held, text = _stem.group(0), text[:_stem.start()]
         outside = _strip_stray_closers(text)
         if not outside.strip():
-            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), ""
+            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), held
         g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), ""
+        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), held
     out: "list[str]" = []
     consumed: "list[str]" = []
     ops: "list[tuple[str, str]]" = []
@@ -8591,6 +8626,7 @@ async def _stream_agent_loop_impl(
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
+        _pd_rw_round = False  # ORW-408: THIS round withheld a sentence (the turn-scoped `_pd_rewrite_used` must not switch the tail check off for LATER rounds; review of #2751)
         _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
         native_tool_calls = []  # populated if model uses function calling
         # Reset doc streaming state per round
@@ -9222,6 +9258,7 @@ async def _stream_agent_loop_impl(
                                         if _pd_split is not None:
                                             _pd_rw_pending = _pd_split
                                             _pd_rewrite_used = True
+                                            _pd_rw_round = True
                                             _guarded_text = _pd_split.keep
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
@@ -9443,7 +9480,7 @@ async def _stream_agent_loop_impl(
                     await _pd_check_f(_guarded_text or "", owner, in_quote=_pd_qopen_f(_round_emitted_text))
                 except Exception:  # failsoft-ok: counter only
                     pass
-                if _pd_rw_cont or (not _pd_rewrite_used and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
+                if _pd_rw_cont or (not _pd_rw_round and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
                     try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
                         from src.predisplay_check import quote_open_after as _pd_qopen2

@@ -6271,7 +6271,7 @@ _HOUSE_AWAKE_RE = re.compile(
     r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
     r"|\bthe\s+house\s+(?:wakes|woke|stirs|stirred)\b"
     r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
-    r"|[\"\u201c']\s*(?:good\s+)?morning\b[,.!]?"
+    r"|(?<!\w)[\"\u201c']\s*(?:good\s+)?morning\b[,.!]?"  # an OPENING quote: never an apostrophe that follows a letter ("the twins' morning routine"; review of #2767)
     r"|\bI\s+know\s+it(?:'s|\u2019s)\s+early\b"
     r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
     re.IGNORECASE,
@@ -7304,10 +7304,11 @@ def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefin
     if arrived:
         verb = "has" if len(arrived) == 1 else "have"
         parts.append(f"{_join_names(arrived)} {verb} come into the {room_label}")
+    sleep_note = (" Anyone who has gone to sleep settles down to sleep (a yawn, a bed, a dimmed light), not heading out the door.") if now_asleep else ""  # review of #2755: the sleep clause must not be voiced as a walk out
     return (
         "MOVEMENT IN THE ROOM (engine truth) — " + "; ".join(parts) + ". Voice it as a natural beat — "
         "show them heading out or arriving — never let a houseguest simply vanish from or appear in the "
-        "scene without a beat. (The engine moves the houseguests; you only narrate it.)"
+        "scene without a beat." + sleep_note + " (The engine moves the houseguests; you only narrate it.)"
     )
 
 
@@ -7496,8 +7497,10 @@ def _reconcile_schedule_steer(steer: str, b, arm=None, after_turn_in: bool = Fal
     cue (`_arm_marker`): the event id, the day it falls on and whether the engine resolved it this turn. A cue whose event the engine resolved this turn is NEVER swapped. A cue is swapped for the not-due line only
     when the final briefing's next event is the SAME occurrence, it is not due, and it is tomorrow (a notice) or not due at all (a call). Other paragraphs are untouched. No marker or no schedule facts => unchanged.
     `after_turn_in` (the morning rebuild): a cue the morning schedule no longer supports (a different event or occurrence is next and the event is not due now) is dropped rather than left; one whose event is due now is kept."""
-    if not steer or b is None or b.due is None or not isinstance(arm, dict) or arm.get("resolved"):
+    if not steer or b is None or not isinstance(arm, dict) or arm.get("resolved"):
         return steer
+    if b.due is None and not after_turn_in:
+        return steer  # no schedule facts: unchanged. After a turnIn the morning board with NO schedule no longer supports last night's cue (review of #2755), so it falls through to the drop below
     out = []
     for para in steer.split("\n\n"):
         if _SCHEDULE_CUE_RE.match(para):

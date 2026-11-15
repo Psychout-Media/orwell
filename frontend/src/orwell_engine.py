@@ -525,8 +525,10 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             never_sent = isinstance(e, _NEVER_SENT_ERRORS)
             if never_sent:
                 _note_engine_unreachable()
-            elif isinstance(e, (EngineToolError, httpx.HTTPStatusError)):
-                _clear_engine_down()  # an ANSWER (a tool error, a 5xx, the restarting 503): the engine is listening
+            elif isinstance(e, EngineToolError) or (isinstance(e, httpx.HTTPStatusError) and (wait is not None or e.response.status_code not in _TRANSIENT_STATUSES)):
+                # an ANSWER (a structured tool error, the recognized restarting 503, a non-gateway status): the engine is listening. A bare gateway 502/503/504 proves only that a proxy answered
+                # (review of #2744), so it must not restart the outage clock of an established outage
+                _clear_engine_down()
             if wait is not None and never_sent and not long_waiting and _engine_down():
                 wait = None  # the outage is established: a refused connection fails fast (short retry below)
             if wait is not None:
@@ -682,7 +684,9 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
             res = await (_call_inner(name, args, user=user, timeout=timeout, quiet=True) if quiet
                          else _call_inner(name, args, user=user, timeout=timeout))
             if name not in engine_read_cache.PURE_READS:
-                _note_ledger_write(user, name, res)  # ORW-435: the single seam every FE-owned engine write passes through
+                # Deliberate trade-off (review of #2743): a write that TIMED OUT or failed client-side is NOT counted, although the engine may have applied it. Counting it would hide a real
+                # dropped fold behind a write that never landed; not counting errs toward the louder alarm (a false `sync:dropped-fold` that the ORW-439 beatLog explanation then classifies).
+                _note_ledger_write(user, name, res)  # ORW-435: the seam every FE-owned player-channel write passes through (`_admin_call` has its own, for the admin channel)
         finally:
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
@@ -1786,7 +1790,10 @@ async def _admin_call(name: str, args: dict | None = None, user: str | None = No
     outages propagate as httpx errors, and failures feed the visible health banner."""
     engine_read_cache.invalidate(user)  # ORW-166: an admin tool may mutate (override, reset...): never serve a cached read across it
     try:
-        return await _post_tool("/admin/call", name, args, user)
+        res = await _post_tool("/admin/call", name, args, user)
+        if name not in engine_read_cache.PURE_READS:
+            _note_ledger_write(user, name, res)  # review of #2743: the admin channel is a second engine write seam; a God Mode `advanceToFinale` bumps beatSeq like any FE-owned write (the ledger's own lists decide what counts)
+        return res
     finally:
         engine_read_cache.invalidate(user)
 

@@ -15,6 +15,7 @@ DEPLOY = ROOT / "deploy"
 LIB = DEPLOY / "orwell-live-game.sh"
 UPDATE = (DEPLOY / "orwell-update.sh").read_text()
 needs_bash = pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+needs_flock = pytest.mark.skipif(shutil.which("bash") is None or shutil.which("flock") is None, reason="bash and flock required")  # review of #2746: the lock tests run flock itself
 
 
 def bash(script, env=None, check=True):
@@ -152,13 +153,13 @@ def _lock_fn_script(tmp_path, superseded, wait_s, waited=0):
 
 
 def _hold_lock(tmp_path, secs):
-    p = subprocess.Popen(["bash", "-c", f"exec 9>>'{tmp_path}/u.lock'; flock -n 9 && echo held && sleep {secs}"],
+    p = subprocess.Popen(["bash", "-c", f"exec 9>>'{tmp_path}/u.lock'; flock -n 9 && echo held && exec sleep {secs}"],
                          stdout=subprocess.PIPE, text=True)
     assert p.stdout.readline().strip() == "held"
     return p
 
 
-@needs_bash
+@needs_flock
 def test_a_normal_run_refuses_a_held_lock_with_75(tmp_path):
     holder = _hold_lock(tmp_path, 5)
     try:
@@ -168,7 +169,7 @@ def test_a_normal_run_refuses_a_held_lock_with_75(tmp_path):
         holder.kill()
 
 
-@needs_bash
+@needs_flock
 def test_a_superseded_deferred_run_waits_for_the_lock_then_runs(tmp_path):
     holder = _hold_lock(tmp_path, 2)
     try:
@@ -178,7 +179,7 @@ def test_a_superseded_deferred_run_waits_for_the_lock_then_runs(tmp_path):
         holder.kill()
 
 
-@needs_bash
+@needs_flock
 def test_a_superseded_deferred_run_gives_up_after_the_bounded_wait(tmp_path):
     holder = _hold_lock(tmp_path, 10)
     try:
@@ -201,7 +202,7 @@ def test_only_a_run_that_really_deferred_is_marked_as_waited(tmp_path):
     assert "DEFERRED=1 RC=0" in run(idle=30, force=0, on_sleep='[[ $T -ge 1000180 ]] && IDLE=2000 || true')
 
 
-@needs_bash
+@needs_flock
 def test_a_normal_or_merely_waited_run_refuses_a_held_lock_at_once(tmp_path):
     # reviewer of #2746: __UD_WAITED is set on every run that passed the idle guard; only a SUPERSEDED run may wait for the lock.
     holder = _hold_lock(tmp_path, 15)

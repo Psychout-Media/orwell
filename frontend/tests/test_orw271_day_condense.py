@@ -429,7 +429,7 @@ def test_orw437_heal_picks_the_oldest_day_with_tries_left_and_charges_every_day_
     monkeypatch.setattr(dc, "_IN_FLIGHT", set())
     ran = []
 
-    async def fake_run(owner, day, sid=None):
+    async def fake_run(owner, day, sid=None, heal_days=None):
         ran.append(day)
         return {}
 
@@ -446,3 +446,53 @@ def test_orw437_heal_picks_the_oldest_day_with_tries_left_and_charges_every_day_
     loop.run_until_complete(go())
     assert ran == [2], "the oldest day that still has tries left is healed, not only the newest"
     assert dc._HEAL_TRIES["u:g1:2"] == 1 and dc._HEAL_TRIES["u:g1:3"] == 1
+
+
+def test_orw437_heal_charges_and_attempts_one_shared_batch_when_more_days_are_missing_than_the_cap(monkeypatch):
+    """review of #2751: the newest day (5) has used its tries and FIVE days are missing (more than HEAL_DAYS_PER_RUN = 3). Day 1 is selected; exactly days 1-3 are charged AND handed to the worker; day 4 is neither."""
+    from src import orwell_game_session as gs
+    monkeypatch.setattr(gs, "get_game_session", lambda user: "g1")
+    monkeypatch.setattr(dc, "enabled", lambda: True)
+    monkeypatch.setattr(dc, "_HEAL_TRIES", {"u:g1:5": dc._HEAL_TRIES_MAX})
+    monkeypatch.setattr(dc, "_IN_FLIGHT", set())
+    ran = []
+
+    async def fake_run(owner, day, sid=None, heal_days=None):
+        ran.append((day, list(heal_days or [])))
+        return {}
+
+    monkeypatch.setattr(dc, "run_condense", fake_run)
+    ledger = [_day_entry(d) for d in (1, 2, 3, 4, 5)]
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def go():
+        dc.kickoff_heal("u", ledger)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    loop.run_until_complete(go())
+    assert ran == [(1, [2, 3])]
+    assert {k: v for k, v in dc._HEAL_TRIES.items() if k != "u:g1:5"} == {"u:g1:1": 1, "u:g1:2": 1, "u:g1:3": 1}
+
+
+def test_orw437_condense_day_heals_only_the_days_it_was_handed():
+    attempted = []
+
+    async def llm(msgs):
+        return "A real summary of the day."
+
+    ledger = [_day_entry(d) for d in (1, 2, 3, 4, 5)]
+
+    async def ledger_fn():
+        return ledger
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        attempted.append(day)
+        return {"accepted": True}
+
+    hist = [_row("user", "hi", d) for d in (1, 2, 3, 4, 5)] + [_row("assistant", "there", d) for d in (1, 2, 3, 4, 5)]
+    _run(dc.condense_day("u", 1, llm_fn=llm, history=hist, ledger_fn=ledger_fn, write_fn=write_fn, heal_days=[2, 3]))
+    assert attempted == [1, 2, 3]
+    attempted.clear()
+    _run(dc.condense_day("u", 1, llm_fn=llm, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert attempted == [1, 2, 3, 4], "no batch given: the old rule (the selected day plus up to HEAL_DAYS_PER_RUN earlier ones)"

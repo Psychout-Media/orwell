@@ -324,9 +324,10 @@ async def _author_day(entry: dict, llm_fn, history: list, write_fn) -> dict:
 
 async def condense_day(owner, closed_day: int, *, llm_fn: Optional[LlmFn], history: list,
                        ledger_fn: Callable[[], Awaitable[list]],
-                       write_fn: Callable[..., Awaitable[dict]]) -> dict:
+                       write_fn: Callable[..., Awaitable[dict]], heal_days: Optional[list] = None) -> dict:
     """Author the closed day's summary (idempotent: a day that already has text is skipped), then the week tier when due.
-    Injected deps => testable with no model/engine. Never raises."""
+    Injected deps => testable with no model/engine. Never raises. `heal_days` (review of #2751): when given, only those earlier days may be healed this run (the batch `kickoff_heal` charged a try to);
+    None keeps the old rule (any earlier day that needs a summary, up to HEAL_DAYS_PER_RUN)."""
     try:
         if llm_fn is None:
             return {"accepted": False, "reason": "no-model"}
@@ -338,7 +339,7 @@ async def condense_day(owner, closed_day: int, *, llm_fn: Optional[LlmFn], histo
         # ORW-387: heal earlier closed days left without a real summary (a failed call, or an error stored as text).
         healed = 0
         for d in days_needing_summary(ledger):
-            if d == closed_day or healed >= HEAL_DAYS_PER_RUN:
+            if d == closed_day or healed >= HEAL_DAYS_PER_RUN or (heal_days is not None and d not in heal_days):
                 continue
             healed += 1
             await _author_day(next(e for e in ledger if e.get("tier", "day") == "day" and e.get("day") == d),
@@ -392,7 +393,7 @@ def _game_sid(owner):
         return None
 
 
-async def run_condense(owner, closed_day: Optional[int], sid=_ANY_GAME) -> dict:
+async def run_condense(owner, closed_day: Optional[int], sid=_ANY_GAME, heal_days: Optional[list] = None) -> dict:
     """Resolve the live deps and condense. A missing model / session is a quiet no-op (the engine floor stands).
 
     ``sid`` (review of #2685): the game the background task was started for. When given, the task is a no-op as soon as the
@@ -428,7 +429,7 @@ async def run_condense(owner, closed_day: Optional[int], sid=_ANY_GAME) -> dict:
             return {"accepted": False, "reason": "game-changed"}
         return await orwell_engine.record_day_summary(day, text, tier=tier, covers_days=covers_days, user=owner)
 
-    return await condense_day(owner, int(closed_day), llm_fn=llm_fn, history=history, ledger_fn=_ledger, write_fn=_write)
+    return await condense_day(owner, int(closed_day), llm_fn=llm_fn, history=history, ledger_fn=_ledger, write_fn=_write, heal_days=heal_days)
 
 
 def closed_day_from_turn_in(result) -> Optional[int]:
@@ -500,13 +501,14 @@ def kickoff_heal(owner, ledger: list) -> None:
         k = _kk(day)
         if k in _IN_FLIGHT:
             return
-        for d in open_days[:HEAL_DAYS_PER_RUN]:
+        batch = open_days[:HEAL_DAYS_PER_RUN]  # review of #2751: ONE batch is charged AND handed to the worker, so the days charged are exactly the days attempted
+        for d in batch:
             _HEAL_TRIES[_kk(d)] = _HEAL_TRIES.get(_kk(d), 0) + 1
         _IN_FLIGHT.add(k)
 
         async def _runner():
             try:
-                await run_condense(owner, day, sid)
+                await run_condense(owner, day, sid, heal_days=batch[1:])
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[day-condense] heal task failed: %s", e)
                 try:
