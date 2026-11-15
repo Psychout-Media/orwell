@@ -93,6 +93,14 @@ describe("through the live game: a public tie is a house fact from Day 1, a secr
     const announced = sb.engine.events.queryAll().filter((e) => e.type === "pre-show-tie");
     expect(announced.every((e) => !names.every((nm) => e.content.includes(nm))), "no announcement names the secret pair").toBe(true);
   });
+  it("PUBLIC: accusing an openly declared pair lands but costs nobody a betrayal shock (nobody hid anything)", () => {
+    const { sb, tie } = findSeason("public");
+    const rel = sb.engine.relationships;
+    const others = [PLAYER, ...sb.session.snapshot().house!.npcs.map((n) => n.id)].filter((id) => id !== tie.a && id !== tie.b);
+    const before = others.map((o) => [rel.edge(o, tie.a).trust, rel.edge(o, tie.b).trust]);
+    expect((sb.session as unknown as { accuseTie(a: string, b: string): { landed: boolean } | null }).accuseTie(tie.a, tie.b)).toEqual({ landed: true });
+    expect(others.map((o) => [rel.edge(o, tie.a).trust, rel.edge(o, tie.b).trust])).toEqual(before);
+  });
   it("is deterministic per seed (same marks, same exposure)", () => {
     const run = (): string => {
       const sb = new GameSessionRegistry().sandboxFor(`orw132-det-${Math.random()}`);
