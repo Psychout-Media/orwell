@@ -29,6 +29,11 @@ for (let i = 0; i < args.length; i++) {
   if (args[i] === "--replace") continue;
   if (args[i] === "--json") {
     const report = JSON.parse(readFileSync(args[++i], "utf8"));
+    // --replace rebuilds the table from this report alone, so a partial one (a failed or interrupted run) would silently drop every file it lacks: refuse it.
+    if (replace && (report.success === false || report.testResults.some((r) => r.status !== "passed"))) {
+      console.error(`refusing --replace: ${args[i]} is not a fully green run (the table is left untouched)`);
+      process.exit(1);
+    }
     for (const r of report.testResults) {
       if (r.status !== "passed") continue; // a failed/interrupted file carries a misleading time
       sample(relative(root, r.name).split("\\").join("/"), Math.max(0, Math.round(r.endTime - r.startTime)));
