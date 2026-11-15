@@ -3452,16 +3452,20 @@ export class GameSessionAdapter implements GameSession {
     // the player about the game's own prior words. This is enforced HERE, structurally, not by timing
     // the FE's background call — the smaller, surgical fix over trying to serialize an inherently
     // best-effort background task ahead of narration.
+    let renamedFrom: string | undefined; // set only when this call really renames (the incoming story is written around the old name)
     if (req.name !== undefined && this.introducedNames.has(target.id)) {
       // Silently drop — mirrors the cross-character guard's per-field drop above: the rest of the
       // authored profile still applies, only the name is refused so the seeded/already-shown name stands.
     } else if (req.name !== undefined) {
       const name = req.name.trim();
+      renamedFrom = target.name;
       const collides = name.toLowerCase() === ctx.playerName.toLowerCase()
         || ctx.npcs.some((n) => n.id !== target.id && (n.name ?? "").trim().toLowerCase() === name.toLowerCase());
       if (isReasonableName(name) && !collides) {
-        this.renameHouseguest(target, name); // ORW-437: the public prose written around the old given name follows the new one (a later biography field still overwrites it)
+        this.renameHouseguest(target, name); // ORW-437: the public prose written around the old given name follows the new one
         publicFields.push("name");
+      } else {
+        renamedFrom = undefined;
       }
     }
 
@@ -3497,7 +3501,8 @@ export class GameSessionAdapter implements GameSession {
       facetGuard.dropBiography ? undefined : req.biography,
     );
     if (req.biography !== undefined && !facetGuard.dropBiography) {
-      target.character.biography = req.biography;
+      // the incoming biography overwrites the prose the rename just carried, so it follows the rename too
+      target.character.biography = renamedFrom !== undefined ? renameGivenNameInProse(req.biography, renamedFrom, target.name) : req.biography;
       delete target.character.biographyDraft; // ORW-438: the writer's biography replaces genesis's draft
       publicFields.push("biography");
     }
@@ -3509,7 +3514,7 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.identityConcept === "string") {
       const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
       if (repaired.length > 0) {
-        target.character.identityConcept = repaired;
+        target.character.identityConcept = renamedFrom !== undefined ? renameGivenNameInProse(repaired, renamedFrom, target.name) : repaired;
         publicFields.push("identityConcept");
       }
     }
