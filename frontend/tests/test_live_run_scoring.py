@@ -134,3 +134,8 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
              _turn("veto-morning-2", "x", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
     got = _score(turns)
     assert "K1-no-skipped-time[veto-morning-2]" not in got and got["K1-clock-jump-veto-draw[veto-morning-2]"]["ok"]
+
+
+def test_a_raw_tool_tag_reply_is_machinery():
+    # ORW-440: a whole reply of "</tool_use>" reached the player; the short tier must flag it.
+    assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]
