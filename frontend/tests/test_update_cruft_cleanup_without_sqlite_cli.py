@@ -34,6 +34,7 @@ _ROWS = [
     ("x2", "custom", "node", '["@playwright/mcp@latest"]', True),
     ("memory", "memory", "uvx", '["mcp-memory"]', True),
     ("rag", "RAG", "uvx", '["mcp-rag"]', True),
+    ("email", "Email", "uvx", '["mcp-email"]', True),
     ("keep1", "weather", "uvx", '["mcp-weather"]', False),
     ("keep2", "github", "npx", '["@modelcontextprotocol/server-github"]', False),
 ]
@@ -122,8 +123,8 @@ def test_inherited_rows_are_removed_with_no_sqlite3_cli_on_path(tmp_path):
     path = _bin(tmp_path)
     app, db = _app(tmp_path)
     out = run_cleanup(tmp_path, path, app)
-    assert _ids(db) == _kept(), "the browser / playwright / RAG / Memory rows go, the operator's own servers stay"
-    assert "removed 5 inherited MCP-server config row(s) from app.db" in out
+    assert _ids(db) == _kept(), "the browser / playwright / RAG / Memory / Email rows go, the operator's own servers stay"
+    assert "removed 6 inherited MCP-server config row(s) from app.db" in out
 
 
 @not_root
@@ -155,8 +156,10 @@ def test_a_corrupt_db_is_left_alone_and_the_note_says_why(tmp_path):
     path = _bin(tmp_path)
     app, db = _app(tmp_path)
     db.write_bytes(b"this is not a sqlite database" * 50)
+    before = db.read_bytes()
     out = run_cleanup(tmp_path, path, app)
     assert "could not clean inherited MCP-server rows" in out and "file is not a database" in out
+    assert db.read_bytes() == before, "left alone means byte for byte"
 
 
 @not_root
@@ -202,7 +205,7 @@ def test_a_box_without_python3_falls_back_to_the_sqlite3_cli(tmp_path):
     app, db = _app(tmp_path)
     out = run_cleanup(tmp_path, path, app)
     assert _ids(db) == _kept()
-    assert "removed 5 inherited MCP-server config row(s) from app.db" in out
+    assert "removed 6 inherited MCP-server config row(s) from app.db" in out
 
 
 # ── the whole updater, end to end: the python path runs; the CLI is never needed ─────────────────────────
@@ -227,5 +230,5 @@ def test_a_full_update_cleans_the_rows_without_ever_calling_the_sqlite3_cli(tmp_
     r = box.run_update(ORWELL_SERVICE_USER=getpass.getuser())
     assert r.returncode == 0, _combined(r)
     assert _ids(db) == _kept()
-    assert "removed 5 inherited MCP-server config row(s) from app.db" in r.stdout
+    assert "removed 6 inherited MCP-server config row(s) from app.db" in r.stdout
     assert not [c for c in box.calls() if c.startswith("sqlite3 ")], "the sqlite3 CLI was never needed"

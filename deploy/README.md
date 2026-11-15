@@ -99,7 +99,7 @@ it reads, plus the node/npm/python versions) and what it left on disk (npm's
 
 | What changed since the last successful update | Engine (`node_modules` + `dist/`) | Front-end venv |
 |---|---|---|
-| Nothing the engine reads (front end, deploy scripts, docs, tests, CI) | kept as is: no `npm ci`, no rebuild | kept if `frontend/requirements*.txt` are unchanged |
+| Nothing the engine reads (front end, deploy scripts other than `orwell-update.sh`, docs, tests, CI) | kept as is: no `npm ci`, no rebuild | kept if `frontend/requirements*.txt`, the venv's Python and `orwell-update.sh` are unchanged |
 | Engine code only (`src/`, …), same `package.json` / `package-lock.json` / `patches/` | only the build tools that `npm prune` removed come back, from the local npm cache (`npm install --include=dev --no-save --prefer-offline`), then build + prune | same as above |
 | `package.json`, `package-lock.json`, `patches/`, the node/npm version, or the npm environment (`npm_config_*` / `NPM_CONFIG_*` such as the registry, `ONNXRUNTIME_NODE_INSTALL`, `NODE_ENV`, the user or global npmrc) | full `npm ci` (as before) | same as above |
 | `frontend/requirements.lock.txt` / `requirements.txt`, or the venv's Python | (per the rows above) | `pip install` (as before) |
@@ -131,8 +131,9 @@ cache (`ORWELL_PLAY_NPM_CACHE`, default `/var/cache/orwell/play-npm`); root then
 refuses it if it holds anything but plain files and directories, and copies it in as root's own. If
 privileges cannot be dropped, `/play` is not built at all (a warning). The build is swapped into
 `frontend/web/dist` only after the update commits, so `/play` keeps serving the old build while the new
-one builds, and a failed update never changes it. It is skipped when nothing under `frontend/web` or
-`frontend/static/js` (the classic markdown module it imports) changed. The previous build is kept in
+one builds, and a failed update never changes it. It is skipped only when its inputs match the last build:
+the files under `frontend/web` and `frontend/static/js` (the classic markdown module it imports), the node/npm
+versions and npm environment, and the text of `orwell-update.sh`. The previous build is kept in
 `frontend/web/dist.prev`, which `--rollback` puts back when it matches the commit it rolls back to.
 
 ## Control panel — the `orwell` menu

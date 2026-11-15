@@ -4524,8 +4524,8 @@ def _forget_season_pacing(user) -> None:
       * the held social runway, steers, production hold and premiere counters (`clear_social_runway`);
       * the armed S1b forced-advance escalation;
       * an owed chyron or aired-fact steer (`clear_preresolve_debt`);
-      * the ORW-10 cut streak and the queued next-turn re-grounds;
-      * the premiere entrance stash.
+      * the ORW-10 cut streak, the queued next-turn re-grounds and an unvoiced ceremony note;
+      * the premiere entrance stash and an unconsumed hang-out steer.
     Registered on `orwell_engine.on_season_reset`; another user's state is never touched; never raises."""
     for clear in (clear_social_runway, clear_advance_escalation, clear_preresolve_debt):
         try:
@@ -4536,9 +4536,11 @@ def _forget_season_pacing(user) -> None:
         dkey = _desync_key(user)
         _CUT_STREAK.pop(dkey, None)
         _DESYNC_REGROUND.pop(dkey, None)
+        _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
         _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
         _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
+        _HANGOUT_STEER.pop(rkey, None)  # review of #2287: an unconsumed hang-out steer belongs to the old season
     except Exception:
         logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
     try:  # ORW-202: the persisted copy follows the reset (a restart must not resurrect last season's queued re-ground)
