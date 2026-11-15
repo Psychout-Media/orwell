@@ -98,7 +98,7 @@ describe("ORW-380 photoHair", () => {
     const clean = sb.session.snapshot().house!.npcs.find((n) => !INK.test(JSON.stringify(n.character.physicalCharacteristics)))!;
     const r = sb.session.recordLookExtras({ houseguestId: clean.id, photoHair: "a neat bun with a tattoo behind the ear" });
     expect(r.accepted).toBe(false);
-    expect(npc().character.physicalCharacteristics!.photoHair).toBeUndefined();
+    expect(sb.session.snapshot().house!.npcs.find((n) => n.id === clean.id)!.character.physicalCharacteristics!.photoHair).toBeUndefined();
     expect(sb.session.recordLookExtras({ houseguestId: clean.id, photoHair: "  " })).toMatchObject({ accepted: false, reason: "nothing-valid" });
   });
 });
@@ -119,7 +119,7 @@ describe("ORW-380 clear", () => {
   it("removes an old look field the new writer left out, and nothing else", () => {
     const { sb, id, npc } = setup();
     sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], onCamera: "She sits in the lounge." });
-    const r = sb.session.recordLookExtras({ houseguestId: id, photoHair: "a neat low bun", clear: ["onCamera", "bogus"] });
+    const r = sb.session.recordLookExtras({ houseguestId: id, photoHair: "a neat low bun", clear: ["onCamera", "bogus"] as never });
     expect(r).toEqual({ accepted: true, fields: ["photoHair"], cleared: ["onCamera"] });
     const p = npc().character.physicalCharacteristics!;
     expect(p.onCamera).toBeUndefined();
