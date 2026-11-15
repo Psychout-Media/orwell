@@ -5925,30 +5925,65 @@ export class GameSessionAdapter implements GameSession {
    * walk in, or that they are asleep. A room and an access word only (what a person could learn walking the house), never an activity, a companion or a number about anyone.
    * `gathered` = a whole-house event is on (everyone is in the player's room).
    */
-  private houseSearchView(me: EntityId, myRoom: Room, gathered: boolean): HouseSearchView {
+  private houseSearchView(me: EntityId, myRoom: Room, gathered: boolean, lookingFor?: string): HouseSearchView {
     const awake = this.awakeNow();
     const notHere = this.notYetArrived();
     const houseguests: HouseSearchEntry[] = [];
     const byRoom = new Map<Room, NamedRef[]>();
+    // ORW-462 (Kevin, 2026-11-15): the player is not omniscient. The search names occupants only of rooms the player can SEE into (their own and the rooms in sightline); behind any other door it says only that
+    // the door is closed. The houseguest the player is LOOKING FOR is always found: behind an unlocked door the entry says which door to open; in the diary room or the HOH room (never open to the player) a houseguest who knows says so.
+    const want = lookingFor?.trim().toLowerCase();
+    const isTarget = (id: EntityId, name: string): boolean => want !== undefined && want !== "" && (id.toLowerCase() === want || name.toLowerCase() === want || name.toLowerCase().split(/\s+/)[0] === want);
+    // who could say where someone is: an awake houseguest in the player's room first, else one the player can see
+    const witnessesHere = (): NamedRef[] => {
+      const rank = (id: EntityId): number => (gathered || this.presence!.get(id) === myRoom ? 0 : areVisible(myRoom, this.presence!.get(id) as Room) ? 1 : 2);
+      return this.presenceActive()
+        .filter((id) => id !== me && rank(id) < 2 && (!awake || awake.has(id)) && !notHere?.has(id))
+        .sort((a, b) => rank(a) - rank(b))
+        .map((id) => ({ id, name: this.nameOf(id) }));
+    };
     for (const id of this.presenceActive()) {
       if (id === me) continue;
       const name = this.nameOf(id);
+      const target = isTarget(id, name);
       // The staged premiere entrances hide the houseguests who have not walked in yet from EVERY room (A9), while the house count still includes them: say so, so a search never reads "nowhere".
       if (notHere?.has(id)) { houseguests.push({ id, name, status: "arriving", fact: "has not walked into the house yet (still to enter at the premiere)" }); continue; }
       const where = gathered ? myRoom : this.presence!.get(id);
+      const seen = where !== undefined && (where === myRoom || areVisible(myRoom, where));
       if (awake && !awake.has(id)) {
-        houseguests.push(where && (where.startsWith("bedroom-") || where === "hoh-room")
-          ? { id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` }
-          : { id, name, status: "asleep", fact: "asleep, in bed" });
+        const bed = where !== undefined && (where.startsWith("bedroom-") || where === "hoh-room"); // a sleeper is in a bedroom, or in the HOH room's bed
+        if (bed && !seen && target) {
+          if (this.roomAccessFor(where as Room, me) === "closed") {
+            const by = witnessesHere().find((w) => w.id !== id);
+            houseguests.push({ id, name, status: "told", room: where, access: "closed", ...(by ? { toldBy: by } : {}), fact: `asleep in ${roomDisplayName(where as Room)}, door closed to the player - ${by ? `${by.name} knows and can say so` : "the house knows and anyone can say so"}` });
+          } else {
+            houseguests.push({ id, name, status: "behind-door", room: where, access: "open", action: `open the door to ${roomDisplayName(where as Room)} and look`, fact: `asleep in ${roomDisplayName(where as Room)} - open the door to find them` });
+          }
+        } else if (bed && seen) {
+          houseguests.push({ id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where as Room)}` });
+        } else {
+          houseguests.push({ id, name, status: "asleep", fact: "asleep, in bed" });
+        }
         continue;
       }
       if (!where) continue; // never expected (every active houseguest is seated); the invariant test pins it
       const access = this.roomAccessFor(where, me);
       const label = roomDisplayName(where);
-      houseguests.push(where === myRoom
-        ? { id, name, status: "here", room: where, access, fact: `here with you in the ${label}` }
-        : { id, name, status: "awake", room: where, access, fact: access === "closed" ? `${label}, door closed` : `${label}, open - the player can walk in` });
-      (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
+      if (where === myRoom) {
+        houseguests.push({ id, name, status: "here", room: where, access, fact: `here with you in the ${label}` });
+        (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
+      } else if (seen) {
+        houseguests.push({ id, name, status: "awake", room: where, access, fact: `${label}, in view - the player can walk in` });
+        (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
+      } else if (!target) {
+        houseguests.push({ id, name, status: "unseen", fact: "not in view; behind a door in the house (the player can open doors and look)" });
+      } else if (access === "closed") {
+        // the diary room / another houseguest's HOH room: closed to the player, but people know who is in there
+        const by = witnessesHere().find((w) => w.id !== id);
+        houseguests.push({ id, name, status: "told", room: where, access, ...(by ? { toldBy: by } : {}), fact: `${label}, door closed to the player - ${by ? `${by.name} knows and can say so` : "the house knows and anyone can say so"}` });
+      } else {
+        houseguests.push({ id, name, status: "behind-door", room: where, access, action: `open the door to the ${label} and look`, fact: `${label}, door closed - open it to find them` });
+      }
     }
     const asleep = this.asleepNpcs();
     return {
@@ -5958,10 +5993,10 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
-  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null {
+  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null {
     const v = this.whereaboutsBase();
     if (!v || !opts?.search || !this.house) return v;
-    return { ...v, search: this.houseSearchView(this.house.player.id, v.room as Room, !!v.houseEvent) };
+    return { ...v, search: this.houseSearchView(this.house.player.id, v.room as Room, !!v.houseEvent, opts.lookingFor) };
   }
 
   private whereaboutsBase(): WhereaboutsView | null {
