@@ -89,12 +89,12 @@ describe("duration-aware shard assignment (ORW-218)", () => {
   // ORW-367: the six coverage-shard legs. The table used to be ~135 files stale (a fresh heavy file was balanced at the median weight), and shard 2 ran
   // 9.4 min next to 2-5 min for the others. The split now has to be balanced on the table's OWN numbers for exactly the file set a CI leg runs
   // (the heavy sims are excluded there), with unknown files weighed as the sequencer weighs them (the median).
-  describe("eight coverage legs, by measured duration (ORW-367, 8 legs since ORW-413)", () => {
+  describe("ten coverage legs, by measured duration (ORW-367, 8 legs since ORW-413, 10 since ORW-410)", () => {
     const heavy = (f: string): boolean => /^tests\/(uat|calibration)\//.test(f) || /^tests\/property\/(juryReach|calibrationGradient)/.test(f);
     const legFiles = files.filter((f) => !heavy(f));
     const unknownWeight = Math.max(MIN_WEIGHT_MS, [...Object.values(durations)].sort((a, b) => a - b)[Math.floor(Object.keys(durations).length / 2)]!);
     const w = (f: string): number => Math.max(MIN_WEIGHT_MS, durations[f] ?? unknownWeight);
-    const loads = assignShards(legFiles, durations, 8).map((l) => l.reduce((n, f) => n + w(f), 0));
+    const loads = assignShards(legFiles, durations, 10).map((l) => l.reduce((n, f) => n + w(f), 0));
     const median = [...loads].sort((a, b) => a - b)[Math.floor(loads.length / 2)]!;
 
     it("the heaviest leg is within 1.3x the median leg", () => {
@@ -106,7 +106,7 @@ describe("duration-aware shard assignment (ORW-218)", () => {
     it("a file with no measured entry only warns (it weighs the median), it never fails a PR", () => {
       const missing = legFiles.filter((f) => durations[f] === undefined);
       if (missing.length > 0) console.warn(`::warning::${missing.length} test file(s) not in ${DURATIONS_RELATIVE_PATH} (weighed at the median until the next refresh): ${missing.slice(0, 15).join(", ")}`);
-      expect(assignShards(legFiles, durations, 8).flat().length).toBe(legFiles.length);
+      expect(assignShards(legFiles, durations, 10).flat().length).toBe(legFiles.length);
     });
 
     // review of #2713: the check above cannot fail for a missing entry (assignShards always places every file), so the median-weight rule is pinned directly on a controlled input.
@@ -117,9 +117,9 @@ describe("duration-aware shard assignment (ORW-218)", () => {
       expect(legs).toEqual([["m1.test.ts", "x1.test.ts", "x3.test.ts"], ["m2.test.ts", "x2.test.ts"]]);
     });
 
-    it("the split is identical when run twice and every file is in exactly one of the eight legs", () => {
-      const a = assignShards(legFiles, durations, 8);
-      expect(assignShards(legFiles, durations, 8)).toEqual(a);
+    it("the split is identical when run twice and every file is in exactly one of the ten legs", () => {
+      const a = assignShards(legFiles, durations, 10);
+      expect(assignShards(legFiles, durations, 10)).toEqual(a);
       expect(() => assertPartition(legFiles, a)).not.toThrow();
     });
   });

@@ -296,9 +296,10 @@ jobs:
       - run: node ci/bdd-shard.mjs ${{ matrix.shard }}/3
 
   # ── Unit suite, SHARDED (ORW-39) ────────────────────────────────────────────────
-  # `test:unit:fast` (everything but the heavy sims) split eight ways with --shard (balanced by measured duration, vitest.sequencer.ts); every file still runs
+  # `test:unit:fast` (everything but the heavy sims) split ten ways with --shard (balanced by measured duration, vitest.sequencer.ts); every file still runs
   # exactly once across the legs. ORW-229 re-shard: 5 legs instead of 4 for the 40-slot pool (the balanced 4-leg long pole was 6:29, #2240). ORW-413: 8 legs on a
-  # re-measured table (ci/test-durations.json): the table totals 2,256 s of file time and the heaviest single file is 280 s, so beyond 8 legs a leg is one file.
+  # re-measured table. ORW-410 (merge time): 10 legs on a table refreshed from three green PR runs (it was stale: leg 6/8 ran 301 s of tests next to 115 s for leg 2/8, so the
+  # leg time was the imbalance, not the total). Greedy split of the refreshed table: ten legs about 343 table-seconds each, i.e. about 160 s of tests plus about 30 s of setup.
   # The build runs first because some unit tests exercise dist/. `ci-gate` needs this job, so a failed leg fails the gate.
   test-unit:
     needs: changes
@@ -308,8 +309,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    name: test-unit (${{ matrix.shard }}/8)
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    name: test-unit (${{ matrix.shard }}/10)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -324,14 +325,14 @@ jobs:
       # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
       # ORW-413 PR 2: coverage is collected HERE, in the one run of the unit suite (the separate `coverage-shard` legs, which ran every test a second time under v8, are gone).
       # Same flags as `npm run test:cov` on a slice: the shard config zeroes the per-shard floors (a slice cannot meet them), the blob carries the coverage to the `coverage` job,
-      # which merges all eight and is still the ONLY place the floors are enforced. The default and flaky reporters stay on next to the blob so the log and the flake summary are as before.
+      # which merges all ten and is still the ONLY place the floors are enforced. The default and flaky reporters stay on next to the blob so the log and the flake summary are as before.
       - name: unit suite leg with coverage (duration-balanced slice; writes its file manifest for the union check in `coverage`)
         env:
           ORWELL_SHARD_MANIFEST_DIR: .shard-manifests
         run: >-
           npx vitest run --config vitest.shard.config.ts --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-          --coverage.reporter=json --shard=${{ matrix.shard }}/8 --reporter=default --reporter=./tests/support/flakyReporter.ts --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
+          --coverage.reporter=json --shard=${{ matrix.shard }}/10 --reporter=default --reporter=./tests/support/flakyReporter.ts --reporter=blob --outputFile.blob=.vitest-reports/blob-${{ matrix.shard }}.json --retry=1
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-blob-${{ matrix.shard }}
@@ -453,15 +454,15 @@ jobs:
           pattern: shard-manifest-*
           path: .shard-manifests
           merge-multiple: true
-      - name: all eight shard reports must be present
+      - name: all ten shard reports must be present
         run: |
           ls -l .vitest-reports
-          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 8
-      # ORW-218: the duration-balanced split must have run every test file exactly once across the eight legs (nothing unassigned, nothing twice, set == files on disk minus the heavy exclusions).
+          test "$(ls .vitest-reports/blob-*.json | wc -l)" -eq 10
+      # ORW-218: the duration-balanced split must have run every test file exactly once across the ten legs (nothing unassigned, nothing twice, set == files on disk minus the heavy exclusions).
       - name: shard union equals the full test set
         run: >-
-          node ci/check-shard-union.mjs .shard-manifests --count 8 --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
-      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all eight shards.
+          node ci/check-shard-union.mjs .shard-manifests --count 10 --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'
+      # The ONLY place the per-directory branch floors (vitest.config.ts) are enforced: one merged measurement over all ten shards.
       - run: >-
           npx vitest run --merge-reports --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts'
           --coverage

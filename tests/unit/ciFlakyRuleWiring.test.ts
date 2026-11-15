@@ -9,7 +9,7 @@ const nightly = read(".github/workflows/ci-nightly.yml");
 
 describe("flaky-test rule wiring", () => {
   it("the engine unit lane (which also collects coverage since ORW-413 PR 2) retries a failed test once and keeps the flaky reporter; the seeded heavy sims never retry", () => {
-    expect(ci).toMatch(/--shard=\$\{\{ matrix\.shard \}\}\/8 --reporter=default --reporter=\.\/tests\/support\/flakyReporter\.ts --reporter=blob --outputFile\.blob=\.vitest-reports\/blob-\$\{\{ matrix\.shard \}\}\.json --retry=1/);
+    expect(ci).toMatch(/--shard=\$\{\{ matrix\.shard \}\}\/10 --reporter=default --reporter=\.\/tests\/support\/flakyReporter\.ts --reporter=blob --outputFile\.blob=\.vitest-reports\/blob-\$\{\{ matrix\.shard \}\}\.json --retry=1/);
     expect(ci).not.toContain("coverage-shard:");
     expect(ci).toContain('npm run "test:heavy:$s" || {');
     expect(ci).not.toMatch(/test:heavy:\$s" -- --retry/);
