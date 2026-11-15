@@ -126,11 +126,20 @@ def _module_launches_browser(path: str) -> bool:
         return False
 
 
+# One file alone was the longest leg of the lane (about 30 s per case, 13 independent cases, each in its own chat session): let its cases spread over the workers.
+_BROWSER_SPREAD_FILES = frozenset({"test_a58_golden_render_live_vs_reload.py"})
+
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_collection_modifyitems(config, items):
     for item in items:
         if _module_launches_browser(str(item.fspath)):
             item.add_marker("browser")
+            # ORW-414: the CI browser lane runs `-n 2 --dist loadgroup`. A file's tests share ONE worker (an xdist_group named by the file) so its module-scoped stack boots once,
+            # except the files in _BROWSER_SPREAD_FILES, whose tests are independent and slow: those carry no group, so xdist spreads them over the workers (each worker boots
+            # its own stack on its own free ports and data dir; nothing is shared). The marker only matters under `--dist loadgroup`; every other run ignores it.
+            if item.fspath.basename not in _BROWSER_SPREAD_FILES and item.get_closest_marker("xdist_group") is None:
+                item.add_marker(pytest.mark.xdist_group(name=item.fspath.basename))
     yield  # every other modifyitems hook (notably `-m` deselection) has run once we resume
     # ORW-193: optional CI sharding (ORWELL_CI_SHARD="i/n"), by test file, so each shard balances exactly the lane being run. Done here (not later in
     # pytest_collection_finish) because xdist workers report their collected ids from that later hook. Deselects (never skips) the other shards' files.
@@ -422,7 +431,10 @@ def pytest_sessionfinish(session, exitstatus):
         return
     lane = os.environ.get("ORWELL_SKIP_LANE", "unit")
     skipped = []
+    report_browser_ids = set()  # ORW-414: under xdist the controller's session.items is EMPTY (the workers collect), so read the marker off each skip report itself
     for rep in tr.stats.get("skipped", []):
+        if "browser" in (getattr(rep, "keywords", None) or {}):
+            report_browser_ids.add(rep.nodeid)
         lr = getattr(rep, "longrepr", None)
         reason = lr[2] if isinstance(lr, tuple) and len(lr) >= 3 else str(lr)
         skipped.append((rep.nodeid, str(reason)))
@@ -431,7 +443,7 @@ def pytest_sessionfinish(session, exitstatus):
             ceiling = json.load(f).get(lane)
     except Exception:
         ceiling = None
-    browser_ids = {i.nodeid for i in session.items if i.get_closest_marker("browser")}
+    browser_ids = {i.nodeid for i in session.items if i.get_closest_marker("browser")} | report_browser_ids
     from _skip_guard import evaluate
     problems = evaluate(skipped, lane=lane, ceiling=ceiling, browser_ids=browser_ids)
     tr.write_sep("=", f"A41 skip guard (lane={lane}): {len(skipped)} skipped, ceiling={ceiling}")
