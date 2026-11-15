@@ -335,7 +335,7 @@ export const FATIGUE_WEIGHT = FATIGUE.weight;
 
 /**
  * ORW-377 (zero clocks in the house) - the part of the day the NARRATOR hears instead of a clock time: the real show's house has no clocks, so people say "the small hours", never "3:15am". PRESENTATION ONLY:
- * a pure read of the engine clock hour (`live.nightDepth`: 8 = 8am, 24 = midnight, 27.08 = ~3am the next night); no rule, rest term, schedule or seeded roll reads it. Eight spoken bands.
+ * a pure read of the engine clock hour (`live.nightDepth`: 8 = 8am, 24 = midnight, 27.08 = ~3am the next night); no rule, rest term, schedule or seeded roll reads it. Seven spoken bands.
  */
 export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "evening" | "night" | "late night";
 
@@ -360,7 +360,7 @@ export function clockBandFor(hour: number): ClockBand {
   return "night";
 }
 
-/** "small hours, Day 5": the band plus the day, with no minutes (the zero-clocks counterpart of `formatClockLabel`). */
+/** "late night, Day 5": the band plus the day, with no minutes (the zero-clocks counterpart of `formatClockLabel`). */
 export function formatClockBandLabel(hour: number, day?: number): string {
   return `${clockBandFor(hour)}${day === undefined ? "" : `, Day ${Math.max(1, Math.floor(day))}`}`;
 }

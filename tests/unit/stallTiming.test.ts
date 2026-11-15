@@ -26,7 +26,7 @@ describe("ORW-404 stall timing", () => {
       setStallTimerForTests(steppedTimer(300, lines));
       store(dir).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
       expect(lines).toHaveLength(1);
-      expect(lines[0]).toMatch(/step=save\.persist ms=\d+ serializeMs=300 writeMs=300 fsyncMs=300 renameMs=300 chars=\d+/);
+      expect(lines[0]).toMatch(/step=save\.persist ms=\d+ serializeMs=300 writeMs=300 fsyncMs=300 closeMs=300 renameMs=300 chars=\d+/);
       expect(stallTimer.snapshot()["save.persist"]).toMatchObject({ count: 1, slow: 1 });
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
@@ -66,6 +66,7 @@ describe("ORW-404 stall timing", () => {
   });
 
   it("threshold is env-tunable and a throwing sink never breaks the caller", () => {
+    const prior = process.env.ORWELL_STALL_LOG_MS;
     process.env.ORWELL_STALL_LOG_MS = "10";
     try {
       const lines: string[] = [];
@@ -75,6 +76,16 @@ describe("ORW-404 stall timing", () => {
       expect(lines).toHaveLength(1);
       const bad = new StallTimer(() => { throw new Error("boom"); });
       expect(() => bad.record("x", 5000)).not.toThrow();
-    } finally { delete process.env.ORWELL_STALL_LOG_MS; }
+    } finally { if (prior === undefined) delete process.env.ORWELL_STALL_LOG_MS; else process.env.ORWELL_STALL_LOG_MS = prior; }
+  });
+
+  it("a whitespace-only threshold is unset, not zero (review of #2691)", () => {
+    const prior = process.env.ORWELL_STALL_LOG_MS;
+    process.env.ORWELL_STALL_LOG_MS = "   ";
+    try {
+      const lines: string[] = [];
+      new StallTimer((l) => lines.push(l)).record("x", 1);
+      expect(lines).toHaveLength(0);
+    } finally { if (prior === undefined) delete process.env.ORWELL_STALL_LOG_MS; else process.env.ORWELL_STALL_LOG_MS = prior; }
   });
 });

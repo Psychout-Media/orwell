@@ -68,6 +68,8 @@ interface DirState {
   unsynced: { v: number; t: number }[];
   /** A checkpoint rename happened since the last directory fsync. */
   dirDirty: boolean;
+  /** Bumped on every checkpoint rename; a directory fsync clears `dirDirty` only if no newer checkpoint landed since it started. */
+  dirGen: number;
   /** Last time the backlog alarm fired for this user (null = never). */
   lastAlarmAt: number | null;
   /** The no-synced-save cap warning was already logged for this user. */
@@ -125,6 +127,7 @@ export class FileSaveStore implements UserSaveStore {
   private static readonly RETAIN_RECENT = 5;
   /** Every Nth version is a periodic checkpoint... */
   private static readonly CHECKPOINT_EVERY = 50;
+  private static readonly UNSYNCED_TRACK_MAX = 1000;
   /** ...of which only the newest few are retained (the long-tail archive stays bounded). */
   private static readonly RETAIN_CHECKPOINTS = 3;
   /** While a user has no durable version yet, keep every file up to this many (never below). */
@@ -216,32 +219,46 @@ export class FileSaveStore implements UserSaveStore {
     const t0 = stallTimer.now();
     const json = JSON.stringify(snapshot);
     const t1 = stallTimer.now();
-    const fd = openSync(tmp, "w");
     let t2 = t1;
     let t3 = t1;
+    let tClose = t1;
+    let t4 = t1;
+    let failed = false;
     try {
-      writeSync(fd, json, null, "utf8");
-      t2 = stallTimer.now();
-      // ORW-404: the content fsync is the step that froze a turn for 32 s on a stalled shared disk.
-      // Default (background): skip it here — the file is renamed complete (process-crash safe) and a
-      // background fsync hardens it afterwards. `ORWELL_SAVE_FSYNC=sync` keeps today's blocking fsync.
-      if (!background) fsyncSync(fd);
-      t3 = stallTimer.now();
+      const fd = openSync(tmp, "w");
+      try {
+        writeSync(fd, json, null, "utf8");
+        t2 = stallTimer.now();
+        // ORW-404: the content fsync is the step that froze a turn for 32 s on a stalled shared disk.
+        // Default (background): skip it here — the file is renamed complete (process-crash safe) and a
+        // background fsync hardens it afterwards. `ORWELL_SAVE_FSYNC=sync` keeps today's blocking fsync.
+        if (!background) fsyncSync(fd);
+        t3 = stallTimer.now();
+      } finally {
+        closeSync(fd);
+        tClose = stallTimer.now();
+      }
+      renameSync(tmp, file);
+      t4 = stallTimer.now();
+    } catch (e) {
+      failed = true;
+      throw e;
     } finally {
-      closeSync(fd);
+      // Review of #2691: a save that fails after blocking is still recorded (with a failure marker), and the
+      // close is its own phase so a close stall is not billed to the rename.
+      stallTimer.record("save.persist", stallTimer.now() - t0, failed ? { chars: json.length, failed: 1 } : { chars: json.length }, {
+        serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, close: tClose - t3, rename: failed ? 0 : t4 - tClose,
+      });
     }
-    renameSync(tmp, file);
-    const t4 = stallTimer.now();
-    stallTimer.record("save.persist", t4 - t0, { chars: json.length }, {
-      serialize: t1 - t0, write: t2 - t1, fsync: t3 - t2, rename: t4 - t3,
-    });
     const st = this.stateFor(dir, existing, background);
     st.latest = version;
     const isCheckpoint = version % FileSaveStore.CHECKPOINT_EVERY === 0;
     if (background) {
       // The directory fsync (amortized to checkpoints, F-EN-1 #1562) rides the background sync too.
-      if (isCheckpoint) st.dirDirty = true;
-      st.unsynced.push({ v: version, t: this.nowMs() });
+      if (isCheckpoint) { st.dirDirty = true; st.dirGen++; }
+      // Bounded (review of #2732): a long stall must not grow this per save. Only the OLDEST entry (backlog age) and a count matter, so beyond the cap the newest slot is overwritten.
+      if (st.unsynced.length >= FileSaveStore.UNSYNCED_TRACK_MAX) st.unsynced[st.unsynced.length - 1] = { v: version, t: this.nowMs() };
+      else st.unsynced.push({ v: version, t: this.nowMs() });
       this.checkBacklogAlarm(dir, st);
       st.pending = version; // coalesce: only the newest pending version is ever synced
       this.kick(dir, st);
@@ -251,10 +268,12 @@ export class FileSaveStore implements UserSaveStore {
       // `prune` keeps in the long-tail archive). Content fsync + atomic rename already guarantee a
       // truncated file can NEVER win. Owner-sanctioned in #1562.
       if (isCheckpoint) {
+        const td = stallTimer.now();
         try {
           const dirFd = openSync(dir, "r");
           try { fsyncSync(dirFd); } finally { closeSync(dirFd); }
         } catch { /* best-effort: some platforms refuse directory fsync — the content fsync above held */ }
+        stallTimer.record("save.dirsync", stallTimer.now() - td, { version }); // review of #2691: the checkpoint directory flush is its own phase
       }
       st.durable = version;
       st.unsynced = [];
@@ -271,7 +290,7 @@ export class FileSaveStore implements UserSaveStore {
     if (!st) {
       st = {
         latest: existing[0] ?? 0, durable: 0, pending: null, inFlight: null, queued: false,
-        unsynced: [], dirDirty: false, bootVersions: null, lastAlarmAt: null, capWarned: false,
+        unsynced: [], dirDirty: false, dirGen: 0, bootVersions: null, lastAlarmAt: null, capWarned: false,
       };
       this.states.set(dir, st);
       if (existing.length > 0 && background) {
@@ -316,9 +335,10 @@ export class FileSaveStore implements UserSaveStore {
     }
     st.pending = null;
     st.inFlight = v;
+    // dirDirty stays set until a directory fsync SUCCEEDS (a shutdown flush must still see it while this sync is in flight).
     const dirToo = st.dirDirty;
-    st.dirDirty = false;
-    this.syncOne(dir, st, v, dirToo)
+    const gen = st.dirGen;
+    this.syncOne(dir, st, v, dirToo, gen)
       .catch((e: unknown) => this.reportFailure(v, e))
       .finally(() => {
         st.inFlight = null;
@@ -329,14 +349,13 @@ export class FileSaveStore implements UserSaveStore {
       .catch(() => { /* terminal: nothing here may become an unhandled rejection */ });
   }
 
-  private async syncOne(dir: string, st: DirState, v: number, dirToo: boolean): Promise<void> {
+  private async syncOne(dir: string, st: DirState, v: number, dirToo: boolean, gen: number): Promise<void> {
     const t0 = stallTimer.now();
     try {
       await this.syncFile(this.fileFor(dir, v));
     } catch (e) {
       const code = (e as { code?: string } | null)?.code;
       if (code === "ENOENT") return; // the file is gone (rotated/quarantined): not an error
-      if (dirToo) st.dirDirty = true;
       try { stallTimer.record("save.fsync", stallTimer.now() - t0, { version: v, failed: 1 }); } catch { /* ignore */ }
       try {
         this.onError(`[orwell] save.fsync failed version=${v} code=${code ?? "unknown"} (retried with the next save)`);
@@ -349,8 +368,8 @@ export class FileSaveStore implements UserSaveStore {
     if (dirToo) {
       try {
         await this.syncDir(dir);
+        if (st.dirGen === gen) st.dirDirty = false;
       } catch (e) {
-        st.dirDirty = true;
         try {
           this.onError(`[orwell] save.dirsync failed version=${v} code=${(e as { code?: string } | null)?.code ?? "unknown"} (retried with the next save)`);
         } catch { /* ignore */ }
@@ -446,7 +465,12 @@ export class FileSaveStore implements UserSaveStore {
         const [dir, st] = todo[next++]!;
         try {
           await this.syncFile(this.fileFor(dir, st.latest));
-          if (st.dirDirty) { try { await this.syncDir(dir); st.dirDirty = false; } catch { /* best-effort */ } }
+          if (st.dirDirty) {
+            // The checkpoint is not durable until its directory entry is: a failed directory fsync leaves dirDirty set and the marker unmoved.
+            const gen = st.dirGen;
+            await this.syncDir(dir);
+            if (st.dirGen === gen) st.dirDirty = false;
+          }
           this.markDurable(dir, st, st.latest);
         } catch (e) {
           try { this.onError(`[orwell] save.flush failed code=${(e as { code?: string } | null)?.code ?? "unknown"}`); } catch { /* ignore */ }
@@ -476,7 +500,7 @@ export class FileSaveStore implements UserSaveStore {
       }
       try {
         this.syncFileSync(this.fileFor(dir, st.latest));
-        if (st.dirDirty) { try { this.syncDirSync(dir); } catch { /* best-effort */ } st.dirDirty = false; }
+        if (st.dirDirty) { this.syncDirSync(dir); st.dirDirty = false; }
         this.markDurable(dir, st, st.latest);
         st.pending = null;
       } catch (e) {

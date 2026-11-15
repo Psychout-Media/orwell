@@ -18,7 +18,7 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
@@ -97,6 +97,7 @@ describe("ci.yml wiring (two-tier CI)", () => {
     expect(yml.slice(yml.indexOf("\n  fast-checks:\n"), yml.indexOf("\n  test:\n"))).toContain("run: npm run ci:fast");
     for (const gone of ["run: npm run test:bdd", "uses: actions/setup-python", "uses: ./.github/actions/setup-fe-python", "run: pip install"]) expect(testJob, gone).not.toContain(gone);
     expect(bddJob).toContain("run: node ci/bdd-shard.mjs ${{ matrix.shard }}/3");
+    expect(bddJob).toMatch(/shard:\s*\[1, 2, 3\]/); // a matrix with fewer legs would leave features unrun
     expect(bddJob).toContain("uses: ./.github/actions/setup-fe-python");
   });
   it("calibration-nightly has NO pull_request trigger (ORW-218, Ryne 2026-11-12: balance is not CI); the draft-PR guard stays harmless for dispatch/schedule", () => {
