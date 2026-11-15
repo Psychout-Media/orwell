@@ -1599,6 +1599,8 @@ _BIO_FINAL_MIN_CHARS = 40
 def _has_floor_biography(npc: dict) -> bool:
     """The seeded floor biography the engine already holds for this card (the skeleton carries it): when the writer
     omits its own, that one stands, so the card is not empty. Briana had none left."""
+    if (npc or {}).get("biographyDraft") is True:
+        return False  # ORW-438: genesis's nameless first draft is not a floor; the writer must supply the real one
     b = (npc or {}).get("biography")
     return isinstance(b, str) and len(b.strip()) >= _BIO_FINAL_MIN_CHARS
 
@@ -3342,6 +3344,8 @@ def _safe_user(user: Optional[str]) -> str:
 def card_missing_story(card: dict, look: bool = False) -> bool:
     """ORW-430: a card marked authored whose public biography or identity is empty, or that lacks a required photo-sheet field (the game-start coherence repair
     clears a contradicting biography and nothing refilled it) is still unfinished: the background retry takes it again."""
+    if card.get("biographyDraft") is True or card.get("storyMissing") is True:
+        return True  # ORW-438: only genesis's draft stands, or the roster already worked this out from the full card
     pc = card.get("physicalCharacteristics")
     if not isinstance(pc, dict):
         return False  # a thin roster stub says nothing about the story; a full card always carries its look block

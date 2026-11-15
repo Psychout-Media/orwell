@@ -134,3 +134,34 @@ def test_honorific_and_initial_names_and_legacy_cards_are_never_hidden():
         legacy = {"id": "npc:3", "name": name, "authored": False, "biography": "Loves puzzles."}  # an older save: no marker
         assert R._public_persona(legacy)["biography"] == "Loves puzzles."
     assert ca.is_genesis_draft_biography({"biographyDraft": False, "biography": "x"}) is False
+
+
+# ---- the gap: genesis draft + a writer that returns no biography must not leave the card hidden and un-retried ----
+_NO_BIO = json.dumps({"vocation": "sommelier", "physicalCharacteristics": _PC})
+
+
+def test_writer_omits_the_biography_once_the_card_is_retried_by_the_backfill_and_then_finishes():
+    ca.reset_attempts("u438b")
+    npc = {**_NPC, "biography": DRAFT, "biographyDraft": True, "authored": True, "identityConcept": "A calm wine person who hums."}
+    replies = [_NO_BIO, _NO_BIO, _GOOD]  # first pass: the writer and its one strict retry both omit it; backfill pass: returns it
+    writes = []
+
+    async def llm_fn(messages):
+        return replies.pop(0)
+
+    async def write_fn(p):
+        writes.append(p)
+        return {"accepted": True}
+
+    # pass 1: the draft is NOT a floor, so the card is not written as authored
+    assert _run(ca.author_cast([dict(npc)], llm_fn, write_fn, user="u438b")) == 0 and writes == []
+    assert not ca._has_floor_biography(npc)
+    # the card still counts as unfinished, so the backfill takes it again (and the roster says so as a boolean)
+    assert ca.unauthored_ids("u438b", [npc]) == ["npc:1"]
+    assert ca.unauthored_ids("u438b", [{"id": "npc:1", "status": "active", "authored": True, "storyMissing": True}]) == ["npc:1"]
+    # pass 2 (the backfill): the writer returns the biography and the card is written
+    assert _run(ca.author_cast([dict(npc)], llm_fn, write_fn, user="u438b")) == 1
+    assert "biography" in writes[0]
+    finished = {**npc, "biography": writes[0]["biography"]}
+    finished.pop("biographyDraft")  # the engine clears it when recordCastProfile lands the biography
+    assert ca.unauthored_ids("u438b", [finished]) == [] or ca.card_missing_story(finished) is False
