@@ -28,6 +28,8 @@ export interface BedsState {
   owner: Record<EntityId, BedId>;
   /** Every claim, in order. Append-only. */
   claims: BedClaim[];
+  /** ORW-466 slice 3: evictees whose empty spot the house has noticed (a public event, once each). Append-only; absent until the first eviction. */
+  noticedEmpty?: EntityId[];
 }
 
 export const roomOfBed = (spot: BedId): Room => spot.slice(0, spot.lastIndexOf("#")) as Room;

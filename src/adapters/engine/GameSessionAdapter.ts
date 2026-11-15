@@ -264,7 +264,7 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
-import { BED_RULES, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, spotScore, swapBeds, type BedReader } from "../../engine/bedClaims";
+import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
@@ -5630,6 +5630,16 @@ export class GameSessionAdapter implements GameSession {
     const bed = pickBedFor(beds, who, living, r, this.bedShare(r), (w, room) => new SeededRandom(hashSeed(`${seed}:beds:${w}:${room}`)).next());
     if (!bed || !claimBed(beds, who, bed, this.live?.dayNumber ?? 1, "move-in", living)) return;
     this.noteBedChoice(beds, who, roomOfBed(bed), living);
+    // ORW-466 slice 3: the lost-bed grudge - the spot they wanted most went to an earlier arrival, and they wanted it far more than the one they got: a tiny hidden grudge toward the taker.
+    const share = this.bedShare(r);
+    const got = spotScore(beds, who, bed, living, r, share);
+    let lost: { taker: EntityId; v: number } | undefined;
+    for (const [taker, spot] of Object.entries(beds.owner)) {
+      if (taker === who || !living.has(taker)) continue;
+      const v = spotScore(beds, who, spot, living, r, share, new Set([taker]));
+      if (!lost || v > lost.v) lost = { taker, v };
+    }
+    if (lost && lost.v - got > BED_MOVES.lostBedGrudgeAbove) this.rel.applyImpactDirected(who, lost.taker, BED_MOVES.lostBedGrudge, new SeededRandom(hashSeed(`${seed}:bed-grudge:${who}:${lost.taker}`)));
   }
 
   /** ORW-466: who chose to room with whom is PUBLIC - a player-witnessed house fact (the bags on the beds are there for anyone to see), never the Vault. */
@@ -5642,11 +5652,15 @@ export class GameSessionAdapter implements GameSession {
     this.onPlayerEvent?.(`${this.nameOf(who)} ${verb} ${roomDisplayName(room)}${withWhom}`, witness, "bed-claim");
   }
 
-  /** ORW-466 slice 2: may the player claim a bed in their own words right now (`BED_RULES.playerClaimWindow`)? Only once they are inside the house. */
+  /** ORW-466 slice 2: may the player claim a bed in their own words right now (`BED_RULES.playerClaimWindow`)? Only once they are inside the house. Slice 3: "any-time" lets them move later. */
   private playerBedWindowOpen(beds: BedsState): boolean {
     const pe = this.live?.premiereEntrance;
     if (pe && pe.stage === "entrances" && pe.arrived <= pe.playerPos) return false; // still outside, waiting to walk in
-    return BED_RULES.playerClaimWindow === "any-time" || this.phase === "premiere" || !beds.owner[PLAYER];
+    return BED_RULES.playerClaimWindow === "any-time" || this.moveInPickOpen(beds);
+  }
+  /** The move-in pick itself: the premiere, or any time before the player owns a bed. The narrator's BEDS line runs every turn only here; after it, only on a turn the player's words touched a bed. */
+  private moveInPickOpen(beds: BedsState): boolean {
+    return this.phase === "premiere" || !beds.owner[PLAYER];
   }
 
   /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
@@ -5683,8 +5697,11 @@ export class GameSessionAdapter implements GameSession {
       if (mine && roomOfBed(mine) === room && !bed && (!prefer || isDoubleSpot(mine) === (prefer === "double"))) { this.playerBedNote = `the player already has their bed in ${roomDisplayName(room)}`; return false; }
       bed ??= freeBedIn(beds, room, living, prefer);
       if (!bed) { this.playerBedNote = `the player wanted a bed in ${roomDisplayName(room)}, but every spot there is taken (they can ask one of its owners to swap)`; return false; }
-      claimBed(beds, PLAYER, bed, day, "move-in", living);
+      const later = mine !== undefined; // slice 3: a move after their first bed
+      const leftMate = mine ? bedPartner(beds, PLAYER, living) : undefined;
+      claimBed(beds, PLAYER, bed, day, later ? "move" : "move-in", living);
       const mate = bedPartner(beds, PLAYER, living);
+      if (later) this.foldBedMove(PLAYER, leftMate !== undefined && leftMate !== mate ? [leftMate] : [], mate !== undefined && mate !== leftMate ? [mate] : [], day);
       this.playerBedNote = `the player just claimed ${isDoubleSpot(bed) ? `half of a double${mate ? ` next to ${this.nameOf(mate)}` : ""}` : "a single bed"} in ${roomDisplayName(room)} (engine truth: voice it as theirs)`;
       this.noteBedChoice(beds, PLAYER, room, living);
       return true;
@@ -5726,7 +5743,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedsLine(): string | undefined {
     const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
-    if (!beds || !this.playerBedWindowOpen(beds)) return undefined;
+    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote)) return undefined;
     const living = new Set(this.livingIds());
     const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
     const rooms = BEDROOM_LAYOUT.map((spec) => {
@@ -5741,6 +5758,75 @@ export class GameSessionAdapter implements GameSession {
     const mine = beds.owner[PLAYER];
     const own = mine ? `The player's bed is in ${roomDisplayName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
     return `${rooms.join("; ")}. ${own}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
+  }
+
+  /**
+   * ORW-466 slice 3: a bed move is felt. Each person the mover left behind (a betrayer they moved away from, the bedmate they left) reads it as a tiny slight; each person they moved in with on purpose
+   * (an ally, a showmance, a new bedmate) as a tiny warm signal. Hidden folds through the relationship model (bounded, seeded per pair and day; `BED_MOVES` magnitudes); never the player's own
+   * edge (the player forms their own reads).
+   */
+  private foldBedMove(mover: EntityId, left: readonly EntityId[], joined: readonly EntityId[], day: number): void {
+    const seed = this.gameSeed ?? 0;
+    for (const [people, impact] of [[left, BED_MOVES.slight], [joined, BED_MOVES.signal]] as const) {
+      for (const p of people) if (p !== PLAYER && p !== mover) this.rel.applyImpactDirected(p, mover, impact, new SeededRandom(hashSeed(`${seed}:bed-move-fold:${p}:${mover}:${day}`)));
+    }
+  }
+
+  /** ORW-466 slice 3: the per-day chance of a goal move (`BED_MOVES.dailyChance`); a test seam. */
+  private bedMoveChance: number = BED_MOVES.dailyChance;
+  setBedMoveChance(p: number): void { this.bedMoveChance = p; }
+
+  /** Who `who` wants to sleep near (named-alliance co-members, the showmance) and away from (anyone with a recorded betrayal against them). */
+  private bedGoalsOf(who: EntityId, living: ReadonlySet<EntityId>): BedGoals {
+    const toward = new Set<EntityId>();
+    for (const al of this.alliances.all()) if (al.members.includes(who)) for (const m of al.members) if (m !== who && living.has(m)) toward.add(m);
+    let show = this.showmancePartnerOf(who);
+    if (show === undefined) {
+      let best: number = BED_MOVES.showmanceAffinity;
+      for (const o of living) {
+        if (o === who) continue;
+        const v = Math.min(this.rel.edge(who, o).affinity, this.rel.edge(o, who).affinity);
+        if (v >= best) { best = v; show = o; }
+      }
+    }
+    if (show !== undefined && living.has(show)) toward.add(show);
+    const wronged = this.live?.mannerByEvictee?.[who] ?? {};
+    const away = Object.entries(wronged).filter(([b, m]) => m?.betrayed && living.has(b) && b !== who).map(([b]) => b);
+    return { toward: [...toward].filter((x) => !away.includes(x)), away };
+  }
+
+  /**
+   * ORW-466 slice 3 - later bed moves, once per off-screen tick (`defaultApply`). A played game only (headless games own no beds; side streams only, no shared rng). Two things:
+   *  - an evictee's spot reads free already (`takenBeds`); the house NOTICES the empty bed once: a public event the room's sleepers and the player witness (never a scene);
+   *  - an NPC moves for a goal (`planGoalMove`): one seeded roll per in-game day (`bedMoveChance`), at most `BED_MOVES.maxPerDay` moves that day, only into a free spot, only past the care bar.
+   *    The move is a public event and is felt (`foldBedMove`).
+   */
+  bedsTick(): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || s.finished || !this.house || this.phase === "premiere") return;
+    const beds = this.ensureBeds();
+    if (!beds) return;
+    const living = new Set(this.livingIds());
+    const day = s.dayNumber ?? 1;
+    for (const gone of s.evictionOrder) {
+      const spot = beds.owner[gone];
+      if (gone === PLAYER || !spot || living.has(gone) || beds.noticedEmpty?.includes(gone)) continue;
+      (beds.noticedEmpty ??= []).push(gone);
+      const room = roomOfBed(spot);
+      const mates = roommatesIn(beds, room, living).filter((m) => m !== PLAYER);
+      const witness = [...new Set([PLAYER, ...mates])];
+      const what = isDoubleSpot(spot) ? "half of a double" : "bed";
+      this.onPlayerEvent?.(`${this.nameOf(gone)}'s ${what} in ${roomDisplayName(room)} sits empty now that they are gone${mates.length ? `; ${mates.map((m) => this.nameOf(m)).join(", ")} ${mates.length === 1 ? "sleeps" : "sleep"} there` : ""}`, witness, "bed-claim");
+    }
+    const movedToday = beds.claims.filter((c) => c.why === "move" && c.day === day && c.who !== PLAYER).length;
+    if (movedToday >= BED_MOVES.maxPerDay) return;
+    if (new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bed-moves:${day}`)).next() >= this.bedMoveChance) return;
+    const r = this.bedReader();
+    const movers = [...living].filter((id) => id !== PLAYER);
+    const move = planGoalMove(beds, movers, living, r, this.bedShare(r), (who) => this.bedGoalsOf(who, living));
+    if (!move || !applyMove(beds, move, day, living)) return;
+    this.noteBedChoice(beds, move.who, roomOfBed(move.to), living, move.freedBy !== undefined ? `moves into ${this.nameOf(move.freedBy)}'s old ${isDoubleSpot(move.to) ? "half of a double" : "bed"} in` : "moves their things to a bed in");
+    this.foldBedMove(move.who, move.left, move.joined, day);
   }
 
   /** ORW-466: the player's bed - the bed left over at their first bedtime if they never picked one (as on the show) - and the player in it (the HOH room for the HOH). Inside a commit only. */
