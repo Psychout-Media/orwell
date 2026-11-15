@@ -13,7 +13,6 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
  */
 const NEVER_FLIPPED = [
   // One flag per line: concurrent flag PRs append DIFFERENT lines instead of conflicting on one.
-  "ORWELL_SHOWRUNNER_REWEIGHT",
   "ORWELL_FORESHADOW",
   "ORWELL_SLEEPERS_IN_BED",
 ] as const;

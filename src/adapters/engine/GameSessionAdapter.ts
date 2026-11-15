@@ -783,8 +783,8 @@ const MYTH_MAKING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MYTH_MAKING");
 const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
 
 /**
- * 0101/#1401 Phase-2 (#1455) — whether the OUTCOME-AFFECTING showrunner REWEIGHT runs by DEFAULT. OFF
- * unless `ORWELL_SHOWRUNNER_REWEIGHT=1`. A DEDICATED sub-flag, DISTINCT from the Phase-1 `ORWELL_SHOWRUNNER`
+ * 0101/#1401 Phase-2 (#1455) — whether the OUTCOME-AFFECTING showrunner REWEIGHT runs by DEFAULT. ON since
+ * ORW-270 (2026-11-15, measured fair); `ORWELL_SHOWRUNNER_REWEIGHT=0` turns it off. A DEDICATED sub-flag, DISTINCT from the Phase-1 `ORWELL_SHOWRUNNER`
  * above, because — unlike Phase-1 (which only routes an emphasized surfaced thread's belief to the player,
  * fold-free) — the reweight RE-ORDERS which simmering thread wins the scheduler's SCARCE per-tick slot, and
  * a thread's activate/surface/resolve transitions FOLD hidden relationship weights that feed the
@@ -800,7 +800,9 @@ const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
  * module load (like the sibling flags), with a PROCESS-GLOBAL static override (mirroring `secretPacing` /
  * `seededTieSurfacing`) so the calibration ON-run flips it once for every session it plays.
  */
-const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = process.env.ORWELL_SHOWRUNNER_REWEIGHT === "1";
+// ORW-270 (Ryne 2026-11-15: "Let's try it out. Option 1" - measure, then on if fair): 900 seeds x 3 arms, ON vs OFF, moved nothing beyond noise
+// (win, F2 reach, jury reach; active still beats passive), so it is default ON like every other built flag; `=0` / ORWELL_FLAGS_OFF=1 turn it off.
+const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER_REWEIGHT");
 
 /**
  * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs by DEFAULT. ON unless
