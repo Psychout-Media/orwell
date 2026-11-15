@@ -290,6 +290,8 @@ export function _onWsChatFrame(frame) {
   // holder (`_wsRound.holder` if a run-boundary already pre-mounted it, else it lands in seq order and
   // the reply holder mounts after). The SENDER's own bubble already exists → the renderer dedups by
   // clientMsgId and only stamps {id, seq} (never a duplicate). Cause-before-effect on the WS leg too.
+  // ORW-408: the server's "still working" beat while a sentence is being re-voiced; nothing to render (the socket stays warm, the idle timers see traffic).
+  if (d.type === 'keepalive') return;
   if (d.type === 'user_message') {
     try { _renderUserMessage(d, { beforeEl: (_wsRound && _wsRound.holder) || null }); } catch (_) {}
     return;

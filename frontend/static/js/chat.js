@@ -2306,7 +2306,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 _streamHadError = true;
                 break;
               }
-              if (json.delta || json.type === 'tool_start' || json.type === 'tool_output' || json.type === 'tool_progress' || json.type === 'agent_step' || json.type === 'doc_stream_open' || json.type === 'doc_stream_delta' || json.type === 'research_progress') {
+              if (json.delta || json.type === 'tool_start' || json.type === 'tool_output' || json.type === 'tool_progress' || json.type === 'agent_step' || json.type === 'doc_stream_open' || json.type === 'doc_stream_delta' || json.type === 'research_progress' || json.type === 'keepalive') {
                 // Stream activity: RESET the idle countdown (was a one-shot permanent clear — that
                 // left a mid-stream stall unbounded). A long-but-active turn keeps re-arming and is
                 // never tripped; only a genuine idle gap aborts + recovers.
