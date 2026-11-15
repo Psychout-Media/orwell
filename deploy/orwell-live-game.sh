@@ -386,6 +386,32 @@ update_turn_in_flight() {
   [[ "$v" =~ ^[0-9]+$ ]] && (( 10#$v > 0 ))
 }
 
+# ORW-461: hold NEW turns while the update waits for the in-flight ones and restarts. The front end (frontend/src/turn_inflight.py) refuses a new turn at admission, with a retryable
+# `update-holding`, while ${ORWELL_RUN_DIR}/turns-hold says `until=<epoch>` in the future; the player's page waits ("one moment...") and re-sends the same turn after the restart.
+# The file lives in the ROOT-owned run dir, like every other file this updater writes as root: the service user can read it (the front end does) but can never write, swap or
+# symlink it, so root never follows a path the service user controls. The hold is bounded by its own `until`, so an updater that dies never leaves the game held for more than that.
+# $1 seconds the hold may last (default 240)
+update_turn_hold_begin() {
+  local secs="${1:-240}" dir="$ORWELL_RUN_DIR" tmp
+  [[ "$secs" =~ ^[0-9]{1,5}$ ]] || secs=240
+  [[ -L "$dir" ]] && return 0
+  mkdir -p -m 755 "$dir" 2>/dev/null || return 0   # 755 whatever the caller's umask: the front end (another user) must be able to traverse it
+  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi   # only ever write inside a dir WE own
+  tmp="$(umask 022; mktemp "${dir}/.turns-hold.XXXXXX" 2>/dev/null)" || return 0
+  printf 'until=%s\n' "$(( $(_update_defer_now) + 10#$secs ))" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  # mktemp creates 0600 whatever the umask, and the front end reads this as another user: make it world-readable. Safe: the temp file sits in a root-owned dir nobody else can write.
+  chmod 644 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  echo "==> holding new turns (the game restarts in a moment; players see 'one moment')"
+  # A turn admitted in the same instant as the hold may not be in the in-flight count yet: give it a moment to register before the first count is read.
+  _update_defer_sleep "${ORWELL_UPDATE_HOLD_SETTLE_SECONDS:-2}"
+  return 0
+}
+update_turn_hold_end() {
+  rm -f "${ORWELL_RUN_DIR}/turns-hold" 2>/dev/null || true
+  return 0
+}
+
 # Wait (bounded) until no turn is in flight. $1 = signal file. Bound: ORWELL_UPDATE_TURN_WAIT_SECONDS
 # (default 120, clamped 1..300). Always returns 0: after the bound the update proceeds.
 # $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).

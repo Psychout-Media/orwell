@@ -41,7 +41,7 @@ PROBLEM_WORDS = {
     "wrong-presentation": "clothes that match the stated gender presentation",
     "eyes-off": "eyes looking straight at the camera",
     "not-a-portrait": "a head-and-shoulders portrait photo",
-    "missing-feature": "every stated visible feature (glasses, piercings, facial hair, hair colour and length)",
+    "missing-feature": "every stated visible feature (glasses, piercings, facial hair, hair colour, length and style)",
 }
 KNOWN_CODES = frozenset(PROBLEM_WORDS)
 
@@ -64,19 +64,90 @@ _FEATURE_RES = (
 
 
 _HAIR_CLAUSE_RE = re.compile(r"\bHair:\s*([^.]+)\.")
+# The colour and length words the check has always known (ORW-437); a hair line that has one keeps exactly that reading.
 _HAIR_COLOUR_RE = re.compile(
     r"\b(?:jet black|blue-black|black|dark brown|light brown|chestnut|brown|blond|blonde|strawberry blonde|red|auburn|ginger|copper|"
     r"grey|gray|silver|white|platinum)\b", re.I)
 _HAIR_LENGTH_RE = re.compile(r"\b(?:buzzed|shaved|cropped|close-cropped|short|chin-length|shoulder-length|long|waist-length)\b", re.I)
+# ORW-460: only for a hair line the words above leave with NOTHING to check ("voluminous dark waves", "neat locs past the
+# shoulder", "a salt-and-pepper buzzcut"): the softer colour words, the other lengths and cuts, then the shape of the style.
+_SOFT_COLOUR_RE = re.compile(
+    r"\b(?:salt[- ]and[- ]pepper|dark|light|ashy?|sandy|espresso|caramel|chocolate|mahogany|honey|golden|"
+    r"magenta|pink|purple|violet|teal|cobalt|green|orange|blue)\b", re.I)
+_SOFT_LENGTH_RE = re.compile(
+    r"\b(?:chin[- ]length|jaw[- ]length|collar[- ]length|medium[- ]length|past (?:the |her |his |their )?shoulders?|"
+    r"to the collar|bald|lob|bob|pixie|buzz ?cut|crop|fade)\b", re.I)
+_HAIR_STYLE_RE = re.compile(
+    r"\b(?:waves|wavy|curls|curly|coils|braids?|braided|locs|twist-out|ponytail|bun|afro|bangs|blowout|mohawk|straight|slicked back)\b", re.I)
+# An accent is not the hair colour: "caramel highlights", "magenta peekaboo", a dyed top, "a red ribbon". Only a phrase that holds an
+# accessory or accent noun is dropped, so "with a dark brown base" and "..., espresso-brown and neat" keep their colour.
+_ACCENT_NOUNS = (r"(?:highlights?|highlighted|streaks?|peekaboo|tips?|tipped|ribbons?|clips?|ties?|bands?|scrunchies?|pins?|bows?|"
+                 r"elastic|headbands?|scarf|barrettes?|combs?|wrap|cast|tint|tinge|hint|sheen|glint|undertones?|flecks?|"
+                 r"top|front|ends|roots)")
+# a colour right after one of these is a trace, not the hair colour: "more silver at the temples", "scattered silver", "a faint copper"
+_ACCENT_BEFORE_RE = re.compile(r"(?:more|scattered|touch of|hint of|faint|subtle|slight|streaks of|flecks of|a little|some|bit of)\s+$", re.I)
+# a length word about the sides, not the whole head: "short tight sides", "cropped close at the sides", "a clean short taper"
+_SIDES_AFTER_RE = re.compile(r"^[\w\s-]{0,22}\b(?:sides|taper|temples|nape|edges)\b", re.I)
+_ACCENT_PHRASE_RE = re.compile(
+    r"\b(?:with|tied|held|pinned|secured|clipped|topped|wrapped|tucked|under|beneath|dyed)\b[^,;]*\b" + _ACCENT_NOUNS + r"\b[^,;]*", re.I)
+_ACCENT_AFTER_RE = re.compile(r"^[- ]*" + _ACCENT_NOUNS + r"\b", re.I)
 
 
+# The length is read as it always was: from the part of the line before an accessory word ("... tied with a ribbon").
 _HAIR_ACCESSORY_RE = re.compile(r"\b(?:with|tied|held|pinned|secured|clipped|topped|wrapped|tucked|under|beneath)\b", re.I)
 
 
+def _first_base(rx, text: str):
+    """The first match of `rx` that is not an accent colour (a colour word directly before "highlights", "streaks", a ribbon ...)."""
+    for m in rx.finditer(text):
+        if _ACCENT_AFTER_RE.match(text[m.end():]) or _ACCENT_BEFORE_RE.search(text[:m.start()]):
+            continue
+        return m
+    return None
+
+
+def _first_length(rx, text: str):
+    for m in rx.finditer(text):
+        if _SIDES_AFTER_RE.match(text[m.end():]) or re.search(r"\bsides\b|\btaper\b", text[max(0, m.start() - 12):m.start()], re.I):
+            continue
+        return m
+    return None
+
+
+def hair_features(clause: str) -> list:
+    """The checkable hair features in one hair line. The base colour and the length when the line says them (as before);
+    a line with neither gets the softer colour, the cut or length, or the style shape, so a real hair line always yields at
+    least one (ORW-460)."""
+    text = _ACCENT_PHRASE_RE.sub(" ", clause)
+    out = []
+    c, ln = _first_base(_HAIR_COLOUR_RE, text), _HAIR_LENGTH_RE.search(_HAIR_ACCESSORY_RE.split(clause, maxsplit=1)[0])
+    if c:
+        out.append(f"{c.group(0).lower()} hair")
+    if ln:
+        out.append(f"{ln.group(0).lower()} hair")
+    if out:
+        return out
+    sc = _first_base(_SOFT_COLOUR_RE, text)
+    if sc:
+        out.append(f"{sc.group(0).lower()} hair")
+    sl = _first_length(_SOFT_LENGTH_RE, text)
+    if sl:
+        w = sl.group(0).lower()
+        out.append(f"{w} hair" if re.fullmatch(r"(?:chin|jaw|collar|medium)[- ]length|bald", w)
+                   else f"hair with a {w}" if re.fullmatch(r"lob|bob|pixie|buzz ?cut|crop|fade", w) else f"hair {w}")
+    if not out:
+        st = _HAIR_STYLE_RE.search(text)
+        if st:
+            w = st.group(0).lower()
+            out.append(f"hair {w}" if w == "slicked back" else f"hair in {w}")
+    return out
+
+
 def visible_features(prompt: str) -> list:
-    """The visible features the brief states (glasses, piercings, facial hair, hair colour and length), as phrases.
-    The hair colour and length are read from the brief's own `Hair: ...` clause in any word order (ORW-437: "tight black
-    curls", "shoulder-length waves", "jet black"), else from the older "<colour> hair" wording."""
+    """The visible features the brief states (glasses, piercings, facial hair, hair colour, length and style), as phrases.
+    The hair features are read from the brief's own `Hair: ...` clause in any word order (ORW-437: "tight black curls",
+    "shoulder-length waves", "jet black"; ORW-460: "dark", "caramel", "salt-and-pepper", "past the shoulders", a cut or a style),
+    else from the older "<colour> hair" wording."""
     out = []
     hm = _HAIR_CLAUSE_RE.search(prompt or "")
     for label, rx in _FEATURE_RES:
@@ -86,13 +157,7 @@ def visible_features(prompt: str) -> list:
         if m:
             out.append(m.group(0).lower() if label.startswith("hair") else label)
     if hm:
-        # Only the hair itself: what follows an accessory word ("tied with a red ribbon") is not the hair colour.
-        clause = _HAIR_ACCESSORY_RE.split(hm.group(1), maxsplit=1)[0]
-        c, ln = _HAIR_COLOUR_RE.search(clause), _HAIR_LENGTH_RE.search(clause)
-        if c:
-            out.append(f"{c.group(0).lower()} hair")
-        if ln:
-            out.append(f"{ln.group(0).lower()} hair")
+        out.extend(hair_features(hm.group(1)))
     return out
 
 
@@ -162,7 +227,7 @@ _CHECKLIST = (
     "wrong-presentation (the clothes contradict the stated gender presentation), "
     "eyes-off (eyes not on the camera; only judge this when the facts say eyes on camera was asked), "
     "not-a-portrait (not a head-and-shoulders or waist-up portrait photo), "
-    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour or length, is not in the photo)"
+    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour, length or style, is not in the photo)"
 )
 
 
