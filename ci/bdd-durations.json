@@ -102,7 +102,10 @@
  "docs/features/0139-the-booth-has-receipts.feature": 0.2,
  "docs/features/0140-publicity-priced-promises.feature": 0.0,
  "docs/features/0141-private-orientation-disclosure.feature": 16.1,
+ "docs/features/0142-deal-depth-ii.feature": 5.9,
+ "docs/features/0143-casual-assurances.feature": 5.5,
  "docs/features/0144-visible-mood-never-opposite.feature": 0.0,
  "docs/features/0145-npc-agendas.feature": 12.3,
- "docs/features/0147-npc-minds-house-life.feature": 0.3
+ "docs/features/0147-npc-minds-house-life.feature": 0.3,
+ "docs/features/0148-player-nap.feature": 7.4
 }

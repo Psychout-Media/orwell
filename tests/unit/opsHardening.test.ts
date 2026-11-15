@@ -23,7 +23,9 @@ describe("E4 — bounded save retention (no O(n²) disk)", () => {
   it("a long soak keeps a bounded file count and the LATEST save intact", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-prune-"));
     try {
-      const store = new FileSaveStore(dir);
+      // ORW-404: the retention policy is pinned in sync mode. In the default background mode nothing is synced inside a synchronous loop,
+      // and a user with no synced save keeps every file (up to 200) until one fsync completes (covered in saveNeverSyncedAndShutdown.test.ts).
+      const store = new FileSaveStore(dir, { fsyncMode: "sync" });
       for (let i = 1; i <= 500; i++) store.saveFor("soak-user", tinySnapshot(i));
       const userDir = readdirSync(dir)[0]!;
       const files = readdirSync(join(dir, userDir)).filter((f) => /^v\d+\.json$/.test(f));
@@ -46,7 +48,7 @@ describe("E4 — bounded save retention (no O(n²) disk)", () => {
     // (150, 100, 50) — the long-tail archive one save shallower than designed.
     const dir = mkdtempSync(join(tmpdir(), "orwell-prune-boundary-"));
     try {
-      const store = new FileSaveStore(dir);
+      const store = new FileSaveStore(dir, { fsyncMode: "sync" });
       for (let i = 1; i <= 201; i++) store.saveFor("boundary-user", tinySnapshot(i));
       const userDir = readdirSync(dir)[0]!;
       const files = readdirSync(join(dir, userDir)).filter((f) => /^v\d+\.json$/.test(f));

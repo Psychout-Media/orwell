@@ -278,7 +278,7 @@ def test_dedupe_failures_leave_the_original_sheet():
 
 
 def _author_npc(i):
-    return {"id": f"npc:{i}", "name": f"Guest {i}", "age": 30, "genderPresentation": "woman", "presentation": "soft tailoring",
+    return {"id": f"npc:{i}", "biography": "A seeded floor biography that the engine keeps when the writer omits its own.", "name": f"Guest {i}", "age": 30, "genderPresentation": "woman", "presentation": "soft tailoring",
             "physicalCharacteristics": {"hair": "dark hair", "heightBuild": "tall", "style": "x", "distinguishingMark": "none notable"}}
 
 

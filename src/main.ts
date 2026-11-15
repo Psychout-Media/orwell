@@ -1,4 +1,4 @@
-import { composeRuntime } from "./composition/runtime";
+import { composeRuntime, createShutdown, DEFAULT_HARD_EXIT_MS } from "./composition/runtime";
 import { startHttpMcp } from "./adapters/mcp/HttpMcpServer";
 import { createEmbeddingsStatusTracker } from "./adapters/embedding/embeddingsStatus";
 
@@ -74,10 +74,18 @@ const requireUser = /^(1|true|yes|on)$/i.test(process.env["ORWELL_ENGINE_MULTIUS
 // spray ids to mint unlimited sandboxes (only createCharacter may start a fresh one).
 const knownUser = (user: string): boolean => runtime.knownUser(user);
 
-startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus }, host);
-// Clean shutdown (no background timers to tear down — the runtime is purely turn-driven).
+startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus, saveStatus: runtime.saveDurability }, host);
+// Clean shutdown (no background timers to tear down — the runtime is purely turn-driven). ORW-404: the
+// per-save fsync runs in the background, so flush the newest un-synced save of every user (async,
+// bounded to 10 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
+// disk can never hold the process in the handler; the flush is non-blocking so the timer can fire.
+const shutdown = createShutdown({
+  flush: () => runtime.flushSavesAsync(10_000),
+  exit: (code) => process.exit(code),
+  hardExitMs: DEFAULT_HARD_EXIT_MS,
+});
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => process.exit(0));
+  process.on(signal, () => { void shutdown(); });
 }
 // eslint-disable-next-line no-console
 console.log(`Orwell engine MCP server listening on http://${host}:${port}`);
