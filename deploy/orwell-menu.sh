@@ -237,7 +237,7 @@ do_reset_factory() {
     [[ "${1:-}" == "--yes" ]] || die "reset-factory is destructive — pass --yes to run it non-interactively."
     run "Factory reset" bash "${DEPLOY_DIR}/orwell-factory-reset.sh" --yes; return $?
   fi
-  wt_confirm_phrase "RESET" "FACTORY RESET — back to first-run onboarding, KEEPING your API keys.\n\nPERMANENTLY DELETES all games AND the entire front-end store (accounts, sessions, settings, MCP configs, uploads, and EVERY cast portrait / avatar / headshot).\n\nPRESERVED: your API keys + provider endpoint (+ data/.env). The SELECTED MODELS reset to the OOB defaults (glm-5.2 narrator, qwen3.6-flash utility, gemini-3.1-flash-image portraits).\n\nThe next visit starts at first-run OOBE — with an LLM already configured." \
+  wt_confirm_phrase "RESET" "FACTORY RESET — back to first-run onboarding, KEEPING your API keys.\n\nPERMANENTLY DELETES all games AND the entire front-end store (accounts, sessions, settings, MCP configs, uploads, and EVERY cast portrait / avatar / headshot).\n\nPRESERVED: your API keys + provider endpoint (+ data/.env). The SELECTED MODELS reset to the OOB defaults (glm-5.2 narrator, qwen3.6-flash utility, gpt-image-2.6-sunburst portraits).\n\nThe next visit starts at first-run OOBE — with an LLM already configured." \
     || { wt_msgbox "Cancelled — nothing was changed."; return 0; }
   run "Factory reset" bash "${DEPLOY_DIR}/orwell-factory-reset.sh" --yes
 }

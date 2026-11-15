@@ -593,7 +593,7 @@ export interface GameStateView {
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone };
+  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -1110,6 +1110,21 @@ export interface RecordRoomCanonReq {
   roomId: string;
   /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
   feature: string;
+}
+
+/** ORW-369: a look-only write-back for ONE existing houseguest: the clothing pieces and the on-camera line, nothing else. */
+export interface RecordLookExtrasReq {
+  houseguestId: string;
+  wardrobe?: string[];
+  onCamera?: string;
+}
+
+export interface RecordLookExtrasResult {
+  accepted: boolean;
+  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  fields: string[];
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
 }
 
 export interface RecordRoomCanonResult {
@@ -1772,6 +1787,13 @@ export interface PremiereIntrosView {
     justArrived?: NamedRef;
     playerJustEntered?: boolean;
     speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true }>;
+    /**
+     * ORW-368 (Ryne's playtest: "it seems to want me to go every time... after a few people it comes back to me as if I need to go again"): where the PLAYER'S OWN toast slot stands, derived from the engine's own done list (`spoke`, which
+     * the player's slot is part of): `later` = their slot has not come up yet, `now` = it is in the latest batch (the narrator invites the player ONCE), `done` = it has passed. Toast stage only.
+     */
+    playerToast?: "later" | "now" | "done";
+    /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
+    toastRemaining?: number;
   };
 }
 
@@ -3144,6 +3166,15 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+
+  /**
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
+   * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
+   * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,
+   * and persists in the background without a beat. Vault-free: public fields only.
+   */
+  recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto

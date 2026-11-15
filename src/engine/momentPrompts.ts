@@ -1905,6 +1905,10 @@ export interface PremiereEntranceShape {
   justArrived?: { id: string; name: string };
   speakers?: { id?: string; name: string }[];
   playerEntrance?: boolean;
+  /** ORW-368: where the player's own toast slot stands (toast stage): not yet, in this batch, or passed. */
+  playerToast?: "later" | "now" | "done";
+  /** ORW-368: speakers still to be released after this batch (the engine's done list). */
+  toastRemaining?: number;
 }
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
@@ -1976,8 +1980,30 @@ function premiereEntranceLines(
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
-        (sp ? `Speakers this batch, in order: ${sp}. ` : "") +
-        `Open with the production host if the toast has not begun; the player's slot is theirs to take in chat \u2014 invite it, never force it. Call advanceGame for the next batch.`,
+        (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY speaker named here, each as their own toast (their name, age, hometown, job and one line of personality, from the facts you were given), none skipped, merged or summarized. ` : "") +
+        `Open with the production host if the toast has not begun. ` +
+        // ORW-368 (Ryne: "it has kept trying to end and had not had everyone go"): the engine, not the narrator, decides when the circle is over.
+        (typeof ent.toastRemaining === "number"
+          ? (ent.toastRemaining > 0
+              ? `THE TOAST IS NOT OVER: ${ent.toastRemaining} more speaker${ent.toastRemaining === 1 ? "" : "s"} still to come after this batch. Do NOT wrap it up, thank the house, toast "to everyone", or move the evening on; only the game says when the circle is done (when advanceGame reports it). `
+              : `This is the LAST batch of the toast: after these speakers the game closes the circle (call advanceGame once more); do not close it before. `)
+          : "") +
+        // ORW-368: the player's slot is invited ONCE, in the batch it falls in, from the engine's own done list; before it and after it the narrator never turns the scene back to the player.
+        (ent.playerToast === undefined
+          ? `the player's slot is theirs to take in chat \u2014 invite it, never force it. `
+          : ent.playerToast === "now"
+          ? `THE PLAYER'S SLOT IS IN THIS BATCH: give them ONE line of room to take it in chat (invite it once, never force it, never speak their toast for them), voice the other speaker(s), then call advanceGame for the next batch. The circle does NOT wait for the player and does NOT come back to them. `
+          : ent.playerToast === "done"
+            ? `The player's own toast slot has PASSED (the game has recorded it): never invite the player to toast again and never turn the scene back to them; stay on the circle. `
+            : `The player's own toast slot has NOT come up yet: do not invite them to speak, do not speak for them and do not turn the scene back to them; stay on the circle. `) +
+        `Call advanceGame for the next batch.`,
+      // ORW-368: the A9 toast stage used to name the speakers and give NO facts, so each toast was invented (the basics ORW-194 added only rode the old circle's roster). Hand the narrator each speaker's public basics (name, age,
+      // job, hometown, how they come across, from the card the engine holds) in the batch itself; the narrator voices them woven into the scene, never as a list or a data dump.
+      ...((ent.speakers ?? []).flatMap((x) => {
+        const id = (x as { id?: string }).id;
+        const card = id ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === id) : undefined;
+        return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}`] : [];
+      })),
     ];
   }
   return [];

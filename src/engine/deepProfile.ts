@@ -2,7 +2,8 @@ import type { EntityId } from "../domain/ids";
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
-import { hashSeed, spreadFacet } from "./characterFactory";
+import { hashSeed, spreadFacet, dealPresentationFamilies } from "./characterFactory";
+import { STYLE_FAMILIES, familyForLabel } from "../domain/styleFamilies";
 import type { Archetype, Character, Houseguest } from "./characterFactory";
 import { THREAD } from "./threadConstants";
 
@@ -190,15 +191,9 @@ const MARKS = [
   "a stud earring", "sun-weathered laugh lines",
   "none notable", "none notable", "none notable", "none notable",
 ];
-// 2026-07-21 prompt audit: "tattooed rocker edge" mandated body ink from the CLOTHING-STYLE axis —
-// a second ink source beside the capped distinguishing-mark deal. The rocker style stays ink-free;
-// visible ink is the mark budget's alone (one authority, the index-case fix).
-const STYLE_DESC = [
-  "streetwear and bold sneakers", "polished and camera-ready", "sporty and laid-back",
-  "bohemian and layered", "sharp and put-together", "vintage thrift-store finds",
-  "preppy and buttoned-up", "rocker edge — all black, leather, band tees", "beachy and sun-faded",
-  "minimalist monochrome",
-];
+// ORW-360: the seeded style is no longer dealt from a second list. It is the `sample` of the houseguest's
+// OWN presentation family (src/domain/styleFamilies.ts), so the brief and the label always agree. The
+// rocker vibe stays ink-free; visible ink is the distinguishing-mark budget's alone (2026-07-21 audit).
 
 // #533: the salient look axes — hair, facial features, and style — were drawn with an INDEPENDENT
 // per-NPC `rng.pick()`, with NO cast-wide spread cap, so a 15-cast could deal the same "platinum-blond
@@ -207,7 +202,6 @@ const STYLE_DESC = [
 // each value used at most this many times, instead of independent per-NPC picks.
 export const MAX_PER_HAIR = 2;
 export const MAX_PER_FACIAL = 2;
-export const MAX_PER_STYLE = 2;
 // #1317 (cast portraits converge, root cause 2): `heightBuild`/`skinTone` were drawn with a BARE
 // per-NPC `rng.pick()` — no cast-wide spread cap — while hair/facial/style already got the L28-style
 // cap above. Same discipline, same pool sizes (10 each): capped at 2 so a 15-cast comfortably spreads
@@ -274,13 +268,19 @@ function dealMarksSpread(rng: RandomnessSource, count: number, maxEach: number):
  * from every other stream (the caller always constructs a fresh `SeededRandom` just for this call),
  * so widening what it draws here can never perturb any other seeded outcome.
  */
-export function dealCastPhysicalSpread(rng: RandomnessSource, count: number): PhysicalSpread[] {
+export function dealCastPhysicalSpread(
+  rng: RandomnessSource, count: number, presentations?: readonly string[],
+): PhysicalSpread[] {
   const heightBuild = spreadFacet(rng, HEIGHT_BUILD, count, MAX_PER_HEIGHT_BUILD);
   const skinTone = spreadFacet(rng, SKIN_TONE, count, MAX_PER_SKIN_TONE);
   const hair = spreadFacet(rng, HAIR_DESC, count, MAX_PER_HAIR);
   const facial = spreadFacet(rng, FACIAL, count, MAX_PER_FACIAL);
-  const style = spreadFacet(rng, STYLE_DESC, count, MAX_PER_STYLE);
   const mark = dealMarksSpread(rng, count, MAX_PER_MARK);
+  // ORW-360: the style is the sample of the houseguest's own presentation family. A caller with no cast
+  // context (presentations absent) gets a family per slot dealt last off this same rng.
+  const labels = presentations ?? dealPresentationFamilies(rng, count);
+  const style = Array.from({ length: count }, (_, i) =>
+    (familyForLabel(labels[i] ?? "") ?? STYLE_FAMILIES[i % STYLE_FAMILIES.length]!).sample);
   return Array.from({ length: count }, (_, i) => ({
     heightBuild: heightBuild[i]!, skinTone: skinTone[i]!, hair: hair[i]!, facial: facial[i]!, style: style[i]!,
     mark: mark[i]!,
@@ -309,7 +309,7 @@ export function generatePhysicalCharacteristics(
     // live path) — a lone regeneration without cast context keeps the per-NPC pick over the same pool.
     distinguishingMark: spread ? spread.mark : rng.pick(MARKS),
     ageLook: ageLookFor(age),
-    style: spread ? spread.style : rng.pick(STYLE_DESC),
+    style: spread ? spread.style : rng.pick(STYLE_FAMILIES).sample,
   };
 }
 
@@ -1154,7 +1154,9 @@ export function generateCastDeepLayer(seed: number, npcs: readonly Houseguest[])
   // #533: deal the salient look axes (hair/facial/style) CAST-WIDE with spread caps off a dedicated
   // side rng, indexed positionally with the seed-stable cast iteration — so no value piles up across
   // the 15-cast (the repetitive-cast bug), the same L28 discipline skinTone/build/ethnicity already use.
-  const physicalSpread = dealCastPhysicalSpread(new SeededRandom(hashSeed(`${seed}:deep-physical-spread`)), npcs.length);
+  const physicalSpread = dealCastPhysicalSpread(
+    new SeededRandom(hashSeed(`${seed}:deep-physical-spread`)), npcs.length, npcs.map((n) => n.character.presentation),
+  );
   let ix = 0;
   for (const hg of npcs) {
     const pubRng = new SeededRandom(hashSeed(`${seed}:deep-public:${hg.name}`));

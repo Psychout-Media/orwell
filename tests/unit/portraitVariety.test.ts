@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildPortraitPrompt, physicalFacetToAppearance } from "../../src/engine/portraitPrompts";
+import { buildPortraitPrompt } from "../../src/engine/portraitPrompts";
 import {
   STYLE_ANCHOR_VARIANTS,
+  WORN_TEXTURE_VARIANTS,
   EXPRESSION_VARIANTS,
   FRAMING_VARIANTS,
   BACKDROP_VARIANTS,
@@ -29,11 +30,17 @@ import type { EntityId } from "../../src/domain/ids";
 const facets = { appearance: "athletic, warm brown skin, loose chestnut curls, laugh lines, bright eyes", age: 31, presentation: "casual and laid-back" };
 
 describe("G24/A — candid anchors, not AI-headshot anchors", () => {
-  it("every anchor stays photorealistic and carries an imperfection cue", () => {
+  it("every anchor stays photorealistic, names the Orwell house, and keeps skin cues out (ORW-361)", () => {
     for (const anchor of STYLE_ANCHOR_VARIANTS) {
       expect(anchor).toContain("photorealistic");
-      expect(anchor).toMatch(/unretouched|true-to-life|lived-in|honest/);
+      expect(anchor).toMatch(/Orwell house/);
+      expect(anchor).not.toMatch(/Big Brother|unretouched|true-to-life|lived-in|honest|blemish/);
     }
+  });
+
+  it("the imperfection cues live in the parallel worn-texture pool (same index)", () => {
+    expect(WORN_TEXTURE_VARIANTS.length).toBe(STYLE_ANCHOR_VARIANTS.length);
+    for (const w of WORN_TEXTURE_VARIANTS) expect(w).toMatch(/unretouched|true-to-life|lived-in|honest/);
   });
 
   it("the AI-saturated headshot genre is ratcheted out of the anchors", () => {
@@ -174,12 +181,12 @@ describe("G24/D — #1317: facial structure + lighting vary per subject (new axe
     expect(a.match(/Lighting: ([^.]+)\./)?.[1]).toBe(b.match(/Lighting: ([^.]+)\./)?.[1]);
   });
 
-  it("a full cast spreads across facial structure + lighting (not one shared face/light)", () => {
+  it("a full cast spreads across lighting; written faces carry no random Facial structure (ORW-361)", () => {
     const adapter = new GameSessionAdapter();
     const view = adapter.createCharacter({ playerName: "The Player", seed: 4321 });
     const prompts = view.portraitPrompts!.map((p) => p.prompt);
     const pick = (re: RegExp) => new Set(prompts.map((p) => p.match(re)?.[1] ?? ""));
-    expect(pick(/Facial structure: ([^.]+)\./).size).toBeGreaterThanOrEqual(4);
+    expect(prompts.every((p) => !p.includes("Facial structure:"))).toBe(true);
     expect(pick(/Lighting: ([^.]+)\./).size).toBeGreaterThanOrEqual(3);
   });
 
@@ -315,7 +322,8 @@ describe("G24/F — #1317: flipping genderPresentation measurably shifts build/h
       const pp = adapter.getPortraitPrompt(hg.id as EntityId)!;
       // The Physical appearance clause is UNTOUCHED (L29's shared-string invariant) — reconstructed
       // with the SAME rule `physicalFacetToAppearance` uses (skip a "none notable" mark).
-      expect(physOf(pp.prompt)).toBe(physicalFacetToAppearance(hg.physicalCharacteristics));
+      const f = hg.physicalCharacteristics;
+      expect(physOf(pp.prompt)).toBe([f.heightBuild, f.skinTone, f.hair, f.facialFeatures, f.ageLook].join(", "));
       // ...while a separate styling clause carries the gender-aware build/hair vocabulary.
       expect(stylingOf(pp.prompt)).toBeTruthy();
       checked++;

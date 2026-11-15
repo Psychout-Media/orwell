@@ -255,7 +255,9 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
 
     // The hinge: the EXACT physical clause the portrait builds is present verbatim in the narrator
     // context — there is one description, voiced once and pictured once, never two that can diverge.
-    expect(pp.prompt).toContain(sharedLook);
+    // ORW-361: the portrait line drops the mark (said once, faint, on its own line) and keeps the rest.
+    const f = npc.physicalCharacteristics!;
+    expect(pp.prompt).toContain([f.heightBuild, f.skinTone, f.hair, f.facialFeatures, f.ageLook].join(", "));
     expect(ctx).toContain(sharedLook);
   });
 

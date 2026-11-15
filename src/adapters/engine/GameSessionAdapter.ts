@@ -14,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -35,7 +35,7 @@ import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTe
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
-import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent } from "../../engine/daySchedule";
+import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent, dueTomorrow } from "../../engine/daySchedule";
 /** ORW-262: an eviction night / finale reveals over ~5 steps; its ~2h budget is spread across them for a played game. */
 const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
@@ -216,6 +216,8 @@ function sameIds(a: readonly EntityId[], b: readonly EntityId[]): boolean {
 function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
+import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -242,10 +244,10 @@ import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
-  deriveTrajectory, decayTrajectory, STEADY,
+  deriveTrajectory, decayTrajectory, STEADY, kindFoldSignal,
   type Trajectory, type FoldSignal,
 } from "../../engine/trajectory";
-import { TRAJECTORY_CONSTANTS } from "../../engine/trajectoryConstants";
+import { TRAJECTORY_CONSTANTS, TRAJECTORY_PLAYER_APPROACH } from "../../engine/trajectoryConstants";
 import { buildSystemPrompt, momentForPhase, requiredLeverForPhase, renderStoryFacts, renderSurfacedFacts, renderHardConstraints, dedupeKeepNewest } from "../../engine/momentPrompts";
 import {
   producerForSeed, renderProducerVoice, mergeProducer, validateProducerProfile,
@@ -3277,6 +3279,21 @@ export class GameSessionAdapter implements GameSession {
     const target = ctx.npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, publicFields: [], hiddenFields: [], reason: "unknown houseguest" };
 
+    // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
+    // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
+    if (req.physicalCharacteristics !== undefined) {
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown };
+      const wardrobe = cleanWardrobe(rawWardrobe);
+      const onCamera = cleanOnCamera(rawOnCamera);
+      req = {
+        ...req,
+        physicalCharacteristics: {
+          ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
+        },
+      };
+    }
+
     // Validate — non-player-mirroring (L28 + the anti-sycophancy mandate #3): the cast is INDEPENDENT
     // of the player, so NEITHER the authored PUBLIC material NOR the hidden STORYLINE material (secrets,
     // true goals, weakness) may be built around the player — an NPC's drama must not echo the player's
@@ -4931,6 +4948,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.trajectoriesEnabled) this.applyTrajectoryToPulls(id, pulls);
     return pulls.length ? pulls : null;
   }
 
@@ -4951,6 +4969,23 @@ export class GameSessionAdapter implements GameSession {
       } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
       else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
     }
+  }
+
+  /**
+   * ORW-336 (0087) - the NPC's hidden MOMENTUM toward the PLAYER bends whether they seek or shun the player. A WARMING arc
+   * draws them toward the player (an avoid is lifted, an existing pull is scaled up); a COOLING/SOURING arc keeps them away
+   * (an existing pull becomes an avoid, or a soft avoid is added). Scaled by momentum, bounded by `TRAJECTORY_PLAYER_APPROACH`;
+   * below `minMomentum` nothing changes. Played games only (caller gates); no rng; engine-only state, never projected.
+   */
+  private applyTrajectoryToPulls(id: EntityId, pulls: MovementPull[]): void {
+    if (id === PLAYER || !this.presenceActive().includes(PLAYER)) return;
+    const t = this.trajectories.get(`${id}->${PLAYER}`);
+    if (!t || t.phase === "steady" || t.momentum < TRAJECTORY_PLAYER_APPROACH.minMomentum) return;
+    const scale = 1 + TRAJECTORY_PLAYER_APPROACH.gain * t.momentum;
+    const existing = pulls.find((p) => p.target === PLAYER);
+    const avoid = t.phase !== "warming";
+    if (existing) { existing.avoid = avoid; existing.weight *= scale; }
+    else pulls.push({ target: PLAYER, weight: MOVEMENT_INTENT.minCharge * scale, avoid });
   }
 
   /** ORW-32 - an observer who chose to AVOID a visibly rattled houseguest keeps away from them while the avoid lasts: any pull toward them becomes an avoid. Played games only (caller gates); no rng; engine-only state. */
@@ -5964,6 +5999,9 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
+      ...(pe.stage === "toast" ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
+      ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
     };
   }
 
@@ -6030,15 +6068,19 @@ export class GameSessionAdapter implements GameSession {
     }
     // stage "toast": release the next batch of speakers.
     const all = toastSpeakers(pe.order);
+    // ORW-368: the circle closes on its OWN advance, after the last speakers have had a turn as the narrator's toast batch (it used to flip to done in the same advance that released the last batch, so the last speaker(s) were
+    // never in a toast prompt and the narrator wrapped the circle up on its own). Only a full done list closes it.
+    if (pe.spoke.length >= all.length) {
+      pe.stage = "done";
+      s.champagneCircle = "done"; // the existing release
+      this.persist();
+      return { ...this.advanceView(null), event: { beat: "premiere-toast", content: "The champagne toast ends", detail: { speakers: [], index: pe.spoke.length, of: all.length, closed: true } } };
+    }
     const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
       pe.spoke.push(sp); // the player's slot is a marker only - chat-authored, never recorded here
-    }
-    if (pe.spoke.length >= all.length) {
-      pe.stage = "done";
-      s.champagneCircle = "done"; // the existing release
     }
     this.persist();
     const view = this.advanceView(null);
@@ -8869,10 +8911,30 @@ export class GameSessionAdapter implements GameSession {
    * the calibration spine is untouched.
    */
   recordTrajectoryFold(initiator: EntityId, partner: EntityId, type: InteractionType): void {
+    this.foldTrajectorySignal(initiator, partner, GameSessionAdapter.foldSignalFor(type));
+  }
+
+  /** Arcs fed by a PLAYER scene since the last off-screen tick (ORW-336): the tick's neglect decay skips them once,
+   *  so a scene the player just played is not decayed before it ever biases anything. Transient (not persisted). */
+  private playerFedArcs: Set<string> = new Set();
+
+  /**
+   * ORW-336 (0087 open question 4): fold one player-witnessed scene into the NPC->PLAYER arc. `signal` is built by the
+   * caller from DIRECTION only (the model's proposed consequence direction, else the scene kind) - the engine owns the
+   * amount (the existing `TRAJECTORY_CONSTANTS`). PLAYED games only (`live.playedGame`): a headless seeded sim never
+   * reaches this, so it stays byte-identical. Pure, no rng. VAULT-ONLY: the arc is read only by `applyTrajectoryToPulls`.
+   */
+  recordPlayerSceneTrajectory(npc: EntityId, signal: FoldSignal): void {
+    if (!this.trajectoriesEnabled || this.live?.playedGame !== true || npc === PLAYER) return;
+    this.foldTrajectorySignal(npc, PLAYER, signal);
+    this.playerFedArcs.add(`${npc}->${PLAYER}`);
+  }
+
+  private foldTrajectorySignal(initiator: EntityId, partner: EntityId, signal: FoldSignal): void {
     if (!this.trajectoriesEnabled) return;
     const key = `${initiator}->${partner}`;
     const folds = this.trajectoryFolds.get(key) ?? [];
-    folds.push(GameSessionAdapter.foldSignalFor(type));
+    folds.push(signal);
     while (folds.length > TRAJECTORY_CONSTANTS.recencyWindow) folds.shift();
     this.trajectoryFolds.set(key, folds);
     this.trajectories.set(key, deriveTrajectory(folds, this.trajectories.get(key)));
@@ -8886,8 +8948,10 @@ export class GameSessionAdapter implements GameSession {
    */
   decayUntouchedTrajectories(touched: ReadonlySet<string>): void {
     if (!this.trajectoriesEnabled) return;
+    const fed = this.playerFedArcs;
+    this.playerFedArcs = new Set();
     for (const [key, traj] of this.trajectories) {
-      if (touched.has(key)) continue;
+      if (touched.has(key) || fed.has(key)) continue;
       const next = decayTrajectory(traj);
       if (next.momentum <= 0 || next.phase === "steady") {
         this.trajectories.delete(key);
@@ -8906,9 +8970,7 @@ export class GameSessionAdapter implements GameSession {
    * carries NO raw edge state (only the nature's constant shape), so it crosses no wall.
    */
   private static foldSignalFor(type: InteractionType): FoldSignal {
-    const imp = RELATIONSHIP_CONSTANTS.IMPACT[type];
-    const bondDelta = ((imp.affinity ?? 0) + (imp.trust ?? 0)) / 2;
-    return { bondDelta, threatDelta: imp.threat ?? 0, betrayal: type === "betrayal" };
+    return kindFoldSignal(type);
   }
 
   // ─── 0104 — SEASON-OVER-SEASON NOTORIETY (a reputation that precedes the player) ─────────────────
@@ -14404,6 +14466,32 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, source: "web_search" };
   }
 
+  /** ORW-369: look-only write-back (wardrobe + onCamera for one existing houseguest); see the port. */
+  recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
+    if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
+    const target = this.house.npcs.find((n) => n.id === req.houseguestId);
+    if (!target) return { accepted: false, fields: [], reason: "unknown-houseguest" };
+    const prior = target.character.physicalCharacteristics;
+    if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
+    const wardrobe = cleanWardrobe(req.wardrobe);
+    const onCamera = cleanOnCamera(req.onCamera);
+    if (wardrobe === undefined && onCamera === undefined) return { accepted: false, fields: [], reason: "nothing-valid" };
+    const playerName = (this.house.player.name ?? "").trim();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""}`.toLowerCase();
+    if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
+    // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}) };
+    const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
+    const fields: string[] = [];
+    const next = { ...prior };
+    if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
+    if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
+    if (fields.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
+    target.character.physicalCharacteristics = next; // only the two keys differ; appearance / every other field untouched
+    this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    return { accepted: true, fields };
+  }
+
   /**
    * ORW-223 slice 1 - record a narrated room-texture feature as canon (see the port doc). The engine re-validates
    * everything: a played game, the flag, a known room, the length, and the canon ledger's own fence (no events,
@@ -14819,7 +14907,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire

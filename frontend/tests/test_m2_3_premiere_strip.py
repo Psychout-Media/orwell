@@ -316,3 +316,42 @@ def test_orw363_prehoh_line_follows_the_schedule_never_tonight_on_day_one():
     assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "hoh-competition", "phase": "evening"}}})') == "First HOH: this evening"
     # Another milestone's phase is never borrowed for the HOH line.
     assert _node_eval(fn, 'preHohLabel({"week": 1, "dayNumber": 2, "_state": {"daySchedule": {"next": "nominations", "phase": "evening"}}})') == "First HOH: this afternoon"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_orw363_the_panel_names_the_next_event_and_when_from_the_engine_schedule():
+    """ORW-363, widened (Ryne, 11-15: "when we wake up the tool should say, Nominations this evening"): every ceremony step, read from daySchedule, never fixed text."""
+    src = _read(PANEL)
+    fns = "\n".join(_fn_body(src, n) for n in ("isPreHoh", "preHohLabel", "nextEventWhen", "nextEventLabel"))
+    names = src[src.index("const NEXT_EVENT_NAME"): src.index("};", src.index("const NEXT_EVENT_NAME")) + 2]
+    fns = names + "\n" + fns
+
+    def lab(next_, phase, hoh=True, **extra):
+        ds = dict({"next": next_, "phase": phase, "due": False}, **extra)
+        st = {"week": 2 if hoh else 1, "dayNumber": 9, "_state": {"daySchedule": ds}}
+        if hoh:
+            st["hoh"] = {"id": "hg-1", "name": "n"}
+        return _node_eval(fns, "nextEventLabel(" + json.dumps(st) + ")")
+
+    # the morning of the nominations day: "this evening" (Ryne's own example)
+    assert lab("nominations", "evening") == "Nominations: this evening"
+    # every ceremony step has its line
+    assert lab("veto-draw", "morning") == "Veto player draw: this morning"
+    assert lab("veto-competition", "afternoon") == "Veto competition: this afternoon"
+    assert lab("veto-ceremony", "evening") == "Veto meeting: this evening"
+    assert lab("eviction", "evening") == "Eviction: this evening"
+    assert lab("hoh-competition", "afternoon") == "HOH competition: this afternoon"
+    assert lab("final-eviction", "evening") == "Final eviction: this evening"
+    assert lab("finale", "evening") == "Finale: this evening"
+    # behind tonight's night: tomorrow, at the schedule's phase
+    assert lab("nominations", "evening", tomorrow=True) == "Nominations: tomorrow evening"
+    # due: it is happening now
+    assert lab("eviction", "evening", due=True) == "Eviction: now"
+    # a night slot reads "tonight"
+    assert lab("eviction", "night") == "Eviction: tonight"
+    # the first HOH keeps its name, from the schedule when there is one
+    assert lab("hoh-competition", "afternoon", hoh=False, tomorrow=True) == "First HOH: tomorrow afternoon"
+    # no schedule and not pre-HOH: nothing (never a guess)
+    assert _node_eval(fns, 'nextEventLabel({"week": 3, "hoh": {"id": "x"}})') is None
+    # no schedule before the first HOH (the premiere): the Day-1 line
+    assert _node_eval(fns, 'nextEventLabel({"week": 1, "dayNumber": 1})') == "First HOH: tomorrow afternoon"

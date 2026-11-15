@@ -85,6 +85,8 @@ READ_ONLY_TOOLS = frozenset({
     "recordProducerProfile",
     # ORW-223: `recordRoomCanon` is an FE-driven write-back of narrated room texture into the canon ledger; the status HUD never renders it.
     "recordRoomCanon",
+    # ORW-369: the look-only write-back (wardrobe + onCamera of one houseguest); the status HUD never renders it.
+    "recordLookExtras",
 })
 
 # `manageSandbox` is the ONE admin tool in the manifest (a sandbox reset / load moves the

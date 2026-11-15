@@ -152,6 +152,28 @@ import { onNarrowChange } from './platform.js';
     return "First HOH: " + (day !== null && day >= 2 ? "this " : "tomorrow ") + phase;
   }
 
+  // ORW-363, widened (Ryne, 11-15: "Those tools should be a guide to player on what to expect. Next. For example, when we wake up the tool should say, Nominations this
+  // evening."): the panel always names the NEXT scheduled event and when it happens, straight from the engine's `daySchedule` (next / phase / due / tomorrow) - never fixed
+  // text. Without a schedule (the premiere, before the clock runs) the pre-HOH line above stands; otherwise nothing is shown. Pure + Vault-free (the public schedule).
+  const NEXT_EVENT_NAME = {
+    "hoh-competition": "HOH competition", nominations: "Nominations", "veto-draw": "Veto player draw", "veto-competition": "Veto competition",
+    "veto-ceremony": "Veto meeting", eviction: "Eviction", "final-eviction": "Final eviction", finale: "Finale",
+  };
+  function nextEventWhen(ds) {
+    if (ds.due) return "now";
+    const p = ds.phase === "late-night" ? "night" : String(ds.phase || "");
+    if (ds.tomorrow) return "tomorrow " + p;
+    return p === "night" ? "tonight" : "this " + p;
+  }
+  function nextEventLabel(st) {
+    const ds = st && st._state && st._state.daySchedule;
+    if (ds && ds.next && NEXT_EVENT_NAME[ds.next] && ds.phase) {
+      const name = ds.next === "hoh-competition" && isPreHoh(st) ? "First HOH" : NEXT_EVENT_NAME[ds.next];
+      return name + ": " + nextEventWhen(ds);
+    }
+    return isPreHoh(st) ? preHohLabel(st) : null;
+  }
+
   // M2-3: the premiere's NOT-yet-met ids (the unlit tiles). ORW-196: during the staged ENTRANCES the engine's `remaining` lists the not-yet-arrived houseguests as ANONYMOUS ordinal
   // placeholders (`unarrived:N`, no name), so they can't be matched to roster tiles by id. When the caller passes the roster (`rosterKeys`: [{id,name}]) and the projection carries `met`,
   // the unmet set is the roster minus the met houseguests (by id or name); otherwise (older payloads / no roster) it falls back to the `remaining` ids. Pure + node-testable; reads ONLY the
@@ -586,7 +608,9 @@ import { onNarrowChange } from './platform.js';
       const boardEl = el.querySelector("#os-board");
       const preHohEl = el.querySelector("#os-prehoh");
       if (boardEl) boardEl.hidden = preHoh;
-      if (preHohEl) { preHohEl.hidden = !preHoh; if (preHoh) setText(preHohEl, preHohLabel(st)); } }
+      // ORW-363 widened: the same line names the NEXT scheduled event all season ("Nominations: this evening"), not only before the first HOH.
+      const nextLine = nextEventLabel(st);
+      if (preHohEl) { preHohEl.hidden = !nextLine; if (nextLine) setText(preHohEl, nextLine); } }
     announceDeltas(el, st, {
       hoh: name(st.hoh),
       noms: noms.length ? noms.join(", ") : "—",

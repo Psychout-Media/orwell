@@ -26,6 +26,9 @@
  * "Presentation style:" line). */
 export const RENDERED_FACET_FIELDS = [
   "heightBuild", "skinTone", "hair", "facialFeatures", "distinguishingMark", "ageLook", "style",
+  // ORW-360: the two new look fields. `wardrobe` is a string[] (joined for matching, reverted whole).
+  // They feed the portrait prompt via ORW-361, so a tattoo written into either must be caught here.
+  "wardrobe", "onCamera",
 ] as const;
 
 /** Word-bounded ink lexicon — kept IDENTICAL to `tests/unit/diversity.test.ts`'s `INK_LEXICON` (one
@@ -51,7 +54,13 @@ export const CLOSED_FACET_DIMENSIONS: readonly ClosedFacetDimension[] = [
 /** Any facet-block shape whose values this validator can pattern-match — deliberately loose (not pinned
  * to the domain `PhysicalCharacteristics` type) so it never creates an import from `src/engine` back
  * onto `src/domain`; callers pass their own concrete facet-record type via the generic parameter. */
-type FacetRecordLike = Record<string, string>;
+type FacetRecordLike = Record<string, string | readonly string[] | undefined>;
+
+/** A facet field's text for matching: a string[] (wardrobe) is joined, an absent field is "". */
+function fieldText(rec: FacetRecordLike, f: string): string {
+  const v = rec[f];
+  return Array.isArray(v) ? v.join(" ") : typeof v === "string" ? v : "";
+}
 
 /** Does the COMMITTED skeleton already grant this dimension anywhere in its rendered fields? A granted
  * dimension is the author's to sharpen freely — the guard only holds the line for a dimension the
@@ -59,7 +68,7 @@ type FacetRecordLike = Record<string, string>;
  * contradict, so every dimension reads as granted (no-op guard). */
 function dimensionGranted<T extends object>(prior: T | undefined, dim: ClosedFacetDimension): boolean {
   if (prior === undefined) return true;
-  return dim.fields.some((f) => dim.pattern.test((prior as FacetRecordLike)[f] ?? ""));
+  return dim.fields.some((f) => dim.pattern.test(fieldText(prior as FacetRecordLike, f)));
 }
 
 export interface FacetGuardResult<T extends object> {
@@ -99,9 +108,15 @@ export function applyClosedFacetGuard<T extends object>(
     let introduced = false;
     if (corrected !== undefined) {
       for (const f of dim.fields) {
-        if (dim.pattern.test((corrected as FacetRecordLike)[f] ?? "")) {
+        if (dim.pattern.test(fieldText(corrected as FacetRecordLike, f))) {
           introduced = true;
-          if (prior !== undefined) (corrected as FacetRecordLike)[f] = (prior as FacetRecordLike)[f];
+          if (prior !== undefined) {
+            // Revert to the committed value; the optional ORW-360 fields may be absent on the prior
+            // (a pre-change save), in which case the field is removed rather than set to undefined.
+            const pv = (prior as FacetRecordLike)[f];
+            if (pv === undefined) delete (corrected as FacetRecordLike)[f];
+            else (corrected as FacetRecordLike)[f] = pv;
+          }
         }
       }
     }
@@ -128,11 +143,11 @@ export function monitorLegacyInkGuard<T extends object>(
   postGuardBiography: string | undefined,
 ): void {
   const priorHasInk = prior !== undefined
-    && RENDERED_FACET_FIELDS.some((f) => INK_RE.test((prior as FacetRecordLike)[f] ?? ""));
+    && RENDERED_FACET_FIELDS.some((f) => INK_RE.test(fieldText(prior as FacetRecordLike, f)));
   if (priorHasInk) return; // the skeleton granted ink — nothing for the canary to watch
   const stillInk =
     (postGuardPhysical !== undefined
-      && RENDERED_FACET_FIELDS.some((f) => INK_RE.test((postGuardPhysical as FacetRecordLike)[f] ?? "")))
+      && RENDERED_FACET_FIELDS.some((f) => INK_RE.test(fieldText(postGuardPhysical as FacetRecordLike, f))))
     || (postGuardBiography !== undefined && INK_RE.test(postGuardBiography));
   if (stillInk) {
     // eslint-disable-next-line no-console
