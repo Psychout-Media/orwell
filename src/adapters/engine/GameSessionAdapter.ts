@@ -278,7 +278,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  recordWhy, nightBreakPending, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -2027,8 +2027,17 @@ export class GameSessionAdapter implements GameSession {
       this.persistDeferred = true;
       return;
     }
-    this.captureSeenMoods(); // ORW-343: the mood word of each houseguest the player is sharing a room with, remembered as last seen
-    this.catchUpDailyRecaps(); // ORW-282: one recap per crossed day before the state is saved
+    this.runPersistSequence();
+  }
+
+  /**
+   * The ONE pre-save sequence (review of #2778: it was copied in `persist()` and the `inOneCommit` tail, and the copies drifted): the mood each houseguest
+   * the player shares a room with is remembered as last seen (ORW-343), one recap is made per crossed day with its day-roll reset (ORW-282/400), then the
+   * state is saved. `onPersist` may throw (a refused or failed commit) - after all state mutation (E3).
+   */
+  private runPersistSequence(): void {
+    this.captureSeenMoods();
+    this.catchUpDailyRecaps();
     this.onPersist?.();
   }
 
@@ -2045,8 +2054,7 @@ export class GameSessionAdapter implements GameSession {
     }
     if (this.persistDepth === 0 && this.persistDeferred) {
       this.persistDeferred = false;
-      this.catchUpDailyRecaps(); // ORW-282/400: the deferred tail is the one persist a day roll inside this mutation gets, so the recap + day-roll reset run here too (review of #2680)
-      this.onPersist?.(); // may throw (a refused/failed commit) — AFTER all state mutation (E3)
+      this.runPersistSequence(); // the deferred tail is the only persist a one-commit turn gets: moods, recap and day-roll reset run here too (ORW-437, review of #2680)
       // Issue #1725 (C1) — `fn()` built `out` (and read `this.beatSeq` into it via `advanceView`)
       // BEFORE the deferred `onPersist` above ran, so `out.beatSeq` was captured PRE-commit-funnel:
       // stale by the ONE bump this very mutation just earned, and it would stay stale by any FURTHER
@@ -3514,7 +3522,7 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.identityConcept === "string") {
       const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
       if (repaired.length > 0) {
-        target.character.identityConcept = renamedFrom !== undefined ? renameGivenNameInProse(repaired, renamedFrom, target.name) : repaired;
+        target.character.identityConcept = renamedFrom !== undefined ? clipCodePoints(renameGivenNameInProse(repaired, renamedFrom, target.name), 300) : repaired; // the rename can lengthen it: clip again (review of #2775)
         publicFields.push("identityConcept");
       }
     }
@@ -5711,11 +5719,12 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house`). `voters` only on
+   * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house` while in the game; ORW-447: an evicted player is out of `house` and `voters`). `voters` only on
    * eviction night: the living house minus the HOH and the nominees (distinct, so a nominee who is also the HOH is not taken off twice).
    */
   private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number; asleep?: number } {
-    const living = this.livingIds();
+    // ORW-447: `livingIds()` keeps the player even after their eviction; the house and voter counts count only people in the house, so an evicted player is not one of them.
+    const living = this.live && playerHasLeft(this.live, PLAYER) ? this.livingIds().filter((id) => id !== PLAYER) : this.livingIds();
     const out: { room: number; others: number; house: number; voters?: number; asleep?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
     const asleep = this.asleepNpcs(); // ORW-386: the narrator's "N asleep" is checked against this same number the HUD list carries (absent with the clock off)
     if (asleep) out.asleep = asleep.length;
@@ -11812,6 +11821,8 @@ export class GameSessionAdapter implements GameSession {
     }
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
+      // ORW-400 part 3: this bedtime IS the night the pending gate would have rolled. Mark it BEFORE the recap bumps dayNumber: `nightBreakPending` (week 1) reads `dayNumber < 2`, so after the bump playerTurnIn's own mark never fired.
+      if (nightBreakPending(this.live!)) markNightGateCrossed(this.live!);
       const recap = this.materializeDailyRecap();
       const weekChapter = this.materializeWeekChapter();
       // 0122 — most living NPCs privately confess the day that just closed (deeper than 0040, bare games
@@ -11970,6 +11981,8 @@ export class GameSessionAdapter implements GameSession {
     if (this.houseEventInSession()) return refuse("event-in-session", "The whole house is gathered for an event right now; the player cannot slip away to sleep.");
     if (live.playerRetired) return refuse("already-asleep", "The player is already asleep.");
     if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
+    // ORW-451: woken before the house after an early bed (phase "morning", clock 2am up to the wake-up - the early-morning band, ORW-441): a nap is a DAYTIME nap (0148), so this is refused like the night.
+    if (isEarlyMorning(live.nightDepth)) return refuse("early-morning", "It is still the early morning and the house is asleep; the day has not started yet, so this is no time for a nap.");
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
@@ -12038,7 +12051,7 @@ export class GameSessionAdapter implements GameSession {
     if (live.finished || live.spectator || playerHasLeft(live, PLAYER) || live.playerRetired) return false;
     if (!this.perConversationClockLive() || live.playedGame !== true || this.inPremiere()) return false;
     if (live.pending || this.houseEventInSession() || milestoneDueOf(live)) return false;
-    return live.timeOfDay === "morning" || live.timeOfDay === "afternoon";
+    return (live.timeOfDay === "morning" || live.timeOfDay === "afternoon") && !isEarlyMorning(live.nightDepth); // ORW-451: not in the early-morning band
   }
 
   private takeWhileYouSlept(): string | undefined {
