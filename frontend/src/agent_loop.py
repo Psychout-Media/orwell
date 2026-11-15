@@ -5735,7 +5735,7 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
 # `role_drops` = the role-claim units stripped from this chunk (exact text, mirrored whole into the raw round buffer — never part-wise,
 # since an ellipsis announcement splits into single-dot parts the sentence mirror cannot erase safely); `screened` = the chunk after that
 # strip (the `before` of the sentence-level mirror pair).
-_GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted", "role_drops", "screened"], defaults=((), None))
+_GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted", "role_drops", "screened", "rewrite"], defaults=((), None, None))
 
 
 def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_active: bool, round_emitted: str) -> str:
@@ -6026,12 +6026,14 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         from routes import chat_helpers
     except Exception:
         chat_helpers = None
+    _rewrite = None
     if not scene_broken and chat_helpers is not None:
         try:
             if await chat_helpers.screen_streamed_scene_break(owner, clean):
                 scene_broken = True
-            elif (_rw := chat_helpers.take_scene_rewrite(owner)):
-                clean = _rw  # ORW-358: only a wrong tally sentence was dropped; the rest of the beat streams on
+            elif (_rw := chat_helpers.take_scene_rewrite(owner)) is not None:
+                _rewrite = (clean, _rw)  # ORW-358/373: only the wrong tally / early-claim sentence was dropped; the rest of the beat streams on ("" = the chunk was only the claim)
+                clean = _rw
         except Exception:
             pass
     if scene_broken:
@@ -6077,8 +6079,8 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
                 _line = (await chat_helpers.guard_emptied_cutaway(owner)) or _SCENE_CUTAWAY_LINE  # ORW-10: 2nd consecutive emptied turn => the plain engine-true line
         except Exception:
             _line = _SCENE_CUTAWAY_LINE
-        return _GuardedScene(_line, False, True, tuple(role_drops), screened)
-    return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
+        return _GuardedScene(_line, False, True, tuple(role_drops), screened, _rewrite)
+    return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened, _rewrite)
 
 
 def _ooc_segments(chunk: str, in_aside: bool) -> "tuple[list[tuple[str, bool]], bool]":
@@ -6147,6 +6149,9 @@ def _scene_ops(raw: str, g) -> tuple:
     """The mirror ops for one guarded scene chunk: each stripped role unit is erased WHOLE from the raw round buffer first, then the
     sentence-level pair (post-strip text -> survivor) is mirrored as before."""
     drops = tuple((d, "") for d in (getattr(g, "role_drops", ()) or ()))
+    _rw = getattr(g, "rewrite", None)  # ORW-373: the breaker's own sentence drop comes FIRST (exact replace of the chunk as it sits in the raw buffer)
+    if _rw and _rw[0] != _rw[1]:
+        drops = ((_rw[0], _rw[1], "exact"),) + drops
     return drops + (((getattr(g, "screened", None) or raw) if getattr(g, "screened", None) is not None else raw, g.text),)
 
 
@@ -6158,8 +6163,14 @@ def _apply_mirror_ops(round_response: str, ops) -> str:
     segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
     sentence-diffed against its own survivor only), so a dropped aside beside surviving narration can never misalign
     the sentence diff. `raw_before` is always text as it appears in `round_response` (never the synthetic flush `))`)."""
-    for before, after in ops or ():
+    for _op in ops or ():
+        before, after = _op[0], _op[1]
         if before == after or not before:
+            continue
+        if len(_op) > 2 and _op[2] == "exact":  # ORW-373: a repaired rewrite (a kept closing quote) is not a pure subsequence of its source
+            idx = round_response.rfind(before)
+            if idx >= 0:
+                round_response = round_response[:idx] + after + round_response[idx + len(before):]
             continue
         if after == "":
             idx = round_response.rfind(before)
