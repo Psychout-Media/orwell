@@ -4808,6 +4808,7 @@ export class GameSessionAdapter implements GameSession {
    * Rebuild the (derived) soul recall index from the persisted arc after a restore (0030/0041). The
    * AUTHORITATIVE arc lives in each houseguest's `soul.memory`/`emotionalHistory` (persisted
    * losslessly with the house); the vector index is re-derived so `recall` keeps working post-restart.
+   * The `resume.indexRebuild` stall entry covers the synchronous enqueue only; the embedding work it queues finishes later and is attributed to `embed.call`.
    */
   private rebuildSoulIndex(): void {
     if (!this.house || !this.soul) return;
@@ -4816,7 +4817,8 @@ export class GameSessionAdapter implements GameSession {
     for (const hg of [this.house.player, ...this.house.npcs]) {
       for (const note of hg.soul.memory) { this.soul.recordToSoul(hg.id, note); notes++; }
     }
-    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes });
+    // This times only the synchronous ENQUEUE of the notes; the embeddings drain after it, asynchronously, and are timed as `embed.call`. `enqueueOnly` says so, so /health does not read it as the whole rebuild.
+    stallTimer.record("resume.indexRebuild", stallTimer.now() - t0, { notes, enqueueOnly: 1 });
   }
 
   /** Engine/loop-internal: record the public ceremony facts the status panel projects. */
