@@ -217,33 +217,62 @@ _AUTHOR_TEMPERATURE = 0.6
 _AUTHORING_STREAM_WALL_CLOCK_S = 30.0
 
 
+class AuthoringDeadline(asyncio.TimeoutError):
+    """The hard wall-clock ceiling expired (ORW-438). A TimeoutError subclass, so every existing handler still sees it."""
+
+
+def _quiet_done(task: "asyncio.Task") -> None:
+    """Consume a detached task's result so an abandoned stream never logs 'exception was never retrieved'."""
+    try:
+        if not task.cancelled():
+            task.exception()
+    except Exception:
+        pass
+
+
 async def _bounded_stream(agen, wall_clock_s: float = _AUTHORING_STREAM_WALL_CLOCK_S):
-    """Wrap an async generator with a hard WALL-CLOCK ceiling over the WHOLE iteration — every chunk,
-    every internal retry/fallback candidate the generator itself tries — not a per-chunk read timeout
-    (see `_AUTHORING_STREAM_WALL_CLOCK_S`). On expiry the source generator is closed (best-effort) and
-    ``asyncio.TimeoutError`` is raised; a clean end-of-stream (``StopAsyncIteration``) simply ends
-    iteration as normal. A generator that finishes well inside the budget is byte-identical."""
+    """Wrap an async generator with a HARD wall-clock ceiling over the WHOLE iteration, not a per-chunk read timeout
+    (see `_AUTHORING_STREAM_WALL_CLOCK_S`).
+
+    ORW-438: the generator is pumped by its own task, and at the ceiling the consumer is released AT ONCE: the task is
+    cancelled and detached, never awaited. The old wrapper awaited the cancellation and the generator's `aclose()`, and
+    closing a stalled TLS stream can take tens of seconds, so real calls came back after 46.5 s, 57.9 s and 106.8 s
+    against a 30 s ceiling while holding their authoring slot. A generator that finishes inside the budget is
+    byte-identical; a clean end of stream just ends iteration."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + wall_clock_s
-    it = agen.__aiter__()
+    queue: asyncio.Queue = asyncio.Queue()
+    _END = object()
+
+    async def pump():
+        try:
+            async for chunk in agen:
+                await queue.put(("chunk", chunk))
+            await queue.put((_END, None))
+        except asyncio.CancelledError:
+            raise
+        except BaseException as e:  # a provider error reaches the consumer exactly as before
+            await queue.put(("error", e))
+
+    task = asyncio.ensure_future(pump())
     try:
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise asyncio.TimeoutError(
-                    f"authoring stream exceeded its {wall_clock_s}s wall-clock ceiling")
+                raise AuthoringDeadline(f"authoring stream exceeded its {wall_clock_s}s wall-clock ceiling")
             try:
-                chunk = await asyncio.wait_for(it.__anext__(), timeout=remaining)
-            except StopAsyncIteration:
+                kind, value = await asyncio.wait_for(queue.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                raise AuthoringDeadline(f"authoring stream exceeded its {wall_clock_s}s wall-clock ceiling")
+            if kind is _END:
                 return
-            yield chunk
+            if kind == "error":
+                raise value
+            yield value
     finally:
-        aclose = getattr(agen, "aclose", None)
-        if aclose is not None:
-            try:
-                await aclose()
-            except Exception:
-                pass
+        if not task.done():
+            task.cancel()
+            task.add_done_callback(_quiet_done)  # cleanup runs in the background; the slot is already free
 
 
 # ── owner directive 2026-07-11: cast-authoring MODEL ROUTING + sampling temperature ──────────────
@@ -1570,6 +1599,8 @@ _BIO_FINAL_MIN_CHARS = 40
 def _has_floor_biography(npc: dict) -> bool:
     """The seeded floor biography the engine already holds for this card (the skeleton carries it): when the writer
     omits its own, that one stands, so the card is not empty. Briana had none left."""
+    if (npc or {}).get("biographyDraft") is True:
+        return False  # ORW-438: genesis's nameless first draft is not a floor; the writer must supply the real one
     b = (npc or {}).get("biography")
     return isinstance(b, str) and len(b.strip()) >= _BIO_FINAL_MIN_CHARS
 
@@ -2304,6 +2335,18 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         call_error = None  # RC6 S6c: the message of the last provider EXCEPTION (None ⇒ every call returned)
         try:
             text = await llm_fn(messages)
+        except AuthoringDeadline as e:
+            # ORW-438: the ceiling cancelled a stalled call. ONE immediate retry on a fresh request (a new connection),
+            # spending from the same per-houseguest attempt budget; a second stall falls to the floor as before.
+            logger.warning(f"[cast-authoring] llm stalled for {hid}: {e} - retrying once on a fresh connection")
+            if _given_up(ukey, hid):
+                return None, "", str(e)
+            _spend_attempt(ukey, hid)
+            try:
+                text = await llm_fn(messages)
+            except Exception as e2:
+                logger.warning(f"[cast-authoring] llm failed for {hid} after the stall retry: {e2}")
+                return None, "", str(e2)
         except Exception as e:  # the model can fail for one houseguest; carry on
             logger.warning(f"[cast-authoring] llm failed for {hid}: {e}")
             return None, "", str(e)  # a raised call with NO completion body — never a misroute
@@ -3344,6 +3387,8 @@ def _safe_user(user: Optional[str]) -> str:
 def card_missing_story(card: dict, look: bool = False) -> bool:
     """ORW-430: a card marked authored whose public biography or identity is empty, or that lacks a required photo-sheet field (the game-start coherence repair
     clears a contradicting biography and nothing refilled it) is still unfinished: the background retry takes it again."""
+    if card.get("biographyDraft") is True or card.get("storyMissing") is True:
+        return True  # ORW-438: only genesis's draft stands, or the roster already worked this out from the full card
     pc = card.get("physicalCharacteristics")
     if not isinstance(pc, dict):
         return False  # a thin roster stub says nothing about the story; a full card always carries its look block
@@ -3352,6 +3397,13 @@ def card_missing_story(card: dict, look: bool = False) -> bool:
     bio = card.get("biography")
     ident = card.get("identityConcept")
     return not (isinstance(bio, str) and bio.strip()) or not (isinstance(ident, str) and ident.strip())
+
+
+def is_genesis_draft_biography(card: dict) -> bool:
+    """ORW-438: True only when the engine records that this card's biography is still genesis's nameless first draft
+    (`biographyDraft`, set at the genesis commit and cleared when the writer's biography lands). Provenance, never a
+    guess from the text, so a real biography is never hidden; a save from before the flag simply lacks it."""
+    return isinstance(card, dict) and card.get("biographyDraft") is True and isinstance(card.get("biography"), str)
 
 
 def unauthored_ids(user: Optional[str], roster_cards: list, *, include_look: bool = False) -> list:

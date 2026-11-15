@@ -543,7 +543,7 @@ async def ws_session(websocket: WebSocket) -> None:
                         # source). A ring-REPLAYED edge for a finished-but-buffered run resolves to
                         # that same run's id, which is exactly what lets the client skip it; an
                         # evicted run resolves to None and the client falls back to its boolean guard.
-                        rid = _rid_at_edge if _rid_at_edge is not None else agent_runs.run_id(canonical)
+                        rid = _rid_at_edge  # review of #2661: the pre-read only; a None (evicted / not yet registered) omits runId rather than naming a later run
                         if rid is not None:
                             d["runId"] = rid
                     await send({"t": ch, "ch": ch, "d": d})

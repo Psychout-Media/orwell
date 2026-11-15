@@ -71,5 +71,6 @@ def test_updater_wiring():
     i = UPDATE.index('systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"\n    fi')
     blk = UPDATE[i:UPDATE.index("update complete (")]
     assert "update_wait_for_warm" in blk and "/api/orwell/health" in blk and "/health" in blk
-    assert "|| true" in blk  # a warm-up problem can never fail the update
+    call = blk[blk.index("update_wait_for_warm "):blk.index("\n    fi", blk.index("update_wait_for_warm "))]  # the call itself, not an unrelated `|| true` earlier in the block
+    assert call.rstrip().endswith("|| true"), call  # a warm-up problem can never fail the update
     assert blk.index("update_restarted_sha_write") < blk.index("update_wait_for_warm") < blk.index("ops_progress_done")

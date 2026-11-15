@@ -294,7 +294,11 @@ def _is_bare_names(unit: str, roster: Iterable[str]) -> bool:
 
 
 _CLOSERS = "*_\"“”‘’`"
-_DIALOGUE_TAG_RE = re.compile(r"^(?:he|she|they|it)\b|^(?:[A-Z][\w'’-]+\s+){1,3}(?:says?|said|asks?|asked|adds?|added|murmurs?|snaps?|laughs?|calls?|whispers?|tells?|tips?|looks?|turns?|nods?|shrugs?)\b")
+_DIALOGUE_TAG_RE = re.compile(
+    r"^(?:he|she|they|it)\b"  # lower-case only: a capitalised 'She ...' after a quoted name is NOT a tag in eviction / veto-ceremony phases (ADR 0005 trade-off, left for Ryne on ORW-437)
+    r"|^[Tt]he\s+[a-z]+\s+(?:says?|said|asks?|asked|adds?|added|answers?|answered|repl(?:y|ies|ied)|respond(?:s|ed)?|continues?|continued|whispers?|whispered|murmurs?|murmured)\b"  # 'The host says ...' (speech verbs only: 'The host turns the next ballot over' is narration)
+    r"|^(?:[A-Z][\w'’-]+\s+){1,3}(?:says?|said|asks?|asked|adds?|added|murmurs?|snaps?|laughs?|calls?|whispers?|tells?|tips?|looks?|turns?|nods?|shrugs?"
+    r"|repl(?:y|ies|ied)|respond(?:s|ed)?|answers?|answered|continues?|continued|sighs?|sighed)\b")
 
 
 def _is_vocative_opening(tail: str) -> bool:
@@ -386,6 +390,8 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
         offset = 0
         for orig, unit in split_units(text):
             tail = text[offset + len(orig):].split("\n", 1)[0]  # ORW-372: the rest of this physical line (vocative-vs-readout)
+            if "\n" in orig:
+                tail = ""  # review of #2650: the unit already ends its physical line, so what follows belongs to the NEXT line and says nothing about this name
             offset += len(orig)
             if drop_closers and unit.strip() and not _strip_wrappers(unit).strip():
                 # the stripped unit's own closing quotes/asterisks (`"**`) — a whole mirror part, never left dangling. Reported so the

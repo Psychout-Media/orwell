@@ -76,7 +76,10 @@ def test_deferred_run_still_runs_when_nothing_else_went_ahead(tmp_path):
 # ── updater wiring ──────────────────────────────────────────────────────────
 def test_updater_exits_zero_when_superseded_and_when_already_at_ref():
     # ORW-406: a superseded run no longer exits blindly; the under-lock check decides (see test_orw406_review_followups)
-    assert re.search(r'if \[\[ \$__ud_rc -eq 10 \]\]; then(?:(?!\n  fi).)*\n  fi', UPDATE, re.S)
+    blk = re.search(r'if \[\[ \$__ud_rc -eq 10 \]\]; then(?P<body>(?:(?!\n  fi).)*)\n  fi', UPDATE, re.S)
+    assert blk, "the superseded-run block is gone"
+    code = "\n".join(l for l in blk.group("body").splitlines() if not l.strip().startswith("#"))
+    assert "__ud_rc=0" in code and "exit" not in code, "a superseded run must reset __ud_rc=0 and fall through to the under-lock check, never exit blindly (review of #2702)"
     m = re.search(r'^if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\n(.*?)\nfi\n', UPDATE, re.S | re.M)
     assert m and "fetch_target" in m.group(1) and "exit 0" in m.group(1)
     # the already-at-ref check sits before the update is armed / anything is touched
@@ -88,11 +91,13 @@ def test_invocation_is_logged_with_who_and_how(tmp_path):
     fn = re.search(r'^ops_log_invocation\(\) \{.*?^\}\n', UPDATE, re.S | re.M).group(0)
     app = tmp_path / "app"
     (app / "data").mkdir(parents=True)
-    r = subprocess.run(["bash", "-c", f"{fn}\nAPP_DIR='{app}' FORCE=1 ROLLBACK=0 SET_TOKEN=0 NO_RESTART=0 REF=''; ops_log_invocation --force"],
+    r = subprocess.run(["bash", "-c", f"{fn}\nAPP_DIR='{app}' FORCE=1 ROLLBACK=0 SET_TOKEN=0 NO_RESTART=0 REF='abc1234'; ops_log_invocation --force"],
                        capture_output=True, text=True, env={**os.environ, "SSH_CONNECTION": "10.0.0.5 51000 10.0.0.9 22"})
     assert r.returncode == 0, r.stderr
     line = (app / "data" / "ops-update.log").read_text()
     assert "user=" in line and "ssh=10.0.0.5 51000 10.0.0.9 22" in line and "argv=[--force]" in line and "force=1" in line
+    uid, pid = subprocess.run(["id", "-u"], capture_output=True, text=True).stdout.strip(), None
+    assert f"uid={uid} " in line and "ref=abc1234 " in line and re.search(r" pid=\d+ ==", line), line  # review of #2689: uid, ref and pid are logged too
 
 
 def test_ops_update_header_is_not_hardcoded_web_triggered():

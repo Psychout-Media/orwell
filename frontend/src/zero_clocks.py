@@ -22,7 +22,7 @@ def zero_clocks_on() -> bool:
 
 
 def band_for_minutes(minute_of_day: int) -> str:
-    """The eight spoken bands; mirrors `clockBandFor` in src/engine/timeOfDay.ts (the engine's own band for the narrator prompt)."""
+    """The seven spoken bands; mirrors `clockBandFor` in src/engine/timeOfDay.ts (the engine's own band for the narrator prompt)."""
     h = (minute_of_day % 1440) / 60.0
     if h < 2:
         return "late night"
@@ -109,7 +109,8 @@ _CLOCK_TIME_RES = (
     re.compile(r"\b" + _HW + r"\s+o[’']?\s?clock\b", re.IGNORECASE),
     re.compile(r"\b(?:(?:a\s+)?quarter|half)\s+(?:past|to|after|till|until)\s+" + _HW + r"\b", re.IGNORECASE),
     re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:past|after)\s+" + _HW + r"\b", re.IGNORECASE),
-    re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)\s+minutes\s+(?:to|till|until)\s+" + _HW + r"\b", re.IGNORECASE),
+    re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:to|till|until)\s+" + _HW + r"\b(?!\s+(?:minutes?|hours?|days?|weeks?|people|of|more|times|seconds?|years?))", re.IGNORECASE),  # review of #2657: "ten to eight" too
+    re.compile(r"(?<![\w:.])\d{1,2}\.[0-5]\d\s?(?:a\.?m\.?|p\.?m\.?)(?![\w])", re.IGNORECASE),  # review of #2657: "9.15am" / "4.30pm"
     re.compile(r"(?<!\bno )(?<!\bany )(?<!\bevery )(?<!\bsome )(?<!\beach )(?<!\bthe )(?<!\bfor )\b" + _HW + r"\s+in\s+the\s+(?:morning|afternoon|evening)\b", re.IGNORECASE),
     re.compile(r"\b(?:it(?:'s|’s|\s+is)|at|by|around|about)\s+" + _HW + r"[- ](?:fifteen|thirty|forty[- ]five|oh[- ]\w+)\b", re.IGNORECASE),
     re.compile(r"\btwelve\s+(?:noon|midnight)\b|\b(?:noon|midnight)\s+(?:sharp|exactly)\b|\bexactly\s+(?:at\s+)?(?:noon|midnight)\b|\b(?:noon|midnight)\s+on\s+the\s+dot\b", re.IGNORECASE),

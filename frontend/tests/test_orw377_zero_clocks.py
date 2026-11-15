@@ -81,6 +81,18 @@ def test_format_tool_result_applies_the_scrub(setting):
     assert "9:40am, Day 1" in format_tool_result("status", res)
 
 
+def test_format_tool_result_scrubs_stdout_content_and_results_shapes_too(setting):
+    """review of #2657: MCP and shell tool results use `stdout` (not `output`); no branch may carry a clock label to the model."""
+    from src.tool_execution import format_tool_result
+    raw = json.dumps({"clockLabel": "9:40am, Day 1"})
+    for res in ({"stdout": raw, "stderr": "", "exit_code": 0}, {"stdout": "", "stderr": "now 9:40am, Day 1", "exit_code": 1},
+                {"content": raw, "size": 10}, {"results": "the clock reads 9:40am, Day 1"}):
+        out = format_tool_result("status", res)
+        assert "9:40" not in out and "morning, Day 1" in out, (res, out)
+    setting["v"] = False
+    assert "9:40am, Day 1" in format_tool_result("status", {"stdout": raw, "stderr": "", "exit_code": 0})
+
+
 @pytest.mark.parametrize("label,band", [("4:15am, Day 4", "early morning"), ("1:00am, Day 2", "late night"), ("1:59am, Day 2", "late night"), ("2:00am, Day 2", "early morning"), ("6:30am, Day 2", "early morning"), ("7:59am, Day 2", "early morning"), ("8:00am, Day 2", "morning"), ("3:20pm, Day 3", "afternoon"),
                                         ("9:10pm, Day 3", "night"), ("5:00pm, Day 1", "evening"), ("12:15pm, Day 1", "midday"), ("9:40am, Day 1", "morning")])
 def test_band_label_mirrors_the_engine_bands(label, band):
@@ -139,3 +151,43 @@ def test_settings_toggle_exists():
     root = Path(__file__).resolve().parent.parent
     assert 'id="set-zeroClocksToggle"' in (root / "static" / "index.html").read_text()
     assert "zero_clocks" in (root / "static" / "js" / "settings.js").read_text()
+
+
+def test_orw437_a_dotted_time_and_a_semicolon_clause_are_handled_per_sentence(setting):
+    """review of #2657: "3 a.m." must not be split into "3 a." + "m." (so it escaped the check); a semicolon compound loses only its clock clause."""
+    out = _guard("The kettle clicks off. The hall is dark at 3 a.m. The player stays put.")
+    assert "3 a.m" not in out and "The kettle clicks off." in out and "The player stays put." in out
+    out = _guard("The kettle clicks off; it is 9 p.m. by the light; the player stays put.")
+    assert "p.m" not in out and "by the light" not in out  # the WHOLE sentence goes (the dotted time does not end it): a clause cut left dangling "; and ..." text and the stored-text mirror could not follow it
+
+
+def _stream(chunk, stored_before):
+    """Run a chunk through the REAL `_guard_stream_chunk` + `_apply_mirror_ops`: (shown text, stored text)."""
+    from src import agent_loop as al
+    g, _ = asyncio.get_event_loop().run_until_complete(al._guard_stream_chunk(chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    return g.text, al._apply_mirror_ops(stored_before + chunk, g.mirror_ops)
+
+
+@pytest.mark.parametrize("chunk,shown,stored_tail", [
+    ("The house settles. It was 3 a.m. Then he left with them. ", "The house settles. Then he left with them. ", "The house settles. Then he left with them. "),
+    ("She waited in the kitchen; it was 9 p.m. and Sam yawned. Then everyone left. ", " Then everyone left. ", " Then everyone left. "),
+    ("The house settles. Then he left with them. ", "The house settles. Then he left with them. ", "The house settles. Then he left with them. "),
+])
+def test_orw437_shown_and_stored_text_agree_for_dotted_times_compounds_and_plain_sentences(setting, chunk, shown, stored_tail):
+    """review of #2754: the stored text used to be corrupted ("settles.m. Then he left with the ") because the mirror re-split "3 a." / "m."."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + stored_tail
+
+
+@pytest.mark.parametrize("clocky", ["Ten to eight, by the light.", "It is twenty to nine.", "The clock says 9.15am.", "At 4.30pm the doors open."])
+def test_orw437_dotted_and_to_form_times_are_dropped(setting, clocky):
+    out = _guard(f"The kettle clicks off. {clocky} The player stays put.")
+    assert clocky not in out and "The kettle clicks off." in out
+
+
+@pytest.mark.parametrize("fine", ["It takes five to ten minutes.", "Ten to twelve of them nod.", "Version 2.5pm is not a time."])
+def test_orw437_the_new_forms_leave_durations_alone(fine):
+    from src.zero_clocks import sentence_states_zero_clock_time_raw as raw  # the detector itself (the loop's other closed-set screens read "five to ten" as a vote tally)
+    assert not raw(fine)

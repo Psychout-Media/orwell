@@ -87,7 +87,10 @@ def test_turn_in_morning_after_is_clean(monkeypatch):
     async def fake_mp(moment=None, user=None, timeout=None, brief=None):
         return {"systemPrompt": "GAME CONTEXT:\n- roster" + _ctx("late-night", "early morning")}
 
+    board_reads = []
+
     async def fake_state(user=None, **kw):
+        board_reads.append(1)
         return morning_board
 
     monkeypatch.setattr(oe, "get_moment_prompt", fake_mp)
@@ -97,6 +100,7 @@ def test_turn_in_morning_after_is_clean(monkeypatch):
     assert asyncio.get_event_loop().run_until_complete(al._refresh_context_after_turn_in(msgs, owner, out)) is True
     ch._LAST_FRAMED_MOMENT_VOLATILE.pop(owner, None)
     blob = msgs[0]["content"]
+    assert len(board_reads) == 1, "ORW-409: ONE board read per post-turnIn rebuild (review of #2722); a second engine read would fail here"
     assert audit_briefing(msgs) == []
     assert "Part of the day: early morning" in blob and "Time of day:" not in blob and "it is now morning" not in blob
     assert "Still asleep (1): Role B" in blob
@@ -113,3 +117,35 @@ def test_prompt_does_not_grow():
 
 
 BASELINE_CHARS = 1134  # measured on origin/main before this change: same turn, old blocks
+
+
+def test_orw437_the_engines_real_part_line_with_a_day_suffix_is_unified():
+    """review of #2722: the engine's real line is "- Part of the day: small hours, Day 3 (engine truth)", carrying ", Day N"."""
+    board = _board("4:15am, Day 3", "late-night", None)
+    ctx = _ctx("late-night", "small hours, Day 3")
+    out = unify_part_of_day_lines(ctx, build_briefing(board, zero_clocks=True))
+    assert "Time of day:" not in out, "the duplicate Time of day line must go"
+    assert "- Part of the day: early morning, Day 3 (engine truth)" in out, out
+
+
+def test_orw437_the_engines_own_event_due_stop_line_is_reconciled_when_not_due():
+    """review of #2688: a real event-due result also carries the engine's `stopLine` ("...the scheduled event is on now."), which the steer quotes."""
+    board = _board("2:00pm, Day 2", "afternoon", {"next": "hoh-competition", "phase": "evening", "due": False})
+    res = {"stopReason": "event-due", "minutes": 60, "stopLine": "Production is calling everyone: the scheduled event is on now."}
+    steer = ch._reconcile_hang_out_steer(ch._hang_out_steer(res), board)
+    assert "is on now" not in steer and "calling everyone" not in steer, steer
+    due = {**board, "daySchedule": {**board["daySchedule"], "due": True}}
+    raw = ch._hang_out_steer(res)
+    assert ch._reconcile_hang_out_steer(raw, due) == raw
+
+
+def test_orw437_game_context_schedule_lines_are_audited_too():
+    """review of #2688: the engine's own daySchedule lines ('- IT IS TIME: ... starting NOW', '- COMING UP: ...') contradict a not-yet steer."""
+    due = "\n- IT IS TIME: the nominations is starting NOW — production calls the whole house to the living room.\n"
+    coming = "\n- COMING UP: the nominations is set for this evening — the house knows it's coming.\n"
+    steer_not_yet = "PRODUCTION HASN'T CALLED IT YET - the nominations is scheduled for later today."
+    steer_on_now = "PRODUCTION CALLS EVERYONE - it is time for the nominations."
+    assert [f["fact"] for f in audit_briefing([{"role": "system", "content": due + steer_not_yet}])] == ["event-due"]
+    assert [f["fact"] for f in audit_briefing([{"role": "system", "content": coming + steer_on_now}])] == ["event-due"]
+    assert audit_briefing([{"role": "system", "content": coming + steer_not_yet}]) == []
+    assert audit_briefing([{"role": "system", "content": due + steer_on_now}]) == []
