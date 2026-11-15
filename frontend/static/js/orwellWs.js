@@ -136,6 +136,10 @@
   // provisionally at `_onRunStarted` attach-time (so a same-id replay BURST is inert even before
   // the ack lands). Never cleared by `done` — remembering the finished run is the whole point.
   var _lastRunId = null;
+  // ORW-366: true from the moment THIS window sends a turn until that run's `done` (or the turn is rejected / the
+  // socket drops). A `hasRun:false` ack for a run-started edge while this is true is NOT a stale replay — it is
+  // this window's own run racing its own re-attach — so it must retry the subscribe, never tear the live holder down.
+  var _ownTurnLive = false;
   // #1087 queued-run attach: the id of a run that QUEUED behind the run we're currently tailing.
   // ws_routes publishes a queued turn's `run-started` edge IMMEDIATELY (right after
   // `agent_runs.start(queue=True)`), stamped with the queued run's id (the registry's current run) —
@@ -223,7 +227,7 @@
           // `_lastRunId` is deliberately KEPT: it is what lets a stale replayed `run-started` for
           // this now-finished run be ignored (#1087).
           var _chatDone = !!(frame.d && frame.d.done);
-          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; }
+          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; _ownTurnLive = false; }
           _emit("chat", frame);
         } else if (_handlers[frame.ch]) {
           _emit(frame.ch, frame);
@@ -404,6 +408,7 @@
       var p = _pending[cid];
       if (!p || (p.t !== "turn" && p.t !== "decision")) continue;
       delete _pending[cid];
+      if (p.t === "turn") _ownTurnLive = false;
       var err = new Error(code);
       err.code = code;
       try { p.reject(err); } catch (_) {}
@@ -552,13 +557,26 @@
     // this stale ack misread as "genuinely no live run" and tear down B's already-reconciled holder.
     // Stamp THIS reattach's own generation and require it still be current before acting at all.
     var _myReattachGen = ++_chatReattachGen;
-    _subscribeChat(0).then(function (ack) {
-      if (_myReattachGen !== _chatReattachGen) return;  // superseded by a newer reattach — no-op
-      if (ack && ack.d && ack.d.hasRun === false && !_chatTailActive) {
-        _emitWindow("orwell:ws-resync",
-          { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: "run-started-empty" });
-      }
-    }).catch(function () { _chatTailActive = false; });
+    var _tries = 0;
+    var _attach = function () {
+      return _subscribeChat(0).then(function (ack) {
+        if (_myReattachGen !== _chatReattachGen) return;  // superseded by a newer reattach — no-op
+        if (ack && ack.d && ack.d.hasRun === false && !_chatTailActive) {
+          // ORW-366: this window's OWN turn is in flight, so the empty ack is a race with its own run (the
+          // first casting reply vanished when the resync below tore the live holder down). Retry a few times.
+          if (_ownTurnLive && _tries++ < 4) {
+            return new Promise(function (r) { setTimeout(r, 350); }).then(function () {
+              if (_myReattachGen !== _chatReattachGen) return;
+              _highestChatSeq = -1; _chatSubscribed = false;
+              return _attach();
+            });
+          }
+          _emitWindow("orwell:ws-resync",
+            { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: "run-started-empty" });
+        }
+      });
+    };
+    _attach().catch(function () { _chatTailActive = false; });
   }
 
   // ── the state/hud EDGE channels (§4) — the HUD push keystone ─────────────
@@ -597,6 +615,7 @@
   }
   function sendTurn(payload) {
     payload = payload || {};
+    _ownTurnLive = true;
     return _request("turn", "chat", {
       message: payload.message,
       clientMsgId: payload.clientMsgId,

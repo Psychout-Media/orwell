@@ -529,6 +529,9 @@ async def ws_session(websocket: WebSocket) -> None:
                     # HUD/status re-read.
                     if reason in (None, "connected", "keepalive", "layout-changed"):
                         continue
+                    # ORW-366: read the run identity BEFORE the (slow, during casting genesis) engine-state await
+                    # so the edge names the run that raised it, not whichever run exists seconds later.
+                    _rid_at_edge = agent_runs.run_id(canonical) if reason == "run-started" else None
                     st = await _engine_state(user)
                     bs = _beat_seq_of(st)
                     if bs is not None:
@@ -540,7 +543,7 @@ async def ws_session(websocket: WebSocket) -> None:
                         # source). A ring-REPLAYED edge for a finished-but-buffered run resolves to
                         # that same run's id, which is exactly what lets the client skip it; an
                         # evicted run resolves to None and the client falls back to its boolean guard.
-                        rid = agent_runs.run_id(canonical)
+                        rid = _rid_at_edge if _rid_at_edge is not None else agent_runs.run_id(canonical)
                         if rid is not None:
                             d["runId"] = rid
                     await send({"t": ch, "ch": ch, "d": d})

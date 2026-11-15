@@ -361,6 +361,34 @@ def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str]):
     return matches[0]
 
 
+def _server_env_headers(endpoint_url: str):
+    """ORW-200: the server's own OPENAI_API_KEY (env/config), as call-time headers, for a session pointed at
+    api.openai.com that no stored endpoint covers. Never persisted on the row. None when not applicable."""
+    try:
+        from urllib.parse import urlparse
+        if (urlparse((endpoint_url or "").strip()).hostname or "").lower() != "api.openai.com":
+            return None
+        import os
+        key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if not key:
+            try:
+                from core.config import config as _cfg
+                key = str(_cfg.get("OPENAI_API_KEY") or "").strip()
+            except Exception:
+                key = ""
+        return {"Authorization": f"Bearer {key}"} if key else None
+    except Exception:
+        return None
+
+
+def _is_server_env_auth(endpoint_url: str, hdrs) -> bool:
+    env = _server_env_headers(endpoint_url)
+    if not env:
+        return False
+    got = {str(k).lower(): v for k, v in hdrs.items() if str(k).lower() in AUTH_HEADER_NAMES}
+    return bool(got) and got.get("authorization") == env["Authorization"] and set(got) == {"authorization"}
+
+
 def resolve_session_headers(sess, owner: Optional[str] = None):
     """Auth headers to SEND for a session, resolved from the endpoint record at call time.
 
@@ -381,6 +409,11 @@ def resolve_session_headers(sess, owner: Optional[str] = None):
         try:
             ep = _find_session_endpoint(db, url, owner)
             if ep is None:
+                env = _server_env_headers(url)
+                if env:
+                    merged = _non_auth_headers(_stored_headers_dict(stored))
+                    merged.update(env)
+                    return merged
                 return stored
             fresh = build_headers(ep.api_key, normalize_base(ep.base_url or ""))
         finally:
@@ -408,7 +441,7 @@ def persistable_session_headers(endpoint_url: str, headers, owner: Optional[str]
         finally:
             db.close()
         if ep is None:
-            return hdrs
+            return _non_auth_headers(hdrs) if _is_server_env_auth(endpoint_url, hdrs) else hdrs
         return _non_auth_headers(hdrs)
     except Exception as e:
         logger.debug("persistable_session_headers kept headers unchanged: %s", e)
@@ -432,7 +465,7 @@ def migrate_strip_session_auth_headers() -> int:
             if not any(str(k).lower() in AUTH_HEADER_NAMES for k in hdrs):
                 continue
             ep = _find_session_endpoint(db, (row.endpoint_url or "").strip(), getattr(row, "owner", None) or None)
-            if ep is None:
+            if ep is None and not _is_server_env_auth((row.endpoint_url or "").strip(), hdrs):
                 continue
             row.headers = _non_auth_headers(hdrs)
             changed += 1

@@ -25,7 +25,7 @@ import type {
 import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
-import { humanizeIds, humanizeForRetrospective } from "./humanize";
+import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./humanize";
 import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
@@ -35,7 +35,7 @@ import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTe
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
-import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent, dueTomorrow } from "../../engine/daySchedule";
+import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent, dueTomorrow, finalHohPartOf } from "../../engine/daySchedule";
 /** ORW-262: an eviction night / finale reveals over ~5 steps; its ~2h budget is spread across them for a played game. */
 const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
@@ -2991,7 +2991,7 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Slice first so humanize runs on a bounded tail.
-      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanize(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
+      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {
@@ -11223,13 +11223,20 @@ export class GameSessionAdapter implements GameSession {
     const highlights = allEvents.slice(evFrom)
       .filter((e) => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal"))
       .map((e) => e.content);
+    // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
+    // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
+    const yourDay = allEvents.slice(evFrom)
+      .filter((e) => !e.hidden && !highlights.includes(e.content) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
-    const surfaced = knownAll.slice(knFrom)
+    const surfacedRaw = knownAll.slice(knFrom)
       .filter((f) => f.pathway !== NO_NPC_PATHWAY)
-      .map((f) => this.humanize(f.content));
+      .map((f) => this.humanizeTidy(f.content));
+    // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
+    const surfaced = [...new Set(surfacedRaw)];
     const hook = this.buildDailyRecapHook(day, surfaced);
-    const recap: DailyRecapView = { day, highlights, surfaced, ...(hook ? { hook } : {}) };
+    const recap: DailyRecapView = { day, highlights, surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
     if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
       // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
@@ -11253,6 +11260,11 @@ export class GameSessionAdapter implements GameSession {
     }
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
+    // ORW-400: the day rolled for a played game - last night's room tenure and conversation partners do not carry into the morning. presenceBase and the shared rng are untouched (headless/golden runs identical).
+    if (s.playedGame === true) {
+      if (this.presenceTenure) for (const id of [...this.presenceTenure.keys()]) this.presenceTenure.set(id, 0);
+      this.convoPartners = null;
+    }
     if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
     if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
@@ -14038,6 +14050,11 @@ export class GameSessionAdapter implements GameSession {
   /** Replace raw entity ids in a loop event string with the houseguests' public names.
    *  Delegates to the whole-token substituter so beat prose like "the veto players are drawn"
    *  is never mangled by the player's bare-word id "player" (audit A8). */
+  /** ORW-400: `humanize` plus the pathway/drift-marker tidy, for player-facing knowledge lines (recap, ledger, "knows"). */
+  private humanizeTidy(content: string): string {
+    return tidyPathwaySlugs(this.humanize(content));
+  }
+
   private humanize(content: string): string {
     const all = this.house ? [this.house.player, ...this.house.npcs] : [];
     return humanizeIds(content, all);
@@ -14164,7 +14181,7 @@ export class GameSessionAdapter implements GameSession {
           ? (this.npcKnowledge?.known(p.id) ?? [])
               .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
               .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
-              .map((f) => this.humanize(f.content))
+              .map((f) => this.humanizeTidy(f.content))
           : v.knows;
         const e: import("../../ports/GameSession").PresentKnowledgeView = {
           id: p.id,
@@ -14891,7 +14908,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire

@@ -168,7 +168,8 @@ import { onNarrowChange } from './platform.js';
   function nextEventLabel(st) {
     const ds = st && st._state && st._state.daySchedule;
     if (ds && ds.next && NEXT_EVENT_NAME[ds.next] && ds.phase) {
-      const name = ds.next === "hoh-competition" && isPreHoh(st) ? "First HOH" : NEXT_EVENT_NAME[ds.next];
+      const part = ds.next === "hoh-competition" && Number.isInteger(ds.finalHohPart) && ds.finalHohPart >= 1 && ds.finalHohPart <= 3 ? ds.finalHohPart : null; // ORW-370: the three-part Final HOH
+      const name = part ? "Final HOH part " + part : (ds.next === "hoh-competition" && isPreHoh(st) ? "First HOH" : NEXT_EVENT_NAME[ds.next]);
       return name + ": " + nextEventWhen(ds);
     }
     return isPreHoh(st) ? preHohLabel(st) : null;
