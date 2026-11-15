@@ -21,7 +21,7 @@ def _rewrite_on(monkeypatch):
     """The rewrite ships OFF by default; these tests exercise it, so turn it on (a test that needs it off sets the flag itself)."""
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
 
-def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None):
+def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None, status=None):
     """Returns (emitted_text, continuation_calls, stored_round_texts, n_rounds). `extra` (a dict) is filled with: runs (tool blocks executed), chunks (every raw SSE chunk), cont_kwargs,
     and may carry `redo_delay_s` (the stubbed continuation takes that long)."""
     extra = extra if extra is not None else {}
@@ -43,7 +43,7 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
     monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     async def fake_status(user=None):
-        return {"timeOfDay": "morning", "pending": None, "started": True}
+        return dict(status) if status is not None else {"timeOfDay": "morning", "pending": None, "started": True}
     monkeypatch.setattr(oe, "game_status", fake_status)
 
     scripts = list(rounds_scripts)
@@ -157,17 +157,49 @@ def test_redo_sentence_that_still_conflicts_is_dropped_whole(monkeypatch):
     assert stored[0] == emitted.strip() and "  " not in stored[0]
 
 
-@pytest.mark.xfail(strict=True, reason="KNOWN BUG (review of #2751, reported on ORW-437): it needs NO conflicting sentence. With a text-protocol tool-call opener, chunks "
-                   "[\"The kitchen is quiet. The kettle clicks off, and steam rises\", \"<tool_call>...\"] show only \"The kitchen is quiet.\" but store the second sentence too: when the opener halts the visible "
-                   "stream the buffered pre-opener tail is discarded from the live stream (agent_loop `if _visible_halted: _game_buf = \"\"`; the halt branch also assigns `_game_buf = _flush[_visible_emitted_len:]` over a "
-                   "tail held from an earlier chunk) but stays in the raw round text. Remove this marker when the persistence path mirrors the discarded tail.")
-def test_round_with_tool_markup_in_the_stream_is_skipped_safely(monkeypatch):
-    # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold and no continuation call is made
-    emitted, cont, stored, _ = _drive(
-        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A + BAD + '<tool_call>{"name": "advanceGame", "arguments": {}}</tool_call>']}], redo=REDO)
+TOOL = '<tool_call><invoke name="bash"><parameter name="command">echo hi</parameter></invoke></tool_call>'
+TRUE3 = "The kitchen is quiet. Rain taps the glass. A cup is set down. "
+
+
+def test_round_with_tool_markup_in_the_stream_makes_no_continuation_call(monkeypatch):
+    # the tool-call opener is already in the round when the conflicting sentence is judged: no withhold and no continuation call is made (its own test: the old combined test was a non-enforcing xfail)
+    _emitted, cont, _stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A + BAD + TOOL]}], redo=REDO)
     assert cont == []
-    assert "Sleeper Role says" not in emitted
-    assert stored[0] == emitted.strip(), (stored, emitted)  # review of #2751: what the player saw is what is stored
+
+
+def test_round_with_tool_markup_stores_exactly_what_was_shown(monkeypatch):
+    """review of #2751 / ORW-453 ("save only what was shown"): the conflicting sentence is neither shown nor stored when a tool-call opener follows it in the same chunk."""
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A + BAD + TOOL]}, {"deltas": ["The morning moves on."]}], redo=REDO)
+    assert "Sleeper Role says" not in emitted and "Sleeper Role says" not in stored[0]
+    assert stored[0] == emitted.split("The morning moves on.")[0].strip(), (stored, emitted)
+
+
+@pytest.mark.parametrize("deltas,shown", [
+    # an unfinished sentence held from an EARLIER chunk, then the opener (ORW-453 input 1)
+    ([TRUE3 + "The kettle clicks off, and steam rises", TOOL], "The kitchen is quiet. Rain taps the glass. A cup is set down."),
+    # the held space between sentences must survive the halt (ORW-453 input 2: it used to be lost)
+    ([TRUE3, "The kettle clicks off. " + TOOL], "The kitchen is quiet. Rain taps the glass. A cup is set down. The kettle clicks off."),
+    # the unfinished sentence and the opener arrive in ONE chunk
+    ([TRUE3 + "The kettle clicks off, and steam rises" + TOOL], "The kitchen is quiet. Rain taps the glass. A cup is set down."),
+])
+def test_orw453_a_tool_call_opener_halts_the_stream_shown_equals_stored(monkeypatch, deltas, shown):
+    extra = {}
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": deltas}, {"deltas": ["The morning moves on."]}], redo="X", extra=extra)
+    assert emitted.startswith(shown), (emitted, shown)
+    assert "steam rises" not in emitted
+    assert stored[0] == shown == emitted[:len(shown)] and stored[0] == emitted.split("The morning moves on.")[0].strip(), (stored, emitted)
+    assert cont == [] and extra["runs"] == ["bash"], "the tool call after the cut still ran exactly once"
+
+
+def test_orw453_the_dotted_time_hold_followed_by_a_tool_call_stores_what_was_shown(monkeypatch):
+    """the #2778 "3 a." hold, then a tool call: the held fragment is not shown and must not be stored (zero clocks ON)."""
+    import src.settings as st
+    real = st.get_setting
+    monkeypatch.setattr(st, "get_setting", lambda k, d=None: True if k == "zero_clocks" else real(k, d))
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3 + "He woke at 3 a.", TOOL]}, {"deltas": ["The morning moves on."]}], redo="X")
+    assert "3 a" not in emitted and "3 a" not in stored[0]
+    assert stored[0] == "The kitchen is quiet. Rain taps the glass. A cup is set down."
+    assert emitted.startswith(stored[0])
 
 
 def test_native_tool_call_after_a_withheld_sentence_runs_and_no_continuation_is_made(monkeypatch):
@@ -428,3 +460,68 @@ def test_orw437_a_later_round_still_drops_a_conflicting_unterminated_final_sente
     assert "Sleeper Role walks" not in emitted and "Sleeper Role walks" not in stored[1]
     for kept in ("The morning moves on.", "Rain taps the glass.", "A cup is set down."):
         assert kept in emitted and kept in stored[1]
+
+
+# ORW-454 (Kevin: "allow it if the engine says she's awake"), driven through the real stream loop. Before the 8am wake-up call a greeting by a NAMED houseguest the engine lists as awake is kept;
+# the same greeting by a sleeper, and a claim that the whole house is up, are still dropped. The status is the one the screen already reads (`game_status`).
+EARLY_STATUS = {"timeOfDay": "late-night", "earlyMorning": True, "clockLabel": "5:30am, Day 3", "asleep": ["Sam Role"], "awake": ["Ana Role"], "started": True, "pending": None}
+
+
+@pytest.mark.parametrize("line,kept", [
+    ("'Good morning,' Ana Role whispers, already dressed. ", True),
+    ("“Good morning,” Ana Role whispers, already dressed. ", True),
+    ("'Good morning,' Sam Role whispers, already dressed. ", False),
+    ("Everyone's up. ", False),
+    ("The house is awake. ", False),
+    ("'Good morning,' someone whispers. ", False),
+    ("'Good morning,' Ana Role whispers to Sam Role. ", False),
+])
+def test_orw454_a_greeting_by_a_named_awake_houseguest_is_kept_and_the_house_up_claim_is_dropped(monkeypatch, line, kept):
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=EARLY_STATUS)
+    for true in ("The kitchen is quiet.", "Rain taps the glass.", "A cup is set down.", "The kettle ticks."):
+        assert true in emitted and true in stored[0]
+    assert (line.strip() in emitted) is kept, (line, emitted)
+    assert stored[0] == emitted.strip(), (stored, emitted)
+
+
+@pytest.mark.parametrize("line,kept", [
+    ("'Good morning,' Ana whispers, already dressed. ", True),                 # first name only, unique in the roster
+    ("'Good morning,' Sam whispers, already dressed. ", False),                # a sleeper, first name only
+    ("'Good morning, Sam,' Ana Role whispers. ", False),                        # an awake speaker greeting a sleeper by first name
+    ("'Good morning, Sam,' Ana whispers. ", False),
+])
+def test_orw454_first_names_are_recognised(monkeypatch, line, kept):
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=EARLY_STATUS)
+    for true in ("The kitchen is quiet.", "Rain taps the glass.", "A cup is set down.", "The kettle ticks."):
+        assert true in emitted and true in stored[0]
+    assert (line.strip() in emitted) is kept, (line, emitted)
+    assert stored[0] == emitted.strip(), (stored, emitted)
+
+
+def test_orw454_a_first_name_shared_by_two_houseguests_stays_dropped(monkeypatch):
+    status = dict(EARLY_STATUS, awake=["Ana Role"], asleep=["Ana Other"])
+    line = "'Good morning,' Ana whispers, already dressed. "
+    emitted, _c, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=status)
+    assert line.strip() not in emitted and "The kitchen is quiet." in emitted and "The kettle ticks." in emitted
+    assert stored[0] == emitted.strip()
+
+
+@pytest.mark.parametrize("split", ["<", "<tool", "<tool_ca", "<tool_call>"])
+def test_orw453_an_opener_split_across_chunks_stores_what_was_shown(monkeypatch, split):
+    """the opener's first characters arrive in the chunk that also carries the unfinished sentence; the cut must still leave stored == shown."""
+    rest = TOOL[len(split):] if TOOL.startswith(split) else TOOL
+    extra = {}
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3 + "The kettle clicks off, and steam rises" + split, rest]}, {"deltas": ["The morning moves on."]}], redo="X", extra=extra)
+    first = emitted.split("The morning moves on.")[0].strip()
+    assert "steam rises" not in emitted and "<" not in first
+    assert first == "The kitchen is quiet. Rain taps the glass. A cup is set down." == stored[0], (first, stored)
+    assert cont == [] and extra["runs"] == ["bash"]
+
+
+def test_orw453_prose_after_the_tool_call_is_not_stored_and_does_not_weld(monkeypatch):
+    """text AFTER the call in the same round was never shown: not stored either, and the join before the call stays clean."""
+    extra = {}
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, TOOL + " Trailing words the player never saw."]}, {"deltas": ["The morning moves on."]}], redo="X", extra=extra)
+    assert "Trailing" not in emitted and "Trailing" not in stored[0]
+    assert stored[0] == "The kitchen is quiet. Rain taps the glass. A cup is set down." == emitted.split("The morning moves on.")[0].strip()
+    assert cont == [] and extra["runs"] == ["bash"]

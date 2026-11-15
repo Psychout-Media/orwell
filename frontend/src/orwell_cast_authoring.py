@@ -2810,12 +2810,12 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # ORW-431: THE ONE GATE at the end. The final card (roster card + this profile) must be complete and
             # consistent in every public text; mended, re-written (bounded) or left NOT authored. Codes only in logs.
             if _gate_on:
-                async def _gate_rewrite(_npc, _codes):
+                async def _gate_rewrite(_npc, _codes, message=None):
                     if _given_up(ukey, hid):
                         return None
                     _spend_attempt(ukey, hid)
                     _msgs = build_authoring_messages(_npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
-                    _t = await llm_fn(_msgs + [{"role": "user", "content": _gate.rewrite_message(_codes)}])
+                    _t = await llm_fn(_msgs + [{"role": "user", "content": message or _gate.rewrite_message(_codes)}])
                     return parse_authored_profile(_t or "", hid)
                 async with gate_lock:
                     _gated, _left = await _gate.run_gate(season_gate, profile, npc, cast, _gate_rewrite)
