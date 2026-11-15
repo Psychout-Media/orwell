@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Post-session analyzer for a live orwell playtest (P5). READ-ONLY.
 
-  python3 post_session_analyzer.py --ssh root@10.0.1.243 --since "2026-11-05 17:00" --out report.md
+  python3 post_session_analyzer.py --ssh <user>@<host> --since "2026-11-05 17:00" --out report.md
   python3 post_session_analyzer.py --dir /path/to/run-dir --out report.md      # a rehearsal/run dir with fe.log, app.db, llm-io.jsonl
 
 Over SSH it only runs fixed READ commands (journalctl, cat, stat) - nothing is written on the box, nothing is installed, no credentials are created.

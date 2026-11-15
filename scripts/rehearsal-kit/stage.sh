@@ -7,7 +7,7 @@ KIT=$(cd "$(dirname "$0")" && pwd); . "$KIT/slot.sh"   # RIG_SLOT (default 1) de
 # Guard (2026-11-11): never stage onto a busy rig. Callers must hold the flock on the slot lock ($RIG_LOCK: rig.lock for slot 1, rig-2.lock for slot 2) for the whole run
 # (e.g. flock -n ~/orwell-playtest/live-short/rig.lock bash -c './stage.sh && <drive> ; ./stop.sh'); and the ports must be free.
 if ss -ltn | grep -qE ":$RIG_ENGINE_PORT\b|:$RIG_FE_PORT\b"; then echo "FATAL: ports $RIG_ENGINE_PORT/$RIG_FE_PORT are busy - another run holds rig slot $RIG_SLOT; not staging" >&2; exit 1; fi
-git -C /home/ryne/orwell fetch -q origin
+git -C "$RIG_HOME/orwell" fetch -q origin
 rig_ensure_worktree || exit 1
 git -C $WT checkout -q --detach origin/main
 MAIN_SHA=$(git -C $WT rev-parse HEAD)
@@ -24,11 +24,11 @@ echo $RUN > $RIG_RUN_PTR
 rm -rf $WT/frontend/data; (cd $WT && npm run build --silent >/dev/null 2>&1)
 for f in t.sh p.sh last.sh daemon.py env.sh check6.sh pr.sh slot.sh; do cp $KIT/$f $RUN/$f; done; rig_write_slot_env $RUN
 sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
-( cd $WT; set -a; . /home/ryne/.config/orwell/secrets.env; set +a; unset OPENROUTER_API_KEY
+( cd $WT; set -a; . "$RIG_HOME/.config/orwell/secrets.env"; set +a; unset OPENROUTER_API_KEY
   . deploy/orwell-env-defaults.sh
   eval "$(orwell_optin_env_defaults $RUN/engine-data | sed 's/^/export /')"
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
-  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE=/home/ryne/orwell/.orwell-data/models
+  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid
   cd frontend
   [ "$RIG_SLOT" = 1 ] || export PYTHONDONTWRITEBYTECODE=1   # a shared venv is never written to

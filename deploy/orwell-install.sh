@@ -141,7 +141,7 @@ node22() {
 checkout() {
   step "checkout orwell -> ${APP_DIR}"
   # init+fetch+reset (not clone): ${APP_DIR} may already hold data/.env (the seeded GIT_TOKEN) —
-  # clone refuses a non-empty dir. The credential helper above supplies auth on a private repo.
+  # clone refuses a non-empty dir. The credential helper above supplies the deploy token (the repo is public, ORW-426, but the deploy path still authenticates).
   if [[ ! -d "${APP_DIR}/.git" ]]; then
     mkdir -p "$APP_DIR"
     git -C "$APP_DIR" init -q

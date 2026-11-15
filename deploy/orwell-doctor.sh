@@ -9,7 +9,7 @@
 #
 # From the PROXMOX HOST (same bridge as orwell-update.sh / orwell-factory-reset.sh — it
 # locates the orwell LXC by hostname "orwell", override with CTID=<id> / CT_HOSTNAME=<name>,
-# and re-runs itself inside, forwarding the flag). Run a LOCAL copy — the repo is private and
+# and re-runs itself inside, forwarding the flag). Run a LOCAL copy — the deploy path authenticates with a token (the repo is public, ORW-426) and
 # no script fetches branch tips from GitHub (A4/ruling #17):
 #   bash /opt/orwell/deploy/orwell-doctor.sh            # or any local checkout's copy
 #   bash deploy/orwell-doctor.sh --status
@@ -91,7 +91,7 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
     printf '%s\n' "$BASH_EXECUTION_STRING" > "$TMP_DOC"
   else
     # Last resort (e.g. `curl | bash`): run the container's own CHECKED-OUT copy — never a raw
-    # branch-tip fetch from GitHub (A4/ruling #17 — closes audit E84; works on a private repo).
+    # branch-tip fetch from GitHub (A4/ruling #17 — closes audit E84; works with the token the deploy path uses).
     rm -f "$TMP_DOC"
     pct exec "$CTID" -- bash -c "for d in /opt/orwell /opt/bbai; do
         [ -f \"\$d/deploy/orwell-doctor.sh\" ] && exec bash \"\$d/deploy/orwell-doctor.sh\" '$MODE'
