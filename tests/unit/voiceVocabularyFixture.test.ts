@@ -30,10 +30,22 @@ describe("the shared voice-vocabulary fixture matches the engine", () => {
       stressTell: "deflects with a joke", signature: "a signature sentence", lexicon: ["filler"],
     };
     const slot = (key: string): string => (key === "humor" ? (FIX.humorWords[voice.humor] ?? voice.humor) : String(voice[key as keyof VoiceProfile]));
-    const rendered = FIX.fingerprintTemplates.map((t) => t.replace(/\{(\w+)\}/g, (_m, key: string) => slot(key)));
+    const rendered = FIX.fingerprintTemplates.map((t) => t.replace(/\{(a:)?(\w+)\}/g, (_m, art: string | undefined, key: string) => (art ? `${/^[aeiou]/i.test(slot(key)) ? "an" : "a"} ${slot(key)}` : slot(key))));
     expect(rendered).toContain(voiceFingerprint(voice));
+    for (const r of rendered) expect(r).not.toMatch(/\ba [aeiou]/i); // ORW-464: "an evasive", never "a evasive", in all eight shapes
     // The hash-selected index is asserted per template in traitsAgree432.test.ts ("hash-selected template").
     expect(FIX.fingerprintTemplates).toEqual([...VOICE_LINE_TEMPLATES]);
+  });
+
+  it("never reads 'a' before a vowel sound: every dial value, every shape (ORW-464)", () => {
+    const base: VoiceProfile = { register: "formal", rhythm: "clipped", energy: "flat", directness: "evasive", humor: "dry", stressTell: "goes quiet", signature: "s", lexicon: ["x"] };
+    for (const dial of ["register", "rhythm", "energy", "directness"] as const) {
+      for (const value of VOICE_DIALS[dial]) {
+        const line = voiceFingerprint({ ...base, [dial]: value });
+        expect(line, `${dial}=${value}`).not.toMatch(/\ba [aeiou]/i);
+      }
+    }
+    expect(voiceFingerprint({ ...base, directness: "evasive", energy: "even" })).not.toMatch(/\ba (?:evasive|even)\b/);
   });
 
   it("reads 'no humor' for the humor dial 'none' (never the broken 'none humor'), every other value as itself", () => {

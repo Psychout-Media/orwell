@@ -331,3 +331,15 @@ def test_the_hand_names_the_state_and_the_taken_list_names_the_states_in_play():
     assert f"in {ledger[0]['state']} ({ledger[0]['region']})" in L.render_hand(ledger[0])
     taken = L.render_taken(ledger, exclude_index=0)
     assert "home states taken:" in taken and ledger[0]["state"] not in taken.split("home states taken:")[1].split(".")[0]
+
+
+def test_a_card_that_already_has_a_hometown_gets_no_dealt_hometown_clause():
+    from src import orwell_cast_authoring as ca
+    ledger = L.mint_facet_ledger(5, 15)
+    hand = ledger[0]
+    assert "hometown:" in L.render_hand(hand) and "hometown:" not in L.render_hand(hand, hometown=False)
+    base = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30, "vocation": "welder"}
+    with_town = ca.build_authoring_messages({**base, "hometown": "Macon, Georgia"}, hand=hand)[-1]["content"]
+    without = ca.build_authoring_messages(base, hand=hand)[-1]["content"]
+    assert "hometown: " + hand["townSize"] not in with_town and "vocation family:" in with_town
+    assert "hometown: " + hand["townSize"] in without

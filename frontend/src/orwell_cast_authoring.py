@@ -1980,7 +1980,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
     if isinstance(hand, dict):
         try:
             from src.orwell_facet_ledger import render_hand
-            rendered = render_hand(hand)
+            rendered = render_hand(hand, hometown=not str(npc.get("hometown") or "").strip())  # the card's own hometown wins over the dealt one
             if rendered:
                 hand_rule = (f"\nDEALT FACETS (the casting office's bible for {name} — honor them; "
                              f"the committed skeleton above already reflects this deal): {rendered}.")

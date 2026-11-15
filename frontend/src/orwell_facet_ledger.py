@@ -367,13 +367,14 @@ def hand_for(seed, count: int, houseguest_id, physical: Optional[list] = None) -
     return ledger[n - 1] if ledger else None
 
 
-def render_hand(hand: dict) -> str:
+def render_hand(hand: dict, hometown: bool = True) -> str:
     """One compact fixed-input clause rendering a dealt hand into a casting card."""
     if not isinstance(hand, dict):
         return ""
     return (
         f"vocation family: {hand.get('vocationFamily')} (pick a specific job inside it); "
-        f"hometown: {hand.get('townSize')} in {hand.get('state') + ' (' + str(hand.get('region')) + ')' if hand.get('state') else hand.get('region')}; "
+        + (f"hometown: {hand.get('townSize')} in {hand.get('state') + ' (' + str(hand.get('region')) + ')' if hand.get('state') else hand.get('region')}; "
+           if hometown else "") +
         f"height/build: {hand.get('heightBuild')}; "
         f"complexion depth (steering — heritage coherence wins): {hand.get('skinToneCue')}; "
         f"hair: {hand.get('hair')}; "
