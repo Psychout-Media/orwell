@@ -1,3 +1,4 @@
+# spec-only: this .feature is a design contract, NOT wired into the BDD gate yet (absent from cucumber.cjs paths; no step definitions). The build card ORW-417 wires it in and removes this line. (TEST-3, #628)
 @spec
 Feature: 0148 — the player's nap
   The player may choose a daytime nap. Time moves on, the house keeps living, and every two hours of nap halve the
