@@ -61,7 +61,8 @@ from src.orwell_show_brief import served_seen as _served_brief_seen
 logger = logging.getLogger(__name__)
 
 # Track active streams for partial-save safety net
-_active_streams: Dict[str, dict] = {}
+from src.turn_inflight import InflightRegistry as _InflightRegistry  # ORW-406
+_active_streams: Dict[str, dict] = _InflightRegistry()
 _IMAGE_MODEL_PREFIXES = ("gpt-image", "dall-e", "chatgpt-image")
 
 # Strong refs to fire-and-forget background tasks (e.g. the post-turn recordInteraction
