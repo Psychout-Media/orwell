@@ -129,7 +129,7 @@ jobs:
           ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
-          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
+          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants)\.ts$|engine/castGenesis|domain/(house|styleFamilies)\.ts$|composition/runtime\.ts$)|^src/main\.ts$'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
           DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend

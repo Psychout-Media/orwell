@@ -102,7 +102,7 @@ PHOTO_SHEET_SYSTEM = (
 # engine's seeded, net-zero-balanced floor (the LLM does not author it) — so the authored storyline
 # cannot tilt the cast toward the player and the calibration (juryReach) balance is preserved.
 _SYSTEM = (
-    "You are a Big Brother CASTING PRODUCER building the secret bible for ONE houseguest. "
+    "You are a CASTING PRODUCER for the reality show ORWELL (never call it Big Brother) building the secret bible for ONE houseguest. "
     "Write a rich, believable, reality-TV-plausible person with real depth and a life that exists "
     "ENTIRELY on its own. Output STRICT JSON only (no prose around it), with these keys:\n"
     '  "name": KEEP the houseguest\'s CURRENT name from the skeleton EXACTLY — their identity is already '
@@ -123,13 +123,18 @@ _SYSTEM = (
     "your own words but keep it the SAME person. THE INK BUDGET IS FIXED: if the brief's "
     "distinguishingMark carries no tattoo, this houseguest has NO visible tattoos anywhere (not in the "
     "mark, the style, or the biography) — only a small minority of a real cast is visibly inked, and "
-    "the casting office already decided who. A distinguishingMark is usually minor or absent: a scar, "
-    "a birthmark, freckles, glasses, jewelry, a gap-toothed grin — or plain \"none notable\"; never "
+    "the casting office already decided who. A distinguishingMark is usually minor or absent: freckles, "
+    "glasses, jewelry, dimples (no scars, birthmarks or tooth gaps: the portrait cannot hold them) — or plain \"none notable\"; never "
     "default to a tattoo, "
     "STYLE: the skeleton's presentation is this person's style FAMILY. Write \"style\" INSIDE that "
     "family, as THIS person would wear it given their age, job and hometown; never blend in another "
     "family (no rocker edge layered over bohemian). "
     + PHOTO_SHEET_RULES + " "
+    "STORY MATCHES THE CARD (HARD): the biography is read beside the card, so it must agree with it. "
+    "Use ONLY the houseguest's pinned pronouns for the houseguest (other people keep their own, named by role); "
+    "state no age except the skeleton's exact age (a life stage or no number is better); name no body or face feature "
+    "(tooth gap, tattoo, glasses, scar, freckles) that your own physicalCharacteristics does not carry; and the show "
+    "is Orwell, never Big Brother. "
     "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
     "hair under 35 unless it is written as dyed. BUILD COHERENCE: heightBuild must not combine "
     "opposites (for example broad-shouldered with willowy). Keep the FITNESS LEVEL of the seeded "
@@ -1213,6 +1218,283 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
 
 
 
+
+# ── ORW-388: the story must match the card ─────────────────────────────────────────────────────────────
+# A houseguest's own story (identityConcept from genesis, biography from this writer) must not contradict the
+# card the player reads: the pinned gender's pronouns, the stated age, the look, and the show's name (Orwell).
+# `story_problems` names what is wrong in the biography the writer just produced (the strict retry);
+# `repair_story_text` mends any story text deterministically (identityConcept is written once by genesis, so it
+# is repaired here, never retried). Vault-free: codes only, never the text.
+_STORY_PROBLEM_TEXT = {
+    "story-pronoun": "the biography uses pronouns that contradict genderPresentation for the houseguest (man: he/him/his; woman: she/her; nonbinary: they/them); refer to other people by role, never by the houseguest's own pronoun",
+    "story-age": "the biography states an age that is not the skeleton age; say exactly the skeleton age or no number at all",
+    "story-feature": "the biography names a physical feature (tooth gap, tattoo, glasses, scar, birthmark, freckles...) that the look block does not have; remove it or add it to the look",
+    "story-show-name": "the show is called Orwell; never write Big Brother",
+}
+_LOOK_PROBLEM_TEXT.update(_STORY_PROBLEM_TEXT)
+
+_BB_RE = re.compile(r"\bBig[ -]Brother\b", re.I)
+_AGE_FORMS = (
+    re.compile(r"\b(\d{2})(?:[- ]years?[- ]old)\b", re.I),
+    re.compile(r"\b(?:aged?|age:)\s+(\d{2})\b", re.I),
+)
+_AT_AGE_RE = re.compile(r"\b(at\s+)(\d{2})\b(?=\s*[,.;)]|\s+(?:she|he|they|her|his|their|and|when|after)\b)", re.I)
+_AT_AGE_WINDOW = 3  # "at N" is also how a past life event is told ("at 19 he joined"): only a number this close to the card age is read as the age
+
+# Third parties: a sentence that names one of these is about someone else too, so a wrong-gender pronoun in
+# it is NOT plainly the houseguest (a man's "her mother"). Such a sentence is never flagged or rewritten.
+_OTHER_PERSON_RE = re.compile(
+    r"\b(?:mother|mom|mum|mama|father|dad|papa|sister|brother|sibling|wife|husband|spouse|partner|fianc[eé]e?|"
+    r"boyfriend|girlfriend|ex|daughter|son|kids?|child|children|aunt|uncle|cousin|niece|nephew|grandmother|"
+    r"grandfather|grandma|grandpa|grandparents?|parents?|twin|friend|best friend|roommate|neighbou?r|boss|"
+    r"manager|coach|mentor|teacher|professor|student|clients?|customers?|patients?|crew|team|colleagues?|"
+    r"coworkers?|rivals?|family|people|everyone|nobody|someone|anyone|girls|boys|men|women|guys)\b", re.I)
+_NAMED_PERSON_RE = re.compile(r"(?<!\bthe )(?<!\bThe )\b[A-Z][a-z]{2,}\b")
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?])(\s+)")
+_PRON_RE = re.compile(r"\b(she|he|they|her|hers|herself|him|his|himself|them|their|theirs|themself|themselves)\b", re.I)
+
+_FEATURES = {
+    "tooth-gap": (re.compile(r"\b(?:gap-?toothed|gappy|gap[- ]tooth(?:ed)?|(?:a |the )?gap (?:in|between) (?:her|his|their|the) (?:front )?teeth|tooth gap)\b", re.I),
+                  re.compile(r"\bgap|diastema", re.I)),
+    "tattoo": (re.compile(r"\b(?:tattoo(?:s|ed)?|inked|ink(?:ed)? (?:sleeve|forearm|arm)s?)\b", re.I),
+               re.compile(r"\btattoo|\bink(?:ed)?\b|\bsleeve", re.I)),
+    "glasses": (re.compile(r"\b(?:(?:wire|horn|round|thick|black|tortoiseshell)[- ]?(?:rimmed|framed)? ?glasses|glasses|spectacles|eyeglasses|bespectacled)\b", re.I),
+                re.compile(r"glasses|spectacles|eyeglasses|bespectacled|frames\b", re.I)),
+    "scar": (re.compile(r"\bscars?\s+(?:above|across|on|over|under|along|through|beside|near)\b|\ban?\s+(?:[\w-]+\s+)?scar\b", re.I), re.compile(r"\bscar", re.I)),
+    "birthmark": (re.compile(r"\bbirth ?marks?\b", re.I), re.compile(r"birth ?mark", re.I)),
+    "freckles": (re.compile(r"\b(?:freckles|freckled)\b", re.I), re.compile(r"freckle", re.I)),
+}
+_GLASSES_NOT = re.compile(r"\b(?:wine|shot|beer|pint|champagne|water|cocktail|drinking|raised?|raising|clink\w*|pour\w*)\s+(?:\w+\s+)?glasses\b", re.I)
+_FEATURE_MODIFIER_RE = re.compile(
+    r"\b(?:gap-?toothed|gappy|tattooed|inked|bespectacled|freckled|scarred)\s+", re.I)
+_FEATURE_NOUN_CLAUSE = {
+    "tooth-gap": r"(?:an?\s+|the\s+|her\s+|his\s+|their\s+)?(?:(?!(?:wears?|wearing|has|have|had|with|and|of|in|on|sports?|sporting|the|an?|her|his|their)\b)[\w-]+\s+){0,1}(?:gap (?:in|between) (?:her|his|their|the) (?:front )?teeth|tooth gap)",
+    "tattoo": r"(?:an?\s+|the\s+|her\s+|his\s+|their\s+)?(?:(?!(?:wears?|wearing|has|have|had|with|and|of|in|on|sports?|sporting|the|an?|her|his|their)\b)[\w-]+\s+){0,1}tattoos?(?:\s+(?:on|across|along|over|under|around)\s+(?:her|his|their|the)\s+\w+)?",
+    "glasses": r"(?:an?\s+|the\s+|her\s+|his\s+|their\s+)?(?:(?!(?:wears?|wearing|has|have|had|with|and|of|in|on|sports?|sporting|the|an?|her|his|their)\b)[\w-]+\s+){0,1}(?:glasses|spectacles|eyeglasses)",
+    "scar": r"(?:an?\s+|the\s+|her\s+|his\s+|their\s+)?(?:(?!(?:wears?|wearing|has|have|had|with|and|of|in|on|sports?|sporting|the|an?|her|his|their)\b)[\w-]+\s+){0,1}scars?(?:\s+(?:on|across|above|over|under|along)\s+(?:her|his|their|the)\s+\w+)?",
+    "birthmark": r"(?:an?\s+|the\s+|her\s+|his\s+|their\s+)?(?:(?!(?:wears?|wearing|has|have|had|with|and|of|in|on|sports?|sporting|the|an?|her|his|their)\b)[\w-]+\s+){0,1}birth ?marks?",
+    "freckles": r"(?:an?\s+|the\s+|her\s+|his\s+|their\s+)?(?:(?!(?:wears?|wearing|has|have|had|with|and|of|in|on|sports?|sporting|the|an?|her|his|their)\b)[\w-]+\s+){0,1}freckles",
+}
+
+
+def _look_text(profile: dict, npc: dict) -> str:
+    """Every public look string the card will carry: the authored facet over the seeded one, plus the narrator's appearance line."""
+    parts = []
+    for src in ((npc or {}).get("physicalCharacteristics"), (profile or {}).get("physicalCharacteristics")):
+        if isinstance(src, dict):
+            for v in src.values():
+                parts.extend(str(x) for x in v) if isinstance(v, list) else parts.append(str(v))
+    parts.append(str((npc or {}).get("appearance") or ""))
+    return " ".join(parts)
+
+
+def _wrong_pronoun_re(pin: str):
+    if pin == "man":
+        return re.compile(r"\b(she|her|hers|herself)\b", re.I)
+    if pin == "woman":
+        return re.compile(r"\b(he|him|his|himself)\b", re.I)
+    if pin == "nonbinary":
+        return re.compile(r"\b(he|him|his|himself|she|her|hers|herself)\b", re.I)
+    return None
+
+
+def _sentences(text: str) -> list:
+    """Alternating [sentence, separator, sentence, ...] so a rewrite keeps the original spacing."""
+    return _SENT_SPLIT_RE.split(text or "")
+
+
+def _plainly_the_houseguest(sentence: str, npc: dict, *, names: bool = True) -> bool:
+    """A wrong-gender pronoun is the houseguest's own only when the sentence is about no one else: it names no
+    relative, colleague or other person by role, and (when `names`) no other capitalised name. The houseguest's own
+    name, hometown and job words do not count as other people."""
+    sentence = _BB_RE.sub("Orwell", sentence)  # the show's old name is not a brother
+    if _OTHER_PERSON_RE.search(sentence):
+        return False
+    if not names:
+        return True
+    own = {w.lower() for k in ("name", "hometown", "vocation") for w in re.findall(r"[A-Za-z']+", str((npc or {}).get(k) or ""))}
+    for m in _NAMED_PERSON_RE.finditer(sentence):
+        if m.start() > 0 and m.group(0).lower() not in own and m.group(0) != "Orwell":
+            return False
+    return True
+
+
+def _swap_pronouns(sentence: str, pin: str) -> str:
+    def to_binary(m):
+        w = m.group(0)
+        lw = w.lower()
+        rest = sentence[m.end():]
+        poss = re.match(r"\s+[A-Za-z]", rest) is not None  # a noun follows: possessive
+        if pin == "man":
+            out = {"she": "he", "herself": "himself", "hers": "his"}.get(lw)
+            if out is None:
+                out = "his" if poss else "him"
+        elif pin == "woman":
+            out = {"he": "she", "himself": "herself"}.get(lw)
+            if out is None:
+                out = "her" if lw == "him" else ("her" if poss else "hers")
+        else:
+            out = {"he": "they", "she": "they", "himself": "themself", "herself": "themself", "him": "them",
+                   "his": "their" if poss else "theirs", "her": "their" if poss else "them", "hers": "theirs"}[lw]
+        return out.capitalize() if w[0].isupper() else out
+    rx = _wrong_pronoun_re(pin)
+    out = rx.sub(to_binary, sentence)
+    if pin == "nonbinary":
+        out = _they_verbs(out)
+    return out
+
+
+_BE_HAVE = {"is": "are", "was": "were", "has": "have", "does": "do", "doesn't": "don't", "isn't": "aren't",
+            "wasn't": "weren't", "hasn't": "haven't"}
+_S_NOT_VERB = {"always", "perhaps", "sometimes", "this", "thus", "yes", "its", "us", "plus", "less", "unless", "is"}
+
+
+def _they_verbs(text: str) -> str:
+    """Third-person agreement for the word right after "they" ("they floats" -> "they float", "they's" -> "they're")."""
+    text = re.sub(r"\b(They|they)['\u2019]s\b", lambda m: m.group(1) + "'re", text)
+
+    def fix(m):
+        verb = m.group(2)
+        lv = verb.lower()
+        if lv in _BE_HAVE:
+            new = _BE_HAVE[lv]
+        elif lv in _S_NOT_VERB or not lv.endswith("s") or lv.endswith("ss") or len(lv) <= 3:
+            new = verb
+        elif lv.endswith("ies") and len(lv) > 4:
+            new = verb[:-3] + "y"
+        elif re.search(r"(?:ch|sh|ss|x|z)es$", lv):
+            new = verb[:-2]
+        else:
+            new = verb[:-1]
+        return m.group(1) + new
+    return re.sub(r"\b((?:They|they)\s+)([A-Za-z']+)", fix, text)
+
+
+def pronoun_conflict_sentences(text: str, npc: dict) -> list:
+    """Indexes (into `_sentences`) of sentences whose pronouns contradict the pinned gender AND plainly refer to the houseguest."""
+    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
+    rx = _wrong_pronoun_re(pin)
+    if rx is None:
+        return []
+    parts = _sentences(text)
+    return [i for i in range(0, len(parts), 2) if rx.search(parts[i]) and _plainly_the_houseguest(parts[i], npc)]
+
+
+def _wrong_age_spans(text: str, npc: dict) -> list:
+    """(start, end) of each stated-age number that is not the card age. Only sentences about no one else are read: a
+    "12-year-old niece" or "her 52-year-old mother" is another person's age. A stated age under 18 is never a houseguest's."""
+    age = _age_of(npc)
+    if age is None:
+        return []
+    out = []
+    parts = _sentences(text or "")
+    pos = 0
+    for i, part in enumerate(parts):
+        if i % 2 == 0 and _plainly_the_houseguest(part, npc, names=False):
+            for rx in _AGE_FORMS:
+                out += [(pos + m.start(1), pos + m.end(1)) for m in rx.finditer(part)
+                        if int(m.group(1)) != age and int(m.group(1)) >= 18]
+            out += [(pos + m.start(2), pos + m.end(2)) for m in _AT_AGE_RE.finditer(part)
+                    if int(m.group(2)) != age and abs(int(m.group(2)) - age) <= _AT_AGE_WINDOW]
+        pos += len(part)
+    return out
+
+
+def story_age_conflict(text: str, npc: dict) -> bool:
+    return bool(_wrong_age_spans(text, npc))
+
+
+def story_missing_features(text: str, profile: dict, npc: dict) -> list:
+    """The look features the story names that the look does not have (codes from `_FEATURES`)."""
+    look = _look_text(profile, npc)
+    out = []
+    for code, (said, has) in _FEATURES.items():
+        scan = _GLASSES_NOT.sub("", text or "") if code == "glasses" else (text or "")
+        if said.search(scan) and not has.search(look):
+            out.append(code)
+    return out
+
+
+def story_problems(profile: dict, npc: dict) -> list:
+    """Reason codes for the biography the writer just produced ([] when clean or when there is none)."""
+    bio = (profile or {}).get("biography")
+    if not isinstance(bio, str) or not bio.strip():
+        return []
+    out = []
+    if pronoun_conflict_sentences(bio, npc):
+        out.append("story-pronoun")
+    if story_age_conflict(bio, npc):
+        out.append("story-age")
+    if story_missing_features(bio, profile, npc):
+        out.append("story-feature")
+    if _BB_RE.search(bio):
+        out.append("story-show-name")
+    return out
+
+
+_MODIFIER_FOR = {"tooth-gap": r"gap-?toothed", "tattoo": r"tattooed|inked", "glasses": r"bespectacled", "freckles": r"freckled"}
+
+
+def _drop_feature(text: str, code: str) -> str:
+    """Drop the feature's words (the modifier form, then the noun phrase with its connector), then tidy spacing."""
+    out = text
+    if code in _MODIFIER_FOR:
+        out = re.sub(r"\b(?:%s)\s+" % _MODIFIER_FOR[code], "", out, flags=re.I)
+    if _FEATURES[code][0].search(_GLASSES_NOT.sub("", out) if code == "glasses" else out):
+        out = re.sub(r"(?:,\s*|\s+and\s+|\s+with\s+)?" + _FEATURE_NOUN_CLAUSE[code], "", out, flags=re.I)
+    out = re.sub(r"\s+([,.;!?])", r"\1", out)
+    out = re.sub(r"(?:\s+and)?\s+\b(?:wears?|wearing|has|have|had|sports?|sporting|with)\s*([,.;!?]|$)", r"\1", out, flags=re.I)
+    out = re.sub(r"[ \t]{2,}", " ", out).strip()
+    parts = _sentences(out)
+    kept = "".join(p for i, p in enumerate(parts)
+                   if i % 2 == 0 and len(p.split()) >= 3 or i % 2 == 1)  # a stub left by the drop ("Laura.") goes
+    return re.sub(r"^\s+", "", kept) if kept.strip() else out
+
+
+def repair_story_text(text: str, profile: dict, npc: dict) -> str:
+    """Mend one story text deterministically: the houseguest's own wrong pronouns, a wrong age, a look feature the look
+    lacks, and "Big Brother". Returns the text unchanged when nothing is wrong (and never an empty string)."""
+    if not isinstance(text, str) or not text.strip():
+        return text
+    out = text
+    pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
+    bad = pronoun_conflict_sentences(out, npc)
+    if bad:
+        parts = _sentences(out)
+        for i in bad:
+            parts[i] = _swap_pronouns(parts[i], pin)
+        out = "".join(parts)
+    age = _age_of(npc)
+    if age is not None:
+        for a, b in sorted(_wrong_age_spans(out, npc), reverse=True):
+            out = out[:a] + str(age) + out[b:]
+    for code in story_missing_features(out, profile, npc):
+        dropped = _drop_feature(out, code)
+        if dropped:
+            out = dropped
+    out = _BB_RE.sub("Orwell", out)
+    return out if out.strip() else text
+
+
+def repair_story(profile: dict, npc: dict) -> list:
+    """Repair the biography in `profile` and the card's identityConcept in place; returns the story codes repaired
+    (`biography`, `identityConcept`). The repaired identityConcept rides along in `profile` for the write-back."""
+    done = []
+    bio = profile.get("biography")
+    if isinstance(bio, str):
+        fixed = repair_story_text(bio, profile, npc)
+        if fixed != bio:
+            profile["biography"] = fixed
+            done.append("biography")
+    ident = (npc or {}).get("identityConcept")
+    if isinstance(ident, str) and ident.strip():
+        fixed = repair_story_text(ident, profile, npc)
+        if fixed != ident:
+            profile["identityConcept"] = fixed
+            done.append("identityConcept")
+    return done
+
+
 # ── ORW-380: the shared photo-sheet writer (running-season upgrader, new-cast de-duplication pass) ──────
 
 # The ONLY card fields the photo-sheet writer ever sees: public profile fields. Never a Vault-adjacent field.
@@ -1396,7 +1678,8 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
     pronoun_rule = (
         f" This houseguest's PINNED gender presentation is '{gp}' — every self-reference in the biography, "
         f"secrets, true goals, and weakness MUST use the matching pronouns and never the opposite; the "
-        f"pinned identity is immutable, do not re-gender {name}."
+        f"pinned identity is immutable, do not re-gender {name}. Other people in the story (a mother, a sister, a rival) keep their own "
+        f"pronouns and are named by role; only {name} takes the pinned ones."
         if gp in ("man", "woman", "nonbinary") else ""
     )
     # F1/F5 (#1660): the committed roster's IMMUTABLE identity — name, gender presentation, vocation, age
@@ -2164,7 +2447,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     floor_below += 1
                     return 0
             # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
-            problems = look_problems(profile, npc)
+            # ORW-388: the biography's own story checks (pronoun, age, look feature, show name) ride the same single strict retry.
+            problems = look_problems(profile, npc) + story_problems(profile, npc)
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
                 _spend_attempt(ukey, hid)
@@ -2177,6 +2461,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
                     look_profile = None
                 if (look_profile is not None and not look_problems(look_profile, npc)
+                        and not story_problems(look_profile, npc)
                         and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
                     profile = look_profile
                 else:
@@ -2184,6 +2469,11 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     logger.warning(
                         f"[cast-authoring] look fell back to the seeded brief for {hid} after the retry "
                         f"({', '.join(applied)}) — look-fallback")
+            # ORW-388: whatever the retry did not clear is mended deterministically (the biography here, and the card's
+            # identityConcept, which genesis wrote and no retry can rewrite). Codes and the id only in the log.
+            repaired = repair_story(profile, npc)
+            if repaired:
+                logger.warning(f"[cast-authoring] repaired the story text of {hid} ({', '.join(repaired)}) — story-repair")
             # #1057: the write-back is SERIALIZED + degradation-retried (it must not run concurrently
             # against the orchestrator integrity checkpoint).
             res = await _write_with_retries(profile, hid)

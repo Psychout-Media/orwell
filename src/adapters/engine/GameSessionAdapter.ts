@@ -3312,7 +3312,7 @@ export class GameSessionAdapter implements GameSession {
     const voiceGuardText = req.voice !== null && typeof req.voice === "object"
       ? Object.values(req.voice as unknown as Record<string, unknown>).flat().filter((x): x is string => typeof x === "string").join(" ")
       : "";
-    const publicText = `${req.biography ?? ""} ${req.physicalCharacteristics ? Object.values(req.physicalCharacteristics).join(" ") : ""} ${voiceGuardText}`;
+    const publicText = `${req.biography ?? ""} ${req.identityConcept ?? ""} ${req.physicalCharacteristics ? Object.values(req.physicalCharacteristics).join(" ") : ""} ${voiceGuardText}`;
     const storylineText = `${(req.secrets ?? []).join(" ")} ${(req.trueGoals ?? []).join(" ")} ${req.weakness ?? ""}`;
     if (mentionsPlayer(publicText) || mentionsPlayer(storylineText)) {
       return { accepted: false, publicFields: [], hiddenFields: [], reason: "authored profile mirrors the player" };
@@ -3420,6 +3420,14 @@ export class GameSessionAdapter implements GameSession {
     if (req.biography !== undefined && !facetGuard.dropBiography) {
       target.character.biography = req.biography;
       publicFields.push("biography");
+    }
+    // ORW-388: the repaired identity concept replaces the stored one only (never creates one), single line, capped.
+    if (typeof req.identityConcept === "string" && target.character.identityConcept !== undefined) {
+      const repaired = req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300);
+      if (repaired.length > 0 && repaired !== target.character.identityConcept) {
+        target.character.identityConcept = repaired;
+        publicFields.push("identityConcept");
+      }
     }
     if (req.physicalCharacteristics !== undefined) {
       target.character.physicalCharacteristics = facetGuard.physicalCharacteristics as typeof req.physicalCharacteristics;
