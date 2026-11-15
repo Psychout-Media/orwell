@@ -2045,6 +2045,7 @@ export class GameSessionAdapter implements GameSession {
   private runPersistSequence(): void {
     this.captureSeenMoods();
     this.syncOpenLedger(); // ORW-448: what the engine knows is over (an eviction, a linked deal ending, an entry left untouched for a week) closes in the same commit
+    this.captureSeenWhereabouts(); // ORW-462: what the player can see now becomes their last-known whereabouts
     this.catchUpDailyRecaps();
     this.onPersist?.();
   }
@@ -2867,6 +2868,30 @@ export class GameSessionAdapter implements GameSession {
   private moodCueEnabled = flagDefaultOn("ORWELL_MOOD_CUE");
   /** The mood word the player last saw on each houseguest (ORW-343). Persisted BESIDE presence (like the tracked sightings), deliberately not on the live season: a persist that writes a new word must not read as the game loop moving. Memory the player holds, a word only. */
   private seenMoods: Map<EntityId, string> | null = null;
+  /**
+   * ORW-462 (Kevin 2026-11-15: the game must not confirm where someone is if the player does not know): the player's last-known sighting of each houseguest IN VIEW (their own room or a sightline room): room, tick, day and
+   * part of day. Played games only (a headless run's save stays byte-identical). Kept beside `trackedSightings` (the witnessed "walked into X" record) and persisted like it; the house search reads ONLY these two records
+   * and what is in view now. Written at persist time from what the player could see; never read from a closed room.
+   */
+  private lastSeenAt: Map<EntityId, { room: Room; tick: number; day: number; part: string }> | null = null;
+  private captureSeenWhereabouts(): void {
+    if (this.live?.playedGame !== true || !this.house || !this.presence) return;
+    const me = this.house.player.id;
+    const here = this.presence.get(me);
+    if (here === undefined) return;
+    const awake = this.awakeNow();
+    const notHere = this.notYetArrived();
+    const day = this.live.dayNumber ?? 1;
+    const part = this.live.timeOfDay ?? "";
+    for (const id of this.presenceActive()) {
+      if (id === me || notHere?.has(id) || (awake && !awake.has(id))) continue;
+      const room = this.presence.get(id);
+      if (room === undefined || (room !== here && !areVisible(here, room))) continue;
+      const cur = this.lastSeenAt?.get(id);
+      if (cur && cur.room === room && cur.day === day && cur.part === part) continue;
+      (this.lastSeenAt ??= new Map()).set(id, { room, tick: this.presenceTickCount, day, part });
+    }
+  }
   setMoodCueEnabled(on: boolean): void { this.moodCueEnabled = on; }
   /** Remember the mood word of every awake houseguest in the player's room (the card shows it later, as last seen). Writes only when the word changed. No rng; the soul is read, never changed. */
   private captureSeenMoods(): void {
@@ -4360,6 +4385,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.trackedSightings && this.trackedSightings.size > 0
          ? { trackedSightings: Object.fromEntries(this.trackedSightings) as Record<EntityId, TrackedSighting> }
          : {}),
+       // ORW-462: the player's last-known sightings in view (absent/empty => omitted, byte-identical to an older save).
+       ...(this.lastSeenAt && this.lastSeenAt.size > 0 ? { lastSeenAt: Object.fromEntries(this.lastSeenAt) as Record<EntityId, { room: Room; tick: number; day: number; part: string }> } : {}),
        // ORW-343: the mood words the player last saw (absent/empty => omitted, byte-identical to a pre-feature save).
        ...(this.seenMoods && this.seenMoods.size > 0 ? { lastSeenMood: Object.fromEntries(this.seenMoods) as Record<EntityId, string> } : {}),
        // 0088: persist per-NPC current-read anchor bonds so drift reads warming/cooling/steady across
@@ -4692,6 +4719,8 @@ export class GameSessionAdapter implements GameSession {
     this.trackedSightings = core.trackedSightings
       ? new Map(Object.entries(core.trackedSightings) as [EntityId, TrackedSighting][])
       : null;
+    // ORW-462: restore the player's last-known sightings (absent on older saves => an empty record).
+    this.lastSeenAt = core.lastSeenAt ? new Map(Object.entries(core.lastSeenAt) as [EntityId, { room: Room; tick: number; day: number; part: string }][]) : null;
     // ORW-343: restore the mood words the player last saw (absent on older saves => none yet).
     this.seenMoods = core.lastSeenMood ? new Map(Object.entries(core.lastSeenMood) as [EntityId, string][]) : null;
     // 0088: restore per-NPC current-read anchor bonds (absent on pre-0088 saves ⇒ empty ⇒ drift "steady").
@@ -5927,6 +5956,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.presenceTenure) for (const id of [...this.presenceTenure.keys()]) if (!active.has(id)) this.presenceTenure.delete(id);
     // 0077: forget a tracked sighting once its subject leaves the house (an evictee is nowhere).
     if (this.trackedSightings) for (const id of [...this.trackedSightings.keys()]) if (!active.has(id)) this.trackedSightings.delete(id);
+    if (this.lastSeenAt) for (const id of [...this.lastSeenAt.keys()]) if (!active.has(id)) this.lastSeenAt.delete(id);
   }
 
   /**
@@ -6020,17 +6050,28 @@ export class GameSessionAdapter implements GameSession {
     const notHere = this.notYetArrived();
     const houseguests: HouseSearchEntry[] = [];
     const byRoom = new Map<Room, NamedRef[]>();
-    // ORW-462 (Kevin, 2026-11-15): the player is not omniscient. The search names occupants only of rooms the player can SEE into (their own and the rooms in sightline); behind any other door it says only that
-    // the door is closed. The houseguest the player is LOOKING FOR is always found: behind an unlocked door the entry says which door to open; in the diary room or the HOH room (never open to the player) a houseguest who knows says so.
+    // ORW-462 (Kevin, 2026-11-15): the player is not omniscient, and the game must not confirm where someone is if the player does not know. The search names a room ONLY for what the player can SEE now (their own room and the
+    // rooms in sightline) and, for the houseguest they are LOOKING FOR, from the player's own record: the "walked into X" sighting (`trackedSightings`, 0077) and the last-known sighting in view (`lastSeenAt`). A record is a LEAD,
+    // never a confirmation; with neither the answer is `unknown` (nobody here knows: look around the house, or ask around). Asking for every name in turn therefore reveals nothing the player did not already know.
     const want = lookingFor?.trim().toLowerCase();
-    const isTarget = (id: EntityId, name: string): boolean => want !== undefined && want !== "" && (id.toLowerCase() === want || name.toLowerCase() === want || name.toLowerCase().split(/\s+/)[0] === want);
-    // who could say where someone is: an awake houseguest in the player's room first, else one the player can see
-    const witnessesHere = (): NamedRef[] => {
-      const rank = (id: EntityId): number => (gathered || this.presence!.get(id) === myRoom ? 0 : areVisible(myRoom, this.presence!.get(id) as Room) ? 1 : 2);
-      return this.presenceActive()
-        .filter((id) => id !== me && rank(id) < 2 && (!awake || awake.has(id)) && !notHere?.has(id))
-        .sort((a, b) => rank(a) - rank(b))
-        .map((id) => ({ id, name: this.nameOf(id) }));
+    // a first name shared by two active houseguests names nobody (the safe side): the lookup then needs the full name or the id
+    const firstOf = (name: string): string => name.toLowerCase().split(/\s+/)[0] ?? "";
+    const sharedFirst = (name: string): boolean => this.presenceActive().filter((x) => x !== me && firstOf(this.nameOf(x)) === firstOf(name)).length > 1;
+    const isTarget = (id: EntityId, name: string): boolean => want !== undefined && want !== "" && (id.toLowerCase() === want || name.toLowerCase() === want || (firstOf(name) === want && !sharedFirst(name)));
+    const tracked = new Map(this.trackedNow().map((t) => [t.id, t] as const));
+    const record = (id: EntityId, name: string): HouseSearchEntry => {
+      const t = tracked.get(id);
+      if (t) {
+        const label = roomDisplayName(t.sighting.room);
+        return { id, name, status: "lead", room: t.sighting.room, fact: `last seen heading into the ${label} ${t.stale ? "a while ago" : "a moment ago"} - not confirmed: the player can go and look, or ask around` };
+      }
+      const l = this.lastSeenAt?.get(id);
+      if (l) {
+        const sameDay = l.day === (this.live?.dayNumber ?? 1);
+        const when = sameDay ? (l.part ? `around the ${l.part}` : "earlier today") : `on day ${l.day}`;
+        return { id, name, status: "lead", room: l.room, fact: `last seen in the ${roomDisplayName(l.room)} ${when} - not confirmed: the player can go and look, or ask around` };
+      }
+      return { id, name, status: "unknown", fact: "nobody here knows where they are: the player can look around the house or ask around" };
     };
     for (const id of this.presenceActive()) {
       if (id === me) continue;
@@ -6041,9 +6082,10 @@ export class GameSessionAdapter implements GameSession {
       const where = gathered ? myRoom : this.presence!.get(id);
       const seen = where !== undefined && (where === myRoom || areVisible(myRoom, where));
       if (awake && !awake.has(id)) {
-        houseguests.push(where && (where.startsWith("bedroom-") || where === "hoh-room")
-          ? { id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` }
-          : { id, name, status: "asleep", fact: "asleep, in bed" });
+        // a sleeper is in bed: the room of the bed is not seen unless the bed is in view, and the houseguest looked for is answered from the player's record like anyone else
+        if (seen && where && (where.startsWith("bedroom-") || where === "hoh-room")) houseguests.push({ id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` });
+        else if (target) houseguests.push(record(id, name));
+        else houseguests.push({ id, name, status: "asleep", fact: "asleep, in bed" });
         continue;
       }
       if (!where) continue; // never expected (every active houseguest is seated); the invariant test pins it
@@ -6055,14 +6097,10 @@ export class GameSessionAdapter implements GameSession {
       } else if (seen) {
         houseguests.push({ id, name, status: "awake", room: where, access, fact: `${label}, in view - the player can walk in` });
         (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
-      } else if (!target) {
-        houseguests.push({ id, name, status: "unseen", fact: "not in view; behind a door in the house (the player can open doors and look)" });
-      } else if (access === "closed") {
-        // the diary room / another houseguest's HOH room: closed to the player, but people know who is in there
-        const by = witnessesHere().find((w) => w.id !== id);
-        houseguests.push({ id, name, status: "told", room: where, access, ...(by ? { toldBy: by } : {}), fact: `${label}, door closed to the player - ${by ? `${by.name} knows and can say so` : "the house knows and anyone can say so"}` });
+      } else if (target) {
+        houseguests.push(record(id, name));
       } else {
-        houseguests.push({ id, name, status: "behind-door", room: where, access, action: `open the door to the ${label} and look`, fact: `${label}, door closed - open it to find them` });
+        houseguests.push({ id, name, status: "unseen", fact: "not in view; behind a door in the house (the player can open doors and look)" });
       }
     }
     const asleep = this.asleepNpcs();
