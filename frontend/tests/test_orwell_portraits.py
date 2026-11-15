@@ -667,7 +667,7 @@ def _seed_old_entry(tmp_portraits, version):
 @pytest.mark.parametrize("stored_version", [None, 1])
 def test_older_prompt_version_is_not_reshot_and_keeps_version_1(tmp_portraits, monkeypatch, stored_version):
     """ORW-361: an entry shot under an older prompt wording (promptVersion missing or 1) is NOT re-shot by
-    the fingerprint path and keeps version 1; a missing portrait is shot with the new prompt and records 2."""
+    the fingerprint path and keeps version 1; a missing portrait is shot with the new prompt and records the current version."""
     monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
     seen = []
 
@@ -689,10 +689,10 @@ def test_older_prompt_version_is_not_reshot_and_keeps_version_1(tmp_portraits, m
     m = orwell_portraits.load_manifest("u")
     assert m["npc_1"]["promptVersion"] == 1  # kept (explicit), never bumped
     assert m["npc_1"]["fingerprint"] == orwell_portraits._prompt_fingerprint("old wording")
-    assert m["npc_2"]["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION == 2
+    assert m["npc_2"]["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION == 3
 
 
-def test_forced_single_reshoot_records_version_2_and_keeps_old_file_on_failure(tmp_portraits, monkeypatch):
+def test_forced_single_reshoot_records_the_current_version_and_keeps_old_file_on_failure(tmp_portraits, monkeypatch):
     monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
     outcome = {"fail": True}
 
@@ -713,7 +713,7 @@ def test_forced_single_reshoot_records_version_2_and_keeps_old_file_on_failure(t
     assert summary["generated"] == 1
     assert (d / "npc_1.png").read_bytes() == b"PNG:new wording"
     m = orwell_portraits.load_manifest("u")["npc_1"]
-    assert m["promptVersion"] == 2
+    assert m["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION
     assert m["fingerprint"] == orwell_portraits._prompt_fingerprint("new wording")
 
 

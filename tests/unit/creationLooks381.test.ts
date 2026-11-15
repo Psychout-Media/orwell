@@ -51,6 +51,15 @@ describe("ORW-381 marks are signatures", () => {
     }
   });
 
+  it("tattoo marks are a small minority: at most 2 per cast (the two tattoo entries, each once)", () => {
+    for (const seed of [2026, 77, 4242, 999, 108108, ...SEEDS]) {
+      const marks = dealCastPhysicalSpread(new SeededRandom(seed), 15).map((x) => x.mark);
+      expect(marks.filter((m) => /tattoo/i.test(m)).length).toBeLessThanOrEqual(2);
+      const named = marks.filter((m) => !/^none\b/i.test(m));
+      expect(new Set(named).size).toBe(named.length);
+    }
+  });
+
   it("7-11 of 15 are 'none notable' in at least 36 of 40 seeds", () => {
     let ok = 0;
     for (const seed of SEEDS) {

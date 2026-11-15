@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 STYLE_FAMILIES: tuple[dict, ...] = (
-    {"id": "rocker", "label": "rocker edge", "sample": "all black, leather jacket, worn band tees", "keywords": ["rocker", "band tee", "leather jacket", "studded", "biker"]},
+    {"id": "rocker", "label": "rocker edge", "sample": "all black, leather jacket, graphic band tees", "keywords": ["rocker", "band tee", "leather jacket", "studded", "biker"]},
     {"id": "punk", "label": "DIY punk", "sample": "DIY patches, safety pins, plaid and heavy boots", "keywords": ["punk", "safety pin", "diy", "spiked", "bondage"]},
     {"id": "goth", "label": "goth", "sample": "black lace trim, silver jewelry, dark painted nails", "keywords": ["goth", "black lace", "dark lipstick", "silver jewelry", "corset"]},
     {"id": "preppy", "label": "preppy and buttoned-up", "sample": "oxfords, chinos, a crisp cardigan", "keywords": ["preppy", "oxford", "chinos", "cardigan", "boat shoes"]},
@@ -22,7 +22,7 @@ STYLE_FAMILIES: tuple[dict, ...] = (
     {"id": "luxury-streetwear", "label": "high-end street style", "sample": "a designer track set, a chunky chain, fresh sneakers", "keywords": ["designer", "track set", "chunky chain", "high-end street", "fresh kicks"]},
     {"id": "athleisure", "label": "athleisure and gym energy", "sample": "joggers or leggings, a zip-up, running shoes", "keywords": ["athleisure", "joggers", "leggings", "zip-up", "running shoes"]},
     {"id": "college-athlete", "label": "college athlete", "sample": "team-color shorts, slides, a compression tee", "keywords": ["team-color", "varsity", "compression", "slides", "jersey"]},
-    {"id": "skater", "label": "skater", "sample": "baggy jeans, worn canvas sneakers, a beanie", "keywords": ["skater", "skate", "baggy jeans", "beanie", "canvas sneakers"]},
+    {"id": "skater", "label": "skater", "sample": "baggy jeans, canvas sneakers, a beanie", "keywords": ["skater", "skate", "baggy jeans", "beanie", "canvas sneakers"]},
     {"id": "y2k", "label": "Y2K throwback", "sample": "low-rise jeans, a graphic cropped tee, tinted glasses", "keywords": ["y2k", "low-rise", "baby tee", "tinted glasses", "butterfly clips"]},
     {"id": "glam", "label": "full glam", "sample": "camera-ready contoured grooming, a highlighter glow, a sharply tailored outfit", "keywords": ["glam", "contour", "lashes", "highlighter", "bold lip"]},
     {"id": "bohemian", "label": "bohemian", "sample": "flowing layers, stacked rings, fringe", "keywords": ["bohemian", "boho", "fringe", "flowy", "maxi"]},

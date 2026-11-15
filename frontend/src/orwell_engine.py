@@ -1454,13 +1454,15 @@ async def knowledge_scope_manifest(user: str | None = None):
 
 async def record_look_extras(houseguest_id: str, look: dict, user: str | None = None) -> dict:
     """ORW-369 (the running-season portrait upgrade): store ONE existing houseguest's ``wardrobe`` (2-3 short
-    pieces) and ``onCamera`` line through the look-only engine tool. Merges only those two cleaned fields into the
+    pieces) and ``onCamera`` line and ``photoHair`` through the look-only engine tool. Merges only those two cleaned fields into the
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
     narrator's appearance string. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
-    for k in ("wardrobe", "onCamera"):
+    for k in ("wardrobe", "onCamera", "photoHair"):
         if look.get(k):
             args[k] = look[k]
+    if look.get("clear"):
+        args["clear"] = [c for c in look["clear"] if c in ("wardrobe", "onCamera", "photoHair")]
     return await _call("recordLookExtras", args, user=user)
 
 

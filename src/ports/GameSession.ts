@@ -1128,12 +1128,18 @@ export interface RecordLookExtrasReq {
   houseguestId: string;
   wardrobe?: string[];
   onCamera?: string;
+  /** ORW-380: shoot-day hair, at most 90 chars. */
+  photoHair?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
+  clear?: string[];
 }
 
 export interface RecordLookExtrasResult {
   accepted: boolean;
-  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  /** Field names actually stored (`wardrobe`, `onCamera`, `photoHair`); never a value. */
   fields: string[];
+  /** ORW-380: field names removed through `clear`. */
+  cleared?: string[];
   /** Present when `accepted` is false: a code, never an echo of the text. */
   reason?: string;
 }
@@ -3189,7 +3195,7 @@ export interface GameSession {
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
-   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields
    * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
    * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
    * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,

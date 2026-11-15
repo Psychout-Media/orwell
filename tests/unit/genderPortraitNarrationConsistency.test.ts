@@ -26,6 +26,10 @@ function rosterLineFor(ctx: string, name: string): string | undefined {
   return ctx.split("\n").find((l) => l.trimStart().startsWith(`- ${name}`));
 }
 
+/** ORW-380: the v3 portrait subject line carries the gender as man / woman / nonbinary person. */
+const portraitGenderRe = (g: string): RegExp =>
+  g === "nonbinary" ? /nonbinary person with a soft androgynous look/ : new RegExp(`year-old (?:[A-Za-z -]+ )?${g} with`);
+
 describe("#1140 — portrait and narration voice the SAME stored gender presentation", () => {
   it("every active houseguest's narration gender + pronouns match the portrait's gender, all from one facet", () => {
     // Sweep several seeds so the invariant holds across casts (every gender mix), not one lucky draw.
@@ -46,7 +50,7 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
         // encodes the gender via `genderPresentationPhrase(card.genderPresentation)`.
         const portrait = s.getPortraitPrompt(card.id);
         expect(portrait).not.toBeNull();
-        expect(portrait!.prompt).toContain(genderPresentationPhrase(g));
+        expect(portrait!.prompt).toMatch(portraitGenderRe(g)); // ORW-380: the v3 subject line says man / woman / nonbinary person
 
         // (2) The NARRATION: the roster line for this houseguest encodes the SAME phrase AND hands the
         // model the pronoun set — so the narrator anchors gender/pronouns on the stored facet, not the name.
@@ -117,7 +121,7 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
       // The PROOF: the portrait and the narration BOTH encode the STORED facet `g` — they agree with each
       // other and with the photo. (Before #1140 the narration inferred gender from the name and contradicted
       // the photo; now both anchor on the facet.)
-      expect(portrait!.prompt).toContain(genderPresentationPhrase(g));
+      expect(portrait!.prompt).toMatch(portraitGenderRe(g)); // ORW-380: the v3 subject line says man / woman / nonbinary person
       expect(line!).toContain(genderPresentationPhrase(g));
       expect(line!).toContain(`use ${pronounsFor(g)}`);
 

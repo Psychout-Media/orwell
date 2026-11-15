@@ -28,7 +28,7 @@ export const RENDERED_FACET_FIELDS = [
   "heightBuild", "skinTone", "hair", "facialFeatures", "distinguishingMark", "ageLook", "style",
   // ORW-360: the two new look fields. `wardrobe` is a string[] (joined for matching, reverted whole).
   // They feed the portrait prompt via ORW-361, so a tattoo written into either must be caught here.
-  "wardrobe", "onCamera",
+  "wardrobe", "onCamera", "photoHair",
 ] as const;
 
 /** Word-bounded ink lexicon — kept IDENTICAL to `tests/unit/diversity.test.ts`'s `INK_LEXICON` (one
