@@ -20,7 +20,7 @@ projections, never Vault data.
 
 ## Quick install (Proxmox)
 
-The repo is **private**: create a fine-grained PAT once (scope: `Psychout-Media/orwell`,
+The repo is **public**; the deploy path still uses a token. Create a fine-grained PAT once (scope: `Psychout-Media/orwell`,
 **Contents: Read-only**, nothing else), then run on the **Proxmox host shell** — this is the
 **single authenticated moment**; the token is persisted into the container's `data/.env` and
 every later update/reset reads it from there via a git credential helper (no re-prompt, never
@@ -50,7 +50,7 @@ Fine-grained PATs cap at one year: rotate with `bash /opt/orwell/deploy/orwell-u
 | `ORWELL_ENGINE_MCP_URL` | front-end → engine | `http://127.0.0.1:8765` |
 | `ORWELL_ENGINE_TOKEN` | shared secret required on every engine tool call (the installer generates one) | set by installer |
 | `ORWELL_ENGINE_MULTIUSER` | reject a request with no `x-orwell-user` instead of routing to a shared `default` sandbox | `1` (set by installer) |
-| `GIT_TOKEN` | the deploy PAT (private repo) — read by the git credential helper at fetch time | set by installer |
+| `GIT_TOKEN` | the deploy PAT — read by the git credential helper at fetch time | set by installer |
 | `SECURE_COOKIES` | set `true` behind TLS: front-end session cookies get the `Secure` flag | — (off) |
 | `OLLAMA_HOST` **or** `ANTHROPIC_API_KEY` | the LLM (set one) | — |
 
@@ -108,7 +108,7 @@ helpers live in `deploy/orwell-tui.sh`.
 
 ## Update
 
-Run the **local checked-out copy** — no script fetches from GitHub anymore (the repo is private;
+Run the **local checked-out copy** — no script fetches from GitHub anymore (the deploy path uses a token;
 `git pull` authenticates via the credential helper + `GIT_TOKEN` in `data/.env`):
 
 ```bash
@@ -125,7 +125,7 @@ touched.**
 ## Manual / non-Proxmox install
 
 ```bash
-# Private repo: authenticate the clone once with your PAT, then keep the token OUT of git config
+# Authenticate the clone once with your PAT, then keep the token OUT of git config
 # (the credential helper reads it from data/.env at fetch time — set it up below).
 git -c credential.helper='!f(){ echo username=x-access-token; echo password=$GIT_TOKEN; };f' \
   clone https://github.com/Psychout-Media/orwell.git /opt/orwell && cd /opt/orwell

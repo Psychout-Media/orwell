@@ -1719,7 +1719,11 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
       // pre-game / per-tab-pending fallback); if it cannot be, the turn is refused below with a clear message instead of silently POSTing /api/chat_stream.
       const _wsOnlySend = _wsOnlyTransport();  // the operator's ORWELL_WS_TRANSPORT=0 rollback keeps the old SSE path
       if (_wsOnlySend && streamSessionId && !_wsChatActive()) {
-        try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
+        // ORW-406 slice 2: a socket that WAS live and is reconnecting (a release, a wifi hop) is waited out quietly (~45 s; the bubble reads "sending…", never an error); a page that never went live keeps the 8 s verdict.
+        const _riding = !!(window.OrwellWs && window.OrwellWs.isReconnecting && window.OrwellWs.isReconnecting());
+        if (_riding && _userMsgEl) { try { _setQueuedTag(_userMsgEl, 'sending'); } catch (_) {} }
+        try { if (window.OrwellWs && window.OrwellWs.ensure) await window.OrwellWs.ensure(_riding ? 45000 : 8000); } catch (_) { /* a failed ensure falls through to the refusal below */ }
+        if (_riding && _userMsgEl) { try { _setQueuedTag(_userMsgEl, null); } catch (_) {} }
       }
       if (_wsChatActive() && streamSessionId) {
         const _bodyDiv = holder.querySelector('.body');
@@ -1728,7 +1732,8 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
         _wsPinRound({ holder: holder, contentDiv: _sc, state: {}, reply: '', reasoning: '',
                      sessionId: streamSessionId, clientMsgId: _clientMsgId, _spinner: spinner });
         try {
-          await window.OrwellWs.sendTurn({
+          // ORW-406: sendTurnWhenLive re-sends (same clientMsgId) only when the frame provably never left the device.
+          await (window.OrwellWs.sendTurnWhenLive || window.OrwellWs.sendTurn)({
             message: _finalMsgWithInject,
             clientMsgId: _clientMsgId,
             mode: isAgentMode ? 'agent' : 'chat',
