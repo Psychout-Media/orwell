@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildPortraitPrompt, buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
-import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS } from "../../src/engine/imageConstants";
+import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS, WORN_TEXTURE_VARIANTS, BACKDROP_VARIANTS } from "../../src/engine/imageConstants";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { buildEngineCore } from "../../src/composition/engineRoot";
@@ -343,5 +343,117 @@ describe("0051 — recordImageBeat (recorded or it didn't happen; player-witness
     // The Vault's hidden-attribute store never gained a record for it either.
     const vaultRecords = core.vault.readHidden();
     expect(vaultRecords.some((r) => r.content.includes("img-ref-xyz"))).toBe(false);
+  });
+});
+
+/** ORW-361 — portrait prompt v2: explicit age, written face, faint mark, wardrobe/on-camera, frame rules. */
+describe("ORW-361 — portrait prompt v2", () => {
+  const anchor = STYLE_ANCHOR_VARIANTS[2]!;
+  const facet = {
+    heightBuild: "tall and lean", skinTone: "warm brown skin", hair: "short dark curls",
+    facialFeatures: "a narrow nose, wide-set eyes and a square jaw", distinguishingMark: "a thin scar through the left eyebrow",
+    ageLook: "looks their age, crisp and youthful", style: "relaxed streetwear",
+  };
+  const base = { appearance: "legacy prose appearance", age: 27, presentation: "easygoing", ethnicity: "West African",
+    genderPresentation: "man" as const, demeanor: "warm and guarded", identityConcept: "a chaos-agent podcaster", vocation: "podcaster" };
+  const withNew = buildPortraitPrompt("hg:7", "Fixture One", {
+    ...base, physicalCharacteristics: { ...facet, wardrobe: ["a faded grey hoodie", "dark jeans"], onCamera: "leans in, mischievous, mid-story" } as never,
+  }, anchor).prompt;
+  const withoutNew = buildPortraitPrompt("hg:7", "Fixture One", { ...base, physicalCharacteristics: facet }, anchor).prompt;
+  const legacy = buildPortraitPrompt("hg:7", "Fixture One", base, anchor).prompt;
+  const lines = (p: string) => p.split(". ");
+  const MARK = "Mark (subtle: faint, small and long-healed, never a fresh wound, bruise or stain): a thin scar through the left eyebrow";
+  const FRAME = "The only person in the frame. No text, logos, badges or screens, and no photos on the walls. At home in the Orwell house, not at work.";
+
+  it("states the age explicitly in every path", () => {
+    for (const p of [withNew, withoutNew, legacy]) {
+      expect(p).toContain("who looks exactly 27 years old");
+      expect(p.startsWith("Subject: a man")).toBe(true);
+    }
+  });
+
+  it("a written face drops the random Facial structure line; legacy keeps it", () => {
+    expect(withNew).not.toContain("Facial structure:");
+    expect(withoutNew).not.toContain("Facial structure:");
+    expect(legacy).toContain("Facial structure:");
+  });
+
+  it("the appearance line has no mark and no style; the mark is faint and said once", () => {
+    const phys = withoutNew.split("Physical appearance: ")[1]!.split(". ")[0]!;
+    expect(phys).toBe("tall and lean, warm brown skin, short dark curls, a narrow nose, wide-set eyes and a square jaw, looks their age, crisp and youthful");
+    for (const p of [withNew, withoutNew]) {
+      expect(p).toContain(MARK);
+      expect(p.split("thin scar through the left eyebrow").length - 1).toBe(1);
+    }
+  });
+
+  it("Wearing replaces the style line when a wardrobe is written; otherwise one style only", () => {
+    expect(withNew).toContain("Wearing: a faded grey hoodie, dark jeans");
+    expect(withNew).not.toContain("Presentation style:");
+    expect(withNew).not.toContain("relaxed streetwear");
+    expect(withoutNew).toContain("Presentation style: relaxed streetwear");
+    expect(withoutNew).not.toContain("easygoing");
+    expect(withoutNew).not.toContain("Wearing:");
+    expect(legacy).toContain("Presentation style: easygoing");
+  });
+
+  it("On camera is the last line and replaces Character, Expression and Setting; otherwise they stay", () => {
+    const l = lines(withNew);
+    expect(l[l.length - 1]).toBe("On camera: leans in, mischievous, mid-story");
+    for (const k of ["Character:", "Expression:", "Setting:", "Distinctive look:"]) expect(withNew).not.toContain(k);
+    expect(withNew).toContain("Lighting:");
+    expect(withNew).toContain("Framing:");
+    for (const p of [withoutNew, legacy]) {
+      expect(p).toContain("Character: a chaos-agent podcaster");
+      expect(p).toContain("Expression:");
+      expect(p).toContain("Setting:");
+      expect(p).not.toContain("On camera:");
+    }
+  });
+
+  it("closing line: written face restates the face only; legacy is unchanged", () => {
+    expect(withoutNew).toMatch(/Distinctive look: a narrow nose, wide-set eyes and a square jaw$/);
+    expect(legacy).toMatch(/Distinctive look: legacy prose appearance$/);
+  });
+
+  it("carries the frame rules right after the anchor and never says Big Brother", () => {
+    for (const p of [withNew, withoutNew, legacy]) {
+      expect(p).toContain(FRAME);
+      expect(p).not.toMatch(/Big Brother/i);
+      expect(p.indexOf(FRAME)).toBeGreaterThan(p.indexOf(anchor));
+    }
+    for (const a of STYLE_ANCHOR_VARIANTS) {
+      expect(buildPortraitPrompt("hg:1", "F", base, a).prompt).not.toMatch(/Big Brother/);
+    }
+    const old = "photorealistic candid moment captured on a reality TV set, lived-in skin texture, Big Brother house behind";
+    const p = buildPortraitPrompt("hg:1", "F", base, old).prompt;
+    expect(p).not.toMatch(/Big Brother/);
+    expect(p).toContain("Orwell house behind");
+  });
+
+  it("worn skin texture only when the age-look says worn; healthy skin otherwise", () => {
+    expect(withNew).toContain("Skin: natural, healthy skin with real texture");
+    const worn = buildPortraitPrompt("hg:7", "F", { ...base, physicalCharacteristics: { ...facet, ageLook: "weathered, sun-creased, older than their years" } }, anchor).prompt;
+    expect(worn).toContain(`Skin: ${WORN_TEXTURE_VARIANTS[2]}`);
+    expect(worn).not.toContain("healthy skin");
+    for (const w of WORN_TEXTURE_VARIANTS) expect(withNew).not.toContain(w);
+  });
+
+  it("no mark line for 'none' and no memory-wall backdrop", () => {
+    const p = buildPortraitPrompt("hg:7", "F", { ...base, physicalCharacteristics: { ...facet, distinguishingMark: "none notable" } }, anchor).prompt;
+    expect(p).not.toContain("Mark (subtle");
+    expect(p).not.toContain("none notable");
+    for (const b of BACKDROP_VARIANTS) expect(b).not.toMatch(/memory wall/);
+  });
+
+  it("empty or malformed wardrobe/onCamera fall back", () => {
+    const p = buildPortraitPrompt("hg:7", "F", { ...base, physicalCharacteristics: { ...facet, wardrobe: [" ", 3], onCamera: "  " } as never }, anchor).prompt;
+    expect(p).toContain("Presentation style: relaxed streetwear");
+    expect(p).toContain("Character:");
+    expect(p).not.toContain("On camera:");
+  });
+
+  it("prints the three example prompts", () => {
+    if (process.env.ORW361_PRINT) console.log(`\nWRITTEN+NEW:\n${withNew}\n\nWRITTEN:\n${withoutNew}\n\nLEGACY:\n${legacy}\n`);
   });
 });
