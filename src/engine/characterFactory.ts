@@ -185,6 +185,12 @@ export interface Character {
   biography?: string;
   physicalCharacteristics?: PhysicalCharacteristics;
   /**
+   * ORW-381: how this houseguest is cast and reads on camera ("the charmer"). PRESENTATION ONLY: no mechanic,
+   * outcome or stat reads it and it is dealt independently of stats, secrets and goals. Public, Vault-free,
+   * byte-stable. Optional: a save from before ORW-381 loads without it and re-derives nothing.
+   */
+  castingType?: { id: string; label: string; read: string };
+  /**
    * One-time PROVENANCE flag for the season-start deep-profile authoring write-back (#1067). The seeded
    * deterministic floor (`seedDeepProfiles`) sets `biography`/`physicalCharacteristics`/`vocation` to a
    * PLACEHOLDER; the FE then authors a RICHER replacement via `recordCastProfile`. Replacing those public

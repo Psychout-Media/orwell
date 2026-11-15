@@ -228,16 +228,16 @@ describe("G24/E — #1317: heightBuild + skinTone are cast-wide spread-capped (r
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
   });
 
-  it("2026-07-21 prompt audit: distinguishing marks are cast-wide capped — named marks ≤2, tattoos a small minority, 'none' free", () => {
+  it("2026-07-21 prompt audit: distinguishing marks are cast-wide capped — named marks once (ORW-381), tattoos a small minority, 'none' free", () => {
     for (const seed of [2026, 77, 4242, 999, 108108]) {
       const marks = dealCastPhysicalSpread(new SeededRandom(seed), 15).map((s) => s.mark);
       const named = marks.filter((m) => !/^none\b/i.test(m));
       const counts = new Map<string, number>();
       for (const m of named) counts.set(m, (counts.get(m) ?? 0) + 1);
       // no NAMED mark lands on 3+ houseguests (the "half-sleeve tattoo ×4" index case stays dead)
-      for (const [, count] of counts) expect(count).toBeLessThanOrEqual(2);
-      // tattoo marks are a bounded small minority (2 tattoo entries × cap 2 ⇒ hard ceiling 4)
-      expect(named.filter((m) => /tattoo/i.test(m)).length).toBeLessThanOrEqual(4);
+      for (const [, count] of counts) expect(count).toBeLessThanOrEqual(1);
+      // tattoo marks are a bounded small minority (2 tattoo entries × cap 1 ⇒ hard ceiling 2)
+      expect(named.filter((m) => /tattoo/i.test(m)).length).toBeLessThanOrEqual(2);
     }
   });
 

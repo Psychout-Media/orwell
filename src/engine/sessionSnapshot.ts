@@ -677,6 +677,7 @@ export function toGameState(snap: SessionSnapshot): GameState {
       // #1067: the season-start authoring provenance flag — drives the ONE sanctioned floor→authored public-
       // facet upgrade the 0031 checkpoint permits. Spread (not nested) so it stays absent on the seeded floor
       // and on pre-#1067 saves (no spurious change to the byte-compare for an un-authored character).
+      ...(hg.character.castingType !== undefined ? { castingType: hg.character.castingType } : {}), // ORW-381
       ...(hg.character.deepProfileAuthored === true ? { deepProfileAuthored: true } : {}),
     };
     souls[hg.id] = {
