@@ -150,14 +150,35 @@ describe("open ledger shape and brief wording (review of #2692, #2721)", () => {
     expect(openLedgerProposal({ text: "x", speaker: "player", addressedTo: ["npc:1"], kind: "k" }, known)).toMatchObject({ speaker: "player" });
     expect(openLedgerProposal({ text: "x", speaker: "player", addressedTo: [], kind: "k", about: "the next competition" }, known)).toMatchObject({ about: "the next competition" });
   });
-  it("stops at 200 entries with reason full and keeps all 200", async () => {
-    const { recordOpenEntry, emptyOpenLedger } = await import("../../src/engine/openLedger");
-    let l = emptyOpenLedger();
+  it("the 200 bound counts OPEN entries only: resolved ones never block, 200 open refuses, resolving one frees a slot, nothing is removed", async () => {
+    const { recordOpenEntry, emptyOpenLedger, resolveOpenEntry, openLedgerSuperset, OPEN_LEDGER_MAX_ENTRIES } = await import("../../src/engine/openLedger");
+    expect(OPEN_LEDGER_MAX_ENTRIES).toBe(200);
     const ctx = { turn: 1, beatSeq: 1, room: "kitchen", witnesses: ["npc:1"] };
-    for (let i = 0; i < 200; i++) l = recordOpenEntry(l, { text: `t${i}`, speaker: "npc:1", addressedTo: ["player"], kind: "k" }, ctx).ledger;
+    const add = (l: OpenLedger, t: string) => recordOpenEntry(l, { text: t, speaker: "npc:1", addressedTo: ["player"], kind: "k" }, ctx);
+    let l = emptyOpenLedger();
+    for (let i = 0; i < 150; i++) l = add(l, `r${i}`).ledger;
+    for (let i = 0; i < 150; i++) l = resolveOpenEntry(l, { entryId: `open:${i + 1}`, status: "kept", note: "n" }, 2).ledger;
+    for (let i = 0; i < 200; i++) { const r = add(l, `t${i}`); expect(r.outcome, `open ${i}`).toBe("recorded"); l = r.ledger; }
+    expect(l.entries).toHaveLength(350);
+    const full = add(l, "one more");
+    expect(full.outcome).toBe("full");
+    expect(full.ledger).toBe(l);
+    const freed = resolveOpenEntry(l, { entryId: "open:151", status: "withdrawn", note: "n" }, 3).ledger;
+    expect(openLedgerSuperset(l, freed)).toBe(true);
+    const after = add(freed, "one more");
+    expect(after.outcome).toBe("recorded");
+    expect(after.ledger.entries).toHaveLength(351);
+    expect(openLedgerSuperset(l, after.ledger)).toBe(true);
+  });
+  it("the hard ceiling on all entries refuses with reason full and keeps every entry", async () => {
+    const { recordOpenEntry, OPEN_LEDGER_TOTAL_CEILING } = await import("../../src/engine/openLedger");
+    expect(OPEN_LEDGER_TOTAL_CEILING).toBe(2000);
+    const ctx = { turn: 1, beatSeq: 1, room: "kitchen", witnesses: ["npc:1"] };
+    const entries = Array.from({ length: OPEN_LEDGER_TOTAL_CEILING }, (_v, i) => entry({ id: `open:${i + 1}`, quoteHash: `h${i}`, text: `t${i}`, status: "kept", note: "n", resolvedTurn: 1 }));
+    const l: OpenLedger = { nextId: OPEN_LEDGER_TOTAL_CEILING + 1, entries };
     const r = recordOpenEntry(l, { text: "one more", speaker: "npc:1", addressedTo: ["player"], kind: "k" }, ctx);
     expect(r.outcome).toBe("full");
-    expect(r.ledger.entries).toHaveLength(200);
+    expect(r.ledger.entries).toHaveLength(OPEN_LEDGER_TOTAL_CEILING);
   });
   it("says 'you said' for the player's own words, and names the real other side when speaker is a houseguest and the addressee another one", async () => {
     const { openLedgerSection } = await import("../../src/engine/openLedger");
@@ -187,5 +208,26 @@ describe("MCP guard lets the engine decide on empty kind and empty note (review 
     expect(rec.reason, JSON.stringify(rec)).not.toMatch(/free-text kind/); // the engine answered (no-game here), the guard did not refuse
     const res = (await server.callTool("resolveOpenLedger", { entryId: "open:1", status: "kept", note: "" })) as { reason?: string };
     expect(JSON.stringify(res)).not.toMatch(/free-text note/);
+  });
+});
+
+describe("an ACCEPTED ledger write goes through McpServer.callTool (boundary)", () => {
+  it("records, is read back by openLedgerHere, and is resolved, all through the tool surface", async () => {
+    const { McpServer } = await import("../../src/adapters/mcp/McpServer");
+    const { GameSessionRegistry } = await import("../../src/composition/registry");
+    const sb = new GameSessionRegistry().sandboxFor(`ol-mcp-ok-${Math.random()}`);
+    sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+    sb.session.noteMessage({ messageId: "m-1" });
+    sb.session.setOpenLedgerEnabled(true);
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands: sb.commands, session: sb.session });
+    const here = sb.session.whereabouts()!.present[0]!.id as string;
+    const rec = (await server.callTool("recordOpenLedger", { text: "I will keep your secret", speaker: here, addressedTo: ["player"], kind: "promise" })) as { accepted?: boolean; entryId?: string };
+    expect(rec).toMatchObject({ accepted: true, entryId: "open:1" });
+    const list = (await server.callTool("openLedgerHere", {})) as Array<{ id: string; text: string }>;
+    expect(list.map((x) => x.id)).toEqual(["open:1"]);
+    expect(list[0]!.text).toBe("I will keep your secret");
+    const res = (await server.callTool("resolveOpenLedger", { entryId: "open:1", status: "kept", note: "she did" })) as { accepted?: boolean };
+    expect(res).toEqual({ accepted: true });
+    expect(await server.callTool("openLedgerHere", {})).toEqual([]);
   });
 });
