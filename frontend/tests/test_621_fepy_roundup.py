@@ -77,7 +77,7 @@ def test_rejected_cast_write_back_is_logged():
     except Exception:
         handler_id = None  # the no-op stand-in (importable-in-isolation path) has no .add
     try:
-        written = _run(A.author_cast([{"id": "npc:7"}], llm_fn, write_fn))
+        written = _run(A.author_cast([{"id": "npc:7", "biography": "A seeded floor biography that the engine keeps when the writer omits its own."}], llm_fn, write_fn))
     finally:
         if handler_id is not None:
             try:

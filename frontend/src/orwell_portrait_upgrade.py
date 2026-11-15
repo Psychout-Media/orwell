@@ -118,7 +118,8 @@ def stale_candidates(user, state: dict, manifest: dict) -> list:
             rank[sid] = 0 if (hg.get("status") or "active") == "active" else 1
     pid = state.get("player") if isinstance(state.get("player"), dict) else {}
     player_ids = {P.PLAYER_PORTRAIT_ID, P._safe_id(str(pid.get("id") or "player"))}
-    stale = [sid for sid in P.stale_portrait_ids(manifest) if sid in rank and sid not in player_ids]
+    stale = [sid for sid in sorted(set(P.stale_portrait_ids(manifest)) | set(P.check_retry_ids(manifest)))  # ORW-431 D
+             if sid in rank and sid not in player_ids]
     return sorted(stale, key=lambda sid: (rank[sid], sid))
 
 

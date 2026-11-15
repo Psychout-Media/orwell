@@ -109,6 +109,8 @@ _SYSTEM = (
     "cast; do NOT rename or re-invent them. ONLY when the skeleton carries no name, supply a realistic, "
     "common, pronounceable FIRST and LAST name (two words), diverse and ordinary, NEVER invented/fantasy/"
     "gibberish.\n"
+    '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
+    "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card),\n"
     '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
@@ -1235,6 +1237,7 @@ _STORY_PROBLEM_TEXT = {
     "story-feature": "the biography names a physical feature (tooth gap, tattoo, glasses, scar, birthmark, freckles...) that the look block does not have; remove it or add it to the look",
     "story-show-name": "the show is called Orwell; never write Big Brother",
     "story-name": "the biography is about someone other than the houseguest: write it about the houseguest by the exact name in the skeleton (first name or full name), never another first name as its subject",
+    "story-no-biography": "the biography is missing or too short: write a presentable biography of at least two sentences about this houseguest",
     "story-cast-name": "the biography is about another houseguest on the cast: write it about this houseguest by the exact name in the skeleton",
 }
 _LOOK_PROBLEM_TEXT.update(_STORY_PROBLEM_TEXT)
@@ -1254,7 +1257,7 @@ _OTHER_PERSON_RE = re.compile(
     r"boyfriend|girlfriend|ex|daughter|son|kids?|child|children|aunt|uncle|cousin|niece|nephew|grandmother|"
     r"grandfather|grandma|grandpa|grandparents?|parents?|twin|friend|best friend|roommate|neighbou?r|boss|"
     r"manager|coach|mentor|teacher|professor|student|clients?|customers?|patients?|crew|team|colleagues?|"
-    r"coworkers?|rivals?|family|people|someone|girls|boys|men|women|guys)\b", re.I)
+    r"coworkers?|rivals?|family|someone|girls|boys|men|women|guys)\b", re.I)
 _NAMED_PERSON_RE = re.compile(r"(?<!\bthe )(?<!\bThe )\b[A-Z][a-z]{2,}\b")
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])(\s+)")
 _PRON_RE = re.compile(r"\b(she|he|they|her|hers|herself|him|his|himself|them|their|theirs|themself|themselves)\b", re.I)
@@ -1314,7 +1317,13 @@ def _plainly_the_houseguest(sentence: str, npc: dict, *, names: bool = True) -> 
     relative, colleague or other person by role, and (when `names`) no other capitalised name. The houseguest's own
     name, hometown and job words do not count as other people."""
     sentence = _BB_RE.sub("Orwell", sentence)  # the show's old name is not a brother
-    if _OTHER_PERSON_RE.search(sentence):
+    voc = {w.lower() for w in re.findall(r"[A-Za-z']+", str((npc or {}).get("vocation") or ""))}
+    for m in _OTHER_PERSON_RE.finditer(sentence):
+        word = m.group(0).lower()
+        if word in voc:
+            continue  # ORW-431: a role noun that is the houseguest's OWN job is not another person
+        if re.search(r"\ban?\s+(?:[\w'-]+\s+){0,4}" + re.escape(m.group(0)) + r"\s+(?:who|that)\b", sentence, re.I):
+            continue  # "A small-town strength coach who ...": the role describes the houseguest, it is not a second person
         return False
     if not names:
         return True
@@ -1536,6 +1545,56 @@ def story_problems(profile: dict, npc: dict, cast=None) -> list:
     return out
 
 
+
+# ── ORW-430: the one final check, run after ALL repairs ────────────────────────────────────────────────
+# `card_consistency` is the single place the accept path asks "is this card consistent". Codes only, never text.
+# Repaired before this runs (so a code here that is not a hole means the repair could not settle it):
+#   story-name, story-cast-name (name swapped for the card's), story-pronoun, story-age, story-feature, story-show-name
+#   (all mended by repair_story_text, for the biography and the identityConcept).
+# Only reported: story-no-biography (retried once; if still missing the card is NOT written, so it stays unauthored and
+# the existing backfill picks it up; RED soft failure), look-missing-<field> (wardrobe/onCamera/photoHair come from the
+# photo-sheet pass, which may still fill them; reported, RED at the end of the run if still missing, and the card is
+# listed by `unauthored_ids` so the backfill takes it again), identity-missing (genesis owns the identity; the writer cannot
+# make one and no filler is invented), identity-* (an identity problem the repair could not settle).
+_IDENTITY_MIN_CHARS = 20
+_REQUIRED_LOOK_FIELDS = ("wardrobe", "onCamera", "photoHair")
+
+
+def look_fields_missing(pc_a, pc_b=None) -> list:
+    """The required photo-sheet fields (wardrobe, onCamera, photoHair) that neither look block carries."""
+    pcs = [x for x in (pc_a, pc_b) if isinstance(x, dict)]
+    return [f for f in _REQUIRED_LOOK_FIELDS if not any(x.get(f) not in (None, "", [], {}) for x in pcs)]
+_BIO_FINAL_MIN_CHARS = 40
+
+
+def _has_floor_biography(npc: dict) -> bool:
+    """The seeded floor biography the engine already holds for this card (the skeleton carries it): when the writer
+    omits its own, that one stands, so the card is not empty. Briana had none left."""
+    b = (npc or {}).get("biography")
+    return isinstance(b, str) and len(b.strip()) >= _BIO_FINAL_MIN_CHARS
+
+
+def card_consistency(profile: dict, npc: dict, cast=None) -> list:
+    out = []
+    bio = (profile or {}).get("biography")
+    if not isinstance(bio, str) or len(bio.strip()) < _BIO_FINAL_MIN_CHARS:  # a repair may trim a floor-clearing text
+        if not _has_floor_biography(npc):
+            out.append("story-no-biography")
+    out += story_problems(profile, npc, cast)
+    ident = (profile or {}).get("identityConcept") or (npc or {}).get("identityConcept")
+    if not isinstance(ident, str) or len(ident.strip()) < _IDENTITY_MIN_CHARS:
+        out.append("identity-missing")
+    else:
+        if pronoun_conflict_sentences(ident, npc):
+            out.append("identity-pronoun")
+        if story_age_conflict(ident, npc):
+            out.append("identity-age")
+        out += ["identity-" + c.replace("story-", "") for c in story_name_codes(ident, npc, cast)]
+    out += ["look-missing-" + f for f in look_fields_missing((profile or {}).get("physicalCharacteristics"),
+                                                              (npc or {}).get("physicalCharacteristics"))]
+    return out
+
+
 _MODIFIER_FOR = {"tooth-gap": r"gap-?toothed", "tattoo": r"tattooed|inked", "glasses": r"bespectacled", "freckles": r"freckled"}
 
 
@@ -1590,7 +1649,7 @@ def repair_story(profile: dict, npc: dict) -> list:
         if fixed != bio:
             profile["biography"] = fixed
             done.append("biography")
-    ident = (npc or {}).get("identityConcept")
+    ident = profile.get("identityConcept") or (npc or {}).get("identityConcept")  # ORW-431: the writer's own, else genesis's
     if isinstance(ident, str) and ident.strip():
         fixed = repair_story_text(ident, profile, npc)
         if fixed != ident:
@@ -1775,7 +1834,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
     # model sharpens the brief; the ink budget is fixed (and the engine's write-back backstop holds it).
     skeleton = {
         k: npc.get(k)
-        for k in ("name", "age", "vocation", "hometown", "archetype", "demeanor", "presentation", "appearance", "ethnicity", "genderPresentation", "voice", "physicalCharacteristics")
+        for k in ("name", "age", "vocation", "hometown", "archetype", "demeanor", "presentation", "appearance", "ethnicity", "genderPresentation", "voice", "physicalCharacteristics", "background", "identityConcept")  # ORW-431: the earlier writer's text is shown as fact to keep
         if npc.get(k) is not None
     }
     gp = npc.get("genderPresentation")
@@ -1823,6 +1882,13 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             parts.append(f"occupations already cast: {', '.join(jobs)}")
         if towns:
             parts.append(f"hometowns already cast: {', '.join(towns)}")
+        ph = taken.get("phrases") if isinstance(taken.get("phrases"), dict) else {}
+        if ph.get("oncamera_endings"):
+            parts.append("onCamera lines already end: " + " | ".join(ph["oncamera_endings"]))
+        if ph.get("identity_openers"):
+            parts.append("identity lines already open: " + " | ".join(ph["identity_openers"]))
+        if ph.get("marks"):
+            parts.append("distinguishing marks already used (every mark is unique in the cast): " + " | ".join(ph["marks"]))
         if parts:
             taken_rule = ("\nCAST-WIDE TAKEN LIST (the other houseguests occupy this ground — do NOT "
                           "duplicate it or drift this houseguest toward it): " + "; ".join(parts) + ".")
@@ -1835,8 +1901,10 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         f"{pronoun_rule}"
         f"{hand_rule}"
         f"{taken_rule}\n"
+        f"The skeleton's background and identityConcept are FACTS about {name}: the biography must agree with them "
+        f"(same job, same years of service, same workplace) and may add to them, never contradict them.\n"
         f"The biography is about {name} and no one else: write it about {name} by that exact name (or by role), "
-        f"and never give them any other first name.\n"
+        f"and never give them any other first name. Use the first name at least once in the biography.\n"
         f"Write {name}'s secret bible as JSON now — their own independent life, no protagonist."
     )
     return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
@@ -1936,6 +2004,12 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
                 f"[cast-authoring] biography below floor for {houseguest_id} "
                 f"({len(bio)} chars, {len(_SENTENCE_TERMINATORS.findall(bio))} sentence(s)) — "
                 "omitting so the seeded floor stands")
+    # ORW-431 A: the writer, which runs after every pin and sees the final card, owns the one-line identityConcept too
+    # (genesis's was written before the name, gender and age were settled and is never shown once this lands).
+    if isinstance(obj.get("identityConcept"), str):
+        ic = " ".join(obj["identityConcept"].split())
+        if 12 <= len(ic) <= 300:
+            out["identityConcept"] = ic
     # The PUBLIC occupation (#849) — forwarded so the engine keeps it in lockstep with the biography and
     # re-grounds the hidden stakes off the job the player will infer. A blank / runaway value is dropped
     # (the engine then leaves the seeded vocation — and its keyed stakes — untouched). Single line only.
@@ -2167,6 +2241,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("vocation")],
             "hometowns": [n.get("hometown") for n in (cast or [])
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("hometown")],
+            **({"phrases": season_gate.taken_phrases(hid)} if season_gate.registry else {}),
         }
     # #1057: SERIALIZE the engine write-back. The per-NPC recordCastProfile write-backs collide on the
     # orchestrator integrity checkpoint when they run concurrently (the live-verify's 3 `degradation`
@@ -2192,6 +2267,10 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     facet_stripped = 0      # T0-6: NPCs whose biography was dropped after a failed dealt-facet regenerate
     voice_repaired = 0      # ORW-184: NPCs whose authored voice was mended per field (flag on)
     ukey = _safe_user(user)  # M1-10: the give-up ledger scope
+    from src import orwell_cast_gate as _gate  # ORW-431: the one gate at the end
+    _gate_on = _gate.gate_enabled()
+    season_gate = _gate.SeasonGate(user)
+    gate_lock = asyncio.Lock()  # the cross-cast registry is checked and filled one card at a time
 
     async def _call_with_retries(npc: dict, hid: str):
         """Issue the authoring call(s) for one NPC and return its parsed profile (or None).
@@ -2554,7 +2633,9 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return 0
             # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
             # ORW-388: the biography's own story checks (pronoun, age, look feature, show name) ride the same single strict retry.
-            problems = look_problems(profile, npc) + story_problems(profile, npc, cast)
+            _no_bio = lambda p: [] if (_biography_meets_floor(str((p or {}).get("biography") or "").strip())
+                                       or _has_floor_biography(npc)) else ["story-no-biography"]
+            problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
                 _spend_attempt(ukey, hid)
@@ -2567,7 +2648,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
                     look_profile = None
                 if (look_profile is not None and not look_problems(look_profile, npc)
-                        and not story_problems(look_profile, npc, cast)
+                        and not story_problems(look_profile, npc, cast) and not _no_bio(look_profile)
                         and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
                     profile = look_profile
                 else:
@@ -2577,9 +2658,42 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                         f"({', '.join(applied)}) — look-fallback")
             # ORW-388: whatever the retry did not clear is mended deterministically (the biography here, and the card's
             # identityConcept, which genesis wrote and no retry can rewrite). Codes and the id only in the log.
-            repaired = repair_story(profile, npc)
+            repaired = [] if _gate_on else repair_story(profile, npc)  # ORW-431: the gate below mends (and counts) it
             if repaired:
                 logger.warning(f"[cast-authoring] repaired the story text of {hid} ({', '.join(repaired)}) — story-repair")
+            # ORW-431: THE ONE GATE at the end. The final card (roster card + this profile) must be complete and
+            # consistent in every public text; mended, re-written (bounded) or left NOT authored. Codes only in logs.
+            if _gate_on:
+                async def _gate_rewrite(_npc, _codes):
+                    if _given_up(ukey, hid):
+                        return None
+                    _spend_attempt(ukey, hid)
+                    _msgs = build_authoring_messages(_npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
+                    _t = await llm_fn(_msgs + [{"role": "user", "content": _gate.rewrite_message(_codes)}])
+                    return parse_authored_profile(_t or "", hid)
+                async with gate_lock:
+                    _gated, _left = await _gate.run_gate(season_gate, profile, npc, cast, _gate_rewrite)
+                if _gated is None:
+                    floor_below += 1
+                    return 0
+            if not _gate_on:  # the gate below includes this check (ORW-431); kept for the flag-off path
+                # ORW-430: the final check, after every repair. A card with no usable biography is NEVER written as authored:
+                # it stays on the floor (unauthored_ids picks it up again, bounded by the attempt ledger) and the fault is RED.
+                final = card_consistency(profile, npc, cast)
+                if final:
+                    logger.warning(f"[cast-authoring] final consistency check for {hid}: {', '.join(final)}")
+                if "story-no-biography" in final:
+                    floor_below += 1
+                    try:
+                        from src import log_rings
+                        log_rings.record_soft_failure(
+                            "cast-authoring:biography-missing",
+                            f"authoring for {hid} produced no usable biography after the strict retry — the card is left "
+                            "unauthored so the background retry takes it again",
+                            corrected="left-unauthored", user=user, houseguest=hid)
+                    except Exception:  # pragma: no cover - the health record must never break authoring
+                        pass
+                    return 0
             # #1057: the write-back is SERIALIZED + degradation-retried (it must not run concurrently
             # against the orchestrator integrity checkpoint).
             res = await _write_with_retries(profile, hid)
@@ -2602,6 +2716,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
 
     results = await asyncio.gather(*[_author_one(npc) for npc in (cast or [])])
     written = sum(results)
+    season_gate.log_summary()  # ORW-431 C: one line per season, counts and codes only
     # ORW-380: the photo-sheet de-duplication post-pass, then the per-NPC completion signals.
     if len(authored_cards) > 1:
         try:
@@ -2612,6 +2727,18 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
+    for _hid, _card in authored_cards.items():
+        _miss = look_fields_missing(_card.get("physicalCharacteristics"))
+        if _miss:
+            logger.warning(f"[cast-authoring] {_hid} finished authoring without {', '.join(_miss)} — look-fields-missing")
+            try:
+                from src import log_rings
+                log_rings.record_soft_failure(
+                    "cast-authoring:look-fields-missing",
+                    f"{_hid} finished authoring without {', '.join(_miss)}; the roster backfill takes the card again",
+                    corrected="left-for-backfill", user=user, houseguest=_hid)
+            except Exception:  # pragma: no cover - the health record must never break authoring
+                pass
     if on_authored is not None:
         for _hid in authored_ids:
             try:
@@ -3171,7 +3298,20 @@ def _safe_user(user: Optional[str]) -> str:
     return str(user) if user else "default"
 
 
-def unauthored_ids(user: Optional[str], roster_cards: list) -> list:
+def card_missing_story(card: dict, look: bool = False) -> bool:
+    """ORW-430: a card marked authored whose public biography or identity is empty, or that lacks a required photo-sheet field (the game-start coherence repair
+    clears a contradicting biography and nothing refilled it) is still unfinished: the background retry takes it again."""
+    pc = card.get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return False  # a thin roster stub says nothing about the story; a full card always carries its look block
+    if look and look_fields_missing(pc):  # ORW-431: a missing look sub-field is NON-BLOCKING: it asks for a backfill, it never holds the season start
+        return True
+    bio = card.get("biography")
+    ident = card.get("identityConcept")
+    return not (isinstance(bio, str) and bio.strip()) or not (isinstance(ident, str) and ident.strip())
+
+
+def unauthored_ids(user: Optional[str], roster_cards: list, *, include_look: bool = False) -> list:
     """ACTIVE NPC ids on the roster still on the DETERMINISTIC FLOOR (deep profile not authored).
 
     THE one definition of "still floor" — the roster's lazy backfill, the manual lever, the admin
@@ -3188,7 +3328,7 @@ def unauthored_ids(user: Optional[str], roster_cards: list) -> list:
         if card.get("isPlayer") or card.get("id") == "player":
             continue  # the player's profile is human-authored — NEVER deep-authored here
         hid = card.get("id")
-        if hid and card.get("authored") is not True:
+        if hid and (card.get("authored") is not True or card_missing_story(card, look=include_look)):
             out.append(str(hid))
     return out
 
