@@ -127,3 +127,24 @@ Feature: In-game time of day and the nightly sleep economy
   # The Phase-2 "byte-identical to the calibration spine when off" claims (per-conversation clock, NPC social fatigue, the
   # multi-night fatigue meter) are gated by a real flag ON-vs-OFF outcome-hash compare in:
   #   tests/unit/perConversationClockNeutral.test.ts · tests/unit/socialFatigueNeutral.test.ts · tests/unit/multiNightFatigueNeutral.test.ts
+
+  # Ryne's 2026-11-15 rulings (ORW-377 zero clocks, ORW-392 early morning, ORW-383 the awake list). The engine keeps its full clock;
+  # these are what the narrator and the player are shown.
+  Scenario: Zero clocks - the narrator is handed parts of the day, never a clock time, while the engine keeps its clock
+    Given a started season whose in-game clock is running
+    When the day moves on through many messages with zero clocks on
+    Then every narrator prompt names a part of the day and states no clock time
+    And the engine's own clock moved through more than one part of the day
+
+  Scenario: Early morning - before the house's wake-up the status says early morning, the mirror of late night
+    Given a started season whose in-game clock is running
+    When the player is still up at 3am
+    Then the status says early morning
+    And at 1am the status does not say early morning
+
+  Scenario: The status lists who is awake and available, not only who is asleep
+    Given a started season whose in-game clock is running
+    When the night has thinned the house
+    Then the status lists the houseguests who are awake
+    And no houseguest is listed as both awake and asleep
+    And every houseguest in the house is listed as one or the other
