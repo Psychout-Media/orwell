@@ -23,6 +23,25 @@ describe("season house themes", () => {
     expect(alias.get("captain's quarters")).toBe("hoh-room");
     expect(roomLabel("bedroom-a", ocean.id)).toBe("the Coral Reef Room");
     expect(roomLabel("bedroom-a")).not.toMatch(/Coral/); // no theme: the plain label
+    // the Diary Room is never shortened to a bare themed word, so "lighthouse" alone names no room
+    expect(alias.get("lighthouse")).toBeUndefined();
+    expect(alias.get("lighthouse diary room")).toBe("diary-room");
+    // an accented name also answers to its plain spelling
+    const manor = HOUSE_THEMES.find((t) => Object.values(t.rooms).some((r) => r.name.includes("Séance")))!;
+    expect(new Map(themedRoomAliases(manor.id)).get("seance room")).toBe("bedroom-c");
+  });
+
+  it("a phrase that would point at two rooms in one theme is dropped, never guessed", () => {
+    // Recount independently: every returned phrase must be a form (full, without "the", without a generic last word, accents off) of exactly ONE room's name in that theme.
+    const flat = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const formsOf = (name: string, isDiary: boolean): Set<string> => {
+      const full = flat(name), bare = full.replace(/^the\s+/, ""), short = bare.replace(/\s+(room|cabin|pod|cave|chamber|suite|quarters)$/, "");
+      return new Set([full, bare, ...(isDiary ? [] : [short, `the ${short}`])]);
+    };
+    for (const t of HOUSE_THEMES) {
+      const rooms = Object.entries(t.rooms).map(([r, v]) => [r, formsOf(v.name, r === "diary-room")] as const);
+      for (const [a] of themedRoomAliases(t.id)) expect(rooms.filter(([, f]) => f.has(flat(a))).length, `${t.id}: "${a}" names exactly one room`).toBe(1);
+    }
   });
 
   it("the draw is the same for the same season and never repeats a recent season's theme", () => {
