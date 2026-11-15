@@ -11,6 +11,14 @@ import pytest
 
 pytestmark = pytest.mark.usefixtures("non_game_text_routing")
 
+@pytest.fixture(autouse=True)
+def _zero_clocks_off(monkeypatch):
+    """ORW-377: these pin the PRE-zero-clocks behaviour (the engine clock quoted, the wrong-hour screen); the setting is OFF here, and ON is pinned in test_orw377_zero_clocks.py."""
+    import src.settings as st
+    real = st.get_setting
+    monkeypatch.setattr(st, "get_setting", lambda k, d=None: False if k == "zero_clocks" else real(k, d))
+
+
 PREDAWN = {"timeOfDay": "morning", "clockLabel": "4:15am, Day 4", "phase": "veto-competition"}
 LIVE_TEXT = (
     "Then the lights click off in banks and the living room goes dark.\n\n"

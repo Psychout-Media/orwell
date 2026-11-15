@@ -334,6 +334,29 @@ export const FATIGUE_RECOVERY = FATIGUE.recovery;
 export const FATIGUE_WEIGHT = FATIGUE.weight;
 
 /**
+ * ORW-377 (zero clocks in the house) - the part of the day the NARRATOR hears instead of a clock time: the real show's house has no clocks, so people say "the small hours", never "3:15am". PRESENTATION ONLY:
+ * a pure read of the engine clock hour (`live.nightDepth`: 8 = 8am, 24 = midnight, 27.08 = ~3am the next night); no rule, rest term, schedule or seeded roll reads it. Eight spoken bands.
+ */
+export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "evening" | "night" | "late night" | "small hours";
+
+export function clockBandFor(hour: number): ClockBand {
+  const h = ((hour % 24) + 24) % 24;
+  if (h < 2) return "late night";
+  if (h < 5) return "small hours";
+  if (h < 8) return "early morning";
+  if (h < 11.5) return "morning";
+  if (h < 13.5) return "midday";
+  if (h < 16) return "afternoon";
+  if (h < 20) return "evening";
+  return "night";
+}
+
+/** "small hours, Day 5": the band plus the day, with no minutes (the zero-clocks counterpart of `formatClockLabel`). */
+export function formatClockBandLabel(hour: number, day?: number): string {
+  return `${clockBandFor(hour)}${day === undefined ? "" : `, Day ${Math.max(1, Math.floor(day))}`}`;
+}
+
+/**
  * P0 clock grounding - the engine's exact in-game clock as a short plain label, e.g. "9:40am". `hour` is the engine's clock hour (`live.nightDepth`: 8 = 8:00am, 12 = noon, 24 = midnight,
  * 27.08 = 3:05am the next night); minutes are rounded to the nearest whole minute. Pure. Day is the in-game day number (1-based). Never a wall-clock; the narrator is told to use THIS and no other time.
  */

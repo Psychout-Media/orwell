@@ -17,6 +17,9 @@ FUTURE = "When the competition is live, everyone will be out in the yard; until 
 SOCIAL = "They linger by the pool trading quiet reads; nothing is decided tonight."
 
 
+pytestmark = pytest.mark.usefixtures("zero_clocks_off")
+
+
 def _sig(not_due=True, pending=None, phase="hoh-competition"):
     return {"week": 1, "phase": phase, "pending": pending, "compNotDue": not_due, "evicted": 0, "finished": False, "activeNames": [], "noms": [], "playerIsHoh": False}
 

@@ -1850,6 +1850,10 @@
             <div class="admin-toggle-sub" style="margin-bottom:8px">A live in-game clock (morning to late night): the house thins as houseguests turn in for the night, staying up late dulls the next competition, and a "Nightfall" gadget shows who's still up. Applies to the live game immediately - no restart.</div>
           </div>
           <div class="admin-card">
+            <h2 style="display:flex;align-items:center;gap:6px;"><span aria-hidden="true" style="opacity:0.6;flex-shrink:0">🕰</span>Zero clocks in the house<span style="flex:1"></span><label class="ow-switch"><input type="checkbox" id="set-zeroClocksToggle" checked><span class="ow-switch-track"></span></label></h2>
+            <div class="admin-toggle-sub" style="margin-bottom:8px">Zero clocks in the house (times shown as parts of the day). Like the real show, the narrator and houseguests say "late night" or "the small hours", never "3:15am", and any clock-time sentence is dropped. The game still keeps its internal clock for the schedule and sleep. Applies immediately - no restart.</div>
+          </div>
+          <div class="admin-card">
             <h2 style="display:flex;align-items:center;gap:6px;"><span aria-hidden="true" style="opacity:0.6;flex-shrink:0">📊</span>Token Economy<span style="flex:1"></span></h2>
             <div class="admin-toggle-sub" style="margin-bottom:8px">Control model token spend on live-game turns (ADR 0010). Reasoning effort per call class is the dominant cost lever; the OpenRouter provider object steers routing &amp; caching; tiering trades cost to keep a long game's memory. Applies immediately - no restart. Watch spend at <code>/api/admin/token-economy</code>.</div>
             <div class="settings-col">

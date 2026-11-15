@@ -200,7 +200,13 @@ def note_tool_result(user, result: Any) -> None:
     if not show_brief_enabled() or not isinstance(result, dict):
         return
     wa = result.get("whereabouts") if isinstance(result.get("whereabouts"), dict) else result
-    seen = _seen_from_whereabouts(wa, _SEEN.get(_owner(user)), result.get("beatSeq"), result.get("clockLabel"))
+    _clk = result.get("clockLabel")
+    try:
+        from src.zero_clocks import narrator_clock  # ORW-377: the marker stores the band the narrator was shown, not a raw clock
+        _clk = narrator_clock(_clk) if isinstance(_clk, str) and _clk else _clk
+    except Exception:  # failsoft-ok: presentation-only; the raw label stands
+        pass
+    seen = _seen_from_whereabouts(wa, _SEEN.get(_owner(user)), result.get("beatSeq"), _clk)
     if seen:
         _SEEN[_owner(user)] = seen
 

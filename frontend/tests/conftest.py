@@ -394,3 +394,12 @@ def pytest_sessionfinish(session, exitstatus):
         tr.write_line(f"  VIOLATION: {p}", red=True)
     if problems and session.exitstatus == 0:
         session.exitstatus = 1
+
+
+@pytest.fixture
+def zero_clocks_off(monkeypatch) -> None:
+    """ORW-377: `zero_clocks` ships ON; the tests that pin the PRE-zero-clocks clock wording (the engine clock quoted to the narrator, minute counts, a stated clock time left in the stream) opt out per module with
+    ``pytestmark = pytest.mark.usefixtures("zero_clocks_off")``. ON is pinned in test_orw377_zero_clocks.py."""
+    import src.settings as _st
+    _real = _st.get_setting
+    monkeypatch.setattr(_st, "get_setting", lambda k, d=None: False if k == "zero_clocks" else _real(k, d))

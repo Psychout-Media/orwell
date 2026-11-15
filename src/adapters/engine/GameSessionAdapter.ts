@@ -279,7 +279,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -14207,12 +14207,16 @@ export class GameSessionAdapter implements GameSession {
       : pk.length
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
+    // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
+    const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
+      ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
+      : view;
     const moment = req.moment ?? view.moment;
     // #1735 (A4) — the terminal HARD-CONSTRAINTS block, a SEPARATE field from `systemPrompt` so the
     // caller (the front-end) can append it as the LAST message before generation instead of folding it
     // into the leading system-prompt stack (the measured "lost in the middle" region). Absent when
     // there is nothing to pin (pre-game / no live whereabouts this turn) ⇒ byte-identical response.
-    const hardConstraints = renderHardConstraints(view);
+    const hardConstraints = renderHardConstraints(narrView);
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
@@ -14223,7 +14227,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(view, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -14233,7 +14237,7 @@ export class GameSessionAdapter implements GameSession {
     return {
       moment,
       systemPrompt: buildSystemPrompt(
-        moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
+        moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
         { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() },

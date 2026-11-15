@@ -29,6 +29,9 @@ chat_routes = importlib.import_module("routes.chat_routes")
 FLAG = "ORWELL_SHOW_BRIEF"
 
 
+pytestmark = pytest.mark.usefixtures("zero_clocks_off")
+
+
 def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 

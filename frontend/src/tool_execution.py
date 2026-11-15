@@ -1789,7 +1789,8 @@ def format_tool_result(description: str, result: Dict) -> str:
         # serialized game VIEW, redact the player's producer-only casting material BEFORE it reaches the
         # model (the casting Vault Wall — see `_redact_producer_view_output`). Fail-open for every other
         # tool's output, so this is byte-identical for anything that isn't a leaky view.
-        parts.append(f"```\n{_redact_producer_view_output(result['output'])}\n```")
+        from src.zero_clocks import scrub_tool_output as _zc_scrub  # ORW-377: no clock time / minutes reach the model
+        parts.append(f"```\n{_zc_scrub(_redact_producer_view_output(result['output']))}\n```")
         if result.get("exit_code") not in (0, None):
             parts.append(f"**exit_code:** {result['exit_code']}")
     elif "content" in result:

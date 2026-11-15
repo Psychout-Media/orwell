@@ -1854,6 +1854,10 @@ def _bedtime_direct_note(turn_in_output) -> str:
         st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else data
         lab = st.get("clockLabel") if isinstance(st, dict) else None
         if isinstance(lab, str) and lab.strip():
+            from src.zero_clocks import narrator_clock, zero_clocks_on  # ORW-377
+            if zero_clocks_on():
+                return (_BEDTIME_DIRECT_NOTE + f" It is now {narrator_clock(lab.strip())} (the house has no clocks: name the part of the day, never a clock time); if it is the small hours or early morning "
+                        "it is still the dark with the house asleep - never say morning has come unless that is the part of the day.")
             return (_BEDTIME_DIRECT_NOTE + f" The engine clock now reads {lab.strip()}: if you name a time use exactly that; if it is before 7am it is still the dark small hours with the house asleep - "
                     "never say morning has come or name any other hour.")
     except Exception:
@@ -5556,7 +5560,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_nominee_status(text)
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
-                and not chat_helpers._sentence_has_in_the_clock_claim(text)):
+                and not chat_helpers._sentence_has_in_the_clock_claim(text)
+                and not chat_helpers.sentence_states_zero_clock_time(text)):
             return text
     except Exception:
         return text
@@ -5574,6 +5579,9 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # correct. See `chat_helpers._sentence_has_chyron_covered_claim`'s doc comment for the full
             # T9 rationale; the older verify-then-correct path right below stays live, UNCHANGED, for
             # the two claim kinds not yet chyron-covered (the season winner, a player expulsion).
+            # ORW-377 (zero clocks in the house): a stated clock time ("6:15", "3am", "quarter past eight") is dropped as a SENTENCE - never the scene. Closed-set only; fail-open.
+            if chat_helpers.sentence_states_zero_clock_time(part):
+                continue
             if chat_helpers._sentence_has_chyron_covered_claim(part):
                 continue  # a chyron already carries this fact — the model's restatement never renders
             if chat_helpers._sentence_has_closed_set_claim(part):
