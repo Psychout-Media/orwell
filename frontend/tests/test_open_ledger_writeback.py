@@ -39,14 +39,14 @@ def test_writes_exactly_four_fields():
     sent = []
 
     async def llm(_m):
-        return 'hmm {"entries":[{"text":"I will never vote you out","speaker":"npc:3","addressedTo":["player"],"kind":"promise"}]}'
+        return 'hmm {"entries":[{"text":"she will never put the player on the block","speaker":"npc:3","addressedTo":["player"],"kind":"promise"}]}'
 
     async def write(p):
         sent.append(p)
         return {"accepted": True, "entryId": "open:1"}
 
     assert run(ol.capture_open_ledger(NARR, PRESENT, llm, write)) == 1
-    assert sent == [{"text": "I will never vote you out", "speaker": "npc:3", "addressedTo": ["player"], "kind": "promise"}]
+    assert sent == [{"text": "she will never put the player on the block", "speaker": "npc:3", "addressedTo": ["player"], "kind": "promise"}]
     assert set(sent[0]) == {"text", "speaker", "addressedTo", "kind"}
 
 
@@ -259,3 +259,13 @@ def test_orw437_the_off_flag_skips_the_hook_before_any_read_or_model_call(monkey
         raise AssertionError("whereabouts must not be read when the ledger is off")
     monkeypatch.setattr(oe, "whereabouts", boom)
     assert run(ol.after_turn(NARR, "u", "http://x", "m", {})) == 0
+
+
+def test_entry_with_no_houseguest_is_dropped():
+    # ORW-437 (review of #2692): player to player, or a player entry with no addressee, involves nobody in the house
+    raw = {"entries": [
+        {"text": "a", "speaker": "player", "addressedTo": [], "kind": "k"},
+        {"text": "b", "speaker": "player", "addressedTo": ["player"], "kind": "k"},
+        {"text": "c", "speaker": "npc:3", "addressedTo": [], "kind": "k"},
+    ]}
+    assert [e["text"] for e in ol.clean_entries(raw, {"npc:3"})] == ["c"]

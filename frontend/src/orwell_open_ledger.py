@@ -30,6 +30,7 @@ MAX_ENTRIES_PER_TURN = 3
 MAX_RESOLUTIONS_PER_TURN = 2
 _RESOLUTIONS = ("kept", "broken", "withdrawn")
 _MIN_NARRATION_CHARS = 80
+NARRATION_MAX_CHARS = 3600  # review of #2692: 1800 skipped anything promised late in a long turn
 
 LlmFn = Callable[[list], Awaitable[str]]
 WriteFn = Callable[[dict], Awaitable[dict]]
@@ -84,6 +85,8 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         about = it.get("about")
         if about is not None and not isinstance(about, str):
             continue
+        if not ({speaker, *to, *(parties or [])} - {"player"}):
+            continue  # review of #2692: an entry involving no houseguest would never reach the brief and would only use a ledger slot
         k = _norm(kind, KIND_MAX_CHARS) or "claim"
         entry: dict = {"text": t, "speaker": speaker, "addressedTo": list(dict.fromkeys(to)), "kind": k}
         group = list(dict.fromkeys(parties or []))
@@ -156,7 +159,7 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
             user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]}" for o in opens[:5]) + "\n"
         reply = await llm([
             {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:1800]}\n\nJSON:"},
+            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:NARRATION_MAX_CHARS]}\n\nJSON:"},
         ])
         parsed = _parse(reply or "")
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
