@@ -7810,7 +7810,22 @@ async def _stream_agent_loop_impl(
             if orwell_day_condense.enabled():
                 _ledger_dc = await _oe_dc.day_ledger(user=owner)
                 if _ledger_dc:
+                    _pre_view_dc = messages
                     messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
+                    # ORW-402 layer 3: verbatim excerpts of condensed-out days that match the player's newest message.
+                    try:
+                        from src import orwell_transcript_recall as _tr
+                        if _tr.enabled() and messages is not _pre_view_dc:
+                            _tr_names = []
+                            try:
+                                _gs_tr = await _oe_dc.get_game_state(owner)
+                                _tr_names = [h.get("name") for h in ((_gs_tr or {}).get("house") or [])
+                                             if isinstance(h, dict) and h.get("name")]
+                            except Exception as _e_trn:
+                                logger.debug("[transcript-recall] names skipped: %s", _e_trn)
+                            messages = _tr.apply_recall(_pre_view_dc, messages, _tr_names)
+                    except Exception as _e_tr:
+                        logger.debug("[transcript-recall] skipped: %s", _e_tr)
                     orwell_day_condense.kickoff_heal(owner, _ledger_dc)  # ORW-387: a closed day with no real summary is re-authored in the background
         except Exception as _e_dc:
             logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
