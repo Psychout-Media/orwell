@@ -104,7 +104,7 @@ def scrub_tool_output(text: Any) -> Any:
 # DELIBERATELY ALLOWED: plain "noon"/"midnight" (bands people say naturally), durations ("for two hours", "an hour later"), counts and days ("three of us", "7 days", "Day 4"), a bare "at eight" / "at nine".
 _HW = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})"
 _TO_FORM_RE = re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:to|till|until)\s+" + _HW + r"\b(?!\s+(?:minutes?|hours?|days?|weeks?|people|of|more|times|seconds?|years?))", re.IGNORECASE)
-_TALLY_BEFORE_RE = re.compile(r"\b(?:votes?\s+of|voted|vote\s+was|vote\s+came\s+to|score\s+of)\s*$", re.IGNORECASE)  # review of #2767: the pair directly follows a tally phrase ("a vote of five to two", "voted five to two") - NOT "voted at ten to eight"
+_TALLY_BEFORE_RE = re.compile(r"\b(?:votes?\s+of|voted|vote\s+was|vote\s+came\s+to|score\s+of|split)\s*$", re.IGNORECASE)  # review of #2767: the pair directly follows a tally phrase ("a vote of five to two", "voted five to two") - NOT "voted at ten to eight"
 _TALLY_AFTER_RE = re.compile(r"\s*(?:votes?|majority|split)\b", re.IGNORECASE)  # "five to two vote"
 _CLOCK_TIME_RES = (
     re.compile(r"(?<![\d:.])\d{1,2}:[0-5]\d(?![\d:])"),
