@@ -1956,7 +1956,15 @@ async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> boo
         new_vol = txt[i:].rstrip("\n") + _post_turn_in_asleep_block(turn_in_output, briefing, txt[i:])
         for m in messages:
             if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str) and old_vol in m["content"]:
-                m["content"] = m["content"].replace(old_vol, new_vol, 1)
+                # ORW-409: compute the whole new content first (nothing is written yet), then swap the content and the cached briefing together: a failure above leaves both as they were.
+                from routes.briefing import drop_movement_cue
+                new_content = m["content"].replace(old_vol, new_vol, 1)
+                new_content = drop_movement_cue(new_content)  # the movement cue is a pre-sleep difference: stale by construction in the morning (the morning block says who is there)
+                if briefing is not None:  # the notice / call armed before the turnIn is reconciled against the MORNING schedule (an event that is resolved or due now is kept; a stale one is dropped)
+                    new_content = _ch._reconcile_schedule_steer(new_content, briefing, _ch.turn_schedule_arm(owner), after_turn_in=True)
+                m["content"] = new_content
+                if briefing is not None:
+                    _ch.set_turn_briefing(owner, briefing)
                 _ch._LAST_FRAMED_MOMENT_VOLATILE[key] = txt[i:]
                 return True
         return False
