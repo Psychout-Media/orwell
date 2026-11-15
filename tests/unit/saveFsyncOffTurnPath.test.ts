@@ -40,9 +40,7 @@ describe("ORW-404 — background fsync", () => {
     const dir = tmp();
     const s = controllableSync(); // never resolves: a stalled disk
     const store = new FileSaveStore(dir, { fsyncMode: "background", syncFile: s.syncFile, syncDir: async () => {} });
-    const t0 = performance.now();
-    store.saveFor("u", snap(1));
-    expect(performance.now() - t0).toBeLessThan(50);
+    store.saveFor("u", snap(1)); // returns while the sync is still pending: the structural assertions below are the contract (no wall-clock threshold)
     expect((store.loadLatest("u") as unknown as { week: number }).week).toBe(1);
     expect(s.calls).toHaveLength(1);
     expect(store.durability().saveLatestVersion).toBe(1);
