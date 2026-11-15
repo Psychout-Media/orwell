@@ -106,9 +106,6 @@
 #       unset — it re-orders the scheduler and folds hidden relationship weights, so it is NOT
 #       calibration-neutral and is explicitly out of scope for #1779 — see `GameSessionAdapter.ts:610-640`.
 
-#   ORWELL_SLEEPERS_IN_BED      ORW-383: seat the asleep in bedrooms when the player wakes. DELIBERATELY NOT added here (off): it
-#       clumps the house and moves the seeded house-life mix ~4 points - Ryne's call to turn on and re-agree the mix.
-
 #   ORWELL_TIME_OF_DAY          The in-game clock (ADR 0006 / 0066). The FE pushes its setting onto the
 #       engine (default ON), but a restarted engine boots at THIS value until the FE re-pushes — so the
 #       deploy boots it ON to match the FE default and the clock never goes dark across a restart.
