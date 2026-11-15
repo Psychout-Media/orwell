@@ -312,7 +312,7 @@ export interface DossierForCoherence {
   demeanor?: string;
   distinguishingMark?: string;
   /** The structured physical facet — its free-text members are self-referential too. */
-  physicalCharacteristics?: { distinguishingMark?: string; facialFeatures?: string; hair?: string; heightBuild?: string };
+  physicalCharacteristics?: { distinguishingMark?: string; facialFeatures?: string; hair?: string; heightBuild?: string; photoHair?: string; onCamera?: string };
   /** Third-party-prone prose — scanned only for age/year-span coherence, NOT hard pronoun rejection. */
   biography?: string;
   background?: string;
@@ -513,6 +513,9 @@ export function validateDossierCoherence(d: DossierForCoherence): DossierCoheren
     ["physicalCharacteristics.facialFeatures", d.physicalCharacteristics?.facialFeatures],
     ["physicalCharacteristics.hair", d.physicalCharacteristics?.hair],
     ["physicalCharacteristics.heightBuild", d.physicalCharacteristics?.heightBuild],
+    // ORW-380 look lines the portrait prompt reads: a wrong-gender pronoun here reaches the portrait (review of #2665)
+    ["physicalCharacteristics.photoHair", d.physicalCharacteristics?.photoHair],
+    ["physicalCharacteristics.onCamera", d.physicalCharacteristics?.onCamera],
   ];
   let anyMasc = false;
   let anyFem = false;

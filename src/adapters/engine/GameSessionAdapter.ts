@@ -6478,6 +6478,8 @@ export class GameSessionAdapter implements GameSession {
               facialFeatures: c.physicalCharacteristics.facialFeatures,
               hair: c.physicalCharacteristics.hair,
               heightBuild: c.physicalCharacteristics.heightBuild,
+              photoHair: (c.physicalCharacteristics as { photoHair?: string }).photoHair,
+              onCamera: (c.physicalCharacteristics as { onCamera?: string }).onCamera,
             },
           }
           : {}),
@@ -6566,6 +6568,12 @@ export class GameSessionAdapter implements GameSession {
           break;
         case "physicalCharacteristics.heightBuild":
           if (c.physicalCharacteristics) c.physicalCharacteristics.heightBuild = "";
+          break;
+        case "physicalCharacteristics.photoHair":
+          if (c.physicalCharacteristics) delete (c.physicalCharacteristics as { photoHair?: string }).photoHair;
+          break;
+        case "physicalCharacteristics.onCamera":
+          if (c.physicalCharacteristics) delete (c.physicalCharacteristics as { onCamera?: string }).onCamera;
           break;
         default: break; // an unknown/`genderPresentation` label is never cleared (spine preserved)
       }
