@@ -5684,9 +5684,58 @@ def _split_complete_sentences(buf: str):
     """Split a streaming buffer into (complete_prefix, remainder) at the LAST sentence boundary —
     so we only ever judge whole sentences, never a half-streamed one. A newline also ends a unit."""
     last = -1
+    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE))
     for m in re.finditer(r"[.!?](?=\s|$)|\n", buf):
+        # ORW-437: a buffer that ENDS at "3 a." / "9 p." is mid-time (the "m." is in the next chunk): that dot is not a boundary yet, or the two halves were judged as separate sentences
+        # (the clock check never saw "3 a.m." and the stored-text mirror cut between them). The round's flush resolves it if nothing follows.
+        if mid_time and m.end() == len(buf):
+            continue
         last = m.end()
     return (buf[:last], buf[last:]) if last >= 0 else ("", buf)
+
+
+def _orphan_continuation_split(text: str, prev_dropped: bool):
+    """ORW-437: when the previous chunk's last sentence was DROPPED, a fragment that opens this chunk with "; and" / ", and" was joined to it ("...at 3 a.m." | "; and Sam yawned.")
+    and goes with it. Returns (fragment, rest); ("", text) when nothing follows the rule. Concatenating the two is always the original text."""
+    if not prev_dropped or not text:
+        return "", text
+    parts = _split_sentences_keep_dotted_times(text)
+    if parts and re.match(r"\s*[;,]\s*and\b", parts[0], re.IGNORECASE):
+        return parts[0], "".join(parts[1:])
+    return "", text
+
+
+def _chunk_ended_in_drop(raw: str, shown: str) -> bool:
+    """ORW-437: was the last sentence of `raw` removed from what the player was shown (`shown`)? Compared on the sentence's own opening words, so a repaired rewrite is not a drop."""
+    parts = [p for p in _split_sentences_keep_dotted_times(raw or "") if p.strip()]
+    if not parts:
+        return False
+    last = parts[-1].strip()
+    return last[:20] not in (shown or "")[-(len(last) + 40):]
+
+
+_TOOL_RESULT_PLACEHOLDER_RE = re.compile(r"[ \t]*<\s*tool[ _]results?\b[^<>\n]{0,80}>[ \t]*", re.IGNORECASE)
+
+# ORW-440: bare tool-markup tags echoed as the whole reply ("\n</tool_use>"). Tag-only: an angle-bracket tag whose NAME is one of these (open/close, optional attributes), or a `<|...|>` special token. Prose uses of the words never match (no angle brackets); a literal quoted tag IS stripped (the scrub has no notion of quotes, and no houseguest says one).
+_TOOL_MARKUP_TAG_RE = re.compile(
+    r"[ \t]*(?:</?\s*(?:tool_use(?:_id)?|tool_results?|tool_calls?|function_calls?|function_results?|antml:[a-z_]+)\b[^<>\n]{0,120}/?>"
+    r"|<\|[^<>|\n]{1,40}\|>)[ \t]*",
+    re.IGNORECASE,
+)
+
+
+# ORW-472: the SAFE subset of the ORW-440 tags for the raw-text mirror cut: result / use wrappers only (open or close). `tool_calls?`, `function_calls?` and `antml:*` are deliberately NOT here: they can carry a call the parser
+# needs, so they are never cut out of the raw round text (independently checked: `parse_tool_blocks` returned the same blocks for a `<tool_call>` and a `<function_calls>` call wrapped in every combination of these tags, with and without them).
+_TOOL_MARKUP_SAFE_TAG_RE = re.compile(
+    r"[ \t]*</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>[ \t]*",
+    re.IGNORECASE,
+)
+
+
+def _cut_markup_keeping_one_space(rx, text: str) -> str:
+    """Remove every `rx` match (each already swallows the spaces around it). One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a
+    word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.")."""
+    return rx.sub(lambda m: " " if (not (m.start() > 0 and text[m.start() - 1].isspace()) and m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'") else "", text)
 
 
 def _scrub_game_leak(text: str) -> str:
@@ -5699,6 +5748,10 @@ def _scrub_game_leak(text: str) -> str:
     the surviving clause, so a sentence with no machinery clause re-joins byte-identically."""
     if not text:
         return text
+    # ORW-442: an echoed harness placeholder ("<tool result has been redacted>") has no sentence punctuation, so it would take the NEXT sentence with it; cut just the placeholder first.
+    # ORW-440 / ORW-442: a tag between two words leaves one space (never "quiet.The"); at an edge or beside whitespace it just goes.
+    text = _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text)
+    text = _cut_markup_keeping_one_space(_TOOL_MARKUP_TAG_RE, text)
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
@@ -6021,6 +6074,19 @@ async def _headcount_wall_guard(text: str, owner) -> str:
         return await chat_helpers.screen_headcount_wall(owner, text)
     except Exception:
         return text
+
+
+def _mirror_placeholder_cut(round_response: str, text: str):
+    """ORW-442 / ORW-472: `_scrub_game_leak` cuts an echoed "<tool result ...>" placeholder, and a stray result/use tag (`_TOOL_MARKUP_SAFE_TAG_RE`), out of the MIDDLE of a sentence part, which the sentence-level
+    mirror (`_mirror_wall_drop`) reads as that whole part being dropped and erases from the stored text with its narration. Apply the same cuts (one-space rule included) to `text` inside `round_response` first, and
+    return the cut `text` as the mirror's `before`: only real drops are left for the sentence-level walk. Returns (round_response, text); both unchanged when there is nothing to cut."""
+    cut = _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text))
+    if cut == text:
+        return round_response, text
+    idx = round_response.rfind(text)
+    if idx >= 0:
+        round_response = round_response[:idx] + cut + round_response[idx + len(text):]
+    return round_response, cut
 
 
 def _mirror_wall_drop(round_response: str, before: str, after: str,
@@ -8610,11 +8676,14 @@ async def _stream_agent_loop_impl(
         # round_reasoning are deltas this round measured against these baselines.
         _full_response_len_at_round_start = len(full_response)
         _game_buf = ""  # live-game operator-aside scrub buffer (holds the unjudged sentence tail)
+        _prev_chunk_dropped = False  # ORW-437: the last sentence of the previous chunk was dropped (a "; and ..." fragment that opens the next chunk goes with it)
         # Once a tool-call OPENER appears in the visible text (e.g. deepseek's DSML pipe markup
         # `<｜DSML｜tool_calls>` emitted as text), stop streaming visible deltas for the rest of
         # this round — the raw markup must never reach the client. The actual tool call is still
         # parsed post-round from round_response; this only governs what the player SEES mid-stream.
         _visible_halted = False
+        _opener_halted_round = False  # ORW-453: this round's visible stream was cut by a tool-call opener: nothing after it was shown, so nothing after it is stored
+        _opener_halt = False  # ORW-453: set only on the delta where the tool-call opener halts the visible stream
         _scene_broken = False  # A2: a phantom board change cut this round's scene (halts visible stream)
         _round_replay = False  # F-6: this round re-told a scene already shown this turn and was dropped whole
         _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
@@ -9179,8 +9248,14 @@ async def _stream_agent_loop_impl(
                             # strip still parses the call). round_response keeps the raw text.
                             if not _visible_halted and tool_call_opener_index(round_response) >= 0:
                                 _visible_halted = True
+                                _opener_halted_round = True
+                                _opener_halt = True  # ORW-453: this halt is the tool-call opener's (not an A2 scene cut): its unshown tail leaves the stored text too, below
                                 _flush = round_response[:tool_call_opener_index(round_response)]
-                                _game_buf = _flush[_visible_emitted_len:]  # only the not-yet-flushed tail
+                                # ORW-453: the unshown tail is the held text PLUS this chunk's pre-opener text, cut where the opener starts: an opener split across chunks ("<tool" then "_call>") has its first
+                                # half already in the held tail, and that half must not stay in the tail (it used to overwrite the held text, losing it and a space).
+                                _comb = _game_buf + data["delta"]
+                                _ci = tool_call_opener_index(_comb)
+                                _game_buf = _comb[:_ci] if _ci >= 0 else _game_buf + _flush[_visible_emitted_len:]
                             if not _visible_halted:
                                 _game_buf += data["delta"]
                                 _visible_emitted_len = len(round_response)
@@ -9206,8 +9281,13 @@ async def _stream_agent_loop_impl(
                                 # semicolon-clause fix), so the mirror MUST use the SAME boundary — the
                                 # default `[.!?\n]`-only split would coarsen a clause-level drop to a
                                 # whole-"sentence" drop and delete a surviving clause too.
+                                round_response, _complete = _mirror_placeholder_cut(round_response, _complete)  # ORW-442: the placeholder was CUT, not a dropped sentence: edit the raw text the same way first
                                 round_response = _mirror_wall_drop(
                                     round_response, _complete, _clean, split_pattern=r"(?<=[.!?\n;])")
+                                _orphan, _clean = _orphan_continuation_split(_clean, _prev_chunk_dropped)  # ORW-437
+                                if _orphan:
+                                    round_response = _apply_mirror_ops(round_response, ((_orphan, ""),))  # stored text agrees with what the player is shown
+                                _shown_piece = ""
                                 if (_clean and not _scene_broken and not _round_visible_emitted
                                         and _replays_shown(_clean, full_response)):
                                     # F-6: this later round opens by re-telling a scene already shown this turn — drop the whole round.
@@ -9275,6 +9355,7 @@ async def _stream_agent_loop_impl(
                                         round_response = _round_emitted_text + (_guarded_text or "")
                                         _game_buf = ""
                                     _round_emitted_text += _guarded_text or ""
+                                    _shown_piece = _guarded_text or ""
                                     if _guarded_text:
                                         full_response += _guarded_text
                                         if _guarded_text.strip():
@@ -9285,7 +9366,15 @@ async def _stream_agent_loop_impl(
                                         # A2: the scene is cut — halt the rest of the round's visible
                                         # stream (reuse the tool-opener halt), and drop the buffered tail.
                                         _visible_halted = True
+                                _prev_chunk_dropped = _chunk_ended_in_drop(_complete, _shown_piece)  # ORW-437
                             if _visible_halted:
+                                if _opener_halt and _game_buf:
+                                    # ORW-453 (Kevin: "save only what was shown"): the unfinished sentence buffered before the opener is never shown, so it is cut from the STORED text as well
+                                    # (shown == stored). It is the suffix of the raw text that precedes the opener.
+                                    _op_i = tool_call_opener_index(round_response)
+                                    if _op_i >= len(_game_buf) and round_response[:_op_i].endswith(_game_buf):
+                                        round_response = round_response[:_op_i - len(_game_buf)] + round_response[_op_i:]
+                                _opener_halt = False
                                 _game_buf = ""  # don't carry the pre-opener tail past the halt
                             continue  # narration, not a document — skip the doc-fence path
                         else:
@@ -9432,9 +9521,13 @@ async def _stream_agent_loop_impl(
             # (possibly unterminated) flush must ALSO propagate its scrub drop into round_response
             # before `cleaned_round` derives from it a few lines down. Same semicolon-aware
             # split_pattern as the mid-loop call — `_scrub_game_leak` clause-drops on `;` too.
+            round_response, _pre_scrub_tail = _mirror_placeholder_cut(round_response, _pre_scrub_tail)  # ORW-442 (same as the mid-loop site)
             round_response = _mirror_wall_drop(
                 round_response, _pre_scrub_tail, _clean, split_pattern=r"(?<=[.!?\n;])")
             _game_buf = ""
+            _orphan_f, _clean = _orphan_continuation_split(_clean, _prev_chunk_dropped)  # ORW-437: same rule for the round's trailing fragment
+            if _orphan_f:
+                round_response = _apply_mirror_ops(round_response, ((_orphan_f, ""),))
             if (_clean and not _scene_broken and not _round_visible_emitted and _replays_shown(_clean, full_response)):
                 logger.info(f"[orwell] replay guard (flush): round {round_num} re-told the shown scene — dropped user={owner}")
                 _scene_broken = True
@@ -9604,7 +9697,12 @@ async def _stream_agent_loop_impl(
 
         # Save cleaned round text for history persistence
         # Keep <think> blocks so they render in the thinking section on reload
-        cleaned_round = strip_tool_blocks(round_response).strip()
+        _store_src = round_response
+        if _opener_halted_round and _scrub_active:
+            _oi = tool_call_opener_index(round_response)
+            if _oi >= 0:
+                _store_src = round_response[:_oi]  # ORW-453 ("save only what was shown"): prose AFTER the call was never shown, so it is not stored (and cannot weld onto the text before the call)
+        cleaned_round = strip_tool_blocks(_store_src).strip()
         cleaned_round = _persisted_round_text(
             cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
             scrub_active=_scrub_active, round_emitted=_round_emitted_text)

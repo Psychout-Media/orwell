@@ -85,6 +85,36 @@ describe("runHangOut", () => {
     expect(r).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
     expect(w.log).toEqual([]);
   });
+  it("ORW-437: an event 30 seconds away is FIRED (the remainder is spent), not left un-due so every hang-out returns event-due forever", () => {
+    let hour = 11 + 59.5 / 60; // 11:59:30, event at 12:00
+    const probes: HangOutProbes = {
+      advance: (h) => { hour += h; },
+      hoursUntilEvent: () => Math.max(0, 12 - hour),
+      eventDue: () => hour + 1e-6 >= 12,
+      bedtime: () => false, pulled: () => null, approach: () => null, observed: () => null,
+    };
+    // Before the fix: eventDue stayed false and the 2nd call is identical to the 1st (a loop).
+    const r1 = runHangOut(probes, rng());
+    expect(r1.stopReason).toBe("event-due");
+    expect(probes.eventDue()).toBe(true);
+    expect(hour).toBeLessThanOrEqual(12 + 1e-6);
+    // The event has now fired once: the next call stops at once, spending nothing.
+    expect(runHangOut(probes, rng())).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
+  });
+  it("review of #2778: a stated target shorter than the sub-minute remainder is honoured: the wait stops AT the target (max-beats), not past it at the event", () => {
+    let hour = 11 + 59.2 / 60; // the event (12:00) is 48 seconds away
+    const probes: HangOutProbes = {
+      advance: (h) => { hour += h; },
+      hoursUntilEvent: () => Math.max(0, 12 - hour),
+      eventDue: () => hour + 1e-6 >= 12,
+      bedtime: () => false, pulled: () => null, approach: () => null, observed: () => null,
+    };
+    const start = hour;
+    const r = runHangOut(probes, rng(), { maxMinutes: 0.5 }); // wants 30 seconds
+    expect(r.stopReason).toBe("max-beats");
+    expect((hour - start) * 60).toBeCloseTo(0.5, 6);
+    expect(probes.eventDue()).toBe(false);
+  });
   it("float residue after real beats stops event-due with the minutes already spent", () => {
     let calls = 0;
     const w = world({ eventDue: () => false, hoursUntilEvent: () => (calls++ === 0 ? 5 : 1e-9) });
@@ -145,5 +175,33 @@ describe("ORW-311 (Ryne 2026-11-12): hanging out never skips the night or reache
     const early = chain(15, 0).hour;  // the thin-house rule does not apply before 8pm: it runs to the start of the night block and stops there
     expect(early).toBeGreaterThanOrEqual(20);
     expect(early).toBeLessThanOrEqual(20.5 + 1e-9);
+  });
+});
+
+describe("runHangOut stated target (ORW-445)", () => {
+  it("a 120-minute target moves the clock ~2 h when nothing interrupts, then stops", () => {
+    const w = world();
+    const r = runHangOut(w.probes, rng(), { maxMinutes: 120 });
+    expect(r.minutes).toBe(120);
+    expect(r.stopReason).toBe("max-beats");
+    expect(w.hour()).toBeCloseTo(14, 6);
+  });
+  it("an event / bedtime inside the target still stops it first", () => {
+    const e = runHangOut(world({ startHour: 12, eventHour: 13 }).probes, rng(), { maxMinutes: 120 });
+    expect(e.stopReason).toBe("event-due"); expect(e.minutes).toBeLessThanOrEqual(60);
+    const b = runHangOut(world({ startHour: 18, bedHour: 19 }).probes, rng(), { maxMinutes: 120 });
+    expect(b.stopReason).toBe("bedtime"); expect(b.minutes).toBeLessThan(120);
+  });
+  it("the hard cap holds at 3 h whatever was asked", () => {
+    const r = runHangOut(world().probes, rng(), { maxMinutes: 9999 });
+    expect(r.minutes).toBe(HANGOUT.maxStatedMinutes);
+    expect(HANGOUT.maxStatedMinutes).toBe(180);
+  });
+  it("no target (or an invalid one) is byte-identical to today", () => {
+    const a = world(); const ra = runHangOut(a.probes, rng(7));
+    for (const bad of [undefined, 0, -5, NaN]) {
+      const b = world(); const rb = runHangOut(b.probes, rng(7), bad === undefined ? {} : { maxMinutes: bad });
+      expect(rb).toEqual(ra); expect(b.log).toEqual(a.log);
+    }
   });
 });

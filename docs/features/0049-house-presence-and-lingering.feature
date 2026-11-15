@@ -81,3 +81,69 @@ Feature: House presence and lingering play
     Then the week, the phase, and the pending ceremony are unchanged
     And each milling turn is a clean committed turn, never an idle fast-forward
     And the day's meaningful event is still the scheduled beat
+
+  # ORW-419 (Ryne, 2026-11-15: "I think the narrator should include the exit and the arrival. But the engine should move before the narrator.").
+  # The engine resolves the player's OWN move from their words before the narrator writes; the narrator then voices the recorded from/to.
+  Scenario: The engine moves the player from their own words before the narrator writes
+    Given a started game with the player in the backyard and no house event in session
+    When the engine reads the player's words "I go to the kitchen"
+    Then the engine has the player in the kitchen
+    And the game state hands the narrator the move from the backyard to the kitchen
+
+  Scenario: Leaving with no destination goes through the nearest door
+    Given a started game with the player in the backyard and no house event in session
+    When the engine reads the player's words "I want to leave the backyard"
+    Then the engine has the player in the living room
+    And the game state hands the narrator the move from the backyard to the living room
+
+  Scenario: A future or conditional phrase is not a move
+    Given a started game with the player in the backyard and no house event in session
+    When the engine reads the player's words "I'll go to the kitchen later"
+    Then the engine has the player in the backyard
+    And the game state hands the narrator no move
+
+  Scenario Outline: During a house event the player's move is refused with a reason and nothing moves
+    Given a seeded season paused at <event>
+    When the engine reads the player's words "I go to the kitchen"
+    Then the move is refused with an in-fiction reason
+    And the player's room and the in-game clock are unchanged
+
+    Examples:
+      | event                   |
+      | an eviction vote        |
+      | a competition in session |
+
+  # ORW-445 (merged in #2772): a stated wait reaches the clock. The front end reads the player's own wait ("half an hour", "a couple of hours",
+  # "the rest of the afternoon") into a hang-out request; the engine moves the in-game clock by exactly that much, never more than three hours,
+  # never past the end of the current part of the day when the player said "the rest of", and never past a scheduled event. Waits that a houseguest or production cuts short are covered by the hang-out's own scenarios.
+  Scenario: A stated wait moves the clock by exactly that long
+    Given a played game on a quiet morning with the in-game clock running
+    When the player says they will wait 60 minutes and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly 60 minutes
+
+  Scenario: A stated wait of more than three hours moves the clock by three hours
+    Given a played game on a quiet morning with the in-game clock running
+    When the player says they will wait 300 minutes and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly 180 minutes
+
+  Scenario: Waiting out the rest of the morning stops at the morning's end
+    Given a played game on a quiet morning, 113 minutes before the afternoon
+    When the player says they will wait out the rest of the morning and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly 113 minutes
+    And the in-game clock stands at the start of the afternoon
+
+  Scenario Outline: With both a stated length and the rest of the morning, the shorter wait wins
+    Given a played game on a quiet morning, <left> minutes before the afternoon
+    When the player says they will wait <asked> minutes or the rest of the morning and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly <moved> minutes
+
+    Examples:
+      | left | asked | moved |
+      | 240  | 60    | 60    |
+      | 60   | 150   | 60    |
+
+  Scenario: A stated wait never runs past a scheduled event
+    Given a played game with the in-game clock running, 47 minutes before the next scheduled event
+    When the player says they will wait 120 minutes for the event
+    Then the wait stopped because the event came due
+    And the in-game clock has moved on by exactly 47 minutes

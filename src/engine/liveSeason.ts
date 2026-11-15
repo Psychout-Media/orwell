@@ -582,6 +582,8 @@ export interface LiveSeasonState {
    * the toast speakers released ("host" or an id). Persisted (0030); ABSENT when the flag is off (byte-identical).
    * Premiere-scoped: cleared the instant the phase leaves "premiere".
    */
+  /** ORW-466 (Ryne 2026-11-15): assigned beds - each houseguest's bed and the append-only claim history. A played game only; absent on older saves and headless games. */
+  beds?: import("./beds").BedsState;
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
   compIntent?: Intent;
@@ -844,6 +846,8 @@ export interface LiveSeasonState {
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
+  /** ORW-443: the #2736 cap withheld an approach THIS turn (per-turn; cleared at the next conversation tick). Vault-free flag, narration-only. */
+  approachHeld?: true;
   hangOutCount?: number;
   hangOutPulledDay?: number;
   hangOutLog?: Array<{ n: number; day: number; hour: number; beats: number; minutes: number; stopReason: string; detail?: Record<string, unknown> }>;
@@ -2417,7 +2421,7 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
 }
 
 /** ORW-116 (b): record that the night in front of the CURRENT beat's day-break has been crossed (by the player's own turn-in). */
-function markNightGateCrossed(s: LiveSeasonState): void {
+export function markNightGateCrossed(s: LiveSeasonState): void {
   switch (s.beat) {
     case "hoh-competition": s.firstNightPassed = true; if (s.week > 1) s.preHohNightPassed = true; break; // ORW-258: week 1+ keeps the original firstNightPassed write (headless sims byte-identical); week 2+ also arms its own gate
     case "nominations": s.preNomsNightPassed = true; break;

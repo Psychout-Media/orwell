@@ -17,6 +17,10 @@ describe("hangOutStopLine (pure)", () => {
       expect(line.length, k).toBeGreaterThan(10);
     }
   });
+  it("ORW-444: event-due reads as a plain fact, not production machinery", () => {
+    const line = hangOutStopLine({ stopReason: "event-due" });
+    expect(line).toBe("The house is being called together.");
+  });
   it("names only the public detail, never the desire", () => {
     const line = hangOutStopLine({ stopReason: "npc-approach", detail: { npc: "Role", desire: "SENTINEL-DESIRE" } });
     expect(line).toContain("Role");

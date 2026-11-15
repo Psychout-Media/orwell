@@ -238,3 +238,30 @@ describe("hangOut over the MCP boundary", () => {
     await expect(server.callTool("hangOut", { maxBeats: 0 })).rejects.toThrow();
   });
 });
+
+describe("hangOut lever stated target (ORW-445)", () => {
+  it("maxMinutes: 120 runs about two hours; untilBandEnd stops at the next part-of-day edge; the MCP boundary rejects junk", () => {
+    const s = parked(5)!;
+    const h0 = live(s).nightDepth!;
+    const r = s.hangOut({ maxMinutes: 120 });
+    expect(r.ok).toBe(true);
+    if (r.stopReason === "max-beats") expect(r.minutes).toBe(120);
+    else expect(r.minutes).toBeLessThanOrEqual(120);
+    expect(live(s).nightDepth! - h0).toBeLessThanOrEqual(2 + 1e-6);
+    const t = parked(5, "ho-band")!;
+    const h1 = live(t).nightDepth!;
+    const edge = [12, 16, 20, 24].find((e) => e > h1 + 1e-6)!;
+    const rb = t.hangOut({ untilBandEnd: true });
+    expect(rb.ok).toBe(true);
+    expect(live(t).nightDepth!).toBeLessThanOrEqual(edge + 1e-6);
+  });
+  it("MCP: a non-numeric maxMinutes / non-boolean untilBandEnd is refused", async () => {
+    const sb = buildSandbox(1);
+    const session = new GameSessionAdapter();
+    const commands = new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge);
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session });
+    await expect(server.callTool("hangOut", { maxMinutes: "soon" })).rejects.toThrow();
+    await expect(server.callTool("hangOut", { maxMinutes: 0 })).rejects.toThrow();
+    await expect(server.callTool("hangOut", { untilBandEnd: "yes" })).rejects.toThrow();
+  });
+});

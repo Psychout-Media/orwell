@@ -1,4 +1,4 @@
-"""ORW-109: the live-run short tier scores replies against engine truth. These pin the scoring (no browser, no narrator): each of Ryne's playtest bugs
+"""ORW-109: the live-run short tier scores replies against engine truth. These pin the scoring (no browser, no narrator): each reported playtest bug
 has a reply that FAILS its check and a reply that passes. Roles only."""
 import importlib.util
 import pathlib
@@ -74,7 +74,7 @@ def test_k1_no_skipped_time_unexplained_jump_fails_but_runner_bed_and_wake_do_no
     beat = _score([a, _turn("t2", "x", clock="7:10pm, Day 1", phase="nominations", phase_before="premiere")])
     assert [c for k, c in beat.items() if k.startswith("K1-clock-jump-competition")][0]["severity"] == "note", "a non-competition beat inside one message is a note"
     comp = _score([a, _turn("t2", "x", clock="7:10pm, Day 1", phase="nominations", phase_before="hoh-competition")])
-    assert not [c for k, c in comp.items() if k.startswith("K2-competition-in-one-message")][0]["ok"], "Ryne: a competition is never one message"
+    assert not [c for k, c in comp.items() if k.startswith("K2-competition-in-one-message")][0]["ok"], "a competition is never one message"
 
 
 def test_k3_a_due_evening_ceremony_unfired_for_more_than_two_messages_fails():
@@ -108,3 +108,35 @@ def test_orw259_busy_selector_matches_the_apps_real_streaming_mode():
         busy = _load(name).BUSY_JS
         assert 'data-mode=\\"streaming\\"' in busy or 'data-mode="streaming"' in busy, name
         assert "stop" not in busy and "cancel" not in busy, name
+
+
+def test_t13_zero_clocks_fails_a_clock_time_and_passes_a_part_of_the_day():
+    # ORW-377: the house has no clocks. The bubble's own "07:41 PM" header stamp is not the narration and is ignored.
+    for bad in ("By 8:15 the kitchen is full.", "She says she'll be up at 9 am.", "Nobody sleeps before ten o'clock."):
+        assert not _score([_turn("premiere-1", bad)])["T13-zero-clocks[premiere-1]"]["ok"], bad
+    for ok in ("Production 07:41 PM\nLate night settles over the kitchen.", "Morning light, Day 2.", "The afternoon drags; nobody hums ten amps of anything."):
+        assert _score([_turn("premiere-1", ok)])["T13-zero-clocks[premiere-1]"]["ok"], ok
+
+
+def test_the_report_carries_the_pass_bar_header_and_what_was_not_covered(tmp_path):
+    import json
+    (tmp_path / "meta.json").write_text(json.dumps({"sha": "abc12345", "ref": "main", "cap": "0.5", "model": "m"}))
+    (tmp_path / "spend.json").write_text(json.dumps({"usd_estimate": 0.12}))
+    ls.write(str(tmp_path), [], [], None)
+    md = (tmp_path / "report.md").read_text()
+    assert "`abc12345`" in md and "UTC" in md and "Arizona" in md and "$0.12 of a $0.5 cap" in md
+    assert "Checked against the Live Run Pass Bar" in md and "T13 zero clocks" in md and "Not covered by the short tier" in md
+
+
+def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
+    # ORW-281: the veto chip draw is a mini ceremony (about 1h of felt time), so its reply may move the clock about an hour on the veto morning.
+    turns = [_turn("veto-morning-1", "x", phase="veto-competition", phase_before="veto-competition", clock="8:00am, Day 4"),
+             # the sanctioned hour needs a reply that actually voices the draw (review of #2777); a quiet reply with the same jump still fails (tests/test_live_run_tooling.py)
+             _turn("veto-morning-2", "The veto chips are drawn and Dana pulls hers: everyone is playing for the veto.", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
+    got = _score(turns)
+    assert "K1-no-skipped-time[veto-morning-2]" not in got and got["K1-clock-jump-veto-draw[veto-morning-2]"]["ok"]
+
+
+def test_a_raw_tool_tag_reply_is_machinery():
+    # ORW-440: a whole reply of "</tool_use>" reached the player; the short tier must flag it.
+    assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]

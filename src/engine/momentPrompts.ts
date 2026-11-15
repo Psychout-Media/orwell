@@ -1487,7 +1487,8 @@ export function renderGameContext(view: GameStateView): string {
     `- You are playing as: ${view.player.name}${ceremonyMark(view.player.id)}.` +
       (view.player.genderPresentation
         ? ` They present as ${genderPresentationPhrase(view.player.genderPresentation)} (use ${pronounsFor(view.player.genderPresentation)}) — never infer their gender/pronouns from their name.`
-        : ""),
+        // ORW-444: none recorded = the player's gender is UNSTATED; houseguests/narration must not assign one (no "man"/"he"/"the woman"), and must not flip it later.
+        : ` Their gender is unstated: address them as "you"; no gendered nouns or pronouns for them, and never guess from their name.`),
     `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
     "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
     "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",
@@ -1575,8 +1576,8 @@ export function renderGameContext(view: GameStateView): string {
             ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to the living room; the scheming pauses and everyone gathers for the ceremony.`
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
-              ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over, schemes, and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
-              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it (pitches, last-minute deals); nobody is surprised when production calls them in.`,
+              ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it; nobody is surprised when production calls them in.`,
         ]
       : []),
   ].join("\n");

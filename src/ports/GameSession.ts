@@ -616,6 +616,8 @@ export interface GameStateView {
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
+  /** ORW-443: the approach cap withheld a houseguest this turn (played games only; absent otherwise). Narration-only; carries no count. */
+  approachHeld?: true;
   daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3 };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
@@ -1689,7 +1691,7 @@ export interface WeekChapterView {
 export interface AdvanceView {
   started: boolean;
   /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
-  held?: { next: string; minutesUntil: number; /** ORW-97: present ("schedule") only on the A65 schedule hold (an event not yet due); absent on the night/bedtime holds. */ reason?: "schedule" };
+  held?: { next: string; minutesUntil: number; /** ORW-97: present ("schedule") only on the A65 schedule hold (an event not yet due); absent on the night/bedtime holds. */ reason?: "schedule" | "ceremony" /* ORW-446: a bed refused while a staged ceremony is open */ };
   /**
    * The monotonic per-sandbox beat counter (0065 Part A) AFTER this advance/decision committed — see
    * `GameStateView.beatSeq`. The FE captures it as the new last-seen token. On an idempotency REPLAY
@@ -2568,7 +2570,7 @@ export interface NapReq {
   idempotencyKey?: string;
 }
 /** Why a nap was refused (nothing changed: the clock has not moved). */
-export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "already-asleep";
+export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "early-morning" | "already-asleep";
 export interface NapView {
   /** false = refused, nothing changed: see `reason` + `why`. */
   ok: boolean;
@@ -2589,6 +2591,10 @@ export interface HangOutReq {
   expectedBeatSeq?: number;
   /** Cap on beats this call (1..8; default 8). */
   maxBeats?: number;
+  /** ORW-445: the player's own stated wait length, in-game minutes (hard-capped at 180). Stops at the EARLIER of this and the usual stop reasons. Absent => unchanged. */
+  maxMinutes?: number;
+  /** ORW-445: the player asked to wait out the rest of the current part of the day ("the rest of the morning"): the target is the next band edge. Combined with maxMinutes, the smaller wins. */
+  untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
