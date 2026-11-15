@@ -105,8 +105,8 @@ describe("sync mode retries an owed directory sync on every save (follow-up to #
     });
     for (let i = 1; i <= 10; i++) store.saveFor("u", snap(i));
     expect(store.durability().saveDurableVersion).toBe(0);
-    expect(calls).toBeGreaterThanOrEqual(10);
-    expect(calls).toBeLessThanOrEqual(30);
+    // Both entries (the directory and the data dir) are owed from the first save and each is retried once per save: 2 x 10.
+    expect(calls).toBe(20);
   });
 });
 
@@ -121,14 +121,14 @@ describe("a permanently failing directory fsync logs a rate-limited line (follow
     });
     const dirLines = () => lines.filter((l) => l.includes("dirsync") || l.includes("parentsync"));
     for (let i = 1; i <= 20; i++) { store.saveFor("u", snap(i)); await settle(); t += 100; }
-    expect(dirLines().length).toBeGreaterThanOrEqual(1);
-    expect(dirLines().length).toBeLessThanOrEqual(2); // dirsync + parentsync, first time only
+    // The first failure logs once; the shared limiter holds back the other 39 failures (20 saves x 2 owed entries, minus the one logged).
+    expect(dirLines()).toHaveLength(1);
     const before = dirLines().length;
     t += 61_000;
     store.saveFor("u", snap(21)); await settle();
     const after = dirLines();
-    expect(after.length).toBeGreaterThan(before);
-    expect(after.length).toBeLessThanOrEqual(before + 2);
-    expect(after[after.length - 1]).toMatch(/\d+ more since/);
+
+    expect(after).toHaveLength(before + 1);
+    expect(after[after.length - 1]).toContain("; 39 more since the last line");
   });
 });

@@ -147,3 +147,31 @@ describe("ORW-311 (Ryne 2026-11-12): hanging out never skips the night or reache
     expect(early).toBeLessThanOrEqual(20.5 + 1e-9);
   });
 });
+
+describe("runHangOut stated target (ORW-445)", () => {
+  it("a 120-minute target moves the clock ~2 h when nothing interrupts, then stops", () => {
+    const w = world();
+    const r = runHangOut(w.probes, rng(), { maxMinutes: 120 });
+    expect(r.minutes).toBe(120);
+    expect(r.stopReason).toBe("max-beats");
+    expect(w.hour()).toBeCloseTo(14, 6);
+  });
+  it("an event / bedtime inside the target still stops it first", () => {
+    const e = runHangOut(world({ startHour: 12, eventHour: 13 }).probes, rng(), { maxMinutes: 120 });
+    expect(e.stopReason).toBe("event-due"); expect(e.minutes).toBeLessThanOrEqual(60);
+    const b = runHangOut(world({ startHour: 18, bedHour: 19 }).probes, rng(), { maxMinutes: 120 });
+    expect(b.stopReason).toBe("bedtime"); expect(b.minutes).toBeLessThan(120);
+  });
+  it("the hard cap holds at 3 h whatever was asked", () => {
+    const r = runHangOut(world().probes, rng(), { maxMinutes: 9999 });
+    expect(r.minutes).toBe(HANGOUT.maxStatedMinutes);
+    expect(HANGOUT.maxStatedMinutes).toBe(180);
+  });
+  it("no target (or an invalid one) is byte-identical to today", () => {
+    const a = world(); const ra = runHangOut(a.probes, rng(7));
+    for (const bad of [undefined, 0, -5, NaN]) {
+      const b = world(); const rb = runHangOut(b.probes, rng(7), bad === undefined ? {} : { maxMinutes: bad });
+      expect(rb).toEqual(ra); expect(b.log).toEqual(a.log);
+    }
+  });
+});

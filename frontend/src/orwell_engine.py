@@ -1369,7 +1369,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1379,6 +1379,10 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["expectedBeatSeq"] = expected_beat_seq
     if max_beats is not None:
         args["maxBeats"] = max_beats
+    if max_minutes is not None:  # ORW-445: the player's own stated wait length (engine hard-caps at 180)
+        args["maxMinutes"] = max_minutes
+    if until_band_end:
+        args["untilBandEnd"] = True
     return await _call("hangOut", args, user=user)
 
 

@@ -118,3 +118,28 @@ describe("ORW-423 live", () => {
     throw new Error("no interruption surfaced");
   });
 });
+
+describe("ORW-443 approachHeld", () => {
+  it("true exactly on a turn the cap withheld an approach; absent otherwise and for headless games", () => {
+    let held = 0;
+    for (const seed of [3, 5, 8, 11, 13]) {
+      const s = parked(seed, `ah${seed}`); if (!s) continue;
+      liveRef(s).playedGame = true;
+      for (let i = 0; i < 120; i++) {
+        const before = JSON.stringify(live(s).desireApproachedAt ?? {});
+        s.advanceClockPerConversation();
+        const l = live(s); const v = s.getGameState() as { approachHeld?: boolean; interruption?: unknown; daySchedule?: { due: boolean } };
+        const stamped = JSON.stringify(l.desireApproachedAt ?? {}) !== before;
+        if (v.approachHeld) { held++; expect(v.interruption).toBeUndefined(); expect(stamped).toBe(true); }
+        else if (stamped) expect(v.interruption).toBeDefined(); // an approach ran and was not withheld
+        else expect("approachHeld" in v).toBe(false); // clears the next turn
+        if (v.daySchedule?.due) break;
+      }
+    }
+    expect(held).toBeGreaterThan(0);
+    for (const seed of [3, 5, 8]) {
+      const s = parked(seed, `ahh${seed}`); if (!s) continue;
+      for (let i = 0; i < 120; i++) { s.advanceClockPerConversation(); expect("approachHeld" in (s.getGameState() as object)).toBe(false); }
+    }
+  });
+});
