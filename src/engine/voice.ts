@@ -18,7 +18,7 @@
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { VoiceProfile } from "../domain/voiceProfile";
 import { clamp01Raw as clamp01 } from "../domain/num";
-import { VOICE_CONFLICTS, VOICE_TEMPER_CONFLICTS, VOICE_LINE_TEMPLATES, tempersOf } from "../domain/traitConsistency";
+import { VOICE_CONFLICTS, VOICE_TEMPER_CONFLICTS, VOICE_LINE_TEMPLATES, tempersOf, temperRuleApplies, voiceLineConflictDetail } from "../domain/traitConsistency";
 
 export type { VoiceProfile } from "../domain/voiceProfile";
 
@@ -143,9 +143,7 @@ function brokenDial(d: Dials, demeanor?: string): { dial: Dial; other?: Dial } |
     }
   }
   const tempers = tempersOf(demeanor);
-  if (!tempers.includes("loud")) {
-    for (const r of VOICE_TEMPER_CONFLICTS) if (tempers.includes(r.temper) && d[r.side.dial as Dial] === r.side.value) return { dial: r.side.dial as Dial };
-  }
+  for (const r of VOICE_TEMPER_CONFLICTS) if (temperRuleApplies(r, tempers) && d[r.side.dial as Dial] === r.side.value) return { dial: r.side.dial as Dial };
   return undefined;
 }
 
@@ -290,4 +288,32 @@ export function moodWord(emotionalState: number, volatility: number, emotionalHi
 
   if (clamp01(volatility) > VOLATILE) word = `${word}, on edge`;
   return word;
+}
+
+/**
+ * ORW-432: repair an authored (or dealt) voice whose rendered line trips a trait rule. Replaces the dial that carries
+ * the contradicting word with the first canonical value that clears it (starting at a seeded offset), never touching
+ * signature, lexicon or catchphrases. Deterministic: same voice, demeanor and rng give the same result. Returns the
+ * dials changed (none when the voice was already clean).
+ */
+export function repairVoiceConflicts(voice: VoiceProfile, demeanor: string | undefined, rng: RandomnessSource): { voice: VoiceProfile; changed: string[] } {
+  const out: VoiceProfile = { ...voice };
+  const changed: string[] = [];
+  for (let guard = 0; guard < 8; guard++) {
+    const detail = voiceLineConflictDetail(voiceFingerprint(out), demeanor);
+    if (!detail) break;
+    // The dial whose text carries the changing word; else the rule's own dial.
+    const dials = (Object.keys(VOICE_DIALS) as Dial[]);
+    const carrier = dials.find((k) => detail.change.words.test(String(out[k]))) ?? (detail.change.dial as Dial);
+    const options = VOICE_DIALS[carrier];
+    const start = rng.int(options.length);
+    let fixed = false;
+    for (let j = 0; j < options.length && !fixed; j++) {
+      const v = options[(start + j) % options.length]!;
+      const trial = { ...out, [carrier]: v } as VoiceProfile;
+      if (voiceLineConflictDetail(voiceFingerprint(trial), demeanor)?.label !== detail.label) { out[carrier] = v; changed.push(carrier); fixed = true; }
+    }
+    if (!fixed) break;
+  }
+  return { voice: out, changed: [...new Set(changed)] };
 }

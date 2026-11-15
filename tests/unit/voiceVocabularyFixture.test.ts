@@ -32,6 +32,7 @@ describe("the shared voice-vocabulary fixture matches the engine", () => {
     const slot = (key: string): string => (key === "humor" ? (FIX.humorWords[voice.humor] ?? voice.humor) : String(voice[key as keyof VoiceProfile]));
     const rendered = FIX.fingerprintTemplates.map((t) => t.replace(/\{(\w+)\}/g, (_m, key: string) => slot(key)));
     expect(rendered).toContain(voiceFingerprint(voice));
+    // The hash-selected index is asserted per template in traitsAgree432.test.ts ("hash-selected template").
     expect(FIX.fingerprintTemplates).toEqual([...VOICE_LINE_TEMPLATES]);
   });
 

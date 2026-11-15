@@ -73,7 +73,7 @@ export function dealCastingTypes(
   const fits = (t: CastingType, i: number): boolean => traits?.[i] === undefined || castingCompatible(t.id, traits[i]!);
   const room = (i: number): number => CASTING_TYPES.filter((t) => ageOk(t, ages?.[i]) && fits(t, i)).length;
   const order = Array.from({ length: count }, (_, i) => i);
-  if (traits) order.sort((a, b) => room(a) - room(b) || a - b);
+  if (traits && traits.length > 0) order.sort((a, b) => room(a) - room(b) || a - b);
   const used = new Set<string>();
   const out: CastingType[] = new Array<CastingType>(count);
   for (const i of order) {

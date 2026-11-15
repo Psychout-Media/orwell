@@ -4,10 +4,10 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { hashSeed } from "../../src/engine/characterFactory";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer, BUILD_WORDS } from "../../src/engine/deepProfile";
-import { voiceFingerprint } from "../../src/engine/voice";
+import { voiceFingerprint, generateVoice, VOICE_DIALS, type VoiceProfile } from "../../src/engine/voice";
 import { CASTING_TYPES, dealCastingTypes, recohereCastingTypes, type CastingDealReport } from "../../src/domain/castingTypes";
 import {
-  CASTING_TYPE_FIT, castingCompatible, heightWordsIn, traitContradictions, voiceLineConflict, VOICE_LINE_TEMPLATES,
+  CASTING_TYPE_FIT, castingCompatible, castingConflict, heightWordsIn, traitContradictions, voiceLineConflict, VOICE_LINE_TEMPLATES, repairHeightBuild,
 } from "../../src/domain/traitConsistency";
 
 // ORW-432: the traits the engine deals on separate streams must agree on one card.
@@ -52,8 +52,8 @@ describe("ORW-432 casting type fits the card", () => {
       fallbacks += report.fallbacks;
     }
     console.log(`CASTING FALLBACKS: ${fallbacks} of ${slots} slots incompatible-after-deal=${bad} (40 seeds x 15)`);
-    expect(bad).toBeLessThanOrEqual(fallbacks); // a pair is incompatible only where a fallback was taken
-    expect(fallbacks).toBeLessThanOrEqual(slots * 0.05);
+    expect(bad).toBe(0);
+    expect(fallbacks).toBe(0);
   });
 
   it("a deal with no traits is the ORW-381 deal (same draws, same picks)", () => {
@@ -65,9 +65,38 @@ describe("ORW-432 casting type fits the card", () => {
     }
   });
 
+  it("omitted and empty traits give the ORW-381 deal byte for byte", () => {
+    for (const seed of SEEDS) {
+      const ages = Array.from({ length: 15 }, (_, i) => 20 + i * 3);
+      const ids = (t?: never[]) => dealCastingTypes(new SeededRandom(seed), 15, ages, t).map((x) => x.id);
+      expect(ids([])).toEqual(ids());
+    }
+  });
+
+  it("an unknown or inherited-key label is unknown, never a crash", () => {
+    for (const label of ["constructor", "toString", "__proto__", "hasOwnProperty", "the constructor"]) {
+      expect(castingConflict(label, { archetype: "floater" }), label).toBe(0);
+      expect(() => traitContradictions({ castingType: { label }, archetype: "floater" }), label).not.toThrow();
+      expect(traitContradictions({ castingType: { label }, archetype: "floater" }), label).toEqual([]);
+    }
+  });
+
   it("the table has a conflict count that ranks a fallback: a clash on archetype and demeanor beats neither", () => {
     expect(castingCompatible("underdog", { archetype: "floater", demeanor: "explosive, theatrical" })).toBe(false);
     expect(castingCompatible("underdog", { archetype: "floater", demeanor: "shy and awkward" })).toBe(true);
+  });
+});
+
+describe("ORW-432 a loud demeanor never gets a flat voice", () => {
+  it("the rule fires on a card and the dealer never produces it", () => {
+    const line = "talks in a plainspoken, measured, candid voice — flat, dry humor; under pressure goes quiet";
+    expect(voiceLineConflict(line, "loud, bubbly and theatrical")).toBe("loud+flat");
+    expect(voiceLineConflict(line, "quiet and watchful")).toBeUndefined();
+    expect(voiceLineConflict(line, "loud and quiet by turns")).toBeUndefined(); // ambiguous: neither rule applies
+    for (let i = 0; i < 300; i++) {
+      const v = generateVoice(new SeededRandom(i), "villain", { fixRng: new SeededRandom(i + 1), tellCounts: new Map(), demeanor: "loud and confrontational" });
+      expect(v.energy, `${i}`).not.toBe("flat");
+    }
   });
 });
 
@@ -78,6 +107,11 @@ describe("ORW-432 heightBuild says one height", () => {
       const { npcs, layer } = cast(seed);
       for (const n of npcs) expect(heightWordsIn(layer.public[n.id]!.physicalCharacteristics.heightBuild).length).toBeLessThanOrEqual(1);
     }
+  });
+  it("repairs two heights to the first one plus the build phrase", () => {
+    expect(repairHeightBuild("short and compact, average height with a sturdy soft build")).toBe("short and compact, with a sturdy soft build");
+    expect(heightWordsIn(repairHeightBuild("tall and petite, athletic")).length).toBe(1);
+    expect(repairHeightBuild("tall and lean")).toBe("tall and lean");
   });
   it("sees the live Briana string as two heights", () => {
     expect(heightWordsIn("short and compact, average height with a sturdy soft build").length).toBe(2);
@@ -108,20 +142,20 @@ describe("ORW-432 voice lines", () => {
   });
 });
 
-describe("ORW-432 card check on the seven live cards", () => {
+describe("ORW-432 card check on seven live-shaped cards (role labels)", () => {
   const live = [
-    { n: "Justin Boone", archetype: "hothead", strategyStyle: "aggressive", demeanor: "restless, magnetic, one spark from a blowup", castingType: { label: "the free spirit" }, want: ["trait-casting-type"] },
-    { n: "Tessa Brooks", archetype: "floater", strategyStyle: "emotional", demeanor: "explosive, theatrical, impossible to ignore", castingType: { label: "the underdog" }, want: ["trait-casting-type"] },
-    { n: "Briana Pickett", archetype: "peacemaker", strategyStyle: "loyal", demeanor: "jolly until the spoon drops", castingType: { label: "the competitor" },
+    { n: "hothead, free spirit", archetype: "hothead", strategyStyle: "aggressive", demeanor: "restless, magnetic, one spark from a blowup", castingType: { label: "the free spirit" }, want: ["trait-casting-type"] },
+    { n: "floater, underdog", archetype: "floater", strategyStyle: "emotional", demeanor: "explosive, theatrical, impossible to ignore", castingType: { label: "the underdog" }, want: ["trait-casting-type"] },
+    { n: "peacemaker, competitor", archetype: "peacemaker", strategyStyle: "loyal", demeanor: "jolly until the spoon drops", castingType: { label: "the competitor" },
       physicalCharacteristics: { heightBuild: "short and compact, average height with a sturdy soft build" },
       voice: "talks in a folksy, measured, blunt voice — manic, no humor; under pressure deflects with a joke", want: ["trait-casting-type", "trait-height-build", "trait-voice"] },
-    { n: "Imani Mason", archetype: "mastermind", strategyStyle: "strategic", demeanor: "cool, clipped, and quietly watchful", castingType: { label: "the life of the party" }, want: ["trait-casting-type"] },
-    { n: "Gabe Cottrell", archetype: "mastermind", strategyStyle: "strategic", demeanor: "unhurried and unbothered, with a slow blink that reads as serene", castingType: { label: "the jock" }, want: ["trait-casting-type"] },
-    { n: "Stephanie Kowalski", archetype: "peacemaker", strategyStyle: "loyal", demeanor: "bouncy, loud, and instantly in your space", castingType: { label: "the gentle giant" }, want: ["trait-casting-type"] },
-    { n: "Melanie Turner", archetype: "floater", strategyStyle: "under-the-radar", demeanor: "wired and blunt, laughs loudest and cracks first", castingType: { label: "the diva" }, want: ["trait-casting-type"] },
+    { n: "mastermind, life of the party", archetype: "mastermind", strategyStyle: "strategic", demeanor: "cool, clipped, and quietly watchful", castingType: { label: "the life of the party" }, want: ["trait-casting-type"] },
+    { n: "mastermind, jock", archetype: "mastermind", strategyStyle: "strategic", demeanor: "unhurried and unbothered, with a slow blink that reads as serene", castingType: { label: "the jock" }, want: ["trait-casting-type"] },
+    { n: "peacemaker, gentle giant", archetype: "peacemaker", strategyStyle: "loyal", demeanor: "bouncy, loud, and instantly in your space", castingType: { label: "the gentle giant" }, want: ["trait-casting-type"] },
+    { n: "floater, diva", archetype: "floater", strategyStyle: "under-the-radar", demeanor: "wired and blunt, laughs loudest and cracks first", castingType: { label: "the diva" }, want: ["trait-casting-type"] },
   ];
   for (const c of live) {
-    it(`${c.n} trips ${c.want.join(", ")}`, () => {
+    it(`${c.n} card trips ${c.want.join(", ")}`, () => {
       const { want, n: _n, ...card } = c;
       expect(traitContradictions(card)).toEqual(want);
     });
@@ -201,5 +235,56 @@ describe("ORW-432 recohereCastingTypes", () => {
       const r = recohereCastingTypes(new SeededRandom(hashSeed(`${seed}:casting-type`)), cur, npcs.map((n) => n.character.age), traits);
       expect(r.changed).toBe(0);
     }
+  });
+});
+
+describe("ORW-432 the end-of-creation pass repairs authored voice and height and reports it", () => {
+  it("a stub-authored contradictory voice and two-height build end with zero codes; castCoherence lists them", () => {
+    const seed = 5150;
+    const s = new GameSessionAdapter();
+    const warm = s.preSeedCast({ seed });
+    const bad: VoiceProfile = {
+      register: "folksy", rhythm: "measured", energy: "manic", directness: "blunt", humor: "none",
+      stressTell: "deflects with a joke", signature: "talks with their hands", lexicon: ["honestly"],
+    };
+    const pc = (h: string) => ({
+      heightBuild: h, skinTone: "warm tan complexion", hair: "a clean side-parted dark crop", facialFeatures: "strong cheekbones",
+      distinguishingMark: "none notable", ageLook: "polished, thirties poise", style: "plain tee and jeans",
+    });
+    const ids = warm.house.slice(0, 2).map((c) => c.id);
+    const profile = { biography: "Outside the house they run a bakery they built from a single market stall over a decade of dawn shifts.", secrets: ["carries a quiet debt"], trueGoals: ["reach the end quietly"], weakness: "loyal to a fault" };
+    const r1 = s.recordCastProfile({ houseguestId: ids[0]!, ...profile, voice: bad, physicalCharacteristics: pc("short and compact, average height with a sturdy soft build") });
+    expect(r1.accepted).toBe(true);
+    s.recordCastProfile({ houseguestId: ids[1]!, ...profile, physicalCharacteristics: pc("tall and slender, petite frame") });
+    const view = s.createCharacter({ playerName: "The Player", seed });
+    for (const h of view.house.filter((x) => x.status === "active")) {
+      expect(traitContradictions({ archetype: h.archetype, strategyStyle: h.strategyStyle, demeanor: h.demeanor, castingType: h.castingType, physicalCharacteristics: h.physicalCharacteristics, voice: h.voice }), h.id).toEqual([]);
+    }
+    const listed = Object.fromEntries((view.castCoherence?.houseguests ?? []).map((x) => [x.id, x.fields]));
+    expect(listed[ids[0]!]).toEqual(expect.arrayContaining(["physicalCharacteristics.heightBuild"]));
+    expect(listed[ids[0]!]!.some((f) => f.startsWith("voice."))).toBe(true);
+    expect(listed[ids[1]!]).toEqual(expect.arrayContaining(["physicalCharacteristics.heightBuild"]));
+    expect(JSON.stringify(view.castCoherence)).not.toMatch(/folksy|deflects|measured/); // ids and field names only
+  });
+});
+
+describe("ORW-432 voice line shape is the hash-selected template", () => {
+  it("every template index is selected for some profile, and the line is exactly that template", () => {
+    const idx = (v: VoiceProfile): number => {
+      let h = 0;
+      for (const ch of `${v.register}|${v.rhythm}|${v.energy}|${v.directness}|${v.humor}|${v.stressTell}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return h % VOICE_LINE_TEMPLATES.length;
+    };
+    const seen = new Set<number>();
+    for (let i = 0; i < 400 && seen.size < VOICE_LINE_TEMPLATES.length; i++) {
+      const r = new SeededRandom(i);
+      const v = generateVoice(r, "floater");
+      const k = idx(v);
+      const slot = (key: string): string => (key === "humor" ? (v.humor === "none" ? "no" : v.humor) : String(v[key as keyof VoiceProfile]));
+      expect(voiceFingerprint(v)).toBe(VOICE_LINE_TEMPLATES[k]!.replace(/\{(\w+)\}/g, (_m, key: string) => slot(key)));
+      seen.add(k);
+    }
+    expect(seen.size).toBe(VOICE_LINE_TEMPLATES.length);
+    void VOICE_DIALS;
   });
 });

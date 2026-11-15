@@ -80,7 +80,7 @@ export interface FitTraits { archetype?: string; strategyStyle?: string; demeano
 
 /** How many of the three tests (archetype, demeanor temper, strategy style) a type fails for these traits. */
 export function castingConflict(typeId: string, t: FitTraits): number {
-  const fit = CASTING_TYPE_FIT[typeId];
+  const fit = Object.hasOwn(CASTING_TYPE_FIT, typeId) ? CASTING_TYPE_FIT[typeId] : undefined;
   if (fit === undefined) return 0;
   let n = 0;
   if (t.archetype !== undefined && t.archetype !== "" && !fit.archetypes.includes(t.archetype)) n++;
@@ -145,12 +145,37 @@ export const VOICE_LINE_TEMPLATES: readonly string[] = [
   "a {directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
 ];
 
+/** A voice-trait vs demeanor rule applies unless the demeanor also carries the opposite temper (loud with quiet is ambiguous). */
+export function temperRuleApplies(rule: { readonly temper: Temper }, tempers: readonly Temper[]): boolean {
+  const opposite = rule.temper === "loud" ? "quiet" : rule.temper === "quiet" ? "loud" : undefined;
+  return tempers.includes(rule.temper) && (opposite === undefined || !tempers.includes(opposite));
+}
+
+/** The first voice rule a line trips: its label, the side to change, and the other side. Undefined when none. */
+export function voiceLineConflictDetail(line: string, demeanor?: string): { label: string; change: VoiceSide; other: VoiceSide } | undefined {
+  for (const r of VOICE_CONFLICTS) {
+    if (r.a.words.test(line) && r.b.words.test(line)) {
+      return { label: `${r.a.value}+${r.b.value}`, change: r.change === "a" ? r.a : r.b, other: r.change === "a" ? r.b : r.a };
+    }
+  }
+  const tempers = tempersOf(demeanor);
+  for (const r of VOICE_TEMPER_CONFLICTS) {
+    if (temperRuleApplies(r, tempers) && r.side.words.test(line)) return { label: `${r.temper}+${r.side.value}`, change: r.side, other: r.side };
+  }
+  return undefined;
+}
+
 /** Whether a rendered or authored voice line trips a rule. Returns the first conflict description, or undefined. */
 export function voiceLineConflict(line: string, demeanor?: string): string | undefined {
-  for (const r of VOICE_CONFLICTS) if (r.a.words.test(line) && r.b.words.test(line)) return `${r.a.value}+${r.b.value}`;
-  const tempers = tempersOf(demeanor);
-  for (const r of VOICE_TEMPER_CONFLICTS) if (tempers.includes(r.temper) && !tempers.includes("loud") && r.side.words.test(line)) return `${r.temper}+${r.side.value}`;
-  return undefined;
+  return voiceLineConflictDetail(line, demeanor)?.label;
+}
+
+/** Rewrite a heightBuild that names two heights (or tall with petite) to its FIRST height word plus the rest, dropping the later height words. */
+export function repairHeightBuild(text: string): string {
+  let seen = false;
+  const kept = text.replace(HEIGHT_WORD_RE, (m) => { if (!seen) { seen = true; return m; } return ""; });
+  const noPetiteWithTall = /\btall\b/i.test(kept) ? kept.replace(/\bpetite\b/gi, "") : kept;
+  return noPetiteWithTall.replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").replace(/,(\s*,)+/g, ",").replace(/^[\s,]+|[\s,]+$/g, "").replace(/\b(and|with)\s*$/i, "").replace(/[\s,]+$/g, "").trim();
 }
 
 // ── the card check ────────────────────────────────────────────────────────────────────────────────────
@@ -168,7 +193,7 @@ export interface CardTraits {
 
 const idOfLabel = (label: string): string | undefined => {
   const norm = label.trim().toLowerCase().replace(/^the\s+/, "").replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
-  return norm in CASTING_TYPE_FIT ? norm : undefined;
+  return Object.hasOwn(CASTING_TYPE_FIT, norm) ? norm : undefined;
 };
 
 /**
