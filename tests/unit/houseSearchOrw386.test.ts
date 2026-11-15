@@ -6,6 +6,8 @@ import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { headcountLines } from "../../src/engine/momentPrompts";
 import { linger } from "../support/linger";
+import { composeRuntime } from "../../src/composition/runtime";
+import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { resolvePending } from "../../features/support/answerPending";
 
 /** ORW-386: "Look for Miguel. Where is he?" - the house search hands the narrator each houseguest's ROOM (and whether the player can walk in), and the headcounts. Roles only. */
@@ -155,7 +157,7 @@ describe("ORW-386 invariant: every living houseguest is somewhere", () => {
   });
 });
 
-describe("ORW-386 live evidence 2026-11-15 00:02: two houseguests in no room, then one 'lingering 22 turns'", () => {
+describe("ORW-386: houseguests held outside by the staged entrances, and sleepers shown as tracked", () => {
   type Pe = { live: { premiereEntrance?: { order: EntityId[]; arrived: number; stage: string } } };
   function atEntrances(leftOut: number): { s: GameSessionAdapter; late: EntityId[] } {
     for (const seed of [1, 2, 3, 4, 5, 6]) {
@@ -170,7 +172,7 @@ describe("ORW-386 live evidence 2026-11-15 00:02: two houseguests in no room, th
     throw new Error("no staged entrances to stop in");
   }
 
-  it("the cause: houseguests who have not walked in yet are in NO room and not asleep, though the house count includes them; the search says so", () => {
+  it("houseguests who have not walked in yet (staged entrances) are in NO room and not asleep, though the house count includes them; the search says so", () => {
     const { s, late } = atEntrances(2);
     expect(late.length).toBeGreaterThanOrEqual(1);
     const wa = s.whereabouts({ search: true })!;
@@ -187,15 +189,6 @@ describe("ORW-386 live evidence 2026-11-15 00:02: two houseguests in no room, th
     expect(wa.counts!.house).toBeGreaterThan(wa.search!.houseguests.filter((x) => x.status !== "arriving").length); // the count still includes them
   });
 
-  it("a houseguest who walks in has been in the room no turns, however long the engine seated them there", () => {
-    const { s, late } = atEntrances(1);
-    const id = late[0]!;
-    const h = s as unknown as { presenceTenure: Map<EntityId, number> };
-    h.presenceTenure = new Map([[id, 22]]); // the tenure kept counting while they were held outside
-    s.advanceGame(); // their entrance
-    expect(h.presenceTenure.get(id)).toBe(0);
-  });
-
   it("someone who has turned in is not also 'tracked' behind the HOH room door", () => {
     const { s, npcs } = stage("bedroom-a");
     const gwen = npcs[0]!; // asleep in the staged morning
@@ -206,5 +199,69 @@ describe("ORW-386 live evidence 2026-11-15 00:02: two houseguests in no room, th
     const up = new Set<EntityId>([PLAYER, gwen]);
     (s as unknown as Hack).awakeNow = () => up;
     expect(s.whereabouts()!.tracked.map((t) => t.id)).toContain(gwen);
+  });
+});
+
+describe("ORW-386: turnsHere means consecutive presence ticks in THIS room (it was never reset by an off-screen walk), and a restart keeps everything", () => {
+  type L = { presence: Map<EntityId, string>; presenceTenure: Map<EntityId, number>; live: { nightDepth?: number }; houseLifeStretch(e: unknown, awake: readonly EntityId[], i: number): unknown[] };
+  it("a houseguest who walks to another room between ticks starts at 0 there; one who stays keeps counting", async () => {
+    let movers = 0;
+    for (const seed of [11, 12, 13, 14, 15, 16]) {
+      const reg = composeRuntime({ clock: new FakeClock(), seed }).registry as GameSessionRegistry;
+      const user = `tenure386-${seed}`;
+      const mcp = reg.resolver()("player", user);
+      await mcp.callTool("createCharacter", { playerName: "P", seed, archetype: "floater" });
+      await mcp.callTool("noteMessage", { messageId: "first" });
+      const sb = reg.sandboxFor(user);
+      const s = sb.session as unknown as L & { livingIds(): EntityId[] };
+      const npcs = s.livingIds().filter((i) => i !== PLAYER);
+      s.presence.set(PLAYER, "kitchen");
+      s.presenceTenure = new Map([...s.presence.keys()].map((id) => [id, 22] as [EntityId, number]));
+      for (let i = 0; i < 14; i++) {
+        s.live.nightDepth = (s.live.nightDepth ?? 8) + 1;
+        const before = new Map(s.presence);
+        s.houseLifeStretch(sb.engine.events, [...npcs, PLAYER], i);
+        for (const id of npcs) {
+          const moved = before.get(id) !== s.presence.get(id);
+          if (moved) movers++;
+          expect(s.presenceTenure.get(id), `${id} ${moved ? "walked to" : "stayed in"} ${s.presence.get(id)}`).toBe(moved ? 0 : s.presenceTenure.get(id));
+          if (moved) expect(s.presenceTenure.get(id)).toBe(0);
+        }
+        for (const id of npcs) if (before.get(id) === s.presence.get(id)) s.presenceTenure.set(id, 22);
+      }
+      if (movers > 0) break;
+    }
+    expect(movers, "no seed produced an off-screen walk to test").toBeGreaterThan(0);
+  });
+
+  it("recordHouseguestMove resets that houseguest to 0 and leaves the others' counts alone", () => {
+    const s = toNominations();
+    const npcs = s.livingIds().filter((id) => id !== PLAYER);
+    const h = s as unknown as Hack & { presenceTenure: Map<EntityId, number> };
+    h.presence.set(PLAYER, "kitchen"); h.presence.set(npcs[0]!, "kitchen"); h.presence.set(npcs[1]!, "kitchen");
+    h.presenceTenure = new Map([[npcs[0]!, 22], [npcs[1]!, 22]]);
+    s.recordHouseguestMove(npcs[0]!, "backyard");
+    expect(h.presenceTenure.get(npcs[0]!)).toBe(0);
+    expect(h.presenceTenure.get(npcs[1]!)).toBe(22);
+  });
+
+  it("a restart mid-day (snapshot, JSON, a NEW session) keeps every houseguest's room, the roster in view, the asleep list and turnsHere", () => {
+    Adapter.setTimeOfDayEnabled(true);
+    try {
+      for (const seed of [3, 8]) {
+        const reg = new GameSessionRegistry();
+        const a = reg.sandboxFor(`reload386a-${seed}`).session;
+        a.createCharacter({ playerName: "P", seed });
+        for (let i = 0; i < 12; i++) { const v = a.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void a.submitDecision(req)); if (i % 4 === 0) linger(a); a.presenceTick(); }
+        const rooms = (x: GameSessionAdapter) => JSON.stringify([...(x as unknown as Hack).presence].sort());
+        const view = (x: GameSessionAdapter) => JSON.stringify({ wa: x.whereabouts({ search: true }), asleep: (x.getGameState() as { asleep?: unknown }).asleep });
+        const before = { rooms: rooms(a), view: view(a) };
+        const core = JSON.parse(JSON.stringify(a.snapshot()));
+        const b = new GameSessionRegistry().sandboxFor(`reload386b-${seed}`).session;
+        b.restore(core);
+        expect(rooms(b)).toBe(before.rooms);
+        expect(view(b)).toBe(before.view);
+      }
+    } finally { Adapter.setTimeOfDayEnabled(null); }
   });
 });

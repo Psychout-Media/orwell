@@ -6079,7 +6079,6 @@ export class GameSessionAdapter implements GameSession {
     const id = pe.order[i]!;
     const inside = pe.order.slice(0, i);
     const witness = [...inside, id];
-    this.presenceTenure?.set(id, 0); // ORW-386: the room tenure kept counting while they were held outside; a fresh arrival has been here no turns (a "lingering 22 turns" read for someone who just walked in)
     this.onPlayerEvent?.(`${this.nameOf(id)} arrives`, witness, "premiere-entrance");
     if (id !== me) {
       this.premiereMet.add(id);
@@ -10189,6 +10188,7 @@ export class GameSessionAdapter implements GameSession {
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
+      if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
     }
