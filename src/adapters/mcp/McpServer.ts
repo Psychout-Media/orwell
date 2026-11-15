@@ -389,7 +389,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["text"])) refuse("text", "the narrated words (string)");
       if (!isStr(args["speaker"])) refuse("speaker", "a speaker id (string)");
       if (!Array.isArray(args["addressedTo"])) refuse("addressedTo", "an array of ids");
-      if (!isStr(args["kind"])) refuse("kind", "a free-text kind (string)");
+      if (typeof args["kind"] !== "string") refuse("kind", "a free-text kind (string; empty falls back to \"claim\")");
       if (args["parties"] !== undefined && !Array.isArray(args["parties"])) refuse("parties", "an array of ids when present");
       if (args["about"] !== undefined && !isStr(args["about"])) refuse("about", "free text when present");
       return;
@@ -397,7 +397,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       // ORW-407 slice 2: shape guard only; the engine re-validates.
       if (!isStr(args["entryId"])) refuse("entryId", "an open-ledger entry id (string)");
       if (!isStr(args["status"])) refuse("status", "kept, broken or withdrawn");
-      if (!isStr(args["note"])) refuse("note", "a free-text note (string)");
+      if (typeof args["note"] !== "string") refuse("note", "a free-text note (string; may be empty)");
       return;
     case "recordRoomCanon":
       // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
