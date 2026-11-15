@@ -216,6 +216,8 @@ function sameIds(a: readonly EntityId[], b: readonly EntityId[]): boolean {
 function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
+import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -3276,6 +3278,21 @@ export class GameSessionAdapter implements GameSession {
     if (!ctx) return { accepted: false, publicFields: [], hiddenFields: [], reason: "no game started" };
     const target = ctx.npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, publicFields: [], hiddenFields: [], reason: "unknown houseguest" };
+
+    // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
+    // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
+    if (req.physicalCharacteristics !== undefined) {
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown };
+      const wardrobe = cleanWardrobe(rawWardrobe);
+      const onCamera = cleanOnCamera(rawOnCamera);
+      req = {
+        ...req,
+        physicalCharacteristics: {
+          ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
+        },
+      };
+    }
 
     // Validate — non-player-mirroring (L28 + the anti-sycophancy mandate #3): the cast is INDEPENDENT
     // of the player, so NEITHER the authored PUBLIC material NOR the hidden STORYLINE material (secrets,
