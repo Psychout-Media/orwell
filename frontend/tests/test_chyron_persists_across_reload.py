@@ -143,6 +143,12 @@ def _sm():
     set_session_manager(manager)
     yield manager
     set_session_manager(prior)
+    # ORW-420: the sessions this test creates live in the per-process test DB that every later browser test's uvicorn also opens; a leftover row made the
+    # next real page (the ORW-359 file) load that session, 404 on its history and wipe the chat. Remove the one row we created.
+    try:
+        manager.delete_session("chyron-store-1")
+    except Exception:  # failsoft-ok: cleanup of a test row must never fail the test
+        pass
 
 
 def test_saved_turn_returns_its_announcements_from_the_history_serialisation(_sm):
