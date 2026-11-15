@@ -621,6 +621,9 @@ def hang_out_intent(player_msg) -> bool:
     return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
 
 
+# review of #2688: the ENGINE's own player-facing stop line for `event-due` (src/engine/hangOut.ts hangOutStopLine) is appended to the steer too; it must be reconciled with the FE template.
+_ENGINE_EVENT_DUE_STOP_LINE = "Production is calling everyone: the scheduled event is on now."
+_ENGINE_EVENT_NOT_DUE_STOP_LINE = "Production has not called the scheduled event yet: nobody is gathered and nothing has started."
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
@@ -629,7 +632,7 @@ def _reconcile_hang_out_steer(steer: str, game_state) -> str:
     owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
     from routes.briefing import build_briefing
     if steer and build_briefing(game_state).due is False:  # ORW-409: due-ness is the briefing's fact
-        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE)
+        return steer.replace(_HANGOUT_STOP_LINES["event-due"], _HANGOUT_NOT_DUE_LINE).replace(_ENGINE_EVENT_DUE_STOP_LINE, _ENGINE_EVENT_NOT_DUE_STOP_LINE)
     return steer
 
 
