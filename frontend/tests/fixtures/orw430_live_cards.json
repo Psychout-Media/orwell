@@ -1,0 +1,34 @@
+{
+ "Samir Nesbitt": {
+  "id": "npc:5",
+  "age": 23,
+  "genderPresentation": "man",
+  "vocation": "funeral service apprentice and grief-support coordinator",
+  "identityConcept": "A soft-spoken small-town Texas funeral director's assistant who reads a room like a grief counselor, floats on near-universal goodwill, and hums through every silence while quietly banking everyone's tells.",
+  "biography": "Nia grew up helping at the family funeral home in Converse, handing out programs and later composing obituaries that made strangers cry and thank the family twice. Working as an apprentice director and grief-support coordinator taught a steady, gentle manner and an almost uncanny read on who in the room is about to break. Off the clock Nia sings alto in a church choir, keeps a tidy bullet journal of every social dynamic, and watches people far more closely than they notice."
+ },
+ "Thomas Sizemore": {
+  "id": "npc:10",
+  "age": 25,
+  "genderPresentation": "man",
+  "vocation": "tree-service climber and sawyer",
+  "identityConcept": "A lineman's son from the North Georgia hills who talks like he's doing commentary on everyone else's game and genuinely cannot see that he's the one playing dirtiest.",
+  "biography": "Thomas grew up climbing the white pines and hemlocks around Ellijay before he ever drew a paycheck for it, and now he runs rigging and felling for a small tree-service crew out of Gilmer County. When he isn't forty feet up a spar with a chainsaw hanging off his saddle, he's at his sister's kitchen table helping her study for her real estate exam. He came into the house with a bag of good moisturizer and a plan nobody's supposed to see yet."
+ },
+ "Gabe Cottrell": {
+  "id": "npc:13",
+  "age": 41,
+  "genderPresentation": "man",
+  "vocation": "rural literacy nonprofit program director",
+  "identityConcept": "A sleep-voiced rural nonprofit program director who quietly seeds alliances from behind a mug of tea and genuinely believes nobody has clocked that she's running the house.",
+  "biography": "Gabe runs a rural literacy nonprofit out of a converted hardware store in Durbin, West Virginia, hauling book crates and volunteer tutors to one-room libraries and church basements across four counties. He grew up two hollows over, left for a degree he nearly didn't finish, and came back because the nearest bookstore was ninety minutes away and he decided that was a personal insult. He runs trails before dawn and knows the back roads well enough to give directions by which porch has the good dog"
+ },
+ "Imani Mason": {
+  "id": "npc:14",
+  "age": 33,
+  "genderPresentation": "woman",
+  "vocation": "firefighter",
+  "identityConcept": "A restless small-city firefighter built like a coiled spring who wins endurance comps and then narrates his own brilliance like a nature-doc voiceover \u2014 convinced the house is his chessboard even as the board quietly outplays him.",
+  "biography": "Imani Mason is a third-generation firefighter in Nashua, New Hampshire, where she's spent the last nine years on Truck 2 \u2014 first as a probie, now as the senior driver-operator. She grew up playing travel soccer and running track, and she still laces up for a 5K most weekends, usually dragging her younger brother along. When she's not on shift, she's at the gym or at her parents' kitchen table, arguing about whose tomato sauce is better."
+ }
+}

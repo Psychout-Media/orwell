@@ -101,9 +101,12 @@ describe("duration-aware shard assignment (ORW-218)", () => {
       expect(Math.max(...loads) / median).toBeLessThanOrEqual(1.3);
     });
 
-    it("the table is fresh: at least 95% of the test files a leg runs have a measured entry (refresh with `npm run ci:refresh-durations`)", () => {
+    // ORW-413 PR 2: a feature PR never needs a hand edit of the table. A file with no entry weighs the median (the sequencer), so this WARNS instead of failing; the refresh is the
+    // scheduled job's work, not the author's (the check only proves the sequencer's default is what the split above was computed with).
+    it("a file with no measured entry only warns (it weighs the median), it never fails a PR", () => {
       const missing = legFiles.filter((f) => durations[f] === undefined);
-      expect(missing.length, `not in ${DURATIONS_RELATIVE_PATH}: ${missing.slice(0, 15).join(", ")}`).toBeLessThanOrEqual(Math.floor(legFiles.length * 0.05));
+      if (missing.length > 0) console.warn(`::warning::${missing.length} test file(s) not in ${DURATIONS_RELATIVE_PATH} (weighed at the median until the next refresh): ${missing.slice(0, 15).join(", ")}`);
+      expect(assignShards(legFiles, durations, 8).flat().length).toBe(legFiles.length);
     });
 
     it("the split is identical when run twice and every file is in exactly one of the eight legs", () => {

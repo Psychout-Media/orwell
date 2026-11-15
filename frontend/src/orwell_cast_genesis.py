@@ -249,18 +249,18 @@ GENESIS_AMPLIFIED_SPAN = 2  # 4 or 5 amplified per cast (owner: guarantee 3-4+ l
 # The seeded LOOK LANE (2026-07-21 prompt audit — the cast-uniformity index case). Mirror of
 # GENESIS_INK_MIN / GENESIS_INK_SPAN / GENESIS_LOOK_FEATURES: a seeded 2-4 slots per cast are the
 # visibly-tattooed contingent; every other slot is explicitly no-visible-ink and carries a suggested
-# distinguishing feature from this wide pool (scars/freckles/glasses/jewelry/teeth/nothing-notable),
+# distinguishing feature from this wide pool (freckles/glasses/jewelry/dimples/nothing-notable; ORW-388: no scars, birthmarks or teeth, the portrait cannot hold them),
 # so the model's tattoo prior can never uniformize the cast. Steering only, never a validator.
 GENESIS_INK_MIN = 2
 GENESIS_INK_SPAN = 2  # 2-4 visibly-tattooed slots per cast
 GENESIS_LOOK_FEATURES = (
     "wire-rimmed glasses",
-    "a faint scar with a story behind it",
+    "high cheekbones",
     "freckles",
-    "a gap-toothed grin",
-    "a birthmark",
+    "a strong jawline",
+    "thick expressive eyebrows",
     "deep dimples",
-    "a chipped front tooth",
+    "bright, wide-set eyes",
     "a distinctive piece of everyday jewelry",
     "laugh lines",
     "a beauty mark",
@@ -579,12 +579,12 @@ _TOTAL_LO, _TOTAL_HI = 1.47, 2.1
 # and the calibration balance (juryReach) is preserved: the model authors WHO people are; the engine keeps
 # HOW MUCH anything weighs (every hidden game weight stays engine-seeded).
 _SYSTEM = (
-    "You are the CASTING DIRECTOR for a Big Brother season, designing houseguests from scratch. Invent "
+    "You are the CASTING DIRECTOR for a season of the reality show ORWELL (never call it Big Brother), designing houseguests from scratch. Invent "
     "vivid, distinctive, reality-TV-plausible people — no two alike, each with their own life, look, "
     "voice, and secret game. Author ONLY the houseguest id(s) you are given below. Output STRICT JSON "
     "only (no prose around it): an object with two keys, \"npcs\" and \"ties\".\n"
     "Each houseguest comes with a CASTING CARD — fixed inputs you MUST honor for that person:\n"
-    "  * CAST AS: a Big Brother casting type + a one-line note. Build this person AS that type; if the "
+    "  * CAST AS: a casting type + a one-line note. Build this person AS that type; if the "
     "note names a hidden belief or twist (e.g. a villain who secretly believes they're the hero, a "
     "house-parent who is secretly cutthroat, a self-styled 'genius'), FOLD it into their identity and a "
     "hidden element.\n"
@@ -611,8 +611,8 @@ _SYSTEM = (
     "one of the cast's FEW inked houseguests — make the ink specific and personal (what, where, why). "
     "'NO visible tattoos' means exactly that: no sleeve, no forearm script, no neck/hand ink anywhere in "
     "their appearance, biography, or secrets — a real cast has only a small tattooed minority, so NEVER "
-    "invent ink the card did not grant. Where the card suggests a distinguishing feature (glasses, a "
-    "scar, freckles, a birthmark, jewelry — or nothing notable), work THAT into the look instead; plenty "
+    "invent ink the card did not grant. Where the card suggests a distinguishing feature (glasses, "
+    "freckles, dimples, jewelry — or nothing notable), work THAT into the appearance line instead; plenty "
     "of real faces have no single notable mark at all.\n"
     "\"npcs\": an array, ONE object PER houseguest id given below (keep the SAME ids), each with:\n"
     '  "id": the exact houseguest id from the roster below (echo it verbatim).\n'
@@ -630,7 +630,10 @@ _SYSTEM = (
     "(roughly 3-12 letters per word). (3) not invented, fantasy, gibberish, or stage-name shaped. "
     "(4) do NOT reuse any first name OR surname already listed as taken by an earlier houseguest.\n"
     '  "identity": ONE vivid sentence capturing who this person IS — their concept in your own words '
-    "(this is what the show voices; make each unmistakably distinct).\n"
+    "(this is what the show voices; make each unmistakably distinct). The identity is printed beside the card, and "
+    "the card's gender, exact age and look are fixed in LATER steps, so write it with NO pronouns and NO gendered words "
+    "(use the name or the role), NO number of years (never \"a 24-year-old\"), and NO face or body features (teeth, "
+    "tattoos, glasses, scars, hair); the show is Orwell, never Big Brother.\n"
     '  "archetype": use EXACTLY the archetype tag given in this houseguest\'s casting card (do not '
     "substitute a different one).\n"
     '  "vocation": a SHORT occupation noun phrase (e.g. "court reporter") — a specific job inside the '
@@ -643,7 +646,8 @@ _SYSTEM = (
     "comes from Chula Vista, Waco, and Kenosha as often as from Chicago or San Diego).\n"
     '  "demeanor": a short phrase for how they carry themselves (e.g. "warm but guarded").\n'
     '  "background": a short phrase of life context.\n'
-    '  "biography": a 2-3 sentence presentable backstory (their life outside the house).\n'
+    '  "biography": a 2-3 sentence presentable backstory (their life outside the house), written with NO pronouns '
+    "and NO given name for the houseguest (their gender is pinned in a later step and the name can change with it; use the role, never a first name for them), no stated age, and no face or body features.\n"
     '  "appearance": a short concrete phrase describing their look, written with NO pronouns and NO gendered words '
     "(their gender is pinned in a later step, so \"her hazel eyes\" / \"his jaw\" would contradict it; say \"hazel eyes\", \"a square jaw\") and consistent "
     "with the casting card's look line — the ink budget and any suggested feature are fixed inputs.\n"
@@ -667,14 +671,13 @@ _SYSTEM = (
     "one tie.\n"
     "COHERE every houseguest's name, look, hometown, vocation, and age with each other and with the "
     "season brief. Make the cast reflect a real, diverse American crew. Assign EVERY id in the roster.\n"
-    "IDENTITY COHERENCE (HARD): pin each houseguest's CHOSEN PRONOUNS FIRST (you decide them — make the "
-    "cast's genders varied and realistic, women, men, and the occasional nonbinary houseguest), then give "
-    "them a name and an appearance that match, and keep EVERY self-reference to that houseguest — across "
-    "their identity, biography, appearance, and secrets — consistent with those pronouns. Within a SINGLE "
-    "houseguest, NEVER refer to the houseguest with pronouns other than their chosen pronouns (no 'her "
-    "shyness' beside 'his forearm'). Keep their age consistent with their life story (do not write 'spent "
-    "thirty years' or 'grandmother' for someone in their twenties), and keep their stated occupation the "
-    "same throughout (the biography and secrets must not name a different job than the vocation).\n"
+    "IDENTITY COHERENCE (HARD): a houseguest's gender and exact age are fixed in LATER steps and are NOT passed back "
+    "to you, so anything you write about them now that names either can contradict the card. Give them a name and an "
+    "appearance that fit, and write the identity, biography, appearance and secrets with NO gendered pronouns for the "
+    "houseguest and NO first name for them (the name can change when the gender is pinned; use the role; a relative may take their own pronoun and name) and NO stated number of years. Keep "
+    "their life story consistent with their age band (do not write 'spent thirty years' or 'grandmother' for someone in "
+    "their twenties), and keep their stated occupation the same throughout (the biography and secrets must not name a "
+    "different job than the vocation).\n"
     "OUTPUT CONTRACT (HARD): reply with a SINGLE raw JSON object and NOTHING else — no prose, no "
     "markdown, no ```json fences, no preamble. The first character MUST be '{' and the last MUST be '}'."
 )

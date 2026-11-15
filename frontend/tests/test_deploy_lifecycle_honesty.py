@@ -324,10 +324,7 @@ def _port_env(stubs, tmp_path, **extra):
                  "ORWELL_PORT_WAIT": "1", "STUB_HEALTHY_PORTS": "8080", **extra}
 
 
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 @pytest.mark.skipif(shutil.which("ss") is None, reason="ss required")

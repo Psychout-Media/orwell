@@ -54,10 +54,24 @@ import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
 const snap = (phase: string): SessionSnapshot =>
   ({ started: true, week: 1, phase, ceremony: { nominees: [], vetoUsed: false }, house: null, events: [], relationships: [] }) as SessionSnapshot;
 
-describe("E8 — saves are fsynced, in the durable order", () => {
-  it("fsyncs the temp file's CONTENT before the rename (the torn-file guarantee) on every save", () => {
+const tick = () => new Promise<void>((r) => setImmediate(r));
+const settle = async () => { for (let i = 0; i < 4; i++) await tick(); };
+
+/**
+ * The assertions that do not depend on WHEN the fsync is paid run in BOTH modes; the
+ * fsync-before-rename ordering is the contract of `sync` mode only (the default `background` mode
+ * renames first and hardens the file afterwards — its crash safety is covered in
+ * saveFsyncOffTurnPath.test.ts).
+ */
+describe.each(["sync", "background"] as const)("E8 — saves are fsynced (%s mode)", (mode) => {
+  const make = (dir: string, dirSyncs: string[] = []) =>
+    new FileSaveStore(dir, {
+      fsyncMode: mode, syncFile: async () => {}, syncDir: async (p) => { dirSyncs.push(p); },
+    });
+
+  it.runIf(mode === "sync")("fsyncs the temp file's CONTENT before the rename (the torn-file guarantee) on every save", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = make(dir);
     calls.length = 0;
 
     store.saveFor("u", snap("a")); // a per-turn (non-checkpoint) save
@@ -68,41 +82,46 @@ describe("E8 — saves are fsynced, in the durable order", () => {
     expect(rename, "the content fsync must come BEFORE the atomic rename").toBeGreaterThan(firstFsync);
   });
 
-  it("does NOT pay a second (directory) fsync on an ordinary per-turn save (F-EN-1 #1562)", () => {
+  it("does NOT pay a directory fsync on the request path of an ordinary per-turn save (F-EN-1 #1562)", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = make(dir);
     calls.length = 0;
 
     store.saveFor("u", snap("a")); // v1 — not a checkpoint boundary
 
     const rename = calls.findIndex((c) => c.startsWith("rename:") && c.endsWith("v000001.json"));
     const fsyncsAfterRename = calls.slice(rename + 1).filter((c) => c === "fsync");
-    // Exactly ONE fsync total (the content one, before the rename); the redundant directory fsync
-    // that used to block the hot commit path on EVERY save is gone off the per-turn path.
-    expect(calls.filter((c) => c === "fsync")).toHaveLength(1);
+    // sync mode: exactly ONE blocking fsync (the content one, before the rename). background: none.
+    expect(calls.filter((c) => c === "fsync")).toHaveLength(mode === "sync" ? 1 : 0);
     expect(fsyncsAfterRename, "no directory fsync after the rename on a non-checkpoint save").toEqual([]);
   });
 
-  it("STILL fsyncs the directory after the rename on a periodic checkpoint save (bounded power-loss window)", () => {
+  it("STILL fsyncs the directory after a periodic checkpoint rename (bounded power-loss window)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
-    // Drive up to the checkpoint boundary; instrument only the checkpoint save itself.
-    for (let v = 1; v < CHECKPOINT_EVERY; v++) store.saveFor("u", snap(`v${v}`));
+    const dirSyncs: string[] = [];
+    const store = make(dir, dirSyncs);
+    for (let v = 1; v < CHECKPOINT_EVERY; v++) { store.saveFor("u", snap(`v${v}`)); await settle(); }
+    dirSyncs.length = 0;
     calls.length = 0;
     store.saveFor("u", snap("checkpoint")); // the CHECKPOINT_EVERY-th version
+    await settle();
 
     const checkpointFile = `v${String(CHECKPOINT_EVERY).padStart(6, "0")}.json`;
     const rename = calls.findIndex((c) => c.startsWith("rename:") && c.endsWith(checkpointFile));
-    const lastFsync = calls.lastIndexOf("fsync");
     expect(rename, "the atomic rename must still happen").toBeGreaterThanOrEqual(0);
-    expect(lastFsync, "the DIRECTORY is fsynced after the rename ON the checkpoint (so its rename survives power loss)").toBeGreaterThan(rename);
+    if (mode === "sync") {
+      expect(calls.lastIndexOf("fsync"), "the DIRECTORY is fsynced after the rename ON the checkpoint").toBeGreaterThan(rename);
+    } else {
+      expect(dirSyncs, "the directory is fsynced in the background after the checkpoint rename").toHaveLength(1);
+    }
   });
 
-  it("the durable write still round-trips and leaves no temp file (B35 intact)", () => {
+  it("the durable write still round-trips and leaves no temp file (B35 intact)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = make(dir);
     store.saveFor("u", snap("a"));
     store.saveFor("u", snap("b"));
+    await settle();
     expect(store.loadLatest("u")!.phase).toBe("b");
     const userDir = join(dir, Buffer.from("u", "utf8").toString("hex"));
     expect(readdirSync(userDir).filter((f) => f.endsWith(".tmp"))).toEqual([]);

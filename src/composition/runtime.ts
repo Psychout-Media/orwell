@@ -6,7 +6,7 @@ import { SqliteSaveStore } from "../adapters/sqlite/SqliteSaveStore";
 import { FileUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
 import { GameSessionAdapter } from "../adapters/engine/GameSessionAdapter";
 import type { Clock } from "../ports/Clock";
-import type { UserSaveStore } from "../ports/UserSaveStore";
+import type { UserSaveStore, SaveDurability } from "../ports/UserSaveStore";
 
 // ── the play-clock (real-time purge 2026-07-10, PO ruling) ──────────────────────────
 //
@@ -75,6 +75,20 @@ export interface Runtime {
   /** Resume saved users from disk (the boot preload). Called automatically unless `deferResume`
    *  was set, in which case the entrypoint calls it after binding HTTP + warming the embedder. */
   resumeSaved(): void;
+  /**
+   * ORW-406 slice 3: the same resume as `resumeSaved`, but yielding to the event loop between users so a
+   * request arriving mid-warm-up is served at once (it builds its own sandbox through the same
+   * `registry.sandboxFor`, which caches per user, so no save is loaded twice). Resolves when every saved
+   * game is resident; never rejects. `warmStatus` reports readiness for `/health`.
+   */
+  warmSaved(): Promise<void>;
+  warmStatus(): { warmed: boolean; warmMs: number | null };
+  /** ORW-404: the save-fsync backlog for `/health` (all zero when the store has none). */
+  saveDurability(): SaveDurability;
+  /** ORW-404: shutdown flush — fsync the newest un-synced save of every user, bounded. Never throws. */
+  flushSaves(timeoutMs?: number): void;
+  /** ORW-404: non-blocking shutdown flush; resolves by `timeoutMs` even if a sync never settles. Never rejects. */
+  flushSavesAsync(timeoutMs?: number): Promise<void>;
   /** The in-game clock's LIVE state (runtime FE flip, else the env default) — reported on `/health`. */
   timeOfDayStatus(): boolean;
 }
@@ -161,6 +175,24 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
       } catch { /* skip an unresumable save; the rest still boot */ }
     }
   };
+  // Pending only when the entrypoint deferred the resume AND a save exists; everything else is warm already.
+  const warmPending = !!opts.deferResume && (saveStore?.listUsers?.().length ?? 0) > 0;
+  let warmStart: number | null = null;
+  let warmMs: number | null = null;
+  const warmSaved = async (): Promise<void> => {
+    warmStart = performance.now();
+    try {
+      for (const user of saveStore?.listUsers?.() ?? []) {
+        await new Promise<void>((r) => setImmediate(r));
+        try {
+          registry.sandboxFor(user);
+          orchestrator.seedBaseline(user);
+        } catch { /* skip an unresumable save; the rest still warm */ }
+      }
+    } finally {
+      warmMs = Math.round(performance.now() - warmStart);
+    }
+  };
   // Default: resume eagerly (tests + every non-entrypoint caller keep the original behavior). The
   // entrypoint passes deferResume so it can bind /health + warm the embedder before resuming.
   if (!opts.deferResume) resumeSaved();
@@ -170,6 +202,15 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     clock,
     knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
     resumeSaved,
+    warmSaved,
+    warmStatus: () => ({ warmed: !warmPending || warmMs !== null, warmMs }),
     timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective(),
+    saveDurability: () => saveStore?.durability?.()
+      ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false },
+    flushSaves: (timeoutMs) => { try { saveStore?.flushDurable?.(timeoutMs); } catch { /* never block exit */ } },
+    flushSavesAsync: async (timeoutMs) => { try { await saveStore?.flushDurableAsync?.(timeoutMs); } catch { /* never block exit */ } },
   };
 }
+
+// ORW-404: the entrypoint composes the runtime only (audit E18), so the shutdown helper is re-exported here.
+export { createShutdown, DEFAULT_HARD_EXIT_MS } from "./shutdown";

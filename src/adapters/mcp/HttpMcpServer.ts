@@ -91,6 +91,10 @@ export interface HttpMcpOptions {
    * actually running.
    */
   timeOfDayStatus?: () => boolean;
+  /** ORW-406: boot warm-up readiness for `/health` (`warmed` + how long it took). Unset => reported warmed. */
+  warmStatus?: () => { warmed: boolean; warmMs: number | null };
+  /** ORW-404: the save-fsync backlog for `/health` (latest vs durable version, oldest un-synced age). */
+  saveStatus?: () => { saveLatestVersion: number; saveDurableVersion: number; saveOldestUnsyncedAgeMs: number; saveUnsyncedUsers: number; saveDurabilityPending?: boolean };
   /**
    * #1713 — the per-request RESPONSE BUDGET (ms): the hard bound on how long a queued tool call may
    * go unanswered before the transport answers a typed 503 (`code: "engine-busy"`) instead of holding
@@ -103,6 +107,24 @@ export interface HttpMcpOptions {
    * via `ORWELL_ENGINE_RESPONSE_BUDGET_MS`; this option (tests) wins over the env.
    */
   responseBudgetMs?: number;
+}
+
+/** ORW-406: `/health` warm-up fields; a broken probe reports warmed so it can never wedge an updater. */
+function warmFields(probe?: () => { warmed: boolean; warmMs: number | null }): { warmed: boolean; warmMs: number | null } {
+  try {
+    return probe?.() ?? { warmed: true, warmMs: null };
+  } catch {
+    return { warmed: true, warmMs: null };
+  }
+}
+
+/** ORW-404: `/health` save-backlog fields; a broken probe reports zeros so it can never fail the liveness answer. */
+function saveFields(probe?: HttpMcpOptions["saveStatus"]): NonNullable<ReturnType<NonNullable<HttpMcpOptions["saveStatus"]>>> {
+  try {
+    return probe?.() ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
+  } catch {
+    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
+  }
 }
 
 /** #1713 — default per-request response budget (see `HttpMcpOptions.responseBudgetMs`). */
@@ -279,7 +301,9 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
           ok: true,
           ...metrics.snapshot(),
           embeddings,
+          ...warmFields(options.warmStatus),
           stalls: stallTimer.snapshot(),
+          ...saveFields(options.saveStatus),
           flags: (() => {
             const f = bootFlags();
             try {

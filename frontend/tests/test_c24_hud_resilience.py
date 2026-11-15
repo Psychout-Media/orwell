@@ -23,7 +23,9 @@ def test_status_panel_keeps_last_known_on_engine_hiccup():
     assert 'id="os-stale"' in src and "markStale(" in src
     assert "_shown" in src
     ref = src[src.index("async function refresh("): src.index("async function refresh(") + 800]
-    assert "if (_shown) markStale(true)" in ref          # hiccup → keep + flag
+    # hiccup -> keep the readout; the offline dot shows only once the feed has been down for a release-sized gap (ORW-406: 10 s)
+    assert "if (_shown && Date.now() - _failSince >= 10000) markStale(true)" in ref
+    assert "else if (_shown) _scheduleStaleCheck()" in ref
     assert "else hidePanel()" in ref                      # never shown → nothing to keep
 
 

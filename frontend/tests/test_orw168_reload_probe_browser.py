@@ -9,7 +9,6 @@
 No model. Roles only. Auto-marked ``browser`` (sync_playwright).
 """
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -18,15 +17,12 @@ import urllib.request
 
 import pytest
 
+from _settle import app_ready
+
 FRONTEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 @pytest.fixture(scope="module")
@@ -42,14 +38,14 @@ def _app():
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
                             cwd=FRONTEND, env=env, stdout=open(f"/tmp/fe-168-{port}.log", "w"), stderr=subprocess.STDOUT)
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             pytest.skip("uvicorn exited early")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             break
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     else:
         proc.terminate()
         pytest.skip("server never became ready")
@@ -109,7 +105,7 @@ def _run(app, cfg):
         browser = pw.chromium.launch()
         page = browser.new_page()
         page.goto(app + "/", wait_until="load", timeout=30000)
-        page.wait_for_timeout(3000)
+        app_ready(page, names=("chatModule", "sessionModule"))
         out = page.evaluate(_HARNESS, cfg)
         browser.close()
     return out
@@ -174,7 +170,7 @@ def _wave(app, reasons):
         browser = pw.chromium.launch()
         page = browser.new_page()
         page.goto(app + "/", wait_until="load", timeout=30000)
-        page.wait_for_timeout(3000)
+        app_ready(page, names=("chatModule", "sessionModule"))
         has = page.evaluate("() => !!(window.sessionModule && window.sessionModule._resolveCanonicalGameSession)")
         if not has:
             browser.close()

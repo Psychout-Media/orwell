@@ -6232,6 +6232,58 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
 
 
 _PREDAWN_BEFORE_MIN = 7 * 60
+_HOUSE_WAKE_MIN = 8 * 60
+
+
+def _clock_is_before_house_wake(lab) -> bool:
+    """ORW-422: does the engine clock label read before the house's 8am wake-up call (the early-morning band: houseguests asleep)?"""
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    return bool(mm) and _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3)) < _HOUSE_WAKE_MIN
+
+
+# ORW-422: an early bed wakes the player ALONE in the dark early morning with the house asleep (engine is right: wake = min(8am, bed+8h)). A sentence asserting the house is up / people greet the player is a phantom.
+_HOUSE_AWAKE_RE = re.compile(
+    r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
+    r"|\bthe\s+house\s+(?:wakes|woke|stirs|stirred)\b"
+    r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
+    r"|[\"\u201c']\s*(?:good\s+)?morning\b[,.!]?"
+    r"|\bI\s+know\s+it(?:'s|\u2019s)\s+early\b"
+    r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
+    re.IGNORECASE,
+)
+_HOUSE_AWAKE_EXEMPT_RE = re.compile(
+    r"\b(?:not|never|nobody|no\s+one|yet|asleep|sleeping|dark|silent|quiet)\b|n't|n\u2019t", re.IGNORECASE)
+
+
+def _sentence_has_house_awake_claim(text: str) -> bool:
+    return bool(text and _HOUSE_AWAKE_RE.search(text) and not _HOUSE_AWAKE_EXEMPT_RE.search(text)
+                and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+
+
+async def screen_streamed_house_awake(user, sentence: str) -> bool:
+    """ORW-422: HOLD (False) a sentence asserting the house is up / greeting the player while the engine clock is before the 8am wake (houseguests asleep); else EMIT. Same hold + next-turn re-ground as the
+    unbacked-morning screen. Fail-open: any hiccup, absent clock, 8am or later, or an explicitly empty asleep list returns True."""
+    try:
+        if not _sentence_has_house_awake_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        if not isinstance(status, dict):
+            return True
+        lab = status.get("clockLabel")
+        if not (_clock_is_before_house_wake(lab) or status.get("earlyMorning") is True):
+            return True
+        if status.get("asleep") == []:
+            return True
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you narrated the house awake / people greeting the player, but the engine says it is still the early-morning dark (" + (_zc_narrator_clock(lab) if lab else "early morning")
+            + ") and the houseguests are asleep. The player woke ALONE; nobody greets them until the house's 8am wake-up call.")
+        logger.warning("[orwell] pre-emission guard HELD a house-awake claim for user=%s - engine clock is before the house wake", user)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission house-awake guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
 
 
 def _clock_is_predawn(lab) -> bool:
@@ -9538,6 +9590,12 @@ async def build_chat_context(
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
     if not incognito:
         await note_player_message(client_msg_id, user)
+        # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
+        # prompt is built below, so the briefing already shows the new room + `playerMove`. Fail-soft; unsure parses move nothing.
+        from src.settings import game_build_enabled as _gbe_pm
+        if _gbe_pm():
+            from src.orwell_player_move import resolve_player_move_before_narrator
+            await resolve_player_move_before_narrator(message, user, client_msg_id)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no

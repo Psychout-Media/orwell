@@ -11,7 +11,6 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -104,12 +103,7 @@ console.log(JSON.stringify(out));
     }
 
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 def _boot(build, port, db):
@@ -122,14 +116,14 @@ def _boot(build, port, db):
         [sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=FRONTEND, env=env, stdout=open(f"/tmp/fe-orw203-{port}.log", "w"), stderr=subprocess.STDOUT)
     base = f"http://127.0.0.1:{port}"
-    for _ in range(120):
+    for _ in range(600):  # ORW-414: poll every 0.2 s (same 120 s budget) so a ready server is noticed at once
         if proc.poll() is not None:
             raise RuntimeError("uvicorn exited early")
         try:
             urllib.request.urlopen(base + "/openapi.json", timeout=2)
             return proc
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     proc.terminate()
     raise RuntimeError("server never became ready")
 
@@ -174,7 +168,8 @@ def test_old_shell_after_deploy_self_corrects_once_in_a_real_browser():
             page.goto(base + "/", wait_until="load")
             assert page.evaluate(meta) == "buildAAA"
             # Let the SW install and precache '/' (the old shell); bounded, never an unbounded evaluate.
-            page.wait_for_timeout(3000)
+            # ORW-414: the event - the service worker is installed AND active (install precaches '/'), not a fixed 3 s
+            page.evaluate("() => Promise.race([navigator.serviceWorker.ready.then(() => true), new Promise((r) => setTimeout(() => r(false), 15000))])")  # bounded: never an unbounded evaluate
 
             # --- 'deploy': same origin, new build ---
             _stop(proc)

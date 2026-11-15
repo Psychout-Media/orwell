@@ -12,11 +12,11 @@ How the GitHub checks run lives in `.github/workflows/ci.yml` (the per-job comme
 npm run ci:fast
 ```
 
-**A browser test file with no measured duration** (`frontend/tests/_ci_durations.json`) is weighed at 15 s per test by the splitter. The guard `test_every_browser_test_file_has_a_measured_duration` fails only for a file your change adds (compared with the base: the first parent of the PR merge ref, or `git merge-base` with origin/main locally); a file main gained meanwhile only warns in the job summary, so two PRs that merge a minute apart cannot turn main red. Add `"<file>.py": <seconds>` (15 per test is fine) for a file you add.
+**You never hand-edit a duration table in a feature PR** (`ci/test-durations.json`, `ci/bdd-durations.json`, `frontend/tests/_ci_durations.json`). A new test file or feature with no entry is weighed by the splitter (the median for unit files and features, 15 s per test for a browser file) and listed as a warning in the job summary (`added by this change` or `by main`); an entry for a deleted file is ignored. None of these fails a PR. The tables are only balancing hints and are refreshed from main's own run logs by `npm run ci:refresh-durations`, `ci/refresh-test-durations.mjs` and `frontend/tests/_ci_refresh_durations.py` (a scheduled refresh PR is the follow-up, ORW-413 PR 3).
 
 It is `ci/fast-checks.sh`. Every check in it also still runs in its full lane; nothing was moved out of a lane's coverage.
 
-**Shard counts** (the lane is as long as its longest leg): `test-unit` and `coverage-shard` 8 legs each (balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.
+**Shard counts** (the lane is as long as its longest leg): `test-unit` 8 legs (it collects the coverage too, see below; balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.
 
 ## The flaky-test rule (ORW-229)
 
@@ -26,7 +26,7 @@ A flaky test is one that fails and then passes on the same code. Flakes waste ev
 
 When a test fails in CI, it gets one more try:
 
-- engine tests (vitest): `--retry=1` in `test-unit` and `coverage-shard`;
+- engine tests (vitest): `--retry=1` in `test-unit` (which also collects coverage);
 - front-end tests (pytest): `--reruns 1` in `fe-unit` and `fe-browser-tests`;
 - the mirror-parity gates keep their own attempt loops.
 
@@ -129,3 +129,10 @@ If the API refuses the `merge_queue` rule (the plan or the repository type may n
    `jq 'del(.id,.node_id,.source,.source_type,.created_at,.updated_at,.current_user_can_bypass,._links)' ruleset-18797902.before.json > ruleset-18797902.rollback.json`
 2. `gh api -X PUT repos/Psychout-Media/orwell/rulesets/18797902 --input ruleset-18797902.rollback.json`
 3. Check that `gh api repos/Psychout-Media/orwell/rulesets/18797902 --jq '.rules[].type'` prints only `required_status_checks`. PRs still in the queue stay open; merge them with `gh pr merge <n> --squash` as before.
+
+## Repeat work that is gone (ORW-413 PR 2)
+
+- **The unit suite runs once.** Each `test-unit` leg collects v8 coverage in the same run and uploads its blob; the `coverage` job merges the eight blobs and is still the only place the per-directory floors are enforced. The separate `coverage-shard` legs no longer exist.
+- **An identical tree is not tested twice.** When `ci-gate` passes on a pull request, `record-proof` saves a marker in the Actions cache keyed by the hash of the tested merged tree (`git rev-parse HEAD^{tree}` of the merge ref) and of `ci.yml`. A later run of the same pull request with the same key (a re-run, or a rebase that changes nothing) skips every job and `ci-gate` passes with a line naming the run that proved the tree. It never passes an untested tree: the marker is written only after a passing run that reused nothing, it is read only on pull requests (main and the merge queue always run everything), and the restored file must match the tree and workflow hash exactly. The cache is scoped to the PR's own ref.
+- **Heavy sims are cached by what they read.** A heavy leg that passed leaves a marker keyed by the hash of `src/`, the uat/property/calibration/support tests, the package files, the vitest config and tsconfig; the same hash skips the leg (a tests/unit-only change on main, a re-run). Bump `heavy-proof-v1` in `ci.yml` after changing a leg's script list or `UAT_TIMEOUT_SCALE`.
+- **Left on the full suite, on purpose:** related-test selection (`vitest related`, a pytest changed-module map) and finer path filters. The suites read each other's source (the front-end tests read engine `.ts` files, the property tests re-play whole seasons) and a workflow edit can break any lane, so a selection I cannot prove safe stays out; every pull request runs everything.

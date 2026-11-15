@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -51,12 +50,7 @@ SLOW_TEXT = "".join(SLOW_DELTAS).strip()
 SLOW_DELAY_S = 0.25  # 80 × 0.25s ≈ 20s of live streaming — a wide mid-gen window
 
 
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+from _ports import free_port as _free_port  # ORW-414: one shared free-port helper
 
 
 # ── the scripted OpenAI-compatible stub ────────────────────────────────────────────────
@@ -165,14 +159,14 @@ class _StubHandler(BaseHTTPRequestHandler):
 # ── boot: engine + FE + stub, one seeded started game ─────────────────────────────────
 
 def _wait_http(url: str, proc, what: str, budget=120):
-    for _ in range(budget):
+    for _ in range(budget * 5):  # ORW-414: poll every 0.2 s, same budget in seconds
         if proc is not None and proc.poll() is not None:
             raise RuntimeError(f"{what} exited early")
         try:
             urllib.request.urlopen(url, timeout=2)
             return
         except Exception:
-            time.sleep(1)
+            time.sleep(0.2)
     raise RuntimeError(f"{what} never became ready")
 
 
@@ -210,16 +204,10 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
     if not os.path.isfile(dist):
         pytest.skip("engine bundle missing — run `npm run build` at the repo root")
 
-    # The canonical-binding store is SHARED frontend/data state (first-writer-wins): a
-    # stale binding from ANY earlier boot wins the warm turn's bind, the resolve route
-    # then unbinds it as dead (this boot's fresh DB has no such row), and the window
-    # never subscribes to the live run — the golden driver scrubs this exact file for
-    # this exact reason (#1085/#1086 class).
-    for stale in ("orwell_game_session.json", "orwell_layout.json"):
-        try:
-            os.remove(os.path.join(FRONTEND, "data", stale))
-        except FileNotFoundError:
-            pass
+    # The canonical-binding store (orwell_game_session.json, first-writer-wins) lives in the FE data dir. ORW-414: this stack gets its OWN empty data dir
+    # (ORWELL_DATA_DIR_FE below), so no stale binding from an earlier boot can exist and no other test stack shares it (the old shared frontend/data
+    # state forced the browser tests to run one at a time).
+    fe_data = tempfile.mkdtemp(prefix="orwell-m03-data-")
 
     stub_port = _free_port()
     stub = ThreadingHTTPServer(("127.0.0.1", stub_port), _StubHandler)
@@ -229,7 +217,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
     engine_env = dict(os.environ, ORWELL_DATA_DIR=engine_data_dir or tempfile.mkdtemp(prefix="orwell-m03-engine-"),
                       ORWELL_ENGINE_PORT=str(engine_port), **(engine_env_extra or {}))
     engine = subprocess.Popen(["node", dist], cwd=REPO, env=engine_env,
-                              stdout=open("/tmp/m03-engine.log", "w"), stderr=subprocess.STDOUT)
+                              stdout=open(f"/tmp/m03-engine-{engine_port}.log", "w"), stderr=subprocess.STDOUT)
     ebase = f"http://127.0.0.1:{engine_port}"
     fe_port = _free_port()
     fe_env = dict(
@@ -238,12 +226,12 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
         ORWELL_ENGINE_MCP_URL=ebase,
         PLAYWRIGHT_BROWSERS_PATH=os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers"),
         DATABASE_URL="sqlite:///" + os.path.join(tempfile.mkdtemp(prefix="orwell-m03-fe-"), "app.db"),
-        ORWELL_DATA_DIR_FE=tempfile.mkdtemp(prefix="orwell-m03-data-"),
+        ORWELL_DATA_DIR_FE=fe_data,
     )
     fe = subprocess.Popen([sys.executable, "-m", "uvicorn", "app:app",
                            "--host", "127.0.0.1", "--port", str(fe_port)],
                           cwd=FRONTEND, env=fe_env,
-                          stdout=open("/tmp/m03-fe.log", "w"), stderr=subprocess.STDOUT)
+                          stdout=open(f"/tmp/m03-fe-{fe_port}.log", "w"), stderr=subprocess.STDOUT)
     fbase = f"http://127.0.0.1:{fe_port}"
     try:
         _wait_http(ebase + "/player/tools", engine, "engine", 60)
@@ -261,7 +249,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
         import importlib
         sys.path.insert(0, FRONTEND)
         settings_mod = importlib.import_module("src.settings")
-        sfile = os.path.join(FRONTEND, "data", "settings.json")
+        sfile = os.path.join(fe_data, "settings.json")
         cur = {}
         if os.path.exists(sfile):
             with open(sfile, encoding="utf-8") as fh:

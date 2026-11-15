@@ -2,6 +2,8 @@
 the send is refused cleanly: no /api/chat_stream request, the player's text is back in the composer, and a clear message says why. Real browser against the live stack. Roles only; no model."""
 import pytest
 
+from _settle import app_ready
+
 from test_m0_3_midgen_join import STUB, _stack  # noqa: F401
 from test_p0h_day1_clock_e2e import _session
 
@@ -23,7 +25,7 @@ def test_a_network_that_blocks_websockets_cannot_send_and_is_told_why(_stack):  
         posts = []
         page.on("request", lambda r: posts.append(r.url) if "/api/chat_stream" in r.url else None)
         page.goto(_stack["fe"] + "/", wait_until="load")
-        page.wait_for_timeout(2500)
+        app_ready(page)
         STUB.script.append({"deltas": ["this reply must never be requested"], "delay": 0})
         page.fill("#message", "hello from a blocked network")
         page.keyboard.press("Enter")

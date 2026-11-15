@@ -1474,6 +1474,31 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
     return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
 
 
+async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
+    """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
+    (``recordOpenLedger``). Sends exactly ``{text, speaker, addressedTo, kind}``; the engine re-validates, derives the
+    witnesses from its own presence, de-duplicates, and answers ``{accepted, reason?, entryId?, duplicate?}``. Vault-free;
+    played games only; changes no relationship number."""
+    args = {"text": entry["text"], "speaker": entry["speaker"], "addressedTo": list(entry["addressedTo"]), "kind": entry["kind"]}
+    if entry.get("parties"):  # slice 2: a group pact (optional)
+        args["parties"] = list(entry["parties"])
+    if entry.get("about"):  # slice 2: who or what a claim concerns, free text (optional)
+        args["about"] = entry["about"]
+    return await _call("recordOpenLedger", args, user=user)
+
+
+async def resolve_open_ledger(res: dict, user: str | None = None) -> dict:
+    """ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note (``resolveOpenLedger``).
+    Sends exactly ``{entryId, status, note}``; answers ``{accepted, reason?}``. Changes no relationship number."""
+    return await _call("resolveOpenLedger", {"entryId": res["entryId"], "status": res["status"], "note": res["note"]}, user=user)
+
+
+async def open_ledger_here(user: str | None = None) -> list:
+    """ORW-407 slice 2: the still-open entries that matter to those here now (``openLedgerHere``); at most 5, ``[]`` pre-game."""
+    out = await _call("openLedgerHere", {}, user=user)
+    return out if isinstance(out, list) else []
+
+
 async def whereabouts(user: str | None = None, search: bool = False):
     """The Vault-free presence read (0049): the player's room, who is in it, and who is in each
     ADJACENT room — names only, never motives or non-adjacent rooms. ``None`` pre-game.
@@ -1908,3 +1933,15 @@ def clear_pending(user=None) -> None:
 def last_pending(user=None):
     """The last pending decision this server saw for the user (or None)."""
     return _LAST_PENDING.get(user or "")
+
+
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None) -> dict:
+    """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
+    narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
+    refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
+    state. Returns ``{playerMove, whereabouts, beatSeq}``; ``playerMove`` is null when the words held no clear move (the
+    post-reply move belt stays the fallback). The key is sent only when given, so a retry re-drive de-dups."""
+    args: dict = {"text": str(text)}
+    if idempotency_key:
+        args["idempotencyKey"] = str(idempotency_key)
+    return await _call("resolvePlayerMove", args, user=user)
