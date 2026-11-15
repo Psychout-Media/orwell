@@ -11221,13 +11221,18 @@ export class GameSessionAdapter implements GameSession {
     const highlights = allEvents.slice(evFrom)
       .filter((e) => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal"))
       .map((e) => e.content);
+    // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
+    // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
+    const yourDay = allEvents.slice(evFrom)
+      .filter((e) => !e.hidden && !highlights.includes(e.content) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0)
+      .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
     const surfaced = knownAll.slice(knFrom)
       .filter((f) => f.pathway !== NO_NPC_PATHWAY)
       .map((f) => this.humanize(f.content));
     const hook = this.buildDailyRecapHook(day, surfaced);
-    const recap: DailyRecapView = { day, highlights, surfaced, ...(hook ? { hook } : {}) };
+    const recap: DailyRecapView = { day, highlights, surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
     if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
       // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).

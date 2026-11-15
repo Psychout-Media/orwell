@@ -1846,7 +1846,37 @@ _BEDTIME_DIRECT_NOTE = (
     "Voice the night passing and the new morning ONLY from that result and the current game context - never invent what it did not hand you, and do not call turnIn again.")
 
 
-def _bedtime_direct_note(turn_in_output) -> str:
+def _bedtime_tool_message(turn_in_output) -> str:
+    """ORW-382 - the tool message the narrator sees after the FE runs the player's turnIn directly. The engine appends `dailyRecap` LAST in the result, and the old 4000-char cut dropped it whenever the
+    status was large, so the "day in review" never reached the model. Lead with the recap (compact JSON), then the rest, cut at the same bound. Unreadable output => the plain cut (byte-identical)."""
+    raw = str(turn_in_output)
+    try:
+        data = json.loads(raw)
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        if isinstance(rec, dict):
+            rest = {k: v for k, v in data.items() if k != "dailyRecap"}
+            head = json.dumps({"dailyRecap": rec}, ensure_ascii=False)
+            return (head + "\n" + json.dumps(rest, ensure_ascii=False))[:6000]
+    except Exception:
+        pass
+    return raw[:4000]
+
+
+def _bedtime_recap_directive(turn_in_output) -> str:
+    """ORW-382 (Ryne, 11-15: the day in review "between going to sleep and waking, almost as if you're like dreaming"): when the turnIn result carries a `dailyRecap` with anything in it, tell the narrator to voice it
+    BEFORE the new morning - on every bedtime, the premiere night included. Empty/absent recap => '' (nothing to voice; never invent one)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        if isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced")):
+            return (" The result carries a `dailyRecap`: BEFORE the new morning, voice it as a short dreamlike day-in-review as the player drifts off to sleep - only the facts in its highlights / yourDay / surfaced, "
+                    "never a list, never anything it does not contain.")
+    except Exception:
+        pass
+    return ""
+
+
+def _bedtime_clock_note(turn_in_output) -> str:
     """ORW-355 - `_BEDTIME_DIRECT_NOTE` plus the engine's own clock from the turnIn result: an EVENING bed wakes the player at bed+8h (e.g. 4:15am), not at 8am, so the narrator must voice THAT hour, never a
     morning the clock has not reached. No readable clock => the plain note (byte-identical)."""
     try:
@@ -1863,6 +1893,11 @@ def _bedtime_direct_note(turn_in_output) -> str:
     except Exception:
         pass
     return _BEDTIME_DIRECT_NOTE
+
+
+def _bedtime_direct_note(turn_in_output) -> str:
+    """The production note for a directly-run turnIn: the ORW-355 clock note plus the ORW-382 day-in-review directive (empty when the recap has nothing in it)."""
+    return _bedtime_clock_note(turn_in_output) + _bedtime_recap_directive(turn_in_output)
 
 
 def _bedtime_board_allows(status) -> bool:
@@ -8406,7 +8441,7 @@ async def _stream_agent_loop_impl(
                                 _bt_block, session_id=session_id, disabled_tools=disabled_tools,
                                 tool_policy=tool_policy, owner=owner, workspace=workspace)
                             _bt_out = (_bt_result.get("output") or _bt_result.get("error") or "") if isinstance(_bt_result, dict) else ""
-                            _bt_out = str(_bt_out)[:4000]
+                            _bt_out = str(_bt_out)
                             yield f'data: {json.dumps({"type": "tool_output", "tool": "turnIn", "command": "{}", "output": "", "exit_code": _bt_result.get("exit_code") if isinstance(_bt_result, dict) else None})}\n\n'
                             tool_events.append({"round": round_num, "tool": "turnIn", "command": "{}", "output": "", "exit_code": (_bt_result or {}).get("exit_code")})
                             _direct_applied = _turn_in_applied(_bt_result)
@@ -8414,7 +8449,7 @@ async def _stream_agent_loop_impl(
                                 _bt_call_id = f"call_{round_num}_bedtime"
                                 messages.append({"role": "assistant", "content": None, "tool_calls": [
                                     {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
-                                messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bt_out}\n```"})
+                                messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bedtime_tool_message(_bt_out)}\n```"})
                                 messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out)})
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")

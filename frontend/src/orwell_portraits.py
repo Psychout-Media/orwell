@@ -410,9 +410,10 @@ _RECONCILER_TASK = None
 _INFLIGHT: dict = {}
 
 # The most recent _generate_one failure reason (+ an optional short detail — the provider's
-# own error code/message on an HTTP failure), consumed by the attempt logger. Module-level is
-# adequate: generate_and_store awaits each generation sequentially, and the log is best-effort
-# observability, never game state.
+# own error code/message on an HTTP failure), consumed by the attempt logger. Module-level: ORW-378 runs
+# portraits concurrently, but a failure is noted and consumed with no await between the note and the
+# caller reading it (the awaited `_generate_one` returns straight into `_consume_gen_error()`), so the
+# reasons of two tasks do not interleave in practice; and the log is best-effort observability, never game state.
 _LAST_GEN_ERROR: Optional[str] = None
 _LAST_GEN_DETAIL: Optional[str] = None
 
@@ -435,6 +436,25 @@ def _consume_gen_detail() -> Optional[str]:
     d = _LAST_GEN_DETAIL
     _LAST_GEN_DETAIL = None
     return d
+
+
+PORTRAIT_PARALLEL_DEFAULT = 3
+
+
+def portrait_parallel(user: Optional[str] = None) -> int:
+    """ORW-378: how many portraits may be generated at once (setting `portrait_parallel`, default 3,
+    clamped 1-4; anything unreadable gives the default)."""
+    try:
+        from src.settings import get_setting
+        n = int(get_setting("portrait_parallel", PORTRAIT_PARALLEL_DEFAULT))
+    except Exception:  # failsoft-ok: expected-empty (a bad setting means the default)
+        n = PORTRAIT_PARALLEL_DEFAULT
+    return max(1, min(4, n))
+
+
+def is_rate_limited(reason: Optional[str]) -> bool:
+    """True when a failure reason is the provider's HTTP 429."""
+    return bool(reason) and "429" in str(reason)
 
 
 # ── Transient vs. genuine failure classification (image-provider errors) ────────────────────
@@ -1917,10 +1937,31 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     if to_generate and not silent:
         _progress_start(user, to_generate)
 
-    for entry in prompts:
+    # ORW-378: up to `portrait_parallel` portraits at once (Kevin 2026-11-14: "Why so much time to
+    # generate"). Everything between the claim and the write is synchronous (no await), so the counters,
+    # `newly_shown`, `reshoot_ids` and the manifest read-modify-write cannot interleave; the manifest
+    # writes also take `manifest_lock` so that stays true if an await is ever added. One failure never
+    # cancels the others. A provider 429 drops the REST of this run to one at a time.
+    limit = portrait_parallel(user)
+    sem = asyncio.Semaphore(limit)
+    serial = asyncio.Lock()
+    manifest_lock = asyncio.Lock()  # one manifest read-modify-write at a time
+    run = {"rate_limited": False}
+
+    async def _one(entry):
+        nonlocal generated, skipped
+        async with sem:
+            if run["rate_limited"]:
+                async with serial:
+                    await _one_body(entry, run)
+            else:
+                await _one_body(entry, run)
+
+    async def _one_body(entry, run):
+        nonlocal generated, skipped
         if not isinstance(entry, dict):
             skipped += 1
-            continue
+            return
         hid = entry.get("houseguestId") or entry.get("id")
         prompt = entry.get("prompt")
         name = entry.get("name") or ""
@@ -1928,10 +1969,10 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         # counting `skipped`, else the one player slot is double-counted (it is prompt-less, so it
         # would otherwise fall into the `not prompt` branch below). CodeRabbit #1564.
         if hid and _safe_id(str(hid)) in prepass_applied:
-            continue
+            return
         if not hid or not prompt:
             skipped += 1
-            continue
+            return
 
         # The current facet's fingerprint (a stable hash of the engine's deterministic prompt).
         fp = _prompt_fingerprint(str(prompt))
@@ -1942,7 +1983,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         sid = _safe_id(str(hid))
         if sid in _INFLIGHT.setdefault(_safe_user(user), set()):
             skipped += 1
-            continue
+            return
 
         # Generate-once: a stored portrait is never regenerated on restart — UNLESS the facet
         # changed. 0065 follow-up: compare the stored entry's fingerprint to the CURRENT prompt's.
@@ -1964,7 +2005,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 # Leave it alone: no re-shoot, no fingerprint or version change (v1 recorded explicitly).
                 _stamp_version_one(user, _safe_id(str(hid)))
                 skipped += 1
-                continue
+                return
             elif stored_fp and fp and stored_fp != fp:
                 # Facet changed → stale face → fall through and re-shoot from the new prompt. This
                 # is a RE-generation, so the engine will METER its beat — mark it for the budget
@@ -1974,12 +2015,13 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 if (not stored_fp) and fp and isinstance(stored, dict):
                     # Backfill quietly (no regeneration) so this self-heals and the NEXT genuine
                     # facet change re-shoots. The image bytes are untouched (generate-once preserved).
-                    stored["fingerprint"] = fp
-                    manifest = load_manifest(user)
-                    manifest[_safe_id(str(hid))] = stored
-                    _save_manifest(user, manifest)
+                    async with manifest_lock:
+                        stored["fingerprint"] = fp
+                        manifest = load_manifest(user)
+                        manifest[_safe_id(str(hid))] = stored
+                        _save_manifest(user, manifest)
                 skipped += 1
-                continue
+                return
 
         # G26: the PLAYER may have chosen 'reference' mode — image-to-image off their headshot
         # (exact mode already landed in the pre-pass above). NPCs are text→image on FIRST shoot
@@ -2026,6 +2068,8 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 source = "generated"  # reference failed; the log carries the reason
             if not png:
                 reason = _consume_gen_error() or "generation-failed"
+                if is_rate_limited(reason):
+                    run["rate_limited"] = True  # ORW-378: the rest of this run goes one at a time
                 log_attempt(str(hid), False, reason, duration_ms, detail=_consume_gen_detail())
                 # Stamp the failure class so the G20 reconciler can spare a TRANSIENT failure
                 # (402 credits, 429, 5xx, transport) from the permanent retry budget.
@@ -2034,10 +2078,11 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 # original trigger; the initials floor stands (auto-corrected), still RED.
                 _note_generation_failure(user, str(hid), reason)
                 skipped += 1
-                continue
+                return
             try:
-                _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
-                                ref_clean=ref_clean)
+                async with manifest_lock:
+                    _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
+                                    ref_clean=ref_clean)
                 log_attempt(str(hid), True, None, duration_ms)
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
@@ -2053,6 +2098,13 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 skipped += 1
         finally:
             _INFLIGHT.get(_safe_user(user), set()).discard(sid)
+
+    results = await asyncio.gather(*[_one(e) for e in prompts], return_exceptions=True)
+    for r in results:
+        if isinstance(r, BaseException):
+            skipped += 1
+            logger.info("[portraits] one portrait task raised: %s", r)
+
 
     # L17: before the run is declared complete, run the automated look-alike / mistake pass —
     # detect near-duplicate faces across the cast (from the structured, Vault-free prompt facets)
