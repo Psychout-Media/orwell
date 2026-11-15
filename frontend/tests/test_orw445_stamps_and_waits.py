@@ -33,6 +33,23 @@ def test_hiccup_keeps_the_start_of_turn_stamp(monkeypatch):
     assert ch.current_game_moment("u2") == "Week 1 · Nominations · Morning"
 
 
+def test_a_stalled_engine_read_is_bounded_and_keeps_the_stamp(monkeypatch):
+    """Review of #2772: the persist-time refresh never holds the save for the engine's full timeout."""
+    ch._LAST_FRAMED_GAME_MOMENT["u4"] = "Week 1 · Nominations · Morning"
+    monkeypatch.setattr(ch, "_STAMP_REFRESH_TIMEOUT", 0.05)
+
+    async def stall(user=None):
+        await asyncio.sleep(30)
+    monkeypatch.setattr(orwell_engine, "get_game_state", stall)
+
+    async def run():
+        t = asyncio.get_running_loop().time()
+        await ch.refresh_framed_game_stamps("u4")
+        return asyncio.get_running_loop().time() - t
+    assert asyncio.run(run()) < 2
+    assert ch.current_game_moment("u4") == "Week 1 · Nominations · Morning"
+
+
 def test_pregame_stays_none(monkeypatch):
     ch._LAST_FRAMED_GAME_MOMENT.pop("u3", None)
 
@@ -45,10 +62,13 @@ def test_pregame_stays_none(monkeypatch):
 
 def test_persist_sites_refresh_before_reading_the_stamp():
     src = open(ch.__file__.replace("chat_helpers.py", "chat_routes.py")).read()
-    assert src.count("await refresh_framed_game_stamps(ctx.user)") == 4
+    assert src.count("refresh_framed_game_stamps(ctx.user") == 4
+    read_sites = 0
     for line_no, line in enumerate(src.splitlines()):
         if "current_game_moment(ctx.user) if ctx.game_active" in line:
+            read_sites += 1
             assert "refresh_framed_game_stamps" in "\n".join(src.splitlines()[line_no - 2:line_no])
+    assert read_sites == 4, "the read-site match went vacuous (review of #2772): one stamp read per persist site"
 
 
 @pytest.mark.parametrize("msg,want", [
@@ -89,3 +109,9 @@ def test_maybe_hang_out_passes_the_target(monkeypatch):
     seen.clear()
     assert asyncio.run(ch.maybe_hang_out("w", {"started": True}, "wait around for a while"))
     assert seen == {"max_minutes": None, "until_band_end": False}
+
+
+def test_rest_of_band_after_until_sets_the_band_target():
+    """Review of #2772: the match ends at until/till, so the band phrase after it must still count."""
+    assert ch.parse_stated_wait("hang out until the rest of the afternoon") == (None, True)
+    assert ch.parse_stated_wait("chill till the rest of the morning") == (None, True)

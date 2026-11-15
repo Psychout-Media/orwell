@@ -245,12 +245,23 @@ describe("hangOut lever stated target (ORW-445)", () => {
     const h0 = live(s).nightDepth!;
     const r = s.hangOut({ maxMinutes: 120 });
     expect(r.ok).toBe(true);
-    if (r.stopReason === "max-beats") expect(r.minutes).toBe(120);
+    if (r.stopReason === "target") expect(r.minutes).toBe(120);
     else expect(r.minutes).toBeLessThanOrEqual(120);
     expect(live(s).nightDepth! - h0).toBeLessThanOrEqual(2 + 1e-6);
     const t = parked(5, "ho-band")!;
     const h1 = live(t).nightDepth!;
     const edge = [12, 16, 20, 24].find((e) => e > h1 + 1e-6)!;
+    const rb = t.hangOut({ untilBandEnd: true });
+    expect(rb.ok).toBe(true);
+    expect(live(t).nightDepth!).toBeLessThanOrEqual(edge + 1e-6);
+    // review of #2772: the stop itself is asserted, not only the upper bound - unless something else stopped it first, it ends ON the edge as a "target".
+    if (rb.stopReason === "target") expect(live(t).nightDepth!).toBeCloseTo(edge, 4);
+    else expect(["event-due", "pulled", "npc-approach", "observed", "bedtime"]).toContain(rb.stopReason);
+  });
+  it("review of #2772: untilBandEnd with under five minutes left stops at the edge, never past it", () => {
+    const t = parked(5, "ho-band-close")!;
+    const edge = [12, 16, 20, 24].find((e) => e > live(t).nightDepth! + 1e-6)!;
+    live(t).nightDepth = edge - 2 / 60; // two minutes to the edge
     const rb = t.hangOut({ untilBandEnd: true });
     expect(rb.ok).toBe(true);
     expect(live(t).nightDepth!).toBeLessThanOrEqual(edge + 1e-6);

@@ -2606,8 +2606,8 @@ export interface HangOutReq {
   /** ORW-445: the player asked to wait out the rest of the current part of the day ("the rest of the morning"): the target is the next band edge. Combined with maxMinutes, the smaller wins. */
   untilBandEnd?: boolean;
 }
-/** Why a hang-out stopped (the engine decides; the narrator voices it). */
-export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
+/** Why a hang-out stopped (the engine decides; the narrator voices it). "target" = the player's own stated wait (ORW-445) was reached; "max-beats" = the beat cap. */
+export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats" | "target";
 export interface HangOutView {
   /** false = nothing happened (no state change): see `reason`. */
   ok: boolean;

@@ -101,7 +101,7 @@ describe("runHangOut", () => {
     // The event has now fired once: the next call stops at once, spending nothing.
     expect(runHangOut(probes, rng())).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
   });
-  it("review of #2778: a stated target shorter than the sub-minute remainder is honoured: the wait stops AT the target (max-beats), not past it at the event", () => {
+  it("review of #2778: a stated target shorter than the sub-minute remainder is honoured: the wait stops AT the target (max-beats), not past it at the event", () => {  // stop reason: target
     let hour = 11 + 59.2 / 60; // the event (12:00) is 48 seconds away
     const probes: HangOutProbes = {
       advance: (h) => { hour += h; },
@@ -111,7 +111,7 @@ describe("runHangOut", () => {
     };
     const start = hour;
     const r = runHangOut(probes, rng(), { maxMinutes: 0.5 }); // wants 30 seconds
-    expect(r.stopReason).toBe("max-beats");
+    expect(r.stopReason).toBe("target");
     expect((hour - start) * 60).toBeCloseTo(0.5, 6);
     expect(probes.eventDue()).toBe(false);
   });
@@ -183,8 +183,17 @@ describe("runHangOut stated target (ORW-445)", () => {
     const w = world();
     const r = runHangOut(w.probes, rng(), { maxMinutes: 120 });
     expect(r.minutes).toBe(120);
-    expect(r.stopReason).toBe("max-beats");
+    expect(r.stopReason).toBe("target"); // review of #2772: reaching the stated wait is its own stop, not the beat cap
     expect(w.hour()).toBeCloseTo(14, 6);
+  });
+  it("review of #2772: an explicit maxBeats caps a stated wait; an omitted cap lets the wait scale to its target", () => {
+    const capped = runHangOut(world().probes, rng(), { maxMinutes: 180, maxBeats: 2 });
+    expect(capped.stopReason).toBe("max-beats");
+    expect(capped.beats).toBe(2);
+    expect(capped.minutes).toBeLessThan(180);
+    const scaled = runHangOut(world().probes, rng(), { maxMinutes: 180 });
+    expect(scaled.stopReason).toBe("target");
+    expect(scaled.minutes).toBe(180);
   });
   it("an event / bedtime inside the target still stops it first", () => {
     const e = runHangOut(world({ startHour: 12, eventHour: 13 }).probes, rng(), { maxMinutes: 120 });
