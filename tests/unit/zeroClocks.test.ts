@@ -27,7 +27,7 @@ describe("the eight spoken bands", () => {
     const cases: Array<[number, string]> = [[8, "morning"], [9.67, "morning"], [12, "midday"], [14, "afternoon"], [17, "evening"], [21, "night"], [24, "late night"], [25.99, "late night"], [26, "early morning"], [27.08, "early morning"], [30, "early morning"], [31.99, "early morning"], [32, "morning"]];
     for (const [h, b] of cases) expect(clockBandFor(h), String(h)).toBe(b);
     expect(formatClockBandLabel(27.08, 5)).toBe("early morning, Day 5");
-    expect(isEarlyMorning(25.99)).toBe(false); expect(isEarlyMorning(26)).toBe(true); expect(isEarlyMorning(31.99)).toBe(true); expect(isEarlyMorning(32)).toBe(false); expect(isEarlyMorning(undefined)).toBe(false);
+    expect(isEarlyMorning(25.99)).toBe(false); expect(isEarlyMorning(1.99)).toBe(false); expect(isEarlyMorning(2)).toBe(true); expect(isEarlyMorning(4.9)).toBe(true); expect(isEarlyMorning(7.99)).toBe(true); expect(isEarlyMorning(8)).toBe(false); expect(isEarlyMorning(12)).toBe(false); expect(isEarlyMorning(26)).toBe(true); expect(isEarlyMorning(31.99)).toBe(true); expect(isEarlyMorning(32)).toBe(false); expect(isEarlyMorning(undefined)).toBe(false);
   });
 });
 
@@ -70,7 +70,7 @@ describe("getMomentPrompt with zeroClocks", () => {
 });
 
 describe("ORW-392 - the HUD says Early morning past 2am, before the house's wake-up call", () => {
-  it("the status carries earlyMorning only in the late-night phase past 2am", () => {
+  it("the status carries earlyMorning from 2am to the wake-up call, on both clock scales", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     try {
       const s = new GameSessionRegistry().sandboxFor("early-morning").session as GameSessionAdapter & Record<string, any>;
@@ -83,7 +83,13 @@ describe("ORW-392 - the HUD says Early morning past 2am, before the house's wake
       expect(at(26).earlyMorning).toBe(true);
       expect(at(31.9).earlyMorning).toBe(true);
       expect((s.getGameState() as any).earlyMorning).toBe(true);
-      l.timeOfDay = "morning"; l.nightDepth = 9;
+      // ORW-441: after an EARLY bed the player wakes at bed+8h on the 0-24 scale in the "morning" phase (4:55am = 4.9)
+      l.timeOfDay = "morning"; l.nightDepth = 4.9;
+      expect((s.gameStatus() as any).earlyMorning, "up at 4:55am after an early bed").toBe(true);
+      expect((s.getGameState() as any).earlyMorning).toBe(true);
+      l.nightDepth = 7.99; expect((s.gameStatus() as any).earlyMorning).toBe(true);
+      l.nightDepth = 8; expect((s.gameStatus() as any).earlyMorning, "the house's wake-up call").toBeUndefined();
+      l.nightDepth = 9;
       expect((s.gameStatus() as any).earlyMorning).toBeUndefined();
       expect((s.getGameState() as any).earlyMorning, "the game-state view drops it outside the band too").toBeUndefined();
     } finally { GameSessionAdapter.setTimeOfDayEnabled(null); }
