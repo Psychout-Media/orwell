@@ -2170,6 +2170,15 @@ def _volatile_tail_enabled() -> bool:
     return str(os.environ.get("ORWELL_VOLATILE_TAIL", "")).strip().lower() not in ("0", "false", "no", "off")
 
 
+def _post_turn_parallel_enabled() -> bool:
+    """ORW-449: the two side records made after a narrated turn (room canon, open ledger) run ALONGSIDE the consequence belts instead
+    of ahead of them. Measured on a real 65-turn game the helper model calls after a turn ran strictly one after another: median 2.9 s,
+    p90 5.6 s. `ORWELL_POST_TURN_PARALLEL=0` restores one-after-another (default ON)."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_POST_TURN_PARALLEL", "")).strip().lower() not in ("0", "false", "no", "off")
+
+
 def _volatile_tail_wire(messages):
     """The request messages with the per-turn volatile block moved to a trailing system message; `messages` itself is never mutated. Returns the SAME list when the shape is not the game narrator's
     (no GAME CONTEXT / markers), so a non-game or odd prompt is untouched."""
@@ -10146,31 +10155,34 @@ async def _stream_agent_loop_impl(
                     # nudge → another narration) ONLY when nothing visible has been shown yet, where a
                     # single fresh narration is exactly what's wanted. The per-turn cap and the persisted
                     # `_ADVANCE_STALL_LEVEL` escalation are unchanged.
-                    async def _bank_scene_consequences() -> None:
+                    async def _room_canon_after_turn() -> None:
+                        # ORW-223 (Showrunner memory, canon ledger v1): the room texture this narration newly stated is written
+                        # back as canon (engine-validated; fail-soft; flag-gated on the Show Brief). It invents nothing and
+                        # touches no game state.
+                        try:
+                            from src import orwell_room_canon as _rc
+                            await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
+                        except Exception as _rc_e:  # failsoft-ok: room-canon-hook (after_turn records its own failures RED; this guards the import and the call itself)
+                            logger.debug(f"[room-canon] skipped: {_rc_e}")
+
+                    async def _open_ledger_after_turn() -> None:
+                        # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
+                        # free text (engine-validated; fail-soft; same gating as the room canon above).
+                        try:
+                            from src import orwell_open_ledger as _ol
+                            await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
+                        except Exception as _ol_e:  # failsoft-ok: open-ledger-hook (after_turn records its own failures RED; this guards the import and the call itself)
+                            logger.debug(f"[open-ledger] skipped: {_ol_e}")
+
+                    async def _bank_belt_chain() -> None:
                         """Fold the social consequences of the scene this turn narrated: a struck deal (0039),
                         a press-to-open-up (0075), an outing (0093), a secret trade (0099), then the generic
-                        scene record (0055). Called from the finishing block AND — A-10 — just before a
-                        belt-forced silent advance ends the turn. Model-driven calls always win via the
-                        `_want_*` gates and per-turn caps; telemetry is success-gated."""
+                        scene record (0055). Model-driven calls always win via the `_want_*` gates and per-turn
+                        caps; telemetry is success-gated. Strictly one after another: each belt's engine write
+                        carries the beat counter the previous one left, and a later belt reads what an earlier
+                        one banked."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges
-                        # ORW-223 (Showrunner memory, canon ledger v1): the room texture this narration newly stated is written
-                        # back as canon (engine-validated; fail-soft; flag-gated on the Show Brief). Never on an OOC aside or
-                        # machinery turn. It invents nothing and touches no game state.
-                        if not (_is_ooc_aside_text(_extract_last_user_message(messages)) or _is_ooc_aside_text(_turn_narration)
-                                or _is_nondiegetic_scene_text(_turn_narration)):
-                            try:
-                                from src import orwell_room_canon as _rc
-                                await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
-                            except Exception as _rc_e:
-                                logger.debug(f"[room-canon] skipped: {_rc_e}")
-                            # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
-                            # free text (engine-validated; fail-soft; same gating as the room canon above).
-                            try:
-                                from src import orwell_open_ledger as _ol
-                                await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
-                            except Exception as _ol_e:
-                                logger.debug(f"[open-ledger] skipped: {_ol_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -10243,6 +10255,35 @@ async def _stream_agent_loop_impl(
                                 # gap #3 telemetry — only a recordInteraction the belt actually FIRED
                                 # counts (a withIds:[] extraction / failed call is a no-op)
                                 _note_belt(owner, "auto-record-scene")
+
+                    async def _bank_scene_consequences() -> None:
+                        """Everything recorded after a narrated turn: the two side records (room canon, open ledger) and the
+                        consequence belts. Called from the finishing block AND — A-10 — just before a belt-forced silent
+                        advance ends the turn; it returns only when ALL of it has finished.
+
+                        ORW-449: the side records each make one helper model call and then a background engine write that
+                        does NOT move the beat counter, and neither reads anything the belts write. So they run ALONGSIDE the
+                        belt chain instead of ahead of it (they used to cost their full duration before the first belt even
+                        started). The belt chain itself is unchanged and stays strictly in order. Never on an OOC aside or a
+                        machinery turn. `ORWELL_POST_TURN_PARALLEL=0` restores one-after-another."""
+                        _side: list = []
+                        if not (_is_ooc_aside_text(_extract_last_user_message(messages)) or _is_ooc_aside_text(_turn_narration)
+                                or _is_nondiegetic_scene_text(_turn_narration)):
+                            if _post_turn_parallel_enabled():
+                                _side = [asyncio.ensure_future(_room_canon_after_turn()),
+                                         asyncio.ensure_future(_open_ledger_after_turn())]
+                            else:
+                                await _room_canon_after_turn()
+                                await _open_ledger_after_turn()
+                        try:
+                            await _bank_belt_chain()
+                        except asyncio.CancelledError:
+                            for _t in _side:  # the turn was cancelled: do not keep its helper calls running
+                                _t.cancel()
+                            raise
+                        finally:
+                            if _side:  # a belt that raised still waits for the side records, exactly as when they ran first
+                                await asyncio.gather(*_side, return_exceptions=True)
 
                     if _want_advance and _phase in _ADVANCE_PHASES and not _peer_advanced and not _pre_resolved:
                         # NAR-1: _belt_key on both the read and the write (was `owner or ""` read

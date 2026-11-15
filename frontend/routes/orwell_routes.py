@@ -455,7 +455,14 @@ async def _capture_season_outcome(user: Optional[str]) -> bool:
         return False
 
 
-_ROSTER_STORY_KEYS = ("biography", "identityConcept", "physicalCharacteristics")
+def _roster_story_flags(hg: dict) -> dict:
+    """`storyMissing` (blank biography or identity, or genesis's draft) and `lookMissing` (a photo-sheet look field absent; non-blocking, only the look backfill reads it)."""
+    full = {**hg, "physicalCharacteristics": hg.get("physicalCharacteristics")}
+    story = orwell_cast_authoring.card_missing_story(full)
+    out = {"storyMissing": True} if story else {}
+    if not story and orwell_cast_authoring.card_missing_story(full, look=True):
+        out["lookMissing"] = True
+    return out
 
 
 def _roster_cards(state: dict, user: Optional[str]) -> list:
@@ -492,10 +499,9 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": False,
             "portrait": orwell_portraits.portrait_ref(user, hid),
             "authored": bool(hg.get("authored")),
-            # ORW-437 (review of #2733): the engine's PUBLIC story/look fields, carried (None when absent) so
-            # `orwell_cast_authoring.card_missing_story` sees what the real house entry holds. The key being present
-            # marks a full card; `_roster_payload` strips them so the /roster body is unchanged.
-            **{k: hg.get(k) for k in _ROSTER_STORY_KEYS},
+            # ORW-438: the roster card is thin (no biography text), so the story check runs here on the FULL state card and rides as booleans the backfill reads
+            # (the ONE story mechanism). A house entry with no look block still counts as a full card, so the key is normalised to None before the check.
+            **_roster_story_flags(hg),
             # ORW-343: the engine's last-seen mood WORD (active houseguests the player has shared a room with); carried only when it is a short string, so nothing else can ride this field.
             **({"lastSeenMood": hg["lastSeenMood"]} if isinstance(hg.get("lastSeenMood"), str) and 0 < len(hg["lastSeenMood"]) <= 40 else {}),
         })
@@ -622,7 +628,7 @@ def _roster_payload(user: Optional[str], cards: list, *, stale: bool) -> dict:
     except Exception:
         last_run = None
     payload = {
-        "roster": [{k: v for k, v in c.items() if k not in _ROSTER_STORY_KEYS} if isinstance(c, dict) else c for c in cards],
+        "roster": cards,
         "portraitLastRun": last_run,
         "imagesAvailable": images_available,
         "portraitsPresent": counts["present"],
@@ -809,7 +815,14 @@ _PERSONA_FIELDS = (
 
 
 def _public_persona(card: dict) -> dict:
-    return {k: card.get(k) for k in _PERSONA_FIELDS if card.get(k) not in (None, "")}
+    out = {k: card.get(k) for k in _PERSONA_FIELDS if card.get(k) not in (None, "")}
+    # ORW-438: genesis writes its first biography without the houseguest's name ("Runs compliance for a regional credit
+    # union..."). While the engine marks the stored biography as that draft (`biographyDraft`), it is not shown; the
+    # card keeps its identity line and structured facts, and the real biography appears when the writer's lands.
+    bio = out.get("biography")
+    if isinstance(bio, str) and orwell_cast_authoring.is_genesis_draft_biography(card):
+        out.pop("biography", None)
+    return out
 
 
 def _public_ref(r) -> dict:
