@@ -767,12 +767,12 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
     tools_out = {t: n for t, n in tools.items() if t not in BUMPING_WRITES}
     calls_out = {t: _clean_int(dispatched.get(t)) for t in tools_out}
     return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools_out if kind == "counting-miss" else tools,
-            "calls": calls_out, "note": note}
+            "calls": calls_out, "note": note, **({"more": True} if len(bumps) > _MAX_GAP_BUMPS else {})}  # review of #2757: say when the list was cut
 
 
 def _describe_causes(expl: dict) -> str:
     parts = [f"seq {b['seq']} {b['tool']}" for b in expl.get("bumps", [])]
-    return "; ".join(parts) + ("; ..." if len(parts) >= _MAX_GAP_BUMPS else "")
+    return "; ".join(parts) + ("; ..." if expl.get("more") else "")  # only when bumps were really cut: exactly 16 is not "and more"
 
 
 def _clean_gap_explanation(v: Any) -> dict | None:
@@ -784,7 +784,8 @@ def _clean_gap_explanation(v: Any) -> dict | None:
         if isinstance(b, dict):
             names = _clean_names([b.get("tool")])
             bumps.append({"seq": _clean_int(b.get("seq")), "tool": names[0] if names else "?"})
-    return {"kind": v["kind"], "bumps": bumps, "tools": _clean_belt_map(v.get("tools")), "calls": _clean_belt_map(v.get("calls"))}
+    return {"kind": v["kind"], "bumps": bumps, "tools": _clean_belt_map(v.get("tools")), "calls": _clean_belt_map(v.get("calls")),
+            **({"more": True} if v.get("more") is True or len(v.get("bumps") or []) > _MAX_GAP_BUMPS else {})}
 
 
 def record_turn(
