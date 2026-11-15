@@ -282,11 +282,14 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
         return "waiting"
     if _full_generation_running(user) or not P.image_generation_available(user):
         return "waiting"
+    if P.billing_breaker_open():  # ORW-397: the provider refused billing/auth; wait for the hourly re-probe
+        return "waiting"
     ready = [c for c in cands if st["retry_at"].get(c, 0.0) <= now]
     if not ready:
         return "waiting"
     live = await game_is_live()
-    width = 1 if (live or st["rate_limited"]) else P.portrait_parallel(user)
+    solo = live or st["rate_limited"] or P.billing_breaker_probing()  # ORW-397: one probe call
+    width = 1 if solo else P.portrait_parallel(user)
     batch = ready[:width]
     if st["started_at"] is None:
         st["started_at"] = int(time.time() * 1000)
@@ -315,6 +318,13 @@ async def _upgrade_sid(user, safe: str, state: dict, sid: str, st: dict, now: fl
         return "upgraded"
     except Exception as e:  # failsoft-ok: handled-by-terminal (the old photo stays; recorded RED below; retried later)
         reason = str(e) or type(e).__name__
+        if P.is_billing_error(reason):  # ORW-397: not this houseguest's fault; the breaker owns the wait
+            st["failed"] += 1
+            st["next_ok_at"] = now + gap
+            P._note_gen_error("portrait-upgrade-failed", reason)
+            P._note_generation_failure(user, sid, reason)  # one credits/billing soft failure per breaker trip
+            logger.info("[portrait-upgrade] %s not upgraded for %s: provider billing/auth refused (%s)", sid, safe, reason)
+            return "failed"
         n = st["fails"].get(sid, 0) + 1
         st["fails"][sid] = n
         st["retry_at"][sid] = now + retry_wait_s(n)

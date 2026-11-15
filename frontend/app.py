@@ -943,6 +943,14 @@ def _html_template(file_path: str) -> str:
         # Let client JS/CSS branch on the build honestly (game-framed copy, tips, holding
         # states) instead of guessing from engine reachability.
         html = html.replace("<body", '<body data-game-build="1"', 1)
+        # ORW-379: "zero clocks" also means no real-world time on screen. The setting is read per page load; the
+        # client hides the wall-clock bubble stamps and the hover that carries the real time.
+        try:
+            from src.zero_clocks import zero_clocks_on
+            if zero_clocks_on():
+                html = html.replace("<body", '<body data-zero-clocks="1"', 1)
+        except Exception:  # failsoft-ok: presentation-only flag
+            pass
         # WebSocket Phase-1 transport (ADR 0017/0018) server→client flag injection.
         # orwellWs.js reads body[data-ws-transport] to decide whether to attempt the WS
         # upgrade; it's a GAME-build concern (the mirror/HUD it ports live only here).
