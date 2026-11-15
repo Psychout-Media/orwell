@@ -119,7 +119,7 @@ describe("ORW-432 heightBuild says one height", () => {
   });
 });
 
-const RES = VOICE_LINE_TEMPLATES.map((t) => new RegExp("^" + t.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{\w+\}/g, ".+?") + "$"));
+const RES = VOICE_LINE_TEMPLATES.map((t) => new RegExp("^" + t.replace(/[.*+?^$()|[\]\\]/g, "\\$&").replace(/\{(?:a:)?\w+\}/g, ".+?") + "$"));
 
 describe("ORW-432 voice lines", () => {
   it("40 seeds x 15: no contradictory pair, no stress tell on more than 3 cards, 3+ sentence shapes", () => {
@@ -287,7 +287,7 @@ describe("ORW-432 voice line shape is the hash-selected template", () => {
       const v = generateVoice(r, "floater");
       const k = idx(v);
       const slot = (key: string): string => (key === "humor" ? (v.humor === "none" ? "no" : v.humor) : String(v[key as keyof VoiceProfile]));
-      expect(voiceFingerprint(v)).toBe(VOICE_LINE_TEMPLATES[k]!.replace(/\{(\w+)\}/g, (_m, key: string) => slot(key)));
+      expect(voiceFingerprint(v)).toBe(VOICE_LINE_TEMPLATES[k]!.replace(/\{(a:)?(\w+)\}/g, (_m, art: string | undefined, key: string) => (art ? `${/^[aeiou]/i.test(slot(key)) ? "an" : "a"} ${slot(key)}` : slot(key))));
       seen.add(k);
     }
     expect(seen.size).toBe(VOICE_LINE_TEMPLATES.length);
