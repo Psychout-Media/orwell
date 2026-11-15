@@ -383,8 +383,9 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
-    # ORW-396: pollers (timeout <= _POLL_TIMEOUT) also never retry a TIMEOUT - 3 x 8 s would outlast the request middleware.
-    tight = timeout is not None and timeout <= max(_FRAMING_TIMEOUT, _POLL_TIMEOUT)
+    # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
+    # Other wider-timeout pollers keep retrying every transient kind.
+    tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
     for attempt in range(_RETRY_ATTEMPTS + 1):
         try:
