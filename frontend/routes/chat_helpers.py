@@ -1703,6 +1703,8 @@ def pop_framed_hard_constraints(session_id) -> Optional[str]:
 # "default"-fallback way as `_LAST_FRAMED_BEAT_KEY`. Absent ⇒ no forcing ⇒ byte-identical (the field is
 # derived purely from the engine `phase`, exactly the retired `_FORCE_COMP_PHASES ∪ _FORCE_ADVANCE_PHASES`).
 _LAST_FRAMED_REQUIRED_LEVER: dict = {}
+# ORW-405: the per-turn volatile slice ("\n- Week: ..." to the end) of the engine moment prompt this turn was framed on, keyed like the stores above, so a mid-turn rebuild (the direct turnIn) can swap it for a fresh one.
+_LAST_FRAMED_MOMENT_VOLATILE: dict = {}
 
 # 0118 (in-game-time pivot, Phase 2) — whether the engine reports the scheduled ceremony time has ARRIVED
 # (the Vault-free day-schedule `due` flag), cached at framing so the agent loop's advance-nudge can fire the
@@ -8165,6 +8167,15 @@ async def apply_game_framing(
             else:
                 mp = await orwell_engine.get_moment_prompt(moment, user=user)
             gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT
+            try:  # ORW-405: remember this turn's volatile slice (fail-open)
+                _mp_txt = (mp or {}).get("systemPrompt")
+                _vi = _mp_txt.find("\n- Week: ") if isinstance(_mp_txt, str) else -1
+                if _vi >= 0:
+                    _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
+                else:
+                    _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
+            except Exception:
+                pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
             if _brief_on:
