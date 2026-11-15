@@ -7496,8 +7496,10 @@ def _reconcile_schedule_steer(steer: str, b, arm=None, after_turn_in: bool = Fal
     cue (`_arm_marker`): the event id, the day it falls on and whether the engine resolved it this turn. A cue whose event the engine resolved this turn is NEVER swapped. A cue is swapped for the not-due line only
     when the final briefing's next event is the SAME occurrence, it is not due, and it is tomorrow (a notice) or not due at all (a call). Other paragraphs are untouched. No marker or no schedule facts => unchanged.
     `after_turn_in` (the morning rebuild): a cue the morning schedule no longer supports (a different event or occurrence is next and the event is not due now) is dropped rather than left; one whose event is due now is kept."""
-    if not steer or b is None or b.due is None or not isinstance(arm, dict) or arm.get("resolved"):
+    if not steer or b is None or not isinstance(arm, dict) or arm.get("resolved"):
         return steer
+    if b.due is None and not after_turn_in:
+        return steer  # no schedule facts: unchanged. After a turnIn the morning board with NO schedule no longer supports last night's cue (review of #2755), so it falls through to the drop below
     out = []
     for para in steer.split("\n\n"):
         if _SCHEDULE_CUE_RE.match(para):
