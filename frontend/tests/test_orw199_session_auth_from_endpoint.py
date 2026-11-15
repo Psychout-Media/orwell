@@ -295,6 +295,18 @@ def test_env_key_is_supplied_at_call_time_not_stored(db, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-env")
     out = er.resolve_session_headers(_sess(OAI, {}))
     assert out.get("Authorization") == "Bearer sk-test-env"
+    # and no row gains the key: persisting a header set that carries it strips it (a row is never written with the server key)
+    assert er.persistable_session_headers(OAI, {"Authorization": "Bearer sk-test-env"}, "u1") in ({}, None) or \
+        "Authorization" not in (er.persistable_session_headers(OAI, {"Authorization": "Bearer sk-test-env"}, "u1") or {})
+
+
+def test_a_stored_custom_auth_header_on_openai_is_not_overwritten_by_the_server_key(db, monkeypatch):
+    """review of #2663: the server's OPENAI_API_KEY must never replace a credential the session row carries."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-env")
+    out = er.resolve_session_headers(_sess(OAI, {"Authorization": "Bearer sk-custom-user"}))
+    assert out["Authorization"] == "Bearer sk-custom-user"
+    out = er.resolve_session_headers(_sess(OAI, {"x-api-key": "k-custom"}))
+    assert out == {"x-api-key": "k-custom"} and "Authorization" not in out
 
 
 def test_env_key_on_an_existing_row_is_stripped_by_the_migration(db, monkeypatch):
