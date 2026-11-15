@@ -12,6 +12,8 @@ How the GitHub checks run lives in `.github/workflows/ci.yml` (the per-job comme
 npm run ci:fast
 ```
 
+**A browser test file with no measured duration** (`frontend/tests/_ci_durations.json`) is weighed at 15 s per test by the splitter. The guard `test_every_browser_test_file_has_a_measured_duration` fails only for a file your change adds (compared with the base: the first parent of the PR merge ref, or `git merge-base` with origin/main locally); a file main gained meanwhile only warns in the job summary, so two PRs that merge a minute apart cannot turn main red. Add `"<file>.py": <seconds>` (15 per test is fine) for a file you add.
+
 It is `ci/fast-checks.sh`. Every check in it also still runs in its full lane; nothing was moved out of a lane's coverage.
 
 **Shard counts** (the lane is as long as its longest leg): `test-unit` and `coverage-shard` 8 legs each (balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.

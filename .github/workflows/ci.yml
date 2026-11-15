@@ -175,6 +175,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 2  # ORW-413: the duration-table guard compares with HEAD^1 (main, in the PR merge ref)
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -480,6 +481,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 2  # ORW-413: the duration-table guard compares with HEAD^1 (main, in the PR merge ref)
           # Self-hosted runner: don't leave the job GITHUB_TOKEN in .git/config for later steps.
           persist-credentials: false
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
