@@ -87,7 +87,10 @@ def test_turn_in_morning_after_is_clean(monkeypatch):
     async def fake_mp(moment=None, user=None, timeout=None, brief=None):
         return {"systemPrompt": "GAME CONTEXT:\n- roster" + _ctx("late-night", "early morning")}
 
+    board_reads = []
+
     async def fake_state(user=None, **kw):
+        board_reads.append(1)
         return morning_board
 
     monkeypatch.setattr(oe, "get_moment_prompt", fake_mp)
@@ -97,6 +100,7 @@ def test_turn_in_morning_after_is_clean(monkeypatch):
     assert asyncio.get_event_loop().run_until_complete(al._refresh_context_after_turn_in(msgs, owner, out)) is True
     ch._LAST_FRAMED_MOMENT_VOLATILE.pop(owner, None)
     blob = msgs[0]["content"]
+    assert len(board_reads) == 1, "ORW-409: ONE board read per post-turnIn rebuild (review of #2722); a second engine read would fail here"
     assert audit_briefing(msgs) == []
     assert "Part of the day: early morning" in blob and "Time of day:" not in blob and "it is now morning" not in blob
     assert "Still asleep (1): Role B" in blob
