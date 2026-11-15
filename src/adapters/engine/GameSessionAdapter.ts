@@ -11703,6 +11703,8 @@ export class GameSessionAdapter implements GameSession {
       req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
     if (!this.house || !this.live) return remember(this.advanceView(null));
     if (!this.timeOfDayEnabled) return remember(this.advanceView(null)); // dormant unless the clock is running
+    // ORW-109 KNOWN-BAD PROOF BRANCH - never merge: the bed never fires (every goodnight is refused), the regression the live-run short tier must catch.
+    return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: 60 } });
     // ORW-351 (Ryne: one rule for every night): an evicted player WATCHING the season who says goodnight ends their night like any player's - the watched season moves on (the same player-less beats advanceGame runs for a spectator) instead of the
     // call being a silent no-op while the narrator carries on narrating a night that never passes (a live week sat 90 turns on one night, 5 minutes per goodnight).
     if (this.live.spectator && !this.live.pending && !this.live.finished) {
