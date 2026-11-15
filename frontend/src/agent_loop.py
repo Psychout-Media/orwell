@@ -1856,7 +1856,7 @@ def _bedtime_tool_message(turn_in_output) -> str:
         if isinstance(rec, dict):
             rest = {k: v for k, v in data.items() if k != "dailyRecap"}
             head = json.dumps({"dailyRecap": rec}, ensure_ascii=False)
-            return (head + "\n" + json.dumps(rest, ensure_ascii=False))[:6000]
+            return (head + "\n" + json.dumps(rest, ensure_ascii=False))[:4000]
     except Exception:
         pass
     return raw[:4000]
@@ -3317,7 +3317,8 @@ _MOVE_SIGNAL_RE = re.compile(
     r"sits?|sitting|sat|stands?|standing|stood|leans?|leaning|leaned|lounges?|lounging|lounged|"
     r"perched|sprawled|lingers?|lingering|lingered|"
     r"kitchen|living[\s-]?room|lounge|backyard|back ?yard|bedrooms?|bathroom|"
-    r"hoh[\s-]?room|head of household|storage[\s-]?room|diary[\s-]?room"
+    r"hoh[\s-]?room|head of household|storage[\s-]?room|diary[\s-]?room|"
+    r"dining[\s-]?room|hall(?:way)?|enter(?:s|ed|ing)?|arriv(?:e|es|ed|ing)"
     r")\b", re.I)
 
 # CodeRabbit (BL-013/033): the movement belts must read the player-VISIBLE narration, not raw
