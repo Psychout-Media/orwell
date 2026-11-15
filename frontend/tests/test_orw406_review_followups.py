@@ -125,8 +125,10 @@ def test_deferred_run_is_superseded_only_if_the_restart_marker_equals_head():
 
 def test_updater_waits_on_the_directory_the_front_end_publishes_to():
     # review of #2686: frontend/src/turn_inflight.py publishes to ORWELL_INFLIGHT_DIR (else its data dir); the updater must watch the same file.
-    assert "ORWELL_INFLIGHT_DIR" in UPDATE and "/turns-in-flight" in UPDATE
-    assert UPDATE.index("ORWELL_INFLIGHT_DIR") < UPDATE.index("update_wait_for_no_turn \"")
+    # review of #2749: match the assignment and the call argument themselves, not a word that also sits in a comment
+    assign = re.search(r'^\s*INFLIGHT_DIR="\$\{ORWELL_INFLIGHT_DIR:-', UPDATE, re.M)
+    call = re.search(r'^\s*update_wait_for_no_turn "\$\{INFLIGHT_DIR:-[^"]*\}/turns-in-flight" "\$FORCE_NOW"', UPDATE, re.M)
+    assert assign and call and assign.start() < call.start()
 
 
 def test_update_plus_reset_waits_for_warm_after_the_reset_owns_the_final_restart():
