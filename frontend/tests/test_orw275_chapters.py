@@ -102,11 +102,24 @@ pytestmark_browser = pytest.mark.browser
 
 
 def _select(page, sid):
-    """Open a chat the way the sidebar does, WITHOUT awaiting selectSession's promise (ORW-293, the 'Execution context was destroyed' flake): these tests mock
-    /api/history with page.route, and when that intercepted fetch is still pending the unsettled promise can be garbage-collected under load. Playwright then
-    reports any such protocol error as 'Execution context was destroyed, most likely because of a navigation' (no navigation happened: Chrome logged no
-    destroyed context and no second page load, 1 in 14 runs on the runner). The callers wait on the rendered chat, which is the contract."""
-    page.evaluate("(id) => { if (window.sessionModule) { window.sessionModule.selectSession(id); } }", sid)
+    """Open a chat the way the sidebar does. Two lessons (ORW-293):
+    1. Never await selectSession's promise in page.evaluate: these tests mock /api/history with page.route, and a pending promise collected under load
+       surfaces as 'Execution context was destroyed, most likely because of a navigation' (no navigation happened).
+    2. Never start a REDUNDANT selection: the page's own boot selection usually opens this same chat already. A second, un-awaited selectSession repaints
+       the current week LATE - after the test has picked a past week - and the view snaps back (main red at d1dbc361; Overseer A measured the two paints).
+    So: select only when the page is not already on this chat, then wait until the chat has stopped changing (`_settled`)."""
+    page.wait_for_function("() => !!(window.sessionModule && window.sessionModule.getCurrentSessionId)", timeout=15000)
+    # When we DO select, the promise is held on window (so it can never be collected) and we wait for it to settle via a flag, never by awaiting it here.
+    page.evaluate("""(id) => { const sm = window.sessionModule; window.__selDone = true;
+      if (sm.getCurrentSessionId() !== id) { window.__selDone = false; window.__selP = Promise.resolve(sm.selectSession(id)).finally(() => { window.__selDone = true; }); } }""", sid)
+    page.wait_for_function("(id) => window.__selDone === true && window.sessionModule.getCurrentSessionId() === id", arg=sid, timeout=15000)
+
+
+def _settled(page, quiet_ms=800, timeout=15000):
+    """Wait until #chat-history has had no DOM change for `quiet_ms` (every in-flight paint has landed)."""
+    page.evaluate("""() => { if (window.__chMo) return; const box = document.getElementById('chat-history'); window.__chLast = performance.now();
+      window.__chMo = new MutationObserver(() => { window.__chLast = performance.now(); }); window.__chMo.observe(box, {childList: true, subtree: true}); }""")
+    page.wait_for_function("(q) => performance.now() - window.__chLast > q", arg=quiet_ms, timeout=timeout)
 
 
 @pytest.mark.browser
@@ -127,11 +140,14 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
         txt = lambda: page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).map(e => e.textContent.replace(/\\s+/g,' ').trim())")  # noqa: E731
         page.wait_for_function("() => document.querySelectorAll('#chat-history .msg').length >= 3", timeout=15000)
+        _settled(page)
         cur = txt()
         assert any("w2 a" in t for t in cur) and not any("w1 a" in t for t in cur), cur
         assert "Week 2" in page.inner_text("#orwell-chapter-bar")
         page.select_option("#orwell-chapter-bar select", "1")
+        page.wait_for_function("() => (document.getElementById('orwell-chapter-bar') || {}).textContent.includes('Reading Week 1')", timeout=15000)
         page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('w1 a')", timeout=15000)
+        _settled(page)
         past = txt()
         assert any("w1 a" in t for t in past) and not any("w2 a" in t for t in past), past
         assert "Reading Week 1" in page.inner_text("#orwell-chapter-bar")
