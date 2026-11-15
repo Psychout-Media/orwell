@@ -94,6 +94,7 @@ def _fast_and_clean(monkeypatch):
     monkeypatch.setattr(orwell_engine.asyncio, "sleep", _no_sleep)
     orwell_engine._clear_error()
     orwell_engine._clear_reconnecting()
+    orwell_engine._clear_engine_down()
     # Tear down the process-global shared client both before and after: a lingering ``_SeqClient``
     # stub must never persist as ``orwell_engine._client`` for a later test to grab (and a stale real
     # client from a prior test must be rebuilt against THIS test's monkeypatched ``AsyncClient``).
@@ -102,6 +103,7 @@ def _fast_and_clean(monkeypatch):
     yield
     orwell_engine._clear_error()
     orwell_engine._clear_reconnecting()
+    orwell_engine._clear_engine_down()
     orwell_engine._client = None
     orwell_engine._client_factory = None
 
@@ -477,3 +479,133 @@ def test_health_detail_recovers_and_clears_reconnecting(monkeypatch):
     assert d["ok"] is True
     assert not d.get("reconnecting")  # a healthy probe clears the soft state
     assert orwell_engine.reconnecting() is False
+
+
+# --- ORW-404: a real outage fails fast after the first call rides out its wait ------------------
+
+def _outage_call(clock):
+    """One refused call on the virtual clock; returns (elapsed seconds, sleeps taken, engine calls)."""
+    t0, n0 = clock.now, len(clock.sleeps)
+    with pytest.raises(httpx.ConnectError):
+        _run(orwell_engine._call("advanceGame", {}, user="x"))
+    return clock.now - t0, clock.sleeps[n0:]
+
+
+def test_outage_first_call_waits_the_budget_second_call_fails_fast(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RefusingEngine(lambda: True)
+    _patch_engine(monkeypatch, eng)
+    elapsed, _ = _outage_call(clock)
+    assert 20.0 <= elapsed <= 21.0
+    calls_before = eng.calls
+    elapsed, sleeps = _outage_call(clock)
+    assert sleeps == [0.25, 0.5] and eng.calls - calls_before == 3
+    le = orwell_engine.last_engine_error()
+    assert le and le["kind"] == "unreachable"
+
+
+def test_after_the_down_window_the_next_refused_call_gets_the_full_budget_again(monkeypatch):
+    clock = _Clock(monkeypatch)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
+    _outage_call(clock)
+    clock.now += orwell_engine._ENGINE_DOWN_WINDOW_S + 1.0
+    elapsed, _ = _outage_call(clock)
+    assert 20.0 <= elapsed <= 21.0
+    assert _outage_call(clock)[1] == [0.25, 0.5]  # and it re-stamped: fast again
+
+
+def test_a_success_clears_the_down_stamp(monkeypatch):
+    clock = _Clock(monkeypatch)
+    start = clock.now
+    eng = _RefusingEngine(lambda t: "refuse" if (t < 21.0 or 22.0 <= t < 28.5) else "ok", clock)
+    _patch_engine(monkeypatch, eng)
+    _outage_call(clock)                       # exhausts the budget, stamps
+    assert orwell_engine._engine_down_fresh()
+    clock.now = 21.5                          # engine answers a call: success clears the stamp
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert not orwell_engine._engine_down_fresh()
+    clock.now = 22.0                          # engine bounces for ~6 s: the full wait is available again
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert clock.now >= 28.5 and start == 0.0
+
+
+def test_an_engine_restarting_503_clears_the_down_stamp(monkeypatch):
+    clock = _Clock(monkeypatch)
+    eng = _RefusingEngine(lambda t: "refuse" if t < 21.0 else ("503" if t < 21.5 else ("refuse" if t < 27.5 else "ok")), clock)
+    _patch_engine(monkeypatch, eng)
+    _outage_call(clock)
+    assert orwell_engine._engine_down_fresh()
+    clock.now = 21.0
+    # first try after the stamp: refused fast (short retry) would end it; so make the 503 come first
+    eng.fn = lambda t: "503" if t < 21.5 else ("refuse" if t < 27.5 else "ok")
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert clock.now >= 27.5
+    assert not orwell_engine._engine_down_fresh()
+
+
+def test_a_call_already_waiting_finishes_its_own_budget_when_another_call_stamps(monkeypatch):
+    clock = _Clock(monkeypatch)
+
+    def script(t):
+        if t >= 3.0:
+            orwell_engine._mark_engine_down()  # another call gives up while this one is mid-wait
+        return "refuse" if t < 6.0 else "ok"
+
+    _patch_engine(monkeypatch, _RefusingEngine(script, clock))
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert clock.now >= 6.0
+
+
+def test_reconnecting_is_false_after_a_call_gives_up(monkeypatch):
+    clock = _Clock(monkeypatch)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
+    _outage_call(clock)
+    assert orwell_engine.reconnecting() is False
+
+
+def test_a_refused_call_inside_the_down_window_does_not_mark_reconnecting(monkeypatch):
+    clock = _Clock(monkeypatch)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
+    _outage_call(clock)
+    seen = []
+    real_sleep = orwell_engine.asyncio.sleep
+
+    async def _spy(s):
+        seen.append(orwell_engine.reconnecting())
+        await real_sleep(s)
+
+    monkeypatch.setattr(orwell_engine.asyncio, "sleep", _spy)
+    _outage_call(clock)
+    assert seen == [False, False] and orwell_engine.reconnecting() is False
+
+
+def test_health_probe_in_the_down_window_reports_down_not_reconnecting(monkeypatch):
+    clock = _Clock(monkeypatch)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
+    _outage_call(clock)
+    d = _run(orwell_engine.engine_health_detail())
+    assert d["ok"] is False and not d.get("reconnecting")
+
+
+def test_reconnecting_is_true_while_a_restart_wait_runs_and_false_after_success(monkeypatch):
+    clock = _Clock(monkeypatch)
+    seen = []
+    real_sleep = orwell_engine.asyncio.sleep
+
+    async def _spy(s):
+        seen.append(orwell_engine.reconnecting())
+        await real_sleep(s)
+
+    monkeypatch.setattr(orwell_engine.asyncio, "sleep", _spy)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda t: "refuse" if t < 6.0 else "ok", clock))
+    _run(orwell_engine._call("advanceGame", {}, user="x"))
+    assert seen and all(seen) and orwell_engine.reconnecting() is False
+
+
+def test_a_structured_httpx_timeout_does_not_raise_type_error(monkeypatch):
+    clock = _Clock(monkeypatch)
+    _patch_engine(monkeypatch, _RefusingEngine(lambda t: "refuse" if t < 2.0 else "ok", clock))
+    assert _run(orwell_engine._call("advanceGame", {}, user="x", timeout=httpx.Timeout(30.0))) == {"ok": True}
+    assert orwell_engine._restart_budget_s(httpx.Timeout(30.0)) == orwell_engine._RESTART_WAIT_BUDGET_S
+    assert orwell_engine._restart_budget_s(None) == orwell_engine._RESTART_WAIT_BUDGET_S
+    assert orwell_engine._restart_budget_s(3) == 3
