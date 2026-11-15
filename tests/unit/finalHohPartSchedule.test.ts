@@ -58,6 +58,7 @@ describe("ORW-370 - the schedule names the Final HOH part", () => {
       const seen = new Set<number>([a!.finalHohPart!]);
       for (let i = 0; i < 400 && seen.size < 3; i++) {
         const v = on.advanceGame();
+        if (v.held) { on.advanceClockPerConversation(); continue; } // the A65/night gate holds the next part until the in-game clock reaches it: move the per-conversation clock, never spin on the hold
         if (v.pending) resolvePending(v.pending, (req) => void on.submitDecision(req));
         const ds = on.getGameState().daySchedule;
         if (ds?.finalHohPart) { expect(ds.next).toBe("hoh-competition"); seen.add(ds.finalHohPart); }

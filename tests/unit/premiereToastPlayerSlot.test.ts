@@ -54,10 +54,17 @@ describe("the player's toast slot is invited once, in its own batch", () => {
       if (sb.session.premiereIntros()?.entrance?.stage === "done" || !sb.session.premiereIntros()?.entrance) { ended = true; break; }
     }
     expect(ended).toBe(true);
-    const npcs = sb.session.snapshot().live!.premiereEntrance?.order.filter((x) => x !== PLAYER) ?? released.filter((x) => x !== "host" && x !== PLAYER);
-    expect(new Set(released.filter((x) => x !== "host" && x !== PLAYER)).size, "all 15 houseguests released").toBe(15);
+    const order = sb.session.snapshot().live!.premiereEntrance!.order.filter((x) => x !== PLAYER);
+    expect(order.length).toBe(15);
+    expect([...new Set(released.filter((x) => x !== "host" && x !== PLAYER))].sort(), "the released set IS the cast's entrance order (no missing or invented id)").toEqual([...order].sort());
     expect(released.filter((x) => x !== "host").length, "each exactly once, the player's slot included").toBe(new Set(released.filter((x) => x !== "host")).size);
-    void npcs;
+  });
+
+  it("before the first batch is released there is no \"after this batch\" count to report", () => {
+    const e = toast(36).session.premiereIntros()!.entrance!;
+    expect(e.stage).toBe("toast");
+    expect(e.speakers).toBeUndefined();
+    expect(e.toastRemaining).toBeUndefined();
   });
 
   it("the engine tells the narrator how many speakers are still to come, and it reaches 0 only at the end (the circle cannot be closed early by the narrator)", () => {
@@ -77,10 +84,21 @@ describe("the player's toast slot is invited once, in its own batch", () => {
     expect(remaining[remaining.length - 1]).toBe(0);
   });
 
-  it("the narrator is told to voice EVERY speaker of the batch, none skipped or summarized", () => {
+  it("the narrator is told to voice EVERY houseguest speaker of THIS batch: each named, each non-player with a facts block; the player's slot is an invitation only", () => {
     const sb = toast(35);
-    sb.session.advanceGame();
-    const prompt = sb.session.getMomentPrompt({ moment: "premiere" }).systemPrompt;
-    expect(prompt).toMatch(/Voice EVERY speaker named here/);
+    for (let k = 0; k < 4 && sb.session.premiereIntros()?.entrance?.stage === "toast"; k++) {
+      sb.session.advanceGame();
+      const e = sb.session.premiereIntros()?.entrance;
+      if (!e || e.stage !== "toast") break;
+      const prompt = sb.session.getMomentPrompt({ moment: "premiere" }).systemPrompt;
+      expect(prompt).toMatch(/Voice EVERY houseguest speaker named here/);
+      const speakers = (e.speakers ?? []) as Array<{ id?: string; name: string; isPlayer?: boolean; host?: boolean }>;
+      expect(speakers.length).toBeGreaterThan(0);
+      for (const sp of speakers) {
+        expect(prompt, `${sp.name} is named in the batch line`).toContain(sp.name);
+        if (sp.isPlayer) expect(prompt).toMatch(/PLAYER'S slot: invite it, never voice it/);
+        else if (!sp.host) expect(prompt, `${sp.name} has a facts block`).toContain(`THE TOAST \u2014 ${sp.name}'s facts`);
+      }
+    }
   });
 });

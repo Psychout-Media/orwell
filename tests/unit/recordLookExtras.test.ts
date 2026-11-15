@@ -9,11 +9,12 @@ import { FakeClock } from "../../src/adapters/time/FakeClock";
 
 /** ORW-369: the look-only write-back for a running season. */
 function setup() {
-  const runtime = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-369-"))), clock: new FakeClock() });
+  const store = new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-369-")));
+  const runtime = composeRuntime({ saveStore: store, clock: new FakeClock() });
   const sb = runtime.registry.sandboxFor("u");
   sb.session.createCharacter({ playerName: "Player One", seed: 7 });
   const npc = () => sb.session.snapshot().house!.npcs[0]!;
-  return { sb, id: npc().id, npc };
+  return { sb, id: npc().id, npc, store };
 }
 
 describe("recordLookExtras", () => {
@@ -28,6 +29,16 @@ describe("recordLookExtras", () => {
     delete after.physicalCharacteristics.wardrobe; delete after.physicalCharacteristics.onCamera;
     delete before.physicalCharacteristics.wardrobe; delete before.physicalCharacteristics.onCamera;
     expect(after).toEqual(before); // appearance, biography, voice, deepProfileAuthored... all identical
+  });
+
+  it("the accepted write reaches the DURABLE save (the latest file on disk carries wardrobe and onCamera), not only memory", () => {
+    const { sb, id, store } = setup();
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan"], onCamera: "Laughs easily in the kitchen." }).accepted).toBe(true);
+    const durable = store.loadLatest("u");
+    expect(durable, "a save exists for the user").not.toBeNull();
+    const saved = durable!.house!.npcs.find((n) => n.id === id)!.character.physicalCharacteristics!;
+    expect(saved.wardrobe).toEqual(["a grey cardigan"]);
+    expect(saved.onCamera).toBe("Laughs easily in the kitchen.");
   });
 
   it("clamps: at most 3 items of 60 chars and 240 chars on camera; control characters stripped", () => {

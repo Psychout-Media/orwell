@@ -194,6 +194,7 @@ export class RelationshipModel {
     e.threat = clamp(e.threat + dThreat * (dThreat > 0 ? disp.adverseScale : disp.bondScale) * jThreat);
     e.alignment = clamp(e.alignment + dAlignment * disp.bondScale * jAlignment);
     }
+    // Reliability is EVIDENCE (a kept or broken promise), not sentiment: it is deliberately outside the played-game metering and extreme damping above, so proof is never diluted by how many chats happened in the window (review of #2687).
     e.reliability = clamp(e.reliability + dReliability * (dReliability < 0 ? disp.adverseScale : disp.bondScale));
     e.confidence = clamp(e.confidence + C.CONFIDENCE_STEP);
   }

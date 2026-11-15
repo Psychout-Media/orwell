@@ -572,7 +572,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    dashboard), then move straight into the new morning. If it carries a `hook`, tease its `framing`",
   "    as a possibility ('feels like...', 'you can't shake the sense that...') — NEVER state it as a",
   "    coming fact, NEVER name who wins the next HOH or who goes up or who goes home, and NEVER surface",
-  "    anything beyond what `highlights`/`surfaced`/`hook` actually contain. No `dailyRecap` present ⇒ no",
+  "    anything beyond what `highlights`/`yourDay`/`surfaced`/`hook` contain. No `dailyRecap` present ⇒ no",
   "    recap beat — just narrate the player turning in; never invent one.",
   "  • seasonRetrospective — POST-SEASON ONLY: unseals the FINISHED season's hidden story —",
   "    the off-screen scheming, the confessionals, the twist that never fired. It returns nothing",
@@ -1973,7 +1973,7 @@ function premiereEntrancesFragment(): string {
     "watching, call advanceGame to bring in the next arrival \u2014 not before. If the game marks the " +
     "player's OWN entrance, narrate it from the player's point of view: the room turns to look. " +
     "(2) THE TOAST \u2014 production's HOST opens it first, in a generic production voice (never a real or " +
-    "famous name), then EVERY speaker the game lists this turn (none skipped) gives a one-to-two sentence toast built from their " +
+    "famous name), then EVERY houseguest speaker the game lists this turn (none skipped; the player's own slot is an invitation, never voiced for them) gives a one-to-two sentence toast built from their " +
     "public facets \u2014 facts to voice in their own register, never a script. Where the player's own slot " +
     "comes up, INVITE them with a plain \"your turn\" as a chat turn: never force it, never speak for them, " +
     "and move on if they let it pass. Call advanceGame to bring the next batch of speakers, and when the " +
@@ -2009,11 +2009,11 @@ function premiereEntranceLines(
     ];
   }
   if (ent.stage === "toast") {
-    const sp = (ent.speakers ?? []).map((x) => x.name).join(", ");
+    const sp = (ent.speakers ?? []).map((x) => (x as { isPlayer?: boolean }).isPlayer ? `${x.name} (the PLAYER'S slot: invite it, never voice it)` : x.name).join(", ");
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
-        (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY speaker named here, each as their own toast (their name, age, hometown, job and one line of personality, from the facts you were given), none skipped, merged or summarized. ` : "") +
+        (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY houseguest speaker named here, each as their own toast (their name and whichever of age, hometown, job and one line of personality the facts below actually give: use only the facts supplied, never fill in one that is missing), none skipped, merged or summarized. The player's own slot, when listed, is an invitation only, never a toast you voice. ` : "") +
         `Open with the production host if the toast has not begun. ` +
         // ORW-368 (Ryne: "it has kept trying to end and had not had everyone go"): the engine, not the narrator, decides when the circle is over.
         (typeof ent.toastRemaining === "number"
