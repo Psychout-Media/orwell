@@ -7304,10 +7304,11 @@ def _render_presence_movement(prev: Optional[dict], cur: Optional[dict], briefin
     if arrived:
         verb = "has" if len(arrived) == 1 else "have"
         parts.append(f"{_join_names(arrived)} {verb} come into the {room_label}")
+    sleep_note = (" Anyone who has gone to sleep settles down to sleep (a yawn, a bed, a dimmed light), not heading out the door.") if now_asleep else ""  # review of #2755: the sleep clause must not be voiced as a walk out
     return (
         "MOVEMENT IN THE ROOM (engine truth) — " + "; ".join(parts) + ". Voice it as a natural beat — "
         "show them heading out or arriving — never let a houseguest simply vanish from or appear in the "
-        "scene without a beat. (The engine moves the houseguests; you only narrate it.)"
+        "scene without a beat." + sleep_note + " (The engine moves the houseguests; you only narrate it.)"
     )
 
 

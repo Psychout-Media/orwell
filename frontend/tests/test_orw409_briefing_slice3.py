@@ -503,3 +503,12 @@ def test_after_turn_in_a_morning_board_with_no_schedule_drops_last_nights_produc
     b = Briefing(location="kitchen")  # due is None: the morning board has no daySchedule
     assert ch._reconcile_schedule_steer(steer, b, arm, after_turn_in=True) == other
     assert ch._reconcile_schedule_steer(steer, b, arm) == steer  # mid-turn: no schedule facts means unchanged, as before
+
+
+def test_the_gone_to_sleep_clause_is_voiced_as_sleep_not_as_a_walk_out():
+    """review of #2755: the one instruction line told the narrator to show everyone "heading out", including the person who went to sleep."""
+    prev = {"room": "kitchen", "present": ["Houseguest A", "Houseguest B"]}
+    asleep = ch._render_presence_movement(prev, {"room": "kitchen", "present": ["Houseguest B"]}, briefing=Briefing(location="kitchen", present=("Houseguest B",), asleep=("Houseguest A",)))
+    assert "settles down to sleep" in asleep and "not heading out the door" in asleep
+    left = ch._render_presence_movement(prev, {"room": "kitchen", "present": ["Houseguest B"]})
+    assert "settles down to sleep" not in left and "show them heading out or arriving" in left
