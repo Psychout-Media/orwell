@@ -347,7 +347,7 @@ def test_the_clause_parser_inverts_the_engine_fingerprint_template():
     repair = importlib.import_module("src.orwell_voice_repair")
     dials = VOCAB["dials"]
     words = VOCAB["humorWords"]
-    assert len(VOCAB["fingerprintTemplates"]) == 4  # ORW-432: exactly four sentence shapes
+    assert len(VOCAB["fingerprintTemplates"]) == 8  # ORW-432: four sentence shapes; ORW-464: four more, so one shape opens 1 card in 8
     for template in VOCAB["fingerprintTemplates"]:
         for humor in dials["humor"]:
             for tell in dials["stressTell"]:

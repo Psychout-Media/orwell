@@ -1998,6 +1998,8 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         ph = taken.get("phrases") if isinstance(taken.get("phrases"), dict) else {}
         if ph.get("oncamera_endings"):
             parts.append("onCamera lines already end: " + " | ".join(ph["oncamera_endings"]))
+        if ph.get("photohair_openings"):
+            parts.append("photoHair lines already open: " + " | ".join(ph["photohair_openings"]) + " (open this one differently)")
         if ph.get("identity_openers"):
             parts.append("identity lines already open: " + " | ".join(ph["identity_openers"]))
         if ph.get("oncamera_openings"):

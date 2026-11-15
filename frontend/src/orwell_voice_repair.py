@@ -50,6 +50,10 @@ VOICE_LINE_TEMPLATES = (
     "{energy} and {directness}, with a {register} way of putting things and a {rhythm} rhythm; {humor} humor; when pressed, {stressTell}",
     "{register} and {rhythm} on a good day, {directness} on a bad one; {energy} energy, {humor} humor; if it gets tense, {stressTell}",
     "a {directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
+    "{directness} and {register}, {rhythm} in rhythm and {energy} in energy; {humor} humor; under pressure {stressTell}",
+    "sounds {register} and {rhythm}, {directness} when it counts; {energy}, {humor} humor; when it gets hard, {stressTell}",
+    "{rhythm} delivery, {register} word choice, {directness} when asked; {energy} presence, {humor} humor; at the limit {stressTell}",
+    "known for a {energy}, {directness} manner, {register} and {rhythm}; {humor} humor; when cornered, {stressTell}",
 )
 _SLOT_RE = re.compile(r"\{(\w+)\}")
 
