@@ -1957,6 +1957,10 @@ async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> boo
         for m in messages:
             if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str) and old_vol in m["content"]:
                 m["content"] = m["content"].replace(old_vol, new_vol, 1)
+                if briefing is not None:  # ORW-409: the movement cue was a night-room difference (before the turnIn); drop it if the morning board contradicts it. The turn's briefing is now the post-turnIn one.
+                    from routes.briefing import drop_stale_movement
+                    m["content"] = drop_stale_movement(m["content"], briefing)
+                    _ch.set_turn_briefing(owner, briefing)
                 _ch._LAST_FRAMED_MOMENT_VOLATILE[key] = txt[i:]
                 return True
         return False
