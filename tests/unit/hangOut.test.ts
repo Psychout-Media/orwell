@@ -101,6 +101,20 @@ describe("runHangOut", () => {
     // The event has now fired once: the next call stops at once, spending nothing.
     expect(runHangOut(probes, rng())).toEqual({ stopReason: "event-due", beats: 0, minutes: 0 });
   });
+  it("review of #2778: a stated target shorter than the sub-minute remainder is honoured: the wait stops AT the target (max-beats), not past it at the event", () => {
+    let hour = 11 + 59.2 / 60; // the event (12:00) is 48 seconds away
+    const probes: HangOutProbes = {
+      advance: (h) => { hour += h; },
+      hoursUntilEvent: () => Math.max(0, 12 - hour),
+      eventDue: () => hour + 1e-6 >= 12,
+      bedtime: () => false, pulled: () => null, approach: () => null, observed: () => null,
+    };
+    const start = hour;
+    const r = runHangOut(probes, rng(), { maxMinutes: 0.5 }); // wants 30 seconds
+    expect(r.stopReason).toBe("max-beats");
+    expect((hour - start) * 60).toBeCloseTo(0.5, 6);
+    expect(probes.eventDue()).toBe(false);
+  });
   it("float residue after real beats stops event-due with the minutes already spent", () => {
     let calls = 0;
     const w = world({ eventDue: () => false, hoursUntilEvent: () => (calls++ === 0 ? 5 : 1e-9) });

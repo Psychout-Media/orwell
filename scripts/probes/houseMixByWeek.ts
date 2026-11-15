@@ -53,7 +53,7 @@ async function main() {
     });
     console.log(`seed ${seed}: ` + [...by.entries()].sort((a, b) => a[0] - b[0]).map(([w, r]) => `w${w}[${r.n}] ${KINDS.map((k) => Math.round((100 * r[k]) / Math.max(1, r.n))).join("/")}`).join("  "));
   }
-  console.log(`POOLED played weeks only (${SEEDS} seeds, ${MESSAGES} messages; scenes after the player's eviction are left out): bonding/strategy/gossip/conflict % per week  (agreed 48/29/17/4)`);
+  console.log(`POOLED played weeks only (${SEEDS} seeds, ${MESSAGES} messages; scenes after the player's eviction are left out): bonding/strategy/gossip/conflict % per week  (agreed 44/26/19/4, ORW-436)`);
   for (const [w, r] of [...pooled.entries()].sort((a, b) => a[0] - b[0])) {
     console.log(`  week ${w}: scenes ${r.n}  ${KINDS.map((k) => ((100 * r[k]) / Math.max(1, r.n)).toFixed(1)).join(" / ")}   gossip actions: ${[...(pooledActs.get(w) ?? new Map()).entries()].map(([a, c]) => `${a} ${c}`).join(", ")}`);
   }
