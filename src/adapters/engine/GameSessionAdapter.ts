@@ -5513,12 +5513,6 @@ export class GameSessionAdapter implements GameSession {
     if (this.live?.timeOfDay === DAY_START && (this.live?.nightDepth ?? WAKE_HOUR) === (this.live?.wakeHour ?? WAKE_HOUR)) this.nightConflicts.clear();
   }
 
-  /**
-   * The living houseguests who have TURNED IN for the night (ADR 0006) — the complement of the awake set
-   * among the NPCs. Vault-free and OBSERVABLE (you'd see who's no longer around / an empty bed); the
-   * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
-   * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
-   */
   /** ORW-383 - the houseguests who are UP and available now (day or night): the arrived, active NPCs in the awake set. Vault-free; `undefined` when the clock is off. */
   private awakeNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
@@ -5529,17 +5523,18 @@ export class GameSessionAdapter implements GameSession {
       .map((id) => ({ id, name: this.nameOf(id) }));
   }
 
-  /**
-   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
-   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom.
-   */
   /** ORW-383: OFF by default. Seating the asleep in bedrooms at wake clumps the house into three rooms and moves the seeded house-life mix about 4 points (bonding 44.9 -> 41.0 on the mix guard's seeds), which is the owner's agreed mix to re-agree, not mine; so it waits for that call. */
   private sleepersInBedEnabled = process.env.ORWELL_SLEEPERS_IN_BED === "1";
   setSleepersInBedEnabled(on: boolean): void { this.sleepersInBedEnabled = on; }
+  /**
+   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
+   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom. Called ONLY from `turnIn` (the player's own wake); the bitter-end clock wrap and `crossToNextDay` do not seat anyone (review of #2678: left for Ryne on ORW-437, the flag is still off pending the mix re-agreement).
+   */
   private seatInBedrooms(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
     if (!into || !this.sleepersInBedEnabled) return;
     const beds: Room[] = ["bedroom-a", "bedroom-b", "bedroom-c"];
-    const order = this.presenceActive();
+    // Index in the cast roster (it never shrinks), not the living roster: an eviction must not shift anyone else's bed.
+    const order = this.house ? this.house.npcs.map((n) => n.id) : this.presenceActive();
     for (const id of ids) {
       if (id === PLAYER || !into.has(id)) continue;
       const room = beds[Math.max(0, order.indexOf(id)) % beds.length]!;
@@ -5547,6 +5542,12 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /**
+   * The living houseguests who have TURNED IN for the night (ADR 0006) — the complement of the awake set
+   * among the NPCs. Vault-free and OBSERVABLE (you'd see who's no longer around / an empty bed); the
+   * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
+   * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
+   */
   private asleepNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
