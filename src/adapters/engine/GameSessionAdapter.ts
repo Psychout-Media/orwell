@@ -14,7 +14,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -240,6 +240,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { emptyOpenLedger, openLedgerProposal, openLedgerSection, recordOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -573,6 +574,8 @@ const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_S
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
 /** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
 const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
+/** ORW-407: the open ledger (commitments and claims made to or by the player, kept as free text). ON by default; `ORWELL_OPEN_LEDGER=0` turns it off. */
+const OPEN_LEDGER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_OPEN_LEDGER");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1214,6 +1217,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
+  private openLedgerEnabled = OPEN_LEDGER_ENABLED_DEFAULT;
+  /** ORW-407: the open ledger. Persisted in `SessionCore.openLedger`; absent from the save until something is kept. */
+  private openLedger: OpenLedger = emptyOpenLedger();
+  /** A loaded `openLedger` that failed the shape check: saved back exactly as loaded; nothing may write while set. */
+  private openLedgerAsLoaded: unknown;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -4371,6 +4379,10 @@ export class GameSessionAdapter implements GameSession {
         ? { canon: cloneSession(this.canonAsLoaded) }
         : this.canonLedger.entries.length > 0 || this.canonLedger.recent.length > 0
           ? { canon: serializeCanon(this.canonLedger) } : {}),
+      // ORW-407: the open ledger. Absent while nothing is kept (byte-identical saves); an unreadable one is saved back as loaded.
+      ...(this.openLedgerAsLoaded !== undefined
+        ? { openLedger: cloneSession(this.openLedgerAsLoaded) as OpenLedger }
+        : this.openLedger.entries.length > 0 ? { openLedger: cloneSession(this.openLedger) } : {}),
     };
   }
 
@@ -4745,6 +4757,10 @@ export class GameSessionAdapter implements GameSession {
     if (canon.problems.length > 0) {
       console.warn(`[orwell] canon ledger loaded with ${canon.problems.length} problem(s), kept exactly as saved: ${canon.problems.slice(0, 5).join("; ")}`);
     }
+    // ORW-407: restore the open ledger (absent on an older save => empty); an unreadable one is kept exactly as saved.
+    const ol = restoreOpenLedger(core.openLedger);
+    this.openLedger = ol.ledger;
+    this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];
@@ -8713,6 +8729,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
+  setOpenLedgerEnabled(on: boolean): void { this.openLedgerEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -14232,7 +14249,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -14507,6 +14524,30 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     }
     return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
+  }
+
+  /**
+   * ORW-407 - keep a commitment or claim made to or by the player in narration, as free text. The engine re-validates the
+   * shape, the speakers (the player or a houseguest in the house) and that everyone involved is present now, derives the
+   * witnesses from the engine's own presence, de-duplicates, and appends. No Vault handle, no rng, no relationship change.
+   */
+  recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult {
+    if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
+    const p = openLedgerProposal(req, known);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const wa = this.whereabouts();
+    if (!wa) return { accepted: false, reason: "no-game" };
+    const out = recordOpenEntry(this.openLedger, p, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string),
+    });
+    if (out.outcome === "duplicate") return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
+    if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
   /**

@@ -9636,6 +9636,13 @@ async def _stream_agent_loop_impl(
                                 await _rc.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _rc_e:
                                 logger.debug(f"[room-canon] skipped: {_rc_e}")
+                            # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
+                            # free text (engine-validated; fail-soft; same gating as the room canon above).
+                            try:
+                                from src import orwell_open_ledger as _ol
+                                await _ol.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                            except Exception as _ol_e:
+                                logger.debug(f"[open-ledger] skipped: {_ol_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
