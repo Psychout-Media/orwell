@@ -1690,7 +1690,7 @@ export interface WeekChapterView {
 export interface AdvanceView {
   started: boolean;
   /** A65 (ORWELL_ADVANCE_GATE, default OFF): present ONLY when the engine REFUSED an ordinary beat because the next scheduled milestone is not yet due (the gate; nothing committed, `beatSeq` unchanged). Words and minutes only. */
-  held?: { next: string; minutesUntil: number; /** ORW-97: present ("schedule") only on the A65 schedule hold (an event not yet due); absent on the night/bedtime holds. */ reason?: "schedule" };
+  held?: { next: string; minutesUntil: number; /** ORW-97: present ("schedule") only on the A65 schedule hold (an event not yet due); absent on the night/bedtime holds. */ reason?: "schedule" | "ceremony" /* ORW-446: a bed refused while a staged ceremony is open */ };
   /**
    * The monotonic per-sandbox beat counter (0065 Part A) AFTER this advance/decision committed — see
    * `GameStateView.beatSeq`. The FE captures it as the new last-seen token. On an idempotency REPLAY
@@ -2569,7 +2569,7 @@ export interface NapReq {
   idempotencyKey?: string;
 }
 /** Why a nap was refused (nothing changed: the clock has not moved). */
-export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "already-asleep";
+export type NapRefusal = "not-available" | "no-game" | "not-in-house" | "premiere" | "decision-pending" | "event-in-session" | "event-due" | "evening" | "early-morning" | "already-asleep";
 export interface NapView {
   /** false = refused, nothing changed: see `reason` + `why`. */
   ok: boolean;

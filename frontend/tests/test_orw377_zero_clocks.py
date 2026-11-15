@@ -265,3 +265,68 @@ def test_orw437_a_dotted_time_split_across_chunks_takes_its_terminator_with_it(s
     assert g.text.strip() == "The house settles." and pending.endswith(stem)
     g2, pending = run(al._guard_stream_chunk("", "u", ooc_open=pending, scene_broken=False, emitted_visible=True, cutaway_emitted=False, flush=True))
     assert g2.text == "" and pending == ""
+
+
+def _loop_stream(chunks):
+    """ORW-437: feed raw deltas through the loop's OWN steps in the loop's order (`_split_complete_sentences`, `_scrub_game_leak`, `_orphan_continuation_split`, the REAL `_guard_stream_chunk`,
+    `_apply_mirror_ops`, `_chunk_ended_in_drop`), then the round's flush. Returns (shown, stored)."""
+    from src import agent_loop as al
+    run = asyncio.get_event_loop().run_until_complete
+    shown = stored = buf = pending = ""
+    prev = False
+
+    def step(complete, flush=False):
+        nonlocal shown, stored, pending, prev
+        clean = al._scrub_game_leak(complete)
+        orphan, clean = al._orphan_continuation_split(clean, prev)
+        if orphan:
+            stored = al._apply_mirror_ops(stored, ((orphan, ""),))
+        piece, ops = "", ()
+        if clean:
+            g, pending = run(al._guard_stream_chunk(clean, "u", ooc_open=pending, scene_broken=False, emitted_visible=True, cutaway_emitted=False, flush=flush))
+            piece, ops = g.text, g.mirror_ops
+            stored = al._apply_mirror_ops(stored, ops)
+        shown += piece
+        prev = al._chunk_ended_in_drop(complete, piece)
+
+    for c in chunks:
+        stored += c  # the raw round buffer grows by every delta
+        buf += c
+        complete, buf = al._split_complete_sentences(buf)
+        if complete:
+            step(complete)
+    if buf:
+        step(buf, flush=True)
+    return shown, stored
+
+
+@pytest.mark.parametrize("joiner", ["; and Sam yawned. ", ", and Sam yawned. "])
+def test_orw437_a_fragment_joined_to_a_dropped_sentence_goes_with_it_shown_and_stored(setting, joiner):
+    """The chunk ended at "3 a.m." (the clock sentence is dropped); the next chunk opened with the clause that was joined to it. Real guard + mirror; three true sentences still show."""
+    shown, stored = _loop_stream(["The house settles. It was 3 a.m.", joiner + "Rain tapped the glass. The door clicked shut. The kettle ticked. "])
+    assert shown == "The house settles. Rain tapped the glass. The door clicked shut. The kettle ticked. ", shown
+    assert stored == shown, (stored, shown)
+
+
+def test_orw437_a_fragment_after_a_kept_sentence_still_shows(setting):
+    """No drop, no rule: "; and ..." after a sentence the player saw is ordinary narration."""
+    shown, stored = _loop_stream(["The house settles.", "; and Sam yawned. Rain tapped the glass. The door clicked shut. "])
+    assert shown == "The house settles.; and Sam yawned. Rain tapped the glass. The door clicked shut. "
+    assert stored == shown
+
+
+def test_orw437_a_time_cut_between_a_dot_and_the_m_is_never_split(setting):
+    """The splitter used to end a unit at "3 a." so the clock check never saw "3 a.m."; now the time stays whole, is dropped as a sentence (shown and stored), and three true sentences stay."""
+    shown, stored = _loop_stream(["The house settles. It was 3 a.", "m. and the house slept. Sam yawned. Rain tapped the glass. The door clicked shut. "])
+    assert "a.m" not in shown and "m." not in shown.replace("Sam yawned", "")
+    assert shown == "The house settles. Sam yawned. Rain tapped the glass. The door clicked shut. ", shown
+    assert stored == shown, (stored, shown)
+
+
+def test_orw437_the_splitter_holds_a_buffer_that_ends_mid_time_and_nothing_else():
+    from src import agent_loop as al
+    assert al._split_complete_sentences("It was 3 a.") == ("", "It was 3 a.")
+    assert al._split_complete_sentences("He left. It was 9 p.") == ("He left.", " It was 9 p.")
+    assert al._split_complete_sentences("It was 3 a.m. and quiet. Then") == ("It was 3 a.m. and quiet.", " Then")
+    assert al._split_complete_sentences("Plan B. Then") == ("Plan B.", " Then")
+    assert al._split_complete_sentences("Option a. ") == ("Option a.", " ")
