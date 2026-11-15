@@ -7,9 +7,14 @@ import { endHeldNight } from "../support/heldNight";
  * The house-life MIX guard (ORW-324 mix, ORW-341 retune). House life got "too friendly" once (ORW-324) and then drifted the other way when agenda-driven alliances landed (ORW-341: bonding 48 to 28,
  * gossip 17 to 36, conflict 4 to 7.5 on 12 seeds, found by a manual read, not by any test). This pins a small seeded chat-paced game and fails if any scene share moves more than 5 points from the agreed mix
  * (bonding 48 / strategy 29 / gossip 17 / conflict 4, measured on 12 seeds before ORW-340), so a change that reshapes who does what in house life cannot land quietly. Bounded, not just detected: the cap on live
- * alliances (`ALLIANCE.agendaMaxLive`) is what holds it. A deliberate re-agreement of the mix means changing AGREED here, in the open, with the measurement in the PR.
+ * alliances (`ALLIANCE.agendaMaxLive`) held it until ORW-353 lifted the cap (Ryne 2026-11-14: "I think if alliances are formed they are formed, I think not all of them would be strong and the
+ * weakest wouldn't necessarily last."). A deliberate re-agreement of the mix means changing AGREED here, in the open, with the measurement in the PR.
+ *
+ * ORW-436 re-agreement (2026-11-15): with alliances unlimited, Week 1 measured 43.8 / 25.9 / 18.8 / 3.9 on main (2571 scenes, the seeds below). Asked "Is about 44% friendly time in
+ * week 1 okay, keeping alliances unlimited and updating the automatic test to expect it?", Ryne (2026-11-15 ~19:15Z): "Yes on 1. Next." The reference is that measurement, rounded;
+ * the tolerance stays 5 points.
  */
-const AGREED = { bonding: 48, strategy: 29, gossip: 17, conflict: 4 } as const;
+const AGREED = { bonding: 44, strategy: 26, gossip: 19, conflict: 4 } as const;
 const TOLERANCE = 5; // points
 const SEEDS = [3, 5];
 const MESSAGES = 360;

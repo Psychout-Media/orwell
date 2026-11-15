@@ -73,6 +73,22 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | T13 | Zero clocks: no reply names a clock time ("8:15", "9 am", "ten o'clock"); parts of the day only; the bubble's header stamp is ignored (Ryne, ORW-377; the bar's T13) | FAIL |
 | C1 | While the engine says the veto competition is not due, no reply narrates competition play (apparatus, rounds, eliminations, a winner) | FAIL |
 | C2 | A veto-morning reply voices the draw | FAIL |
+| C3 | A clock the reply states matches the engine's clock (within an hour) | WARN |
+| C4 | No ceremony is voiced (key turn, nominations read) before the engine ran it | FAIL |
+| C5 | Nominees named in the narration are the engine's nominees | FAIL |
+| C6 | Everyone who speaks in the player's room is in that room per the engine | FAIL |
+| A1 | Every houseguest is inside by the end of the premiere | FAIL |
+| A2 | Arrivals keep progressing (no long flat stretch of the inside count) | FAIL |
+| D1 | Day one is not skipped: after the premiere the clock still reads Day 1 | FAIL |
+| K1 | No skipped time: a clock jump over an hour needs a bed or nap message, the 8am wake, the runner's own move, or a sanctioned ceremony (competition crown share, staged eviction ballots, the veto draw when the reply voices it) | FAIL (notes for the sanctioned cases) |
+| K2 | A competition is never crowned inside one message that also moves the clock by hours | FAIL |
+| K3 | An event the schedule reports due fires within a few messages | FAIL |
+| N1, N2, N5, N12 | A daytime goodnight does not end the day (N1); "hang out until morning" never reaches morning (N2); an early bed wakes before the house (N5); a nap stays in the day (N12) | FAIL |
+| N4 | The bed reply names the evicted houseguest in the day in review | WARN |
+| N7, N8 | The Nightfall card lists who is awake; the Whereabouts card shows no sleeper with the player. A missing card is recorded as `N7-widget-missing` / `N8-widget-missing` | FAIL / WARN when the card is missing |
+| W2, W3, W10 | Only with `RIG_CROSSOVER=1`: a Week recap card after the bed, the HOH next in the afternoon, the bubble header shows the new week | FAIL |
+| X0 | Only with `RIG_CROSSOVER=1`: eviction night is reached and Week 2 begins with no HOH | FAIL |
+| T1c, T2b | A settled reply's bubble has its footer (T1c); a player request gets a scene, not a thin answer (T2b) | WARN |
 
 ## Deliberately not covered yet
 

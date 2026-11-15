@@ -268,8 +268,10 @@ def test_orw437_a_dotted_time_split_across_chunks_takes_its_terminator_with_it(s
 
 
 def _loop_stream(chunks):
-    """ORW-437: feed raw deltas through the loop's OWN steps in the loop's order (`_split_complete_sentences`, `_scrub_game_leak`, `_orphan_continuation_split`, the REAL `_guard_stream_chunk`,
-    `_apply_mirror_ops`, `_chunk_ended_in_drop`), then the round's flush. Returns (shown, stored)."""
+    """ORW-437: a SIMPLIFIED replica of the loop's stream handling, not the loop itself (review of #2778). It feeds raw deltas through the REAL helpers `_split_complete_sentences`, `_scrub_game_leak`,
+    `_orphan_continuation_split`, `_guard_stream_chunk`, `_apply_mirror_ops` and `_chunk_ended_in_drop` in the loop's order, then the round's flush. It OMITS the loop's other guards (the inline-planning scrub, the
+    confession, knowledge-wall and presence-wall guards, the replay guard) and mirrors through `_apply_mirror_ops` rather than `_mirror_wall_drop`, so the shown/stored assertions here cover the zero-clock path
+    and the orphan carry-over only, not everything production runs. Returns (shown, stored)."""
     from src import agent_loop as al
     run = asyncio.get_event_loop().run_until_complete
     shown = stored = buf = pending = ""
