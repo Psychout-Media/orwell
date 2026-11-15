@@ -198,8 +198,14 @@ const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:he|she|they|his|her|their|
 const OPENS_WITH_SPOT_RE = /^(?:kitchen|living room|dining room|backyard|lounge|bedroom)\b/i;
 
 /** The plural form of a third-person singular verb ("stands" to "stand"), or undefined when it cannot be done safely. */
+/** Words ending in -s that are never a third-person verb after a name ("always stands"): a they/them line keeps them as they are. */
+const S_ADVERBS: ReadonlySet<string> = new Set([
+  "always", "sometimes", "perhaps", "nevertheless", "besides", "otherwise", "towards", "afterwards", "backwards", "forwards", "upwards",
+  "downwards", "regardless", "nowadays", "indoors", "outdoors", "overseas", "mostly", "thus", "anyways", "nonetheless", "meanwhile",
+]);
 export function pluralVerb(v: string): string | undefined {
   const w = v.toLowerCase();
+  if (S_ADVERBS.has(w)) return undefined;
   const irregular: Record<string, string> = { is: "are", has: "have", does: "do", goes: "go", was: "were" };
   if (irregular[w] !== undefined) return irregular[w];
   if (!/^[a-z]+s$/.test(w) || /(?:ss|us|ous|ics)$/.test(w) || w.length < 4) return undefined;
@@ -210,8 +216,9 @@ export function pluralVerb(v: string): string | undefined {
 
 /** After a "they" that stands where a name was, the verb must agree ("they stand"); else the safe wording "the houseguest". */
 function theyThenVerb(rest: string): { text: string; ok: boolean } {
-  const m = /^(\s+)((?:[A-Za-z]+ly\s+)?)([A-Za-z]+)/.exec(rest);
-  if (m === null) return { text: rest, ok: true }; // "they," or "they." or end of text: nothing to agree
+  if (/^\s*,/.test(rest)) return { text: rest, ok: false }; // "Name, arms folded, stands ...": the verb is not next, use "the houseguest"
+  const m = /^(\s+)((?:(?:[A-Za-z]+ly|always|sometimes|often|never|perhaps)\s+)?)([A-Za-z]+)/.exec(rest);
+  if (m === null) return { text: rest, ok: true }; // "they." or end of text: nothing to agree
   const pv = pluralVerb(m[3]!);
   if (pv === undefined) return { text: rest, ok: false };
   const keep = /^[A-Z]/.test(m[3]!) ? pv[0]!.toUpperCase() + pv.slice(1) : pv;

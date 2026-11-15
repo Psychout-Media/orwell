@@ -103,9 +103,17 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
 _IRREGULAR_PLURAL = {"is": "are", "has": "have", "does": "do", "goes": "go", "was": "were"}
 
 
+# Words ending in -s that are never a third-person verb after a name ("always stands"): left as they are (same list as the TS side).
+_S_ADVERBS = frozenset((
+    "always sometimes perhaps nevertheless besides otherwise towards afterwards backwards forwards upwards downwards regardless "
+    "nowadays indoors outdoors overseas mostly thus anyways nonetheless meanwhile").split())
+
+
 def plural_verb(v: str):
     """The plural form of a third-person singular verb ("stands" -> "stand"), or None when it cannot be done safely."""
     w = v.lower()
+    if w in _S_ADVERBS:
+        return None
     if w in _IRREGULAR_PLURAL:
         return _IRREGULAR_PLURAL[w]
     if not re.fullmatch(r"[a-z]+s", w) or re.search(r"(?:ss|us|ous|ics)$", w) or len(w) < 4:
@@ -141,8 +149,10 @@ def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
         if not plural:
             word = subj.capitalize() if initial else subj
         else:
-            vm = re.match(r"^(\s+)((?:[A-Za-z]+ly\s+)?)([A-Za-z]+)", rest)
-            if vm is None:
+            vm = re.match(r"^(\s+)((?:(?:[A-Za-z]+ly|always|sometimes|often|never|perhaps)\s+)?)([A-Za-z]+)", rest)
+            if re.match(r"^\s*,", rest):
+                word = "The houseguest" if initial else "the houseguest"  # "Name, arms folded, stands ...": the verb is not next
+            elif vm is None:
                 word = "They" if initial else "they"
             else:
                 pv = plural_verb(vm.group(3))
