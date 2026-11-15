@@ -6,15 +6,15 @@ How the GitHub checks run lives in `.github/workflows/ci.yml` (the per-job comme
 
 **A draft PR runs the full suite, the same as a ready one.** ORW-218 ran only a fast tier on a draft and the full suite when you marked it ready, so every PR paid two rounds and a draft's `ci-gate` was red by design. Now one run covers the PR: marking a draft ready starts nothing (`ready_for_review` is no longer a trigger), and the run that proved the last commit is the one that counts. `ci-gate` still fails closed: a job that applies to the change and was skipped fails it, and so would any run that was not the full suite.
 
-**`fast-checks` is the first signal.** It finishes in about a minute and no other job waits for it: typecheck, the source-pinned guard tests (the CI wiring pins, the F-3 window ratchet, no-new-bespoke-menu, the Vault-Wall dependency test), the Vault word scans that fail on a public string (the 0110 vote-deduction and 0023 consequence features), py_compile and the ES-module syntax check of the front end. Run the same set yourself before every push:
+**`fast-checks` is the first signal.** It finishes in about a minute and the test lanes run in parallel with it and do not wait for it, but `ci-gate` requires its result: typecheck, the source-pinned guard tests (the CI wiring pins, the F-3 window ratchet, no-new-bespoke-menu, the Vault-Wall dependency test), the Vault word scans that fail on a public string (the 0110 vote-deduction and 0023 consequence features), py_compile and the ES-module syntax check of the front end. Run the same set yourself before every push:
 
 ```
 npm run ci:fast
 ```
 
-**You never hand-edit a duration table in a feature PR** (`ci/test-durations.json`, `ci/bdd-durations.json`, `frontend/tests/_ci_durations.json`). A new test file or feature with no entry is weighed by the splitter (the median for unit files and features, 15 s per test for a browser file) and listed as a warning in the job summary (`added by this change` or `by main`); an entry for a deleted file is ignored. None of these fails a PR. The tables are only balancing hints and are refreshed from main's own run logs by `npm run ci:refresh-durations`, `ci/refresh-test-durations.mjs` and `frontend/tests/_ci_refresh_durations.py` (a scheduled refresh PR is the follow-up, ORW-413 PR 3).
+**You never hand-edit a duration table in a feature PR** (`ci/test-durations.json`, `ci/bdd-durations.json`, `frontend/tests/_ci_durations.json`). A new test file or feature with no entry is weighed by the splitter (the median for unit files and features, 15 s per test for a browser file) and reported as a warning. Only the front-end browser-file check labels it (`added by this change` or `by main`) and writes it to the job summary; the unit (`vitest.sequencer.ts`) and BDD (`ciBddShard.test.ts`) checks print a plain `::warning::` line to the log; an entry for a deleted file is ignored. None of these fails a PR. The tables are only balancing hints and are refreshed from main's own run logs by `npm run ci:refresh-durations`, `ci/refresh-test-durations.mjs` and `frontend/tests/_ci_refresh_durations.py` (a scheduled refresh PR is the follow-up, ORW-413 PR 3).
 
-It is `ci/fast-checks.sh`. Every check in it also still runs in its full lane; nothing was moved out of a lane's coverage.
+It is `ci/fast-checks.sh`. Not every check in it is repeated in a slower lane: the typecheck, the py_compile of the front end and the ES-module syntax check were moved out of the slower lanes and run only here (the guard tests and word scans also still run in their full lanes). Nothing lost coverage, because the full suite still includes the `fast-checks` job and `ci-gate` requires it.
 
 **Shard counts** (the lane is as long as its longest leg): `test-unit` 8 legs (it collects the coverage too, see below; balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.
 
@@ -68,9 +68,9 @@ Each guard runs whenever its lane runs (an engine change runs the engine guard, 
 
 When the guard goes red, either fix the test and remove the marker, or delete the test. Do not just move the date. If a fix truly needs longer, explain why on the card; moving the date is then its own reviewed PR.
 
-## Flakes are quarantined the day they are seen (ORW-415)
+## PROPOSAL, not yet a rule: quarantine a flake the day it is seen (ORW-415)
 
-A flake that is seen goes into quarantine that same day, with a Plane card (rule 3 above; the 7-day clock then runs). Do not wait for it to fail a second PR: tonight one flaky test and one job time limit cost six re-runs. `scripts/ci/quarantine-flakes.py` reads the flaky-test lines the lanes already write (tests that passed only on the automatic retry) from the last N completed main runs and prints, per test, in how many runs it flaked plus the patch that adds the marker. It changes nothing by itself: open the card, put its number in place of `ORW-NNN`, apply the patch, open the PR.
+This is a PROPOSAL of the ORW-415 coordinator that tightens the ORW-229 rule Kevin approved (ORW-229 let a flake be fixed instead of quarantined, and rule 3 above quarantines only failures that are red on main); it stands once Kevin or Ryne confirms it. Until then, fixing the flake the same day is also acceptable. The proposal: a flake that is seen goes into quarantine that same day, with a Plane card (rule 3 above; the 7-day clock then runs). Do not wait for it to fail a second PR: tonight one flaky test and one job time limit cost six re-runs. `scripts/ci/quarantine-flakes.py` reads the flaky-test lines the lanes already write (tests that passed only on the automatic retry) from the last N completed main runs and prints, per test, in how many runs it flaked. Only a pytest test gets a patch; a vitest test gets manual instructions, and a gate job (a step with its own attempt loop) gets a note that there is nothing to mark, so engine-side flakes are not expected to apply a patch. It changes nothing by itself: open the card, put its number in place of `ORW-NNN`, apply the patch, open the PR.
 
 ## CI tools for agents (`scripts/ci/`, ORW-415)
 
@@ -89,7 +89,7 @@ Status: NOT enabled. The coordinator turns it on; nothing here is applied by mer
 
 1. Save the current ruleset, so the rollback is exact:
    `gh api repos/Psychout-Media/orwell/rulesets/18797902 > ruleset-18797902.before.json`
-2. Build the new body: the existing rule plus a `merge_queue` rule. A ruleset update replaces the whole `rules` array, so the `required_status_checks` rule must be sent again unchanged. Write `ruleset-18797902.after.json`:
+2. Build the new body: the existing rule plus a `merge_queue` rule. A ruleset update replaces the whole `rules` array, so the `required_status_checks` rule must be sent again unchanged. Build `ruleset-18797902.after.json` from the saved copy so no live field is lost (the strict policy, `do_not_enforce_on_create` and the check list stay exactly as saved): `jq --argjson mq '{"type":"merge_queue","parameters":{"merge_method":"SQUASH","grouping_strategy":"ALLGREEN","max_entries_to_build":5,"min_entries_to_merge":1,"max_entries_to_merge":5,"min_entries_to_merge_wait_minutes":5,"check_response_timeout_minutes":60}}' '{name, target, enforcement, conditions, bypass_actors, rules: (.rules + [$mq])}' ruleset-18797902.before.json > ruleset-18797902.after.json`. The result is expected to look like this (compare it with your file before step 3):
    ```json
    {
      "name": "main-required-ci",

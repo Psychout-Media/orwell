@@ -51,25 +51,48 @@ def problems_in_words(codes: list) -> str:
 
 
 # ── facts from the public portrait brief ─────────────────────────────────────────────────────
-_GENDER_WORDS = {"man": "man", "woman": "woman", "boy": "boy", "girl": "girl"}
+_GENDER_WORDS = {"man": "man", "woman": "woman", "boy": "boy", "girl": "girl", "nonbinary": "nonbinary"}
 
 
 _FEATURE_RES = (
     ("glasses", r"\b(?:glasses|spectacles|eyeglasses)\b"), ("nose stud or ring", r"\bnose (?:stud|ring|piercing)\b"),
     ("piercings", r"\b(?:lip|brow|eyebrow|septum|ear) (?:ring|stud|piercing)s?\b|\bhoops?\b|\bearrings?\b"),
-    ("beard", r"\bbeard\b"), ("moustache", r"\bmou?stache\b"), ("stubble", r"\bstubble\b"), ("goatee", r"\bgoatee\b"),
+    ("beard", r"\bbeard\b"), ("moustache", r"\bm(?:ou|u)stache\b"), ("stubble", r"\bstubble\b"), ("goatee", r"\bgoatee\b"),
     ("hair colour", r"\b(?:black|dark brown|light brown|brown|blond|blonde|red|auburn|ginger|grey|gray|silver|white|platinum) hair\b"),
     ("hair length", r"\b(?:buzzed|shaved|cropped|short|shoulder-length|long|waist-length)(?: [a-z]+)? hair\b"),
 )
 
 
+_HAIR_CLAUSE_RE = re.compile(r"\bHair:\s*([^.]+)\.")
+_HAIR_COLOUR_RE = re.compile(
+    r"\b(?:jet black|blue-black|black|dark brown|light brown|chestnut|brown|blond|blonde|strawberry blonde|red|auburn|ginger|copper|"
+    r"grey|gray|silver|white|platinum)\b", re.I)
+_HAIR_LENGTH_RE = re.compile(r"\b(?:buzzed|shaved|cropped|close-cropped|short|chin-length|shoulder-length|long|waist-length)\b", re.I)
+
+
+_HAIR_ACCESSORY_RE = re.compile(r"\b(?:with|tied|held|pinned|secured|clipped|topped|wrapped|tucked|under|beneath)\b", re.I)
+
+
 def visible_features(prompt: str) -> list:
-    """The visible features the brief states (glasses, piercings, facial hair, hair colour and length), as phrases."""
+    """The visible features the brief states (glasses, piercings, facial hair, hair colour and length), as phrases.
+    The hair colour and length are read from the brief's own `Hair: ...` clause in any word order (ORW-437: "tight black
+    curls", "shoulder-length waves", "jet black"), else from the older "<colour> hair" wording."""
     out = []
+    hm = _HAIR_CLAUSE_RE.search(prompt or "")
     for label, rx in _FEATURE_RES:
+        if hm and label.startswith("hair"):
+            continue
         m = re.search(rx, prompt or "", re.I)
         if m:
             out.append(m.group(0).lower() if label.startswith("hair") else label)
+    if hm:
+        # Only the hair itself: what follows an accessory word ("tied with a red ribbon") is not the hair colour.
+        clause = _HAIR_ACCESSORY_RE.split(hm.group(1), maxsplit=1)[0]
+        c, ln = _HAIR_COLOUR_RE.search(clause), _HAIR_LENGTH_RE.search(clause)
+        if c:
+            out.append(f"{c.group(0).lower()} hair")
+        if ln:
+            out.append(f"{ln.group(0).lower()} hair")
     return out
 
 
@@ -81,7 +104,7 @@ def facts_from_prompt(prompt: str) -> dict:
     m = re.search(r"\b(\d{1,3})-year-old\b", prompt) or re.search(r"\blooks exactly (\d{1,3}) years old\b", prompt)
     if m:
         facts["age"] = int(m.group(1))
-    m = re.search(r"\b\d{1,3}-year-old\s+[A-Za-z' -]{0,60}?\b(man|woman|boy|girl)\b", prompt)
+    m = re.search(r"\b\d{1,3}-year-old\s+[A-Za-z' -]{0,60}?\b(man|woman|boy|girl|nonbinary)\b", prompt)  # ORW-437: the brief says "nonbinary person with a soft androgynous look"
     if m:
         facts["gender"] = _GENDER_WORDS[m.group(1)]
     else:
@@ -117,7 +140,8 @@ def facts_block(facts: dict) -> str:
     if facts.get("age"):
         lines.append(f"Stated age: {int(facts['age'])}")
     if facts.get("gender"):
-        lines.append(f"Stated gender presentation: {facts['gender']}")
+        note = " (any clothing fits; never report wrong-presentation)" if facts["gender"] == "nonbinary" else ""
+        lines.append(f"Stated gender presentation: {facts['gender']}{note}")
     if facts.get("clothing"):
         lines.append(f"Main clothing piece: {facts['clothing']}")
     if facts.get("spot"):
@@ -199,6 +223,8 @@ def _parse_problems(data: dict) -> Optional[list]:
     for p in probs:
         if isinstance(p, str) and p in KNOWN_CODES and p not in out:
             out.append(p)
+    if probs and not out:
+        return None  # ORW-437: a verdict naming only codes we do not know is malformed, never "no problems": skip, fail open
     return out
 
 
@@ -206,11 +232,25 @@ def _record_spend(user, data: dict) -> None:
     try:
         from src import orwell_token_ledger
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        cost, estimated = usage.get("cost"), False
+        if cost is None:
+            # ORW-437: DeepSeek's own API returns no dollar cost; estimate it the way llm_core does, never ledger 0.0
+            from src.llm_core import _deepseek_cost_estimate
+            ptd = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+            cached = ptd.get("cached_tokens")
+            if cached is None:
+                cached = usage.get("prompt_cache_hit_tokens")
+            cost = _deepseek_cost_estimate(str(data.get("model") or _check_model_id(user)), usage.get("prompt_tokens") or 0,
+                                           cached or 0, usage.get("completion_tokens") or 0)
+            estimated = cost is not None
+            if not estimated:
+                return  # an unpriced model has no honest dollar figure: never ledger a 0.0 cost as if it were measured
+        extra = {"cost_estimated": True} if estimated else {}
         orwell_token_ledger.record_turn(
             user, call_class=CHECK_CALL_CLASS,
             input_tokens=usage.get("prompt_tokens") or 0,
             output_tokens=usage.get("completion_tokens") or 0,
-            cost=usage.get("cost") or 0.0, provider=CHECK_PROVIDER)
+            cost=cost or 0.0, provider=CHECK_PROVIDER, **extra)
     except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
         pass
 
@@ -261,6 +301,9 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
         return None
     _record_spend(user, data)
     problems = _parse_problems(data)
+    if problems and facts.get("gender") == "nonbinary":
+        # no clothing contradicts a nonbinary presentation: the rule has no meaning there (review of #2748)
+        problems = [p for p in problems if p != "wrong-presentation"]
     if problems is None:
         return None
     return {"ok": not problems, "problems": problems}
@@ -269,7 +312,10 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
 def check_enabled(user) -> bool:
     try:
         from src.settings import get_user_setting
-        return bool(get_user_setting("portrait_check_enabled", owner=user or "", default=True))
+        v = get_user_setting("portrait_check_enabled", owner=user or "", default=True)
+        if isinstance(v, str):  # ORW-437: a persisted "false" / "0" / "off" must disable the check (bool("false") is True)
+            return v.strip().lower() not in ("false", "0", "off", "no", "")
+        return bool(v)
     except Exception:
         return False
 

@@ -1909,13 +1909,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
     """ORW-405 / ORW-409 - the morning-state lines for the narrator after the FE ran the player's turnIn: the night is over and who is still asleep (names only). The facts come from the post-turnIn briefing
     (one board read); only without one do they come from the turnIn result's public status. The part of the day is NOT restated when the fresh context in `volatile` already states it. '' if unreadable."""
     try:
+        tod, names = "", []
         if briefing is not None:
-            tod, names = briefing.part_of_day, list(briefing.asleep)
-        else:
+            tod, names = str(briefing.part_of_day or "").strip(), list(briefing.asleep or [])
+        if not tod or briefing is None:  # per field: a briefing that lacks the part of the day falls back to the turnIn result's own status for it (an empty asleep list IS a fact, so only a missing briefing falls back for names)
             data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
             st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else (data if isinstance(data, dict) else {})
-            tod = str(st.get("timeOfDay") or "").strip()
-            names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
+            if not tod:
+                tod = str(st.get("timeOfDay") or "").strip()
+            if briefing is None:
+                names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
         if tod and not stated:
@@ -1956,7 +1959,15 @@ async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> boo
         new_vol = txt[i:].rstrip("\n") + _post_turn_in_asleep_block(turn_in_output, briefing, txt[i:])
         for m in messages:
             if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str) and old_vol in m["content"]:
-                m["content"] = m["content"].replace(old_vol, new_vol, 1)
+                # ORW-409: compute the whole new content first (nothing is written yet), then swap the content and the cached briefing together: a failure above leaves both as they were.
+                from routes.briefing import drop_movement_cue
+                new_content = m["content"].replace(old_vol, new_vol, 1)
+                new_content = drop_movement_cue(new_content)  # the movement cue is a pre-sleep difference: stale by construction in the morning (the morning block says who is there)
+                if briefing is not None:  # the notice / call armed before the turnIn is reconciled against the MORNING schedule (an event that is resolved or due now is kept; a stale one is dropped)
+                    new_content = _ch._reconcile_schedule_steer(new_content, briefing, _ch.turn_schedule_arm(owner), after_turn_in=True)
+                m["content"] = new_content
+                if briefing is not None:
+                    _ch.set_turn_briefing(owner, briefing)
                 _ch._LAST_FRAMED_MOMENT_VOLATILE[key] = txt[i:]
                 return True
         return False
@@ -2057,6 +2068,8 @@ _NAP_ACTION_RE = re.compile(
     r"|\b(?:lie|lay|lying|laying)\s+down\s+(?:for\s+(?:a\s+|an\s+)?(?:nap|rest|while|bit|few|couple|\d|half|one|two|three|\w+\s+hours?)|to\s+(?:nap|rest|take))\b",
     re.IGNORECASE,
 )
+_NAP_SUBJECT_RE = re.compile(r"\b(?:i|i'm|im|i’m|i'll|i’ll|i'd|let's|let’s|lets|we'll|we’ll)\b", re.IGNORECASE)
+_NAP_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
 _NAP_WORD_HOURS = {"half an hour": 0.5, "a half hour": 0.5, "half hour": 0.5, "an hour and a half": 1.5, "one and a half hours": 1.5, "a couple of hours": 2.0, "a couple hours": 2.0, "an hour": 1.0, "one hour": 1.0, "a hour": 1.0,
                    "two hours": 2.0, "three hours": 3.0, "a few hours": 3.0}
 
@@ -2067,6 +2080,9 @@ def _nap_hours_from_text(text) -> Optional[float]:
     for phrase in sorted(_NAP_WORD_HOURS, key=len, reverse=True):
         if phrase in low:
             return _NAP_WORD_HOURS[phrase]
+    m = re.search(r"\b(" + "|".join(_NAP_NUM_WORDS) + r")[- ]hours?\b", low)  # "four hours": the number in words (the engine clamps the length)
+    if m:
+        return float(_NAP_NUM_WORDS[m.group(1)])
     m = re.search(r"(\d+(?:\.\d+)?)\s*[- ]?\s*(hours?|hrs?|h)\b", low)
     if m:
         return float(m.group(1))
@@ -2086,7 +2102,9 @@ def _player_means_nap(text) -> bool:
             continue
         for sent in _BED_SPLIT_RE.split(raw):
             sent = sent.strip(" \t\"'“”")
-            if sent and _NAP_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent) and not _BED_REJECT_RE.search(sent):
+            nm = _NAP_ACTION_RE.search(sent) if sent else None
+            # the napper is the SPEAKER: a first-person subject at or before the action ("My roommate will take a nap" has none; a bare possessive "my" is not a subject)
+            if nm and _NAP_SUBJECT_RE.search(sent[:nm.end()]) and not _BED_REJECT_RE.search(sent):
                 return True
     return False
 
@@ -2160,6 +2178,15 @@ def _volatile_tail_enabled() -> bool:
     if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
         return False
     return str(os.environ.get("ORWELL_VOLATILE_TAIL", "")).strip().lower() not in ("0", "false", "no", "off")
+
+
+def _post_turn_parallel_enabled() -> bool:
+    """ORW-449: the two side records made after a narrated turn (room canon, open ledger) run ALONGSIDE the consequence belts instead
+    of ahead of them. Measured on a real 65-turn game the helper model calls after a turn ran strictly one after another: median 2.9 s,
+    p90 5.6 s. `ORWELL_POST_TURN_PARALLEL=0` restores one-after-another (default ON)."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_POST_TURN_PARALLEL", "")).strip().lower() not in ("0", "false", "no", "off")
 
 
 def _volatile_tail_wire(messages):
@@ -3307,7 +3334,8 @@ _MOVE_SIGNAL_RE = re.compile(
     r"sits?|sitting|sat|stands?|standing|stood|leans?|leaning|leaned|lounges?|lounging|lounged|"
     r"perched|sprawled|lingers?|lingering|lingered|"
     r"kitchen|living[\s-]?room|lounge|backyard|back ?yard|bedrooms?|bathroom|"
-    r"hoh[\s-]?room|head of household|storage[\s-]?room|diary[\s-]?room"
+    r"hoh[\s-]?room|head of household|storage[\s-]?room|diary[\s-]?room|"
+    r"dining[\s-]?room|hall(?:way)?|enter(?:s|ed|ing)?|arriv(?:e|es|ed|ing)"
     r")\b", re.I)
 
 # CodeRabbit (BL-013/033): the movement belts must read the player-VISIBLE narration, not raw
@@ -4307,7 +4335,8 @@ def _faith_time_block(gs: dict) -> dict:
         out["nextEvent"] = ev
     if b.location:
         out["playerRoom"] = b.location
-    out["asleep"] = list(b.asleep)
+    if isinstance(gs, dict) and isinstance(gs.get("asleep"), list):
+        out["asleep"] = list(b.asleep)  # review of #2741: only when the board carries the fact; an absent roster must not read as "everyone is awake"
     return out
 
 
@@ -4694,7 +4723,23 @@ _FAITH_TIME_ADVANCING_TOOLS = frozenset({"turnIn", "advanceGame", "nap", "hangOu
 
 def _faith_turn_advanced_time(tool_events) -> bool:
     """True when the turn's own tool events include a time-advancing engine write (the loop holds no start-of-turn board to diff)."""
-    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS for ev in (tool_events or []))
+    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS and _faith_event_applied(ev) for ev in (tool_events or []))
+
+
+def _faith_event_applied(ev: dict) -> bool:
+    """False for a tool event that did not apply: a failed call (non-zero exit code) or an engine `held` / `error` refusal in its output. A held or failed write left the clock where it was,
+    so it must not switch the judge's time dimension off (review of #2741). An event with no output (the belts' own calls) is judged on its exit code alone."""
+    if ev.get("exit_code") not in (0, None):
+        return False
+    out = ev.get("output")
+    if isinstance(out, str) and out.strip().startswith("{"):
+        try:
+            data = json.loads(out)
+        except ValueError:
+            return True
+        if isinstance(data, dict) and (data.get("held") or data.get("error")):
+            return False
+    return True
 
 
 async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_before=None,
@@ -5644,6 +5689,9 @@ def _split_complete_sentences(buf: str):
     return (buf[:last], buf[last:]) if last >= 0 else ("", buf)
 
 
+_TOOL_RESULT_PLACEHOLDER_RE = re.compile(r"[ \t]*<\s*tool[ _]results?\b[^<>\n]{0,80}>[ \t]*", re.IGNORECASE)
+
+
 def _scrub_game_leak(text: str) -> str:
     """Drop whole sentences that are operator asides / tool-process narration; keep the rest
     verbatim (delimiters preserved). Used both on the live stream and on the saved message.
@@ -5654,6 +5702,8 @@ def _scrub_game_leak(text: str) -> str:
     the surviving clause, so a sentence with no machinery clause re-joins byte-identically."""
     if not text:
         return text
+    # ORW-442: an echoed harness placeholder ("<tool result has been redacted>") has no sentence punctuation, so it would take the NEXT sentence with it; cut just the placeholder first.
+    text = _TOOL_RESULT_PLACEHOLDER_RE.sub("", text)
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
@@ -5781,6 +5831,23 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
     )
 
 
+def _split_sentences_keep_dotted_times(text: str) -> list:
+    """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
+    zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
+    parts = re.split(r"(?<=[.!?\n])(?!(?<=\d\.)\d)", text)  # review of #2751: no cut inside a dotted numeric time ("9.15am", "4.30pm"): the digit after a digit-dot continues the number
+    out: list = []
+    for p in parts:
+        if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):
+            out[-1] += p
+        elif out and re.search(r"\d\s?[ap]\.$", out[-1], re.IGNORECASE) and re.match(r"m(?![\w'])", p):
+            out[-1] += p  # review of #2751: "3 a.m and ..." / "9 p.m, Sam ..." (no closing period): the "m" belongs to the time
+        elif out and re.search(r"\b[ap]\.m\.?$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z,;:)]", p):
+            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it); so does the punctuation that follows it ("At 9 p.m., Sam left.")
+        else:
+            out.append(p)
+    return out
+
+
 async def _pre_emission_outcome_guard(text: str, owner) -> str:
     """0065 Part C — the PRE-EMISSION outcome guard, applied to already-leak-scrubbed text just
     before it streams to the player. Splits `text` into sentences and, for any sentence that asserts
@@ -5817,14 +5884,21 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
                 and not chat_helpers._sentence_has_unbacked_morning_claim(text)
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
-                and not chat_helpers.sentence_states_zero_clock_time(text)):
+                and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
+                and not chat_helpers.sentence_states_zero_clock_time(text)
+                # review of #2751: these predicates carry a whole-text "exempt" word list ("not", "quiet", "asleep"), so a negative word in a
+                # NEIGHBOURING sentence hid a positive claim here; ask each sentence on its own before declaring the chunk claim-free
+                and not any(chat_helpers._sentence_has_house_awake_claim(_p) or chat_helpers._sentence_has_unbacked_morning_claim(_p)
+                            or chat_helpers._sentence_has_in_the_clock_claim(_p) or chat_helpers._sentence_has_nominee_status(_p)
+                            or chat_helpers._sentence_has_met_everyone_claim(_p)
+                            for _p in _split_sentences_keep_dotted_times(text))):
             return text
     except Exception:
         return text
     # At least one sentence carries closed-set claim language OR names someone out of the house — split
     # and screen sentence-by-sentence, preserving the original delimiters so non-suspect prose streams
     # byte-identically.
-    parts = re.split(r"(?<=[.!?\n])", text)
+    parts = _split_sentences_keep_dotted_times(text)  # review of #2657: "3 a.m." / "9 p.m." must not be cut into "3 a." + "m."
     out = []
     for part in parts:
         try:
@@ -5837,6 +5911,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # the two claim kinds not yet chyron-covered (the season winner, a player expulsion).
             # ORW-377 (zero clocks in the house): a stated clock time ("6:15", "3am", "quarter past eight") is dropped as a SENTENCE - never the scene. Closed-set only; fail-open.
             if chat_helpers.sentence_states_zero_clock_time(part):
+                # the whole SENTENCE goes (review of #2754): a clause-level cut left "kitchen; and Sam yawned" on screen and the stored-text mirror could not follow it
                 continue
             if chat_helpers._sentence_has_chyron_covered_claim(part):
                 continue  # a chyron already carries this fact — the model's restatement never renders
@@ -5987,8 +6062,13 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
     surviving first clause right along with the dropped second one."""
     if after == before or not before:
         return round_response  # nothing dropped — the hot path
-    b_parts = re.split(split_pattern, before)
-    a_parts = re.split(split_pattern, after)
+    if split_pattern == r"(?<=[.!?\n])":
+        # the outcome guard splits with `_split_sentences_keep_dotted_times` (review of #2754: "3 a.m." is ONE unit there, so re-splitting it here
+        # into "3 a." + "m." erased the wrong fragments from the stored text); any other guard that splits plainly never produces a dotted-time unit
+        b_parts, a_parts = _split_sentences_keep_dotted_times(before), _split_sentences_keep_dotted_times(after)
+    else:
+        b_parts = re.split(split_pattern, before)
+        a_parts = re.split(split_pattern, after)
     ai = 0
     for bp in b_parts:
         if ai < len(a_parts) and a_parts[ai] == bp:
@@ -6428,6 +6508,9 @@ def _scene_ops(raw: str, g) -> tuple:
 _GuardedChunk = collections.namedtuple("_GuardedChunk", ["text", "scene_broken", "cutaway_emitted", "consumed", "mirror_ops"])
 
 
+_DOTTED_STEM_TAIL_RE = re.compile(r"[^.!?\n]*\b\d\s?[ap]\.m$", re.IGNORECASE)  # the unfinished last sentence of a chunk when it stops at "3 a.m" (no closing period yet)
+
+
 def _apply_mirror_ops(round_response: str, ops) -> str:
     """Mirror a guarded chunk's EXACT drops back into the raw round buffer: each op is a (raw_before, after) pair for ONE
     segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
@@ -6471,11 +6554,18 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
     text = pending + (clean or "")
     segs, still_open = _ooc_segments(text, False)
     if not any(is_aside for _t, is_aside in segs):
+        held = ""
+        if not flush:
+            # review of #2767: a chunk that ends inside a dotted time ("It was 3 a.m" with the "." in the NEXT chunk) is held until that chunk arrives, so a dropped clock sentence
+            # takes its terminator with it instead of leaving a bare "." behind ("settles.. Then"). The round's flush resolves it if nothing follows.
+            _stem = _DOTTED_STEM_TAIL_RE.search(text)
+            if _stem:
+                held, text = _stem.group(0), text[:_stem.start()]
         outside = _strip_stray_closers(text)
         if not outside.strip():
-            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), ""
+            return _GuardedChunk(outside, scene_broken, cutaway_emitted, text, ()), held
         g = await _emit_guarded_scene(outside, owner, scene_broken=scene_broken, emitted_visible=emitted_visible, cutaway_emitted=cutaway_emitted)
-        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), ""
+        return _GuardedChunk(g.text, g.scene_broken, g.cutaway_emitted, text, _scene_ops(outside, g)), held
     out: "list[str]" = []
     consumed: "list[str]" = []
     ops: "list[tuple[str, str]]" = []
@@ -6515,8 +6605,35 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
     return _GuardedChunk("".join(out), scene_broken, ce, "".join(consumed), tuple(ops)), held
 
 
+async def _explain_ledger_gap(owner, *, beat_seq_before, stale_before):
+    """ORW-439 - when the sync ledger is about to read this turn's beatSeq gap as a dropped fold, ask the engine which tool caused
+    each bump (`beatLog`) and classify it. Returns the explanation for `record_turn` (a counting miss is not a red alarm; an
+    unexplained gap stays red with the causes appended), or None to leave the alarm exactly as it was: no gap, an older engine that
+    lacks the tool, a timeout, an odd answer. The ledger is synchronous, so the network call is made HERE, never inside it."""
+    if not owner:
+        return None
+    try:
+        from routes import chat_helpers as _ch
+        from src import orwell_sync_ledger as _led
+        stale_this_turn = max(0, _ch.stale_beat_rejections() - (stale_before or 0))  # same reads `_record_sync_ledger_turn` makes (read-only here)
+        info = _led.peek_unexplained_gap(owner, beat_seq_before=beat_seq_before if beat_seq_before is not None else 0,
+                                         stale_rejections=stale_this_turn, desync_detected=owner in _ch._DESYNC_REGROUND)
+        if info is None:
+            return None
+        from src import orwell_engine as _oe
+        try:
+            log = await _oe.beat_log(info["since"], user=owner, timeout=2.0)
+        except Exception as _bl_err:  # failsoft-ok: the red dropped-fold alarm still fires unchanged (an older engine without beatLog, a timeout); this only adds causes when it can
+            logger.debug(f"[orwell] beatLog unavailable; dropped-fold alarm unchanged: {_bl_err}")
+            return None
+        return _led.classify_gap(info, log)
+    except Exception as _ex_err:  # failsoft-ok: observability-only; the ledger records the turn and its alarm exactly as before
+        logger.debug(f"[orwell] ledger gap explanation skipped: {_ex_err}")
+        return None
+
+
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
-                             nudges_fired, auto_backfills, turn_token=None) -> None:
+                             nudges_fired, auto_backfills, turn_token=None, gap_explanation=None) -> None:
     """0065 Part D — emit ONE Vault-free sync-ledger entry for a finished live-game turn.
 
     Captures the closed-set sync activity of the turn and hands it to `orwell_sync_ledger.record_turn`
@@ -6562,6 +6679,7 @@ def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before,
             stale_rejections=stale_this_turn,
             idempotency_hits=0,
             turn_token=turn_token,
+            gap_explanation=gap_explanation,
         )
     except Exception as _led_err:
         try:
@@ -7267,6 +7385,7 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
     beat_s = _PD_BEAT_S if beat_s is None else beat_s
     it = stream.__aiter__()
     deadline = None
+    nxt = None
     try:
         while True:
             if deadline is None and armed():
@@ -7299,6 +7418,12 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
                 return
             yield chunk
     finally:
+        if nxt is not None and not nxt.done():  # closed mid-keepalive: stop the pending read first, or aclose() hits "already running" and the upstream read carries on
+            nxt.cancel()
+            try:
+                await nxt
+            except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read)
+                pass
         try:
             await it.aclose()
         except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
@@ -8506,6 +8631,7 @@ async def _stream_agent_loop_impl(
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
+        _pd_rw_round = False  # ORW-408: THIS round withheld a sentence (the turn-scoped `_pd_rewrite_used` must not switch the tail check off for LATER rounds; review of #2751)
         _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
         native_tool_calls = []  # populated if model uses function calling
         # Reset doc streaming state per round
@@ -9124,7 +9250,7 @@ async def _stream_agent_loop_impl(
                                         from src.predisplay_check import check_and_count as _pd_check
                                         from src.predisplay_check import quote_open_after as _pd_qopen
                                         _pd_inq = _pd_qopen(_round_emitted_text)  # a quote opened by an earlier chunk of this round is still open
-                                        await _pd_check(_guarded.text, owner, in_quote=_pd_inq)
+                                        await _pd_check(_guarded_text or "", owner, in_quote=_pd_inq)  # review of #2682: count what the player is shown (post-wall), not the pre-wall text
                                     except Exception:  # failsoft-ok: counter only
                                         pass
                                     if (not _pd_rewrite_used and _guarded_text and not _scene_broken and not _visible_halted
@@ -9137,6 +9263,7 @@ async def _stream_agent_loop_impl(
                                         if _pd_split is not None:
                                             _pd_rw_pending = _pd_split
                                             _pd_rewrite_used = True
+                                            _pd_rw_round = True
                                             _guarded_text = _pd_split.keep
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
@@ -9352,8 +9479,14 @@ async def _stream_agent_loop_impl(
                 # very text the guard cut (a reload or second window would show the invented outcome).
                 if not _scene_broken:
                     round_response = _apply_mirror_ops(round_response, _guarded.mirror_ops)
-                if _pd_rw_cont:
-                    try:  # ORW-408: the redo still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
+                try:  # review of #2682: the final buffered sentence is counted too (the mid-stream hook never sees it)
+                    from src.predisplay_check import check_and_count as _pd_check_f
+                    from src.predisplay_check import quote_open_after as _pd_qopen_f
+                    await _pd_check_f(_guarded_text or "", owner, in_quote=_pd_qopen_f(_round_emitted_text))
+                except Exception:  # failsoft-ok: counter only
+                    pass
+                if _pd_rw_cont or (not _pd_rw_round and not _visible_halted):  # review of #2723: also the unterminated final sentence of an un-withheld stream (no later chunk would have judged it)
+                    try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
                         from src.predisplay_check import quote_open_after as _pd_qopen2
                         _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner, in_quote=_pd_qopen2(_round_emitted_text))
@@ -10110,31 +10243,34 @@ async def _stream_agent_loop_impl(
                     # nudge → another narration) ONLY when nothing visible has been shown yet, where a
                     # single fresh narration is exactly what's wanted. The per-turn cap and the persisted
                     # `_ADVANCE_STALL_LEVEL` escalation are unchanged.
-                    async def _bank_scene_consequences() -> None:
+                    async def _room_canon_after_turn() -> None:
+                        # ORW-223 (Showrunner memory, canon ledger v1): the room texture this narration newly stated is written
+                        # back as canon (engine-validated; fail-soft; flag-gated on the Show Brief). It invents nothing and
+                        # touches no game state.
+                        try:
+                            from src import orwell_room_canon as _rc
+                            await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
+                        except Exception as _rc_e:  # failsoft-ok: room-canon-hook (after_turn records its own failures RED; this guards the import and the call itself)
+                            logger.debug(f"[room-canon] skipped: {_rc_e}")
+
+                    async def _open_ledger_after_turn() -> None:
+                        # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
+                        # free text (engine-validated; fail-soft; same gating as the room canon above).
+                        try:
+                            from src import orwell_open_ledger as _ol
+                            await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
+                        except Exception as _ol_e:  # failsoft-ok: open-ledger-hook (after_turn records its own failures RED; this guards the import and the call itself)
+                            logger.debug(f"[open-ledger] skipped: {_ol_e}")
+
+                    async def _bank_belt_chain() -> None:
                         """Fold the social consequences of the scene this turn narrated: a struck deal (0039),
                         a press-to-open-up (0075), an outing (0093), a secret trade (0099), then the generic
-                        scene record (0055). Called from the finishing block AND — A-10 — just before a
-                        belt-forced silent advance ends the turn. Model-driven calls always win via the
-                        `_want_*` gates and per-turn caps; telemetry is success-gated."""
+                        scene record (0055). Model-driven calls always win via the `_want_*` gates and per-turn
+                        caps; telemetry is success-gated. Strictly one after another: each belt's engine write
+                        carries the beat counter the previous one left, and a later belt reads what an earlier
+                        one banked."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges
-                        # ORW-223 (Showrunner memory, canon ledger v1): the room texture this narration newly stated is written
-                        # back as canon (engine-validated; fail-soft; flag-gated on the Show Brief). Never on an OOC aside or
-                        # machinery turn. It invents nothing and touches no game state.
-                        if not (_is_ooc_aside_text(_extract_last_user_message(messages)) or _is_ooc_aside_text(_turn_narration)
-                                or _is_nondiegetic_scene_text(_turn_narration)):
-                            try:
-                                from src import orwell_room_canon as _rc
-                                await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
-                            except Exception as _rc_e:
-                                logger.debug(f"[room-canon] skipped: {_rc_e}")
-                            # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
-                            # free text (engine-validated; fail-soft; same gating as the room canon above).
-                            try:
-                                from src import orwell_open_ledger as _ol
-                                await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
-                            except Exception as _ol_e:
-                                logger.debug(f"[open-ledger] skipped: {_ol_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -10207,6 +10343,35 @@ async def _stream_agent_loop_impl(
                                 # gap #3 telemetry — only a recordInteraction the belt actually FIRED
                                 # counts (a withIds:[] extraction / failed call is a no-op)
                                 _note_belt(owner, "auto-record-scene")
+
+                    async def _bank_scene_consequences() -> None:
+                        """Everything recorded after a narrated turn: the two side records (room canon, open ledger) and the
+                        consequence belts. Called from the finishing block AND — A-10 — just before a belt-forced silent
+                        advance ends the turn; it returns only when ALL of it has finished.
+
+                        ORW-449: the side records each make one helper model call and then a background engine write that
+                        does NOT move the beat counter, and neither reads anything the belts write. So they run ALONGSIDE the
+                        belt chain instead of ahead of it (they used to cost their full duration before the first belt even
+                        started). The belt chain itself is unchanged and stays strictly in order. Never on an OOC aside or a
+                        machinery turn. `ORWELL_POST_TURN_PARALLEL=0` restores one-after-another."""
+                        _side: list = []
+                        if not (_is_ooc_aside_text(_extract_last_user_message(messages)) or _is_ooc_aside_text(_turn_narration)
+                                or _is_nondiegetic_scene_text(_turn_narration)):
+                            if _post_turn_parallel_enabled():
+                                _side = [asyncio.ensure_future(_room_canon_after_turn()),
+                                         asyncio.ensure_future(_open_ledger_after_turn())]
+                            else:
+                                await _room_canon_after_turn()
+                                await _open_ledger_after_turn()
+                        try:
+                            await _bank_belt_chain()
+                        except asyncio.CancelledError:
+                            for _t in _side:  # the turn was cancelled: do not keep its helper calls running
+                                _t.cancel()
+                            raise
+                        finally:
+                            if _side:  # a belt that raised still waits for the side records, exactly as when they ran first
+                                await asyncio.gather(*_side, return_exceptions=True)
 
                     if _want_advance and _phase in _ADVANCE_PHASES and not _peer_advanced and not _pre_resolved:
                         # NAR-1: _belt_key on both the read and the write (was `owner or ""` read
@@ -11978,6 +12143,8 @@ async def _stream_agent_loop_impl(
         # it called (NAMES only), how many nudges fired / back-fills the FE made, whether a desync was
         # detected, and how many stale-beat 409s were reconciled. Fail-open — observability must never
         # hurt a turn. Counters that aren't cheaply available (idempotencyHits) pass 0 by design.
+        _ledger_gap_explanation = await _explain_ledger_gap(  # ORW-439: only does anything when the ledger would raise the dropped-fold alarm
+            owner, beat_seq_before=_ledger_beat_seq_before, stale_before=_ledger_stale_before)
         _record_sync_ledger_turn(
             owner,
             session_id=session_id,
@@ -11985,6 +12152,7 @@ async def _stream_agent_loop_impl(
             beat_seq_before=_ledger_beat_seq_before,
             stale_before=_ledger_stale_before,
             turn_token=_ledger_turn_token,
+            gap_explanation=_ledger_gap_explanation,
             nudges_fired=(_turn_advance_nudges + _turn_approach_nudges
                           + _turn_narrate_nudges + _turn_reapproach_nudges + _intent_nudge_count),
             auto_backfills=(_turn_record_nudges + _turn_deal_nudges + _turn_move_nudges

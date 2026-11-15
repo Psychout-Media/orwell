@@ -35,7 +35,8 @@ CACHEABLE = frozenset({"getGameState", "gameStatus"})
 # own projection behind /knowledge and /dossier, `whereabouts` the presence read behind the two 25 s presence pollers.
 PURE_READS = frozenset({
     "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead", "seasonRecap",
-    "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView",
+    "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere",
+    "beatLog",  # ORW-439: the engine's per-bump cause log (diagnostic read; commits and bumps nothing)
 })
 
 
@@ -172,15 +173,18 @@ async def _lead(key: tuple[str, str], flight_key: tuple, u: str, start: int, fet
     return value
 
 
-def peek(name: str, user: str | None, max_age_s: float = 30.0) -> Any:
+def peek(name: str, user: str | None, max_age_s: float = 30.0, fields: tuple | None = None) -> Any:
     """ORW-408: the already-cached answer for `name`/`user`, or None. Never fetches and never awaits, so a caller on the streaming path cannot be delayed by a slow engine.
-    Served only while no invalidation (any engine write) landed since it was read and it is at most `max_age_s` old."""
+    Served only while no invalidation (any engine write) landed since it was read and it is at most `max_age_s` old. `fields`: copy only those top-level keys of a dict answer
+    (the streaming checker needs two, and a deep copy of the whole state per streamed chunk is avoidable CPU on the event loop)."""
     u = _ukey(user)
     with _LOCK:
         ent = _ENTRIES.get((u, name))
         if ent is None or not _fresh(u, ent.start) or (time.monotonic() - ent.t) > max_age_s:
             return None
         value = ent.value
+        if fields is not None and isinstance(value, dict):
+            value = {k: value[k] for k in fields if k in value}
     return copy.deepcopy(value)
 
 

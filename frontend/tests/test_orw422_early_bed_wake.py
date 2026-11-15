@@ -82,3 +82,85 @@ def test_fails_open(monkeypatch):
 
     monkeypatch.setattr(oe, "game_status", boom)
     assert asyncio.get_event_loop().run_until_complete(ch.screen_streamed_house_awake("u", "The house is up and moving.")) is True
+
+
+def test_orw437_the_screen_reads_the_clock_from_the_state_projection_when_status_has_none(monkeypatch):
+    """review of #2735: the real `gameStatus` has no `clockLabel` and bands a 4am wake "morning" without `earlyMorning`."""
+    from src import orwell_engine as oe
+    from routes import chat_helpers as ch
+    stashed = []
+
+    async def real_shaped_status(user=None):
+        return {"timeOfDay": "morning", "asleep": ["a"]}  # no clockLabel, no earlyMorning
+
+    async def state(user=None, timeout=None):
+        return {"clockLabel": "4:10am, Day 3", "asleep": ["a"]}
+
+    monkeypatch.setattr(oe, "game_status", real_shaped_status)
+    monkeypatch.setattr(oe, "get_game_state", state)
+    monkeypatch.setattr(ch, "_stash_overclaim_reground", lambda u, d: stashed.append(d))
+    run = asyncio.get_event_loop().run_until_complete
+    assert run(ch.screen_streamed_house_awake("u", "Everyone is already awake in the kitchen.")) is False and stashed
+
+
+def test_orw437_a_standalone_house_awake_claim_is_held_by_the_pre_emission_guard(monkeypatch):
+    """review of #2735: the fast path used to return before the house-awake screen for a sentence with no other claim."""
+    from src import agent_loop as al
+    from routes import chat_helpers as ch
+    seen = []
+
+    async def held(user, sentence):
+        seen.append(sentence)
+        return False
+
+    monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
+    out = asyncio.get_event_loop().run_until_complete(al._pre_emission_outcome_guard("Everyone is already awake in the kitchen.", "u"))
+    assert seen and out == ""
+
+
+def test_orw437_a_negative_word_in_a_neighbouring_sentence_does_not_hide_a_house_awake_claim(monkeypatch):
+    """review of #2751 (P1): `_HOUSE_AWAKE_EXEMPT_RE` ("yet", "not", "quiet") was applied to the WHOLE chunk by the fast-path prefilter, so "No one had stirred yet." beside
+    "Everyone is already awake in the kitchen." skipped the screen. Driven through the real `_guard_stream_chunk` + `_apply_mirror_ops`: the claim is dropped from the shown AND the stored
+    text, and the three true sentences stay in both."""
+    from src import agent_loop as al
+    from routes import chat_helpers as ch
+    seen = []
+
+    async def held(user, sentence):
+        seen.append(sentence)
+        return False
+
+    monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
+    raw = "No one had stirred yet. Everyone is already awake in the kitchen. The kettle ticked. Rain tapped the glass. "
+    run = asyncio.get_event_loop().run_until_complete
+    g, _ = run(al._guard_stream_chunk(raw, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    stored = al._apply_mirror_ops(raw, g.mirror_ops)
+    assert any("already awake" in s for s in seen)
+    for text in (g.text, stored):
+        assert "already awake" not in text
+        for kept in ("No one had stirred yet.", "The kettle ticked.", "Rain tapped the glass."):
+            assert kept in text
+    assert stored == g.text
+
+
+def test_orw437_a_plural_possessive_apostrophe_is_not_an_opening_quote(monkeypatch):
+    """review of #2767: `["\u201c']\s*morning` matched "twins' morning", so a TRUE pre-8am sentence was screened (and dropped on a 5:30am board). Real `_guard_stream_chunk` + `_apply_mirror_ops`; a real quoted claim is still screened."""
+    from src import agent_loop as al
+    from routes import chat_helpers as ch
+    seen = []
+
+    async def held(user, sentence):
+        seen.append(sentence)
+        return False
+
+    monkeypatch.setattr(ch, "screen_streamed_house_awake", held)
+    run = asyncio.get_event_loop().run_until_complete
+    true_chunk = "The twins' morning routine is a mystery to you. The girls' room is dark. Ana's morning coffee sits cold. "
+    g, _ = run(al._guard_stream_chunk(true_chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    assert g.text == true_chunk and al._apply_mirror_ops(true_chunk, g.mirror_ops) == true_chunk and seen == []
+    for opener in ("'Good morning,' she says. ", "\u201cMorning!\u201d he says. "):
+        chunk = "The kettle ticked. " + opener + "Rain falls. "
+        g, _ = run(al._guard_stream_chunk(chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+        assert "orning" not in g.text and "The kettle ticked." in g.text and "Rain falls." in g.text
+        assert al._apply_mirror_ops(chunk, g.mirror_ops) == g.text
+    assert len(seen) == 2

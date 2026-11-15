@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPortraitPrompt, buildCastPortraitPrompts, trimWrittenHair, signatureMarkClause } from "../../src/engine/portraitPrompts";
+import { buildPortraitPrompt, buildCastPortraitPrompts, trimWrittenHair, signatureMarkClause, stripWornWords, legacyAppearance } from "../../src/engine/portraitPrompts";
 import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS } from "../../src/engine/imageConstants";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
@@ -242,8 +242,6 @@ describe("0051 — recordImageBeat (recorded or it didn't happen; player-witness
   });
 });
 
-/** ORW-361 — portrait prompt v2: explicit age, written face, faint mark, wardrobe/on-camera, frame rules. */
-
 /** ORW-380: photo brief v3. One paragraph in a fixed order; three fixtures (full sheet, none, legacy). */
 describe("ORW-380 — portrait photo brief v3", () => {
   const anchor = STYLE_ANCHOR_VARIANTS[4]!;
@@ -335,12 +333,18 @@ describe("ORW-380 — portrait photo brief v3", () => {
     expect(signatureMarkClause("a small nose stud, plus a scar on the chin")).toBe("A small nose stud.");
     expect(signatureMarkClause("freckles across the nose; a beauty mark by the lip")).toBe("Freckles across the nose, a beauty mark by the lip.");
     expect(signatureMarkClause("a gap between the front teeth")).toBe("A gap between the front teeth.");
+    expect(signatureMarkClause("a tattoo and chipped teeth")).toBe("A tattoo.");        // review of #2748: no article after "and"
+    expect(signatureMarkClause("a scar on the chin and glasses")).toBe("Glasses.");
     expect(signatureMarkClause("round glasses")).toBe("Round glasses.");
     expect(none).not.toContain("scar");
   });
 
   it("written hair is cut at the first of ', usually', ' usually', ' that ', ' by ', ' until '", () => {
     expect(trimWrittenHair("a braid that frays by afternoon")).toBe("a braid");
+    expect(legacyAppearance("a rugged haircut that grows out by spring, tall")).toBe("a haircut, tall");
+    expect(legacyAppearance("tidy hairstyle usually in a clip, lean")).toBe("tidy hairstyle, lean");
+    expect(stripWornWords("tall and rugged, lean")).toBe("tall, lean");
+    expect(stripWornWords("lean, rugged and tall")).toBe("lean and tall");
     expect(trimWrittenHair("dark waves, usually in a clip")).toBe("dark waves");
     expect(trimWrittenHair("grey crop usually damp")).toBe("grey crop");
     expect(trimWrittenHair("curls pinned up until noon, then loose")).toBe("curls pinned up");
@@ -407,5 +411,46 @@ describe("ORW-380 — portrait photo brief v3", () => {
 
   it("prints the three example prompts", () => {
     if (process.env.ORW380_PRINT) console.log(`\nFULL:\n${full}\n\nNONE:\n${none}\n\nLEGACY:\n${legacy}\n`);
+  });
+});
+
+describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prompt through the real public path", () => {
+  it("recordLookExtras on the adapter, then the public card and getPortraitPrompt carry and use all three", () => {
+    const adapter = new GameSessionAdapter();
+    const view = adapter.createCharacter({ playerName: "The Player", seed: 31 });
+    const npc = view.house.find((h) => h.physicalCharacteristics)!;
+    const id = npc.id as EntityId;
+    const before = adapter.getPortraitPrompt(id)!.prompt;
+    const r = adapter.recordLookExtras({
+      houseguestId: id, wardrobe: ["a faded grey hoodie", "dark jeans"], photoHair: "a neat low bun",
+      onCamera: "Leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
+    });
+    expect(r.accepted).toBe(true);
+    const card = adapter.getGameState().house.find((h) => h.id === id)!;   // the typed public projection, no cast
+    expect(card.physicalCharacteristics?.wardrobe).toEqual(["a faded grey hoodie", "dark jeans"]);
+    expect(card.physicalCharacteristics?.onCamera).toContain("kitchen island");
+    const after = adapter.getPortraitPrompt(id)!.prompt;
+    expect(after).not.toBe(before);
+    expect(after).toContain("faded grey hoodie");
+    expect(after).toContain("a neat low bun");
+    expect(after).toContain("Setting: the house kitchen");
+  });
+});
+
+
+describe("ORW-437 — portrait text cleaning", () => {
+  it("removing a worn word never leaves a dangling and/or", () => {
+    expect(stripWornWords("rugged and tall")).toBe("tall");
+    expect(stripWornWords("tall and rugged")).toBe("tall");
+    expect(stripWornWords("a rough or worn denim jacket")).toBe("a denim jacket");
+    expect(stripWornWords("tall and lean")).toBe("tall and lean");
+  });
+  it("a compound mark keeps its signature parts when another part is not sent", () => {
+    expect(signatureMarkClause("a tattoo and a chipped tooth")).toBe("A tattoo.");
+    expect(signatureMarkClause("a thin scar, and a nose stud")).toBe("A nose stud.");
+    expect(signatureMarkClause("a scar and a burn")).toBe("");
+  });
+  it("only the hair clause of a legacy appearance is cut at 'usually / that / by / until'", () => {
+    expect(legacyAppearance("long hair that frays by noon, a warm smile that lights a room")).toBe("long hair, a warm smile that lights a room");
   });
 });

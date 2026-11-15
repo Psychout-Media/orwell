@@ -144,6 +144,10 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
   // B44: with the co-presence layer ON, a houseguest's private fact may be told to the player by a legitimate scene pathway (that is the feature). The canary's claim is that a fact the holder DECIDED
   // TO HOLD never crosses, so record that decision in the told ledger for every possible listener: npc(2) holds `b42k` for the player and every NPC, and the sentinel must still never surface.
   for (const listener of [PLAYER, ...npcs.map((h) => h.id)]) if (listener !== npc(2)) sb.session.copresenceToldLedger().record(npc(2), `b42k:${seed}`, listener, "held");
+  // (3) ORW-407 - the open ledger holds player-heard words only; plant one entry (a present houseguest's promise to the player) so the
+  // `openLedgerHere` read the player-perspective sweep makes is never an empty list. Best-effort: a game that is not yet a played game refuses it.
+  const here = sb.session.whereabouts()?.present[0];
+  if (here) sb.session.recordOpenLedger({ text: "I will keep your secret", speaker: here.id as string, addressedTo: ["player"], kind: "promise" });
   return sentinels;
 }
 
@@ -152,6 +156,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "getMomentPrompt": return { moment: "nominations" };
     case "whereabouts": return { search: true }; // ORW-386: the sweep reads the house search too (a superset of the plain read)
     case "getVisibleStateFor": return { entity: PLAYER };
+    case "beatLog": return { sinceBeatSeq: 0 }; // ORW-439: the diagnostic read takes the caller's last-seen counter (required)
     case "renderScene": return { mode: "scene" };
     case "socialRead": return { houseguest: npc(1) };
     case "askProducers": return { question: "is anyone working against me?" };

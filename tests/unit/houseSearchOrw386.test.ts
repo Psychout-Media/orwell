@@ -220,11 +220,12 @@ describe("ORW-386: turnsHere means consecutive presence ticks in THIS room (it w
       for (let i = 0; i < 14; i++) {
         s.live.nightDepth = (s.live.nightDepth ?? 8) + 1;
         const before = new Map(s.presence);
+        const priorTenure = new Map(s.presenceTenure); // snapshot BEFORE the stretch: a stayer's tenure is compared with it, never with itself
         s.houseLifeStretch(sb.engine.events, [...npcs, PLAYER], i);
         for (const id of npcs) {
           const moved = before.get(id) !== s.presence.get(id);
           if (moved) movers++;
-          expect(s.presenceTenure.get(id), `${id} ${moved ? "walked to" : "stayed in"} ${s.presence.get(id)}`).toBe(moved ? 0 : s.presenceTenure.get(id));
+          expect(s.presenceTenure.get(id), `${id} ${moved ? "walked to" : "stayed in"} ${s.presence.get(id)}`).toBe(moved ? 0 : priorTenure.get(id));
           if (moved) expect(s.presenceTenure.get(id)).toBe(0);
         }
         for (const id of npcs) if (before.get(id) === s.presence.get(id)) s.presenceTenure.set(id, 22);

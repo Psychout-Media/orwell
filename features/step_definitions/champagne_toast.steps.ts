@@ -62,7 +62,7 @@ Then("every houseguest except the player gave a toast that states their name, ag
     assert.ok(b.prompt.includes(c.houseguest.name), `${sp.id}: named in their batch`);
     assert.ok(b.prompt.includes(`${c.age}, works as ${c.vocation}`), `${sp.id}: age then job`);
     assert.ok(b.prompt.includes(`from ${c.hometown}`), `${sp.id}: hometown`);
-    assert.match(b.prompt, /Voice EVERY speaker named here/, "the batch tells the narrator to voice each speaker");
+    assert.match(b.prompt, /Voice EVERY houseguest speaker named here/, "the batch tells the narrator to voice each speaker");
   }
 });
 
@@ -83,8 +83,8 @@ Then("each houseguest's stated age, hometown and job are exactly their stored pu
   for (const c of npcCards(t)) {
     const h = roster.house.find((x) => x.id === c.houseguest.id)!;
     assert.equal(c.houseguest.name, h.name);
-    const line = t.full.join("\n").split("\n").find((l) => l.includes(`${c.age}, works as ${c.vocation}`) && l.includes(`from ${c.hometown}`));
-    assert.ok(line, `${c.houseguest.id}: the prompt carries exactly the stored age, job and hometown`);
+    const line = t.full.join("\n").split("\n").find((l) => l.includes(c.houseguest.name) && l.includes(`${c.age}, works as ${c.vocation}`) && l.includes(`from ${c.hometown}`));
+    assert.ok(line, `${c.houseguest.id}: the prompt carries exactly the stored age, job and hometown, on that houseguest's own line`);
   }
 });
 
@@ -121,19 +121,24 @@ Then("the archetype label appears only inside the fenced private cue {string} in
   const t = of(this); play(t);
   for (const c of npcCards(t) as Array<{ houseguest: { name: string }; archetype?: string }>) {
     if (!c.archetype) continue;
-    const lines = t.full.join("\n").split("\n").filter((l) => l.includes(c.houseguest.name) && l.includes("(private cue"));
-    for (const l of lines) assert.ok(!l.replace(`(private cue, never said aloud: ${c.archetype})`, "").replace(`who plays as a ${c.archetype}`, "").includes(c.archetype), `${c.houseguest.name}: label outside the fenced cue`);
+    const lines = t.full.join("\n").split("\n").filter((l) => l.includes(c.houseguest.name)); // EVERY line that names the houseguest, not only the fenced-cue line
+    for (const l of lines) assert.ok(!l.replace(/\(private (?:voice )?cue, never said aloud: [^)]*\)/g, "").replaceAll(`who plays as a ${c.archetype}`, "").includes(c.archetype), `${c.houseguest.name}: label outside the fenced cue`);
   }
 });
 
 Then("no tie, relationship number or game philosophy appears in any introduction", function (this: BbWorld) {
   const t = of(this); play(t);
   assert.ok(!/trust|threat|affinity|philosophy|pre-show tie/i.test(JSON.stringify(t.session.premiereIntros()!.met)), "the cards carry none of them");
+  // and the narrator's introduction lines (the speaker lines and each speaker's facts line) carry none of them either
+  const intro = t.full.join("\n").split("\n").filter((l) => l.includes("'s facts (voice their toast from these only") || /works as/.test(l)).join("\n");
+  assert.ok(intro.length > 0, "there are introduction lines to check");
+  assert.ok(!/\b(trust|threat|affinity|philosophy|pre-show tie)\b/i.test(intro), "the introduction lines carry no tie, relationship number or philosophy");
 });
 
 Then("the player and the admin projections carry no Vault data", function (this: BbWorld) {
   const t = of(this); play(t);
   assert.ok(!/MARKER-TOAST/.test(JSON.stringify(t.session.getGameState())), "the player projection is Vault-free");
+  assert.ok(!/MARKER-TOAST/.test(JSON.stringify(t.sandbox.admin.inspect())), "the admin projection (AdminPort.inspect) is Vault-free too");
 });
 
 Then("each introduction is a spoken line in the houseguest's own toast voice", function (this: BbWorld) {

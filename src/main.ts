@@ -1,4 +1,4 @@
-import { composeRuntime, createShutdown, DEFAULT_HARD_EXIT_MS } from "./composition/runtime";
+import { composeRuntime, createShutdown, DEFAULT_HARD_EXIT_MS, DEFAULT_DRAIN_MS, DEFAULT_FLUSH_MS } from "./composition/runtime";
 import { startHttpMcp } from "./adapters/mcp/HttpMcpServer";
 import { createEmbeddingsStatusTracker } from "./adapters/embedding/embeddingsStatus";
 
@@ -74,13 +74,21 @@ const requireUser = /^(1|true|yes|on)$/i.test(process.env["ORWELL_ENGINE_MULTIUS
 // spray ids to mint unlimited sandboxes (only createCharacter may start a fresh one).
 const knownUser = (user: string): boolean => runtime.knownUser(user);
 
-startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus, saveStatus: runtime.saveDurability }, host);
+const httpServer = startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus, saveStatus: runtime.saveDurability, shuttingDown: runtime.isShuttingDown }, host);
 // Clean shutdown (no background timers to tear down — the runtime is purely turn-driven). ORW-404: the
 // per-save fsync runs in the background, so flush the newest un-synced save of every user (async,
-// bounded to 10 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
+// bounded to 6 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
 // disk can never hold the process in the handler; the flush is non-blocking so the timer can fire.
 const shutdown = createShutdown({
-  flush: () => runtime.flushSavesAsync(10_000),
+  // Stop taking NEW tool calls with a clear, retryable answer (503 engine-restarting) instead of closing the
+  // listener: the front end waits that answer out, and a request on a kept-alive connection is answered
+  // rather than reset. Then let requests already in flight finish (bounded) BEFORE the save flush, so no
+  // request can write a newer save after the flush snapshots its work (review of #2732).
+  onStart: () => runtime.beginShutdown(),
+  drain: () => httpServer.drainInflight(DEFAULT_DRAIN_MS),
+  drainMs: DEFAULT_DRAIN_MS,
+  pending: () => httpServer.pendingDetail(),
+  flush: () => runtime.flushSavesAsync(DEFAULT_FLUSH_MS), // drain (5 s) + flush (6 s) fit inside the hard exit (12 s)
   exit: (code) => process.exit(code),
   hardExitMs: DEFAULT_HARD_EXIT_MS,
 });
@@ -141,4 +149,7 @@ if (embedMode === "fastembed") {
 // Resume saved games now — after warm-up — so resumed souls capture the real embedder when warm.
 // (Before this, a request for a saved user still works: the resolver builds their sandbox lazily.)
 // ORW-406: warm in the background (yielding per user) and report `warmed` on /health; a request that arrives first builds its own sandbox via the same cached path.
-void runtime.warmSaved();
+// A save-store enumeration error must never become an unhandled rejection that takes the process down: log it; a request still builds its own sandbox lazily.
+void runtime.warmSaved().catch((e: unknown) => {
+  console.error(`[orwell] boot warm-up failed (${e instanceof Error ? e.message : String(e)}); saved games load on first request`);
+});

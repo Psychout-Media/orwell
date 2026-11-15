@@ -136,7 +136,7 @@ Feature: In-game time of day and the nightly sleep economy
     Then every narrator prompt names a part of the day and states no clock time
     And the engine's own clock moved through more than one part of the day
 
-  Scenario: Early morning - before the house's wake-up the status says early morning, the mirror of late night
+  Scenario: Early morning - from 2am until the house's wake-up the status says early morning, the mirror of late night
     Given a started season whose in-game clock is running
     When the player is still up at 3am
     Then the status says early morning

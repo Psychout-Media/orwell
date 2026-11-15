@@ -160,6 +160,8 @@ export interface HouseguestCard {
    * the still-floor cards. It is NOT hidden content and is safe on the player-facing roster.
    */
   authored?: boolean;
+  /** ORW-438: true while `biography` is genesis's nameless first draft (the writer has not replaced it yet). Public, Vault-free. */
+  biographyDraft?: boolean;
   /**
    * ORW-381: how this houseguest is cast and reads on camera, `{ label, read }` ("the charmer"). PUBLIC,
    * Vault-free, presentation only (no mechanic reads it). Absent on a save from before ORW-381.
@@ -447,7 +449,7 @@ export interface GameStateView {
    * Drives the time-of-day HUD and grounds narration in the real hour. Absent pre-game.
    */
   timeOfDay?: string;
-  /** ORW-392: see `GameStatusView.earlyMorning`. */
+  /** ORW-392: see `PublicGameStatus.earlyMorning`. */
   earlyMorning?: true;
   /**
    * P0 clock grounding - the engine's exact in-game clock as a plain label ("9:40am, Day 1"), present only while the clock is running (same gate as `timeOfDay`). Public, Vault-free; the narrator is
@@ -467,7 +469,7 @@ export interface GameStateView {
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).
    */
   asleep?: NamedRef[];
-  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running AND no staged ceremony is open (it is omitted then; `asleep` is still sent, so read absence as unknown, not as an empty house); never includes the player. */
   awake?: NamedRef[];
   /**
    * The season is OVER — a winner is crowned (audit B6-01). Vault-free (whether the game ended is
@@ -520,7 +522,7 @@ export interface GameStateView {
   /**
    * ORW-419 - the player's OWN move this turn, resolved by the engine from the player's words BEFORE the narrator ran
    * (`resolvePlayerMove`): `{from, to}` room ids/names, or `{refused: true, reason}` when a house event pinned them. Absent when the
-   * player did not move this turn. Words and room names only, never a number. The narrator VOICES it; it never decides it.
+   * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
   player: PlayerCard | null;
@@ -614,6 +616,8 @@ export interface GameStateView {
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
+  /** ORW-443: the approach cap withheld a houseguest this turn (played games only; absent otherwise). Narration-only; carries no count. */
+  approachHeld?: true;
   daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3 };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
@@ -1145,7 +1149,7 @@ export interface RecordLookExtrasReq {
   /** ORW-380: shoot-day hair, at most 90 chars. */
   photoHair?: string;
   /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
-  clear?: string[];
+  clear?: Array<"wardrobe" | "onCamera" | "photoHair">;
 }
 
 export interface RecordLookExtrasResult {
@@ -1165,7 +1169,7 @@ export interface RecordOpenLedgerReq {
   /** `player` or a houseguest id. */
   speaker: string;
   addressedTo: string[];
-  /** A free string (at most 40 characters), never a closed list. */
+  /** A free string, never a closed list. Longer than 40 characters is truncated (not rejected); empty becomes "claim". `addressedTo` may be empty only with `parties`, `about`, or a houseguest speaker (a player entry nobody could ever see is rejected). */
   kind: string;
   /** Slice 2: everyone party to a group pact or proposal (ids, at most 8), stored once. */
   parties?: string[];
@@ -1294,7 +1298,7 @@ export interface PublicGameStatus {
    * the time-of-day HUD renders; Vault-free; absent pre-game / when the clock isn't running.
    */
   timeOfDay?: string;
-  /** ORW-392: present (true) while `timeOfDay` is "late-night" but the clock is past 2am, before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
+  /** ORW-392: present (true) while `timeOfDay` is "late-night" or "morning" but the clock is between 2am and the 8am wake-up call (a late-night player, or one woken early after an early bed), before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
   earlyMorning?: true;
   /** ORW-115 (Ryne: "Time of day only"): the in-game DAY number the HUD shows beside the time of day ("Morning, Day 1") - the same day as `GameStateView.clockLabel`. Public; present only while the clock runs. */
   dayNumber?: number;
@@ -1303,7 +1307,7 @@ export interface PublicGameStatus {
    * Vault-free; present only when the clock is running.
    */
   asleep?: NamedRef[];
-  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running AND no staged ceremony is open (it is omitted then; `asleep` is still sent, so read absence as unknown, not as an empty house); never includes the player. */
   awake?: NamedRef[];
   /**
    * The in-game DAY within the current HOH week (E58): hoh=1, nominations=2, veto=3,
@@ -1392,6 +1396,11 @@ export interface DeltaEventView {
  *  - an EMPTY delta (`events: []`, `changes` absent, `finishedChanged` false) — `sinceBeatSeq` equals
  *    the current `beatSeq`: nothing has committed since ("since last turn: nothing committed").
  */
+/** ORW-439 - one beat-counter bump and the tool that caused it ("outside-a-tool-call" when no tool call was running). */
+export interface BeatBumpEntry { seq: number; tool: string; at: number }
+/** ORW-439 - the `beatLog` read: the current counter, the bumps after the caller's token, and whether the ring still reaches back that far. */
+export interface BeatLogView { beatSeq: number; bumps: BeatBumpEntry[]; truncated: boolean }
+
 export interface StateDeltaView {
   /** The current committed beat counter (what the caller should re-ground its last-seen token to). */
   beatSeq: number;
@@ -1957,7 +1966,7 @@ export interface WhereaboutsView {
    * door, learned by WATCHING them head in (never the live map). Each carries the believed room (+ zone),
    * how long ago the sighting was (`sinceTurns`), a Vault-safe `stale` flag (derived from AGE, never the
    * secret live position), and its 0002 pathway + confidence. The bedrooms stay blanks in `nearby`; this
-   * is the only way a closed room's occupants ever surface — and only because the player earned it.
+   * is the only way a closed room's occupants surface in `nearby`; the ORW-386 `search` field separately names where each houseguest is (and whether the door is open) on an explicit house search.
    */
   tracked: Array<{
     id: EntityId; name: string; room: string; zone?: string;
@@ -2292,7 +2301,7 @@ export interface DailyRecapView {
   highlights: string[];
   /** Gossip that reached the player's own knowledge today via a real in-game pathway (0002). */
   surfaced: string[];
-  /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), when no ceremony/deal made the highlights - so every bedtime, the premiere night included, has something to review. Absent when empty. */
+  /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), whether or not a ceremony or deal made the highlights (the same text is not listed twice) - so every bedtime, the premiere night included, has something to review. Absent when empty. */
   yourDay?: string[];
   /** The non-committal forward tease, when an eligible in-motion thread exists; absent on a quiet day. */
   hook?: DailyRecapHook;
@@ -2581,6 +2590,10 @@ export interface HangOutReq {
   expectedBeatSeq?: number;
   /** Cap on beats this call (1..8; default 8). */
   maxBeats?: number;
+  /** ORW-445: the player's own stated wait length, in-game minutes (hard-capped at 180). Stops at the EARLIER of this and the usual stop reasons. Absent => unchanged. */
+  maxMinutes?: number;
+  /** ORW-445: the player asked to wait out the rest of the current part of the day ("the rest of the morning"): the target is the next band edge. Combined with maxMinutes, the smaller wins. */
+  untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
@@ -2648,11 +2661,11 @@ export interface RecordCastProfileReq {
   /** A real multi-sentence backstory (the presentable parts). */
   biography?: string;
   /**
-   * ORW-388: a REPAIRED freeform identity concept. Genesis writes `identityConcept` once, before the card's gender,
-   * exact age and look are final; the authoring accept path mends a contradiction in it (a wrong pronoun, a wrong
-   * age, a look feature the look lacks, "Big Brother") and sends the mended text here. Folded ONLY onto a houseguest
-   * that already has an identityConcept (a repair, never an invention), capped at 300 characters, and refused when it
-   * names the player. Absent ⇒ the stored identity concept stands.
+   * ORW-388 / ORW-431b: the authoring writer's identity concept, the card's one-line identity. Genesis writes `identityConcept` once, before
+   * the card's gender, exact age and look are final (and drops it when it repeats a hidden element); the writer, which runs after every pin,
+   * owns the line and sends it here. It REPLACES a stored identity and FILLS a card that has none, as one line capped at 300 characters, and
+   * is refused (the whole call) when it names the player. `publicFields` lists "identityConcept" whenever the card now holds the sent text, so
+   * the caller can verify it was stored. Absent ⇒ the stored identity concept stands.
    */
   identityConcept?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
@@ -2951,6 +2964,11 @@ export interface GameSession {
    * delta. A pure READ (never mutates / commits); safe to poll.
    */
   stateDelta(sinceBeatSeq: number): StateDeltaView;
+  /**
+   * ORW-439 - which tool caused each beat-counter bump after `sinceBeatSeq` (diagnostic; in memory only, never saved). A pure READ:
+   * it never commits, bumps or saves. Carries tool names, counter values and timestamps only - no arguments, no game state.
+   */
+  beatLog(sinceBeatSeq: number): BeatLogView;
   /** The managed system prompt to inject for the current (or requested) moment. */
   getMomentPrompt(req: MomentPromptReq): MomentPromptView;
   /**
@@ -3194,8 +3212,8 @@ export interface GameSession {
   /**
    * ORW-419 (intent-first moves) - FE-driven INFRA lever (NOT a model lever, never named in the narrator prompt): resolve the player's OWN
    * move from their message text, BEFORE the narrator runs, and perform it through the same code as `movePlayer` (so a comp/ceremony pin
-   * refuses it with an in-fiction reason and nothing else moves). Records the Vault-free `playerMove` on live state for this turn
-   * (persisted; cleared by the next resolve) and exposes it on `getGameState` / the moment view. No clear move => `playerMove: null`
+   * refuses it with an in-fiction reason and nothing else moves). Records the Vault-free `playerMove` on live state for the turn
+   * (persisted; replaced or cleared by the NEXT `resolvePlayerMove` call, so a turn on which the front end does not call it, e.g. incognito or the game build off, still carries the previous move) and exposes it on `getGameState` / the moment view. No clear move => `playerMove: null`
    * (the FE's post-reply move belt stays the fallback). Optional `expectedBeatSeq` CAS + `idempotencyKey` (a repeat key returns the
    * prior result without re-moving).
    */
@@ -3327,7 +3345,7 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
-  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
+  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. Bounds the ENGINE enforces: per-field length caps, up to OPEN_LEDGER_MAX_ENTRIES (200) entries in total. The per-turn limits (3 entries, 2 resolutions) live only in the front-end extractor; the engine does not count writes per turn. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
   /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */
   resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult;
@@ -3337,7 +3355,7 @@ export interface GameSession {
   /**
    * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields
    * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
-   * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
+   * the whole authoring pipeline) this merges only those three cleaned fields (and removes any named in `clear`) into the existing public facet, runs
    * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,
    * and persists in the background without a beat. Vault-free: public fields only.
    */

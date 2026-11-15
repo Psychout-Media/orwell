@@ -69,7 +69,9 @@
     content.innerHTML = `
       <style>
         #orwell-dossier { width: min(360px, 92vw); }
-        #orwell-dossier .od-head { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; margin-bottom: .5rem; }
+        /* ORW-437: the kit's viewport re-clamp measures the window's max-content width. The 100%-wide photo contributes nothing to it, so a short
+           dossier measured ~240 px and was shrunk to that, leaving a 216 px photo. The head holds the window's own width, so the photo keeps it. */
+        #orwell-dossier .od-head { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; margin-bottom: .5rem; min-width: calc(min(360px, 92vw) - 25px); }
         /* ORW-359: the photo is shown large, full width, square, above the name. When a photo
            exists it is a button that opens the full-size viewer (no right-click needed). */
         #orwell-dossier .od-portrait {
@@ -82,7 +84,7 @@
           position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; min-width: 0; padding: 0; margin: 0;
           border: 0; background: transparent; cursor: zoom-in; font: inherit; color: inherit; border-radius: inherit;
         }
-        #orwell-dossier .od-portrait > button.od-photo-btn:focus-visible { outline: 2px solid var(--ow-ios-blue, #0a84ff); outline-offset: 2px; }
+        #orwell-dossier .od-portrait > button.od-photo-btn:focus-visible { outline: 2px solid var(--ow-ios-blue, #0a84ff); outline-offset: -3px; box-shadow: inset 0 0 0 5px rgba(255,255,255,.55); }
         #orwell-dossier .od-portrait img.od-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; }
         #orwell-dossier .od-portrait .ow-mono-face { display: block; width: 100%; height: 100%; }
         #orwell-dossier .od-portrait.od-evicted img, #orwell-dossier .od-portrait.od-evicted .ow-mono-svg { filter: grayscale(1); }
@@ -273,7 +275,11 @@
   // the designed monogram stays the no-photo fallback (and the broken-photo fallback).
   function renderPortrait(el, data) {
     const old = el.querySelector("#od-portrait");
+    // ORW-437: every refresh re-renders; keep the node (and the photo button's focus) when nothing about the portrait changed.
+    const sig = [data.id, data.status, data.portrait || "", data.name || ""].join("|");
+    if (old && old.dataset.sig === sig) return;
     const fresh = document.createElement("div");
+    fresh.dataset.sig = sig;
     fresh.id = "od-portrait";
     fresh.className = "od-portrait" + (data.status === "evicted" ? " od-evicted" : "");
     const monogram = () => window.OrwellMonogram ? window.OrwellMonogram.face({
@@ -290,6 +296,8 @@
       img.alt = "";
       img.onerror = () => {
         img.onerror = null;
+        // A failed load must not stick: drop the signature so the next refresh re-renders and retries the photo.
+        delete fresh.dataset.sig;
         // Photo failed: the monogram takes over and there is nothing bigger to view.
         const m = monogram();
         fresh.replaceChildren(...(m ? [m] : []));

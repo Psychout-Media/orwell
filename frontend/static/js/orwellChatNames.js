@@ -194,6 +194,14 @@
     if (!row || row.nodeType !== 1 || !row.classList.contains("msg")) return;
     // SOUL lesson 2: never fight the live stream — only a settled row is touched.
     if (row.classList.contains("streaming")) return;
+    // ORW-437: with no roster yet there is nothing to link; leave the row UNMARKED so the resweep that follows the roster
+    // arriving (the `OrwellMonogram.onRosterCache(sweep)` listener registered in boot(); no `orwell:rostercache` event exists)
+    // processes it, instead of marking it clean against an empty key. A row linked against an earlier roster that is now
+    // empty must not keep links to the old houseguest ids: unwrap them and clear the marker.
+    if (!_rx) {
+      if (row.dataset.owNames !== undefined) { unwrapAuto(row); delete row.dataset.owNames; }
+      return;
+    }
     if (row.dataset.owNames === _key) return;
     ensureCss();
     unwrapAuto(row);
@@ -237,6 +245,12 @@
         if (row.classList && row.classList.contains("msg")) schedule(row); // streaming -> settled
         continue;
       }
+      if (rec.type === "childList" && rec.addedNodes) {
+        // ORW-437: a message row appended DIRECTLY to #chat-history has no ancestor row to find; schedule it itself.
+        rec.addedNodes.forEach((n) => {
+          if (n && n.nodeType === 1 && n.classList && n.classList.contains("msg") && n.parentElement && n.parentElement.id === "chat-history") schedule(n);
+        });
+      }
       const row = rowOf(rec.target);
       if (!row) continue;
       // The role label (relabel, timestamp, sender face) holds no prose we wrap.
@@ -268,6 +282,8 @@
         attributes: true, attributeFilter: ["class"],
       });
     } catch (_) { /* sweep-only */ }
+    // ORW-437: the roster cache just (re)filled: link the rows that waited for it
+    if (window.OrwellMonogram && typeof window.OrwellMonogram.onRosterCache === "function") window.OrwellMonogram.onRosterCache(sweep);
     sweep();
     setTimeout(sweep, 1600);
     setTimeout(sweep, 4500);
@@ -275,6 +291,7 @@
 
   function resweepSoon() { sweep(); setTimeout(sweep, 1200); }
   window.addEventListener("orwell:gamechanged", resweepSoon);
+
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot, { once: true });
   else boot();

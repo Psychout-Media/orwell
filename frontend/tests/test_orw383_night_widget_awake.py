@@ -1,6 +1,7 @@
-"""ORW-383: the night-status widget lists who is AWAKE (day and night), and it refetches at the bed-to-morning rollover so it never
-keeps saying everyone is asleep after waking. Browser check across one night: the state mocked at /api/orwell/state goes
-evening -> late night (two up) -> morning (everyone up); the widget must follow on each `orwell:gamechanged`."""
+"""ORW-383: the night-status widget lists who is AWAKE (day and night). Browser check across one night: the state mocked at
+/api/orwell/state goes evening -> late night (two up) -> morning (everyone up); the widget must follow on each
+`orwell:gamechanged`. This test dispatches that event by hand: it covers the widget's render from the state, NOT the
+trigger that fires the event at the bed-to-morning rollover, and not the list kept during staged ceremonies."""
 import json
 import os
 import socket

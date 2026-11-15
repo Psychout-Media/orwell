@@ -27,9 +27,24 @@ describe("ORW-401 relationship metering (played game)", () => {
     }
     expect(prev).toBeLessThan(0.95);
     expect(steps[0]!).toBeGreaterThan(0);
-    expect(steps[9]!).toBeLessThan(steps[3]!);
-    expect(steps[3]!).toBeLessThan(steps[1]!);
+    for (let i = 1; i < steps.length; i++) expect(steps[i]!, `scene ${i + 1} moves it less than scene ${i}`).toBeLessThan(steps[i - 1]!);
     expect(steps[29]!).toBeGreaterThan(0); // no hard cap: the scene still moves it a little
+  });
+
+  it("near an extreme a step TOWARD it is damped while a step away from it is not (same draw, controlled edge)", () => {
+    const stepFrom = (start: number, kind: "bonding" | "conflict"): number => {
+      const { core, cmd } = setup({ v: "d1:morning" });
+      core.relationships.edge(npc(1), PLAYER).affinity = start;
+      cmd.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, npc(1)], content: "a chat", kind });
+      return core.relationships.read(npc(1), PLAYER).signals.affinity - start;
+    };
+    const midUp = stepFrom(0.5, "bonding"), edgeUp = stepFrom(0.95, "bonding");
+    expect(midUp, "a bonding scene moves a mid edge up").toBeGreaterThan(0);
+    expect(edgeUp, "toward the extreme it is cut to a fraction").toBeLessThan(midUp * 0.5);
+    expect(edgeUp, "but never to zero (no hard cap)").toBeGreaterThan(0);
+    const midDown = stepFrom(0.5, "conflict"), edgeDown = stepFrom(0.95, "conflict");
+    expect(midDown).toBeLessThan(0);
+    expect(edgeDown, "a step back toward the middle from the extreme is undamped").toBeCloseTo(midDown, 6);
   });
 
   it("a new window restores the full first-step effect", () => {
@@ -40,6 +55,13 @@ describe("ORW-401 relationship metering (played game)", () => {
     w.v = "d1:evening";
     const b0 = edge(); scene(); const next = edge() - b0;
     expect(next).toBeGreaterThan(first * 0.5);
+  });
+
+  it("restore drops NaN, negative and fractional counts instead of storing them (review of #2687)", () => {
+    const w = { v: "d1:morning" };
+    const a = setup(w);
+    a.cmd.restoreFoldMeter({ key: "d1:morning", counts: { x: Number.NaN, y: -3, z: 1.5, ok: 2 } });
+    expect(a.cmd.foldMeterState()?.counts).toEqual({ ok: 2 });
   });
 
   it("snapshot/restore mid-window keeps the counts (a restart does not refill them)", () => {
@@ -62,5 +84,19 @@ describe("ORW-401 relationship metering (played game)", () => {
     const after3 = edge();
     for (let i = 0; i < 5; i++) scene();
     expect(edge()).toBe(after3);
+  });
+});
+
+describe("review of #2687: the window key of a legacy save without dayNumber follows the week", () => {
+  it("falls back to the live week, not day 1", async () => {
+    const { GameSessionAdapter } = await import("../../src/adapters/engine/GameSessionAdapter");
+    const g = new GameSessionAdapter();
+    g.createCharacter({ playerName: "P", seed: 3 });
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    g.noteMessage({ messageId: "m1" });
+    const p = g as unknown as { messageMode: boolean; live: { playedGame?: boolean; timeOfDay?: string; dayNumber?: number; week: number } };
+    p.messageMode = true; p.live.playedGame = true; p.live.timeOfDay = "morning";
+    delete p.live.dayNumber; p.live.week = 4;
+    try { expect(g.foldWindowKey()).toBe("d4:morning"); } finally { GameSessionAdapter.setTimeOfDayEnabled(null); }
   });
 });

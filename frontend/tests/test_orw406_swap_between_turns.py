@@ -88,6 +88,8 @@ def test_updater_wiring():
 def test_frontend_publishes_turns_in_flight(tmp_path, monkeypatch):
     monkeypatch.setenv("ORWELL_INFLIGHT_DIR", str(tmp_path))
     from src.turn_inflight import InflightRegistry
+    from routes import chat_routes
+    assert isinstance(chat_routes._active_streams, InflightRegistry), "review of #2686: the production registry is the publishing one"
     reg = InflightRegistry()
     f = tmp_path / "turns-in-flight"
     reg["s1"] = {"status": "streaming"}

@@ -73,9 +73,12 @@ def test_house_claim(monkeypatch):
     assert _emit("Eleven of us left.") is False
 
 
-def test_vote_claim_must_not_exceed_voters(monkeypatch):
+def test_vote_claim_may_reach_voters_plus_the_hoh_tiebreak_but_no_further(monkeypatch):
+    """The wall allows `voters + 1` (the HOH's tie-break ballot), so 8 votes with 7 voters passes and 9 does not (review of #2656)."""
     _fake(monkeypatch, _wa(house=10, voters=7))
     assert _emit("It is a 5-2 vote.") is True
+    assert _emit("It is a 5-3 vote.") is True   # 8 = 7 voters + the HOH tie-break
+    assert _emit("It is a 6-3 vote.") is False  # 9
     assert _emit("It is a 9-3 vote.") is False
     assert _emit("Nine votes to evict.") is False
 

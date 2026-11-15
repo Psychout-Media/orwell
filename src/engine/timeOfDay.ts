@@ -335,7 +335,7 @@ export const FATIGUE_WEIGHT = FATIGUE.weight;
 
 /**
  * ORW-377 (zero clocks in the house) - the part of the day the NARRATOR hears instead of a clock time: the real show's house has no clocks, so people say "the small hours", never "3:15am". PRESENTATION ONLY:
- * a pure read of the engine clock hour (`live.nightDepth`: 8 = 8am, 24 = midnight, 27.08 = ~3am the next night); no rule, rest term, schedule or seeded roll reads it. Eight spoken bands.
+ * a pure read of the engine clock hour (`live.nightDepth`: 8 = 8am, 24 = midnight, 27.08 = ~3am the next night); no rule, rest term, schedule or seeded roll reads it. Seven spoken bands.
  */
 export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "evening" | "night" | "late night";
 
@@ -344,9 +344,14 @@ export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "
  * LATE NIGHT hands over to EARLY MORNING. Late night is midnight to 2am; early morning runs from 2am to the house's wake-up call (`WAKE_HOUR`, the morning band). The old "small hours" band is gone.
  */
 export const EARLY_MORNING_START_HOUR = 26;
-/** Is this engine clock hour (the `nightDepth` scale: 8 = 8am ... 24 = midnight ... 31.9 = 7:54am) in the early-morning band? Pure. */
+/**
+ * Is this engine clock hour in the early-morning band? Pure. Two scales are accepted: the 8-32 `nightDepth` scale (8 = 8am ... 24 = midnight ...
+ * 31.9 = 7:54am, still up past midnight) AND the 0-24 scale a player wakes on after an early bed (2 up to, not including, the house's wake-up call at 8).
+ */
 export function isEarlyMorning(hour: number | undefined): boolean {
-  return typeof hour === "number" && hour >= EARLY_MORNING_START_HOUR && hour < WAKE_HOUR + 24;
+  if (typeof hour !== "number") return false;
+  // ORW-441: the clock reads on TWO scales. Still up past midnight it runs 24-32 (the late-night phase); after an early bed the night rolls and the player wakes at bed+8h on the 0-24 scale (4:55am = 4.9, phase "morning").
+  return (hour >= EARLY_MORNING_START_HOUR && hour < WAKE_HOUR + 24) || (hour >= EARLY_MORNING_START_HOUR - 24 && hour < WAKE_HOUR);
 }
 
 export function clockBandFor(hour: number): ClockBand {
@@ -360,9 +365,10 @@ export function clockBandFor(hour: number): ClockBand {
   return "night";
 }
 
-/** "small hours, Day 5": the band plus the day, with no minutes (the zero-clocks counterpart of `formatClockLabel`). */
+/** "late night, Day 5": the band plus the day, with no minutes (the zero-clocks counterpart of `formatClockLabel`). */
 export function formatClockBandLabel(hour: number, day?: number): string {
-  return `${clockBandFor(hour)}${day === undefined ? "" : `, Day ${Math.max(1, Math.floor(day))}`}`;
+  // Round to the same whole minute `formatClockLabel` shows, so the band and the scrubbed clock label never disagree for the seconds around a boundary (11:59:40 reads 12:00pm, so it is already the afternoon).
+  return `${clockBandFor(Math.round(hour * 60) / 60)}${day === undefined ? "" : `, Day ${Math.max(1, Math.floor(day))}`}`;
 }
 
 /**

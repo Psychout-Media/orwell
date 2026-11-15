@@ -102,9 +102,10 @@ Then("the player's rest term in a competition is half of what it was before the 
 Then("the in-game clock has moved on by {int} hours", function (h: number) { const c = n(this); close(hourOf(c.s) - c.t0, h, "clock"); });
 Then("the player's rest term is a quarter of what it was before the first nap", function () { const c = n(this); close(rest(c.s), c.before / 4, "quarter"); });
 Then("it is still greater than zero", function () { assert.ok(rest(n(this).s) > 0); });
-Then("the player's rest term is between half and the full amount it was before the nap", function () {
+Then("the player's rest term is about 71% of what it was before the nap", function () {
   const c = n(this); const r = rest(c.s);
-  assert.ok(r > c.before / 2 && r < c.before, `${r} not in (${c.before / 2}, ${c.before})`);
+  // one hour of the half-power curve: 0.5^(1/2), about 0.7071 (an implementation off the curve fails, not just one outside (50%, 100%))
+  assert.ok(Math.abs(r - c.before * Math.SQRT1_2) < 0.01 * c.before, `${r} is not ${Math.SQRT1_2} x ${c.before}`);
 });
 Then("the player's rest term is what a midnight bedtime gives, with no nap factor carried over", function () {
   const c = n(this); const s = c.s as GameSessionAdapter;
@@ -123,15 +124,18 @@ Then("only that {int} hour counts toward the deficit", function (h: number) { cl
 Then("the competition proceeds with the player in it", function () {
   const c = n(this); const s = c.s as GameSessionAdapter;
   assert.equal(priv(s).live.playerRetired, false, "the player is awake");
+  const beatBefore = priv(s).live.beat; // the scenario's Given pins it at "veto-competition"
+  assert.equal(beatBefore, "veto-competition", "the scheduled competition is the next beat");
   const v = s.advanceGame();
-  assert.ok(v.pending || (s.snapshot().live as unknown as { competition?: unknown }).competition !== undefined || (priv(s).live.beat !== undefined), "the competition advanced");
+  // it moved on: a decision is pending for the player, a competition is running, or the beat advanced past the one the nap woke into
+  assert.ok(v.pending || (s.snapshot().live as unknown as { competition?: unknown }).competition !== undefined || priv(s).live.beat !== beatBefore, "the competition advanced");
   if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
 });
 Then("the nap ended at the start of the evening", function () {
   const c = n(this);
   assert.equal(c.r.wokenBy, "evening"); assert.equal(c.r.timeOfDay, "evening"); close(hourOf(c.s), 16, "the evening starts at 16");
 });
-Then("the night has not ended: only going to bed ends it", function () {
+Then("the player is still awake: only going to bed ends the night", function () {
   const l = priv(n(this).s).live;
   assert.equal(l.playerRetired, false); assert.equal(l.lastSleepDepth, 28, "the night's bedtime stamp is untouched");
 });
@@ -189,17 +193,21 @@ Then("no player-facing or admin view carries a rest number or the nap factor", f
 // --- the house-life + no-NPC + byte-identical scenarios need their own preparation -------------------------------------------------------
 Then("no houseguest ever naps", function () {
   const c = n(this);
+  // The engine's real per-NPC sleep state (the public `asleep` list of getGameState): a houseguest who naps would be listed asleep in a morning or afternoon phase.
+  const seen = (c as unknown as { daytimeAsleep?: string[] }).daytimeAsleep;
+  assert.ok(Array.isArray(seen), "the afternoons were sampled for sleepers");
+  assert.deepEqual(seen, [], "no houseguest is asleep in a morning or afternoon phase");
   for (const e of c.events as Array<{ initiator: string; content: string }>) if (e.initiator !== "player") assert.ok(!/\bnap(s|ped|ping)?\b/i.test(e.content), `an NPC napped: ${e.content}`);
 });
 When("many afternoons pass in played games", function () {
   const events: unknown[] = [];
+  const daytimeAsleep: string[] = [];
   for (const seed of [3, 5, 8]) {
     const g = setup(seed);
-    for (let i = 0; i < 40; i++) { g.s.advanceClockPerConversation(); if ((g.s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { const v = g.s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void g.s.submitDecision(req)); } }
+    for (let i = 0; i < 40; i++) { g.s.advanceClockPerConversation(); { const gs = g.s.getGameState() as { timeOfDay?: string; asleep?: Array<{ id: string }> }; if ((gs.timeOfDay === "morning" || gs.timeOfDay === "afternoon") && gs.asleep?.length) daytimeAsleep.push(...gs.asleep.map((a) => `${seed}:${gs.timeOfDay}:${a.id}`)); } if ((g.s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due) { const v = g.s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void g.s.submitDecision(req)); } }
     events.push(...g.sb.engine.events.queryAll());
-    for (const [id] of priv(g.s).presence) if (id !== "player") assert.equal((g.s as unknown as { npcNapHours?: unknown }).npcNapHours, undefined, id);
   }
-  n(this).events = events;
+  n(this).events = events; (n(this) as unknown as { daytimeAsleep: string[] }).daytimeAsleep = daytimeAsleep;
 });
 Then("a headless seeded season is byte-identical to one with the feature on and no nap taken", function () {
   const run = (on: boolean): string => {

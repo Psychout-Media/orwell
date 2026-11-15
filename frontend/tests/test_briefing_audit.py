@@ -38,3 +38,13 @@ def test_hang_out_due_or_no_schedule_unchanged():
     raw = ch._hang_out_steer({"stopReason": "event-due", "minutes": 60})
     assert ch._reconcile_hang_out_steer(raw, {"daySchedule": {"due": True}}) == raw
     assert ch._reconcile_hang_out_steer(raw, {}) == raw
+
+
+def test_with_you_no_one_is_compared_with_the_briefings_awake_set():
+    """review of #2755: "With you: No one" was skipped, so a prompt claiming nobody was present passed while the board had an awake houseguest there."""
+    from routes.briefing import Briefing
+    msgs = [{"role": "system", "content": "    With you: No one."}]
+    here = Briefing(location="kitchen", present=("Houseguest A",))
+    assert [f["fact"] for f in audit_briefing(msgs, here)] == ["presence"]
+    assert audit_briefing(msgs, Briefing(location="kitchen", present=("Houseguest A",), asleep=("Houseguest A",))) == []
+    assert audit_briefing(msgs, Briefing(location="kitchen")) == []

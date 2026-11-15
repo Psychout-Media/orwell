@@ -628,7 +628,10 @@ export class EngineCommandsAdapter implements EngineCommands {
   restoreFoldMeter(state: { key: string; counts: Record<string, number> } | undefined): void {
     this.meterCounts.clear();
     this.meterKey = state?.key ?? "";
-    for (const [k, v] of Object.entries(state?.counts ?? {})) this.meterCounts.set(k, v);
+    // A persisted count must be a non-negative safe integer: NaN, negatives or fractions would corrupt the shrink factor.
+    for (const [k, v] of Object.entries(state?.counts ?? {})) {
+      if (typeof v === "number" && Number.isSafeInteger(v) && v >= 0) this.meterCounts.set(k, v);
+    }
   }
 
   private rollBeatWindow(): void {

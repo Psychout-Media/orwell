@@ -81,3 +81,34 @@ Feature: House presence and lingering play
     Then the week, the phase, and the pending ceremony are unchanged
     And each milling turn is a clean committed turn, never an idle fast-forward
     And the day's meaningful event is still the scheduled beat
+
+  # ORW-419 (Ryne, 2026-11-15: "I think the narrator should include the exit and the arrival. But the engine should move before the narrator.").
+  # The engine resolves the player's OWN move from their words before the narrator writes; the narrator then voices the recorded from/to.
+  Scenario: The engine moves the player from their own words before the narrator writes
+    Given a started game with the player in the backyard and no house event in session
+    When the engine reads the player's words "I go to the kitchen"
+    Then the engine has the player in the kitchen
+    And the game state hands the narrator the move from the backyard to the kitchen
+
+  Scenario: Leaving with no destination goes through the nearest door
+    Given a started game with the player in the backyard and no house event in session
+    When the engine reads the player's words "I want to leave the backyard"
+    Then the engine has the player in the living room
+    And the game state hands the narrator the move from the backyard to the living room
+
+  Scenario: A future or conditional phrase is not a move
+    Given a started game with the player in the backyard and no house event in session
+    When the engine reads the player's words "I'll go to the kitchen later"
+    Then the engine has the player in the backyard
+    And the game state hands the narrator no move
+
+  Scenario Outline: During a house event the player's move is refused with a reason and nothing moves
+    Given a seeded season paused at <event>
+    When the engine reads the player's words "I go to the kitchen"
+    Then the move is refused with an in-fiction reason
+    And the player's room and the in-game clock are unchanged
+
+    Examples:
+      | event                   |
+      | an eviction vote        |
+      | a competition in session |

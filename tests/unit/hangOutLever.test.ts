@@ -5,6 +5,7 @@ import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { PLAYER_TOOLS } from "../../src/surfaces/tools/registry";
 import { buildSandbox } from "../support/sandbox";
+import { hoursUntilDue } from "../../src/engine/daySchedule";
 import { resolvePending } from "../../features/support/answerPending";
 
 /** "Hang out until X" through the REAL session: every stop reason, the event clamp, flag-off/clock-off no-ops, determinism, persistence, MCP boundary. Roles only. */
@@ -122,12 +123,14 @@ describe("hangOut lever", () => {
     night.setPremiereEntrancesEnabled(true);
     night.createCharacter({ playerName: "P", seed: 5 });
     night.setPerConversationClockEnabled(true); night.setHangOutEnabled(true);
-    for (let i = 0; i < 40 && (night.getGameState() as { phase: string }).phase === "premiere"; i++) { if (night.advanceGame().pending) break; }
+    for (let i = 0; i < 40 && (night.getGameState() as { phase: string }).phase === "premiere"; i++) { const v = night.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void night.submitDecision(req)); } // resolve decisions: a pending one makes hangOut() refuse and the loop below would assert nothing
     for (let i = 0; i < 400 && !["night", "late-night"].includes(night.gameStatus().timeOfDay ?? ""); i++) night.noteMessage({ messageId: `m${i}` });
     (night.snapshot() as unknown as { live: Live }).live.nightDepth = 22;
     expect((night.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(false);
     for (let i = 0; i < 6; i++) {
       const r = night.hangOut();
+      expect(r.ok, "the hang-out runner ran (a refusal has no stopReason)").not.toBe(false);
+      expect(r.stopReason, "the runner reported a stop reason").toBeDefined();
       expect(r.stopReason, "the premiere-night event is tomorrow, never due tonight").not.toBe("event-due");
       if (r.stopReason === "bedtime") break;
     }
@@ -135,13 +138,17 @@ describe("hangOut lever", () => {
     const s = parked(5, "ho-due")!;
     const snap = JSON.parse(JSON.stringify(s.snapshot())) as { live: Live & { beat?: string } };
     const target = (s.getGameState() as { daySchedule?: { minutesUntil: number } }).daySchedule!.minutesUntil;
-    snap.live.nightDepth = snap.live.nightDepth! + target / 60 - 0.001; // sub-minute shy of the hour
+    // `minutesUntil` rounds UP to whole minutes, so the exact gap is in (target-1, target] minutes. Step (target-3) whole minutes plus 12 s: the gap is then a NON-whole number of minutes
+    // between 1.8 and 2.8, past the runner's sub-minute "that IS the event" guard, so a beat really runs and the exact clamp is what stops it (a minute-rounded probe overshoots here).
+    snap.live.nightDepth = snap.live.nightDepth! + Math.max(0, target - 3) / 60 + 0.2 / 60;
+    const exactTarget = snap.live.nightDepth + hoursUntilDue(snap.live as unknown as Parameters<typeof hoursUntilDue>[0])!; // the hour the event is due, exact
     const d = new GameSessionRegistry().sandboxFor("ho-due2").session as S; d.setHangOutEnabled(true); d.setPerConversationClockEnabled(true);
     d.setDesireClockEnabled(false); d.setWantMovementEnabled(false); d.setMorningApproachEnabled(false); d.setMoodApproachEnabled(false); d.setApproachMemoryEnabled(false); d.setNpcTellsEnabled(false);
     GameSessionAdapter.setTimeOfDayEnabled(true);
     d.restore(snap as unknown as Parameters<S["restore"]>[0]);
     expect(d.hangOut().stopReason).toBe("event-due");
     expect((d.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(true);
+    expect(live(d).nightDepth!, "the clamp stops AT the event, not up to a minute past it").toBeLessThanOrEqual(exactTarget + 1e-6);
   });
   it("pulled fires at most once per in-game day", () => {
     for (let seed = 1; seed <= 30; seed++) {
@@ -229,5 +236,32 @@ describe("hangOut over the MCP boundary", () => {
     const res = (await server.callTool("hangOut", {})) as { ok: boolean; reason?: string };
     expect(res.ok).toBe(false); // flag off / no game - but it dispatched
     await expect(server.callTool("hangOut", { maxBeats: 0 })).rejects.toThrow();
+  });
+});
+
+describe("hangOut lever stated target (ORW-445)", () => {
+  it("maxMinutes: 120 runs about two hours; untilBandEnd stops at the next part-of-day edge; the MCP boundary rejects junk", () => {
+    const s = parked(5)!;
+    const h0 = live(s).nightDepth!;
+    const r = s.hangOut({ maxMinutes: 120 });
+    expect(r.ok).toBe(true);
+    if (r.stopReason === "max-beats") expect(r.minutes).toBe(120);
+    else expect(r.minutes).toBeLessThanOrEqual(120);
+    expect(live(s).nightDepth! - h0).toBeLessThanOrEqual(2 + 1e-6);
+    const t = parked(5, "ho-band")!;
+    const h1 = live(t).nightDepth!;
+    const edge = [12, 16, 20, 24].find((e) => e > h1 + 1e-6)!;
+    const rb = t.hangOut({ untilBandEnd: true });
+    expect(rb.ok).toBe(true);
+    expect(live(t).nightDepth!).toBeLessThanOrEqual(edge + 1e-6);
+  });
+  it("MCP: a non-numeric maxMinutes / non-boolean untilBandEnd is refused", async () => {
+    const sb = buildSandbox(1);
+    const session = new GameSessionAdapter();
+    const commands = new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge);
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session });
+    await expect(server.callTool("hangOut", { maxMinutes: "soon" })).rejects.toThrow();
+    await expect(server.callTool("hangOut", { maxMinutes: 0 })).rejects.toThrow();
+    await expect(server.callTool("hangOut", { untilBandEnd: "yes" })).rejects.toThrow();
   });
 });

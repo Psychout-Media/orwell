@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error plain .mjs script, no type declarations
 import { assignBddShards, featurePaths, loadDurations, MIN_WEIGHT_S } from "../../ci/bdd-shard.mjs";
@@ -28,10 +29,23 @@ describe("BDD shard assignment (ORW-413)", () => {
     expect((assignBddShards(files, durations, 3) as string[][]).flat().length).toBe(files.length);
   });
 
-  it("the three legs are balanced: heaviest <= 1.15 x the mean (or the mean plus the heaviest single feature)", () => {
+  it("the three legs are balanced: heaviest <= 1.15 x the mean (or the mean plus half the heaviest single feature)", () => {
     const loads = (assignBddShards(files, durations, 3) as string[][]).map((l) => l.reduce((n, f) => n + w(f), 0));
     const mean = loads.reduce((a, b) => a + b, 0) / 3;
     expect(Math.max(...loads)).toBeLessThanOrEqual(Math.max(mean * 1.15, mean + Math.max(...files.map(w)) / 2));
+  });
+
+  it("the leg really reaches cucumber: ORWELL_BDD_FEATURES replaces cucumber.cjs's path list (a broken override would run every feature in every leg), and the shard script sets it", () => {
+    const load = (env: Record<string, string>): string[] => {
+      const r = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(require('./cucumber.cjs').default.paths))"], { cwd: fileURLToPath(new URL("../..", import.meta.url)), env: { ...process.env, ORWELL_BDD_FEATURES: "", ...env }, encoding: "utf8" });
+      expect(r.status, r.stderr).toBe(0);
+      return JSON.parse(r.stdout);
+    };
+    expect(load({ ORWELL_BDD_FEATURES: "docs/features/a.feature\ndocs/features/b.feature\n" })).toEqual(["docs/features/a.feature", "docs/features/b.feature"]);
+    expect(load({}).length, "unset: the full executable list").toBe(files.length);
+    const script = readFileSync(fileURLToPath(new URL("../../ci/bdd-shard.mjs", import.meta.url)), "utf8");
+    expect(script).toMatch(/ORWELL_BDD_FEATURES: files\.join\("\\n"\)/);
+    expect(script, "an empty leg would run everything, so the script refuses it").toContain("an empty leg would run every feature");
   });
 
   it("ci.yml runs the three legs and the cucumber paths are the only feature list", () => {

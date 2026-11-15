@@ -96,6 +96,13 @@ export interface HttpMcpOptions {
   /** ORW-404: the save-fsync backlog for `/health` (latest vs durable version, oldest un-synced age). */
   saveStatus?: () => { saveLatestVersion: number; saveDurableVersion: number; saveOldestUnsyncedAgeMs: number; saveUnsyncedUsers: number; saveDurabilityPending?: boolean };
   /**
+   * ORW-404: true once the process has begun a graceful shutdown. While true, every NEW tool call
+   * (player/admin `/call` and `/rpc`) is refused with a retryable 503 (`code: "engine-restarting"`) so
+   * nothing is accepted that the exit could kill; requests already running finish (a save is
+   * synchronous inside its request). `/health` and the static `GET /tools` keep answering. Unset => never.
+   */
+  shuttingDown?: () => boolean;
+  /**
    * #1713 — the per-request RESPONSE BUDGET (ms): the hard bound on how long a queued tool call may
    * go unanswered before the transport answers a typed 503 (`code: "engine-busy"`) instead of holding
    * the socket silently. Node's `server.requestTimeout` only bounds RECEIVING the request — nothing
@@ -118,12 +125,13 @@ function warmFields(probe?: () => { warmed: boolean; warmMs: number | null }): {
   }
 }
 
-/** ORW-404: `/health` save-backlog fields; a broken probe reports zeros so it can never fail the liveness answer. */
-function saveFields(probe?: HttpMcpOptions["saveStatus"]): NonNullable<ReturnType<NonNullable<HttpMcpOptions["saveStatus"]>>> {
+/** ORW-404: `/health` save-backlog fields; a broken probe reports zeros plus `saveStatusUnknown: true` so it can never fail the liveness answer or look like a clean backlog. */
+function saveFields(probe?: HttpMcpOptions["saveStatus"]): NonNullable<ReturnType<NonNullable<HttpMcpOptions["saveStatus"]>>> & { saveStatusUnknown?: true } {
   try {
     return probe?.() ?? { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
   } catch {
-    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false };
+    // Liveness still answers, but the zeros must not read as "nothing unsynced": say the status is unknown (review of #2732).
+    return { saveLatestVersion: 0, saveDurableVersion: 0, saveOldestUnsyncedAgeMs: 0, saveUnsyncedUsers: 0, saveDurabilityPending: false, saveStatusUnknown: true };
   }
 }
 
@@ -194,7 +202,16 @@ function presentedToken(headers: Record<string, string | string[] | undefined>):
  */
 const MAX_USER_ID_CHARS = 64;
 
-export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options: HttpMcpOptions = {}): Server {
+/** ORW-404: the HTTP server plus a bounded wait for tool requests in flight (used by the graceful shutdown). */
+export type DrainableServer = Server & {
+  /** Resolves when no tool request is in flight, or after `timeoutMs`; never rejects. */
+  drainInflight(timeoutMs: number): Promise<void>;
+  inflightCount(): number;
+  /** Requests and queued jobs still running (shutdown notice). */
+  pendingDetail(): { requests: number; jobs: number };
+};
+
+export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options: HttpMcpOptions = {}): DrainableServer {
   // A request's MCP server is resolved per (channel, asserted user). Single-tenant deps ignore the
   // user; the registry-backed resolver routes each call into that user's isolated sandbox.
   const pick = (channel: "player" | "admin", user: string): McpServer =>
@@ -217,7 +234,17 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
   // closing the sandbox-swap race (a reset racing a player action) and future-proofing an async
   // narrator. Different users still run fully concurrently (isolation, 0021).
   const queues = new Map<string, Promise<void>>();
+  // Review of #2747: the shutdown drain waits for the JOBS, not only for responses. A response closes early
+  // (the response-budget 503, a client abort) while its job keeps running and can still write a save, so
+  // each enqueued job is counted until it settles and the drain waits for requests AND jobs.
+  let inflight = 0;
+  let jobsPending = 0;
+  let idleWaiters: Array<() => void> = [];
+  const notifyIdle = (): void => {
+    if (inflight === 0 && jobsPending === 0) { const w = idleWaiters; idleWaiters = []; for (const f of w) f(); }
+  };
   const enqueue = (user: string, job: () => Promise<void>): void => {
+    jobsPending++;
     // Audit E30: a rejecting job on a drained queue (e.g. `send` racing a timeout-destroyed
     // socket) had no `.catch` — an unhandled rejection exits the process on modern Node. Every
     // job body is wrapped so the chain can NEVER reject; the request's own structured error
@@ -227,6 +254,9 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
         await job();
       } catch {
         /* swallowed by design — the per-request handlers own error responses */
+      } finally {
+        jobsPending--;
+        notifyIdle();
       }
     };
     const tail = (queues.get(user) ?? Promise.resolve()).then(run, run);
@@ -267,6 +297,21 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
     return { refused: () => refused, clear: () => clearTimeout(timer) };
   };
 
+  const isShuttingDown = (): boolean => {
+    try { return options.shuttingDown?.() === true; } catch { return false; }
+  };
+
+  // ORW-404: tool requests in flight (passed the shutdown gate, response not yet finished / socket not closed).
+  const enterInflight = (res: import("node:http").ServerResponse): void => {
+    inflight++;
+    let done = false;
+    res.once("close", () => {
+      if (done) return;
+      done = true;
+      inflight--;
+      notifyIdle();
+    });
+  };
   const server = createServer((req, res) => {
     const send = (code: number, body: unknown): void => {
       // E30: the socket may be gone (request timeout, client abort) by the time a queued job
@@ -304,6 +349,7 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
           ...warmFields(options.warmStatus),
           stalls: stallTimer.snapshot(),
           ...saveFields(options.saveStatus),
+          shuttingDown: isShuttingDown(),
           flags: (() => {
             const f = bootFlags();
             try {
@@ -363,6 +409,14 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
         // the B34 anti-spray gate.
         return send(200, { tools: toolsFor(channel === "player" ? "player" : "admin/God Mode") });
       }
+
+      // ORW-404: once shutdown has begun, refuse NEW mutating work before reading the body or queueing it.
+      if (req.method === "POST" && (match[2] === "call" || match[2] === "rpc") && isShuttingDown()) {
+        try { res.setHeader("retry-after", "3"); } catch { /* headers already sent */ }
+        return send(503, { error: "engine restarting: retry shortly", code: "engine-restarting", retryable: true });
+      }
+
+      if (req.method === "POST" && (match[2] === "call" || match[2] === "rpc")) enterInflight(res);
 
       if (req.method === "POST" && match[2] === "call") {
         let body = "";
@@ -550,7 +604,19 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
     server.on("close", () => clearInterval(collapseWarnTimer));
   }
 
-  return server;
+  // ORW-404: resolves once no tool request is in flight, or after `timeoutMs` (whichever first); never rejects.
+  // New tool requests are refused by the 503 gate once `shuttingDown` is set (listening stays open so /health
+  // keeps answering), so during a drain the count can only fall.
+  const drain = (timeoutMs: number): Promise<void> => {
+    if (inflight === 0 && jobsPending === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const t = setTimeout(() => { idleWaiters = idleWaiters.filter((f) => f !== fin); resolve(); }, timeoutMs);
+      t.unref?.();
+      const fin = (): void => { clearTimeout(t); resolve(); };
+      idleWaiters.push(fin);
+    });
+  };
+  return Object.assign(server, { drainInflight: drain, inflightCount: (): number => inflight, pendingDetail: () => ({ requests: inflight, jobs: jobsPending }) });
 }
 
 /**
@@ -563,6 +629,6 @@ export function startHttpMcp(
   port: number,
   options: HttpMcpOptions = {},
   host = "127.0.0.1",
-): Server {
+): DrainableServer {
   return createHttpMcpServer(deps, options).listen(port, host);
 }

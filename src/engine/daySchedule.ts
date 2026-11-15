@@ -67,7 +67,7 @@ export function finalHohPartOf(live: LiveSeasonState | null | undefined, threePa
   return live.finalHohPart ?? 1;
 }
 
-/** The readable name of a milestone, naming the Final HOH part when there is one (narration priming + the HUD cue). */
+/** The readable name of a milestone, naming the Final HOH part when there is one (narration priming only; the status panel builds its own "Final HOH part N" text). */
 export function milestoneLabel(m: StructuralMilestone, finalHohPart?: 1 | 2 | 3 | null): string {
   return m === "hoh-competition" && finalHohPart ? `Final HOH part ${finalHohPart}` : MILESTONE_LABEL[m];
 }
@@ -164,12 +164,21 @@ export function beatFeltHours(beat: Beat | undefined): number | null {
  * Feeds the FE's optional "production announces it in a few minutes" warning. A pure read - never mutates, never draws rng.
  */
 export function minutesUntilDue(live: LiveSeasonState | null | undefined): number | null {
+  const h = hoursUntilDue(live);
+  return h === null ? null : Math.max(0, Math.ceil(h * 60 - 1e-6));
+}
+
+/**
+ * The EXACT in-game hours until the next scheduled milestone is due (0 once due), or `null` when there is no milestone / the clock has not started. The same night-gate rule as
+ * `minutesUntilDue` (which rounds this UP to whole minutes); the hang-out clamp reads this so it never steps past the event by up to a minute. Pure read, no rng.
+ */
+export function hoursUntilDue(live: LiveSeasonState | null | undefined): number | null {
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return null;
   const hour = live.nightDepth ?? WAKE_HOUR;
   // ORW-258: behind a pending night gate the event is due the next day at its hour: the rest of tonight plus the morning-to-hour span.
-  if (nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01) return Math.max(0, Math.ceil(((DAY_END_HOUR - hour) + (m.targetHour - WAKE_HOUR)) * 60 - 1e-6));
-  return Math.max(0, Math.ceil((m.targetHour - hour) * 60 - 1e-6));
+  if (nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01) return Math.max(0, (DAY_END_HOUR - hour) + (m.targetHour - WAKE_HOUR));
+  return Math.max(0, m.targetHour - hour);
 }
 
 

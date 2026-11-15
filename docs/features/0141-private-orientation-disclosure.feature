@@ -32,7 +32,9 @@ Feature: A private orientation can reach you by the houseguest's own choice
     And the knowledge store holds a told-by fact carrying the marker whose source is that houseguest
     And the fact is the player's own, visible in their journal
 
-  Scenario: Nothing reaches the player or the admin outside that path
+  # Scope: this scenario covers the CONFIDE path only (the per-conversation clock is off, which also switches the volunteer path off). The volunteer
+  # path, which can record a told-by fact with no press, is not exercised here (review of #2690; left for Ryne on ORW-437 to decide whether it gets its own scenario).
+  Scenario: Without a press the confide path puts nothing on the player or the admin surfaces
     Given a unique marker as the private orientation
     When a played season runs many beats without the player ever pressing that houseguest
     Then the marker appears on no player surface and no admin surface

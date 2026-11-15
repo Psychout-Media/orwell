@@ -6,7 +6,7 @@ import { Orchestrator } from "../../src/composition/orchestrator";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { renderGameContext } from "../../src/engine/momentPrompts";
 import {
-  DAY_SCHEDULE, MILESTONE_LABEL, nextMilestone, milestoneDue,
+  DAY_SCHEDULE, MILESTONE_LABEL, milestoneLabel, nextMilestone, milestoneDue,
 } from "../../src/engine/daySchedule";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 import { PLAYER } from "../../src/domain/ids";
@@ -112,6 +112,19 @@ describe("0118 — the telegraphed schedule rides the view + primes the narrator
     const ctx = renderGameContext(view);
     expect(ctx).toContain(MILESTONE_LABEL[ds!.next]); // the milestone is named for the narrator
     expect(ctx).toMatch(/COMING UP|IT IS TIME/); // it is telegraphed
+  });
+
+  it("ORW-443: the COMING UP line names the event and phase and no longer invites pitches or lobbying", () => {
+    const { sb } = harness({ clockOn: true, seed: 7, user: "u-sched-443" });
+    toLiveClock(sb);
+    const view = sb.session.getGameState();
+    for (const todaysEvent of [undefined, "hoh-comp" as never]) {
+      const ctx = renderGameContext({ ...view, daySchedule: { ...view.daySchedule!, due: false, ...(todaysEvent ? { todaysEvent } : {}) } });
+      const line = ctx.split("\n").find((l) => l.includes("COMING UP")) ?? "";
+      expect(line).toContain(milestoneLabel(view.daySchedule!.next, view.daySchedule!.finalHohPart));
+      expect(line).toContain(view.daySchedule!.phase);
+      expect(line).not.toMatch(/pitch|last-minute|scheme/i);
+    }
   });
 
   it("as the clock reaches the scheduled phase, `due` flips true and the narrator calls the gather", () => {

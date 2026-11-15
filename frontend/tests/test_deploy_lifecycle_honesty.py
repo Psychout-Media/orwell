@@ -406,7 +406,7 @@ def _oobe_layout(tmp_path, helper=True):
 
 def _run_oobe(stubs, env, *flags):
     return subprocess.run(["bash", os.path.join(DEPLOY, "orwell-oobe-reset.sh"), "--yes", *flags],
-                          env={**stubs.env, "ORWELL_START_SETTLE": "0", **env}, capture_output=True, text=True)
+                          env={**stubs.env, "ORWELL_START_SETTLE": "0", "ORWELL_UPDATE_WARM_WAIT_SECONDS": "1", **env}, capture_output=True, text=True)
 
 
 @pytest.mark.skipif(not HAVE_SYSTEMD_DIR, reason="the script only drives services when /run/systemd/system exists")

@@ -369,6 +369,7 @@ def test_orw402_a_failed_chunk_writes_nothing_so_the_day_is_retried():
         hist.append(_row("assistant", f"narration {i} " + "y" * 400, 1))
     assert len(dc._chunks(dc.visible_day_text(hist, 1))) >= 3          # the control: this day really is chunked
     r = _run(dc.condense_day("u", 1, llm_fn=flaky, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert calls["n"] >= 2, "review of #2725: the injected failure (the second chunk call) was really reached"
     assert not r["accepted"] and writes == []
 
 
@@ -417,3 +418,81 @@ def test_orw437_a_heal_task_started_for_one_game_writes_nothing_into_the_next(mo
     k_a = f"u:{dc._game_sid('u')}:1"
     sids["now"] = "game-B"
     assert f"u:{dc._game_sid('u')}:1" != k_a
+
+
+def test_orw437_heal_picks_the_oldest_day_with_tries_left_and_charges_every_day_it_attempts(monkeypatch):
+    """review of #2668: an exhausted newest day must not starve older missing days; tries are charged per attempted day."""
+    from src import orwell_game_session as gs
+    monkeypatch.setattr(gs, "get_game_session", lambda user: "g1")
+    monkeypatch.setattr(dc, "enabled", lambda: True)
+    monkeypatch.setattr(dc, "_HEAL_TRIES", {})
+    monkeypatch.setattr(dc, "_IN_FLIGHT", set())
+    ran = []
+
+    async def fake_run(owner, day, sid=None, heal_days=None):
+        ran.append(day)
+        return {}
+
+    monkeypatch.setattr(dc, "run_condense", fake_run)
+    ledger = [_day_entry(1), _day_entry(2), _day_entry(3)]
+    dc._HEAL_TRIES["u:g1:1"] = dc._HEAL_TRIES_MAX  # the oldest day is already exhausted
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def go():
+        dc.kickoff_heal("u", ledger)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    loop.run_until_complete(go())
+    assert ran == [2], "the oldest day that still has tries left is healed, not only the newest"
+    assert dc._HEAL_TRIES["u:g1:2"] == 1 and dc._HEAL_TRIES["u:g1:3"] == 1
+
+
+def test_orw437_heal_charges_and_attempts_one_shared_batch_when_more_days_are_missing_than_the_cap(monkeypatch):
+    """review of #2751: the newest day (5) has used its tries and FIVE days are missing (more than HEAL_DAYS_PER_RUN = 3). Day 1 is selected; exactly days 1-3 are charged AND handed to the worker; day 4 is neither."""
+    from src import orwell_game_session as gs
+    monkeypatch.setattr(gs, "get_game_session", lambda user: "g1")
+    monkeypatch.setattr(dc, "enabled", lambda: True)
+    monkeypatch.setattr(dc, "_HEAL_TRIES", {"u:g1:5": dc._HEAL_TRIES_MAX})
+    monkeypatch.setattr(dc, "_IN_FLIGHT", set())
+    ran = []
+
+    async def fake_run(owner, day, sid=None, heal_days=None):
+        ran.append((day, list(heal_days or [])))
+        return {}
+
+    monkeypatch.setattr(dc, "run_condense", fake_run)
+    ledger = [_day_entry(d) for d in (1, 2, 3, 4, 5)]
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def go():
+        dc.kickoff_heal("u", ledger)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    loop.run_until_complete(go())
+    assert ran == [(1, [2, 3])]
+    assert {k: v for k, v in dc._HEAL_TRIES.items() if k != "u:g1:5"} == {"u:g1:1": 1, "u:g1:2": 1, "u:g1:3": 1}
+
+
+def test_orw437_condense_day_heals_only_the_days_it_was_handed():
+    attempted = []
+
+    async def llm(msgs):
+        return "A real summary of the day."
+
+    ledger = [_day_entry(d) for d in (1, 2, 3, 4, 5)]
+
+    async def ledger_fn():
+        return ledger
+
+    async def write_fn(day, text, tier="day", covers_days=None):
+        attempted.append(day)
+        return {"accepted": True}
+
+    hist = [_row("user", "hi", d) for d in (1, 2, 3, 4, 5)] + [_row("assistant", "there", d) for d in (1, 2, 3, 4, 5)]
+    _run(dc.condense_day("u", 1, llm_fn=llm, history=hist, ledger_fn=ledger_fn, write_fn=write_fn, heal_days=[2, 3]))
+    assert attempted == [1, 2, 3]
+    attempted.clear()
+    _run(dc.condense_day("u", 1, llm_fn=llm, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
+    assert attempted == [1, 2, 3, 4], "no batch given: the old rule (the selected day plus up to HEAL_DAYS_PER_RUN earlier ones)"

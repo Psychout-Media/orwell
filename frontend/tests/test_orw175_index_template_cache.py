@@ -84,3 +84,17 @@ def test_micro_benchmark_prints_medians(client):
         app_module._HTML_TEMPLATE_CACHE = orig
     print(f"\nORW-175 median ms (N=200): cached {cached} | uncached {uncached}")
     assert cached["/"] <= uncached["/"] * 1.5  # sanity only; timing is not a gate
+
+
+def test_orw437_toggling_zero_clocks_changes_the_next_page_shell(tmp_path, monkeypatch):
+    """review of #2662: `data-zero-clocks` is baked into the cached shell, so the setting must be part of the cache key."""
+    import src.settings as st
+    monkeypatch.setattr(st, "game_build_enabled", lambda: True)
+    f = tmp_path / "shell.html"
+    f.write_text("<html><body>x {{CSP_NONCE}}</body></html>", encoding="utf-8")
+    app_module._HTML_TEMPLATE_CACHE.clear()
+    real = st.get_setting
+    monkeypatch.setattr(st, "get_setting", lambda k, d=None: True if k == "zero_clocks" else real(k, d))
+    assert 'data-zero-clocks="1"' in app_module._html_template(str(f))
+    monkeypatch.setattr(st, "get_setting", lambda k, d=None: False if k == "zero_clocks" else real(k, d))
+    assert 'data-zero-clocks="1"' not in app_module._html_template(str(f)), "the stale cached shell was served after the setting flipped"

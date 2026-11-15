@@ -212,7 +212,7 @@ jobs:
   # The first signal. One job that finishes in about a minute and that NO other job waits for: typecheck, the source-pinned guard tests (the CI wiring pins, the F-3 window
   # ratchet, no-new-bespoke-menu, the Vault-Wall dependency test ...), the Vault word scans that fail on a public string (the 0110 "confidence" scan, the 0023 "opinion change
   # is invisible" scan), py_compile and the ES-module syntax check. All of it is `npm run ci:fast` (ci/fast-checks.sh): run that locally before pushing, because every
-  # failure it can report would otherwise be found by a slow lane minutes later. Each check also still runs in its own full lane; nothing was removed from there.
+  # failure it can report would otherwise be found by a slow lane minutes later. The guard tests and word scans also still run in their full lanes; the typecheck, py_compile and ES-module syntax check were moved here and run only here.
   # Needs only the path filter (so a docs-only PR skips it); `ci-gate` requires it.
   fast-checks:
     needs: changes

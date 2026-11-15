@@ -357,6 +357,7 @@ def test_orw363_the_panel_names_the_next_event_and_when_from_the_engine_schedule
     assert _node_eval(fns, 'nextEventLabel({"week": 1, "dayNumber": 1})') == "First HOH: tomorrow afternoon"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_orw370_the_panel_names_each_final_hoh_part_from_the_schedule():
     """ORW-370: the three-part Final HOH is three competitions on one `hoh-competition` milestone; the engine's daySchedule now carries `finalHohPart`, and the panel names it."""
     src = _read(PANEL)
@@ -389,6 +390,20 @@ def test_orw392_the_hud_says_early_morning_past_2am_before_the_wake_up_call():
     assert _node_eval(snippet, 'todLabel("late-night", true)').endswith("Early morning")
     assert _node_eval(snippet, 'todLabel("late-night")').endswith("Late night")
     assert _node_eval(snippet, 'todLabel("late-night", false)').endswith("Late night")
-    assert _node_eval(snippet, 'todLabel("morning", true)').endswith("Morning")  # the flag only ever renames the late-night phase
+    assert _node_eval(snippet, 'todLabel("morning", true)').endswith("Early morning")  # ORW-441: woken early after an early bed the phase is "morning" (clock 2-8am)
+    assert _node_eval(snippet, 'todLabel("morning", false)').endswith("Morning") and not _node_eval(snippet, 'todLabel("morning")').endswith("Early morning")
+    for phase, label in (("afternoon", "Afternoon"), ("evening", "Evening"), ("night", "Night")):  # the flag never renames any other phase (review of #2756: not only afternoon)
+        assert _node_eval(snippet, f'todLabel("{phase}", true)').endswith(label)
+        assert "Early morning" not in _node_eval(snippet, f'todLabel("{phase}", true)')
     nightstatus = _read(PANEL.replace("orwellStatusPanel.js", "orwellNightStatus.js"))
     assert "state.earlyMorning === true" in nightstatus and "Early morning" in nightstatus
+
+
+def test_orw363_render_assigns_the_next_event_label_to_the_prehoh_line():
+    """ORW-437 (review of #2648): the label helpers are tested in isolation above, so pin the render wiring too: `render()` must feed `nextEventLabel(st)` into
+    `#os-prehoh` and un-hide it only when there is a label (source-pinned, consistent with this file's DOM-less approach)."""
+    src = _read(PANEL)
+    assert 'const preHohEl = el.querySelector("#os-prehoh");' in src
+    assert "const nextLine = nextEventLabel(st);" in src
+    assert "preHohEl.hidden = !nextLine;" in src
+    assert "if (nextLine) setText(preHohEl, nextLine);" in src

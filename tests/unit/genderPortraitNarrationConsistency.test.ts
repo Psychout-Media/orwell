@@ -14,8 +14,8 @@ import type { GameStateView } from "../../src/ports/GameSession";
  * inferred gender/pronouns from the name each turn — so the photo and the prose could disagree.
  *
  * These tests lock the regression closed: for every active houseguest the gender the PORTRAIT encodes
- * (`genderPresentationPhrase(genderPresentation)` in the portrait prompt) MUST equal the gender the
- * NARRATION voice-anchor encodes (the same phrase + the pronoun set in `renderGameContext`), and BOTH
+ * (ORW-380 v3: the subject noun man / woman / nonbinary person in the portrait's "Waist-up portrait of a N-year-old ..." sentence, `portraitGenderRe`) MUST equal the gender the
+ * NARRATION voice-anchor encodes (`genderPresentationPhrase` + the pronoun set in `renderGameContext`), and BOTH
  * must derive from the same stored `genderPresentation`. Roles only — no fixture names asserted.
  */
 
@@ -27,8 +27,9 @@ function rosterLineFor(ctx: string, name: string): string | undefined {
 }
 
 /** ORW-380: the v3 portrait subject line carries the gender as man / woman / nonbinary person. */
+// Anchored on the subject sentence ("Waist-up portrait of a 31-year-old ... man with ..."), so freeform look text elsewhere in the prompt can never satisfy it.
 const portraitGenderRe = (g: string): RegExp =>
-  g === "nonbinary" ? /nonbinary person with a soft androgynous look/ : new RegExp(`year-old (?:[A-Za-z -]+ )?${g} with`);
+  g === "nonbinary" ? /Waist-up portrait of an? \d+-year-old [^.]*?nonbinary person with a soft androgynous look/ : new RegExp(`Waist-up portrait of an? \\d+-year-old (?:[A-Za-z -]+ )?${g} with`);
 
 describe("#1140 — portrait and narration voice the SAME stored gender presentation", () => {
   it("every active houseguest's narration gender + pronouns match the portrait's gender, all from one facet", () => {
@@ -47,7 +48,7 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
         const g = card.genderPresentation!;
 
         // (1) The PORTRAIT: the live, Vault-free prompt the FE renders, keyed by id. Its SUBJECT line
-        // encodes the gender via `genderPresentationPhrase(card.genderPresentation)`.
+        // encodes the gender as the v3 subject noun for `card.genderPresentation` (matched by `portraitGenderRe`).
         const portrait = s.getPortraitPrompt(card.id);
         expect(portrait).not.toBeNull();
         expect(portrait!.prompt).toMatch(portraitGenderRe(g)); // ORW-380: the v3 subject line says man / woman / nonbinary person
@@ -135,7 +136,10 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
       // uncapped AI-override hole, now closed at the recordCastIdentity fold): the CURRENT display name
       // reads the SAME gender `g` the portrait + narration encode. The image model puts the name in the
       // prompt, so the name itself must point the right way — no "Marlon, a woman" mismatch survives.
-      expect(nameGenderOf(card.name), `flipped name ${card.name} should read ${g}`).toBe(g);
+      // ORW-437: this fold lands AFTER createCharacter, so every name has already been told to the player and a live
+      // fold never renames it (the same freeze `recordCastProfile` applies). The pre-game fold, where names are not yet
+      // introduced, still re-picks the name (covered by the diversity and castGenesisGenderCohere suites).
+      expect(card.name, `an introduced name never changes on a live fold`).toBe(target.name);
 
       proved = true;
       break;

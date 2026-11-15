@@ -276,6 +276,8 @@
     return null;
   }
   // ORW-359 — every cached public roster card (player included), for the chat name-link pass.
+  const _rosterListeners = [];
+  function onRosterCache(fn) { if (typeof fn === "function") _rosterListeners.push(fn); }
   function allCards() {
     return Object.keys(_portraitById).map((k) => Object.assign({ id: k }, _portraitById[k]));
   }
@@ -315,6 +317,8 @@
           if (hg.name) _idByName[String(hg.name).trim().toLowerCase()] = String(hg.id);
         }
       }
+      // ORW-437: tell the subscribers (the chat name-link pass left rows unmarked while the roster was empty) the cache is filled.
+      for (const fn of _rosterListeners.slice()) { try { fn(); } catch (_) { /* a listener never breaks the cache */ } }
     } catch (_) { /* fail open — every consumer keeps rendering the monogram fallback */ }
   }
   if (typeof window !== "undefined") {
@@ -334,6 +338,6 @@
 
   window.OrwellMonogram = {
     face, svg, badgeSvg, rolesFrom, hueFor, patternFor, initialsFor, ensureCss,
-    portraitFor, refreshPortraitCache, cardFor, playerCard, allCards,
+    portraitFor, refreshPortraitCache, cardFor, playerCard, allCards, onRosterCache,
   };
 })();

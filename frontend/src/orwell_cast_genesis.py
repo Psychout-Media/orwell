@@ -307,7 +307,7 @@ GENESIS_CASTING_ROLES = (
     ("loyalist", "loyalist", False, False,
      "rides for their ride-or-die to a fault, loyalty over logic"),
     ("superfan gamebot", "analyst", True, False,
-     "an over-studied superfan who quotes past seasons and over-plays their BB knowledge"),
+     "an over-studied superfan who quotes past seasons and over-plays their show knowledge"),
 )
 GENESIS_ROLE_MAX_PER_CAST = 2
 GENESIS_CEREBRAL_MAX_PER_CAST = 3
@@ -579,7 +579,7 @@ _TOTAL_LO, _TOTAL_HI = 1.47, 2.1
 # and the calibration balance (juryReach) is preserved: the model authors WHO people are; the engine keeps
 # HOW MUCH anything weighs (every hidden game weight stays engine-seeded).
 _SYSTEM = (
-    "You are the CASTING DIRECTOR for a season of the reality show ORWELL (never call it Big Brother), designing houseguests from scratch. Invent "
+    "You are the CASTING DIRECTOR for a season of the reality show ORWELL (never call it Big Brother or BB), designing houseguests from scratch. Invent "
     "vivid, distinctive, reality-TV-plausible people — no two alike, each with their own life, look, "
     "voice, and secret game. Author ONLY the houseguest id(s) you are given below. Output STRICT JSON "
     "only (no prose around it): an object with two keys, \"npcs\" and \"ties\".\n"
@@ -633,7 +633,7 @@ _SYSTEM = (
     "(this is what the show voices; make each unmistakably distinct). The identity is printed beside the card, and "
     "the card's gender, exact age and look are fixed in LATER steps, so write it with NO pronouns and NO gendered words "
     "(use the name or the role), NO number of years (never \"a 24-year-old\"), and NO face or body features (teeth, "
-    "tattoos, glasses, scars, hair); the show is Orwell, never Big Brother.\n"
+    "tattoos, glasses, scars, hair); the show is Orwell, never Big Brother or BB.\n"
     '  "archetype": use EXACTLY the archetype tag given in this houseguest\'s casting card (do not '
     "substitute a different one).\n"
     '  "vocation": a SHORT occupation noun phrase (e.g. "court reporter") — a specific job inside the '
