@@ -357,6 +357,7 @@ def test_orw363_the_panel_names_the_next_event_and_when_from_the_engine_schedule
     assert _node_eval(fns, 'nextEventLabel({"week": 1, "dayNumber": 1})') == "First HOH: tomorrow afternoon"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
 def test_orw370_the_panel_names_each_final_hoh_part_from_the_schedule():
     """ORW-370: the three-part Final HOH is three competitions on one `hoh-competition` milestone; the engine's daySchedule now carries `finalHohPart`, and the panel names it."""
     src = _read(PANEL)

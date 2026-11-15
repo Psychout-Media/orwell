@@ -192,7 +192,7 @@ def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  #
         trig = page.evaluate("() => window.__guardTrigger || null")
         browser.close()
     assert "Reading Week 1" in bar, (bar, trig)
-    assert any("w1 a" in t for t in rows) and not any("w2 a" in t for t in rows), rows
+    assert any("w1 a" in t for t in rows) and not any("w2 a" in t for t in rows), (rows, trig)
 
 
 @pytest.mark.browser

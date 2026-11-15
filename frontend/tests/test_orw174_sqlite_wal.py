@@ -48,5 +48,9 @@ def test_the_backup_script_snapshots_the_db_before_tar():
     """ORW-403: the archive holds a consistent, verified copy (Connection.backup + integrity_check), taken before the tar;
     the old wal_checkpoint step could not write under the unit's sandbox and was silently skipped."""
     src = (REPO / "deploy" / "orwell-backup.sh").read_text()
-    assert src.index("src.backup(dst)") < src.index('dst.execute("PRAGMA integrity_check")') < src.rindex("tar ")
+    assert src.index("src.backup(dst)") < src.index('dst.execute("PRAGMA integrity_check")') < src.index('\ntar "${TAR_ARGS[@]}"')
+    # the archive must hold the verified snapshot INSTEAD of the live pair (review of #2695/#2698/#2697)
+    for live in ("frontend/data/app.db", "frontend/data/app.db-wal", "frontend/data/app.db-shm"):
+        assert f"--exclude='{live}'" in src, live
+    assert '--transform "s,^$(basename "$SNAP")\\$,frontend/data/app.db,"' in src
     assert subprocess.run(["bash", "-n", str(REPO / "deploy" / "orwell-backup.sh")]).returncode == 0

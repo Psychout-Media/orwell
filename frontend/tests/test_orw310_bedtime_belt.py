@@ -283,7 +283,7 @@ def test_loop_never_forces_on_talk_about_bed(monkeypatch, text):
 @pytest.mark.parametrize("tod", ["morning", "afternoon", "evening"])
 def test_loop_never_forces_where_the_engine_would_hold(monkeypatch, tod):
     rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", status={**_NIGHT, "timeOfDay": tod})
-    assert rounds[0]["tool_choice"] is None and set(belts) <= {"bedtime-held-note"}  # ORW-421: only the held note may fire
+    assert rounds[0]["tool_choice"] is None and belts == {"bedtime-held-note": 1}  # ORW-421: exactly the held note fires, once
 
 
 def test_loop_never_forces_with_a_pending_decision(monkeypatch):
