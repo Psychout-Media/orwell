@@ -628,6 +628,11 @@
   }
 
   function render(pending) {
+    // ORW-359 (found when a live run's eviction vote card never enabled Confirm): the same pending is dispatched again by several seams (the chat tool-output seam, the surface-the-pending belt, a socket state frame,
+    // the backstop poll). Each one rebuilt the card from scratch, so a player who had already picked a name (or a tone, or a nominee) saw their pick cleared and Confirm go grey under their cursor. A card already
+    // mounted for the SAME decision (same kind, options and prompt) is left exactly as it is; a different decision (or none) still replaces it.
+    const mounted = document.getElementById(CARD_ID);
+    if (mounted && pending && pending.kind && pending.kind !== "ceremony-step" && !mounted.classList.contains("odec-done") && mounted.dataset.sig === _sig(pending)) return;
     removeCard();
     if (!pending || !pending.kind) return;
     if (pending.kind === "ceremony-step") { renderCeremonyStep(pending); return; }
@@ -678,6 +683,7 @@
     // (flavor over an already-decided result) is inspectable/testable — not only distinguishable
     // via the confirm label. `pending.binding === false` ⇒ "false"; everything else binds ⇒ "true".
     card.dataset.binding = String(pending.binding !== false);
+    card.dataset.sig = _sig(pending); // ORW-359: which decision this card is for (a repeat of the same one must not rebuild it)
 
     const head = document.createElement("div");
     head.className = "odec-head";
