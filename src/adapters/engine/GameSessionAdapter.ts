@@ -5750,7 +5750,8 @@ export class GameSessionAdapter implements GameSession {
         nearby: [],                       // no side rooms during a whole-house event
         turnsHere: this.presenceTenure?.get(me) ?? 0,
         companions: others.map((id) => ({ ...named(id), turnsHere: 0 })),
-        counts: this.headCounts(others.length),
+        // The player is counted in `room`/`house`: until their own entrance is staged they are not in the room, so publish no headcount then.
+        ...(notHere?.has(me) ? {} : { counts: this.headCounts(others.length) }),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
       };
