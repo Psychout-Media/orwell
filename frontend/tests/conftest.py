@@ -216,7 +216,7 @@ def _engine_client_no_retry_backoff(request, monkeypatch) -> None:
     backoff itself opts back in with `@pytest.mark.engine_retry` (module-level `pytestmark` works)."""
     try:
         from src import orwell_engine
-        monkeypatch.setattr(orwell_engine, "_ENGINE_DOWN_SINCE", None)  # ORW-404: the "engine is down" stamp never leaks between tests
+        monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_SINCE", None)  # ORW-404: the "unreachable since" stamp never leaks between tests
     except Exception:
         pass
     if request.node.get_closest_marker("engine_retry"):
