@@ -35,6 +35,8 @@ export const OPEN_LEDGER_DUE_OFFERS_MAX = 3;
 export const OPEN_LEDGER_DUE_MAX = 3;
 /** ORW-448: the fixed notes of the resolutions the ENGINE makes (never model words). */
 export const OPEN_LEDGER_NOTE_LEFT = "left the house";
+/** The fixed note when the entry has more than one houseguest among its parties (a group pact): not everyone left. No names. */
+export const OPEN_LEDGER_NOTE_LEFT_GROUP = "one of them left the house";
 export const OPEN_LEDGER_NOTE_LAPSED = "not mentioned again";
 export const openLedgerDealNote = (status: "kept" | "broken"): string => `the linked deal ended as ${status}`;
 
@@ -115,6 +117,23 @@ export function openLedgerProposal(req: unknown, knownIds: ReadonlySet<string>):
   const k = normalizeCanonText(kind).slice(0, OPEN_LEDGER_KIND_MAX).trim() || "claim";
   const ab = about === undefined ? "" : normalizeCanonText(about).slice(0, OPEN_LEDGER_ABOUT_MAX).trim();
   return { text: t, speaker, addressedTo: to, kind: k, ...(group.length ? { parties: group } : {}), ...(ab ? { about: ab } : {}) };
+}
+
+/**
+ * ORW-448: words in an entry's free-text `kind` that make it commitment-like. This list decides ONLY whether an entry is linked to
+ * an engine deal made moments before it; it never changes what is stored (the ledger stays free text). A missed link is harmless
+ * (the entry stays open and the normal rules handle it); a wrong link writes a false "the deal ended as kept" note the narrator
+ * would read, so when in doubt the entry is NOT linked. Whole words, case-insensitive.
+ */
+export const OPEN_LEDGER_COMMITMENT_WORDS: readonly string[] = [
+  "promise", "promises", "promised", "pact", "pacts", "deal", "deals", "agreement", "agreements", "agreed",
+  "alliance", "alliances", "allied", "vow", "vows", "oath", "oaths", "pledge", "pledges", "commitment", "commitments",
+];
+const COMMITMENT_RE = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${OPEN_LEDGER_COMMITMENT_WORDS.join("|")})(?![\\p{L}\\p{N}_])`, "iu");
+
+/** ORW-448: may this entry be linked to a deal? Only a commitment-like kind (see OPEN_LEDGER_COMMITMENT_WORDS) that is not about a third person. */
+export function openLedgerLinkable(p: Pick<OpenLedgerProposal, "kind" | "about">): boolean {
+  return !p.about && COMMITMENT_RE.test(p.kind);
 }
 
 /** The duplicate key: the speaker, the sorted set of everyone party to it, and the words. */
@@ -320,22 +339,24 @@ export function settleOpenEntryDue(ledger: OpenLedger, entryId: string, how: "of
  * ORW-448: everything the engine closes by itself, in one pure pass at a commit. Each close is `closeOpenEntry`
  * (open -> resolved, same function the model's resolutions use). Order: (1) a houseguest who has left the house closes every OPEN
  * entry they are a party to (speaker, addressee, group; an entry only ABOUT them stays), as `withdrawn` "left the house"; (2) an
- * entry linked to a deal whose PUBLIC ending is known closes with that status; (3) an open entry untouched for
- * OPEN_LEDGER_LAPSE_DAYS days becomes `lapsed` "not mentioned again". An open entry with no day at all is stamped with `today` in
+ * entry linked to a deal whose PUBLIC ending is known closes with that status; (3) an open entry whose linked deal is still open never lapses (an unknown deal id counts as unlinked); (4) an open entry untouched for
+ * OPEN_LEDGER_LAPSE_DAYS days becomes `lapsed` "not mentioned again"; with no in-game day known (`ctx.day` undefined) nothing is stamped and nothing lapses. An open entry with no day at all is stamped with `today` in
  * `touched` (first seen) and lapses that many days later. Returns the same object when nothing changed (so a save stays byte-identical).
  */
 export function syncOpenLedger(
   ledger: OpenLedger,
-  ctx: { turn: number; day?: number; gone: ReadonlySet<string>; dealEnd?: (dealId: string) => "kept" | "broken" | undefined },
+  ctx: { turn: number; day?: number; gone: ReadonlySet<string>; dealEnd?: (dealId: string) => "kept" | "broken" | "open" | undefined },
 ): OpenLedger {
   let out = ledger;
   for (const e of ledger.entries) {
     if (e.status !== "open") continue;
     if (ctx.gone.size && partiesOf(e).some((p) => p !== OPEN_LEDGER_PLAYER && ctx.gone.has(p))) {
-      out = closeOpenEntry(out, e.id, "withdrawn", OPEN_LEDGER_NOTE_LEFT, ctx.turn);
+      const houseguests = partiesOf(e).filter((p) => p !== OPEN_LEDGER_PLAYER).length;
+      out = closeOpenEntry(out, e.id, "withdrawn", houseguests > 1 ? OPEN_LEDGER_NOTE_LEFT_GROUP : OPEN_LEDGER_NOTE_LEFT, ctx.turn);
       continue;
     }
     const end = e.dealId && ctx.dealEnd ? ctx.dealEnd(e.dealId) : undefined;
+    if (end === "open") continue; // the linked deal is still open and binding (as the player sees it): the entry never lapses while it stands
     if (end) {
       out = closeOpenEntry(out, e.id, end, openLedgerDealNote(end), ctx.turn);
       continue;

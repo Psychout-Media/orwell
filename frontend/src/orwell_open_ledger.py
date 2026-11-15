@@ -245,6 +245,12 @@ async def _settle_due(due: list[dict], resolve: Optional[WriteFn], how: str) -> 
             log_rings.record_soft_failure("open-ledger:due-settle-failed", e)
 
 
+def _quoted(text: object) -> str:
+    """An entry's text is model-authored: JSON-quote it (one line, quotes and newlines escaped) so the engine's text after it, such as a
+    ` | PUBLIC RESULT: ...` line, is unambiguously outside the quotes and a forged one inside the text stays inert data."""
+    return json.dumps(str(text)[:TEXT_MAX_CHARS], ensure_ascii=False)
+
+
 async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, write: WriteFn,
                               elsewhere: Optional[list[dict]] = None, open_items: Optional[list[dict]] = None,
                               resolve: Optional[WriteFn] = None, owner: Optional[str] = None) -> int:
@@ -269,9 +275,9 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
             user += "\nELSEWHERE:\n" + "\n".join(f"- {p['id']}: {str(p.get('name') or 'someone')[:60]}" for p in away[:15]) + "\n"
         if due:
             user += "\nDUE:\n" + "\n".join(
-                f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]} | PUBLIC RESULT: {' '.join(str(o['due']).split())[:DUE_LINE_MAX_CHARS]}" for o in due[:3]) + "\n"
+                f"- {o['id']}: {_quoted(o['text'])} | PUBLIC RESULT: {' '.join(str(o['due']).split())[:DUE_LINE_MAX_CHARS]}" for o in due[:3]) + "\n"
         if opens and resolve is not None:
-            user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]}" for o in opens[:5]) + "\n"
+            user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {_quoted(o['text'])}" for o in opens[:5]) + "\n"
         try:
             reply = await llm([
                 {"role": "system", "content": _system_prompt(bool(due))},

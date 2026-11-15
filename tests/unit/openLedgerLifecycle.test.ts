@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -8,7 +8,7 @@ import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
 import { buildBeatAnnouncements } from "../../src/engine/beatAnnouncement";
 import {
   OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_MAX_ENTRIES, closeOpenEntry, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerSection,
-  openLedgerSuperset, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger,
+  openLedgerLinkable, openLedgerSuperset, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger,
   type OpenLedger, type OpenLedgerEntry, type OpenLedgerProposal,
 } from "../../src/engine/openLedger";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
@@ -49,7 +49,8 @@ describe("part 1: a houseguest who left the house closes their open entries (pur
   it("withdraws A's speaker, addressee and group entries as 'left the house'; leaves an about-only entry and others open", () => {
     const out = syncOpenLedger(ledger, ctx({ gone: new Set(["npc:a"]) }));
     const by = (id: string) => out.entries.find((e) => e.id === id)!;
-    for (const id of ["open:1", "open:2", "open:3"]) expect(by(id)).toMatchObject({ status: "withdrawn", note: "left the house", resolvedTurn: 50 });
+    for (const id of ["open:1", "open:2"]) expect(by(id)).toMatchObject({ status: "withdrawn", note: "left the house", resolvedTurn: 50 });
+    expect(by("open:3")).toMatchObject({ status: "withdrawn", note: "one of them left the house", resolvedTurn: 50 }); // a group pact: not everyone left
     expect(by("open:4").status).toBe("open");
     expect(by("open:5").status).toBe("open");
     expect(out.entries).toHaveLength(5); // nothing deleted
@@ -401,7 +402,8 @@ describe("part 3 (real engine): after a public ceremony the relevant entries com
     // every entry that is due belongs to the Head of Household, and only in a tie; with no tie nothing is due
     const evictionDue = Object.entries(priv(r.g).openLedger.due ?? {}).filter(([, d]) => d.line.startsWith("Public result of the eviction")).map(([id]) => id);
     for (const id of evictionDue) expect(priv(r.g).openLedger.entries.find((e) => e.id === id)!.speaker).toBe(hoh);
-    if (!result.includes("tied vote")) expect(evictionDue).toEqual([]);
+    // no conditional: the eviction flags entries if and only if the public result says the Head of Household broke a tie
+    expect(evictionDue.length > 0).toBe(result.includes("tied vote"));
   });
 
   it("the due set and lines do not change with how individuals voted, given the same public outcome (two hidden ballot patterns)", () => {
@@ -503,8 +505,10 @@ describe("part 4 (real engine): the lapse happens at the day roll, inside that c
     expect(res).toMatchObject({ accepted: true });
     const id = res.entryId!;
     const e0 = priv(r.g).openLedger.entries[0]!;
-    const day0 = e0.day!;
-    expect(day0).toBe(priv(r.g).live.dayNumber ?? priv(r.g).live.week);
+    expect(e0.day).toBe(priv(r.g).live.dayNumber); // the in-game day only: no stand-in (undefined stays undefined)
+    const stamp = (): number | undefined => priv(r.g).openLedger.entries[0]!.day ?? priv(r.g).openLedger.touched?.[id];
+    runUntil(r, () => stamp() !== undefined);
+    const day0 = stamp()!; // the day it was first seen
     runUntil(r, () => (priv(r.g).live.dayNumber ?? 0) >= day0 + 6);
     expect(priv(r.g).openLedger.entries.find((e) => e.id === id)!.status).toBe("open");
     const before = r.g.beatSeqNow();
@@ -519,7 +523,9 @@ describe("part 4 (real engine): the lapse happens at the day roll, inside that c
   it("re-stating it on day 6 moves the deadline", () => {
     const r = startAtNominations();
     const res = r.g.recordOpenLedger({ text: "a plan for the week", speaker: ME, addressedTo: [], kind: "plan", about: "the next competition" });
-    const day0 = priv(r.g).openLedger.entries[0]!.day!;
+    const id0 = res.entryId!;
+    runUntil(r, () => (priv(r.g).openLedger.entries[0]!.day ?? priv(r.g).openLedger.touched?.[id0]) !== undefined);
+    const day0 = (priv(r.g).openLedger.entries[0]!.day ?? priv(r.g).openLedger.touched?.[id0])!;
     runUntil(r, () => (priv(r.g).live.dayNumber ?? 0) >= day0 + 6);
     expect(r.g.recordOpenLedger({ text: "a plan for the week", speaker: ME, addressedTo: [], kind: "plan", about: "the next competition" })).toMatchObject({ accepted: true, duplicate: true });
     const touchedDay = priv(r.g).openLedger.touched![res.entryId!]!;
@@ -542,8 +548,7 @@ describe("part 4 (real engine): the lapse happens at the day roll, inside that c
     priv(fresh).openLedger = { nextId: 2, entries: [entry({ id: "open:1", speaker: ME, addressedTo: [], about: "the next competition", witnesses: [ME] })] };
     priv(fresh).live.playedGame = true; fresh.setAdvanceGateEnabled(false);
     priv(fresh).persist();
-    const first = priv(fresh).openLedger.touched!["open:1"]!;
-    expect(first).toBe(priv(fresh).live.dayNumber ?? priv(fresh).live.week);
+    expect(priv(fresh).openLedger.touched?.["open:1"]).toBe(priv(fresh).live.dayNumber); // stamped with the in-game day, or not at all while there is none
     expect(priv(fresh).openLedger.entries[0]).toEqual(entry({ id: "open:1", speaker: ME, addressedTo: [], about: "the next competition", witnesses: [ME] }));
   });
 });
@@ -581,5 +586,207 @@ describe("a simulated season: weekly evictions, several new entries a day, no mo
     const statuses = new Set(priv(r.g).openLedger.entries.map((e) => `${e.status}:${e.note ?? ""}`));
     expect(statuses.has("withdrawn:left the house")).toBe(true);
     expect(priv(r.g).openLedger.entries.length).toBe(created);
+  });
+});
+
+
+// ── ORW-448 review: M1, L1, L4 (pure) ────────────────────────────────────────────────────────────────────────────────────
+describe("review M1: an entry linked to a deal that is still open never lapses (pure)", () => {
+  const two = (): OpenLedger => led(
+    entry({ id: "open:1", dealId: "deal:1", day: 1, quoteHash: "a" }),
+    entry({ id: "open:2", day: 1, quoteHash: "b" }), // the unlinked twin
+  );
+  const stillOpen = (id: string) => (id === "deal:1" ? ("open" as const) : undefined);
+  it("30 days on: the linked entry is open and in the brief; the unlinked twin lapsed on day 8 (7 days after day 1)", () => {
+    const l = two();
+    const d7 = syncOpenLedger(l, ctx({ day: 8, dealEnd: stillOpen }));
+    expect(d7.entries.map((e) => e.status)).toEqual(["open", "lapsed"]);
+    const d30 = syncOpenLedger(d7, ctx({ day: 31, dealEnd: stillOpen }));
+    expect(d30.entries[0]!.status).toBe("open");
+    expect(openLedgerSection(d30, ["npc:a"], (id) => id, 99)).toContain("I will vote with you");
+    expect(syncOpenLedger(l, ctx({ day: 6, dealEnd: stillOpen })).entries.map((e) => e.status)).toEqual(["open", "open"]); // not before day 7
+  });
+  it("when that deal later ends, the entry closes with it; an unknown deal id counts as unlinked and lapses", () => {
+    const l = syncOpenLedger(two(), ctx({ day: 31, dealEnd: stillOpen }));
+    const ended = syncOpenLedger(l, ctx({ day: 32, dealEnd: () => "kept" }));
+    expect(ended.entries[0]).toMatchObject({ status: "kept", note: "the linked deal ended as kept" });
+    const unknown = syncOpenLedger(two(), ctx({ day: 8, dealEnd: () => undefined }));
+    expect(unknown.entries[0]!.status).toBe("lapsed");
+  });
+});
+
+describe("review L1: the note for a group entry does not say everyone left (pure)", () => {
+  it("one houseguest -> 'left the house'; more than one houseguest among the parties -> 'one of them left the house'", () => {
+    const l = led(
+      entry({ id: "open:1", speaker: "npc:a", addressedTo: [ME] }),
+      entry({ id: "open:2", speaker: "npc:b", addressedTo: [], parties: ["npc:b", "npc:a", ME], quoteHash: "g" }),
+      entry({ id: "open:3", speaker: ME, addressedTo: ["npc:a", "npc:c"], quoteHash: "t" }),
+    );
+    const out = syncOpenLedger(l, ctx({ gone: new Set(["npc:a"]) }));
+    expect(out.entries.map((e) => e.note)).toEqual(["left the house", "one of them left the house", "one of them left the house"]);
+    expect(out.entries.every((e) => e.status === "withdrawn")).toBe(true);
+  });
+});
+
+describe("review L4: with no in-game day nothing is stamped and nothing lapses (pure)", () => {
+  it("no day -> unchanged; the day appears later -> first seen then, lapses 7 days after", () => {
+    const l = led(entry());
+    expect(syncOpenLedger(l, ctx())).toBe(l);
+    expect(syncOpenLedger(l, ctx({ turn: 900 }))).toBe(l); // however late
+    const first = syncOpenLedger(l, ctx({ day: 2 }));
+    expect(first.touched).toEqual({ "open:1": 2 });
+    expect(syncOpenLedger(first, ctx({ day: 8 }))).toBe(first);
+    expect(syncOpenLedger(first, ctx({ day: 9 })).entries[0]!.status).toBe("lapsed");
+  });
+});
+
+describe("review M2: which entries may link to a deal (pure)", () => {
+  it("only a commitment word, as a whole word, case-insensitively, and never with `about`", () => {
+    for (const kind of ["promise", "Promise", "a PACT", "secret deal", "final-four alliance", "their agreement", "vow", "oath", "pledge", "commitment", "promises", "deals", "promised", "agreed", "allied"]) {
+      expect(openLedgerLinkable({ kind }), kind).toBe(true);
+    }
+    for (const kind of ["claim", "plan", "dealer", "dealership", "misdeal", "pledger", "alliancement", "compact", ""]) {
+      expect(openLedgerLinkable({ kind }), kind).toBe(false);
+    }
+    expect(openLedgerLinkable({ kind: "promise", about: "npc:b" })).toBe(false);
+  });
+});
+
+// ── ORW-448 review: M1/M2/L2 and the refused commit on the real engine ──────────────────────────────────────────────────
+describe("review M2 (real engine): only a commitment-like entry with no `about` links to the deal", () => {
+  function dealWith(): { g: GameSessionAdapter; who: string; other: string; dealId: string } {
+    const { g } = startAtNominations();
+    g.noteMessage({ messageId: "m-deal2" });
+    const [who, other] = npcs(g);
+    const made = g.makeDeal({ with: who as never, kind: "safety", terms: "a safe week" });
+    if (!made || "refused" in made) throw new Error("the deal was not made");
+    const wa = g.movePlayer("living-room")!;
+    expect(wa.present.some((p) => p.id === who)).toBe(true);
+    return { g, who: who!, other: other!, dealId: made.id };
+  }
+  const ent = (g: GameSessionAdapter, id?: string) => priv(g).openLedger.entries.find((e) => e.id === id)!;
+  it("an unrelated claim (and a claim about a third person) two beats later does not link, and stays open when the deal ends kept", () => {
+    const { g, who, other, dealId } = dealWith();
+    priv(g).persist(); (g as unknown as { bumpBeatSeq(): void }).bumpBeatSeq(); (g as unknown as { bumpBeatSeq(): void }).bumpBeatSeq();
+    const c1 = g.recordOpenLedger({ text: "I saw someone in the storage room", speaker: who, addressedTo: [ME], kind: "claim", about: other });
+    const c2 = g.recordOpenLedger({ text: "the kitchen is a mess today", speaker: who, addressedTo: [ME], kind: "claim" });
+    expect(ent(g, c1.entryId).dealId).toBeUndefined();
+    expect(ent(g, c2.entryId).dealId).toBeUndefined();
+    priv(g).deals.all.find((d) => d.id === dealId)!.status = "kept";
+    priv(g).persist();
+    expect(ent(g, c1.entryId).status).toBe("open");
+    expect(ent(g, c2.entryId).status).toBe("open");
+  });
+  it("a 'promise' between the same two people inside the window links; with `about` set it never links", () => {
+    const { g, who, other, dealId } = dealWith();
+    const p = g.recordOpenLedger({ text: "I promise to keep you safe", speaker: who, addressedTo: [ME], kind: "promise" });
+    expect(ent(g, p.entryId).dealId).toBe(dealId);
+    const q = g.recordOpenLedger({ text: "I promise not to name you", speaker: who, addressedTo: [ME], kind: "promise", about: other });
+    expect(ent(g, q.entryId).dealId).toBeUndefined();
+    const r = g.recordOpenLedger({ text: "a dealer of rumours", speaker: who, addressedTo: [ME], kind: "dealer" });
+    expect(ent(g, r.entryId).dealId).toBeUndefined();
+  });
+});
+
+describe("review M1 (real engine): a linked entry survives 30 days while the deal is open; its unlinked twin lapses on day 7", () => {
+  it("through the commit funnel", () => {
+    const { g } = startAtNominations();
+    g.noteMessage({ messageId: "m-m1" });
+    const [who] = npcs(g);
+    const made = g.makeDeal({ with: who as never, kind: "safety", terms: "a safe week" });
+    if (!made || "refused" in made) throw new Error("the deal was not made");
+    expect(g.movePlayer("living-room")!.present.some((p) => p.id === who)).toBe(true);
+    const linked = g.recordOpenLedger({ text: "I promise to keep you safe", speaker: who!, addressedTo: [ME], kind: "promise" });
+    const twin = g.recordOpenLedger({ text: "I like the pool", speaker: who!, addressedTo: [ME], kind: "claim" });
+    const st = (id?: string) => priv(g).openLedger.entries.find((e) => e.id === id)!.status;
+    if (priv(g).live.dayNumber === undefined) { priv(g).live.dayNumber = 1; priv(g).persist(); } // the day exists from here on: both entries are first seen then
+    const base = priv(g).live.dayNumber!;
+    priv(g).live.dayNumber = base + 7; priv(g).persist();
+    expect([st(linked.entryId), st(twin.entryId)]).toEqual(["open", "lapsed"]);
+    priv(g).live.dayNumber = base + 30; priv(g).persist();
+    expect(st(linked.entryId)).toBe("open");
+    expect(g.openLedgerHere().some((x) => x.id === linked.entryId)).toBe(true);
+  });
+});
+
+describe("review L2 (real engine): the veto used by a houseguest holder while the player is HOH flags the holder's entries, once", () => {
+  it("flags with the veto result line; a second commit in the same state flags nothing more", () => {
+    const { g } = startAtNominations();
+    seedEntries(g);
+    const [holder, saved] = npcs(g);
+    const live = priv(g).live as unknown as Record<string, unknown>;
+    Object.assign(live, { vetoUsed: true, saved, vetoHolder: holder, pending: { kind: "replacement" } });
+    const record = (g as unknown as { recordAnnouncements(ev: null): void }).recordAnnouncements.bind(g);
+    record(null);
+    const want = priv(g).openLedger.entries.filter((e) => e.speaker === holder || e.addressedTo.includes(holder!)).map((e) => e.id).sort();
+    expect(want.length).toBeGreaterThan(0);
+    expect(dueIds(g)).toEqual(want);
+    expect(Object.values(priv(g).openLedger.due!)[0]!.line).toMatch(/^Public result of the veto ceremony: /);
+    for (const id of dueIds(g)) g.resolveOpenLedger({ entryId: id, status: "offered", note: "" }); // judged and dropped
+    record(null); // the same ceremony again: nothing flags a second time
+    expect(dueIds(g)).toEqual([]);
+  });
+});
+
+describe("review: a REFUSED commit rolls the ledger back, and the next good commit applies the same changes once", () => {
+  it("a refused nominations commit and a refused eviction commit (through the registry commit funnel)", () => {
+    const a = startAtNominations(); // the run that gets refused
+    const b = startAtNominations(); // an identical twin that never is
+    const nameA = `orw448-${SEED}`;
+    seedEntries(a.g); seedEntries(b.g);
+    priv(a.g).persist(); priv(b.g).persist(); // commit the seeded ledger: it is the rollback baseline
+    const cur = (): GameSessionAdapter => a.runtime.registry.sandboxFor(nameA).session as unknown as GameSessionAdapter;
+    const ledgerJson = (g: GameSessionAdapter): string => JSON.stringify(priv(g).openLedger);
+    const reg = a.runtime.registry as unknown as { saveUser(u: string): unknown };
+    const realSave = reg.saveUser.bind(reg);
+    const save = vi.spyOn(reg, "saveUser").mockImplementation((u: string) => realSave(u));
+    let viewA = a.view; let viewB = b.view;
+    let refusedChange = 0; let refusedEviction = 0; let guard = 0;
+    while (guard++ < 600 && !priv(b.g).live.finished && refusedEviction < 1) {
+      const beforeJson = ledgerJson(cur());
+      const beforeOrder = priv(b.g).live.evictionOrder.length;
+      const viewBefore = viewA;
+      viewB = step(b.g, viewB); // the twin goes first to learn what this step would change
+      const changes = ledgerJson(b.g) !== beforeJson;
+      const evicts = priv(b.g).live.evictionOrder.length > beforeOrder;
+      const refuse = changes && ((refusedChange === 0) || (evicts && refusedEviction === 0));
+      if (!refuse) { viewA = step(cur(), viewA); expect(ledgerJson(cur())).toBe(ledgerJson(b.g)); continue; }
+      save.mockImplementation(() => { throw new Error("disk"); });
+      expect(() => step(cur(), viewBefore)).toThrow();
+      save.mockImplementation((u: string) => realSave(u));
+      cur().setAdvanceGateEnabled(false); // the rebuilt session starts with its defaults; the test's setup is re-applied
+      expect(ledgerJson(cur()), "rolled back to the pre-commit ledger").toBe(beforeJson);
+      if (evicts) { refusedEviction++; for (const e of priv(cur()).openLedger.entries) expect(["open"]).toContain(e.status); } else refusedChange++;
+      expect(priv(cur()).openLedger.due ?? {}).toEqual(JSON.parse(beforeJson).due ?? {});
+      viewA = step(cur(), viewBefore); // the next good commit
+      expect(ledgerJson(cur()), "the same changes, once").toBe(ledgerJson(b.g));
+    }
+    save.mockRestore();
+    expect(refusedChange).toBe(1);
+    expect(refusedEviction).toBe(1);
+    const gone = priv(b.g).live.evictionOrder[0]!;
+    const withdrawn = priv(cur()).openLedger.entries.filter((e) => e.status === "withdrawn");
+    expect(withdrawn.length).toBeGreaterThan(0);
+    expect(withdrawn.every((e) => e.note === "left the house" && (e.speaker === gone || e.addressedTo.includes(gone)))).toBe(true);
+  });
+});
+
+describe("review L4 (real engine): a game with no day number stamps nothing and lapses nothing", () => {
+  it("the week is not a stand-in; when the day appears the entry is first seen then", () => {
+    const { g } = startAtNominations();
+    delete priv(g).live.dayNumber; // a game whose first night has not passed: the counter does not exist yet
+    const res = g.recordOpenLedger({ text: "a plan for the week", speaker: ME, addressedTo: [], kind: "plan", about: "the next competition" });
+    const id = res.entryId!;
+    const e = () => priv(g).openLedger.entries.find((x) => x.id === id)!;
+    expect(e().day).toBeUndefined();
+    priv(g).persist();
+    expect(priv(g).openLedger.touched).toBeUndefined();
+    expect(e().status).toBe("open");
+    priv(g).live.dayNumber = 20; priv(g).persist();
+    expect(priv(g).openLedger.touched).toEqual({ [id]: 20 });
+    priv(g).live.dayNumber = 26; priv(g).persist();
+    expect(e().status).toBe("open");
+    priv(g).live.dayNumber = 27; priv(g).persist();
+    expect(e().status).toBe("lapsed");
   });
 });
