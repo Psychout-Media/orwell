@@ -5,11 +5,13 @@ import { resolvePending } from "../../features/support/answerPending";
 import { roomOfBed, type BedsState } from "../../src/engine/beds";
 import { pickBedFor, bedmateShare, type BedReader } from "../../src/engine/bedClaims";
 import { roomDisplayName } from "../../src/domain/house";
+import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
+import { themedRoomAliases } from "../../src/engine/roomLabels";
 
 /** ORW-466 slice 2 - the move-in day bed pick: NPCs claim as they walk in (crowd / personality / luck), the player claims in their own words before the narrator writes, a taken bed is a swap
  * the owner answers, the leftover bed at the first bedtime, and a headless game stays bed-free. Roles only. */
 type Pe = { order: string[]; playerPos: number; arrived: number; stage: string };
-type Live = { playedGame?: boolean; beds?: BedsState; premiereEntrance?: Pe; timeOfDay?: string; nightDepth?: number };
+type Live = { houseTheme?: string; playedGame?: boolean; beds?: BedsState; premiereEntrance?: Pe; timeOfDay?: string; nightDepth?: number };
 const liveOf = (s: GameSessionAdapter) => (s as unknown as { live: Live }).live;
 const relOf = (s: GameSessionAdapter) => (s as unknown as { rel: { edge(a: string, b: string): { affinity: number } } }).rel;
 
@@ -67,6 +69,22 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     const prompt = s.getMomentPrompt({}).systemPrompt;
     expect(prompt).toContain("- BEDS (engine truth");
     expect(prompt).toMatch(new RegExp(`the player just claimed (?:a single bed|half of a double)[^.]* in ${roomDisplayName(room)}`));
+  });
+
+  it("a themed season: the player claims a bed by the room's themed short name, and the BEDS line uses the themed name", () => {
+    const s = premiere();
+    const theme = HOUSE_THEMES[0]!;
+    liveOf(s).houseTheme = theme.id;
+    walkIn(s);
+    const room = "bedroom-a";
+    const themed = theme.rooms[room].name;
+    const alias = themedRoomAliases(theme.id).filter(([, r]) => r === room).map(([a]) => a).sort((x, y) => x.length - y.length)[0]!;
+    s.resolvePlayerMove({ text: `I'll take a bed in ${alias}.` });
+    expect(roomOfBed(liveOf(s).beds!.owner["player"]!), `"${alias}" names ${themed}`).toBe(room);
+    const prompt = s.getMomentPrompt({}).systemPrompt;
+    const bedsLine = prompt.split("\n").find((l) => l.includes("- BEDS (engine truth"))!;
+    expect(bedsLine).toMatch(new RegExp(`the player just claimed (?:a single bed|half of a double)[^.]* in ${themed}`));
+    expect(bedsLine, "the BEDS line names the room by its themed name only").not.toContain(roomDisplayName(room));
   });
 
   it("a taken bed: the owner refuses a swap when they don't like the player and accepts when they do", () => {
