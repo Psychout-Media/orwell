@@ -92,7 +92,7 @@ def test_briana_empty_biography_is_left_not_authored_with_codes(caplog):
     n, w, calls = _go(run(cast, lambda h, i: profile_json("")))
     assert n == 0 and w == {}
     assert calls <= 1 + 3 + gate.GATE_REWRITE_BOUND  # first call, its own retries, and the bounded gate re-writes
-    assert any("npc:15" in r.message and "bio-missing" in r.message for r in caplog.records)
+    assert any("npc:15" in r.message and "story-no-biography" in r.message for r in caplog.records)
 
 
 def test_a_rewrite_that_comes_back_clean_is_accepted():
@@ -144,7 +144,7 @@ def test_season_line_counts_for_a_known_cast(caplog):
     line = [r.message for r in caplog.records if "[cast-gate] season line" in r.message]
     assert len(line) == 1
     assert "checked=3 repaired=1 rewritten=1 failing=1" in line[0]
-    assert "story-name=1" in line[0] and "bio-missing=" in line[0]
+    assert "story-name=1" in line[0] and "story-no-biography=" in line[0]
     assert "Samir" not in line[0] and "Nia" not in line[0]  # codes only
 
 
@@ -156,16 +156,20 @@ def test_cross_cast_duplicate_biography_is_refused():
 
 
 # ---- the coordinator's additions: look fields, background vs biography, nonbinary, cast repetition ------
-def test_giovanni_card_without_wardrobe_oncamera_photohair_is_left_not_authored():
+def test_giovanni_missing_look_fields_is_accepted_non_blocking_and_asks_the_backfill():
     npc = npc_of("npc:7", "Giovanni Calloway", "man", 36)
     for k in ("wardrobe", "onCamera", "photoHair"):
         npc["physicalCharacteristics"].pop(k)
     prof = {"biography": "Giovanni runs a body shop in Utica. He fixes every dent himself and trusts no estimate." + FILLER}
     codes = gate.card_codes(prof, npc, [npc])
-    assert {"wardrobe-missing", "oncamera-missing", "photohair-missing"} <= set(codes)
-    cast = [npc]
-    n, w, _ = _go(run(cast, lambda h, i: json.dumps({"biography": prof["biography"], "voice": VOICE})))
-    assert n == 0 and w == {}
+    assert {"look-missing-wardrobe", "look-missing-onCamera", "look-missing-photoHair"} <= set(codes)
+    assert not any(gate.is_blocking(c) for c in codes)
+    n, w, _ = _go(run([npc], lambda h, i: json.dumps({"biography": prof["biography"], "voice": VOICE})))
+    assert n == 1 and "npc:7" in w
+    # readiness (the season start) does not wait on it; the backfill does pick it up
+    card = {"id": "npc:7", "authored": True, "biography": prof["biography"], "identityConcept": npc["identityConcept"],
+            "physicalCharacteristics": npc["physicalCharacteristics"]}
+    assert ca.unauthored_ids("u", [card]) == [] and ca.unauthored_ids("u", [card], include_look=True) == ["npc:7"]
 
 
 def test_background_and_biography_with_different_years_are_flagged():
@@ -219,8 +223,57 @@ def test_writer_identity_concept_replaces_genesis_stale_one():
 def test_stale_genesis_identity_without_a_writer_one_is_mended_by_name():
     npc = npc_of("npc:5", "Samir Nesbitt", "man", 23, ident="Nia is a soft-spoken apprentice. She reads a room before anyone else does.")
     prof = {"biography": CARDS["Thomas Sizemore"]["biography"].replace("Thomas", "Samir")}
-    assert any(c.startswith("ident-") for c in gate.card_codes(prof, npc, [npc]))
+    assert any(c.startswith("identity-") for c in gate.card_codes(prof, npc, [npc]))
     n, w, _ = _go(run([npc], lambda h, i: profile_json(prof["biography"])))
     if n:
         assert "Nia" not in w["npc:5"].get("identityConcept", "Samir") and not any(
-            c.startswith("ident-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
+            c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
+
+
+# ---- the worst case: one card never gets onCamera and never gets a biography --------------------------------
+def test_worst_case_a_stub_that_never_returns_oncamera_or_a_biography_for_one_card(caplog):
+    cast = [npc_of(f"npc:{i}", f"{f} Smith{i}", "woman", 30) for i, f in enumerate(["Ava", "Bea", "Cy"])]
+    for n in cast:
+        n["physicalCharacteristics"].pop("onCamera")
+    bad = "npc:1"
+
+    def reply(h, i):
+        if h == bad:
+            return profile_json("")  # never a biography
+        return profile_json(f"{[c for c in cast if c['id'] == h][0]['name'].split()[0]} runs a shop in Macon. She fixes engines every day." + FILLER)
+    caplog.set_level(logging.DEBUG)
+    n, w, calls = _go(run(cast, reply))
+    assert n == 2 and set(w) == {"npc:0", "npc:2"}                   # the other cards are accepted despite no onCamera
+    assert calls <= 3 + 3 + gate.GATE_REWRITE_BOUND + 4              # bounded: no loop
+    assert any("npc:1" in r.message and "tier=blocking" in r.message for r in caplog.records)
+    assert any("npc:0" in r.message and "tier=non-blocking" in r.message and "look-missing-onCamera" in r.message for r in caplog.records)
+    # what the wait is: the unauthored card is the only thing readiness sees, never the look code
+    cards = [{"id": c["id"], "authored": c["id"] != bad, "biography": "x" * 90, "identityConcept": "y" * 40,
+              "physicalCharacteristics": c["physicalCharacteristics"]} for c in cast]
+    assert ca.unauthored_ids("u", cards) == [bad]
+
+
+def test_the_wait_caps_are_the_existing_ones():
+    assert ca._HOUSE_READY_INLINE_S == 10.0 and ca._HOUSE_READY_WATCH_TIMEOUT_S == 1800.0 and ca._ATTEMPT_CAP == 6
+
+
+# ---- own-job role words (Lydia) ------------------------------------------------------------------------------
+LYDIA = "A small-town strength coach who treats every competition as a chess match he has already won in his head."
+
+
+def test_own_job_role_noun_does_not_make_the_sentence_about_someone_else():
+    npc = npc_of("npc:4", "Lydia Sutter", "woman", 34)
+    npc["vocation"] = "strength coach"
+    assert ca.pronoun_conflict_sentences(LYDIA, npc) == [0]
+    npc2 = {**npc, "vocation": "gym owner"}
+    assert ca.pronoun_conflict_sentences(LYDIA, npc2) == [0]          # "A ... coach who" describes her, whatever the job field says
+    assert ca.pronoun_conflict_sentences("Her coach says he has already won in his head.", npc2) == []  # a real second person stays
+    fixed = ca.repair_story_text(LYDIA, {}, npc)
+    assert fixed.endswith("she has already won in her head.")
+    prof = {"biography": LYDIA + " She lives in Macon and runs a gym." + FILLER}
+    assert "story-pronoun" in ca.story_problems(prof, npc)
+    ident_card = {**npc, "identityConcept": LYDIA}
+    assert "identity-pronoun" in ca.card_consistency({"biography": prof["biography"]}, ident_card)
+    p2 = {"biography": "Lydia runs a gym in Macon. She trains every client herself." + FILLER}
+    gate.mend(p2, ident_card)
+    assert p2["identityConcept"].endswith("she has already won in her head.")

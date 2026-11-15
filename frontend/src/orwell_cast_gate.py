@@ -19,8 +19,6 @@ logger = logging.getLogger(__name__)
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
 _SENT_END = re.compile(r"[.!?][\"'”’)\]]*(?=\s|$)")
-_LOOK_KEYS = ("heightBuild", "skinTone", "hair", "facialFeatures", "distinguishingMark", "ageLook", "style")
-_IDENT_MIN = 12
 _NORM = re.compile(r"[^a-z0-9]+")
 
 
@@ -78,43 +76,42 @@ def mend(profile: dict, npc: dict) -> list:
     return done
 
 
+# TWO TIERS (Kevin's coordinator, 2026-11-15). A season must never wait on a non-blocking code.
+# BLOCKING: the card is left NOT authored after the deterministic mend and a bounded number of re-writes.
+BLOCKING = frozenset({
+    "story-no-biography",                                   # no biography
+    "identity-missing",                                     # no identity
+    "story-name", "story-cast-name", "identity-name", "identity-cast-name",   # the houseguest's own name
+    "story-pronoun", "identity-pronoun",                    # pronouns
+    "story-age", "identity-age",                            # stated age
+    "bio-dup-text",                                         # duplicated biography
+})
+# NON-BLOCKING: the card is accepted, the code is counted on the season line and recorded as a soft-fail, and the existing
+# backfill (look fields) or upgrader is asked to fill it later. Anything not in BLOCKING is non-blocking.
+
+
+def is_blocking(code: str) -> bool:
+    return code in BLOCKING
+
+
 def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = None) -> list:
-    """Every reason the final card fails the gate ([] = passes). Codes only."""
+    """Every reason the final card fails the gate ([] = passes). Codes only. The consistency core is ORW-430's
+    `card_consistency` (one implementation of each check); this adds the extras it does not cover."""
     from src import orwell_cast_authoring as A
     card = _merged(profile, npc)
     hid = str((npc or {}).get("id") or "")
-    codes: list = []
+    codes = list(A.card_consistency({**profile, "biography": card.get("biography") or profile.get("biography")}, card, cast))
     bio = card.get("biography")
     ident = card.get("identityConcept")
-    if not isinstance(bio, str) or not A._biography_meets_floor(bio.strip()):
-        codes.append("bio-missing")
-    else:
-        if not ends_cleanly(bio):
-            codes.append("bio-no-stop")
-        codes += [c for c in A.story_problems({**card, "biography": bio}, card, cast)]
-    if not isinstance(ident, str) or len(ident.strip()) < _IDENT_MIN:
-        codes.append("ident-missing")
-    else:
-        codes += ["ident-" + c[len("story-"):] for c in A.story_problems({**card, "biography": ident}, card, cast)
-                  if c != "story-feature"]
-    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
-    if any(not str(phys.get(k) or "").strip() for k in _LOOK_KEYS):
-        codes.append("look-missing")
-    wd = phys.get("wardrobe")
-    if not (isinstance(wd, list) and any(str(x).strip() for x in wd)):
-        codes.append("wardrobe-missing")
-    for k in ("onCamera", "photoHair"):
-        if not str(phys.get(k) or "").strip():
-            codes.append(k.lower() + "-missing")
-    codes += background_codes(card)
+    if isinstance(bio, str) and bio.strip() and not ends_cleanly(bio):
+        codes.append("bio-no-stop")
     v = card.get("voice")
     if not (isinstance(v, dict) and v and v.get("lexicon")):
         codes.append("voice-missing")
+    codes += background_codes(card)
     if registry is not None and isinstance(bio, str) and bio.strip():
         for other, rec in registry.items():
-            if other == hid:
-                continue
-            if _norm(bio) and _norm(bio) == rec.get("bio"):
+            if other != hid and _norm(bio) and _norm(bio) == rec.get("bio"):
                 codes.append("bio-dup-text")
                 break
         subj = _subject(bio, card, cast)
@@ -138,7 +135,7 @@ class SeasonGate:
 
     def __init__(self, user: Optional[str] = None):
         self.user = user
-        self.checked = self.repaired = self.rewritten = self.failing = 0
+        self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
         self.codes: dict = {}
         self.registry: dict = {}
 
@@ -175,7 +172,7 @@ class SeasonGate:
     def summary_line(self) -> str:
         per = ",".join(f"{k}={v}" for k, v in sorted(self.codes.items())) or "none"
         return (f"[cast-gate] season line: checked={self.checked} repaired={self.repaired} "
-                f"rewritten={self.rewritten} failing={self.failing} codes={per}")
+                f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per}")
 
     def log_summary(self) -> None:
         if self.checked:
@@ -186,8 +183,9 @@ RewriteFn = Callable[[dict, list], Awaitable[Optional[dict]]]
 
 
 async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn: Optional[RewriteFn]):
-    """Gate one card. Returns (profile_to_write_or_None, codes_left). Mends in place, then up to GATE_REWRITE_BOUND
-    re-writes via `rewrite_fn(npc, codes) -> new profile or None`; a refusal is RED-recorded (id + codes)."""
+    """Gate one card. Returns (profile_to_write_or_None, codes_left). Mends in place; re-writes (at most
+    GATE_REWRITE_BOUND, only for BLOCKING codes) via `rewrite_fn(npc, codes) -> new profile or None`. A card still
+    blocking is left not authored with a RED soft-fail (id + codes); non-blocking codes never hold a card back."""
     hid = str((npc or {}).get("id") or "")
     gate.checked += 1
     first = card_codes(profile, npc, cast, gate.registry)
@@ -196,10 +194,10 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
         gate.repaired += 1
     codes = card_codes(profile, npc, cast, gate.registry)
     tries = 0
-    while codes and rewrite_fn is not None and tries < GATE_REWRITE_BOUND:
+    while any(is_blocking(c) for c in codes) and rewrite_fn is not None and tries < GATE_REWRITE_BOUND:
         tries += 1
         try:
-            fresh = await rewrite_fn(npc, codes)
+            fresh = await rewrite_fn(npc, [c for c in codes if is_blocking(c)])
         except Exception as e:  # failsoft-ok: a failed re-write is a failed attempt, never an abort
             logger.warning(f"[cast-gate] re-write call failed for {hid}: {type(e).__name__}")
             fresh = None
@@ -212,16 +210,29 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
             profile.clear()
             profile.update(merged)
         codes = card_codes(profile, npc, cast, gate.registry)
-    if codes:
+    blocking = [c for c in codes if is_blocking(c)]
+    soft = [c for c in codes if not is_blocking(c)]
+    logger.debug(f"[cast-gate] {hid} tier={'blocking' if blocking else ('non-blocking' if soft else 'clean')} "
+                 f"codes={','.join(codes) or '-'} rewrites={tries}")
+    if blocking:
         gate.failing += 1
         try:
             from src import log_rings
             log_rings.record_soft_failure(
-                "cast-gate:failed", f"card {hid} failed the final gate: {', '.join(codes)} - left not authored",
+                "cast-gate:failed", f"card {hid} failed the final gate: {', '.join(blocking)} - left not authored",
                 corrected="left-unauthored", user=gate.user, houseguest=hid)
         except Exception:  # failsoft-ok: the record must never break authoring
             pass
-        logger.warning(f"[cast-gate] {hid} left not authored: {', '.join(codes)}")
+        logger.warning(f"[cast-gate] {hid} left not authored: {', '.join(blocking)}")
         return None, codes
+    if soft:
+        gate.accepted_soft += 1
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure(
+                "cast-gate:non-blocking", f"card {hid} accepted with: {', '.join(soft)} - the backfill is asked to fill it",
+                corrected="accepted-backfill-later", user=gate.user, houseguest=hid)
+        except Exception:  # failsoft-ok
+            pass
     gate.accept(hid, profile, npc, cast)
-    return profile, []
+    return profile, codes

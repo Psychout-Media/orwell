@@ -121,3 +121,97 @@ def test_repair_story_reaches_the_identity_concept_through_the_card():
     prof = {"biography": CARDS["Gabe Cottrell"]["biography"]}
     assert "identityConcept" in ca.repair_story(prof, npc)
     assert "he's running the house" in prof["identityConcept"]
+
+
+# ---- ORW-430 part 2: a card with no biography is never "authored" -------------------------------------
+from conftest import _run  # noqa: E402
+
+BRIANA = json.load(open(os.path.join(os.path.dirname(__file__), "fixtures", "orw430_briana_no_bio.json")))
+_PC = {"heightBuild": "short", "skinTone": "tan", "hair": "dark waves", "facialFeatures": "a wide smile",
+       "distinguishingMark": "none notable", "ageLook": "early twenties", "style": "plain"}
+_BRIANA_NPC = {**BRIANA, "id": "npc:15"}
+_GOOD_BIO = "Briana raised her younger siblings in Macon and now works as a home-health aide. She feeds everyone who walks in."
+
+
+def test_cause_briana_is_marked_authored_but_has_no_biography_and_the_roster_never_re_picked_her():
+    assert BRIANA["authored"] is True and not BRIANA.get("biography")
+    assert ca.card_missing_story(BRIANA) is True
+    assert ca.unauthored_ids("u", [BRIANA]) == ["npc:15"]  # now taken again by the existing backfill
+    assert ca.unauthored_ids("u", [{**BRIANA, "biography": _GOOD_BIO}]) == []
+
+
+def test_biography_floor_boundary():
+    ok = "A" * 39 + ". " + "B" * 38 + "."  # 80 chars, 2 sentences
+    assert len(ok) == 80 and ca._biography_meets_floor(ok)
+    assert not ca._biography_meets_floor(ok[:-1])
+    assert not ca._biography_meets_floor("C" * 90 + ".")  # one sentence
+
+
+def _drive430(replies):
+    sent, writes = [], []
+
+    async def llm_fn(messages):
+        sent.append(messages)
+        return replies[min(len(sent), len(replies)) - 1]
+
+    async def write_fn(p):
+        writes.append(p)
+        return {"accepted": True}
+
+    n = _run(ca.author_cast([dict(_BRIANA_NPC)], llm_fn, write_fn))
+    return n, sent, writes
+
+
+def _reply430(bio):
+    d = {"vocation": "home-health aide", "physicalCharacteristics": _PC}
+    if bio is not None:
+        d["biography"] = bio
+    return json.dumps(d)
+
+
+def test_missing_biography_gets_one_strict_retry_naming_the_field_and_the_fixed_card_is_written():
+    n, sent, writes = _drive430([_reply430(None), _reply430(_GOOD_BIO)])
+    assert n == 1 and len(sent) == 2 and writes[0]["biography"] == _GOOD_BIO
+    assert "biography is missing or too short" in sent[1][-1]["content"]
+
+
+def test_still_missing_after_the_retry_the_card_is_not_written_and_not_authored():
+    n, sent, writes = _drive430([_reply430(None), _reply430("Too short.")])
+    assert n == 0 and writes == [] and len(sent) == 2  # exactly one retry: the cap
+
+
+def test_final_check_names_codes_only_and_is_clean_on_a_good_card():
+    good = {"biography": _GOOD_BIO, "identityConcept": BRIANA["identityConcept"]}
+    assert ca.card_consistency(good, _BRIANA_NPC) == []
+    codes = ca.card_consistency({"biography": ""}, {**_BRIANA_NPC, "identityConcept": ""})
+    assert codes == ["story-no-biography", "identity-missing"]
+
+
+# ---- ORW-430b: required look fields, nonbinary identity, the final check's shape ----------------------
+MONIQUE = {"id": "npc:2", "name": "Monique Tarver", "age": 25, "genderPresentation": "nonbinary",
+           "vocation": "insurance claims analyst"}
+MONIQUE_ID = ("A relentlessly effusive claims analyst who narrates every social interaction as a probability table and is "
+              "genuinely shocked, every single time, that people are more complicated than the spreadsheet in her head.")
+
+
+def test_monique_nonbinary_identity_says_their_head_not_her_head():
+    assert ca.pronoun_conflict_sentences(MONIQUE_ID, MONIQUE) == [0]
+    assert ca.repair_story_text(MONIQUE_ID, {}, MONIQUE).endswith("the spreadsheet in their head.")
+
+
+def test_giovanni_authored_without_wardrobe_oncamera_photohair_is_listed_again_and_reported():
+    pc = {"heightBuild": "lean", "skinTone": "tan", "hair": "short", "facialFeatures": "x", "distinguishingMark": "none",
+          "ageLook": "early twenties", "style": "plain"}
+    card = {"id": "npc:7", "status": "active", "authored": True, "biography": _GOOD_BIO, "identityConcept": "A restless lab tech.",
+            "physicalCharacteristics": pc}
+    assert ca.unauthored_ids("u", [card]) == []  # ORW-431: a missing look sub-field never holds the season start (readiness)
+    assert ca.unauthored_ids("u", [card], include_look=True) == ["npc:7"]  # ... it asks the backfill
+    codes = ca.card_consistency({"biography": _GOOD_BIO}, {"id": "npc:7", "name": "Briana Calloway", "identityConcept": "A restless lab tech who hums.", "physicalCharacteristics": pc})
+    assert codes == ["look-missing-wardrobe", "look-missing-onCamera", "look-missing-photoHair"]
+    full = {**pc, "wardrobe": ["a", "b"], "onCamera": "kitchen", "photoHair": "short"}
+    assert ca.unauthored_ids("u", [{**card, "physicalCharacteristics": full}]) == []
+
+
+def test_final_check_returns_a_flat_list_of_reason_code_strings():
+    codes = ca.card_consistency({"biography": ""}, {"id": "npc:1", "name": "Sam Lee", "genderPresentation": "man"})
+    assert isinstance(codes, list) and all(isinstance(c, str) for c in codes)
