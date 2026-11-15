@@ -6,7 +6,7 @@ import { streakHolds, nextStreak, DESIRE } from "../../src/engine/desireClock";
 
 /** ORW-423: a pile of same-purpose approaches is capped per stretch in a PLAYED game only; the brief carries no "N people asked" count. Roles only. */
 type S = GameSessionAdapter;
-type Live = { playedGame?: boolean; approachStreak?: { desire: string; count: number; lastHour: number }; interruption?: { npc: string; desire: string }; desireApproachedAt?: Record<string, number> };
+type Live = { approachHeld?: true; playedGame?: boolean; approachStreak?: { desire: string; count: number; lastHour: number }; interruption?: { npc: string; desire: string }; desireApproachedAt?: Record<string, number> };
 const live = (s: S): Live => (s.snapshot() as unknown as { live: Live }).live;
 const liveRef = (s: S): Live => (s as unknown as { live: Live }).live;
 
@@ -55,7 +55,7 @@ describe("ORW-423 pure cap", () => {
 });
 
 describe("ORW-423 live", () => {
-  it("played game: never more than the cap in a row, the cap releases after a quiet stretch, and the deferred keep their desire", () => {
+  it("played game: never more than the cap in a row, the cap releases after a quiet stretch, and a held houseguest's desire is spent (normal 3-hour cooldown), not kept", () => {
     let checked = 0;
     for (const seed of [3, 5, 8, 11, 13]) {
       const s = parked(seed, `cap${seed}`); if (!s) continue;
@@ -66,7 +66,7 @@ describe("ORW-423 live", () => {
     }
     expect(checked).toBeGreaterThan(0);
   });
-  it("controlled: with the cap reached the same pick comes back marked capped (desire and cooldown untouched), and a quiet gap releases it", () => {
+  it("controlled: with the cap reached the same pick comes back marked capped (the pick itself is unchanged; the caller spends the 3-hour cooldown), and a quiet gap releases it", () => {
     type P = { desireApproach(ids: string[]): { npc: string; desire: string; capped?: true } | null; awakeNow(): Set<string> | null; absHour(): number };
     let exercised = 0;
     for (const seed of [3, 5, 8, 11, 13]) {
@@ -141,5 +141,56 @@ describe("ORW-443 approachHeld", () => {
       const s = parked(seed, `ahh${seed}`); if (!s) continue;
       for (let i = 0; i < 120; i++) { s.advanceClockPerConversation(); expect("approachHeld" in (s.getGameState() as object)).toBe(false); }
     }
+  });
+});
+
+describe("ORW-452 approachHeld on the hang-out path", () => {
+  type P = { desireApproach(ids: string[]): { npc: string; desire: string; capped?: true } | null; awakeNow(): Set<string> | null; absHour(): number };
+  const stateOf = (s: S) => s.getGameState() as { approachHeld?: boolean; interruption?: unknown; daySchedule?: { due: boolean }; player?: { id: string } };
+  /** Arm the cap for whatever the next pick would be (streak at the cap, same desire, "now"), then wait. */
+  function armedWait(s: S): { held: boolean; npc?: string } {
+    const p = s as unknown as P; const l = liveRef(s);
+    const ids = [...(p.awakeNow() ?? [])].filter((id) => id !== stateOf(s).player?.id);
+    l.approachStreak = undefined;
+    const peek = p.desireApproach(ids);
+    if (peek) l.approachStreak = { desire: peek.desire, count: DESIRE.streakCap, lastHour: p.absHour() };
+    s.hangOut({ maxBeats: 3 });
+    return { held: stateOf(s).approachHeld === true, ...(peek ? { npc: peek.npc } : {}) };
+  }
+  it("a played wait that holds an approach ends with approachHeld; it clears on the next turn without one; headless never sets it", () => {
+    let held = 0;
+    for (const seed of [3, 5, 8, 11, 13]) {
+      const s = parked(seed, `ho${seed}`); if (!s) continue;
+      liveRef(s).playedGame = true;
+      for (let i = 0; i < 40 && !stateOf(s).daySchedule?.due; i++) {
+        const before = JSON.stringify(live(s).desireApproachedAt ?? {});
+        const r = armedWait(s);
+        if (r.held) {
+          held++;
+          expect(stateOf(s).interruption, "the hold never interrupts").toBeUndefined();
+          expect(JSON.stringify(live(s).desireApproachedAt ?? {}) !== before, "the want was spent").toBe(true);
+          // the held pick got the NORMAL cooldown (cubic): it cannot be picked again right away, and the hold never coexists with a real interruption
+          expect((s as unknown as P).desireApproach([r.npc!])?.npc, "the held houseguest is on cooldown").not.toBe(r.npc);
+          expect(stateOf(s).interruption === undefined, "a hold and a real approach never coexist").toBe(true);
+          // the next wait with no capped approach (streak released) clears it
+          liveRef(s).approachStreak = undefined;
+          s.hangOut({ maxBeats: 1 });
+          expect("approachHeld" in stateOf(s), "cleared on the next turn").toBe(false);
+          break;
+        }
+      }
+    }
+    expect(held, "at least one played wait held an approach").toBeGreaterThan(0);
+    for (const seed of [3, 5, 8]) {
+      const s = parked(seed, `hoh${seed}`); if (!s) continue; // headless: never played
+      for (let i = 0; i < 20 && !stateOf(s).daySchedule?.due; i++) { armedWait(s); expect("approachHeld" in stateOf(s)).toBe(false); }
+    }
+  });
+  it("a hang-out with no capped approach clears a stale hold", () => {
+    const s = parked(3, "hostale"); if (!s) return;
+    liveRef(s).playedGame = true; liveRef(s).approachHeld = true;
+    liveRef(s).approachStreak = undefined;
+    s.hangOut({ maxBeats: 1 });
+    expect("approachHeld" in stateOf(s) && stateOf(s).approachHeld).toBe(false);
   });
 });

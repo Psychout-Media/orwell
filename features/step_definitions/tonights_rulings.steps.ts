@@ -71,6 +71,41 @@ Then("the status says early morning", function () {
   assert.equal(bag(this).st3am!.earlyMorning, true, "3am did not read as early morning");
 });
 
+// ORW-441: an early bed. Clock hours read from the public label ("h:mmam, Day N"); an hour before 8am belongs to the night before.
+const hourOf = (label: unknown): number | null => {
+  const m = /^(\d{1,2}):(\d{2})(am|pm), Day \d+$/.exec(String(label ?? ""));
+  return m ? (Number(m[1]) % 12) + (m[3] === "pm" ? 12 : 0) + Number(m[2]) / 60 : null;
+};
+When("the player goes to bed early in the evening", function () {
+  const b = bag(this); const s = b.s!; const l = live(s);
+  l.timeOfDay = "night"; l.nightDepth = 21; // 9pm: an evening bed, well before the house turns in
+  const ti = s.turnIn({ idempotencyKey: `rulings-early-bed-${n++}` }) as unknown as { held?: unknown };
+  assert.ok(!ti.held, `the 9pm bed was held: ${JSON.stringify(ti.held)}`);
+});
+
+Then("the player wakes before the house's wake-up", function () {
+  const h = hourOf((bag(this).s!.getGameState() as unknown as { clockLabel?: string }).clockLabel);
+  assert.ok(h !== null && Math.abs(h - 5) < 0.1, `a 9pm bed wakes the player at 5am (bed + 8 hours, before the 8am house wake-up); woke at ${h}h`);
+});
+
+Then("the status and the game state say early morning", function () {
+  const s = bag(this).s!;
+  assert.equal((s.gameStatus() as unknown as { earlyMorning?: boolean }).earlyMorning, true, "the status does not say early morning after an early wake");
+  assert.equal((s.getGameState() as unknown as { earlyMorning?: boolean }).earlyMorning, true, "the game state does not say early morning after an early wake");
+});
+
+Then("once the house is up the status no longer says early morning", function () {
+  const s = bag(this).s!;
+  for (let i = 0; i < 200; i++) {
+    const h = hourOf((s.getGameState() as unknown as { clockLabel?: string }).clockLabel);
+    if (h !== null && h > 8) break; // the first moment past the house wake-up (the label rounds to the minute, so "8:00am" can still be a hair before 8)
+    s.advanceClockPerConversation();
+  }
+  const h = hourOf((s.getGameState() as unknown as { clockLabel?: string }).clockLabel);
+  assert.ok(h !== null && h >= 8, `the clock never reached the house's wake-up (at ${h}h)`);
+  assert.notEqual((s.gameStatus() as unknown as { earlyMorning?: boolean }).earlyMorning, true, `still early morning at ${h}h, after the house is up`);
+});
+
 Then("at 1am the status does not say early morning", function () {
   assert.notEqual(bag(this).st1am!.earlyMorning, true, "1am read as early morning (it is still late night)");
 });

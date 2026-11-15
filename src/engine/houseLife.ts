@@ -308,7 +308,9 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     return finish({ kind: v.emotional < 0.35 ? "sulk" : fond ? "cheer" : "taunt", with: v.emotional < 0.35 ? [] : [target], place: v.room });
   }
 
-  const goals = [...(v.agenda?.goals ?? [])].filter((g) => g.status === "active").sort((a, b) => b.commitment - a.commitment || a.id.localeCompare(b.id));
+  // A goal that never acts in an hour (keep-my-secret: a secret is kept by what they DON'T do) does not compete for the hour, so it must not count toward the goal-hour ceiling either
+  // (cubic on #2627: counting it pushed secret holders' `reach` over the ceiling and cost them goal hours their acting goals had earned).
+  const goals = [...(v.agenda?.goals ?? [])].filter((g) => g.status === "active" && g.kind !== "keep-my-secret").sort((a, b) => b.commitment - a.commitment || a.id.localeCompare(b.id));
   const lifePull = HOUSE_LIFE.lifePull[v.timeOfDay] + (v.emotional > 0.6 ? HOUSE_LIFE.contentLifeBonus : 0);
   // ORW-350: ordinary life keeps its share however pressing the goals get. Each goal beats ordinary life this hour with chance drive / lifePull (capped at 1), so SOME goal does with 1 minus the product of the misses: it
   // climbs toward 1 as commitments rise and goals pile up (week 2: get-them-out about 0.85 each), and the house stopped living. Above the ceiling, ONE seeded roll sends the hour back to ordinary life, so the hours spent on goals
