@@ -45,7 +45,7 @@ hung-feeling turn and a brief front-end 502 while the engine catches up.
 
 ## Usage
 
-The repo is **private** (ruling #17, 2026-06-10). You authenticate **once, ever**: the
+The repo is **public** (it was private under ruling #17, 2026-06-10; the deploy path still uses a token). You authenticate **once, ever**: the
 first-install one-liner carries a fine-grained PAT (scope: this repo, **Contents: Read-only**,
 nothing else). The installer persists it to the container's `data/.env` (`GIT_TOKEN=…` — the one
 file every reset preserves) and wires a git **credential helper** that reads it at use time, so
@@ -551,7 +551,7 @@ defaults. **Every setting is also an env override**, so the same run is fully sc
 | `ORWELL_PORT` | `8080` | front-end UI port — ports **below 1024 (e.g. 80) are supported**: the installer/updater grant the hardened unit `CAP_NET_BIND_SERVICE` via a systemd drop-in (removed again when the port moves ≥1024) |
 | `CT_ROOT_PASSWORD` | — | optional container **root password for console login** (≥5 chars; fed via stdin, never on a command line). Without it the LXC console rejects every login — use `pct enter <CTID>` from the host, or set one later with `pct exec <CTID> -- passwd` |
 | `BRANCH` / `REPO` | `main` / this repo | source to install |
-| `GIT_TOKEN` | — | the deploy PAT (private repo; → `data/.env`, never committed) |
+| `GIT_TOKEN` | — | the deploy PAT (→ `data/.env`, never committed) |
 | `OLLAMA_HOST` | — | LLM provider (→ `data/.env`, never committed) |
 
 `ANTHROPIC_API_KEY` is **not** an `orwell.sh`/`orwell-install.sh` env var — `write_config()` never

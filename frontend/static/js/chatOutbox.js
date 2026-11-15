@@ -595,7 +595,7 @@ export function _setOutboxDeps(deps) {
         tag.className = 'queued-tag';
         role.appendChild(tag);
       }
-      if (tag) tag.textContent = mode === 'offline' ? 'queued — offline' : 'queued';
+      if (tag) tag.textContent = mode === 'offline' ? 'queued — offline' : (mode === 'sending' ? 'sending…' : 'queued'); // ORW-406: 'sending' = quiet wait out of a release-sized reconnect gap
       bubbleEl.classList.toggle('msg-queued-offline', mode === 'offline');
     } catch (_) {}
   }

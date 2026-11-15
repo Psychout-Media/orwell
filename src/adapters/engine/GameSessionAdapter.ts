@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -232,7 +232,7 @@ import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
 import { MANNER_GRADING, MANNER_THRESHOLDS, JURY_MEMORY } from "../../engine/juryConstants";
 import {
-  CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
+  CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
 import { COMP_EFFORT } from "../../engine/relationshipConstants";
@@ -241,6 +241,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { emptyOpenLedger, openLedgerProposal, openLedgerSection, recordOpenEntry, restoreOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -506,7 +507,7 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
  */
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
-const DAY_LEDGER_TEXT_CHARS = 900;
+const DAY_LEDGER_TEXT_CHARS = 3200; // ORW-402: a whole-day summary (up to ~400 words) plus its key list
 /** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
 const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
@@ -576,6 +577,8 @@ const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_S
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
 /** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
 const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
+/** ORW-407: the open ledger (commitments and claims made to or by the player, kept as free text). ON by default; `ORWELL_OPEN_LEDGER=0` turns it off. */
+const OPEN_LEDGER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_OPEN_LEDGER");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -783,8 +786,8 @@ const MYTH_MAKING_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MYTH_MAKING");
 const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
 
 /**
- * 0101/#1401 Phase-2 (#1455) — whether the OUTCOME-AFFECTING showrunner REWEIGHT runs by DEFAULT. OFF
- * unless `ORWELL_SHOWRUNNER_REWEIGHT=1`. A DEDICATED sub-flag, DISTINCT from the Phase-1 `ORWELL_SHOWRUNNER`
+ * 0101/#1401 Phase-2 (#1455) — whether the OUTCOME-AFFECTING showrunner REWEIGHT runs by DEFAULT. ON since
+ * ORW-270 (2026-11-15, measured fair); `ORWELL_SHOWRUNNER_REWEIGHT=0` turns it off. A DEDICATED sub-flag, DISTINCT from the Phase-1 `ORWELL_SHOWRUNNER`
  * above, because — unlike Phase-1 (which only routes an emphasized surfaced thread's belief to the player,
  * fold-free) — the reweight RE-ORDERS which simmering thread wins the scheduler's SCARCE per-tick slot, and
  * a thread's activate/surface/resolve transitions FOLD hidden relationship weights that feed the
@@ -800,7 +803,9 @@ const SHOWRUNNER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER");
  * module load (like the sibling flags), with a PROCESS-GLOBAL static override (mirroring `secretPacing` /
  * `seededTieSurfacing`) so the calibration ON-run flips it once for every session it plays.
  */
-const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = process.env.ORWELL_SHOWRUNNER_REWEIGHT === "1";
+// ORW-270 (Ryne 2026-11-15: "Let's try it out. Option 1" - measure, then on if fair): 900 seeds x 3 arms, ON vs OFF, moved nothing beyond noise
+// (win, F2 reach, jury reach; active still beats passive), so it is default ON like every other built flag; `=0` / ORWELL_FLAGS_OFF=1 turn it off.
+const SHOWRUNNER_REWEIGHT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_SHOWRUNNER_REWEIGHT");
 
 /**
  * 0099 (hidden half) — whether the off-screen NPC↔NPC SECRET BARTER runs by DEFAULT. ON unless
@@ -1217,6 +1222,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
+  private openLedgerEnabled = OPEN_LEDGER_ENABLED_DEFAULT;
+  /** ORW-407: the open ledger. Persisted in `SessionCore.openLedger`; absent from the save until something is kept. */
+  private openLedger: OpenLedger = emptyOpenLedger();
+  /** A loaded `openLedger` that failed the shape check: saved back exactly as loaded; nothing may write while set. */
+  private openLedgerAsLoaded: unknown;
   /**
    * B3 / #2017 — the HOH's nomination reads their BELIEF about who is targeting them (`targets-me` claims, derived from the campaigns they are AWARE of — sometimes misattributed —
    * and from betrayal rumors they heard), instead of re-reading the edge. ON unless `ORWELL_NPC_BELIEF_NOMS=0` (needs `ORWELL_NPC_BELIEFS`); flipped ON 2026-11-04 (PO: Ryne, "turn it on"). OFF ⇒ no ctx provider,
@@ -3315,7 +3325,7 @@ export class GameSessionAdapter implements GameSession {
     const voiceGuardText = req.voice !== null && typeof req.voice === "object"
       ? Object.values(req.voice as unknown as Record<string, unknown>).flat().filter((x): x is string => typeof x === "string").join(" ")
       : "";
-    const publicText = `${req.biography ?? ""} ${req.physicalCharacteristics ? Object.values(req.physicalCharacteristics).join(" ") : ""} ${voiceGuardText}`;
+    const publicText = `${req.biography ?? ""} ${req.identityConcept ?? ""} ${req.physicalCharacteristics ? Object.values(req.physicalCharacteristics).join(" ") : ""} ${voiceGuardText}`;
     const storylineText = `${(req.secrets ?? []).join(" ")} ${(req.trueGoals ?? []).join(" ")} ${req.weakness ?? ""}`;
     if (mentionsPlayer(publicText) || mentionsPlayer(storylineText)) {
       return { accepted: false, publicFields: [], hiddenFields: [], reason: "authored profile mirrors the player" };
@@ -3423,6 +3433,14 @@ export class GameSessionAdapter implements GameSession {
     if (req.biography !== undefined && !facetGuard.dropBiography) {
       target.character.biography = req.biography;
       publicFields.push("biography");
+    }
+    // ORW-388: the repaired identity concept replaces the stored one only (never creates one), single line, capped.
+    if (typeof req.identityConcept === "string" && target.character.identityConcept !== undefined) {
+      const repaired = req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300);
+      if (repaired.length > 0 && repaired !== target.character.identityConcept) {
+        target.character.identityConcept = repaired;
+        publicFields.push("identityConcept");
+      }
     }
     if (req.physicalCharacteristics !== undefined) {
       target.character.physicalCharacteristics = facetGuard.physicalCharacteristics as typeof req.physicalCharacteristics;
@@ -4376,6 +4394,10 @@ export class GameSessionAdapter implements GameSession {
         ? { canon: cloneSession(this.canonAsLoaded) }
         : this.canonLedger.entries.length > 0 || this.canonLedger.recent.length > 0
           ? { canon: serializeCanon(this.canonLedger) } : {}),
+      // ORW-407: the open ledger. Absent while nothing is kept (byte-identical saves); an unreadable one is saved back as loaded.
+      ...(this.openLedgerAsLoaded !== undefined
+        ? { openLedger: cloneSession(this.openLedgerAsLoaded) as OpenLedger }
+        : this.openLedger.entries.length > 0 ? { openLedger: cloneSession(this.openLedger) } : {}),
     };
   }
 
@@ -4750,6 +4772,10 @@ export class GameSessionAdapter implements GameSession {
     if (canon.problems.length > 0) {
       console.warn(`[orwell] canon ledger loaded with ${canon.problems.length} problem(s), kept exactly as saved: ${canon.problems.slice(0, 5).join("; ")}`);
     }
+    // ORW-407: restore the open ledger (absent on an older save => empty); an unreadable one is kept exactly as saved.
+    const ol = restoreOpenLedger(core.openLedger);
+    this.openLedger = ol.ledger;
+    this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];
@@ -4816,7 +4842,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [] } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -5424,6 +5450,34 @@ export class GameSessionAdapter implements GameSession {
    * bedtime DERIVATION stays hidden. `undefined` when the clock is off (dormant) ⇒ the projection omits
    * the field. The player is never listed — their own night is the `turnIn` lever + their rest cue.
    */
+  /** ORW-383 - the houseguests who are UP and available now (day or night): the arrived, active NPCs in the awake set. Vault-free; `undefined` when the clock is off. */
+  private awakeNpcs(): NamedRef[] | undefined {
+    const awake = this.awakeNow();
+    if (!awake) return undefined;
+    const notHere = this.notYetArrived();
+    return this.presenceActive()
+      .filter((id) => id !== PLAYER && awake.has(id) && !notHere?.has(id))
+      .map((id) => ({ id, name: this.nameOf(id) }));
+  }
+
+  /**
+   * ORW-383 - sleepers belong in bedrooms at night. Seats the given houseguests (NPCs only, never the player) in a bedroom - a stable choice per houseguest - on the PLAYER-FACING occupancy only
+   * (`presence`; the calibration-neutral base the society pairs on is untouched, and it already drops sleepers). Tenure resets so a houseguest does not read as having lingered in the bedroom.
+   */
+  /** ORW-383: OFF by default. Seating the asleep in bedrooms at wake clumps the house into three rooms and moves the seeded house-life mix about 4 points (bonding 44.9 -> 41.0 on the mix guard's seeds), which is the owner's agreed mix to re-agree, not mine; so it waits for that call. */
+  private sleepersInBedEnabled = process.env.ORWELL_SLEEPERS_IN_BED === "1";
+  setSleepersInBedEnabled(on: boolean): void { this.sleepersInBedEnabled = on; }
+  private seatInBedrooms(ids: Iterable<EntityId>, into: Map<EntityId, Room> | null = this.presence): void {
+    if (!into || !this.sleepersInBedEnabled) return;
+    const beds: Room[] = ["bedroom-a", "bedroom-b", "bedroom-c"];
+    const order = this.presenceActive();
+    for (const id of ids) {
+      if (id === PLAYER || !into.has(id)) continue;
+      const room = beds[Math.max(0, order.indexOf(id)) % beds.length]!;
+      if (into.get(id) !== room) { into.set(id, room); this.presenceTenure?.set(id, 0); }
+    }
+  }
+
   private asleepNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
@@ -6847,6 +6901,7 @@ export class GameSessionAdapter implements GameSession {
       // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
       // target the still-floor cards.
       ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+      ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
       // I6 distinct-voices fix: the SAFE rendered voice-fingerprint clause (0084) the live `view()`
       // mapping now carries — keeps this pre-warm/portrait shape in sync with the live roster card
       // (this docstring's own "same shape" contract). A player-surface-safe STRING (dial vocab only),
@@ -7266,6 +7321,7 @@ export class GameSessionAdapter implements GameSession {
       if (!pub) continue;
       n.character.biography = pub.biography;
       n.character.physicalCharacteristics = pub.physicalCharacteristics;
+      n.character.castingType = { id: pub.castingType.id, label: pub.castingType.label, read: pub.castingType.read }; // ORW-381
       // 0063: GROUND the skin tone from the houseguest's ethnicity identity facet, so the structured
       // physical characteristics (which drive BOTH the narration and the portrait, L29/L23) agree with
       // the heritage the cast was guaranteed — the text and the picture never contradict the identity.
@@ -8785,6 +8841,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
+  setOpenLedgerEnabled(on: boolean): void { this.openLedgerEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -11335,10 +11392,34 @@ export class GameSessionAdapter implements GameSession {
     if (s.playedGame === true) {
       if (this.presenceTenure) for (const id of [...this.presenceTenure.keys()]) this.presenceTenure.set(id, 0);
       this.convoPartners = null;
+      this.driftFeelingsOvernight(s, day);
     }
     if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
     if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
+  }
+
+  /**
+   * ORW-401 follow-up: relationships must not polarise, so overnight each feeling the PLAYER is on either end of eases toward the middle (`OVERNIGHT_DRIFT.RATE` of the remaining distance),
+   * unless that edge moved during the day just closed (it was fed, so it holds). "Moved" = differs from the reference stored at the previous roll (a missing reference = the baseline). No rng; played games only.
+   */
+  private driftFeelingsOvernight(s: NonNullable<GameSessionAdapter["live"]>, day: number): void {
+    if (s.feelDriftDay !== undefined && day <= s.feelDriftDay) return;
+    const b = RELATIONSHIP_CONSTANTS.baseline;
+    const ref = s.feelRef ?? {};
+    const edges = this.rel.serialize().edges.filter((e) => e.from === PLAYER || e.to === PLAYER);
+    const held = new Set<string>();
+    for (const e of edges) {
+      const r = ref[`${e.from}->${e.to}`] ?? [b.trust, b.affinity, b.threat];
+      if (e.trust !== r[0] || e.affinity !== r[1] || e.threat !== r[2]) held.add(`${e.from}->${e.to}`);
+    }
+    this.rel.driftTowardBaseline(OVERNIGHT_DRIFT.RATE, (from, to) => (from === PLAYER || to === PLAYER) && !held.has(`${from}->${to}`));
+    const next: Record<string, [number, number, number]> = {};
+    for (const e of this.rel.serialize().edges) {
+      if (e.from === PLAYER || e.to === PLAYER) next[`${e.from}->${e.to}`] = [e.trust, e.affinity, e.threat];
+    }
+    s.feelRef = next;
+    s.feelDriftDay = day;
   }
 
   /**
@@ -11480,6 +11561,7 @@ export class GameSessionAdapter implements GameSession {
       // skipped). No-op unless the flag + in-game clock are live ⇒ byte-identical off. Records Vault-only.
       this.sweepDailyConfessionals(closingDay);
       playerTurnIn(this.live!, PLAYER);
+      { const up = this.awakeNow(); if (up) this.seatInBedrooms(this.presenceActive().filter((id) => !up.has(id))); } // ORW-383: whoever is still asleep when the player wakes is in a bed, not where the evening left them
       this.accrueNightFatigue(); // the player chose bed — a genuine night-end; accrue before clearing conflicts
       this.rollNightConflicts();
       this.persist();
@@ -14320,7 +14402,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -14604,6 +14686,30 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     }
     return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
+  }
+
+  /**
+   * ORW-407 - keep a commitment or claim made to or by the player in narration, as free text. The engine re-validates the
+   * shape, the speakers (the player or a houseguest in the house) and that everyone involved is present now, derives the
+   * witnesses from the engine's own presence, de-duplicates, and appends. No Vault handle, no rng, no relationship change.
+   */
+  recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult {
+    if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
+    const p = openLedgerProposal(req, known);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const wa = this.whereabouts();
+    if (!wa) return { accepted: false, reason: "no-game" };
+    const out = recordOpenEntry(this.openLedger, p, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string),
+    });
+    if (out.outcome === "duplicate") return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
+    if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
   /**
@@ -15028,7 +15134,7 @@ export class GameSessionAdapter implements GameSession {
       whereabouts: this.whereabouts(),
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [] } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
       ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1), dayNumber: this.live.dayNumber ?? 1 } : {}), // P0: the exact clock the narrator must use; ORW-345: + the day number the FE stamps on each saved row
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
@@ -15111,6 +15217,7 @@ export class GameSessionAdapter implements GameSession {
         // houseguest, otherwise absent (still on the seeded floor). NOT secret content; lets the FE backfill
         // target the still-floor cards.
         ...(n.character.deepProfileAuthored === true ? { authored: true } : {}),
+        ...(n.character.castingType !== undefined ? { castingType: { label: n.character.castingType.label, read: n.character.castingType.read } } : {}), // ORW-381
         // I6 distinct-voices fix (NARR-15/PROMPT-2): a COMPACT, player-surface-SAFE voice-fingerprint
         // clause (0084), rendered from the controlled voice DIAL vocab only (register/rhythm/energy/
         // directness/humor/stress-tell) via `voiceFingerprint` — so distinct cadence reaches the narrator

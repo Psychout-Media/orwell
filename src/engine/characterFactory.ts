@@ -185,6 +185,12 @@ export interface Character {
   biography?: string;
   physicalCharacteristics?: PhysicalCharacteristics;
   /**
+   * ORW-381: how this houseguest is cast and reads on camera ("the charmer"). PRESENTATION ONLY: no mechanic,
+   * outcome or stat reads it and it is dealt independently of stats, secrets and goals. Public, Vault-free,
+   * byte-stable. Optional: a save from before ORW-381 loads without it and re-derives nothing.
+   */
+  castingType?: { id: string; label: string; read: string };
+  /**
    * One-time PROVENANCE flag for the season-start deep-profile authoring write-back (#1067). The seeded
    * deterministic floor (`seedDeepProfiles`) sets `biography`/`physicalCharacteristics`/`vocation` to a
    * PLACEHOLDER; the FE then authors a RICHER replacement via `recordCastProfile`. Replacing those public
@@ -542,10 +548,18 @@ const HAIR = [
   "a silver-streaked undercut", "honey-blond beach waves", "jet-black slicked-back hair",
   "dyed teal-tipped hair",
 ];
+// ORW-388: the two gray entries and their dark twins (the same cut, a natural dark colour).
+const GRAY_HAIR_TWIN: Readonly<Record<string, string>> = {
+  "a salt-and-pepper buzzcut": "a dark brown buzzcut",
+  "a silver-streaked undercut": "a dark brown undercut",
+};
+function hairForAge(hair: string, age: number): string {
+  return age >= 40 ? hair : (GRAY_HAIR_TWIN[hair] ?? hair);
+}
 const FEATURES = [
   "freckles across the nose", "a dimpled smile", "wire-rimmed glasses", "a small nose stud",
-  "strong cheekbones", "a gap-toothed grin", "thick expressive eyebrows",
-  "a faint scar above one eyebrow", "laugh lines", "a beauty mark on one cheek",
+  "strong cheekbones", "bright wide-set eyes", "thick expressive eyebrows",
+  "high arched brows", "laugh lines", "a beauty mark on one cheek",
   "a square jawline", "round soft features",
 ];
 const LOOKS = [
@@ -608,7 +622,8 @@ function generateAppearance(rng: RandomnessSource): { appearance: string; age: n
   return {
     age,
     presentation: rng.pick(PRESENTATION),
-    appearance: `${rng.pick(BUILDS)}, ${rng.pick(COMPLEXIONS)}, ${rng.pick(HAIR)}, ${rng.pick(FEATURES)}, ${rng.pick(LOOKS)}`,
+    // ORW-388: gray hair only at 40 and over. The draw count is unchanged; a gray pick under 40 is swapped for its dark twin.
+    appearance: `${rng.pick(BUILDS)}, ${rng.pick(COMPLEXIONS)}, ${hairForAge(rng.pick(HAIR), age)}, ${rng.pick(FEATURES)}, ${rng.pick(LOOKS)}`,
   };
 }
 

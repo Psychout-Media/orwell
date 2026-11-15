@@ -161,6 +161,11 @@ export interface HouseguestCard {
    */
   authored?: boolean;
   /**
+   * ORW-381: how this houseguest is cast and reads on camera, `{ label, read }` ("the charmer"). PUBLIC,
+   * Vault-free, presentation only (no mechanic reads it). Absent on a save from before ORW-381.
+   */
+  castingType?: { label: string; read: string };
+  /**
    * I6 distinct-voices fix (NARR-15/PROMPT-2, 2026-07-05): a COMPACT, PLAYER-SURFACE-SAFE text clause
    * for HOW this houseguest talks (feature 0084) — the narrator reads it EVERY turn so the cast sounds
    * like sixteen people, not one, WITHOUT depending on the per-NPC `npcVoice` call it reliably under-calls.
@@ -462,6 +467,8 @@ export interface GameStateView {
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).
    */
   asleep?: NamedRef[];
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  awake?: NamedRef[];
   /**
    * The season is OVER — a winner is crowned (audit B6-01). Vault-free (whether the game ended is
    * public). Lets the FE gate the season lifecycle (0057 next-season) and fill the progress bar to
@@ -1141,6 +1148,26 @@ export interface RecordLookExtrasResult {
   reason?: string;
 }
 
+/** ORW-407: the open-ledger write-back (a commitment or claim made to or by the player, free text). Exactly these four fields. */
+export interface RecordOpenLedgerReq {
+  /** Verbatim or near-verbatim from the narration, at most 240 characters. */
+  text: string;
+  /** `player` or a houseguest id. */
+  speaker: string;
+  addressedTo: string[];
+  /** A free string (at most 40 characters), never a closed list. */
+  kind: string;
+}
+
+export interface RecordOpenLedgerResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+  /** True when the same words by the same speaker were already kept. */
+  duplicate?: boolean;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -1155,7 +1182,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1256,6 +1283,8 @@ export interface PublicGameStatus {
    * Vault-free; present only when the clock is running.
    */
   asleep?: NamedRef[];
+  /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running; never includes the player. */
+  awake?: NamedRef[];
   /**
    * The in-game DAY within the current HOH week (E58): hoh=1, nominations=2, veto=3,
    * veto-ceremony=4, eviction=5 — the canonical `dayOfWeek(phase)` mapping that already feeds the
@@ -2564,6 +2593,14 @@ export interface RecordCastProfileReq {
   vocation?: string;
   /** A real multi-sentence backstory (the presentable parts). */
   biography?: string;
+  /**
+   * ORW-388: a REPAIRED freeform identity concept. Genesis writes `identityConcept` once, before the card's gender,
+   * exact age and look are final; the authoring accept path mends a contradiction in it (a wrong pronoun, a wrong
+   * age, a look feature the look lacks, "Big Brother") and sends the mended text here. Folded ONLY onto a houseguest
+   * that already has an identityConcept (a repair, never an invention), capped at 300 characters, and refused when it
+   * names the player. Absent ⇒ the stored identity concept stands.
+   */
+  identityConcept?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
   physicalCharacteristics?: PhysicalCharacteristics;
   /**
@@ -3220,6 +3257,8 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
+  recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
 
   /**
    * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields

@@ -102,9 +102,9 @@
 #       #1779: "Phase-1 observe-only; REWEIGHT stays off"). Phase-1 composes on a pure scoring pass (no
 #       rng) and only routes an emphasized surfaced thread's belief to the player, fold-free — the
 #       seeded comp/vote/jury spine is byte-identical even while ON. The OUTCOME-AFFECTING sibling
-#       `ORWELL_SHOWRUNNER_REWEIGHT` (Phase-2, #1455) is DELIBERATELY NOT added here and MUST stay
-#       unset — it re-orders the scheduler and folds hidden relationship weights, so it is NOT
-#       calibration-neutral and is explicitly out of scope for #1779 — see `GameSessionAdapter.ts:610-640`.
+#       `ORWELL_SHOWRUNNER_REWEIGHT` (Phase-2, #1455) re-orders the scheduler and so is NOT
+#       byte-neutral; ORW-270 (Ryne 2026-11-15) measured it ON vs OFF over 900 seeds x 3 arms: nothing
+#       moved beyond noise (win / F2 / jury reach; active still beats passive), so it is default ON.
 
 #   ORWELL_TIME_OF_DAY          The in-game clock (ADR 0006 / 0066). The FE pushes its setting onto the
 #       engine (default ON), but a restarted engine boots at THIS value until the FE re-pushes — so the
@@ -159,6 +159,7 @@ ORWELL_VOTE_DEDUCTION=1
 ORWELL_GOSSIP_DRIFT=1
 ORWELL_SECRET_BARTER=1
 ORWELL_SHOWRUNNER=1
+ORWELL_SHOWRUNNER_REWEIGHT=1
 ORWELL_PLAYER_DOSSIER=1
 ORWELL_TRAITORS_FURY=1
 ORWELL_PRODUCER_READ=1
@@ -200,6 +201,7 @@ ORWELL_HEARD_ABOUT_ME=1
 ORWELL_NO_HARD_CAPS=1
 ORWELL_JURY_MEMORY=1
 ORWELL_ROOM_CANON=1
+ORWELL_OPEN_LEDGER=1
 ORWELL_MEMORY_FRIENDS=1
 ORWELL_ACCUSE_COST=1
 ORWELL_CREDIBILITY=1

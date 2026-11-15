@@ -29,14 +29,23 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 KEEP_TAIL_ROWS = 6          # raw rows of the previous day kept verbatim
-DAY_WORDS = 120
+DAY_WORDS = 120             # ORW-402: the FLOOR of the per-day word budget; it grows with the day, up to DAY_WORDS_MAX
+DAY_WORDS_MAX = 400
+KEY_LIST_WORDS = 80
+_CHARS_PER_BUDGET_WORD = 40  # a day of ~4,800 chars or less gets 120 words; ~16,000+ chars gets the 400 cap
+_CHUNK_CHARS = 6000
+_MAX_DAY_CHARS = 120000
 WEEK_WORDS = 150
 WEEK_SPAN = 7
 KEEP_RECENT_DAYS = 7        # day entries newer than this window are never week-merged
 WEEK_TRIGGER_TOTAL = 14
-_MAX_ROW_CHARS = 1200
+_MAX_ROW_CHARS = 2500
 _MAX_INPUT_CHARS = 14000
 STORY_HEADER = "[Story so far]"
+YESTERDAY_HEADER = "Engine record of yesterday"
+
+HEAL_DAYS_PER_RUN = 3       # ORW-387: earlier closed days with no (or an error-shaped) summary re-authored per run
+_HEAL_TRIES_MAX = 3         # per (user, day) per process, so a provider that keeps failing is not asked every turn
 
 HEAL_DAYS_PER_RUN = 3       # ORW-387: earlier closed days with no (or an error-shaped) summary re-authored per run
 _HEAL_TRIES_MAX = 3         # per (user, day) per process, so a provider that keeps failing is not asked every turn
@@ -99,6 +108,14 @@ def days_needing_summary(ledger: list) -> list:
                   and isinstance(e.get("day"), int) and not e.get("merged") and not _authored_text(e))
 
 
+def _record_text(e: dict) -> str:
+    """The engine's deterministic record of a day, in full (every event, every theme)."""
+    events = [str(x) for x in (e.get("events") or []) if str(x).strip()]
+    themes = [str(x) for x in (e.get("themes") or []) if str(x).strip()]
+    parts = ([f"themes: {', '.join(themes)}"] if themes else []) + ([f"events: {'; '.join(events)}"] if events else [])
+    return " | ".join(parts)
+
+
 def _entry_text(e: dict) -> str:
     text = _authored_text(e)
     if text:
@@ -120,6 +137,12 @@ def build_story_so_far(ledger: list, up_to_day: int) -> str:
         lines.append(f"- Days {cd[0]}-{cd[1]}: {_entry_text(e)}")
     for e in sorted(days, key=lambda x: x["day"]):
         lines.append(f"- Day {e['day']}: {_entry_text(e)}")
+    # ORW-402 layer 1: yesterday's deterministic engine record in full, as a TRAILING block so the day lines above
+    # stay an append-only prefix (the record only ever changes at the tail as days close).
+    yest = next((e for e in days if e["day"] == up_to_day), None)
+    rec = _record_text(yest) if yest else ""
+    if rec:
+        lines.append(f"{YESTERDAY_HEADER} (Day {up_to_day}): {rec}")
     return "\n".join(lines)
 
 
@@ -164,9 +187,7 @@ def apply_prompt_view(messages: list, ledger: list) -> list:
 
 # ── author task ──────────────────────────────────────────────────────────────────
 
-def visible_day_text(history: list, day: int) -> str:
-    """The PLAYER-VISIBLE text of one in-game day: user + assistant ``content`` only. Tool results, tool events and
-    reasoning (metadata) never enter."""
+def _day_rows(history: list, day: int) -> list:
     msgs = [{"role": getattr(m, "role", None) if not isinstance(m, dict) else m.get("role"),
              "content": getattr(m, "content", None) if not isinstance(m, dict) else m.get("content"),
              "metadata": getattr(m, "metadata", None) if not isinstance(m, dict) else m.get("metadata")}
@@ -179,14 +200,63 @@ def visible_day_text(history: list, day: int) -> str:
         txt = " ".join(m["content"].split())[:_MAX_ROW_CHARS]
         if txt:
             parts.append(("Player: " if m["role"] == "user" else "Narration: ") + txt)
-    return "\n".join(parts)[-_MAX_INPUT_CHARS:]
+    return parts
 
 
-def _day_messages(day: int, text: str) -> list:
-    system = ("You condense one in-game day of a reality-TV house story into a short memory note for the narrator. "
-              f"At most {DAY_WORDS} words, plain prose: the themes, the key events, and any open threads. "
-              "Use only what the text says; invent nothing.")
+def visible_day_text(history: list, day: int) -> str:
+    """The PLAYER-VISIBLE text of one in-game day: user + assistant ``content`` only. Tool results, tool events and
+    reasoning (metadata) never enter. ORW-402: the WHOLE day (only a very large safety ceiling applies)."""
+    return "\n".join(_day_rows(history, day))[-_MAX_DAY_CHARS:]
+
+
+def day_word_budget(chars: int) -> int:
+    """ORW-402: the summary budget scales with the day's visible length: DAY_WORDS floor, DAY_WORDS_MAX cap."""
+    return max(DAY_WORDS, min(DAY_WORDS_MAX, int(chars) // _CHARS_PER_BUDGET_WORD))
+
+
+def _chunks(text: str) -> list:
+    """Split the day's text on row boundaries into pieces of about _CHUNK_CHARS (an over-long row is cut)."""
+    out: list = []
+    cur = ""
+    for line in text.split("\n"):
+        while len(line) > _CHUNK_CHARS:
+            line, rest = line[:_CHUNK_CHARS], line[_CHUNK_CHARS:]
+            out.append(line)
+            line = rest
+        if cur and len(cur) + len(line) + 1 > _CHUNK_CHARS:
+            out.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        out.append(cur)
+    return out
+
+
+_KEY_LIST_RULE = ("After the prose, add one line starting 'Key list:' with the open promises, nicknames and running "
+                  "jokes, each quoted as closely to the text as you can, separated by semicolons.")
+
+
+def _day_messages(day: int, text: str, words: int = DAY_WORDS) -> list:
+    system = ("You condense one in-game day of a reality-TV house story into a memory note for the narrator. "
+              f"At most {words} words, plain prose: the themes, the key events, and any open threads. "
+              f"{_KEY_LIST_RULE} Use only what the text says; invent nothing.")
     return [{"role": "system", "content": system}, {"role": "user", "content": f"Day {day}:\n{text}\n\nSummary:"}]
+
+
+def _chunk_messages(day: int, n: int, total: int, text: str, words: int) -> list:
+    system = (f"You condense part {n} of {total} of one in-game day of a reality-TV house story into notes for the "
+              f"narrator. At most {words} words, plain prose: events, who said or promised what, open threads. "
+              f"{_KEY_LIST_RULE} Use only what the text says; invent nothing.")
+    return [{"role": "system", "content": system}, {"role": "user", "content": f"Day {day}, part {n}/{total}:\n{text}\n\nNotes:"}]
+
+
+def _merge_messages(day: int, notes: list, words: int) -> list:
+    system = ("Merge these part-notes of one in-game day of a reality-TV house story into ONE memory note for the "
+              f"narrator, in time order. At most {words} words of plain prose covering the WHOLE day. "
+              f"{_KEY_LIST_RULE} Keep every open promise, nickname and running joke from the parts. Invent nothing.")
+    body = "\n\n".join(f"Part {i + 1}: {t}" for i, t in enumerate(notes))
+    return [{"role": "system", "content": system}, {"role": "user", "content": f"Day {day}:\n{body}\n\nSummary:"}]
 
 
 def _week_messages(frm: int, to: int, parts: list) -> list:
@@ -200,6 +270,36 @@ def _clip_words(text: str, n: int) -> str:
     return " ".join((text or "").split()[:n]).strip()
 
 
+def _clip_with_key_list(text: str, words: int) -> str:
+    """Clip the prose to ``words`` and the 'Key list:' line separately, so the verbatim list is never clipped away."""
+    head, sep, keys = (text or "").partition("Key list:")
+    out = _clip_words(head, words)
+    keys = _clip_words(keys, KEY_LIST_WORDS) if sep else ""
+    return f"{out} Key list: {keys}".strip() if keys else out
+
+
+async def _summarise_day(day: int, text: str, llm_fn) -> str:
+    """ORW-402 layer 2: one call for a short day; otherwise summarise each chunk, then merge. Returns "" on an error-shaped
+    reply (the caller records it)."""
+    words = day_word_budget(len(text))
+    pieces = _chunks(text)
+    if len(pieces) <= 1:
+        return await llm_fn(_day_messages(day, text, words)) or ""
+    per = max(60, words // 2)
+    notes: list = []
+    for i, piece in enumerate(pieces, 1):
+        r = await llm_fn(_chunk_messages(day, i, len(pieces), piece, per)) or ""
+        if looks_like_error(r):
+            return r
+        if not r.strip():
+            # A chunk that came back empty (a provider error mid-run) must not leave a hole: the engine keeps the first
+            # authored text for good, so write nothing and let the day be retried.
+            logger.warning("[day-condense] day %s: chunk %s of %s came back empty; nothing written", day, i, len(pieces))
+            return ""
+        notes.append(" ".join(r.split()))
+    return await llm_fn(_merge_messages(day, notes, words)) or ""
+
+
 async def _author_day(entry: dict, llm_fn, history: list, write_fn) -> dict:
     day = entry["day"]
     if _authored_text(entry):
@@ -207,7 +307,7 @@ async def _author_day(entry: dict, llm_fn, history: list, write_fn) -> dict:
     text = visible_day_text(history, day)
     if not text.strip():
         return {"accepted": False, "reason": "no-text"}
-    raw = await llm_fn(_day_messages(day, text)) or ""
+    raw = await _summarise_day(day, text, llm_fn)
     if looks_like_error(raw):
         logger.warning("[day-condense] day %s: the model call returned an error, not a summary; nothing written", day)
         try:
@@ -216,7 +316,7 @@ async def _author_day(entry: dict, llm_fn, history: list, write_fn) -> dict:
         except Exception:  # failsoft-ok: recorder-self
             pass
         return {"accepted": False, "reason": "error-text"}
-    out = _clip_words(raw, DAY_WORDS)
+    out = _clip_with_key_list(raw, day_word_budget(len(text)))
     if not out:
         return {"accepted": False, "reason": "empty"}
     return await write_fn(day, out)
@@ -377,7 +477,7 @@ def kickoff_heal(owner, ledger: list) -> None:
                 logger.warning("[day-condense] heal task failed: %s", e)
                 try:
                     from src import log_rings
-                    log_rings.record_soft_failure("day-condense:heal-failed", e, corrected="the engine floor stands for that day")
+                    log_rings.record_soft_failure("day-condense:heal-task-failed", e, corrected="raw history stays in the prompt")
                 except Exception:  # failsoft-ok: recorder-self
                     pass
             finally:
@@ -388,9 +488,9 @@ def kickoff_heal(owner, ledger: list) -> None:
         except RuntimeError:
             _IN_FLIGHT.discard(k)
     except Exception as e:  # fail-soft: healing must never hurt a turn
-        logger.warning("[day-condense] heal kickoff failed: %s", e)
+        logger.debug("[day-condense] heal kickoff skipped: %s", e)
         try:
             from src import log_rings
-            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="the engine floor stands for that day")
+            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="raw history stays in the prompt")
         except Exception:  # failsoft-ok: recorder-self
             pass

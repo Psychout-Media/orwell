@@ -17,6 +17,7 @@ import type { HiddenRecord } from "../ports/VaultStore";
 import type { AdvanceView } from "../ports/GameSession";
 import type { PersistedCanon } from "../domain/canon";
 import { canonSupersetProblems, restoreCanon } from "./canonLedger";
+import { openLedgerSuperset, restoreOpenLedger, type OpenLedger } from "./openLedger";
 
 /**
  * The current durable-snapshot schema version (B40/audit C4). Bump when the shape changes; a save
@@ -504,6 +505,8 @@ export interface SessionCore {
    * canon saves byte-identically (and every pre-ledger save loads as an empty ledger).
    */
   canon?: PersistedCanon;
+  /** ORW-407 - the open ledger: commitments and claims made to or by the player, free text with provenance. Append-only; absent until one is kept. */
+  openLedger?: OpenLedger;
   /**
    * Issue #1322 (P2) — the approach-rotation anti-recency cooldown: per-NPC remaining STRETCHES (a
    * distinct week:phase) before they are eligible to lead `socialInitiatives`'s top-3 again, so the
@@ -679,6 +682,7 @@ export function toGameState(snap: SessionSnapshot): GameState {
       // #1067: the season-start authoring provenance flag — drives the ONE sanctioned floor→authored public-
       // facet upgrade the 0031 checkpoint permits. Spread (not nested) so it stays absent on the seeded floor
       // and on pre-#1067 saves (no spurious change to the byte-compare for an un-authored character).
+      ...(hg.character.castingType !== undefined ? { castingType: hg.character.castingType } : {}), // ORW-381
       ...(hg.character.deepProfileAuthored === true ? { deepProfileAuthored: true } : {}),
     };
     souls[hg.id] = {
@@ -922,6 +926,11 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // id counter never goes back (`canonSupersetProblems`). Both sides are read the way a load reads them.
   if (earlier.canon !== undefined || later.canon !== undefined) {
     if (canonSupersetProblems(restoreCanon(earlier.canon).ledger, restoreCanon(later.canon).ledger).length > 0) return "canon";
+  }
+
+  // openLedger (ORW-407): append-only; no entry disappears or has its words rewritten.
+  if (earlier.openLedger !== undefined || later.openLedger !== undefined) {
+    if (!openLedgerSuperset(restoreOpenLedger(earlier.openLedger).ledger, restoreOpenLedger(later.openLedger).ledger)) return "openLedger";
   }
 
   // agendas (ORW-312 / 0145): an NPC's resolved-goal history only ever grows (`isAgendaSuperset`), and an agenda once seeded is never dropped.

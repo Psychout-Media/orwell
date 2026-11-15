@@ -109,7 +109,7 @@ def test_per_slot_directives_match_the_engine_byte_for_byte():
         "expressiveness": "reserved and hard to read", "emotionalRegister": "cold and hard to rattle",
         "selfAwareness": "insecure, quietly underrates themselves",
         "socialGravity": "a magnetic main-character who fills the room",
-        "ink": False, "lookFeature": "a chipped front tooth"}
+        "ink": False, "lookFeature": "bright, wide-set eyes"}
     assert G.assign_genesis_slots(7, 15) == G.assign_genesis_slots(7, 15)  # deterministic
 
 
@@ -193,7 +193,7 @@ def test_prompt_is_producer_framed_banded_and_player_blind():
         assert kind in system, kind
     # the legacy-Bible deny-list names are called out; the pronoun-consistency wording is present.
     assert "ryne" in system and "marcus" in system and "felix" in system
-    assert "chosen pronouns" in system
+    assert "no gendered pronouns" in system and "fixed in later steps" in system  # ORW-388: pronouns are pinned later, so the prose carries none
     # the softened name policy: no whole-cast redraw threat, no centripetal anchoring language.
     assert "unremarkable" not in system
     assert "redrawn" not in system and "re-rolled" not in system

@@ -1,0 +1,27 @@
+2026-11-15T07:19:53.5857175Z Failures:
+2026-11-15T07:19:53.5857433Z 
+2026-11-15T07:19:53.5858182Z 1) Scenario: The calibration floor runs on the intentional-movement model # docs/features/0078-motivated-society-and-intentional-movement.feature:72
+2026-11-15T07:19:53.5859781Z    ✔ Given a started season with the off-screen society running between turns # features/step_definitions/motivated_society.steps.ts:146
+2026-11-15T07:19:53.5861099Z    ✔ Given the seeded calibration harness that plays passive seasons to a verdict # features/step_definitions/motivated_society.steps.ts:364
+2026-11-15T07:19:53.5870598Z    ✔ When one passive season is played to completion on the current model # features/step_definitions/motivated_society.steps.ts:368
+2026-11-15T07:19:53.5872420Z    ✖ Then it yields a well-formed outcome the band gate can score # features/step_definitions/motivated_society.steps.ts:373
+2026-11-15T07:19:53.5873732Z        AssertionError [ERR_ASSERTION]: seed 1, passive, current model
+2026-11-15T07:19:53.5874321Z        + actual - expected
+2026-11-15T07:19:53.5874756Z 
+2026-11-15T07:19:53.5874915Z          {
+2026-11-15T07:19:53.5875372Z            f2Win: false,
+2026-11-15T07:19:53.5875759Z        +   playerCompWins: 0,
+2026-11-15T07:19:53.5876204Z        -   playerCompWins: 1,
+2026-11-15T07:19:53.5876586Z            seed: 1,
+2026-11-15T07:19:53.5877026Z        +   status: 'evicted'
+2026-11-15T07:19:53.5877388Z        -   status: 'jury'
+2026-11-15T07:19:53.5893323Z 2) Scenario: The day-one read never changes even as the current read moves # docs/features/0088-living-current-read.feature:32
+2026-11-15T07:19:53.5894832Z    ✔ Given a started season with the player in the house # features/step_definitions/confidence.steps.ts:108
+2026-11-15T07:19:53.5896327Z    ✔ Given a houseguest with a sealed day-one read of the player # features/step_definitions/current_read.steps.ts:110
+2026-11-15T07:19:53.5898063Z    ✔ When the player's conduct moves that houseguest's current read across the season # features/step_definitions/current_read.steps.ts:144
+2026-11-15T07:19:53.5899550Z    ✔ And the current read is snapshotted and restored # features/step_definitions/current_read.steps.ts:149
+2026-11-15T07:19:53.5900577Z    ✔ Then the sealed day-one read of the player is unchanged # features/step_definitions/current_read.steps.ts:190
+2026-11-15T07:19:53.5901578Z    ✖ And the current read may disagree with the day-one read # features/step_definitions/current_read.steps.ts:195
+2026-11-15T07:19:53.5902487Z        AssertionError [ERR_ASSERTION]: the live read ('guarded', warming) did not move off the move-in carriage
+2026-11-15T07:19:53.5903456Z            + expected - actual
+2026-11-15T07:19:53.5997897Z 829 scenarios (2 failed, 827 passed)

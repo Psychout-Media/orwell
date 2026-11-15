@@ -7,8 +7,8 @@ steers, the hang-out steer, the movement cue). Report-only: it never edits the p
 import re
 from typing import Iterable
 
-_PARTS = {"morning", "afternoon", "evening", "night", "late night"}
-_TOD_RE = re.compile(r"^\s*-\s*(?:Time of day|Part of the day):\s*([A-Za-z -]+?)(?:\s*[(.]|$)", re.IGNORECASE | re.MULTILINE)
+_PARTS = {"morning", "afternoon", "evening", "night", "late night", "early morning", "midday"}
+_TOD_RE = re.compile(r"^\s*-\s*(?:(?:Time of day|Part of the day):|The night is over: it is now)\s*([A-Za-z -]+?)(?:\s*[(.]|$)", re.IGNORECASE | re.MULTILINE)
 _DUE_NOW_RE = re.compile(r"production is calling everyone|production calls everyone|the scheduled event is on now", re.IGNORECASE)
 _NOT_DUE_RE = re.compile(r"production hasn'?t called|is not due until", re.IGNORECASE)
 _WITH_RE = re.compile(r"^\s*With you:\s*(.+?)\.?\s*$", re.IGNORECASE | re.MULTILINE)
