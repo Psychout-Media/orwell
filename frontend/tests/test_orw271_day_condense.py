@@ -417,3 +417,31 @@ def test_orw437_a_heal_task_started_for_one_game_writes_nothing_into_the_next(mo
     k_a = f"u:{dc._game_sid('u')}:1"
     sids["now"] = "game-B"
     assert f"u:{dc._game_sid('u')}:1" != k_a
+
+
+def test_orw437_heal_picks_the_oldest_day_with_tries_left_and_charges_every_day_it_attempts(monkeypatch):
+    """review of #2668: an exhausted newest day must not starve older missing days; tries are charged per attempted day."""
+    from src import orwell_game_session as gs
+    monkeypatch.setattr(gs, "get_game_session", lambda user: "g1")
+    monkeypatch.setattr(dc, "enabled", lambda: True)
+    monkeypatch.setattr(dc, "_HEAL_TRIES", {})
+    monkeypatch.setattr(dc, "_IN_FLIGHT", set())
+    ran = []
+
+    async def fake_run(owner, day, sid=None):
+        ran.append(day)
+        return {}
+
+    monkeypatch.setattr(dc, "run_condense", fake_run)
+    ledger = [_day_entry(1), _day_entry(2), _day_entry(3)]
+    dc._HEAL_TRIES["u:g1:1"] = dc._HEAL_TRIES_MAX  # the oldest day is already exhausted
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def go():
+        dc.kickoff_heal("u", ledger)
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+    loop.run_until_complete(go())
+    assert ran == [2], "the oldest day that still has tries left is healed, not only the newest"
+    assert dc._HEAL_TRIES["u:g1:2"] == 1 and dc._HEAL_TRIES["u:g1:3"] == 1
