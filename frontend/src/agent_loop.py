@@ -5737,7 +5737,8 @@ def _scrub_game_leak(text: str) -> str:
     # ORW-442: an echoed harness placeholder ("<tool result has been redacted>") has no sentence punctuation, so it would take the NEXT sentence with it; cut just the placeholder first.
     text = _TOOL_RESULT_PLACEHOLDER_RE.sub("", text)
     # ORW-440: a tag between two words leaves one space (never "quiet.The"); at an edge or beside whitespace it just goes.
-    text = _TOOL_MARKUP_TAG_RE.sub(lambda m: " " if (m.start() > 0 and not text[m.start() - 1].isspace() and m.end() < len(text) and not text[m.end()].isspace()) else "", text)
+    # One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.").
+    text = _TOOL_MARKUP_TAG_RE.sub(lambda m: " " if (not (m.start() > 0 and text[m.start() - 1].isspace()) and m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'") else "", text)
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
