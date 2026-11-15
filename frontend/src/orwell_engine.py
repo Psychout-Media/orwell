@@ -525,8 +525,10 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
             never_sent = isinstance(e, _NEVER_SENT_ERRORS)
             if never_sent:
                 _note_engine_unreachable()
-            elif isinstance(e, (EngineToolError, httpx.HTTPStatusError)):
-                _clear_engine_down()  # an ANSWER (a tool error, a 5xx, the restarting 503): the engine is listening
+            elif isinstance(e, EngineToolError) or (isinstance(e, httpx.HTTPStatusError) and (wait is not None or e.response.status_code not in _TRANSIENT_STATUSES)):
+                # an ANSWER (a structured tool error, the recognized restarting 503, a non-gateway status): the engine is listening. A bare gateway 502/503/504 proves only that a proxy answered
+                # (review of #2744), so it must not restart the outage clock of an established outage
+                _clear_engine_down()
             if wait is not None and never_sent and not long_waiting and _engine_down():
                 wait = None  # the outage is established: a refused connection fails fast (short retry below)
             if wait is not None:
