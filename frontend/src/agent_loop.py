@@ -4723,7 +4723,23 @@ _FAITH_TIME_ADVANCING_TOOLS = frozenset({"turnIn", "advanceGame", "nap", "hangOu
 
 def _faith_turn_advanced_time(tool_events) -> bool:
     """True when the turn's own tool events include a time-advancing engine write (the loop holds no start-of-turn board to diff)."""
-    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS for ev in (tool_events or []))
+    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS and _faith_event_applied(ev) for ev in (tool_events or []))
+
+
+def _faith_event_applied(ev: dict) -> bool:
+    """False for a tool event that did not apply: a failed call (non-zero exit code) or an engine `held` / `error` refusal in its output. A held or failed write left the clock where it was,
+    so it must not switch the judge's time dimension off (review of #2741). An event with no output (the belts' own calls) is judged on its exit code alone."""
+    if ev.get("exit_code") not in (0, None):
+        return False
+    out = ev.get("output")
+    if isinstance(out, str) and out.strip().startswith("{"):
+        try:
+            data = json.loads(out)
+        except ValueError:
+            return True
+        if isinstance(data, dict) and (data.get("held") or data.get("error")):
+            return False
+    return True
 
 
 async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_before=None,

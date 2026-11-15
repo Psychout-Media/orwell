@@ -307,3 +307,13 @@ def test_a_board_without_a_sleep_fact_publishes_no_asleep_field(monkeypatch):
     assert "asleep" not in _run(_faith_build_projection("u1"))["time"]
     _patch_reads(monkeypatch, gs={"week": 1, "phase": "hoh", "timeOfDay": "night", "whereabouts": {"room": "kitchen"}, "asleep": []})
     assert _run(_faith_build_projection("u1"))["time"]["asleep"] == []
+
+
+def test_a_held_or_failed_time_write_does_not_switch_the_time_dimension_off():
+    """review of #2741: any event named turnIn / nap / ... counted as a clock write, even a refused one."""
+    from src.agent_loop import _faith_turn_advanced_time
+    assert not _faith_turn_advanced_time([{"tool": "turnIn", "output": '{"held": true, "reason": "bedtime"}', "exit_code": 0}])
+    assert not _faith_turn_advanced_time([{"tool": "nap", "output": "engine refused", "exit_code": 1}])
+    assert not _faith_turn_advanced_time([{"tool": "advanceGame", "output": '{"error": "no such beat"}', "exit_code": 0}])
+    assert _faith_turn_advanced_time([{"tool": "turnIn", "output": '{"status": {"timeOfDay": "morning"}}', "exit_code": 0}])
+    assert _faith_turn_advanced_time([{"tool": "nap", "output": "", "exit_code": 0}])
