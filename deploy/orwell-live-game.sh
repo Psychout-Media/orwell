@@ -191,9 +191,9 @@ update_force_flag_present() {
 
 # Write/refresh the visible status in the ROOT-owned run dir (atomic; temp file beside the target in that
 # same root-owned dir, O_EXCL via mktemp, then mv -fT; no chmod after creation).
-# $1 reason  $2 since(iso)  $3 give-up-by(iso)  $4 give-up-by(epoch)
+# $1 reason  $2 since(iso)  $3 give-up-by(iso)  $4 give-up-by(epoch)  $5 run token the waiter started under (ownership: only that waiter clears it)
 update_defer_write_status() {
-  local dir="$ORWELL_RUN_DIR" reason="$1" since="$2" until_="$3" until_epoch="$4" tmp
+  local dir="$ORWELL_RUN_DIR" reason="$1" since="$2" until_="$3" until_epoch="$4" seq="${5:-}" tmp
   [[ -L "$dir" ]] && return 0
   mkdir -p "$dir" 2>/dev/null || return 0
   if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi   # only ever write inside a dir WE own
@@ -205,12 +205,21 @@ update_defer_write_status() {
     printf 'last_check=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'proceeds_by=%s\n' "$until_"
     printf 'proceeds_by_epoch=%s\n' "$until_epoch"
+    printf 'run_seq=%s\n' "$seq"
     printf 'override=orwell-update.sh --force  (or ORWELL_UPDATE_FORCE=1)\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   mv -fT "$tmp" "${dir}/update-deferred" 2>/dev/null || rm -f "$tmp"
   return 0
 }
 update_defer_clear_status() { rm -f "${ORWELL_RUN_DIR}/update-deferred" 2>/dev/null || true; return 0; }
+# A superseded waiter removes the status only if it wrote it (its run token is in the file): a waiter that started after the
+# run went ahead has a different token and keeps its own status.
+update_defer_clear_status_if_mine() {
+  local f="${ORWELL_RUN_DIR}/update-deferred"
+  [[ -f "$f" && ! -L "$f" ]] || return 0
+  grep -qxF "run_seq=$1" "$f" 2>/dev/null && rm -f "$f" 2>/dev/null
+  return 0
+}
 
 # ORW-398: one token in the ROOT-owned run dir says "the newest update run that went ahead". A deferred run records
 # the token when it starts waiting; a run that proceeds (forced, manual, idle) writes a fresh one. A deferred run
@@ -255,7 +264,8 @@ update_wait_for_idle_game() {
   while :; do
     now="$(_update_defer_now)"; waited=$((now - start))
     if [[ "$(update_run_seq_read)" != "$my_seq" ]]; then
-      # No status clear here: the run that went ahead cleared the shared deferred status BEFORE publishing its token, and a second clear could erase a newer waiter's status.
+      # The run that went ahead cleared the shared status before publishing its token, but this waiter may have written its status after that clear: remove it if it is ours (a newer waiter's carries another token).
+      update_defer_clear_status_if_mine "$my_seq"
       trap - INT TERM HUP EXIT
       echo "==> a later update run already went ahead (forced, manual or idle) — this deferred run is superseded; exiting without restarting"
       return 10
@@ -292,7 +302,7 @@ update_wait_for_idle_game() {
     esac
     msg="Update deferred: a game is live (last player message ${idle}s ago; waiting for ${thr} min idle). Runs by ${until_} at the latest, or force it from the admin page."
     UPDATE_WAIT_DEFERRED=1   # this run really waited (the updater re-checks under the lock only for a run that did)
-    update_defer_write_status "live game: last player message ${idle}s ago (< ${thr} min idle needed)" "$since" "$until_" "$((start + max * 60))"
+    update_defer_write_status "live game: last player message ${idle}s ago (< ${thr} min idle needed)" "$since" "$until_" "$((start + max * 60))" "$my_seq"
     type update_defer_notify >/dev/null 2>&1 && update_defer_notify "$msg"
     if (( waited / 300 != last_log )); then   # first pass, then at most every 5 minutes
       last_log=$((waited / 300))
@@ -408,9 +418,17 @@ update_wait_for_no_turn() {
 # ── ORW-406 slice 3: warm before reporting the update complete ───────────────────────────────────────────
 # _update_probe <url>: print the body of a loopback GET, or nothing (seam for tests).
 # $2 = the most seconds this probe may take (default 3): the warm wait passes what is left of its own bound.
-_update_probe() { curl -fsS --noproxy '*' --max-time "${2:-3}" "$1" 2>/dev/null || true; }
+# $3 (optional) is sent as the Host header: a front end with ALLOWED_HOSTS pinned to its public domain rejects Host: 127.0.0.1 (TrustedHostMiddleware).
+_update_probe() { local -a h=(); [[ -z "${3:-}" ]] || h=(-H "Host: $3"); curl -fsS --noproxy '*' --max-time "${2:-3}" "${h[@]}" "$1" 2>/dev/null || true; }
+# The Host header the front end accepts, from an ALLOWED_HOSTS value (comma list): the first entry, a leading "*." dropped; empty for unset or "*" (any Host is accepted).
+update_probe_host() {
+  local raw="${1:-}" first
+  first="$(printf '%s' "$raw" | tr -d '\r"'"'"' ' | cut -d, -f1)"
+  first="${first#\*.}"
+  [[ -z "$first" || "$first" == "*" ]] || printf '%s' "$first"
+}
 
-# update_wait_for_warm <engine /health url or ""> <front-end health url or ""> [<ops log>]
+# update_wait_for_warm <engine /health url or ""> <front-end health url or ""> [<ops log>] [<Host header for the front-end probe>]
 # After the restart, poll (bounded by ORWELL_UPDATE_WARM_WAIT_SECONDS, default 60, clamped 1..300) until the
 # engine reports `"warmed":true` (an engine predating the field, answering ok, counts as warm) and the front
 # end reports `"engine":true`. Logs how long the engine took to warm. ALWAYS returns 0: a timeout is logged
@@ -418,7 +436,7 @@ _update_probe() { curl -fsS --noproxy '*' --max-time "${2:-3}" "$1" 2>/dev/null 
 # Append to the ops log unless stdout already IS that file (the ops unit redirects stdout there; a second append duplicated every line, review of #2720). `-ef` compares the inode in this shell: a readlink inside $(...) saw the capture pipe and never matched.
 _warm_log() { [[ -n "$1" ]] || return 0; [[ /proc/self/fd/1 -ef "$1" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
-  local eng="${1:-}" fe="${2:-}" log="${3:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
+  local eng="${1:-}" fe="${2:-}" log="${3:-}" fehost="${4:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
   [[ "$max" =~ ^[0-9]+$ ]] || max=60
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
@@ -436,7 +454,7 @@ update_wait_for_warm() {
       fi
     fi
     if (( eng_done && ! fe_done )); then
-      body="$(_update_probe "$fe" "$(_warm_left)")"
+      body="$(_update_probe "$fe" "$(_warm_left)" "$fehost")"
       [[ "$body" == *'"engine":true'* || "$body" == *'"engine": true'* ]] && fe_done=1
     fi
     now="$(_update_defer_now)"

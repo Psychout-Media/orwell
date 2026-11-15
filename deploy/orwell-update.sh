@@ -1680,7 +1680,8 @@ else
       [[ "$WARM_ENG_PORT" =~ ^[0-9]+$ ]] || WARM_ENG_PORT=8765
       ops_progress_step 4 "warming the new build" 2>/dev/null || true
       update_wait_for_warm "http://127.0.0.1:${WARM_ENG_PORT}/health" \
-        "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" || true
+        "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" \
+        "$(update_probe_host "${ALLOWED_HOSTS:-$(sed -n 's/^ALLOWED_HOSTS=//p' "$ENV_FILE" 2>/dev/null | tail -n1 || true)}")" || true
     fi
     trap - EXIT
     ops_progress_done "updated — services restarting"

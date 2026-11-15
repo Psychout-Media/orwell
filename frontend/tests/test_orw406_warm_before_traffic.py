@@ -85,3 +85,31 @@ def test_line_is_written_once_when_stdout_is_the_log(tmp_path):
                        stderr=subprocess.PIPE, text=True, timeout=60)
     assert r.returncode == 0, r.stderr
     assert log.read_text().count("warm-up complete") == 1, log.read_text()
+
+
+@needs_bash
+@pytest.mark.parametrize("allowed,host", [("", ""), ("*", ""), ("game.example.com,www.example.com", "game.example.com"),
+                                          ("*.example.com", "example.com"), ('"game.example.com"', "game.example.com")])
+def test_probe_host_comes_from_allowed_hosts(allowed, host):
+    assert run(f"update_probe_host '{allowed}'") == host
+
+
+@needs_bash
+def test_front_end_probe_sends_the_pinned_host_header(tmp_path):
+    # With ALLOWED_HOSTS pinned, Host: 127.0.0.1 is rejected and the front end never looks ready: the probe must send the allowed Host.
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    seen = tmp_path / "seen"
+    (bindir / "curl").write_text(f'#!/bin/bash\necho "$@" >> "{seen}"\necho \'{{"ok":true,"warmed":true,"engine":true}}\'\n')
+    (bindir / "curl").chmod(0o755)
+    out = run("update_wait_for_warm 'http://127.0.0.1:1/health' 'http://127.0.0.1:2/api/orwell/health' '' 'game.example.com'",
+              env={"PATH": f"{bindir}:{os.environ['PATH']}"})
+    assert "warm-up complete" in out
+    lines = seen.read_text().splitlines()
+    assert any("Host: game.example.com" in l and ":2/" in l for l in lines)
+    assert not any("Host:" in l and ":1/" in l for l in lines)
+
+
+def test_both_callers_pass_the_allowed_host():
+    oobe = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    assert "update_probe_host" in oobe and "update_probe_host" in UPDATE
