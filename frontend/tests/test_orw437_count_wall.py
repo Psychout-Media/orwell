@@ -68,3 +68,21 @@ def test_style_keywords_do_not_match_inside_longer_words():
     assert "beachy" not in families_mentioned("a smooth surface finish and a matte sleeve")
     assert "beachy" in families_mentioned("she surfs every morning, board shorts and all")
     assert "healthcare" in families_mentioned("scrubs and clogs")
+
+
+import pytest
+
+
+@pytest.mark.parametrize("text", [
+    "No one is asleep yet.", "One by one they turned in.", "Not one of them is asleep, and the lights are still on.",
+    "Everyone is up.", "Anyone could be asleep by now.", "Someone is asleep somewhere.", "She dragged one sleeping bag across the floor.",
+])
+def test_one_inside_no_one_not_one_one_by_one_is_not_an_asleep_claim(text):
+    assert [c for c in ch._engine_count_claims(text) if c.kind == "asleep"] == []
+
+
+def test_a_real_one_of_them_is_asleep_is_checked_against_the_engine_count():
+    c = [c for c in ch._engine_count_claims("One of them is asleep upstairs.") if c.kind == "asleep"]
+    assert len(c) == 1 and c[0].n == 1
+    assert ch._engine_count_ok(c[0], {"asleep": 2})
+    assert not ch._engine_count_ok(c[0], {"asleep": 0})

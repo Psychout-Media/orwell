@@ -6692,6 +6692,12 @@ def _engine_count_claims(text: str) -> list:
     for m in _EC_ASLEEP_RE.finditer(text):
         n = _ec_num(m.group(1))
         if n is not None and n >= 1:  # "one houseguest is asleep" is a count too (checked as n <= the engine's asleep list)
+            if n == 1:
+                # a lone "one" is a count only as a whole number word naming sleepers: never "no one", "not one", "any/every/each one", "one by one", nor "one sleeping bag"
+                if re.search(r"\b(?:no|not|any|every|each|some|by)\s+$", text[:m.start(1)], re.IGNORECASE) or re.match(r"\s*by\s+one\b", text[m.end(1):], re.IGNORECASE):
+                    continue
+                if not re.search(r"\b(?:asleep|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", m.group(0), re.IGNORECASE):
+                    continue
             out.append(_EcClaim("asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
