@@ -30,7 +30,7 @@ import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./human
 import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
-import { moodWord, voiceFingerprint } from "../../engine/voice";
+import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -85,7 +85,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
-import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
@@ -223,6 +223,7 @@ import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physi
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
+import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
@@ -261,6 +262,8 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { recohereCastingTypes } from "../../domain/castingTypes";
+import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
@@ -3589,6 +3592,7 @@ export class GameSessionAdapter implements GameSession {
     // #1067/R-BND discipline) is the correct one here too. Non-degradation is intact: once the season
     // starts, every commit checkpoints against the authored baseline as before. On a STANDALONE adapter
     // (tests, the 0065 next-season scratch) `backgroundPersist` falls back to `onPersist` — byte-identical.
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, this.prewarm!.seed); // ORW-432: no-op unless a trait changed
     this.backgroundPersist();
 
     return { accepted: true, publicFields: [...publicFields], hiddenFields: [...hiddenFields], reason: "authored profile sealed (live)" };
@@ -3716,6 +3720,7 @@ export class GameSessionAdapter implements GameSession {
     // must persist DURABLY without a beatSeq bump or the integrity checkpoint — route it through
     // `backgroundPersist` (which re-seeds the non-degradation baseline) just like the profile write-back,
     // rather than relying on an unrelated later commit (which would refuse the skinTone change as degradation).
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, ctx.seed); // ORW-432: no-op unless a trait changed
     if (ctx.prewarm) this.persist();
     else this.backgroundPersist();
 
@@ -3803,6 +3808,7 @@ export class GameSessionAdapter implements GameSession {
     // converges; a name that already coheres — every UNISEX name (coherent with any presentation) and every
     // nonbinary pin — is left untouched, so the deterministic floor cast is a byte-identical no-op.
     this.cohereGenesisNames(cast);
+    this.recohereCastingTypes(cast.npcs, cast.seed); // ORW-432: genesis may have replaced archetype/demeanor
 
     // The validated tie graph → stored for `seedSeededRelationships` to prefer over the floor draw at
     // createCharacter (where the move-in edges exist, so TIE_AFFINITY_BIAS folds + the ties seal). The
@@ -6441,6 +6447,10 @@ export class GameSessionAdapter implements GameSession {
       if (c.physicalCharacteristics && typeof scrubbedMark === "string" && scrubbedMark.trim()) {
         c.physicalCharacteristics.distinguishingMark = scrubbedMark;
       }
+      // ORW-430: a biography/background that broke an age rule keeps its correct sentences (the repair dropped only the
+      // offending ones); only a story with too little left stays cleared.
+      if (repairedFields.includes("biography") && typeof repaired.biography === "string" && repaired.biography.trim()) c.biography = repaired.biography;
+      if (repairedFields.includes("background") && typeof repaired.background === "string" && repaired.background.trim()) c.background = repaired.background;
       const after = validateDossierCoherence(project());
       let action: "repaired" | "floored" = "repaired";
       let fields = [...repairedFields];
@@ -6453,6 +6463,9 @@ export class GameSessionAdapter implements GameSession {
         this.clearCoherenceFields(c, floorFields);
         fields = [...new Set([...fields, ...floorFields])];
       }
+      // ORW-430: never leave a card marked authored with no biography. The front end's backfill (`unauthored_ids`) reads
+      // `authored`, so an emptied card is marked unauthored and gets written again.
+      if (!(typeof c.biography === "string" && c.biography.trim())) c.deepProfileAuthored = false;
       affected.push({ id: n.id, fields, action });
       // #1599 — a genuine fault, surfaced even though auto-corrected (never swallowed). Vault-free: ids +
       // public field names only, never a secret value or the offending prose.
@@ -6658,6 +6671,7 @@ export class GameSessionAdapter implements GameSession {
     // `startNewGame` just regenerated PLUS the authoring, so the seeded competition/vote calibration is
     // unchanged; only the authored prose/secrets differ. The cast is consumed — clear the holding store.
     if (adopt) this.house = { player: this.house.player, npcs: adopt.npcs };
+    const castingRepaired = adopt ? this.recohereCastingTypes(this.house.npcs, seed) : []; // ORW-432: before the cast can be shown
     this.intake = emptyIntake(); // the interview is over — its material lives on the player now
     this.week = 1;
     this.phase = "premiere";
@@ -6821,7 +6835,14 @@ export class GameSessionAdapter implements GameSession {
     // corrected dossier is what durably lands. This is the production caller that makes the pure
     // castingIntake validator/repair REACHED — a model-authored cast can never go live internally
     // contradictory (Lily Evans). A deterministic floor cast is always coherent ⇒ a no-op (byte-neutral).
-    const castCoherence = this.enforceCastCoherence();
+    const baseCoherence = this.enforceCastCoherence();
+    // ORW-432: the trait pass (casting type, voice line, heightBuild) merges into the same summary (ids + field names only).
+    const traitFixes = this.enforceTraitAgreement(seed, castingRepaired);
+    const castCoherence: GameStateView["castCoherence"] = traitFixes.length === 0 ? baseCoherence : {
+      repaired: (baseCoherence?.repaired ?? 0) + traitFixes.length,
+      floored: baseCoherence?.floored ?? 0,
+      houseguests: [...(baseCoherence?.houseguests ?? []), ...traitFixes],
+    };
     // ORW-208: report (never silently swallow) a requested strategy style the chosen archetype does not offer.
     const _res = resolveStrategyStyle(archetype, strategyStyle);
     const styleAdjusted = _res.adjusted && archetype ? { ..._res.adjusted, archetype } : undefined;
@@ -7389,6 +7410,59 @@ export class GameSessionAdapter implements GameSession {
       const v = c[k];
       if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
+  }
+
+  /**
+   * ORW-432: after genesis, identity or authoring changed a houseguest's archetype, demeanor or strategy style, re-check
+   * each casting type against the final traits and re-pick the ones that no longer fit (unused compatible types, else
+   * least conflict) off the seeded `${seed}:casting-type` stream. Pre-game only (the type is first shown once the
+   * season exists, so no visible re-pick); a no-op for a cast that already fits. Public traits only.
+   */
+  private recohereCastingTypes(npcs: Houseguest[], seed: number): EntityId[] {
+    const { types } = recohereCastingTypes(
+      new SeededRandom(hashSeed(`${seed}:casting-type`)),
+      npcs.map((n) => n.character.castingType),
+      npcs.map((n) => n.character.age),
+      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+    );
+    const changed: EntityId[] = [];
+    npcs.forEach((n, i) => {
+      const t = types[i]!;
+      if (n.character.castingType?.id !== t.id) { n.character.castingType = { id: t.id, label: t.label, read: t.read }; changed.push(n.id); }
+    });
+    return changed;
+  }
+
+  /**
+   * ORW-432: the end-of-creation trait pass. Runs `traitContradictions` on every card after genesis, identity and
+   * authoring have all landed, and repairs what it finds deterministically: a voice whose rendered line pairs traits
+   * that cannot coexist gets the carrying dial replaced (seeded, signature and lexicon untouched); a heightBuild that
+   * names two heights keeps its first. Casting types were re-placed just before (`castingRepaired`). Returns ids and
+   * field names only, merged into the `castCoherence` summary the front end rolls up. A clean floor cast is a no-op.
+   */
+  private enforceTraitAgreement(seed: number, castingRepaired: readonly EntityId[]): Array<{ id: EntityId; fields: string[]; action: "repaired" | "floored" }> {
+    if (!this.house) return [];
+    const out: Array<{ id: EntityId; fields: string[]; action: "repaired" | "floored" }> = [];
+    for (const n of this.house.npcs) {
+      const c = n.character;
+      const fields: string[] = castingRepaired.includes(n.id) ? ["castingType"] : [];
+      const codes = traitContradictions({
+        archetype: c.archetype, strategyStyle: c.strategyStyle, demeanor: c.demeanor, castingType: c.castingType,
+        physicalCharacteristics: c.physicalCharacteristics ? { heightBuild: c.physicalCharacteristics.heightBuild } : undefined,
+        ...(c.voice ? { voice: voiceFingerprint(c.voice) } : {}),
+      });
+      if (codes.includes("trait-height-build") && c.physicalCharacteristics) {
+        c.physicalCharacteristics.heightBuild = repairHeightBuild(c.physicalCharacteristics.heightBuild);
+        fields.push("physicalCharacteristics.heightBuild");
+      }
+      if (codes.includes("trait-voice") && c.voice) {
+        const fixed = repairVoiceConflicts(c.voice, c.demeanor, new SeededRandom(hashSeed(`${seed}:voice-repair:${n.id}`)));
+        c.voice = fixed.voice;
+        for (const d of fixed.changed) fields.push(`voice.${d}`);
+      }
+      if (fields.length > 0) out.push({ id: n.id, fields, action: "repaired" });
+    }
+    return out;
   }
 
   private seedDeepProfiles(seed: number): void {
@@ -8742,7 +8816,7 @@ export class GameSessionAdapter implements GameSession {
    * A8 - the one NPC (awake, living) whose desire clock has crossed its threshold RIGHT NOW, or null. Deterministic: the relationship drive comes from `rankApproaches` on an
    * hours-keyed stream, the role is public standing (HOH/nominee), the schedule is the public day schedule. Pure read - the caller records the approach.
    */
-  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string } | null {
+  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string; capped?: true } | null {
     const live = this.live;
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
     const m = nextMilestone(live);
@@ -8765,8 +8839,10 @@ export class GameSessionAdapter implements GameSession {
       return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
     });
     const byGoal = goalDriven(goalCands);
-    if (byGoal && (!best || DESIRE.goalUrgency > best.urgency)) return byGoal;
-    return best ? { npc: best.npc, desire: best.desire } : null;
+    const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
+    // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next one is marked `capped`: the caller spends the want exactly as before (cooldown, movement, orientation untouched, so the house-life mix is unchanged) but the player is not interrupted.
+    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return { ...pick, capped: true };
+    return pick;
   }
 
   /**
@@ -8805,9 +8881,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
-  private noteApproach(npc: EntityId): void {
+  private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
+    if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
   /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
@@ -9086,8 +9163,9 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
-        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
+      if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+          const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
   }
 
@@ -11704,7 +11782,8 @@ export class GameSessionAdapter implements GameSession {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
-            this.noteApproach(hit.npc);
+            this.noteApproach(hit.npc, hit.desire, hit.capped);
+            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;

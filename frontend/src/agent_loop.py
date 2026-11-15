@@ -4288,6 +4288,29 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
 # houseguest's persona, leaks hidden machinery, or drops a beat. P2 is SHADOW-mode only (judge + log,
 # no correction); the adopt/reframe correction lands in P3/P4. Vault-free, live-only, fail-soft.
 
+def _faith_time_block(gs: dict) -> dict:
+    """ORW-434: the judge's time/continuity facts, read from the ORW-409 briefing (one board read, the same
+    player-visible facts the narrator is told): the part of day (a band, never a clock number under zero
+    clocks), the next scheduled event (today/tomorrow, its part of day, whether it is due), the player's
+    room and who is asleep (names). Vault-free; a missing fact is left out, never invented."""
+    from routes.briefing import build_briefing
+    b = build_briefing(gs)
+    out: dict = {}
+    if b.part_of_day:
+        out["partOfDay"] = b.part_of_day
+    if b.next_event:
+        ev: dict = {"name": b.next_event, "when": b.next_day or "today"}
+        if b.next_part:
+            ev["partOfDay"] = b.next_part
+        if b.due is not None:
+            ev["due"] = b.due
+        out["nextEvent"] = ev
+    if b.location:
+        out["playerRoom"] = b.location
+    out["asleep"] = list(b.asleep)
+    return out
+
+
 async def _faith_build_projection(owner) -> dict:
     """Assemble the Vault-free PROJECTION the faithfulness judge reasons over: the live board (the
     closed-set fields, mirroring chat_helpers._beat_signature) + the player's known visible state.
@@ -4309,6 +4332,7 @@ async def _faith_build_projection(owner) -> dict:
                               for h in (gs.get("house") or [])
                               if isinstance(h, dict) and h.get("id") and h.get("name")
                               and h.get("status", "active") == "active"]
+            proj["time"] = _faith_time_block(gs)
     except Exception:
         pass
     try:
@@ -4531,6 +4555,15 @@ def _faith_defer_retro(owner, narration, projection, beat_before, context) -> No
         _faith_record_retro_dropped(owner, dropped.get("beat_before"))   # …so attribute ITS beat, not the new one.
 
 
+def _faith_without_time(proj):
+    """ORW-434: the projection without its `time` block (a NEW dict; the input is not changed). Used wherever the board the
+    projection was read from is not the moment the narration was written against: a turn that advanced the clock, or a
+    projection rebuilt after the turn."""
+    if isinstance(proj, dict) and "time" in proj:
+        return {k: v for k, v in proj.items() if k != "time"}
+    return proj
+
+
 async def _faith_drain_retro(owner, llm) -> None:
     """R5 part 3 — on the next opportunity, RE-JUDGE the turns that shipped guard-down and surface the
     verdict on the overseer ring, so a previously-UNJUDGED turn becomes judged-of-record: RED if it was
@@ -4567,6 +4600,9 @@ async def _faith_drain_retro(owner, llm) -> None:
                 _proj = entry.get("projection")
                 if _proj is None:
                     _proj = await _faith_build_projection(owner)
+                    # ORW-434: a projection rebuilt now describes a LATER moment than the narration being judged. Its board
+                    # fields are still a fair reference; its `time` block (part of day, who is asleep) is not, so withhold it.
+                    _proj = _faith_without_time(_proj)
                 _t0 = time.monotonic()
                 try:
                     _raw = llm(judge.build_prompt(_narr, _proj, _ctx))
@@ -4587,7 +4623,7 @@ async def _faith_drain_retro(owner, llm) -> None:
                         lever=None, beat_before=_bb, ok=False, user=owner)
                     requeue.append(entry)
                 else:
-                    _verdict = judge.verdict_from_reply(_raw, _narr, _proj)
+                    _verdict = judge.verdict_from_reply(_raw, _narr, _proj, _ctx)
                     if _verdict is None:
                         # #1695: the retro CALL landed but the REPLY was unparseable / out-of-contract.
                         # verdict_from_reply returns None ONLY for an UNDECIDABLE reply (a legit no-slip
@@ -4600,6 +4636,16 @@ async def _faith_drain_retro(owner, llm) -> None:
                             "down) — requeued, NOT recorded clean",
                             lever=None, beat_before=_bb, ok=False, user=owner)
                         requeue.append(entry)
+                    elif (_verdict.is_slip and _verdict.dimension == "time"
+                          and not (isinstance(_proj, dict) and "time" in _proj)):
+                        # ORW-434: the judge was given NO time facts for this turn (withheld: the turn advanced the clock,
+                        # or the projection was rebuilt later), so a time verdict has nothing to stand on. Same rule as the
+                        # live check. Judged of record, not a slip; said plainly rather than recorded as clean.
+                        _lr.record_overseer(
+                            "observation", "faith:retro-time-unfounded",
+                            "RETRO-JUDGED a previously guard-down turn — the judge returned a time verdict but no time "
+                            "facts were supplied for that turn; discarded (now judged-of-record)",
+                            lever=None, beat_before=_bb, ok=True, user=owner)
                     elif _verdict.is_slip:
                         _lr.record_overseer(
                             "anomaly", f"faith:retro:{_verdict.dimension}",
@@ -4642,9 +4688,18 @@ async def _faith_drain_retro(owner, llm) -> None:
             _DEFERRED_FAITH.pop(key, None)
 
 
+# ORW-434: engine writes that move the clock / day. A turn that ran one can span a time change, but the judge's `time` block is the END-of-turn board.
+_FAITH_TIME_ADVANCING_TOOLS = frozenset({"turnIn", "advanceGame", "nap", "hangOut", "advanceToFinale", "setTimeOfDay", "submitDecision"})
+
+
+def _faith_turn_advanced_time(tool_events) -> bool:
+    """True when the turn's own tool events include a time-advancing engine write (the loop holds no start-of-turn board to diff)."""
+    return any(isinstance(ev, dict) and ev.get("tool") in _FAITH_TIME_ADVANCING_TOOLS for ev in (tool_events or []))
+
+
 async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_before=None,
                        endpoint_url=None, model=None, headers=None, last_user=None,
-                       projection=None, context="in-game") -> None:
+                       projection=None, context="in-game", time_advanced=False) -> None:
     """Feature 0081 — the live faithfulness check (P2 shadow detection + P3 active 'adopt').
 
     On a claim-bearing or engaged turn, judge the finalized narration against the player's Vault-free
@@ -4705,6 +4760,10 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
                 # rebuilt next-turn board (which would judge stale narration against facts that hadn't
                 # happened yet). _faith_build_projection is fail-soft (returns a dict, never raises).
                 _retro_proj = projection if projection is not None else await _faith_build_projection(owner)
+                if time_advanced:
+                    # ORW-434: the board is END-of-turn; a turn that advanced the clock may correctly narrate the earlier
+                    # part of day, so the deferred check gets no time block either (same rule as the live check below).
+                    _retro_proj = _faith_without_time(_retro_proj)
                 _faith_defer_retro(owner, narration, _retro_proj, beat_before, context)
             # S2b: the guard is DOWN — an ungrounded closed-set outcome draft must fail CLOSED, never
             # soft-pass (finding 5: a board-backed narration is left alone).
@@ -4723,6 +4782,12 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
             return
         # the junction may pass its own Vault-free projection (e.g. casting); else build the in-game one.
         _proj = projection if projection is not None else await _faith_build_projection(owner)
+        # ORW-434: the `time` block is the END-of-turn board; a turn that advanced the clock can correctly narrate the earlier part
+        # of day. No cheap start-of-turn board is held, so skip the time dimension for this turn (and say so).
+        _time_skipped = bool(time_advanced) and isinstance(_proj, dict) and "time" in _proj
+        if _time_skipped:
+            _proj = _faith_without_time(_proj)
+            logger.info("[orwell] faithfulness: time dimension skipped this turn (a time-advancing engine write ran; the board is end-of-turn)")
         judge = FaithfulnessJudge(_llm)
         import inspect as _faith_insp
         _faith_t0 = time.monotonic()
@@ -4757,9 +4822,11 @@ async def _faith_check(narration, *, claim_bearing, engaged_scene, owner, beat_b
             # set outcome draft must fail CLOSED here, never soft-pass on the bare `return` (finding 5).
             await _faith_guard_down_p0(owner, narration)
             return
-        verdict = judge.verdict_from_reply(_raw, narration or "", _proj)
+        verdict = judge.verdict_from_reply(_raw, narration or "", _proj, context)
         if verdict is None or not verdict.is_slip:
             return
+        if _time_skipped and verdict.dimension == "time":
+            return  # the time block was withheld for this turn: a time verdict has nothing to stand on
 
         from src import log_rings as _lr
         # 1) ALWAYS surface the detection (shadow + active both log).
@@ -6449,7 +6516,7 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
 
 
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
-                             nudges_fired, auto_backfills) -> None:
+                             nudges_fired, auto_backfills, turn_token=None) -> None:
     """0065 Part D — emit ONE Vault-free sync-ledger entry for a finished live-game turn.
 
     Captures the closed-set sync activity of the turn and hands it to `orwell_sync_ledger.record_turn`
@@ -6494,6 +6561,7 @@ def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before,
             desync_detected=desync_seen,
             stale_rejections=stale_this_turn,
             idempotency_hits=0,
+            turn_token=turn_token,
         )
     except Exception as _led_err:
         try:
@@ -7590,12 +7658,19 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
             _ttfw_rec, _ttfw_tok = _ttfw.begin_turn(kwargs.get("session_id"))
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
+    _ledger_tokens: list = []
     try:
-        async for _evt in _stream_agent_loop_impl(*args, **kwargs):
+        async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
+            try:
+                from src import orwell_sync_ledger as _led_end
+                _led_end.end_turn(kwargs.get("owner"), _tok)
+            except Exception as _e:  # failsoft-ok: bookkeeping only; the next casting park / record_turn also clears the window
+                logger.debug("ORW-435: end_turn failed: %s", _e)
         if _ttfw_rec is not None:
             _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
@@ -7648,6 +7723,7 @@ async def _stream_agent_loop_impl(
     game_mode=False,  # False | True/"game" (live season) | "casting" (framed pre-game) — P3
     tool_policy: Optional[ToolPolicy] = None,
     _is_teacher_run: bool = False,
+    _ledger_turn_tokens: Optional[list] = None,  # ORW-435: the public wrapper's list; the turn's sync-ledger window token is appended so the wrapper's `finally` can always close it
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
 
@@ -8024,17 +8100,18 @@ async def _stream_agent_loop_impl(
                     # ORW-402 layer 3: verbatim excerpts of condensed-out days that match the player's newest message.
                     try:
                         from src import orwell_transcript_recall as _tr
-                        if _tr.enabled() and messages is not _pre_view_dc:
+                        # review of #2703: no content word in the newest message => recall cannot fire, so skip the roster round-trip
+                        if _tr.enabled() and messages is not _pre_view_dc and _tr._words(_tr._last_user_text(messages)):
                             _tr_names = []
                             try:
                                 _gs_tr = await _oe_dc.get_game_state(owner)
                                 _tr_names = [h.get("name") for h in ((_gs_tr or {}).get("house") or [])
                                              if isinstance(h, dict) and h.get("name")]
                             except Exception as _e_trn:
-                                logger.debug("[transcript-recall] names skipped: %s", _e_trn)
+                                logger.warning("[transcript-recall] names skipped (excerpt name matching degraded): %s", _e_trn)
                             messages = _tr.apply_recall(_pre_view_dc, messages, _tr_names)
                     except Exception as _e_tr:
-                        logger.debug("[transcript-recall] skipped: %s", _e_tr)
+                        logger.warning("[transcript-recall] skipped: %s", _e_tr)
                     orwell_day_condense.kickoff_heal(owner, _ledger_dc)  # ORW-387: a closed day with no real summary is re-authored in the background
         except Exception as _e_dc:
             logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
@@ -8338,6 +8415,7 @@ async def _stream_agent_loop_impl(
     # reads of process-local state — never any new tracking. Fail-open: a hiccup leaves them None.
     _ledger_beat_seq_before = None
     _ledger_stale_before = 0
+    _ledger_turn_token = None
     # Finding 6/7 (#1664): the S1b/S1c int-baseline comparison needs a turn-start beatSeq baseline for
     # EVERY live game — owner=None (auth-off single-tenant, the owner's actual posture) included, so a
     # SILENT advance is not miscounted as an unconverted stall. `last_beat_seq` keys via `_beat_seq_key`,
@@ -8348,6 +8426,13 @@ async def _stream_agent_loop_impl(
         try:
             from routes import chat_helpers as _ch_baseline
             _ledger_beat_seq_before = _ch_baseline.last_beat_seq(owner)
+        except Exception:
+            pass
+        try:
+            from src import orwell_sync_ledger as _led_begin
+            _ledger_turn_token = _led_begin.begin_turn(owner)  # ORW-435: writes from here to record_turn are inside this turn's own beat movement
+            if _ledger_turn_tokens is not None:
+                _ledger_turn_tokens.append(_ledger_turn_token)
         except Exception:
             pass
     if _is_live_game and owner:
@@ -10040,14 +10125,14 @@ async def _stream_agent_loop_impl(
                                 or _is_nondiegetic_scene_text(_turn_narration)):
                             try:
                                 from src import orwell_room_canon as _rc
-                                await _rc.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                                await _rc.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _rc_e:
                                 logger.debug(f"[room-canon] skipped: {_rc_e}")
                             # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
                             # free text (engine-validated; fail-soft; same gating as the room canon above).
                             try:
                                 from src import orwell_open_ledger as _ol
-                                await _ol.after_turn(_turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers)
+                                await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
                             except Exception as _ol_e:
                                 logger.debug(f"[open-ledger] skipped: {_ol_e}")
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
@@ -11899,6 +11984,7 @@ async def _stream_agent_loop_impl(
             tool_events=tool_events,
             beat_seq_before=_ledger_beat_seq_before,
             stale_before=_ledger_stale_before,
+            turn_token=_ledger_turn_token,
             nudges_fired=(_turn_advance_nudges + _turn_approach_nudges
                           + _turn_narrate_nudges + _turn_reapproach_nudges + _intent_nudge_count),
             auto_backfills=(_turn_record_nudges + _turn_deal_nudges + _turn_move_nudges
@@ -12065,7 +12151,8 @@ async def _stream_agent_loop_impl(
                 engaged_scene=bool(_want_record and not _progressed and not _is_lull), owner=owner,
                 beat_before=_ledger_beat_seq_before,
                 endpoint_url=_belt_endpoint, model=_belt_model, headers=_belt_headers,
-                last_user=_extract_last_user_message(messages))
+                last_user=_extract_last_user_message(messages),
+                time_advanced=_faith_turn_advanced_time(tool_events))
         except Exception as _faith_err:  # fail-soft: the faithfulness gate must never hurt a turn
             # #1599: the in-game faithfulness gate raising BEFORE its own record is a guard-down —
             # RED + WARN, not a bare debug. (_faith_check's own internal failures already record.)

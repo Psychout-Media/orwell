@@ -162,6 +162,23 @@ def test_refresh_parser_sums_setup_call_teardown_per_file():
     assert parse_log(log) == {"test_x.py": 14.0, "test_y.py": 3.0}
 
 
+def _repo_root() -> str:
+    """The repository root (the parent of frontend/). files_added_by_this_change lists `frontend/tests/` relative to it; passing `frontend/` itself lists a path that does not exist
+    and silently returns an empty set (review of #2704)."""
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+def test_repo_root_lists_the_real_frontend_tests_directory():
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    out = subprocess.run(["git", "-C", _repo_root(), "ls-tree", "--name-only", "HEAD", "frontend/tests/"], capture_output=True, text=True)
+    if out.returncode != 0:
+        return  # not a git checkout (an exported tree): nothing to list
+    assert os.path.basename(__file__) in {os.path.basename(x) for x in out.stdout.splitlines()}, out
+    wrong = subprocess.run(["git", "-C", os.path.dirname(here), "ls-tree", "--name-only", "HEAD", "frontend/tests/"], capture_output=True, text=True)
+    assert wrong.stdout.strip() == ""  # the old root (frontend/) lists nothing: that was the bug
+
+
 def test_every_browser_test_file_has_a_measured_duration():
     """ORW-390: a browser file with no entry in _ci_durations.json is weighed as test count x mean seconds-per-test, which badly underweighs the slow
     real-stack files; 21 such files piled into one shard (fe-browser-tests 5/5: 13-14 min against 4-9 for the rest, cancelled at the 15 min limit).
@@ -171,7 +188,7 @@ def test_every_browser_test_file_has_a_measured_duration():
     here = os.path.dirname(os.path.abspath(__file__))
     table = load_durations()
     missing = [n for n in _real_test_files() if _module_launches_browser(os.path.join(here, n)) and n not in table]
-    must_fail, warn_only = classify_missing(missing, files_added_by_this_change(os.path.dirname(here)))
+    must_fail, warn_only = classify_missing(missing, files_added_by_this_change(_repo_root()))
     if missing:
         msg = f"browser test file(s) with no entry in frontend/tests/_ci_durations.json (weighed at 15 s per test until the next refresh; added by this change: {must_fail}; by main: {warn_only})"
         print(f"::warning::{msg}")

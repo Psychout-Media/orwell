@@ -43,7 +43,6 @@ async def resolve_player_move_before_narrator(text: Any, user: Optional[str], cl
             return None
         try:
             from src import orwell_sync_ledger as _led
-            _led.note_fe_write(user)  # the resolve persisted (beatSeq bumped) outside any ledgered turn
             if not move.get("refused"):
                 _led.note_belt_fire(user, BELT_NAME)  # success-gated: an APPLIED move, never an attempt
         except Exception:
