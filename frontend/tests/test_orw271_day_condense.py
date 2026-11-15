@@ -370,3 +370,50 @@ def test_orw402_a_failed_chunk_writes_nothing_so_the_day_is_retried():
     assert len(dc._chunks(dc.visible_day_text(hist, 1))) >= 3          # the control: this day really is chunked
     r = _run(dc.condense_day("u", 1, llm_fn=flaky, history=hist, ledger_fn=ledger_fn, write_fn=write_fn))
     assert not r["accepted"] and writes == []
+
+
+def test_orw437_a_heal_task_started_for_one_game_writes_nothing_into_the_next(monkeypatch):
+    """review of #2685: the background author task is tied to the game that started it; once the game session changes
+    (a reset / new season) it is a no-op and its write is refused, even though it reuses the same day number."""
+    from src import orwell_cast_authoring as ca
+    from src import orwell_game_session as gs
+    from src import orwell_engine as oe
+    sids = {"now": "game-A"}
+    monkeypatch.setattr(gs, "get_game_session", lambda user: sids["now"])
+    written = []
+
+    async def fake_resolve(fn, owner, **kw):
+        async def llm(messages, **k):
+            sids["now"] = "game-B"          # the reset lands while the model call is in flight
+            return "a fresh summary of the old game"
+        return llm
+
+    async def fake_ledger(user=None):
+        return [_day_entry(1)]
+
+    async def fake_write(day, text, **kw):
+        written.append(day)
+        return {"accepted": True}
+
+    import types
+    from src import ai_interaction as ai
+    hist = [_row("user", "hi", 1), _row("assistant", "there", 1)]
+    mgr = types.SimpleNamespace(get_session=lambda sid: types.SimpleNamespace(history=hist))
+    monkeypatch.setattr(ai, "get_session_manager", lambda: mgr)
+    monkeypatch.setattr(ca, "_resolve_llm_fn", lambda *a, **k: None)
+    monkeypatch.setattr(ca, "resolve_prose_llm_fn", fake_resolve)
+    monkeypatch.setattr(oe, "day_ledger", fake_ledger)
+    monkeypatch.setattr(oe, "record_day_summary", fake_write)
+    r = _run(dc.run_condense("u", 1, "game-A"))
+    assert sids["now"] == "game-B", "the model call must really have run (the reset lands during it)"
+    assert written == [], "the old game's summary must never be written into the new game"
+    # a task started for a game that is already gone does nothing at all
+    assert _run(dc.run_condense("u", 1, "game-A"))["reason"] == "game-changed"
+    sids["now"] = "game-A"
+    _run(dc.run_condense("u", 1))  # no sid given (legacy callers): unchanged behaviour, writes
+    # the heal bookkeeping is per game: the retry counter of game A does not mute game B
+    assert written == [1]
+    sids["now"] = "game-A"
+    k_a = f"u:{dc._game_sid('u')}:1"
+    sids["now"] = "game-B"
+    assert f"u:{dc._game_sid('u')}:1" != k_a

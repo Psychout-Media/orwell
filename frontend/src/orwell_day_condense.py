@@ -379,10 +379,29 @@ def _key(owner) -> str:
     return owner or "default"
 
 
-async def run_condense(owner, closed_day: Optional[int]) -> dict:
-    """Resolve the live deps and condense. A missing model / session is a quiet no-op (the engine floor stands)."""
+_ANY_GAME = object()
+
+
+def _game_sid(owner):
+    """The game identity a background author task is tied to: the user's bound canonical game session id (None when
+    unbound). A season reset / new game clears the binding, so a different value later means a different game."""
+    try:
+        from src import orwell_game_session
+        return orwell_game_session.get_game_session(owner)
+    except Exception:
+        return None
+
+
+async def run_condense(owner, closed_day: Optional[int], sid=_ANY_GAME) -> dict:
+    """Resolve the live deps and condense. A missing model / session is a quiet no-op (the engine floor stands).
+
+    ``sid`` (review of #2685): the game the background task was started for. When given, the task is a no-op as soon as the
+    user's game session is no longer that one, and it re-checks right before every write, so a summary authored from the
+    old transcript can never land in a new season that reuses the same day number."""
     if not enabled() or not closed_day:
         return {"accepted": False, "reason": "off"}
+    if sid is not _ANY_GAME and _game_sid(owner) != sid:
+        return {"accepted": False, "reason": "game-changed"}
     try:
         from src.orwell_cast_authoring import _resolve_llm_fn, resolve_prose_llm_fn
         from src import orwell_engine, orwell_game_session
@@ -392,17 +411,21 @@ async def run_condense(owner, closed_day: Optional[int]) -> dict:
     llm_fn = await resolve_prose_llm_fn(_resolve_llm_fn, owner)  # ORW-387: the summaries are plain prose
     history: list = []
     try:
-        sid = orwell_game_session.get_game_session(owner)
+        hist_sid = orwell_game_session.get_game_session(owner)
         mgr = get_session_manager()
-        if sid and mgr:
-            history = list(mgr.get_session(sid).history)
+        if hist_sid and mgr:
+            history = list(mgr.get_session(hist_sid).history)
     except Exception:
         history = []
 
     async def _ledger() -> list:
+        if sid is not _ANY_GAME and _game_sid(owner) != sid:
+            return []
         return await orwell_engine.day_ledger(user=owner)
 
     async def _write(day, text, tier="day", covers_days=None) -> dict:
+        if sid is not _ANY_GAME and _game_sid(owner) != sid:
+            return {"accepted": False, "reason": "game-changed"}
         return await orwell_engine.record_day_summary(day, text, tier=tier, covers_days=covers_days, user=owner)
 
     return await condense_day(owner, int(closed_day), llm_fn=llm_fn, history=history, ledger_fn=_ledger, write_fn=_write)
@@ -428,14 +451,15 @@ def kickoff_after_turn_in(owner, result) -> None:
         day = closed_day_from_turn_in(result)
         if not day:
             return
-        k = f"{_key(owner)}:{day}"
+        sid = _game_sid(owner)
+        k = f"{_key(owner)}:{sid}:{day}"  # keyed by game too: a new season reusing the day number is a different task
         if k in _IN_FLIGHT:
             return
         _IN_FLIGHT.add(k)
 
         async def _runner():
             try:
-                await run_condense(owner, day)
+                await run_condense(owner, day, sid)
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[day-condense] background task failed: %s", e)
                 try:
@@ -464,7 +488,8 @@ def kickoff_heal(owner, ledger: list) -> None:
         if not need:
             return
         day = need[-1]
-        k = f"{_key(owner)}:{day}"
+        sid = _game_sid(owner)
+        k = f"{_key(owner)}:{sid}:{day}"  # keyed by game too: the retry counter of the old season never mutes the new one
         if k in _IN_FLIGHT or _HEAL_TRIES.get(k, 0) >= _HEAL_TRIES_MAX:
             return
         _HEAL_TRIES[k] = _HEAL_TRIES.get(k, 0) + 1
@@ -472,7 +497,7 @@ def kickoff_heal(owner, ledger: list) -> None:
 
         async def _runner():
             try:
-                await run_condense(owner, day)
+                await run_condense(owner, day, sid)
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[day-condense] heal task failed: %s", e)
                 try:
