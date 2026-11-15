@@ -1,0 +1,14 @@
+2026-11-15T07:17:57.0875200Z [31m⎯⎯⎯⎯⎯⎯⎯[1m[7m Failed Tests 1 [27m[22m⎯⎯⎯⎯⎯⎯⎯[39m
+2026-11-15T07:17:57.0875974Z 
+2026-11-15T07:17:57.0878375Z [31m[1m[7m FAIL [27m[22m[39m tests/unit/beatsTerminateThemselves.test.ts[2m > [22mT0-2 — the chained auto-advance still floats the 0123 NPC deal offer, and never blocks on it[2m > [22ma deal due at the post-resolution lull is floated on the chained path, and the beat still advances (PO ruling 2026-11-01)
+2026-11-15T07:17:57.0881805Z [31m[1m[7m FAIL [27m[22m[39m tests/unit/beatsTerminateThemselves.test.ts[2m > [22mT0-2 — the chained auto-advance still floats the 0123 NPC deal offer, and never blocks on it[2m > [22ma deal due at the post-resolution lull is floated on the chained path, and the beat still advances (PO ruling 2026-11-01)
+2026-11-15T07:17:57.0893985Z [31m[1mAssertionError[22m: seed 1 should float a deal offer on a chained submitDecision call: expected null not to be null[39m
+2026-11-15T07:17:57.0895207Z [36m [2m❯[22m tests/unit/beatsTerminateThemselves.test.ts:[2m242:93[22m[39m
+2026-11-15T07:17:57.1063970Z     [90m240| [39m    }
+2026-11-15T07:17:57.1064422Z     [90m241| [39m
+2026-11-15T07:17:57.1065179Z     [90m242| [39m    [34mexpect[39m(caught[33m,[39m [32m"seed 1 should float a deal offer on a chained subm[39m…
+2026-11-15T07:17:57.1066681Z     [90m   | [39m                                                                                            [31m^[39m
+2026-11-15T07:17:57.1067818Z     [90m243| [39m    [35mconst[39m offer [33m=[39m session[33m.[39m[34mgetGameState[39m()[33m.[39mopenDealOffer[33m![39m[33m;[39m
+2026-11-15T07:17:57.1069652Z 
+2026-11-15T07:17:57.1070508Z [31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯[22m[39m
+2026-11-15T07:17:57.1101658Z [2m Test Files [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m135 passed[39m[22m[90m (136)[39m

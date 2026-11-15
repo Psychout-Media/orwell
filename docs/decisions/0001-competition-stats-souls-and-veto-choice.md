@@ -97,3 +97,7 @@ instead of receiving a random name:
 
 `docs/bb-sim-spec.md` §7 (deep, evolving characters), §8 (temperature);
 `docs/legacy/BB_GameBible.md` §4–§5 (veto of six; stats); human feedback (this session).
+
+## Amendment 2026-11-14 (ORW-381, owner-ruled by Kevin)
+
+A houseguest's public build leans toward their physical competition stat at character creation: a hint, not a readout. The engine reads the hidden physical stat once, inside the engine, to pick a fitness band with noise (its own `${seed}:build-band` side stream), then deals a build description of that band. Only the words are stored and projected, never a number, band or stat-derived field. This is the fourth sanctioned exception to the Vault Wall (CLAUDE.md mandate 2); stats still decide every outcome and nothing reads the build back.
