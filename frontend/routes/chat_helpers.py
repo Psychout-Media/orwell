@@ -1319,10 +1319,6 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
     shown = named or [e for e in entries if e.get("status") != "asleep"]
     lines = ["HOUSE SEARCH (engine truth - the player is asking where someone is or searching the house, and the game has looked in every room for them):"]
     for e in shown:
-        if e.get("status") == "told" and not e.get("toldBy"):
-            # nobody the player can see is there to say it: the house knows, and no speaker is invented
-            lines.append(f"- {e['name']}: {str(e.get('room') or '').replace('-', ' ')}, door closed to the player. Nobody in view is there to say it: it is common knowledge in the house; do NOT invent a speaker.")
-            continue
         lines.append(f"- {e['name']}: {e['fact']}")
     if not named:
         lines.append("(Those are all the houseguests who are awake. Anyone not listed is asleep, below.)")
@@ -1336,9 +1332,10 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
             f"{str(r['room']).replace('-', ' ')}{' (door closed)' if r.get('access') == 'closed' else ''}: "
             + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Rooms out of view are not known: never say an out-of-view room is empty or name who is in it.")
     lines.append(
-        "VOICE THIS: report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one (the player cannot see through doors). A houseguest listed 'not in view' is somewhere behind a door in the house: "
-        "name no room for them, never say they are nowhere, hidden, or cannot be found, and let the player know they can open doors and look. A houseguest the game says is behind a door you can open: name that room and that opening the door shows who is inside. "
-        "For the diary room or the HOH room (closed to the player) the game names a houseguest who can say where they are: have THAT houseguest say it in their own voice (\"Oh, he's in the diary room.\"), never as a readout, and the door stays closed. "
+        "VOICE THIS: the player is not omniscient and the game never confirms where someone is if the player does not know. Report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one. "
+        "A houseguest listed 'not in view' is somewhere behind a door in the house: name no room for them, never say they are nowhere or hidden, and let the player know they can open doors and look. "
+        "A houseguest the game gives as a LEAD ('last seen ...'): say it as a lead, what the player last saw, never as where they are now; the player can go and look or ask around. "
+        "A houseguest the game says nobody here knows about: say that nobody here knows where they are, and offer to look around the house or ask around; never guess a room, and never name the diary room or the HOH room as an answer. "
         "A houseguest the game says has not walked into the house yet is outside it (the premiere entrances): never place them in a room or behind a door. A houseguest in view can be walked to (the player chooses whether to go; do not march them there). Say nothing about what anyone is doing in there or "
         "who they are with - you are not told, so never invent it. Count only with the numbers above.")
     return "\n".join(lines)

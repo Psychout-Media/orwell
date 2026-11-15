@@ -159,8 +159,8 @@ def test_directive_tells_the_narrator_an_unarrived_houseguest_is_not_behind_a_do
 def _closed_search():
     return {"room": "backyard", "present": [], "nearby": [], "search": {"asleepCount": 0, "rooms": [], "houseguests": [
         {"id": "npc:10", "name": "Miguel Ortega", "status": "unseen", "fact": "not in view; behind a door in the house (the player can open doors and look)"},
-        {"id": "npc:14", "name": "Marisol Vega", "status": "behind-door", "room": "bedroom-a", "access": "open", "action": "open the door to bedroom A and look", "fact": "bedroom A, door closed - open it to find them"},
-        {"id": "npc:11", "name": "Jett Wooten", "status": "told", "room": "diary-room", "access": "closed", "toldBy": {"id": "npc:15", "name": "Janelle Park"}, "fact": "diary room, door closed to the player - Janelle Park knows and can say so"},
+        {"id": "npc:14", "name": "Marisol Vega", "status": "lead", "room": "bedroom-a", "fact": "last seen heading into the bedroom A a moment ago - not confirmed: the player can go and look, or ask around"},
+        {"id": "npc:11", "name": "Jett Wooten", "status": "unknown", "fact": "nobody here knows where they are: the player can look around the house or ask around"},
     ]}}
 
 
@@ -173,14 +173,15 @@ def test_search_target_is_the_named_houseguest_from_the_roster():
     assert chat_helpers._search_target(None, gs) is None and chat_helpers._search_target("Where is Miguel?", None) is None
 
 
-def test_directive_never_names_a_room_for_an_unseen_houseguest_and_says_doors_can_be_opened():
+def test_directive_never_names_a_room_for_an_unseen_houseguest_and_voices_leads_and_unknowns_honestly():
     d = chat_helpers._house_search_directive(_closed_search(), "Where is everybody")
     assert "Miguel Ortega: not in view" in d
     assert "bedroom" not in d.split("Miguel Ortega: not in view")[1].split("\n")[0]
-    assert "Marisol Vega: bedroom A, door closed - open it to find them" in d
-    assert "Janelle Park knows and can say so" in d
+    assert "Marisol Vega: last seen heading into the bedroom A a moment ago - not confirmed" in d
+    assert "Jett Wooten: nobody here knows where they are" in d
     voice = d.split("VOICE THIS")[1]
-    assert "can open doors and look" in voice and "cannot be found" in voice and "in their own voice" in voice
+    assert "not omniscient" in voice and "never confirms where someone is" in voice
+    assert "as a lead" in voice and "nobody here knows" in voice and "never name the diary room or the HOH room" in voice
     assert "Every other room has no awake houseguest" not in d  # out-of-view rooms are unknown, never "empty"
 
 
@@ -231,11 +232,3 @@ def test_search_target_skips_evicted_houseguests():
     gs = _roster("Miguel Ortega", "Ana Ruiz", evicted=("Miguel Ortega",))
     assert chat_helpers._search_target("Where is Miguel Ortega?", gs) is None
     assert chat_helpers._search_target("where are Miguel and Ana", gs) == "Ana Ruiz"
-
-
-def test_told_with_nobody_in_view_says_the_house_knows_and_invents_no_speaker():
-    sv = {"room": "backyard", "present": [], "nearby": [], "search": {"rooms": [], "houseguests": [
-        {"id": "npc:11", "name": "Jett Wooten", "status": "told", "room": "diary-room", "access": "closed", "fact": "diary room, door closed to the player - the house knows and anyone can say so"}]}}
-    d = chat_helpers._house_search_directive(sv, "Where is Jett?")
-    line = [l for l in d.split("\n") if l.startswith("- Jett Wooten")][0]
-    assert "common knowledge in the house" in line and "do NOT invent a speaker" in line and "diary room" in line

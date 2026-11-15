@@ -811,8 +811,9 @@ def _dossier_card(state: dict, houseguest_id: str) -> Optional[dict]:
 # the whole HouseguestCard dict), so a future Vault-adjacent field added to the card can never
 # silently reach this surface without a deliberate edit here.
 _PERSONA_FIELDS = (
-    # ORW-458: archetype is an internal game-mechanic label, not part of the public persona.
-    "strategyStyle", "background", "vocation", "hometown",
+    # ORW-458 / ORW-466 (Kevin and Ryne): the archetype and the strategy style are game-mechanic labels the player never sees;
+    # the engine keeps both internally.
+    "background", "vocation", "hometown",
     "age", "demeanor", "biography",
 )
 
