@@ -2,6 +2,7 @@
 # ORW-332 / ORW-344: ONE whole Week 1 (casting to the morning of Week 2) on the real narrator, on rig slot RIG_SLOT (default 1), under a SPEND CAP. Prints one line:
 #   LIVE-WEEK PASS|FAIL|COULD-NOT-RUN|CAPPED <sha> <report path>      exit 0 pass, 1 fail, 2 could not run, 3 busy, 4 capped (the spend cap stopped it).
 #   RIG_SLOT=2 RIG_SPEND_CAP=3 scripts/live-run/week.sh [REF]
+#   RIG_WEEKS=N ... play on through week N (default 1 = Week 1 only; the cap and the checks run the same)
 #   RIG_DRY=1 ...   a DRY stage: stand the slot up, check the front end and the engine answer, tear it down. No driver, no model calls, nothing spent.
 # One run per slot at a time (flock on the slot's lock). Reads the narrator key only inside the kit's stage script; never prints it. Extra branches: MERGE_BRANCHES / MERGE_PR as the kit.
 set -uo pipefail
@@ -24,7 +25,8 @@ fi
 TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
 PY=${ORWELL_PY:-/home/ryne/orwell/frontend/.venv/bin/python3}; LLMIO="$WT/frontend/data/llm-io.jsonl"
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>&1 & echo $! > "$RUN/spend.pid"
-"$PY" "$HERE/live_week.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" > "$RUN/live_week.out" 2>&1 & echo $! > "$RUN/driver.pid"
+EXTRA=""; [ "${RIG_WEEKS:-1}" -gt 1 ] && EXTRA="--season --stop-after-week $RIG_WEEKS"   # RIG_WEEKS=3: Week 1 then weeks 2 and 3 (ORW-350), stopping when week 3 ends
+"$PY" "$HERE/live_week.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" $EXTRA > "$RUN/live_week.out" 2>&1 & echo $! > "$RUN/driver.pid"
 wait "$(cat "$RUN/driver.pid")"; RC=$?
 kill "$(cat "$RUN/spend.pid")" 2>/dev/null
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" --once >/dev/null 2>&1   # a final spend.json
