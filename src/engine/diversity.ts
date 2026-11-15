@@ -581,12 +581,12 @@ export function renameGivenNameInProse(text: string, priorName: string, nextName
   const ownSurname = new Set(priorName.trim().split(/\s+/).slice(1));
   return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (m, offset: number) => {
     const rest = text.slice(offset + m.length);
-    const sur = /^\s+([A-Z][\p{L}'\u2019-]*)/u.exec(rest);
+    const sur = /^[ \t]+([A-Z][\p{L}'\u2019-]*)/u.exec(rest); // spaces and tabs only: a capitalised word on the NEXT line is not a surname (review of #2775)
     if (sur && !ownSurname.has(sur[1]!.replace(/['\u2019]s$/i, ""))) return m; // another person's full name ("Lola Other")
     if (!common) return newGiven;
     if (/^['\u2019]s\b/i.test(rest)) return newGiven; // a possessive is a person
     const before = text.slice(0, offset);
-    const words = before.match(/[A-Za-z]+/g) ?? [];
+    const words = before.match(/[A-Za-z]+(?:-[A-Za-z]+)*/g) ?? []; // keep a hyphenated relation whole ("mother-in-law", review of #2775)
     const prevWord = /([A-Za-z]+)\s*$/.exec(before)?.[1]?.toLowerCase();
     if (prevWord === undefined || !COMMON_USE_BEFORE.has(prevWord)) return newGiven;
     if (DETERMINERS.has(prevWord)) {

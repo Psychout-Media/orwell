@@ -112,3 +112,55 @@ Feature: House presence and lingering play
       | event                   |
       | an eviction vote        |
       | a competition in session |
+
+  # ORW-445 (merged in #2772): a stated wait reaches the clock. The front end reads the player's own wait ("half an hour", "a couple of hours",
+  # "the rest of the afternoon") into a hang-out request; the engine moves the in-game clock by exactly that much, never more than three hours,
+  # never past the end of the current part of the day when the player said "the rest of", and never past a scheduled event. Waits that a houseguest or production cuts short are covered by the hang-out's own scenarios.
+  Scenario: A stated wait moves the clock by exactly that long
+    Given a played game on a quiet morning with the in-game clock running
+    When the player says they will wait 60 minutes and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly 60 minutes
+
+  Scenario: A stated wait of more than three hours moves the clock by three hours
+    Given a played game on a quiet morning with the in-game clock running
+    When the player says they will wait 300 minutes and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly 180 minutes
+
+  Scenario: Waiting out the rest of the morning stops at the morning's end
+    Given a played game on a quiet morning, 113 minutes before the afternoon
+    When the player says they will wait out the rest of the morning and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly 113 minutes
+    And the in-game clock stands at the start of the afternoon
+
+  Scenario Outline: With both a stated length and the rest of the morning, the shorter wait wins
+    Given a played game on a quiet morning, <left> minutes before the afternoon
+    When the player says they will wait <asked> minutes or the rest of the morning and nothing in the house interrupts them
+    Then the in-game clock has moved on by exactly <moved> minutes
+
+    Examples:
+      | left | asked | moved |
+      | 240  | 60    | 60    |
+      | 60   | 150   | 60    |
+
+  Scenario: A stated wait never runs past a scheduled event
+    Given a played game with the in-game clock running, 47 minutes before the next scheduled event
+    When the player says they will wait 120 minutes for the event
+    Then the wait stopped because the event came due
+    And the in-game clock has moved on by exactly 47 minutes
+
+  # ORW-462 (Kevin's ruling, 2026-11-15, refined 15:58 MST): the player is not omniscient, and the game does not confirm where someone is if the player does not know. Looking for someone resolves only from what the player can see and what they have seen.
+  Scenario: A plain house search never sees through a closed door
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player searches the house without naming anyone
+    Then the houseguests behind doors are listed as not in view with no room named
+    And the houseguests the player can see are still named in their rooms
+
+  Scenario: Asking for every houseguest by name reveals nothing the player did not know
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player asks for each houseguest by name in turn, knowing nothing about where anyone is
+    Then only the houseguest in view is placed in a room
+
+  Scenario: A houseguest the player watched head into a closed room is a lead, never a confirmation
+    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
+    When the player has watched a houseguest head into a closed room and asks for them
+    Then the answer is a lead that names the room as last seen, not confirmed
