@@ -3,6 +3,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { headcountLines, MOMENT_PROMPTS } from "../../src/engine/momentPrompts";
 import { resolvePending } from "../../features/support/answerPending";
+import { PLAYER } from "../../src/domain/ids";
 
 /** ORW-376: the engine hands the narrator the headcounts, the player INCLUDED. Roles only. */
 let n = 0;
@@ -88,5 +89,50 @@ describe("the prompt states the count, player included", () => {
   it("renderHardConstraints is unchanged when the view has no counts", () => {
     expect(headcountLines(null)).toEqual([]);
     expect(headcountLines({})).toEqual([]);
+  });
+});
+
+/**
+ * ORW-447: once the player is out (jury house / watching) they are no longer in the house: `house` and `voters` count only the people still in it.
+ * Built the way leftPlayerNeverScheduleHeld does it: an eviction-night state with the player put into the eviction order (still seated in presence,
+ * the moment of their own eviction), restored, then read. While the player is in, the ORW-376 counts are unchanged.
+ */
+describe("whereabouts.counts after the player is evicted (ORW-447)", () => {
+  function evictionNightPlayerVoting(): GameSessionAdapter {
+    return driveTo((ss) => {
+      const gs = ss.getGameState();
+      return gs.pending?.kind === "eviction-vote" && gs.ceremony.hoh?.id !== PLAYER && !gs.ceremony.nominees.some((x) => x.id === PLAYER);
+    });
+  }
+  function evictPlayer(s: GameSessionAdapter): void {
+    const core = JSON.parse(JSON.stringify(s.snapshot())) as { live: { evictionOrder: string[]; active: string[] } };
+    core.live.evictionOrder.push(PLAYER);
+    core.live.active = core.live.active.filter((id) => id !== PLAYER);
+    s.restore(core as never);
+  }
+
+  it("house and voters exclude the evicted player", () => {
+    const s = evictionNightPlayerVoting();
+    const before = s.whereabouts()!.counts!;
+    evictPlayer(s);
+    expect(s.livingIds()).toContain(PLAYER); // livingIds() itself is unchanged (many callers)
+    const c = s.whereabouts()!.counts!;
+    const gs = s.getGameState();
+    const off = new Set([gs.ceremony.hoh!.id, ...gs.ceremony.nominees.map((x) => x.id)]);
+    expect(c.house).toBe(s.livingIds().filter((id) => id !== PLAYER).length);
+    expect(c.house).toBe(before.house - 1);
+    expect(c.voters).toBe(s.livingIds().filter((id) => id !== PLAYER && !off.has(id)).length);
+    expect(c.voters).toBe(before.voters! - 1);
+  });
+
+  it("while the player is in, the player is still counted in house and voters (ORW-376 unchanged)", () => {
+    const s = evictionNightPlayerVoting();
+    const c = s.whereabouts()!.counts!;
+    const gs = s.getGameState();
+    const off = new Set([gs.ceremony.hoh!.id, ...gs.ceremony.nominees.map((x) => x.id)]);
+    expect(s.livingIds()).toContain(PLAYER);
+    expect(c.house).toBe(s.livingIds().length);
+    expect(c.voters).toBe(s.livingIds().filter((id) => !off.has(id)).length);
+    expect(c.voters).toBe(c.house - 3);
   });
 });
