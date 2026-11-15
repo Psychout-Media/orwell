@@ -633,6 +633,11 @@
     // mounted for the SAME decision (same kind, options and prompt) is left exactly as it is; a different decision (or none) still replaces it.
     const mounted = document.getElementById(CARD_ID);
     if (mounted && pending && pending.kind && pending.kind !== "ceremony-step" && !mounted.classList.contains("odec-done") && mounted.dataset.sig === _sig(pending)) return;
+    // ORW-471: the same goes for a ceremony WATCH step. Every re-dispatch of the same step (the boot rearm, a socket state frame, the backstop poll) used to tear the watch card down and
+    // rebuild it; the teardown dismisses its anchored sheet, and on a slow machine that teardown could land after the new sheet was created and take the new card with it - the Continue
+    // button vanished under the player's (and CI's) click and nothing re-mounted it. A watch card already showing this ceremony's step is left exactly as it is.
+    if (mounted && pending && pending.kind === "ceremony-step" && pending.ceremony && mounted.classList.contains("odec-watch") && !mounted.classList.contains("odec-done")
+        && mounted.dataset.ceremony === String(pending.ceremony.kind || "") && mounted.dataset.step === String(pending.ceremony.step || "")) return;
     removeCard();
     if (!pending || !pending.kind) return;
     if (pending.kind === "ceremony-step") { renderCeremonyStep(pending); return; }

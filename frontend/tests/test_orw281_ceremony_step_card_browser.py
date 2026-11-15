@@ -39,7 +39,6 @@ def _card(page):
                button: (c.querySelector('button.odec-confirm') || {}).textContent, forms: document.querySelectorAll('.odec[role=form]').length }; }""")
 
 
-@pytest.mark.quarantine(card="ORW-471", added="2026-11-15")
 def test_a_ceremony_step_card_continues_to_the_next_step_and_the_total_can_grow(fe):
     sync_api = pytest.importorskip("playwright.sync_api")
     posts = []
@@ -84,6 +83,34 @@ def test_a_ceremony_step_card_continues_to_the_next_step_and_the_total_can_grow(
             assert posts == ["POST"], posts                                                     # exactly one continue per click
             assert c2["text"] == "The host turns to the nominee." and c2["step"] == "3", c2
             assert page.evaluate("document.querySelectorAll('.odec-watch').length") == 1        # the old card was replaced, not stacked
+        finally:
+            browser.close()
+
+
+def test_the_same_step_announced_again_leaves_the_watch_card_alone(fe):
+    """ORW-471: the boot rearm, a socket frame and the backstop poll all re-announce the same pending. A watch card already showing that step must stay the SAME element (no teardown and
+    rebuild under the player's click); a different step still replaces it."""
+    sync_api = pytest.importorskip("playwright.sync_api")
+    first = _step(2, 3, "The host reads the veto result aloud.")
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True).new_page()
+            page.route("**/api/orwell/state", lambda r: r.fulfill(**_j({"started": True, "asleep": []})))
+            page.route("**/api/orwell/status", lambda r: r.fulfill(**_j({"pending": first})))
+            page.route("**/api/orwell/roster", lambda r: r.fulfill(**_j({"roster": []})))
+            page.route("**/api/orwell/whereabouts", lambda r: r.fulfill(**_j({"whereabouts": {"room": "kitchen", "present": []}})))
+            page.goto(fe, wait_until="domcontentloaded")
+            page.wait_for_selector("#chat-history", timeout=15000)
+            fire = "(p) => window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: p } }))"
+            page.evaluate(fire, first)
+            page.wait_for_selector(".odec-watch", timeout=10000)
+            page.evaluate("window.__card = document.getElementById('orwell-decision-card')")
+            for _ in range(3):
+                page.evaluate(fire, first)
+            assert page.evaluate("document.getElementById('orwell-decision-card') === window.__card"), "the same step rebuilt the card"
+            page.evaluate(fire, _step(3, 3, "The host turns to the nominee."))
+            assert page.evaluate("document.getElementById('orwell-decision-card') !== window.__card"), "a different step must replace the card"
         finally:
             browser.close()
 
