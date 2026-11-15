@@ -670,8 +670,8 @@ def hang_out_intent(player_msg) -> bool:
 
 
 # review of #2688: the ENGINE's own player-facing stop line for `event-due` (src/engine/hangOut.ts hangOutStopLine) is appended to the steer too; it must be reconciled with the FE template.
-_ENGINE_EVENT_DUE_STOP_LINE = "Production is calling everyone: the scheduled event is on now."
-_ENGINE_EVENT_NOT_DUE_STOP_LINE = "Production has not called the scheduled event yet: nobody is gathered and nothing has started."
+_ENGINE_EVENT_DUE_STOP_LINE = "The house is being called together."  # ORW-444 wording (src/engine/hangOut.ts)
+_ENGINE_EVENT_NOT_DUE_STOP_LINE = "The house has not been called together yet: nobody is gathered and nothing has started."
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
