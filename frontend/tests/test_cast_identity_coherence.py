@@ -153,7 +153,7 @@ def test_incoherent_field_is_stripped_but_coherent_fields_still_write(_clean_led
         written_profiles.append(profile)
         return {"accepted": True}
 
-    cast = [{"id": "player"}, {"id": "npc:1", "genderPresentation": "man"}]
+    cast = [{"id": "player"}, {"id": "npc:1", "genderPresentation": "man", "biography": "A seeded floor biography that the engine keeps when the writer omits its own."}]
     written = _run(ca.author_cast(cast, _llm, _write, user="probe-user"))
 
     assert written == 1, "the coherent remainder of the dossier still commits"

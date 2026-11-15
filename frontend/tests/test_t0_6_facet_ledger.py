@@ -239,7 +239,7 @@ def test_transactional_adopt_or_regenerate_never_grafts_a_closed_facet_conflict(
     """The skeleton (npc dict) grants NO ink; the first authored draft smuggles a tattoo into the
     biography. The regenerate attempt still can't clear it ⇒ the biography is DROPPED (adopt the
     skeleton), never committed beside a clean physicalCharacteristics block (never graft)."""
-    npc = _npc(1)
+    npc = {**_npc(1), "biography": "A seeded floor biography that the engine keeps when the writer omits its own."}
     calls = {"n": 0}
 
     async def llm_fn(messages):

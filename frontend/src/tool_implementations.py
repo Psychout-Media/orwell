@@ -5511,6 +5511,38 @@ async def do_turn_in(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+async def do_nap(content: str, owner: Optional[str] = None) -> Dict:
+    # 0148: the player's daytime nap. The ENGINE decides everything (the slept span, the event/evening wake, the deficit ease, the house life) - the FE only passes the player's own length
+    # and the sync-spine guard (CAS + at-most-once), exactly like turnIn. A refusal is returned verbatim (`ok:false` + an in-fiction `why`) for the narrator to voice.
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        args = {}
+    hours = args.get("hours") if isinstance(args, dict) else None
+    if not isinstance(hours, (int, float)) or isinstance(hours, bool):
+        hours = None
+    try:
+        _ebs, _ik = _model_progression_cas(owner, "nap")
+        try:
+            res = await orwell_engine.nap(hours=hours, expected_beat_seq=_ebs, idempotency_key=_ik, user=owner)
+        except orwell_engine.EngineToolError as _e:
+            from routes import chat_helpers as _ch
+            if not _ch._is_stale_beat_error(_e):
+                raise
+            async def _retry_nap(_fresh):
+                return await orwell_engine.nap(hours=hours, expected_beat_seq=_fresh, idempotency_key=_ik, user=owner)
+            res = await _ch.retry_progression_after_stale(owner, _e, _retry_nap, action="nap")
+            if res is None:
+                _cur = await orwell_engine.get_game_state(user=owner)
+                orwell_engine.remember_pending(_cur, user=owner)
+                return {"output": json.dumps(_cur, indent=2), "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
 # --- God Mode / admin (0016) — execution is gated to admins by _ADMIN_TOOLS in tool_execution ---
 
 async def do_inspect_non_vault_state(content: str, owner: Optional[str] = None) -> Dict:

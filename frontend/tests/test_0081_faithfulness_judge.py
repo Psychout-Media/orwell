@@ -43,7 +43,7 @@ def _json(dimension, classification, lever, rationale="because"):
 # ── the contract surface ──────────────────────────────────────────────────────────
 
 def test_contract_tuples_are_the_documented_sets():
-    assert FAITH_DIMENSIONS == ("board", "persona", "leak", "omission")
+    assert FAITH_DIMENSIONS == ("board", "persona", "leak", "omission", "time")
     assert FAITH_CLASSES == ("open", "closed", "none")
     assert FAITH_LEVERS == ("none", "adopt", "reframe", "reground")
 

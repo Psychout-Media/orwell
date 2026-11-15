@@ -210,3 +210,14 @@ def test_engine_wrappers_dispatch_the_slice2_tools(monkeypatch):
     assert seen[0] == ("recordOpenLedger", {"text": "t", "speaker": "npc:3", "addressedTo": [], "kind": "k", "parties": ["npc:3", "npc:4"], "about": "npc:7"})
     assert seen[1] == ("resolveOpenLedger", {"entryId": "open:1", "status": "broken", "note": "n"})
     assert seen[2] == ("openLedgerHere", {})
+
+
+def test_the_loop_feeds_the_canon_and_ledger_hooks_the_player_visible_narration():
+    """review of #2721: the room-canon and open-ledger hooks must read `_turn_narration_visible` (post-guard, `<think>`-stripped),
+    never the raw per-round `_turn_narration` that keeps reasoning and sentences the visibility guards dropped."""
+    import os
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_loop.py"), encoding="utf-8").read()
+    calls = re.findall(r"await (_ol|_rc)\.after_turn\(([^,]+),", src)
+    assert {c[0] for c in calls} == {"_ol", "_rc"}
+    assert all(arg.strip() == "_turn_narration_visible" for _who, arg in calls), calls

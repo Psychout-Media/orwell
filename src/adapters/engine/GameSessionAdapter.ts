@@ -4,7 +4,7 @@ import type {
   GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
-  AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
+  AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
@@ -30,7 +30,7 @@ import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./human
 import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
-import { moodWord, voiceFingerprint } from "../../engine/voice";
+import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -85,7 +85,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
 import { SEEK } from "../../engine/copresenceSpread";
-import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
+import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
@@ -223,6 +223,7 @@ import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physi
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
+import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
@@ -261,6 +262,8 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { recohereCastingTypes } from "../../domain/castingTypes";
+import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
@@ -273,7 +276,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
+  advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
   recordWhy, nightBreakPending, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -283,7 +286,7 @@ import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants"
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
-import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
+import { MINUTES_PER_MESSAGE, NAP } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
@@ -694,6 +697,7 @@ const DESIRE_CLOCK_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DESIRE_CLOCK");
  */
 const WANT_MOVEMENT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_WANT_MOVEMENT");
 const HANGOUT_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HANGOUT");
+const NAP_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NAP"); // 0148 / ORW-417
 
 /**
  * 0091 — whether the TRIGGER-ERUPTION layer runs by DEFAULT. ON unless `ORWELL_TRIGGERS=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`). A DEDICATED
@@ -1626,6 +1630,14 @@ export class GameSessionAdapter implements GameSession {
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
+  /** 0148 / ORW-417: the player's nap lever (`ORWELL_NAP`, default ON). Off => the lever refuses 'not available' with zero state change. */
+  private napEnabled = NAP_ENABLED_DEFAULT;
+  /** 0148: the retry cache of a nap per idempotencyKey (bounded, memory-only): a retried nap replays its view, never sleeps twice. */
+  private readonly napCache = new Map<string, NapView>();
+  /** 0148: slept hours the orchestrator has not yet lived the house for (read-and-cleared by `consumeNapHours`). Memory-only. */
+  private napPendingHours = 0;
+  /** 0148: true only while the orchestrator lives a nap's hours: the sleeping player is not in the awake set (no overhearing, no rumor reaches them). Memory-only; cleared by `endNapTicks`. */
+  private napAsleep = false;
   /** A65 (ORWELL_ADVANCE_GATE, default ON, applies ONLY to a played game - `live.playedGame`): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
   private advanceGateEnabled = flagDefaultOn("ORWELL_ADVANCE_GATE");
   setAdvanceGateEnabled(on: boolean): void { this.advanceGateEnabled = on; }
@@ -3580,6 +3592,7 @@ export class GameSessionAdapter implements GameSession {
     // #1067/R-BND discipline) is the correct one here too. Non-degradation is intact: once the season
     // starts, every commit checkpoints against the authored baseline as before. On a STANDALONE adapter
     // (tests, the 0065 next-season scratch) `backgroundPersist` falls back to `onPersist` — byte-identical.
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, this.prewarm!.seed); // ORW-432: no-op unless a trait changed
     this.backgroundPersist();
 
     return { accepted: true, publicFields: [...publicFields], hiddenFields: [...hiddenFields], reason: "authored profile sealed (live)" };
@@ -3707,6 +3720,7 @@ export class GameSessionAdapter implements GameSession {
     // must persist DURABLY without a beatSeq bump or the integrity checkpoint — route it through
     // `backgroundPersist` (which re-seeds the non-degradation baseline) just like the profile write-back,
     // rather than relying on an unrelated later commit (which would refuse the skinTone change as degradation).
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, ctx.seed); // ORW-432: no-op unless a trait changed
     if (ctx.prewarm) this.persist();
     else this.backgroundPersist();
 
@@ -3794,6 +3808,7 @@ export class GameSessionAdapter implements GameSession {
     // converges; a name that already coheres — every UNISEX name (coherent with any presentation) and every
     // nonbinary pin — is left untouched, so the deterministic floor cast is a byte-identical no-op.
     this.cohereGenesisNames(cast);
+    this.recohereCastingTypes(cast.npcs, cast.seed); // ORW-432: genesis may have replaced archetype/demeanor
 
     // The validated tie graph → stored for `seedSeededRelationships` to prefer over the floor draw at
     // createCharacter (where the move-in edges exist, so TIE_AFFINITY_BIAS folds + the ties seal). The
@@ -5377,12 +5392,17 @@ export class GameSessionAdapter implements GameSession {
 
   private awakeNow(): Set<EntityId> | null {
     if (!this.timeOfDayEnabled || !this.live?.timeOfDay || !this.house) return null;
+    const set = this.awakeSetNow(this.live, this.house);
+    if (this.napAsleep) set.delete(this.house.player.id); // 0148: the player is asleep for the nap's off-screen ticks - they overhear nothing and no rumor is carried to them
+    return set;
+  }
+  private awakeSetNow(live: LiveSeasonState, house: NonNullable<GameSessionAdapter["house"]>): Set<EntityId> {
     return new Set(
       awakeSet({
         active: this.presenceActive(),
-        hour: this.live.nightDepth ?? WAKE_HOUR, // the clock-HOUR (8..32) — the 24-hour model (#1125)
-        player: this.house.player.id,
-        playerRetired: this.live.playerRetired ?? false,
+        hour: live.nightDepth ?? WAKE_HOUR, // the clock-HOUR (8..32) — the 24-hour model (#1125)
+        player: house.player.id,
+        playerRetired: live.playerRetired ?? false,
         bedtimeOf: (id) => this.effectiveBedDepth(id), // chronotype bedtime HOUR, conflict-drained (0066 Phase-2)
       }),
     );
@@ -5433,13 +5453,15 @@ export class GameSessionAdapter implements GameSession {
   private restDeficitOf(id: EntityId): number {
     if (!this.timeOfDayEnabled || !this.live?.timeOfDay) return 0;
     const immediate = id === PLAYER
-      ? playerRestDeficit(this.live)
+      ? playerNightDeficit(this.live)
       : npcRestDeficit(this.live, this.statsOf(id), id, this.effectiveBedDepth(id), this.lateCompanyFor(id));
+    // 0148: today's nap credit eases the PLAYER's whole deficit (the multi-night meter's own history is never rewritten; only what it feeds into today's comps is eased). 1 with no nap => byte-identical.
+    const nap = id === PLAYER ? napFactor(this.live.napHoursToday) : 1;
     // Extension 3 (compounding multi-night meter): only ADD the accumulated meter when its own flag is
     // on; off ⇒ just the single-night immediate deficit (byte-identical to the Phase-1 comp term).
-    if (!this.multiNightFatigueEnabled) return immediate;
+    if (!this.multiNightFatigueEnabled) return immediate * nap;
     const fatigue = id === PLAYER ? (this.live.playerFatigue ?? 0) : (this.live.npcFatigue?.[id] ?? 0);
-    return combinedRestDeficit(immediate, fatigue);
+    return combinedRestDeficit(immediate, fatigue) * nap;
   }
 
   /** 0066 Phase-2 (Extension 3): roll every houseguest's multi-night fatigue meter at a genuine NIGHT-END
@@ -5449,7 +5471,7 @@ export class GameSessionAdapter implements GameSession {
   private accrueNightFatigue(): void {
     if (!this.multiNightFatigueEnabled || !this.live || !this.house) return;
     const lastNight = (id: EntityId): number => id === PLAYER
-      ? playerRestDeficit(this.live!)
+      ? playerNightDeficit(this.live!)
       : npcRestDeficit(this.live!, this.statsOf(id), id, this.effectiveBedDepth(id), this.lateCompanyFor(id));
     this.live.playerFatigue = accrueFatigue(this.live.playerFatigue ?? 0, lastNight(PLAYER));
     const next: Record<EntityId, number> = { ...(this.live.npcFatigue ?? {}) };
@@ -5926,6 +5948,7 @@ export class GameSessionAdapter implements GameSession {
       nameOf: (id) => this.nameOf(id),
       knowledge,
       rng,
+      ...(this.napAsleep ? { playerAsleep: true } : {}),
     });
   }
 
@@ -6424,6 +6447,10 @@ export class GameSessionAdapter implements GameSession {
       if (c.physicalCharacteristics && typeof scrubbedMark === "string" && scrubbedMark.trim()) {
         c.physicalCharacteristics.distinguishingMark = scrubbedMark;
       }
+      // ORW-430: a biography/background that broke an age rule keeps its correct sentences (the repair dropped only the
+      // offending ones); only a story with too little left stays cleared.
+      if (repairedFields.includes("biography") && typeof repaired.biography === "string" && repaired.biography.trim()) c.biography = repaired.biography;
+      if (repairedFields.includes("background") && typeof repaired.background === "string" && repaired.background.trim()) c.background = repaired.background;
       const after = validateDossierCoherence(project());
       let action: "repaired" | "floored" = "repaired";
       let fields = [...repairedFields];
@@ -6436,6 +6463,9 @@ export class GameSessionAdapter implements GameSession {
         this.clearCoherenceFields(c, floorFields);
         fields = [...new Set([...fields, ...floorFields])];
       }
+      // ORW-430: never leave a card marked authored with no biography. The front end's backfill (`unauthored_ids`) reads
+      // `authored`, so an emptied card is marked unauthored and gets written again.
+      if (!(typeof c.biography === "string" && c.biography.trim())) c.deepProfileAuthored = false;
       affected.push({ id: n.id, fields, action });
       // #1599 — a genuine fault, surfaced even though auto-corrected (never swallowed). Vault-free: ids +
       // public field names only, never a secret value or the offending prose.
@@ -6641,6 +6671,7 @@ export class GameSessionAdapter implements GameSession {
     // `startNewGame` just regenerated PLUS the authoring, so the seeded competition/vote calibration is
     // unchanged; only the authored prose/secrets differ. The cast is consumed — clear the holding store.
     if (adopt) this.house = { player: this.house.player, npcs: adopt.npcs };
+    const castingRepaired = adopt ? this.recohereCastingTypes(this.house.npcs, seed) : []; // ORW-432: before the cast can be shown
     this.intake = emptyIntake(); // the interview is over — its material lives on the player now
     this.week = 1;
     this.phase = "premiere";
@@ -6804,7 +6835,14 @@ export class GameSessionAdapter implements GameSession {
     // corrected dossier is what durably lands. This is the production caller that makes the pure
     // castingIntake validator/repair REACHED — a model-authored cast can never go live internally
     // contradictory (Lily Evans). A deterministic floor cast is always coherent ⇒ a no-op (byte-neutral).
-    const castCoherence = this.enforceCastCoherence();
+    const baseCoherence = this.enforceCastCoherence();
+    // ORW-432: the trait pass (casting type, voice line, heightBuild) merges into the same summary (ids + field names only).
+    const traitFixes = this.enforceTraitAgreement(seed, castingRepaired);
+    const castCoherence: GameStateView["castCoherence"] = traitFixes.length === 0 ? baseCoherence : {
+      repaired: (baseCoherence?.repaired ?? 0) + traitFixes.length,
+      floored: baseCoherence?.floored ?? 0,
+      houseguests: [...(baseCoherence?.houseguests ?? []), ...traitFixes],
+    };
     // ORW-208: report (never silently swallow) a requested strategy style the chosen archetype does not offer.
     const _res = resolveStrategyStyle(archetype, strategyStyle);
     const styleAdjusted = _res.adjusted && archetype ? { ..._res.adjusted, archetype } : undefined;
@@ -7372,6 +7410,59 @@ export class GameSessionAdapter implements GameSession {
       const v = c[k];
       if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
+  }
+
+  /**
+   * ORW-432: after genesis, identity or authoring changed a houseguest's archetype, demeanor or strategy style, re-check
+   * each casting type against the final traits and re-pick the ones that no longer fit (unused compatible types, else
+   * least conflict) off the seeded `${seed}:casting-type` stream. Pre-game only (the type is first shown once the
+   * season exists, so no visible re-pick); a no-op for a cast that already fits. Public traits only.
+   */
+  private recohereCastingTypes(npcs: Houseguest[], seed: number): EntityId[] {
+    const { types } = recohereCastingTypes(
+      new SeededRandom(hashSeed(`${seed}:casting-type`)),
+      npcs.map((n) => n.character.castingType),
+      npcs.map((n) => n.character.age),
+      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+    );
+    const changed: EntityId[] = [];
+    npcs.forEach((n, i) => {
+      const t = types[i]!;
+      if (n.character.castingType?.id !== t.id) { n.character.castingType = { id: t.id, label: t.label, read: t.read }; changed.push(n.id); }
+    });
+    return changed;
+  }
+
+  /**
+   * ORW-432: the end-of-creation trait pass. Runs `traitContradictions` on every card after genesis, identity and
+   * authoring have all landed, and repairs what it finds deterministically: a voice whose rendered line pairs traits
+   * that cannot coexist gets the carrying dial replaced (seeded, signature and lexicon untouched); a heightBuild that
+   * names two heights keeps its first. Casting types were re-placed just before (`castingRepaired`). Returns ids and
+   * field names only, merged into the `castCoherence` summary the front end rolls up. A clean floor cast is a no-op.
+   */
+  private enforceTraitAgreement(seed: number, castingRepaired: readonly EntityId[]): Array<{ id: EntityId; fields: string[]; action: "repaired" | "floored" }> {
+    if (!this.house) return [];
+    const out: Array<{ id: EntityId; fields: string[]; action: "repaired" | "floored" }> = [];
+    for (const n of this.house.npcs) {
+      const c = n.character;
+      const fields: string[] = castingRepaired.includes(n.id) ? ["castingType"] : [];
+      const codes = traitContradictions({
+        archetype: c.archetype, strategyStyle: c.strategyStyle, demeanor: c.demeanor, castingType: c.castingType,
+        physicalCharacteristics: c.physicalCharacteristics ? { heightBuild: c.physicalCharacteristics.heightBuild } : undefined,
+        ...(c.voice ? { voice: voiceFingerprint(c.voice) } : {}),
+      });
+      if (codes.includes("trait-height-build") && c.physicalCharacteristics) {
+        c.physicalCharacteristics.heightBuild = repairHeightBuild(c.physicalCharacteristics.heightBuild);
+        fields.push("physicalCharacteristics.heightBuild");
+      }
+      if (codes.includes("trait-voice") && c.voice) {
+        const fixed = repairVoiceConflicts(c.voice, c.demeanor, new SeededRandom(hashSeed(`${seed}:voice-repair:${n.id}`)));
+        c.voice = fixed.voice;
+        for (const d of fixed.changed) fields.push(`voice.${d}`);
+      }
+      if (fields.length > 0) out.push({ id: n.id, fields, action: "repaired" });
+    }
+    return out;
   }
 
   private seedDeepProfiles(seed: number): void {
@@ -8708,6 +8799,8 @@ export class GameSessionAdapter implements GameSession {
   jurorProfilesEnabledNow(): boolean { return this.jurorProfilesEnabled; }
   /** Turn the hang-out lever on/off for this session (tests/BDD; the deploy sets `ORWELL_HANGOUT`). */
   setHangOutEnabled(on: boolean): void { this.hangOutEnabled = on; }
+  /** Turn the nap lever on/off for this session (tests/BDD; the deploy sets `ORWELL_NAP`). */
+  setNapEnabled(on: boolean): void { this.napEnabled = on; }
   hangOutEnabledNow(): boolean { return this.hangOutEnabled; }
   /** A8 - turn the NPC desire clock on/off for this session (tests/BDD; the deploy sets `ORWELL_DESIRE_CLOCK`). */
   setDesireClockEnabled(on: boolean): void { this.desireClockEnabled = on; }
@@ -8723,7 +8816,7 @@ export class GameSessionAdapter implements GameSession {
    * A8 - the one NPC (awake, living) whose desire clock has crossed its threshold RIGHT NOW, or null. Deterministic: the relationship drive comes from `rankApproaches` on an
    * hours-keyed stream, the role is public standing (HOH/nominee), the schedule is the public day schedule. Pure read - the caller records the approach.
    */
-  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string } | null {
+  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string; capped?: true } | null {
     const live = this.live;
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
     const m = nextMilestone(live);
@@ -8746,8 +8839,10 @@ export class GameSessionAdapter implements GameSession {
       return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
     });
     const byGoal = goalDriven(goalCands);
-    if (byGoal && (!best || DESIRE.goalUrgency > best.urgency)) return byGoal;
-    return best ? { npc: best.npc, desire: best.desire } : null;
+    const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
+    // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next one is marked `capped`: the caller spends the want exactly as before (cooldown, movement, orientation untouched, so the house-life mix is unchanged) but the player is not interrupted.
+    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return { ...pick, capped: true };
+    return pick;
   }
 
   /**
@@ -8786,9 +8881,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
-  private noteApproach(npc: EntityId): void {
+  private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
     const live = this.live!;
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
+    if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
   /** ORW-256 - the absolute in-game hour (days elapsed * 24 + clock hour), or undefined when the clock isn't running. Never wraps at midnight. */
@@ -8809,6 +8905,10 @@ export class GameSessionAdapter implements GameSession {
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
   consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
+  /** 0148: in-game hours the player's last nap slept, read-and-cleared by the orchestrator so the house lives them (unseen) on its existing per-turn off-screen machinery. */
+  consumeNapHours(): number { const h = this.napPendingHours; this.napPendingHours = 0; if (h > 0) this.napAsleep = true; return h; }
+  /** 0148: the orchestrator has lived the nap's hours - the player is awake again for every later read. */
+  endNapTicks(): void { this.napAsleep = false; }
   /** C1 (#1788) — the resolved on/off state of the Wipeout Reel layer (for an admin/status read). */
   wipeoutReelEnabledNow(): boolean { return this.wipeoutReelEnabled; }
 
@@ -9063,8 +9163,9 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc); this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
-        const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; }
+      if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+          const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
   }
 
@@ -9967,7 +10068,7 @@ export class GameSessionAdapter implements GameSession {
     const room = occ?.get(PLAYER);
     const coPresent = room ? living.filter((id) => occ!.get(id) === room) : [];
     const origin = coPresent.length > 0 ? rng.pick(coPresent) : rng.pick(living);
-    const everyone: EntityId[] = [PLAYER, ...living];
+    const everyone: EntityId[] = this.napAsleep ? [...living] : [PLAYER, ...living]; // 0148: a sleeping player is not a node: no myth reaches them during a nap
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < everyone.length; i++) {
       for (let j = i + 1; j < everyone.length; j++) {
@@ -11681,7 +11782,8 @@ export class GameSessionAdapter implements GameSession {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
-            this.noteApproach(hit.npc);
+            this.noteApproach(hit.npc, hit.desire, hit.capped);
+            if (hit.capped) return null; // ORW-423: the want is spent, the player is not stopped
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
@@ -11731,6 +11833,130 @@ export class GameSessionAdapter implements GameSession {
         beatSeq: this.beatSeq,
       };
     });
+  }
+
+  /**
+   * 0148 / ORW-417 (Ryne 2026-11-15) - the player's daytime nap. The clock moves by the slept span (0.1h steps, so an event coming due wakes the player ON the dot); it is cut at the start of the evening (a nap never runs into the
+   * night and never ends it - only `turnIn` does) and at the moment a scheduled milestone is due (only slept time counts). Every refusal changes NOTHING (clock unmoved, no beatSeq bump). The house lives the span unseen on the
+   * orchestrator's per-turn off-screen machinery (`consumeNapHours`); houseguests in the room see the player napping (a public fact + one small bounded character read). No NPC naps. Vault-free.
+   */
+  nap(req: NapReq = {}): NapView {
+    if (req.idempotencyKey !== undefined) {
+      const cached = this.napCache.get(req.idempotencyKey);
+      if (cached) return cached;
+    }
+    this.guardBeatSeq(req.expectedBeatSeq);
+    const remember = (v: NapView): NapView => {
+      if (req.idempotencyKey !== undefined) {
+        this.napCache.delete(req.idempotencyKey);
+        this.napCache.set(req.idempotencyKey, v);
+        while (this.napCache.size > GameSessionAdapter.IDEMPOTENCY_CACHE_MAX) {
+          const oldest = this.napCache.keys().next().value as string | undefined;
+          if (oldest === undefined) break;
+          this.napCache.delete(oldest);
+        }
+      }
+      return v;
+    };
+    const refuse = (reason: NapRefusal, why: string): NapView => remember({ ok: false, reason, why, slept: 0, beatSeq: this.beatSeq });
+    if (!this.napEnabled) return refuse("not-available", "Napping is not available.");
+    if (!this.house || !this.live || !this.presence) return refuse("no-game", "There is no game to nap in.");
+    const live = this.live;
+    if (live.finished || live.spectator || playerHasLeft(live, PLAYER)) return refuse("not-in-house", "The player is not in the house, so there is no bed to nap in.");
+    if (!this.perConversationClockLive() || live.playedGame !== true) return refuse("not-available", "Napping is not available.");
+    if (this.inPremiere()) return refuse("premiere", "It is move-in day: nobody is napping through the premiere, the whole house is still meeting each other.");
+    if (live.pending) return refuse("decision-pending", "Something needs the player's answer first; it is not the moment to lie down.");
+    if (this.houseEventInSession()) return refuse("event-in-session", "The whole house is gathered for an event right now; the player cannot slip away to sleep.");
+    if (live.playerRetired) return refuse("already-asleep", "The player is already asleep.");
+    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon") return refuse("evening", "The day is winding down into the evening; it is too late for a nap. The player's bed is for the night.");
+    if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
+    const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
+    const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
+    return remember(this.inOneCommit(() => {
+      const me = PLAYER;
+      const startHour = live.nightDepth ?? WAKE_HOUR;
+      const eveningStart = CLOCK.phaseStartsHour.evening;
+      // The player goes to their own bedroom (the HOH room when they hold the crown), unless they are already in one.
+      const here = this.presence!.get(me) ?? null;
+      const bedrooms: readonly Room[] = ["bedroom-a", "bedroom-b", "bedroom-c", "hoh-room"];
+      let dest: Room;
+      if (live.hoh === me) dest = "hoh-room";
+      else if (here !== null && bedrooms.includes(here)) dest = here;
+      else { const r = resolveRoom("bedroom", here); dest = r.kind === "ok" ? r.room : r.kind === "ambiguous" ? r.candidates[0]! : "bedroom-a"; }
+      if (here !== dest) {
+        this.presence!.set(me, dest);
+        this.presenceBase?.set(me, dest);
+        (this.presenceTenure ??= new Map()).set(me, 0);
+      }
+      this.sendOccupancy = null; // the player changed rooms: the frozen send-time roster is stale
+      const awake = this.awakeNow();
+      const inRoom = [...this.presence!].filter(([id, where]) => id !== me && where === dest && (!awake || awake.has(id))).map(([id]) => id).sort();
+      // Sleep the span in 0.1h clock steps: cut at the evening, woken on the dot by a scheduled event coming due.
+      const want = Math.min(hours, eveningStart - startHour);
+      let slept = 0;
+      let wokenBy: "event" | "evening" | undefined;
+      while (slept + 1e-9 < want) {
+        const step = Math.min(NAP.clockStepHours, want - slept);
+        advanceClockPerMessage(live, step);
+        slept += step;
+        if (milestoneDueOf(live) && (live.nightDepth ?? 0) < eveningStart - 1e-6) { wokenBy = "event"; break; } // an evening milestone is also the evening cut: that wake is "evening", never "event"
+      }
+      if (wokenBy === undefined && want < hours - 1e-9) wokenBy = "evening";
+      // The 0.1h steps accrue float drift (15 + 10 x 0.1 = 15.999999999999998): land the clock on the exact slept hour so a nap that ends AT a phase edge reads as that phase.
+      if (slept > 0) { live.nightDepth = Math.round((startHour + slept) * 1e6) / 1e6; live.timeOfDay = phaseForHour(live.nightDepth); }
+      const endHour = live.nightDepth ?? startHour;
+      const sleptHours = Math.round((endHour - startHour) * 1000) / 1000;
+      live.napHoursToday = Math.round(((live.napHoursToday ?? 0) + sleptHours) * 1000) / 1000;
+      live.napWake = { room: dest, before: inRoom, startHour, endHour, ...(wokenBy ? { wokenBy } : {}) };
+      this.napPendingHours += sleptHours;
+      this.hangOutSkipStepAt = undefined;
+      // Seen napping: each houseguest in the room witnesses a public fact; each reads it through their own character (a small bounded fold; easygoing types barely react).
+      if (inRoom.length > 0) {
+        this.onPlayerEvent?.(`${this.nameOf(me)} was napping in the ${startHour < CLOCK.phaseStartsHour.afternoon ? "morning" : "afternoon"}`, [me, ...inRoom], "house-event");
+        const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:nap-read:${live.dayNumber ?? 1}:${live.napHoursToday}`));
+        for (const id of inRoom) {
+          const st = this.statsOf(id);
+          if (Math.max(st.physical, st.mental) >= NAP.competitiveStat) this.rel.applyImpactDirected(id, me, { threat: NAP.seenReadThreat }, rng);
+        }
+      }
+      this.persist();
+      return { ok: true, slept: sleptHours, ...(wokenBy ? { wokenBy } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
+    }));
+  }
+
+  /**
+   * 0148: the one-shot "while you slept" read for the first moment prompt after a nap - where the player is, who is in the room now, who came and who left (compared with the room at the start of the nap) and the
+   * time of day. Vault-free (open presence + names only); it never says what happened off-screen. Consumed once.
+   */
+  /** 0148: would `nap` be accepted right now? The same gates `nap` applies (flag, a played game with the clock running, the player in the house and awake, morning or afternoon, no premiere, pending decision, house event or due milestone). Pure read. */
+  private napOpenNow(): boolean {
+    const live = this.live;
+    if (!this.napEnabled || !this.house || !live || !this.presence) return false;
+    if (live.finished || live.spectator || playerHasLeft(live, PLAYER) || live.playerRetired) return false;
+    if (!this.perConversationClockLive() || live.playedGame !== true || this.inPremiere()) return false;
+    if (live.pending || this.houseEventInSession() || milestoneDueOf(live)) return false;
+    return live.timeOfDay === "morning" || live.timeOfDay === "afternoon";
+  }
+
+  private takeWhileYouSlept(): string | undefined {
+    const live = this.live;
+    const nw = live?.napWake;
+    if (!live || !nw || !this.presence || !this.house) return undefined;
+    live.napWake = undefined;
+    const me = PLAYER;
+    const here = this.presence.get(me) ?? (nw.room as Room);
+    const now = [...this.presence].filter(([id, where]) => id !== me && where === here).map(([id]) => id).sort();
+    const before = new Set(nw.before);
+    const nowSet = new Set(now);
+    const came = now.filter((id) => !before.has(id)).map((id) => this.nameOf(id));
+    const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
+    const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
+    const parts = [`You just woke from a nap in the ${here.replace(/-/g, " ")}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
+    parts.push(now.length ? `In the room now: ${now.map((id) => this.nameOf(id)).join(", ")}.` : "Nobody else is in the room.");
+    if (came.length) parts.push(`Came in while you slept: ${came.join(", ")}.`);
+    if (went.length) parts.push(`Left while you slept: ${went.join(", ")}.`);
+    parts.push("You saw none of the rest of the house; voice only this, never what happened elsewhere.");
+    return parts.join(" ");
   }
 
   /**
@@ -14433,17 +14659,20 @@ export class GameSessionAdapter implements GameSession {
       ? producerReadPrompt(pendingPr)
       : undefined;
     const baseView = this.view();
+    const slept = this.takeWhileYouSlept(); // 0148: one-shot, only right after a nap
     // ADR 0019 Layer 2: augment the NARRATION view (only) with each present houseguest's own knowledge
     // scope. Absent when nobody present holds anything ⇒ byte-identical prompt.
     const pk = this.presentKnowledgeForPrompt();
     // Augment the narration view with the one-shot Producer Read string (if any).
     // Present ONLY in the getMomentPrompt path — the shared view() never carries it,
     // so the HUD/getGameState never sees or consumes it.
-    const view = prLine
+    const view0 = prLine
       ? { ...baseView, presentKnowledge: pk?.length ? pk : undefined, producerRead: prLine }
       : pk.length
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
+    const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
+    const view = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)

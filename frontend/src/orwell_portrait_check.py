@@ -41,6 +41,7 @@ PROBLEM_WORDS = {
     "wrong-presentation": "clothes that match the stated gender presentation",
     "eyes-off": "eyes looking straight at the camera",
     "not-a-portrait": "a head-and-shoulders portrait photo",
+    "missing-feature": "every stated visible feature (glasses, piercings, facial hair, hair colour and length)",
 }
 KNOWN_CODES = frozenset(PROBLEM_WORDS)
 
@@ -51,6 +52,25 @@ def problems_in_words(codes: list) -> str:
 
 # ── facts from the public portrait brief ─────────────────────────────────────────────────────
 _GENDER_WORDS = {"man": "man", "woman": "woman", "boy": "boy", "girl": "girl"}
+
+
+_FEATURE_RES = (
+    ("glasses", r"\b(?:glasses|spectacles|eyeglasses)\b"), ("nose stud or ring", r"\bnose (?:stud|ring|piercing)\b"),
+    ("piercings", r"\b(?:lip|brow|eyebrow|septum|ear) (?:ring|stud|piercing)s?\b|\bhoops?\b|\bearrings?\b"),
+    ("beard", r"\bbeard\b"), ("moustache", r"\bmou?stache\b"), ("stubble", r"\bstubble\b"), ("goatee", r"\bgoatee\b"),
+    ("hair colour", r"\b(?:black|dark brown|light brown|brown|blond|blonde|red|auburn|ginger|grey|gray|silver|white|platinum) hair\b"),
+    ("hair length", r"\b(?:buzzed|shaved|cropped|short|shoulder-length|long|waist-length)(?: [a-z]+)? hair\b"),
+)
+
+
+def visible_features(prompt: str) -> list:
+    """The visible features the brief states (glasses, piercings, facial hair, hair colour and length), as phrases."""
+    out = []
+    for label, rx in _FEATURE_RES:
+        m = re.search(rx, prompt or "", re.I)
+        if m:
+            out.append(m.group(0).lower() if label.startswith("hair") else label)
+    return out
 
 
 def facts_from_prompt(prompt: str) -> dict:
@@ -83,6 +103,9 @@ def facts_from_prompt(prompt: str) -> dict:
         seg = head[wm.end():] if wm else ""
     elif "On camera:" in prompt:
         seg = prompt.split("On camera:", 1)[1]
+    feats = visible_features(prompt)
+    if feats:
+        facts["features"] = feats
     low = seg.lower()
     if ("camera" in low or "lens" in low) and "looking away" not in low and "looks away" not in low:
         facts["eyes_on_camera"] = True
@@ -99,6 +122,8 @@ def facts_block(facts: dict) -> str:
         lines.append(f"Main clothing piece: {facts['clothing']}")
     if facts.get("spot"):
         lines.append(f"Spot: the house {facts['spot']}")
+    if facts.get("features"):
+        lines.append("Stated visible features (each must be visible): " + ", ".join(facts["features"]))
     if facts.get("eyes_on_camera"):
         lines.append("Eyes on camera was asked: yes")
     return "\n".join(lines) if lines else "No stated facts."
@@ -112,7 +137,8 @@ _CHECKLIST = (
     "wrong-clothes (the main clothing piece is missing or clearly different), "
     "wrong-presentation (the clothes contradict the stated gender presentation), "
     "eyes-off (eyes not on the camera; only judge this when the facts say eyes on camera was asked), "
-    "not-a-portrait (not a head-and-shoulders or waist-up portrait photo)"
+    "not-a-portrait (not a head-and-shoulders or waist-up portrait photo), "
+    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour or length, is not in the photo)"
 )
 
 

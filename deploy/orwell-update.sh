@@ -48,8 +48,13 @@ ROLLBACK=0; SET_TOKEN=0; NO_RESTART=0
 # ORW-206 — live-game guard: before the build/restart the updater DEFERS while a player has chatted in the
 # last ORWELL_UPDATE_IDLE_MINUTES (default 15), polling until idle, then runs by itself; it gives up waiting
 # after ORWELL_UPDATE_MAX_DEFER_MINUTES (default 240). `--force` (or ORWELL_UPDATE_FORCE=1) skips the check.
+# ORW-406: "force" means "do not wait for the player to go idle", NOT "cut a turn": a forced run (and the web-side
+# force request) still waits, bounded by ORWELL_UPDATE_TURN_WAIT_SECONDS (default 120, max 300), for no player turn
+# to be in flight before it restarts. Emergencies only: `--force-now` (or ORWELL_UPDATE_FORCE_NOW=1) also skips that
+# turn wait and may cut a turn mid-reply. The mode used (normal|force|force-now) is logged on the invocation line.
 # Status: /run/orwell/update-deferred (root-owned; also the web Update page via update-status.json; also shown by `orwell-doctor.sh --status`). See deploy/orwell-live-game.sh.
 FORCE=0; [[ "${ORWELL_UPDATE_FORCE:-}" == "1" ]] && FORCE=1
+FORCE_NOW=0; [[ "${ORWELL_UPDATE_FORCE_NOW:-}" == "1" ]] && { FORCE_NOW=1; FORCE=1; }
 # --no-restart: do the full update (pull → rebuild → refresh deps → reconcile units) but SKIP the
 # final `systemctl restart`. Added for the composed Update + Reset tier (orwell-update-reset.sh),
 # which runs the update with restart suppressed and lets the OOBE reset perform the SINGLE final
@@ -60,6 +65,7 @@ for __a in "$@"; do
     --set-token)  SET_TOKEN=1 ;;
     --no-restart) NO_RESTART=1 ;;
     --force)      FORCE=1 ;;
+    --force-now)  FORCE=1; FORCE_NOW=1 ;;
   esac
 done
 CT_HOSTNAME_SET="${CT_HOSTNAME:+1}"   # explicit override disables the legacy-name fallback
@@ -166,6 +172,7 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   FWD_FLAG=""; [[ $ROLLBACK -eq 1 ]] && FWD_FLAG="--rollback"; [[ $SET_TOKEN -eq 1 ]] && FWD_FLAG="--set-token"
   [[ $NO_RESTART -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--no-restart"
   [[ $FORCE -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force"
+  [[ $FORCE_NOW -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force-now"
   # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
   FWD_LG=""
   for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS; do
@@ -220,9 +227,9 @@ update_defer_cancelled() { [[ -n "${__UD_PROGRESS:-}" ]] && ops_progress_fail "u
 # Flags only: tokens travel in the environment, never argv.
 ops_log_invocation() {
   local log="${APP_DIR%/}/data/ops-update.log"
-  { printf '== orwell-update.sh invoked %s: user=%s uid=%s ssh=%s argv=[%s] force=%s rollback=%s set-token=%s no-restart=%s ref=%s pid=%s ==\n' \
+  { printf '== orwell-update.sh invoked %s: user=%s uid=%s ssh=%s argv=[%s] force=%s mode=%s rollback=%s set-token=%s no-restart=%s ref=%s pid=%s ==\n' \
       "$(date -Is)" "$(id -un 2>/dev/null || echo '?')" "$(id -u)" "${SSH_CONNECTION:-none}" "$*" \
-      "$FORCE" "$ROLLBACK" "$SET_TOKEN" "$NO_RESTART" "${REF:-none}" "$$"
+      "$FORCE" "$([[ $FORCE_NOW -eq 1 ]] && echo force-now || { [[ $FORCE -eq 1 ]] && echo force || echo normal; })" "$ROLLBACK" "$SET_TOKEN" "$NO_RESTART" "${REF:-none}" "$$"
   } >> "$log" 2>/dev/null || true
 }
 ops_log_invocation "$@"
@@ -250,7 +257,7 @@ fi
 # lock across BOTH its phases and runs this script as a child — hands the open fd down via
 # ORWELL_UPDATE_LOCK_FD, and an inherited fd is honoured only when it really is this lock file (a stale
 # exported variable cannot bypass the lock). Non-blocking by design: a second run refuses (75) rather
-# than queueing a redundant build; it never touches the running run's ops status. Released when the
+# than queueing a redundant build (except a deferred run that woke after a later run went ahead: it waits, bounded); it never touches the running run's ops status. Released when the
 # process exits (the fd dies with it). orwell-update-reset.sh takes the same file — keep them in sync.
 UPDATE_LOCK="${ORWELL_UPDATE_LOCK:-/run/orwell-update.lock}"
 acquire_update_lock() {
@@ -265,7 +272,17 @@ acquire_update_lock() {
   command -v flock >/dev/null 2>&1 || { echo "ERROR: flock (util-linux) is required to serialize updates." >&2; exit 1; }
   exec {ORWELL_UPDATE_LOCK_FD}>>"$UPDATE_LOCK" \
     || { echo "ERROR: cannot open the update lock ${UPDATE_LOCK}." >&2; exit 1; }
-  if ! flock -n "$ORWELL_UPDATE_LOCK_FD"; then
+  # A deferred run that was told a later run went ahead (__UD_WAITED=1) must WAIT for that run to finish: the under-lock check below then decides whether
+  # the later run really did this update. Failing fast here (75) would drop the update if the later run failed and reverted (review of #2702).
+  # Every other run stays non-blocking. The wait is bounded (ORWELL_UPDATE_LOCK_WAIT seconds, default 3600).
+  local _flock_args=(-n)
+  if [[ "${__UD_WAITED:-0}" == 1 ]]; then
+    local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
+    [[ "$_w" =~ ^[0-9]+$ ]] || _w=3600
+    _flock_args=(-w "$_w")
+    echo "==> waiting (up to ${_w}s) for the run that holds the update lock, then re-checking whether it finished this update"
+  fi
+  if ! flock "${_flock_args[@]}" "$ORWELL_UPDATE_LOCK_FD"; then
     echo "ERROR: another orwell update / rollback / Update + Reset is already running in this tree (lock ${UPDATE_LOCK})." >&2
     echo "       Refusing to run two at once. Watch it with: tail -f ${APP_DIR}/data/ops-update.log — then retry." >&2
     exit 75
@@ -1625,8 +1642,9 @@ else
     RESTART_SCOPE="$(update_scope_since_restart "$APP_DIR")"
   fi
   if true; then
-    if [[ "$FORCE" != 1 ]] && type update_wait_for_no_turn >/dev/null 2>&1; then
-      update_wait_for_no_turn "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/turns-in-flight"
+    # ORW-406: --force still waits for the turn (bounded); only --force-now skips it.
+    if type update_wait_for_no_turn >/dev/null 2>&1; then
+      update_wait_for_no_turn "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/turns-in-flight" "$FORCE_NOW"
     fi
     ops_progress_step 4 "restarting services"
     if [[ "$RESTART_SCOPE" == frontend ]]; then

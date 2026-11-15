@@ -84,6 +84,7 @@ os.environ.setdefault("ORWELL_STATE_CACHE_TTL_MS", "0")
 # like the floor-start hatch above. The dedicated strict tests (test_enrichment_policy.py) set the
 # `enrichment_policy` setting / env explicitly to exercise `strict`.
 os.environ.setdefault("ORWELL_ENRICHMENT_POLICY", "soft")
+os.environ.setdefault("ORWELL_CAST_GATE", "0")  # ORW-431: the end-of-creation gate is ON in product; the older stub-writer fixtures are minimal, ORW-431 tests switch it on
 
 # Replace `core` with a lightweight package stub pointing at the real core/ dir, so
 # `import core.auth` / `import core.middleware` load those files WITHOUT executing

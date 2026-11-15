@@ -1586,7 +1586,25 @@ def _stamp_version_one(user: Optional[str], sid: str) -> None:
         _save_manifest(user, manifest)
 
 
-async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref: Optional[bytes]):
+# ORW-431 D: a photo whose check still fails after the one re-shoot is kept (the one with fewer problem codes) and
+# retried by the ORW-369 upgrader: at most this many upgrader passes per houseguest, each ONE new image (no in-pass
+# re-shoot), so the extra spend is at most PHOTO_CHECK_RETRY_BOUND images (about 4.5 cents each) per affected houseguest.
+PHOTO_CHECK_RETRY_BOUND = 2
+
+
+def check_retry_ids(manifest: dict) -> list:
+    """Houseguest ids whose stored photo failed the automatic check and still have an upgrader retry left."""
+    out = []
+    for k, e in (manifest or {}).items():
+        c = e.get("check") if isinstance(e, dict) else None
+        if (isinstance(c, dict) and c.get("ok") is False and e.get("source") != "upload"
+                and int(e.get("checkRetries") or 0) < PHOTO_CHECK_RETRY_BOUND):
+            out.append(str(k))
+    return sorted(out)
+
+
+async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref: Optional[bytes],
+                               retry_of: Optional[dict] = None):
     """ORW-384: check a fresh NPC cast photo; on a fail re-shoot ONCE (same prompt + a fix line, same
     reference) and keep the second unless it has MORE problems. Returns (png, check_meta|None). Fail
     open: a skipped check returns the photo untouched with no meta; this never raises."""
@@ -1599,6 +1617,13 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         logger.info("[portraits] photo check for %s: %s", _hid_tag(), "ok" if first["ok"] else "problems " + ",".join(map(str, first["problems"])))
         if first["ok"]:
             return png, {"ok": True, "problems": [], "reshot": False}
+        if retry_of is not None:  # an upgrader retry is the extra attempt: no re-shoot inside it; keep the better photo
+            prior = (retry_of.get("check") or {}).get("problems") or []
+            if len(first["problems"]) > len(prior):
+                old_png = portrait_file(user, _CURRENT_HID.get() or "")
+                if old_png is not None:
+                    return old_png.read_bytes(), {"ok": False, "problems": list(prior), "reshot": False}
+            return png, {"ok": False, "problems": first["problems"], "reshot": False}
         meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
         png2 = await _generate_one(prompt + " Fix in this version: " + C.problems_in_words(first["problems"]) + ".",
                                    user, reference_png=ref)
@@ -1667,6 +1692,8 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
     if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
         entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
                           "reshot": bool(check.get("reshot"))}
+        if check.get("retry") and not check.get("ok"):
+            entry["checkRetries"] = int(check["retry"])
     manifest[_safe_id(houseguest_id)] = entry
     _save_manifest(user, manifest)
     if replaced_in_place:
@@ -2304,7 +2331,12 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 return
             check_meta = None
             if not is_player:  # ORW-384: NPC cast photos only (never the player's own photo)
-                png, check_meta = await _portrait_check_pass(png, str(prompt), user, ref)
+                _prior = load_manifest(user).get(_safe_id(str(hid)))
+                _retry_of = _prior if (isinstance(_prior, dict) and isinstance(_prior.get("check"), dict)
+                                       and _prior["check"].get("ok") is False) else None
+                png, check_meta = await _portrait_check_pass(png, str(prompt), user, ref, retry_of=_retry_of)
+                if check_meta is not None and _retry_of is not None:
+                    check_meta["retry"] = int(_retry_of.get("checkRetries") or 0) + 1
             try:
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,

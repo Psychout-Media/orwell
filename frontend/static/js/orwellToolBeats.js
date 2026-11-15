@@ -91,6 +91,8 @@ export const ORWELL_TOOL_BEATS = {
   // ADR 0006 (#1385): the player turns in for the night — the house rolls to morning (the 0102 recap
   // rides this beat's result). A real mutation, so it stays VISIBLE (never in ORWELL_SILENT_BEATS).
   'turnIn': '\u{1F319} Lights out',
+  // 0148: the player's daytime nap - a real mutation (the clock moves), so it stays VISIBLE.
+  'nap': '\u{1F4A4} A nap',
   'npcVoice': '\u{1F3AD} In their head',
   'inspectNonVaultState': '\u{1F50E} Control room',
   'overrideMechanic': '\u{1F39B} Control room',
