@@ -139,8 +139,17 @@ export function _wsEnsureRound() {
   holder.dataset.liveHolder = '1'; // S17: an observer's streamed holder is never finalized in place - chatReconcile rebuilds it from history at settle
   const roleLabel = _senderLabel(_shortModel(sessionModule.getCurrentModel && sessionModule.getCurrentModel()));
   const roleTs = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // ORW-365: in a game seed with the last in-world moment on screen (as chat.js `_stampSpanHtml`, ORW-259), never the real wall clock.
+  var _lastMoment = '';
+  try {
+    var _ms = document.querySelectorAll('#chat-history .role-timestamp-moment');
+    _lastMoment = _ms.length ? (_ms[_ms.length - 1].textContent || '').trim() : '';
+  } catch (_) {}
+  const _tsHtml = _lastMoment
+    ? '<span class="role-timestamp role-timestamp-moment" data-wall-clock="' + uiModule.esc(roleTs) + '">' + uiModule.esc(_lastMoment) + '</span>'
+    : '<span class="role-timestamp">' + roleTs + '</span>';
   holder.innerHTML = '<div class="role">' + uiModule.esc(roleLabel) +
-    ' <span class="role-timestamp">' + roleTs + '</span></div>' +
+    ' ' + _tsHtml + '</div>' +
     '<div class="body"><div class="stream-content"></div></div>';
   box.appendChild(holder);
   _wsRound = { holder: holder, contentDiv: holder.querySelector('.stream-content'),
