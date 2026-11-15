@@ -998,6 +998,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "on the finale night: call `advanceGame` through the finale beats, voice ONLY each supplied jury vote and the crowning, then present the post-crowning interview (another card; the `spectator-choice` and `finale-interview` beats). They hold no power and cast no vote; do not invent a " +
     "path back in. If a WATCHING player asks to skip ahead, the engine re-raises the card and they confirm ON it: until they do, the season is NOT over — voice NO finale, final two, jury, vote or winner, just point them at the card. " +
     "SKIP IS IRREVERSIBLE: once they have skipped, never offer or narrate watching the rest of the season again — say plainly that skipping is final. " +
+    "THEY ARE OUT OF THE HOUSE FOR GOOD: never put them in the house, a bunk, the bedroom or a scene with houseguests, and never narrate them going to sleep among the cast, whatever they say they do. If they say goodnight or ask to do something " +
+    "inside the house, answer as the host, from outside: they are watching the season from outside the house. For a goodnight, call `turnIn` — the game moves the watched season on — and voice only what the game then returns. " +
     "The hidden story stays SEALED until the season crowns a winner.",
   "re-entry":
     "MOMENT — Re-entry. The player has RETURNED to a season in progress (a new session; the chat may " +
@@ -1437,6 +1439,9 @@ export function renderGameContext(view: GameStateView): string {
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
+          // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
+          if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
+          if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
         }),
       ]
@@ -1616,6 +1621,32 @@ function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]):
  * `undefined` when there is nothing to pin (pre-game, or the player has no live whereabouts this turn) —
  * the caller then appends nothing, so a pre-game / seeded-spine turn is unaffected.
  */
+/** Exact repeats dropped, the NEWEST occurrence kept (lists run oldest to newest), order kept. Lossless for what is known: the same distinct facts. (ORW-349) */
+export function dedupeKeepNewest(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (let k = items.length - 1; k >= 0; k--) {
+    if (seen.has(items[k]!)) continue;
+    seen.add(items[k]!);
+    out.push(items[k]!);
+  }
+  return out.reverse();
+}
+
+/** ORW-349: the items of one houseguest's knowledge as the TERMINAL restatement shows them: neutralized, exact repeats dropped (first kept, order kept), truncated overhear snatches dropped. */
+export function terminalKnowledgeItems(items: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of items) {
+    if (/^\(overheard, muffled\)/i.test(raw.trim()) && raw.trim().endsWith("…")) continue;
+    const t = neutralizeForPrompt(raw);
+    if (seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1655,10 +1686,16 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
         "never a fact nobody here holds):",
     );
     for (const e of pk) {
+      // ORW-349: this terminal block RESTATES what GAME CONTEXT already carries in full ("WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS"), so it is trimmed of what adds nothing: an exact repeat within one houseguest, and the
+      // truncated "(overheard, muffled) <fragment>…" snatches (about a third of this block by Day 6). The full list, and so the ceiling of what each NPC may voice, is unchanged in GAME CONTEXT.
+      const knows = terminalKnowledgeItems(e.knows);
+      const suspects = terminalKnowledgeItems(e.suspects);
       const bits: string[] = [];
-      if (e.knows.length) bits.push(`knows: ${e.knows.map((k) => neutralizeForPrompt(k)).join("; ")}`);
-      if (e.suspects.length) bits.push(`suspects (a hunch): ${e.suspects.map((s) => neutralizeForPrompt(s)).join("; ")}`);
-      if (bits.length) lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
+      if (knows.length) bits.push(`knows: ${knows.join("; ")}`);
+      if (suspects.length) bits.push(`suspects (a hunch): ${suspects.join("; ")}`);
+      // Everything they hold was a muffled snatch: keep their line (an absent line reads as "knows nothing") and point at the full one.
+      if (!bits.length) bits.push("knows only muffled snatches (the full list is in GAME CONTEXT above)");
+      lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }
   // A-15 (rehearsal 2026-11-03): the committed BOARD, last in the terminal block (nearest generation). In the ceremony phases the
@@ -1708,6 +1745,16 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     } else {
       // PO ruling 2026-11-04: the whole vote is read in ONE turn — every anonymized ballot, in order, then the result. The narrator gets the full truth.
       lines.push(`    BALLOTS (all ${ballots.length}, in the order read; anonymized — name NO voter): ${ballots.map((b) => `a vote to evict ${b.votedFor.name}`).join("; ")}.`);
+      // ORW-358: the narrator was handed 13 ballots but not their COUNT, and invented one ("nine to four") by counting 13 lines in its head; the FE tally guard then cut the whole scene.
+      // The count is a closed-set fact the engine already holds and the reveal hands over (the same anonymized ballots, summed) - give it as a fact to voice.
+      const byNominee = new Map<string, { name: string; n: number }>();
+      for (const b of ballots) {
+        const cur = byNominee.get(b.votedFor.id) ?? { name: b.votedFor.name, n: 0 };
+        cur.n += 1;
+        byNominee.set(b.votedFor.id, cur);
+      }
+      const tally = [...byNominee.values()].sort((a, b) => b.n - a.n);
+      lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
         : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
@@ -1788,6 +1835,8 @@ export interface GatedLeverFlags {
   npcMemorySpeech?: boolean;
   /** ORW-317 (ORW_GOAL_MOOD): add the instruction that a voice's `moodCause` is the ONLY reason they may give for their mood. Absent/false => byte-identical. */
   goalMood?: boolean;
+  /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
+  disclosureEngine?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1800,6 +1849,14 @@ function withMemorySpeechInstruction(base: string): string {
     "    ONLY when `bringUp` is true (the engine decided this beat); otherwise let it show in tone, not in words.\n" +
     "    If the voice carries `rememberedAboutOthers`, those are things this houseguest holds about others in the room (all things the whole house saw): they may\n" +
     "    bring one up with that person when it fits the moment, in their own words; never invent another past between them.");
+}
+
+/** A52 - in a played game `knows` is shared ground only; the narrator does not improvise what else a houseguest holds, and a `deflect` is a press the engine declined. Appended only while the flag is on. */
+function withDisclosureInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
+    "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
 }
 
 /** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
@@ -1848,6 +1905,10 @@ export interface PremiereEntranceShape {
   justArrived?: { id: string; name: string };
   speakers?: { id?: string; name: string }[];
   playerEntrance?: boolean;
+  /** ORW-368: where the player's own toast slot stands (toast stage): not yet, in this batch, or passed. */
+  playerToast?: "later" | "now" | "done";
+  /** ORW-368: speakers still to be released after this batch (the engine's done list). */
+  toastRemaining?: number;
 }
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
@@ -1919,8 +1980,30 @@ function premiereEntranceLines(
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
-        (sp ? `Speakers this batch, in order: ${sp}. ` : "") +
-        `Open with the production host if the toast has not begun; the player's slot is theirs to take in chat \u2014 invite it, never force it. Call advanceGame for the next batch.`,
+        (sp ? `Speakers this batch, in order: ${sp}. Voice EVERY speaker named here, each as their own toast (their name, age, hometown, job and one line of personality, from the facts you were given), none skipped, merged or summarized. ` : "") +
+        `Open with the production host if the toast has not begun. ` +
+        // ORW-368 (Ryne: "it has kept trying to end and had not had everyone go"): the engine, not the narrator, decides when the circle is over.
+        (typeof ent.toastRemaining === "number"
+          ? (ent.toastRemaining > 0
+              ? `THE TOAST IS NOT OVER: ${ent.toastRemaining} more speaker${ent.toastRemaining === 1 ? "" : "s"} still to come after this batch. Do NOT wrap it up, thank the house, toast "to everyone", or move the evening on; only the game says when the circle is done (when advanceGame reports it). `
+              : `This is the LAST batch of the toast: after these speakers the game closes the circle (call advanceGame once more); do not close it before. `)
+          : "") +
+        // ORW-368: the player's slot is invited ONCE, in the batch it falls in, from the engine's own done list; before it and after it the narrator never turns the scene back to the player.
+        (ent.playerToast === undefined
+          ? `the player's slot is theirs to take in chat \u2014 invite it, never force it. `
+          : ent.playerToast === "now"
+          ? `THE PLAYER'S SLOT IS IN THIS BATCH: give them ONE line of room to take it in chat (invite it once, never force it, never speak their toast for them), voice the other speaker(s), then call advanceGame for the next batch. The circle does NOT wait for the player and does NOT come back to them. `
+          : ent.playerToast === "done"
+            ? `The player's own toast slot has PASSED (the game has recorded it): never invite the player to toast again and never turn the scene back to them; stay on the circle. `
+            : `The player's own toast slot has NOT come up yet: do not invite them to speak, do not speak for them and do not turn the scene back to them; stay on the circle. `) +
+        `Call advanceGame for the next batch.`,
+      // ORW-368: the A9 toast stage used to name the speakers and give NO facts, so each toast was invented (the basics ORW-194 added only rode the old circle's roster). Hand the narrator each speaker's public basics (name, age,
+      // job, hometown, how they come across, from the card the engine holds) in the batch itself; the narrator voices them woven into the scene, never as a list or a data dump.
+      ...((ent.speakers ?? []).flatMap((x) => {
+        const id = (x as { id?: string }).id;
+        const card = id ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === id) : undefined;
+        return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}`] : [];
+      })),
     ];
   }
   return [];
@@ -2001,6 +2084,7 @@ export function buildSystemPrompt(
   if (levers?.npcTells === true) base = withTellsInstruction(base);
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
+  if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [

@@ -19,7 +19,7 @@
 import type { EntityId } from "../domain/ids";
 import { clamp01 } from "../domain/num";
 import type { Archetype, StrategyStyle, HiddenElementKind } from "./characterFactory";
-import { AGENDA, LONG_CON_ARCHETYPES, LONG_CON_STYLES, PHILOSOPHY_LEAN, SEASON_GOAL_LEAN, STUBBORNNESS, STYLE_LEAN, STYLE_STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
+import { AGENDA, AIM_HINT_BONUS, LONG_CON_ARCHETYPES, LONG_CON_STYLES, PHILOSOPHY_LEAN, SEASON_GOAL_LEAN, STUBBORNNESS, STYLE_LEAN, STYLE_STUBBORNNESS, type SeasonGoalKind } from "./agendaConstants";
 import type { GamePhilosophy } from "./philosophyConstants";
 
 // --- Types -------------------------------------------------------------------------------------------------------------------------
@@ -89,6 +89,8 @@ export interface AgendaCharacter {
   /** How easily THEY are swayed (0..1, `Character.influence.susceptibility`), if known. */
   susceptibility?: number;
   /** A pre-show tie, if any, and whether it is hidden from the house. */
+  /** ORW-337: the houseguest's model-authored season-aim hint from their backstory (0146 lane 1), if the write-back has landed. Adds `AIM_HINT_BONUS` to that aim's lean; shapes, never forces. */
+  aimHint?: SeasonGoalKind;
   preShowTie?: { with: EntityId; hidden: boolean; friendly: boolean; /** ORW-329: the tie's nature (family, ex, old-friend, rival, ...); absent on older callers. */ nature?: string };
 }
 
@@ -169,6 +171,7 @@ export function seasonLeanOf(c: AgendaCharacter): Partial<Record<SeasonGoalKind,
   };
   add(STYLE_LEAN[c.strategyStyle]);
   if (c.philosophy) add(PHILOSOPHY_LEAN[c.philosophy]);
+  if (c.aimHint) out[c.aimHint] = (out[c.aimHint] ?? 0) + AIM_HINT_BONUS; // ORW-337: the backstory nudges the aim
   return out;
 }
 export const canRunLongCon = (c: AgendaCharacter): boolean =>
@@ -435,14 +438,24 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
   const others = goals.filter((g) => g.horizon !== "week");
   let week = heldWeek;
   if (agenda.formedForWeek !== weekNow || heldWeek.length === 0) {
-    week = candidates.filter((c) => c.weight >= AGENDA.weekGoalFloor).slice(0, AGENDA.weekGoalSlots).map((c) => toGoal(c, view.owner, formingBoard));
+    const picked: Candidate[] = [];
+    for (const c of candidates) {
+      if (picked.length >= AGENDA.weekGoalSlots) break;
+      if (c.weight < AGENDA.weekGoalFloor) continue;
+      if (c.kind === "get-them-out" && picked.filter((p) => p.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax) continue; // ORW-350: room for the rest of a week
+      picked.push(c);
+    }
+    week = picked.map((c) => toGoal(c, view.owner, formingBoard));
   } else {
     // A held week goal is replaced only by a candidate that beats the weakest held one by the stubbornness margin.
     const heldKeys = new Set(heldWeek.map(goalKey));
     for (const c of candidates) {
       if (c.weight < AGENDA.weekGoalFloor || heldKeys.has(goalKey(c))) continue;
-      if (week.length < AGENDA.weekGoalSlots) { week = [...week, toGoal(c, view.owner, board)]; heldKeys.add(goalKey(c)); continue; }
-      const weakest = [...week].sort((a, b) => a.commitment - b.commitment || a.id.localeCompare(b.id))[0]!;
+      // ORW-350: a get-them-out candidate when the week already holds its share of them can only REPLACE a held get-them-out (the same stubbornness margin), never add one.
+      const gtoFull = c.kind === "get-them-out" && week.filter((g) => g.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax;
+      if (!gtoFull && week.length < AGENDA.weekGoalSlots) { week = [...week, toGoal(c, view.owner, board)]; heldKeys.add(goalKey(c)); continue; }
+      const pool = gtoFull ? week.filter((g) => g.kind === "get-them-out") : week;
+      const weakest = [...pool].sort((a, b) => a.commitment - b.commitment || a.id.localeCompare(b.id))[0]!;
       if (c.weight > weakest.commitment * (1 + stub)) {
         history.push(resolve(weakest, "replaced", board.day, `replaced by ${goalKey(c)}`));
         week = [...week.filter((g) => g !== weakest), toGoal(c, view.owner, board)];

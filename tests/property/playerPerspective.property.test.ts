@@ -56,6 +56,13 @@ describe("ORW-299 - the player-perspective sentinel across every player-facing s
       total.ceremony += r.ceremony; total.recap += r.recap; total.chapter += r.chapter; total.ledger += r.ledger; total.dossier += r.dossier; total.shapes += r.shapes;
       for (const k of r.pendingKinds) total.pendingKinds.add(k);
     }
+    // ORW-350: whether the PLAYER wins an HOH in those 8 seeds (so a `nominations` pending is raised for them) moves with the house's balance (it did when house life changed). Never pin that to fixed seeds: the repo's seed-search
+    // pattern (#1954), keep playing further seeds only until every pending kind the sentinel must scan has been reached.
+    for (let seed = 15; seed < 60 && !["exit-interview", "nominations"].every((k) => total.pendingKinds.has(k)); seed++) {
+      const r = await playSeed(seed);
+      total.ceremony += r.ceremony; total.recap += r.recap; total.chapter += r.chapter; total.ledger += r.ledger; total.dossier += r.dossier; total.shapes += r.shapes;
+      for (const k of r.pendingKinds) total.pendingKinds.add(k);
+    }
     // ORW-303 fixed (#2539): the schedule gate no longer freezes a player who has left, so EVERY seed runs to a winner (it used to stall on 10-14).
     expect(total.finishedSeeds, "every seed ran to a winner").toBe(8);
     expect(total.ceremony, "staged ceremony step texts were produced and scanned").toBeGreaterThan(0);

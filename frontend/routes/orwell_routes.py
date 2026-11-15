@@ -489,6 +489,8 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": False,
             "portrait": orwell_portraits.portrait_ref(user, hid),
             "authored": bool(hg.get("authored")),
+            # ORW-343: the engine's last-seen mood WORD (active houseguests the player has shared a room with); carried only when it is a short string, so nothing else can ride this field.
+            **({"lastSeenMood": hg["lastSeenMood"]} if isinstance(hg.get("lastSeenMood"), str) and 0 < len(hg["lastSeenMood"]) <= 40 else {}),
         })
     return cards
 

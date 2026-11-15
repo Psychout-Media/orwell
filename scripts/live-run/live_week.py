@@ -10,6 +10,7 @@ for the schedule, and answers decision cards in the UI with the simplest legal o
 """
 from __future__ import annotations
 
+import os
 import argparse, json, re, sys, time
 
 from live_short import clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
@@ -35,23 +36,43 @@ class _Resume(Exception):
 
 
 class Week(Chat):
+    name_fn = None  # () -> the player's name from the engine (ORW-350): the veto card must save the player when they are the one on the block
+
     def answer_card(self, c):
         """Click the simplest legal option for the card on screen; returns a label for the report."""
         title = (c.get("title") or "").lower(); opts = c["opts"]
         pick = [0]
-        if "nominat" in title and len(opts) > 1: pick = [0, 1]
+        try: me = self.name_fn() if self.name_fn else None
+        except Exception: me = None
+        mine = next((i for i, o in enumerate(opts) if me and re.fullmatch(r"(?i)save\s+" + re.escape(me), o.strip())), None)
+        if "veto" in title and mine is not None: pick = [mine]  # the runner is a player, not a saboteur: a nominee who holds the veto uses it on themselves (two runs lost the player in week 1 to "Don't use the veto")
+        elif "nominat" in title and len(opts) > 1: pick = [0, 1]
         else:
             for i, o in enumerate(opts):
+                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour). Checked FIRST: "Keep watching" used to win and the run sat in Watch mode
                 if re.search(r"(?i)\bcompete\b", o): pick = [i]; break
                 if re.search(r"(?i)do not use|don'?t use|not use|keep", o): pick = [i]; break
-                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour)
         btns = self.page.query_selector_all("#orwell-decision-card .odec-opt")
         for i in pick:
             if i < len(btns): btns[i].click(); self.page.wait_for_timeout(150)
         if c.get("hasText"):
             ta = self.page.query_selector("#orwell-decision-card textarea")
             if ta: ta.fill(GOODBYE)
-        if self.page.query_selector("#orwell-decision-card .odec-confirm"): self.page.click("#orwell-decision-card .odec-confirm")
+        # A card whose chosen option leaves Confirm disabled (a pick the card refuses, or one that needs a second pick): try the other options in turn until it enables, rather than hang on a click that can never land.
+        conf = "#orwell-decision-card .odec-confirm"
+        if self.page.query_selector(conf) and self.page.evaluate("(sel) => { const b = document.querySelector(sel); return !!b && b.disabled; }", conf):
+            for i in range(len(btns)):
+                if i in pick: continue
+                try: btns[i].click(); self.page.wait_for_timeout(150)
+                except Exception: continue
+                if not self.page.evaluate("(sel) => { const b = document.querySelector(sel); return !!b && b.disabled; }", conf): break
+        if self.page.query_selector("#orwell-decision-card .odec-confirm"):
+            try: self.page.click("#orwell-decision-card .odec-confirm", timeout=8000)
+            except Exception as e:
+                if not opts: return f"card[{(c.get('title') or '')[:40]}] -> [] (replaced by a new card before the click; the next turn answers it)"  # read with no options (a watch card), then the vote card took its place: a runner race, not a stuck card  # a card whose Confirm never enables: say WHICH card and what it still wants (a free diagnostic; a bare click timeout told us nothing)
+                info = self.page.evaluate("""() => { const d = document.querySelector('#orwell-decision-card'); const h = document.querySelector('#orwell-decision-card-hint');
+                  return {title: (d && (d.querySelector('.odec-title, h2, h3') || {}).innerText) || null, hint: h ? h.innerText : null, opts: [...document.querySelectorAll('#orwell-decision-card .odec-opt')].map(o => ({t: o.innerText, p: o.getAttribute('aria-pressed'), d: o.disabled})), text: d ? d.innerText.slice(0, 600) : null}; }""")
+                raise RuntimeError(f"decision card never enabled Confirm: clicked {pick} of {opts!r}; card {info!r}") from e
         return f"card[{(c.get('title') or '')[:40]}] -> {[opts[i] for i in pick if i < len(opts)]}"
 
     def wait_new(self, before, t0, limit=240):
@@ -64,7 +85,19 @@ class Week(Chat):
             prev = sig
             if stable >= 3: break
         bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
-        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": "\n".join(x["txt"] for x in new), "settled": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit}
+        # ORW-348: a reply read as unsettled (no footer yet) gets a GRACE window, polled once a second, before it is called stuck. Recorded: did the footer appear late (and when), did the text keep growing (the wait loop quit between
+        # rounds), or is the bubble still without a footer after the grace (a reply the player would see hang). Tells a runner that gave up too early from a real stuck reply.
+        late = {}
+        if new and not new[-1]["done"]:
+            g0 = time.time(); txt0 = "\n".join(x["txt"] for x in new)
+            while time.time() - g0 < 45:
+                self.page.wait_for_timeout(1000)
+                bs2 = self.page.evaluate(BUB); new2 = bs2[before:] if len(bs2) >= before else bs2
+                if new2 and new2[-1]["done"]:
+                    late = {"late_done_s": round(time.time() - g0), "late_grew_chars": len("\n".join(x["txt"] for x in new2)) - len(txt0), "late_busy": bool(self.page.evaluate(BUSY_JS))}; new = new2; break
+            else:
+                late = {"late_done_s": None, "late_grew_chars": len("\n".join(x["txt"] for x in new2)) - len(txt0), "late_busy": bool(self.page.evaluate(BUSY_JS))}; new = new2
+        return {"secs": round(time.time() - t0), "new_bubbles": len(new), "text": "\n".join(x["txt"] for x in new), "settled": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit, **late}
 
     def card_turn(self):
         c = self.page.evaluate(CARD)
@@ -78,11 +111,12 @@ def names(lst): return [x.get("name") for x in (lst or []) if isinstance(x, dict
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default="http://127.0.0.1:17000")
-    ap.add_argument("--engine", default="http://127.0.0.1:18765"); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
+    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
     ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
     ap.add_argument("--resume", action="store_true", help="attach to the game already running on the rig (no casting, no Week 1 checks) and play on with --season")
+    ap.add_argument("--stop-after-week", type=int, default=0, help="with --season: stop once this week has ended (0 = play to the finale)")
     ap.add_argument("--max-turns-total", type=int, default=400); ap.add_argument("--max-turns-per-week", type=int, default=90)
     a = ap.parse_args()
     from playwright.sync_api import sync_playwright
@@ -96,7 +130,7 @@ def main():
     def snap(label, text, r, extra=""):
         st = eng.call("getGameState"); cer = st.get("ceremony") or {}
         t = {"label": label, "msg": (text or extra)[:80], "secs": r["secs"], "phase": st.get("phase"), "week": st.get("week"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"],
-             "settled": r["settled"], "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
+             "settled": r["settled"], "timed_out": r["timed_out"], **{k: v for k, v in r.items() if k.startswith("late_")}, "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
              "nominees": names(cer.get("nominees") or st.get("nominees")), "veto_holder": ((cer.get("veto") or {}).get("holder") or {}).get("name") if isinstance((cer.get("veto") or {}).get("holder"), dict) else None,
              "hoh": (cer.get("hoh") or {}).get("name") if isinstance(cer.get("hoh"), dict) else None}
         t["harness_jump"] = eng.jumps; eng.jumps = 0; t["phase_before"] = facts.get("_last_phase"); facts["_last_phase"] = st.get("phase")
@@ -151,6 +185,8 @@ def main():
             facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
             check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")
             if not ok: break
+            if a.stop_after_week and cur >= a.stop_after_week:
+                facts["stopped_after_week"] = cur; return  # ORW-350: a bounded sweep past week 1; the finale checks are for a full season
         fin = eng.call("getGameState"); facts["final"] = {"finished": fin.get("finished"), "winner": fin.get("winner"), "phase": fin.get("phase"), "week": fin.get("week")}
         check("S-finale-reached", over(fin), f"finished={fin.get('finished')} winner={fin.get('winner')} phase={fin.get('phase')} after {len(turns)} turns")
         rec2 = eng.call("seasonRecap") or {}; check("S-evictions-recorded", len(names(rec2.get("evicted"))) >= 1, f"evicted in order: {names(rec2.get('evicted'))}")
@@ -162,6 +198,7 @@ def main():
             page = b.new_context(viewport={"width": 1440, "height": 900}).new_page()
             page.goto(a.fe + "/", wait_until="load", timeout=60000); page.wait_for_timeout(6000)
             week = Week(page, a.fe)
+            week.name_fn = lambda: ((eng.call("getGameState") or {}).get("player") or {}).get("name")
             if a.resume:
                 season_loop(); check("W6-no-stuck-card", page.evaluate(CARD) is None and not (eng.call("getGameState").get("pending")), "no decision card left on screen / pending"); b.close(); raise _Resume()
             for i, line in enumerate(CAST_LINES):

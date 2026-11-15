@@ -174,6 +174,8 @@ export interface HourView {
   avoid?: readonly EntityId[];
   /** The candor of the holder's speech (from REASONS candor tables, passed by the caller), 0..1. */
   candor: number;
+  /** ORW-337: this season's authored house rituals (spec 0146 lane 2); absent when the model wrote none (or the write-back has not landed). */
+  rituals?: ReadonlyArray<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
 }
 
 export interface PlannedAction {
@@ -189,6 +191,8 @@ export interface PlannedAction {
   goalKind?: GoalKind;
   /** Who the action is ABOUT when that is not a partner (the target being campaigned against, the person being framed). */
   about?: EntityId;
+  /** ORW-337: the name of the house ritual this action is (a PUBLIC name: the scene records it so the narrator may use it once the player has seen one). */
+  ritual?: string;
   /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
   fold?: InteractionType;
 }
@@ -239,14 +243,15 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
       if (!t) return undefined;
       // ORW-324: sharing a room with the person they want gone, a quick-tempered houseguest clashes with them directly (a rattled mood makes it likelier).
       if (roomOf(v, t) === v.room && pool.includes(t)) {
-        const heat = temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1);
+        const hot = HOUSE_LIFE.hotConfront * Math.max(0, Math.min(1, (goal.commitment - HOUSE_LIFE.hotGoal) / (1 - HOUSE_LIFE.hotGoal))); // ORW-353: a hot goal confronts whatever the temper
+        const heat = Math.min(1, temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1) + hot);
         if (variant < heat) return pick("confront", [t]);
       }
       const ears = byScore(voters, aff);
       // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
       if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
       if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
-      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor"] as const));
+      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor", "count-votes", "count-votes"] as const));
       return pick(k, ears, t);
     }
     case "stay-safe": {
@@ -300,7 +305,16 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
 
   const goals = [...(v.agenda?.goals ?? [])].filter((g) => g.status === "active").sort((a, b) => b.commitment - a.commitment || a.id.localeCompare(b.id));
   const lifePull = HOUSE_LIFE.lifePull[v.timeOfDay] + (v.emotional > 0.6 ? HOUSE_LIFE.contentLifeBonus : 0);
-  for (const g of goals) {
+  // ORW-350: ordinary life keeps its share however pressing the goals get. Each goal beats ordinary life this hour with chance drive / lifePull (capped at 1), so SOME goal does with 1 minus the product of the misses: it
+  // climbs toward 1 as commitments rise and goals pile up (week 2: get-them-out about 0.85 each), and the house stopped living. Above the ceiling, ONE seeded roll sends the hour back to ordinary life, so the hours spent on goals
+  // top out at the ceiling; below it (the early game) nothing changes, byte for byte.
+  const reach = 1 - goals.reduce((miss, g) => miss * (1 - Math.min(1, (g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1)) / Math.max(1e-9, lifePull))), 1);
+  const lifeHour = reach > HOUSE_LIFE.goalHourCeiling && roll("goalhour") >= HOUSE_LIFE.goalHourCeiling / reach;
+  // ORW-350 step 2: WHICH goal gets the hour is a seeded, drive-weighted draw, not "the strongest first": strongest-first handed every goal hour to the single most committed goal (get-them-out, about 0.85 by week 2, which is almost all
+  // gossip), so a houseguest's bonds, friends and power-seeking never had an hour. A weighted shuffle (seeded per goal and hour) spreads the goal hours over what they hold, in proportion to how hard each pulls.
+  const driveOf = (g: Goal): number => Math.max(1e-6, g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1));
+  const ordered = [...goals].sort((a, b) => Math.pow(roll(`pick:${b.id}`), 1 / driveOf(b)) - Math.pow(roll(`pick:${a.id}`), 1 / driveOf(a)) || a.id.localeCompare(b.id));
+  for (const g of lifeHour ? [] : ordered) {
     // A season-long MAIN aim is a background pull; week goals and emergent season goals (revenge, a long con, a secret) are the pressing ones.
     const drive = g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1);
     if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win
@@ -310,6 +324,13 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
+  // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
+  const ritual = v.rituals?.find((r) => r.timeOfDay === v.timeOfDay && roll(`ritual:${r.name}`) < HOUSE_LIFE.ritualPull);
+  if (ritual) {
+    const spot = ACTIONS[ritual.action].place;
+    const company = spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
+    return finish({ kind: ritual.action, with: company.slice(0, ACTIONS[ritual.action].partners.max), ritual: ritual.name, ...(spot ? { place: spot } : {}) });
+  }
   const habit = v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);
   if (habit) {
     const k = HABIT_ACTION[habit].action;

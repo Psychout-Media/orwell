@@ -630,7 +630,8 @@ def test_legacy_entry_without_fingerprint_is_not_mass_reshot(tmp_portraits, monk
     d.mkdir(parents=True, exist_ok=True)
     (d / "npc_1.png").write_bytes(b"PNG:legacy")
     orwell_portraits._save_manifest(
-        "u", {"npc_1": {"file": "npc_1.png", "name": "Houseguest One", "source": "generated"}})
+        "u", {"npc_1": {"file": "npc_1.png", "name": "Houseguest One", "source": "generated",
+                  "promptVersion": orwell_portraits.PORTRAIT_PROMPT_VERSION}})
 
     cast = [{"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "facet-A"}]
     summary = _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False))
@@ -649,6 +650,82 @@ def test_legacy_entry_without_fingerprint_is_not_mass_reshot(tmp_portraits, monk
         "u", record_beats=False))
     assert summary2["generated"] == 1 and calls["n"] == 1
     assert (tmp_portraits / "u" / "npc_1.png").read_bytes() == b"PNG:facet-B"
+
+
+def _seed_old_entry(tmp_portraits, version):
+    d = tmp_portraits / "u"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "npc_1.png").write_bytes(b"PNG:old")
+    entry = {"file": "npc_1.png", "name": "Houseguest One", "source": "generated",
+             "fingerprint": orwell_portraits._prompt_fingerprint("old wording")}
+    if version is not None:
+        entry["promptVersion"] = version
+    orwell_portraits._save_manifest("u", {"npc_1": entry})
+    return d
+
+
+@pytest.mark.parametrize("stored_version", [None, 1])
+def test_older_prompt_version_is_not_reshot_and_keeps_version_1(tmp_portraits, monkeypatch, stored_version):
+    """ORW-361: an entry shot under an older prompt wording (promptVersion missing or 1) is NOT re-shot by
+    the fingerprint path and keeps version 1; a missing portrait is shot with the new prompt and records 2."""
+    monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
+    seen = []
+
+    async def fake_gen(prompt, user, reference_png=None):
+        seen.append(prompt)
+        return b"PNG:" + prompt.encode()
+    monkeypatch.setattr(orwell_portraits, "_generate_one", fake_gen)
+    d = _seed_old_entry(tmp_portraits, stored_version)
+
+    cast = [
+        {"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "new wording"},
+        {"houseguestId": "npc:2", "name": "Houseguest Two", "prompt": "new wording two"},
+    ]
+    summary = _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False))
+
+    assert summary["generated"] == 1
+    assert seen == ["new wording two"]  # only the missing portrait, shot with the new prompt
+    assert (d / "npc_1.png").read_bytes() == b"PNG:old"
+    m = orwell_portraits.load_manifest("u")
+    assert m["npc_1"]["promptVersion"] == 1  # kept (explicit), never bumped
+    assert m["npc_1"]["fingerprint"] == orwell_portraits._prompt_fingerprint("old wording")
+    assert m["npc_2"]["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION == 2
+
+
+def test_forced_single_reshoot_records_version_2_and_keeps_old_file_on_failure(tmp_portraits, monkeypatch):
+    monkeypatch.setattr(orwell_portraits, "image_generation_available", lambda user: True)
+    outcome = {"fail": True}
+
+    async def fake_gen(prompt, user, reference_png=None):
+        if outcome["fail"]:
+            return None  # provider failure: _generate_one is fail-soft and returns no image
+        return b"PNG:" + prompt.encode()
+    monkeypatch.setattr(orwell_portraits, "_generate_one", fake_gen)
+    d = _seed_old_entry(tmp_portraits, None)
+    cast = [{"houseguestId": "npc:1", "name": "Houseguest One", "prompt": "new wording"}]
+
+    _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False, force_ids=["npc:1"]))
+    assert (d / "npc_1.png").read_bytes() == b"PNG:old"  # failure: old file stays
+    assert orwell_portraits.load_manifest("u")["npc_1"].get("promptVersion", 1) == 1
+
+    outcome["fail"] = False
+    summary = _run(orwell_portraits.generate_and_store(cast, "u", record_beats=False, force_ids=["npc:1"]))
+    assert summary["generated"] == 1
+    assert (d / "npc_1.png").read_bytes() == b"PNG:new wording"
+    m = orwell_portraits.load_manifest("u")["npc_1"]
+    assert m["promptVersion"] == 2
+    assert m["fingerprint"] == orwell_portraits._prompt_fingerprint("new wording")
+
+
+def test_stale_portrait_ids_lists_exactly_the_older_entries():
+    manifest = {
+        "npc_1": {"file": "a.png"},                                   # missing => 1
+        "npc_2": {"file": "b.png", "promptVersion": 1},
+        "npc_3": {"file": "c.png", "promptVersion": orwell_portraits.PORTRAIT_PROMPT_VERSION},
+        "player": {"file": "p.png", "source": "upload"},              # the player's own photo stays
+        "npc_4": "not a dict",
+    }
+    assert orwell_portraits.stale_portrait_ids(manifest) == ["npc_1", "npc_2"]
 
 
 # --- the cast roster route: name + status + portrait, Vault-free ------------------------

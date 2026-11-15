@@ -68,6 +68,9 @@ export const STYLE_STUBBORNNESS: Readonly<Record<StrategyStyle, number>> = {
 export const LONG_CON_ARCHETYPES: readonly Archetype[] = ["mastermind", "villain", "analyst"];
 export const LONG_CON_STYLES: readonly StrategyStyle[] = ["strategic"];
 
+/** ORW-337: what a model-authored aim hint adds to that season aim's lean (spec 0146: shapes, never forces). `npcMindsAuthored.AUTHORED.aimHintBonus` is this value. A leaf constant so `agenda.ts` can read it without an import cycle. */
+export const AIM_HINT_BONUS = 0.4;
+
 export const AGENDA = {
   /** Seeded jitter added to each season-goal lean so two houseguests of one archetype need not want the same thing (0..jitter). */
   seasonJitter: 0.3,
@@ -75,6 +78,9 @@ export const AGENDA = {
   weekGoalFloor: 0.3,
   /** Week goals held at once (the strongest first). Not a scarcity cap on play: a person pursues a few things a week, not everything. */
   weekGoalSlots: 3,
+  /** ORW-350: of those slots, at most this many may be "get them out". Every houseguest with a few threat reads filled all three with it (26 get-them-out goals among 15 houseguests by week 2), and each of its moves is scheming, so the
+   *  other things a week is for (a bond to build, a friend to protect, power to win) never got a slot. */
+  weekGetThemOutMax: 1,
   /** A threat read at/above this makes "get them out" a candidate goal (same scale as the campaign threshold). */
   targetThreat: 0.55,
   /** An affinity at/above this makes "pull them in" (or "protect them") a candidate. */

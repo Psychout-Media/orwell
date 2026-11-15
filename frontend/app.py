@@ -1392,6 +1392,14 @@ async def _startup_event():
     except Exception as e:
         logger.warning(f"Portrait reconciler not started (non-critical): {e}")
 
+    # ORW-369: the running-season portrait upgrader — one quiet background task that re-shoots
+    # old-wording faces one houseguest at a time (idempotent; sweeps only users already seen).
+    try:
+        from src import orwell_portrait_upgrade as _orwell_portrait_upgrade
+        _orwell_portrait_upgrade.ensure_upgrader_started()
+    except Exception as e:
+        logger.warning(f"Portrait upgrader not started (non-critical): {e}")
+
     logger.info("Application startup complete")
 
 async def _shutdown_event():

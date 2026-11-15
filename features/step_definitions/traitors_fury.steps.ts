@@ -9,7 +9,9 @@ import { PLAYER } from "../../src/domain/ids";
 
 // Feature 0135 - Traitors' Fury. Roles only. Seasons are driven through the real orchestrator + session; the steps read
 // the Vault-free finale view, the player's knowledge and the persisted live state (an engine-side test seam, like the unit gates).
-const SEED = 3; // re-selected 2026-11-13 (ORW-19 comp-win threat 0.3 -> 0.45): the flag-on / flag-off neutrality scenarios hold on about 3 of 4 seeds at EITHER threat value (seeds 1-12: 9/12 and 10/12 at 0.3, 9/12 and 9/12 at 0.45); seed 7 happened to pass at 0.3 and not at 0.45. Seed 3 passes all scenarios at both values, and only HIDES the defect: the flag is not neutral on about 1 seed in 4 (ORW-325 owns the fix; re-pin to a wider seed set there).
+const SEED = 3; // the seed for the scenarios that need a season in which the player reaches the Final 2 (the bearing and no-leak scenarios); about 1 seed in 6 has the player evicted first and those two cannot run. The flag-neutrality scenarios do NOT pin a seed: they play NEUTRAL_SEEDS (ORW-325, 2026-11-14).
+/** ORW-325: the flag-neutrality scenarios hold across every one of these seeds (seeds 1-30 are neutral on main since the per-purpose rng streams, ORW-334; the unit test plays all 30). */
+const NEUTRAL_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 type Internals = { live?: { juryGrudge?: Record<string, Record<string, number>>; evictionOrder?: string[] } };
 interface Ctx {
   sb?: UserSandbox;
@@ -21,6 +23,7 @@ interface Ctx {
   orch?: Orchestrator;
   user?: string;
   blameJurors?: string[];
+  pairs?: Array<{ sb: UserSandbox; other: UserSandbox; seed: number }>;
 }
 const state = new WeakMap<object, Ctx>();
 const st = (w: BbWorld): Ctx => { let c = state.get(w); if (!c) { c = {}; state.set(w, c); } return c; };
@@ -91,17 +94,19 @@ Then("no grudge number is present", function (this: BbWorld) {
 // --- Scenario: a deduced culprit stays a juror-only belief ---
 let fullSeason: { fury: UserSandbox; off: UserSandbox } | undefined;
 Given("a juror who deduced, possibly wrongly, who voted them out", function (this: BbWorld) {
-  // Scan a few seeds for a season in which the blame seeding actually lands on an NPC (pre-show ties are rare).
-  for (let seed = SEED; seed < SEED + 12; seed++) {
+  // Every seed in the window whose season actually seeds blame into an NPC (pre-show ties are rare) joins the check; the first one drives the juror-only steps.
+  const pairs: NonNullable<Ctx["pairs"]> = [];
+  for (const seed of NEUTRAL_SEEDS) {
     const { sb } = drive(true, seed);
     const evicted = sb.session.snapshot().live!.evictionOrder ?? [];
     const jurors = evicted.filter((id) => sb.engine.knowledge.knownTo(id).some(isBlame));
     if (jurors.length === 0) continue;
-    fullSeason = { fury: sb, off: drive(false, seed).sb };
-    st(this).sb = sb; st(this).other = fullSeason.off; st(this).blameJurors = jurors;
-    return;
+    const other = drive(false, seed).sb;
+    if (pairs.length === 0) { st(this).sb = sb; st(this).other = other; st(this).blameJurors = jurors; fullSeason = { fury: sb, off: other }; }
+    pairs.push({ sb, other, seed });
   }
-  assert.fail("no seed in the window seeds blame into a juror");
+  if (pairs.length === 0) assert.fail("no seed in the window seeds blame into a juror");
+  st(this).pairs = pairs;
 });
 When("the blame is routed and diffused through the jury house", function (this: BbWorld) {
   // The routing runs inside the season drive (jury-house stretch per eviction); nothing further to trigger.
@@ -126,24 +131,25 @@ Then("it applies no relationship fold", function (this: BbWorld) {
     const all = [...new Set([...(live.evictionOrder ?? []), ...(live.finalTwo ?? [])])];
     return JSON.stringify(all.map((id) => [id, sb.engine.relationships.edge(id, PLAYER), sb.engine.relationships.edge(PLAYER, id)]));
   };
-  assert.equal(edges(st(this).sb!), edges(st(this).other!));
+  for (const { sb, other, seed } of st(this).pairs!) assert.equal(edges(sb), edges(other), `seed ${seed}: the relationship edges differ with the flag on`);
 });
 
 // --- Scenario: the reveal regrouping never changes the result ---
 Given("a seeded finale played with the flag on and off", function (this: BbWorld) {
-  st(this).sb = drive(true, SEED).sb;
-  st(this).other = drive(false, SEED).sb;
+  st(this).pairs = NEUTRAL_SEEDS.map((seed) => ({ sb: drive(true, seed).sb, other: drive(false, seed).sb, seed }));
 });
 When("the votes are revealed", function (this: BbWorld) {
-  // Both seasons ran through the reveal stage to the crowning.
-  assert.ok(st(this).sb!.session.snapshot().live!.finished && st(this).other!.session.snapshot().live!.finished);
+  // Every pair of seasons ran through the reveal stage to the crowning.
+  for (const { sb, other, seed } of st(this).pairs!) assert.ok(sb.session.snapshot().live!.finished && other.session.snapshot().live!.finished, `seed ${seed}: the season finished`);
 });
 Then("the winner, finalists and tally are identical in both runs", function (this: BbWorld) {
-  const a = st(this).sb!.session.snapshot().live!;
-  const b = st(this).other!.session.snapshot().live!;
-  assert.deepEqual(a.winner, b.winner);
-  assert.deepEqual(a.finalTwo, b.finalTwo);
-  assert.deepEqual(a.finale?.votes, b.finale?.votes);
+  for (const { sb, other, seed } of st(this).pairs!) {
+    const a = sb.session.snapshot().live!;
+    const b = other.session.snapshot().live!;
+    assert.deepEqual(a.winner, b.winner, `seed ${seed}: the winner differs`);
+    assert.deepEqual(a.finalTwo, b.finalTwo, `seed ${seed}: the finalists differ`);
+    assert.deepEqual(a.finale?.votes, b.finale?.votes, `seed ${seed}: the tally differs`);
+  }
 });
 
 // --- Scenario: no ballot attribution leaks before the retrospective ---

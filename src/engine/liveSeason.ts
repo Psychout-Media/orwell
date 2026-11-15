@@ -5,6 +5,7 @@ import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../domain/competitionOutcome";
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
+import { questionsAfterVote, type VoteQuestion } from "./voteQuestions";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
 import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
@@ -668,8 +669,6 @@ export interface LiveSeasonState {
    * field itself is absent unless commit 2 stores it).
    */
   deducedCulprits?: Record<EntityId, EntityId[]>;
-  /** ORW-325: how many events the Traitors' Fury blame diffusion has recorded so far. The co-presence spread keys its rolls on the event-store count; subtracting these keeps a flag-on season on the same rolls as a flag-off one. Absent / 0 with the flag off. */
-  furyEvents?: number;
   /** A62 (ORWELL_JUROR_PROFILES + vote deduction, engine-only, never projected): per evictee, the houseguests they WRONGLY blame (believed to have voted against them, but did not). */
   mistakenBlame?: Record<EntityId, EntityId[]>;
   /**
@@ -687,6 +686,8 @@ export interface LiveSeasonState {
    * the season lives; the attribution surfaces only through the post-season retrospective.
    */
   voteRecord?: Array<{ week: number; evictee: EntityId; voteOf: Record<EntityId, EntityId> }>;
+  /** ORW-342 (Vault-class, engine-only): the open "who voted against me / who flipped" questions the eviction votes leave NPCs with, each with the holder's OWN deduced suspect (never the sealed ballot). Played games only. */
+  voteQuestions?: VoteQuestion[];
   /**
    * ORW-305 - the WHY of every NPC decision (nominations, replacement, eviction votes, tie-breaks, the veto use/save, the secret-veto
    * replacement, the Final HOH's eviction): the chosen option and the runner-up, each as named terms with the size they contributed.
@@ -832,6 +833,10 @@ export interface LiveSeasonState {
    * when off => byte-identical. Persisted with the season.
    */
   desireApproachedAt?: Record<string, number>;
+  /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
+  pitched?: Record<string, number>;
+  /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
+  goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   hangOutCount?: number;
   hangOutPulledDay?: number;
@@ -2914,6 +2919,8 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // secret votes become tellable only once the season is over.
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
+  // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
+  if (s.playedGame === true) (s.voteQuestions ??= []).push(...questionsAfterVote({ week: s.week, evictee, nominees: s.nominees ?? [], voteOf: e.voteOf, player: ctx.player }, ctx.rel));
   // 0025 reactive: track the lopsided-eviction streak (the secret-veto trigger's "steamroll" signal).
   // A near-unanimous eviction (all-but-≤1 of a meaningful vote) extends the streak; a close vote resets it.
   const totalVoters = Object.keys(e.voteOf).length;

@@ -97,6 +97,8 @@ export interface PlayerCard {
 export interface HouseguestCard {
   id: EntityId;
   name: string;
+  /** ORW-343 (ORWELL_MOOD_CUE): the mood WORD as the player last saw this (active) houseguest while sharing a room with them, e.g. "tense" or "at ease but tired". A memory of what was seen, not a live read; absent until seen together. Never a number, never a cause. */
+  lastSeenMood?: string;
   /** active | jury (evicted into the last-9) | evicted (pre-jury). Public ceremony fact. */
   status: string;
   archetype?: string;
@@ -446,6 +448,11 @@ export interface GameStateView {
    */
   clockLabel?: string;
   /**
+   * ORW-345: the in-game DAY number behind `clockLabel` ("..., Day 4" -> 4), public and Vault-free, present under the same gate as `clockLabel`. The front end stamps it onto every saved chat row (`metadata.game_day`) so the
+   * closed-day condensing of the narrator's prompt (ORW-271) can tell which rows belong to a closed day. It was only on `gameStatus`, never on this view, so on the live path no row was ever stamped and nothing condensed.
+   */
+  dayNumber?: number;
+  /**
    * ADR 0006 — the houseguests who've TURNED IN for the night (the complement of the awake set). Names
    * only; Vault-free and OBSERVABLE (the bedtime derivation stays hidden). Present only when the clock is
    * running (absent ⇒ dormant); never includes the player (their night is their own rest cue).
@@ -586,7 +593,7 @@ export interface GameStateView {
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone };
+  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -1103,6 +1110,21 @@ export interface RecordRoomCanonReq {
   roomId: string;
   /** One line of narrated texture about the room, at most `ROOM_CANON_FEATURE_MAX` characters. */
   feature: string;
+}
+
+/** ORW-369: a look-only write-back for ONE existing houseguest: the clothing pieces and the on-camera line, nothing else. */
+export interface RecordLookExtrasReq {
+  houseguestId: string;
+  wardrobe?: string[];
+  onCamera?: string;
+}
+
+export interface RecordLookExtrasResult {
+  accepted: boolean;
+  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  fields: string[];
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
 }
 
 export interface RecordRoomCanonResult {
@@ -1765,6 +1787,13 @@ export interface PremiereIntrosView {
     justArrived?: NamedRef;
     playerJustEntered?: boolean;
     speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true }>;
+    /**
+     * ORW-368 (Ryne's playtest: "it seems to want me to go every time... after a few people it comes back to me as if I need to go again"): where the PLAYER'S OWN toast slot stands, derived from the engine's own done list (`spoke`, which
+     * the player's slot is part of): `later` = their slot has not come up yet, `now` = it is in the latest batch (the narrator invites the player ONCE), `done` = it has passed. Toast stage only.
+     */
+    playerToast?: "later" | "now" | "done";
+    /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
+    toastRemaining?: number;
   };
 }
 
@@ -1915,6 +1944,8 @@ export interface StatedReasonView {
 }
 
 export interface NpcVoiceView {
+  /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): the engine declined a live press on this houseguest this beat, so they deflect: they do not give the thing up. Absent otherwise. */
+  deflect?: true;
   /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
   statedReasons?: StatedReasonView[];
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default OFF): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
@@ -2070,6 +2101,10 @@ export interface PresentKnowledgeView {
   rivalry?: { tone: "simmering" | "open" };
   /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
   statedReasons?: StatedReasonView[];
+  /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
+  moodCause?: string;
+  /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
+  rememberedAboutOthers?: string[];
 }
 
 /**
@@ -3131,6 +3166,15 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+
+  /**
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
+   * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
+   * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,
+   * and persists in the background without a beat. Vault-free: public fields only.
+   */
+  recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto

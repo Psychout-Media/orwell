@@ -247,6 +247,8 @@ export interface SessionCore {
    * saves. Vault-free (position, never the scene's content).
    */
   trackedSightings?: Record<EntityId, TrackedSighting>;
+  /** ORW-343: the mood WORD the player last saw on each active houseguest (a memory, kept beside presence; Vault-free: a word only). Absent on older saves / when the cue is off. */
+  lastSeenMood?: Record<EntityId, string>;
   /** The game's seed (B60/audit E12): the per-moment rng keys off it, so two same-named games diverge. */
   seed?: number;
   /**

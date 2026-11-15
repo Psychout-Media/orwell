@@ -2442,6 +2442,119 @@ def _tally_claims_match_ballots(text: str, counts) -> bool:
     return found
 
 
+def drop_wrong_tally_sentences(text: str, live: dict) -> str:
+    """ORW-358 - the sentence-level remedy for a WRONG vote tally on a night whose evictee the engine has committed. The narrator
+    was handed the ballots (and now their count) but may still state a number the engine's ballots contradict ("Nine to four"
+    over an 11-2 reveal); cutting the whole scene then lost the goodbyes and reactions around it. Drops ONLY the sentence(s)
+    carrying a tally claim that disagrees with `ballotCounts`; every other sentence (goodbyes, reactions, the evictee's lines)
+    is kept byte-identically. Returns `text` unchanged unless the eviction is committed AND the engine's counts are known
+    (`evictionEvictee` + `ballotCounts`) - with no committed result or no counts there is no truth to correct against, so the
+    caller's whole-scene cut stays. Pure."""
+    if not text or not isinstance(live, dict) or not live.get("evictionEvictee") or not live.get("ballotCounts"):
+        return text
+    counts = live.get("ballotCounts")
+    out = []
+    for part in re.split(r"(?<=[.!?\n])", text):
+        if _committed_claim(_CLAIM_TALLY_RE, part) and not _tally_claims_match_ballots(part, counts):
+            continue
+        out.append(part)
+    return "".join(out)
+
+
+# ORW-373: the early-ceremony claim classes whose remedy is sentence-level. The narrator announced a board change one beat before the engine commits
+# it (a crown, a nomination, the veto won, a competition result); the engine DOES commit it a beat later, so the only fault is the one sentence. The
+# directive text is the verifier's own label (`_narration_claims_outcome`); a WRONG identity, an eviction claim or a sealed tally is NOT in this set
+# (a genuinely wrong claim keeps the whole-scene cut).
+_EARLY_CLAIM_MARKERS = ("a NEW HEAD OF HOUSEHOLD being crowned", "a phantom HEAD OF HOUSEHOLD win", "a NOMINATION (a houseguest being put on the block)",
+                        "the POWER OF VETO being won", "the VETO USE DECISION", "a COMPETITION RESULT or its aftermath")
+# One sentence unit: through its terminator, any closing quote / bold / paren cluster, and the whitespace (paragraph break) after it. Newline-only
+# lines are units of their own. Unlike a bare `(?<=[.!?\n])` split, a closing quote stays WITH its sentence.
+_SENTENCE_UNIT_RE = re.compile(r"[^\n]*?(?:[.!?]+(?:\*\*|[\"\u201d\u2019*_)\]])*(?=\s|$)\s*|\n+|$)")
+
+
+# At most this many sentences are dropped per turn before the scene is cut whole after all: a scene where MANY sentences carry the claim is a fabricated
+# scene, not one early sentence in a sound one (the stream is screened chunk by chunk, so the count is kept per turn).
+_EARLY_DROP_BUDGET = 2
+_EARLY_DROPS: dict = {}
+
+
+def _is_early_claim_directive(directive, unit=None, after=None) -> bool:
+    """True for a verifier label that is an EARLY ceremony claim. The self-crown label ("you are the new HOH" while the player is not HOH) is a genuine
+    lie when the HOH is someone else, so it only qualifies when the sentence is ADDRESSED TO the engine's own HOH by name (an announcement of the real
+    crown, voiced early) - judged only when `unit`/`after` are given."""
+    d = str(directive or "")
+    if not d or "; and " in d or not any(m in d for m in _EARLY_CLAIM_MARKERS):
+        return False
+    if "a phantom HEAD OF HOUSEHOLD win" in d:
+        hoh = str((after or {}).get("hohName") or "").strip()
+        return bool(unit and hoh and (hoh in unit or (len(hoh.split()[0]) >= 3 and re.search(r"\b" + re.escape(hoh.split()[0]) + r"\b", unit))))
+    return True
+
+
+def _dropped_unit_residue(unit: str):
+    """(closers, opener) the dropped sentence leaves dangling: a closing quote / bold the unit shut but never opened (kept, so the span opened in an
+    earlier chunk is still closed), or an opening one it never shut (carried to the next kept sentence). ("", "") when the unit is balanced;
+    None when the imbalance sits mid-sentence and cannot be repaired."""
+    body = unit.rstrip()
+    closers = opener = ""
+    diff = body.count("\u201c") - body.count("\u201d")
+    if diff > 0:
+        opener += "\u201c" * diff
+    elif diff < 0:
+        closers += "\u201d" * (-diff)
+    for mark in ('"', "**"):
+        if body.count(mark) % 2 == 0:
+            continue
+        first, last = body.find(mark), body.rfind(mark)
+        if not re.search(r"\w", body[:first]):
+            opener += mark
+        elif not re.search(r"\w", body[last + len(mark):]):
+            closers += mark
+        else:
+            return None
+    return closers, opener
+
+
+def drop_early_claim_sentences(text: str, before: dict, after: dict):
+    """ORW-373 - the sentence-level remedy for an EARLY ceremony claim (see `_EARLY_CLAIM_MARKERS`). The scene is kept; only the sentence(s) the
+    verifier flags on their own, with an early-claim label, are removed. Quote / bold spans the dropped sentence closed (or opened) are repaired so no
+    span is left open, and a paragraph break the dropped sentence carried is preserved. Returns (kept text, sentences dropped) - the text may be "" (a
+    chunk that was only the claim) - or None when no sentence can be dropped alone (nothing flagged individually, a flagged sentence of another class, an unrepairable
+    quote) - the caller then keeps the whole-scene cut. Pure."""
+    if not text or not isinstance(after, dict) or not after:
+        return None
+    units = [m.group(0) for m in _SENTENCE_UNIT_RE.finditer(text) if m.group(0)]
+    out, carry_ws, carry_open, n_dropped = [], "", "", 0
+    for u in units:
+        d = _narration_claims_outcome(u, before, after) if u.strip() else None
+        if d and not _is_early_claim_directive(d, u, after):
+            return None
+        if not d:
+            if carry_open and u.strip():
+                lead = u[:len(u) - len(u.lstrip())]
+                u, carry_open = lead + carry_open + u.lstrip(), ""
+            if carry_ws and out and "\n" not in out[-1][-1:]:
+                out[-1] = out[-1].rstrip(" \t") + carry_ws
+            carry_ws = ""
+            out.append(u)
+            continue
+        res = _dropped_unit_residue(u)
+        if res is None:
+            return None
+        n_dropped += 1
+        closers, opener = res
+        carry_open += opener
+        tail = u[len(u.rstrip()):]
+        if closers:
+            if out:
+                out[-1] = out[-1].rstrip(" \t")
+            out.append(closers + tail)
+            carry_ws = ""
+        elif "\n" in tail:
+            carry_ws = tail
+    return ("".join(out), n_dropped) if n_dropped else None
+
+
 _TALLY_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen)"
 # A68: the separator stays on ONE line ([ \t], not \s) - "\n- one\n- two" in a markdown list is not a "one - two" vote tally.
 _CLAIM_TALLY_RE = re.compile(
@@ -5405,6 +5518,16 @@ def _log_scene_cut(user, phase, directive, text) -> None:
         pass
 
 
+# ORW-358: the scene breaker's "keep the scene, drop only the wrong tally sentence" result, handed to the caller out-of-band (the return value stays
+# Optional[str] directive so every existing caller/stub is untouched). Set only when the breaker returned None BECAUSE it rewrote; consumed once.
+_SCENE_REWRITE: dict = {}
+
+
+def take_scene_rewrite(user) -> Optional[str]:
+    """The tally-stripped text the last `screen_streamed_scene_break` call for this user produced instead of cutting the scene (consumed once), else None."""
+    return _SCENE_REWRITE.pop(_desync_key(user), None)
+
+
 async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
     """A2 — decide whether the WHOLE scene in `text` must be cut (a phantom/unverifiable board change).
     Returns the re-ground directive (and stashes it as the next-turn backstop) when the scene must be
@@ -5418,6 +5541,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         if not (_sentence_has_closed_set_claim(text) or _comp_started_cue_hit(text) or _comp_live_now_hit(text) or bool(_VETO_POSSESSION_RE.search(text or '')) or bool(_CLOCK_STATEMENT_RE.search(text or ''))):
             return None
         _dkey = _desync_key(user)  # #1045: stable single-tenant key too.
+        _SCENE_REWRITE.pop(_dkey, None)
         before = _LAST_BEAT_SIG.get(_dkey)
         live = await _capture_beat_signature(user)
         if not live:
@@ -5459,6 +5583,27 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             return None
         _roll_cut_streak(_dkey, before)
         directive = _narration_claims_outcome(text, before, live)
+        if directive and "EVICTION VOTE TALLY / RESULT" in directive:
+            # ORW-358: the evictee is committed and only a TALLY sentence is wrong - drop just that sentence and keep the scene (goodbyes, reactions).
+            # Strictness is unchanged for anything else: the remedy applies only if the stripped text then passes the SAME verifier (a wrong evictee, a
+            # phantom result or a second fabrication still cuts the whole scene).
+            _kept = drop_wrong_tally_sentences(text, live)
+            if _kept != text and _kept.strip() and not _narration_claims_outcome(_kept, before, live):
+                _SCENE_REWRITE[_dkey] = _kept
+                logger.warning("[orwell] scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept for user=%s", user)
+                return None
+        if directive and _is_early_claim_directive(directive, text, live):
+            # ORW-373: the board change was announced one beat early - drop just the flagged sentence(s), keep the scene, and skip the re-ground (the
+            # prose and the board agree again). Only when the stripped text passes the SAME verifier; otherwise the whole-scene cut below stands.
+            _res = drop_early_claim_sentences(text, before, live)
+            _st = _EARLY_DROPS.get(_dkey)
+            if not _st or _st["before"] is not before:
+                _st = _EARLY_DROPS[_dkey] = {"before": before, "n": 0}
+            if _res is not None and _st["n"] + _res[1] <= _EARLY_DROP_BUDGET and not _narration_claims_outcome(_res[0], before, live):
+                _st["n"] += _res[1]
+                _SCENE_REWRITE[_dkey] = _res[0]
+                logger.warning("[orwell] scene circuit-breaker: early ceremony claim - dropped the sentence(s) only, scene kept for user=%s (%s)", user, next((m for m in _EARLY_CLAIM_MARKERS if m in directive), "?"))
+                return None
         if directive:
             _cut_text, _cut_phase = text, live.get("phase")
             _streak = _count_cut(_dkey, before, live)
@@ -5899,9 +6044,11 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         if not isinstance(status, dict):
             return True
         tod = str(status.get("timeOfDay") or "").strip().lower()
-        if tod not in _UNBACKED_MORNING_BOARD_TIMES:
-            return True
         lab = status.get("clockLabel")
+        # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
+        # pre-dawn small hours, so "morning comes in bright and early" is just as unbacked as it is at night.
+        if tod not in _UNBACKED_MORNING_BOARD_TIMES and not _clock_is_predawn(lab):
+            return True
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
@@ -5911,6 +6058,56 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         return False
     except Exception as e:
         logger.warning("[orwell] pre-emission unbacked-morning guard skipped for user=%s: %s", user, _exc_detail(e))
+        return True
+
+
+_PREDAWN_BEFORE_MIN = 7 * 60
+
+
+def _clock_is_predawn(lab) -> bool:
+    """ORW-355: does the engine clock label ("4:15am, Day 4") read before 7am (the small hours, never morning)?"""
+    mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+    return bool(mm) and _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3)) < _PREDAWN_BEFORE_MIN
+
+
+# ORW-355 (Ryne 2026-11-14: one rule for every night): the narrator said "It's 8:15 in the morning" while the engine clock read 4:15am. `_clock_misstated` (post-turn, next-turn re-ground) only matches "it's H:MM am/pm", never
+# "H:MM in the morning/afternoon/evening", and never ran BEFORE the player saw it. A present-tense stated clock time is a closed-set fact: this is its pre-emission sentence screen.
+_CLOCK_IN_THE_RE = re.compile(
+    r"\bit(?:'s|\u2019s|\s+is)\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s+in\s+the\s+(morning|afternoon|evening)\b",
+    re.IGNORECASE,
+)
+
+
+def _sentence_has_in_the_clock_claim(text: str) -> bool:
+    return bool(text and _CLOCK_IN_THE_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+
+
+async def screen_streamed_clock_time(user, sentence: str) -> bool:
+    """ORW-355 mid-stream screen: HOLD (return False) a sentence stating "It's H:MM in the morning/afternoon/evening" that disagrees with the engine clock by more than the tolerance; else EMIT. Stashes a next-turn
+    re-ground quoting the engine's label. Fail-open: any hiccup, an absent / unparseable clock returns True."""
+    try:
+        m = _CLOCK_IN_THE_RE.search(sentence or "")
+        if not m or not _sentence_has_in_the_clock_claim(sentence):
+            return True
+        from src import orwell_engine
+        status = await orwell_engine.game_status(user=user)
+        lab = status.get("clockLabel") if isinstance(status, dict) else None
+        mm = _CLOCK_LABEL_RE.match(lab.strip()) if isinstance(lab, str) else None
+        if not mm:
+            return True
+        eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
+        said = _clock_minutes(int(m.group(1)), int(m.group(2) or 0), "am" if m.group(3).lower() == "morning" else "pm")
+        diff = abs(said - eng)
+        diff = min(diff, 1440 - diff)
+        if diff <= _CLOCK_TOLERANCE_MIN:
+            return True
+        _stash_overclaim_reground(
+            user,
+            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + lab + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
+        logger.warning("[orwell] pre-emission guard HELD a misstated clock time for user=%s - engine clock %s", user, lab)
+        return False
+    except Exception as e:
+        logger.warning("[orwell] pre-emission clock-time guard skipped for user=%s: %s", user, _exc_detail(e))
         return True
 
 
@@ -8200,12 +8397,30 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             logger.info("[orwell] E22 guard: stood down — turn wrote %s (beatSeq %s → %s) user=%s",
                         writes, beat_seq_before, beat_now, user)
             return False
-    global _unrecorded_turn_fallbacks
-    _unrecorded_turn_fallbacks += 1
-    logger.warning(
-        "[orwell] E22 guard: game turn narrated with no engine write — recording a fallback "
-        "(process count=%d)", _unrecorded_turn_fallbacks,
-    )
+    # ORW-346 (live week 2026-11-14: all 13 firings in 43 turns were turns where the extractor answered {"withIds":[]} - the player was alone in bed, or a comp/ceremony took the beat before anyone engaged): "nobody engaged" is
+    # NOT the model skipping a recordInteraction - there is no scene with anyone to fold, and the flat floor digest it used to write recorded a phantom, participant-less "scene" and counted as an under-call. An in-loop belt that
+    # already found nobody stands the guard down here; our own extraction below does the same. The WARN + counter now mean what they say: a real under-call.
+    try:
+        from src import fold_ledger as _fl_nobody
+        _nobody = _fl_nobody.consume_scene_nobody(user)
+    except Exception:
+        _nobody = False
+    if _nobody:
+        logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (a solo / board-took-the-beat turn), nothing to fold (ORW-346) user=%s", user)
+        return False
+    _warned = False
+
+    def _count_underwrite():
+        nonlocal _warned
+        global _unrecorded_turn_fallbacks
+        if not _warned:
+            _warned = True
+            _unrecorded_turn_fallbacks += 1
+            logger.warning(
+                "[orwell] E22 guard: game turn narrated with no engine write — recording a fallback "
+                "(process count=%d)", _unrecorded_turn_fallbacks,
+            )
+
     # L18: don't race a fallback already committing for this user (or pile a backlog behind the
     # next live turn). The under-call is recorded above; one in-flight fallback per user is enough.
     if user in _fallback_in_flight:
@@ -8222,9 +8437,19 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         try:
             # ORW-26: the in-loop belt already ran this exact extraction and found every proposed participant off-scene - don't pay (or risk a different roll of) a second identical call; go to the floor digest.
             if not belt_declined and await _e22_rich_extract(user, player_message, text):
+                _count_underwrite()
                 return True
         except Exception as e:  # never let the rich path break the floor fallback
             logger.warning("[orwell] E22 rich extraction errored for user=%s: %s", user, e)
+        try:
+            from src import fold_ledger as _fl_nobody2
+            _nobody = _fl_nobody2.consume_scene_nobody(user)
+        except Exception:
+            _nobody = False
+        if _nobody:  # ORW-346: our own extraction answered "nobody engaged"; not an under-call, no phantom digest
+            logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (ORW-346) user=%s", user)
+            return False
+        _count_underwrite()
         # LAST resort: the bounded `kind`-floor digest (no model, a solo beat, or a hiccup above).
         digest = (
             "Scene (auto-recorded): the player said: "

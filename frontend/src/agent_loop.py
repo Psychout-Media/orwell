@@ -1846,6 +1846,21 @@ _BEDTIME_DIRECT_NOTE = (
     "Voice the night passing and the new morning ONLY from that result and the current game context - never invent what it did not hand you, and do not call turnIn again.")
 
 
+def _bedtime_direct_note(turn_in_output) -> str:
+    """ORW-355 - `_BEDTIME_DIRECT_NOTE` plus the engine's own clock from the turnIn result: an EVENING bed wakes the player at bed+8h (e.g. 4:15am), not at 8am, so the narrator must voice THAT hour, never a
+    morning the clock has not reached. No readable clock => the plain note (byte-identical)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else data
+        lab = st.get("clockLabel") if isinstance(st, dict) else None
+        if isinstance(lab, str) and lab.strip():
+            return (_BEDTIME_DIRECT_NOTE + f" The engine clock now reads {lab.strip()}: if you name a time use exactly that; if it is before 7am it is still the dark small hours with the house asleep - "
+                    "never say morning has come or name any other hour.")
+    except Exception:
+        pass
+    return _BEDTIME_DIRECT_NOTE
+
+
 def _bedtime_board_allows(status) -> bool:
     """ORW-310 — the board lets the player turn in: a started game, the clock running and in a deep-night
     band, and NO open player pending. (After a turnIn the clock reads morning, so 'already asleep' is the
@@ -3934,6 +3949,12 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             logger.info(f"[orwell] auto-record: rejected malformed withIds entries "
                        f"{_rejected_with_ids!r} (#1734 normalize/validate boundary) user={owner}")
         if not ids:
+            if not _rejected_with_ids:  # ORW-346: an explicit "nobody engaged" (not a malformed answer): tell the E22 guard there is no scene to fold
+                try:
+                    from src import fold_ledger as _fl_nob
+                    _fl_nob.note_scene_nobody(owner)
+                except Exception:
+                    pass
             return False
         # #1730 (B3) — the witness set must be derived from ENGINE whereabouts at scene time, not
         # trusted from the model's withIds guess (which follows the narrated — possibly
@@ -3973,6 +3994,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 if session_id is not None:  # ORW-26: tell the E22 guard this turn's extraction already found nobody present (no second identical LLM call)
                     from src import fold_ledger as _fl_decl
                     _fl_decl.note_belt_declined(owner, session_id)
+                    _fl_decl.note_scene_nobody(owner)  # ORW-346: everyone proposed was off-scene: no scene with anyone to fold
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
@@ -5533,7 +5555,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._text_mentions_evicted_houseguest(owner, text)
                 and not chat_helpers._sentence_has_nominee_status(text)
                 and not chat_helpers._sentence_has_met_everyone_claim(text)
-                and not chat_helpers._sentence_has_unbacked_morning_claim(text)):
+                and not chat_helpers._sentence_has_unbacked_morning_claim(text)
+                and not chat_helpers._sentence_has_in_the_clock_claim(text)):
             return text
     except Exception:
         return text
@@ -5576,6 +5599,10 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # `turnIn`; DROP the phantom morning before emission and re-ground next turn.
             if chat_helpers._sentence_has_unbacked_morning_claim(part):
                 if not await chat_helpers.screen_streamed_unbacked_morning(owner, part):
+                    continue
+            # ORW-355: "It's 8:15 in the morning" while the engine clock reads 4:15am - DROP the false clock before emission.
+            if chat_helpers._sentence_has_in_the_clock_claim(part):
+                if not await chat_helpers.screen_streamed_clock_time(owner, part):
                     continue
         except Exception:
             pass  # any screening hiccup falls through to emit (conservatism)
@@ -5708,7 +5735,7 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
 # `role_drops` = the role-claim units stripped from this chunk (exact text, mirrored whole into the raw round buffer — never part-wise,
 # since an ellipsis announcement splits into single-dot parts the sentence mirror cannot erase safely); `screened` = the chunk after that
 # strip (the `before` of the sentence-level mirror pair).
-_GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted", "role_drops", "screened"], defaults=((), None))
+_GuardedScene = collections.namedtuple("_GuardedScene", ["text", "scene_broken", "cutaway_emitted", "role_drops", "screened", "rewrite"], defaults=((), None, None))
 
 
 def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_active: bool, round_emitted: str) -> str:
@@ -5720,8 +5747,39 @@ def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_activ
     round therefore persists exactly what was emitted. An uncut round is returned unchanged (per-sentence
     drops are already mirrored out of the raw buffer by `_mirror_wall_drop`)."""
     if scene_broken and scrub_active:
-        return (round_emitted or "").strip()
+        _e = (round_emitted or "").strip()
+        return _e + close_open_markup(_e)  # ORW-354: never persist a halt inside an open quote / bold span
     return cleaned_round
+
+
+def close_open_markup(text: str) -> str:
+    """ORW-354 - the suffix that closes any `**` bold span / quotation left OPEN at the end of `text` (only its last paragraph is judged, so one stray
+    inch-mark earlier never matters). The scene circuit-breaker halts at a sentence boundary, which inside a quoted announcement is mid-quote: the
+    player saw `**"Production's voice...` with no close. Returns "" when balanced. Pure."""
+    para = (text or "").rsplit("\n\n", 1)[-1]
+    stack: list = []
+    i = 0
+    while i < len(para):
+        if para.startswith("**", i):
+            if "**" in stack:
+                del stack[stack.index("**"):]
+            else:
+                stack.append("**")
+            i += 2
+            continue
+        ch = para[i]
+        if ch == "\u201c":
+            stack.append("\u201d")
+        elif ch == "\u201d":
+            if "\u201d" in stack:
+                del stack[stack.index("\u201d"):]
+        elif ch == '"':
+            if '"' in stack:
+                del stack[stack.index('"'):]
+            else:
+                stack.append('"')
+        i += 1
+    return "".join(reversed(stack))
 
 
 _REPLAY_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+|\n+")  # a sentence end OR any newline (the streaming splitter treats a bare newline as a boundary too)
@@ -5968,10 +6026,14 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         from routes import chat_helpers
     except Exception:
         chat_helpers = None
+    _rewrite = None
     if not scene_broken and chat_helpers is not None:
         try:
             if await chat_helpers.screen_streamed_scene_break(owner, clean):
                 scene_broken = True
+            elif (_rw := chat_helpers.take_scene_rewrite(owner)) is not None:
+                _rewrite = (clean, _rw)  # ORW-358/373: only the wrong tally / early-claim sentence was dropped; the rest of the beat streams on ("" = the chunk was only the claim)
+                clean = _rw
         except Exception:
             pass
     if scene_broken:
@@ -6017,8 +6079,8 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
                 _line = (await chat_helpers.guard_emptied_cutaway(owner)) or _SCENE_CUTAWAY_LINE  # ORW-10: 2nd consecutive emptied turn => the plain engine-true line
         except Exception:
             _line = _SCENE_CUTAWAY_LINE
-        return _GuardedScene(_line, False, True, tuple(role_drops), screened)
-    return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened)
+        return _GuardedScene(_line, False, True, tuple(role_drops), screened, _rewrite)
+    return _GuardedScene(guarded, False, cutaway_emitted, tuple(role_drops), screened, _rewrite)
 
 
 def _ooc_segments(chunk: str, in_aside: bool) -> "tuple[list[tuple[str, bool]], bool]":
@@ -6087,6 +6149,9 @@ def _scene_ops(raw: str, g) -> tuple:
     """The mirror ops for one guarded scene chunk: each stripped role unit is erased WHOLE from the raw round buffer first, then the
     sentence-level pair (post-strip text -> survivor) is mirrored as before."""
     drops = tuple((d, "") for d in (getattr(g, "role_drops", ()) or ()))
+    _rw = getattr(g, "rewrite", None)  # ORW-373: the breaker's own sentence drop comes FIRST (exact replace of the chunk as it sits in the raw buffer)
+    if _rw and _rw[0] != _rw[1]:
+        drops = ((_rw[0], _rw[1], "exact"),) + drops
     return drops + (((getattr(g, "screened", None) or raw) if getattr(g, "screened", None) is not None else raw, g.text),)
 
 
@@ -6098,8 +6163,14 @@ def _apply_mirror_ops(round_response: str, ops) -> str:
     segment (a dropped aside is (raw_aside, "") - erased whole from its rightmost occurrence; a narration segment is
     sentence-diffed against its own survivor only), so a dropped aside beside surviving narration can never misalign
     the sentence diff. `raw_before` is always text as it appears in `round_response` (never the synthetic flush `))`)."""
-    for before, after in ops or ():
+    for _op in ops or ():
+        before, after = _op[0], _op[1]
         if before == after or not before:
+            continue
+        if len(_op) > 2 and _op[2] == "exact":  # ORW-373: a repaired rewrite (a kept closing quote) is not a pure subsequence of its source
+            idx = round_response.rfind(before)
+            if idx >= 0:
+                round_response = round_response[:idx] + after + round_response[idx + len(before):]
             continue
         if after == "":
             idx = round_response.rfind(before)
@@ -8336,7 +8407,7 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "assistant", "content": None, "tool_calls": [
                                     {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
                                 messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bt_out}\n```"})
-                                messages.append({"role": "system", "content": _BEDTIME_DIRECT_NOTE})
+                                messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out)})
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
                                 logger.info(f"[orwell] ORW-310b ran the player's turnIn directly (rejecter model) round={round_num} user={_force_owner}")
@@ -8766,6 +8837,14 @@ async def _stream_agent_loop_impl(
                         _emitted_visible = True
                         _round_visible_emitted = True
                     yield f'data: {json.dumps({"delta": _guarded_text})}\n\n'
+
+        if _scene_broken and _round_emitted_text:
+            # ORW-354: a halt must never leave the player's bubble inside an open quote / bold span (the sentence splitter cuts mid-quote).
+            _halt_close = close_open_markup(_round_emitted_text)
+            if _halt_close:
+                _round_emitted_text += _halt_close
+                full_response += _halt_close
+                yield f'data: {json.dumps({"delta": _halt_close})}\n\n'
 
         tool_blocks, used_native = _resolve_tool_blocks(round_response, native_tool_calls, round_num)
 

@@ -4,6 +4,7 @@ import type { BbWorld } from "../support/world";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { resolvePending } from "../support/answerPending";
+import { playChampagneWorld } from "./champagne_toast.steps";
 
 /** A9 - premiere entrances (0111 flag-on scenarios). Roles only; ids/names come from the generated cast. */
 function bag(w: BbWorld): NonNullable<BbWorld["pe"]> { return (w.pe ??= {}); }
@@ -70,6 +71,7 @@ Then("the player does not occupy the same position in every season", function (t
 });
 
 When("the entrances and the toast are played through", function (this: BbWorld) {
+  if (playChampagneWorld(this)) return; // the 0111 champagne-toast scenarios own their world (champagne_toast.steps.ts)
   const w = bag(this);
   const s = w.session!;
   w.gateAlwaysTrue = true; w.hohDuringEntrances = false; w.engineGatedOnTally = false;

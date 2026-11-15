@@ -248,7 +248,7 @@ export function managedAnswer(p: PendingView, allies: ReadonlySet<string>, ctx: 
 const SCENES_PER_ALLY = 3;
 
 /** Record a small, bounded set of player-witnessed bonding/alliance scenes (0023 hidden fold). */
-async function recordEarlyScenes(mcp: Mcp, allyIds: string[]): Promise<void> {
+async function recordEarlyScenes(mcp: Mcp, allyIds: string[], feltMinutes?: number): Promise<void> {
   const kinds = ["bonding", "alliance", "strategy"] as const;
   for (const ally of allyIds) {
     for (let i = 0; i < SCENES_PER_ALLY; i++) {
@@ -257,6 +257,7 @@ async function recordEarlyScenes(mcp: Mcp, allyIds: string[]): Promise<void> {
         witnessSet: [PLAYER, ally],
         content: "A quiet conversation building trust.",
         kind: kinds[i % kinds.length],
+        ...(feltMinutes !== undefined ? { feltMinutes } : {}),
       });
     }
   }
@@ -284,6 +285,45 @@ async function tendAllies(mcp: Mcp, allies: Set<string>): Promise<void> {
       });
     } catch {
       /* a refused scene (e.g. mid-ceremony) just skips this week's tending */
+    }
+  }
+}
+
+/**
+ * ORW-19 / the REALISTIC solid arm (2026-11-14, Coordinator ruling). The old weekly tending (`tendAllies`, still used by the
+ * `managed` arm) let the player do three things no real player can: pull any ally into their room every week (a free summons),
+ * bond with the same two people every single week at full effect, and instantly adopt a fresh bonded ally the week one left.
+ * That made the arm safer than a steady human could be, and put its reach (24.9% at 900 seeds) above Ryne's 12-20% band. The
+ * realistic arm plays the same steady social game under three rules, none of which touch a game lever:
+ *   1. A bonding scene COSTS TIME (it passes a felt duration, so the engine's day clock and rest economy feel it) and the player
+ *      holds at most two such scenes a week.
+ *   2. Repeating a bond with the SAME houseguest earns less each time: the k-th scene with one person only happens after a
+ *      growing gap (1 + floor(scenes / 3) weeks), so the bond grows more slowly the longer it has run.
+ *   3. NO unearned bonds: the player only talks to whoever is actually in their room (no summoning), and someone counts as an
+ *      ally only after three scenes with them in play. No free top-up from the house.
+ */
+export interface RealisticTending { scenes: Map<string, number>; lastWeek: Map<string, number> }
+const REALISTIC_MINUTES = 90;
+const REALISTIC_SCENES_PER_WEEK = 2;
+const ALLY_SCENES = 3;
+async function tendRealistic(mcp: Mcp, allies: Set<string>, t: RealisticTending, week: number): Promise<void> {
+  const st = (await mcp.callTool("getGameState", {})) as StateView;
+  const live = new Set((st.house ?? []).filter((h) => h.status === "active" && h.id !== PLAYER).map((h) => h.id));
+  for (const a of [...allies]) if (!live.has(a)) allies.delete(a);
+  let present: string[] = [];
+  try { present = ((await mcp.callTool("whereabouts", {})) as { present?: Array<{ id: string }> }).present?.map((x) => x.id) ?? []; } catch { present = []; }
+  const here = present.filter((id) => live.has(id));
+  // allies first (the people already bonded with), then whoever else is in the room; each only when their growing gap has passed
+  const due = (id: string): boolean => week - (t.lastWeek.get(id) ?? -99) >= 1 + Math.floor((t.scenes.get(id) ?? 0) / ALLY_SCENES);
+  const order = [...here.filter((id) => allies.has(id)), ...here.filter((id) => !allies.has(id))].filter(due);
+  for (const id of order.slice(0, REALISTIC_SCENES_PER_WEEK)) {
+    try {
+      await mcp.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, id], content: "Checking in, keeping the bond strong.", kind: "bonding", feltMinutes: REALISTIC_MINUTES });
+      t.scenes.set(id, (t.scenes.get(id) ?? 0) + 1);
+      t.lastWeek.set(id, week);
+      if (allies.size < 2 && (t.scenes.get(id) ?? 0) >= ALLY_SCENES) allies.add(id);
+    } catch {
+      /* a refused scene (e.g. mid-ceremony) just skips this week's scene */
     }
   }
 }
@@ -325,6 +365,7 @@ export async function playSeason(
   let allies = new Set<string>();
   const jury: JuryCtx = { aggrieved: new Set(), compWins: new Map() };
   const reckless = { friend: undefined as string | undefined };
+  const tending: RealisticTending = { scenes: new Map(), lastWeek: new Map() };
   if (arm === "solid" || arm === "managed") {
     const state0 = (await mcp.callTool("getGameState", {})) as StateView;
     const allyIds = (state0.house ?? [])
@@ -332,7 +373,8 @@ export async function playSeason(
       .map((h) => h.id)
       .slice(0, 2);
     allies = new Set(allyIds);
-    await recordEarlyScenes(mcp, allyIds);
+    await recordEarlyScenes(mcp, allyIds, arm === "solid" ? REALISTIC_MINUTES : undefined);
+    if (arm === "solid") for (const id of allyIds) { tending.scenes.set(id, SCENES_PER_ALLY); tending.lastWeek.set(id, 0); } // the opening scenes are real play and earn those two their ally status
   }
   const answer = (p: PendingView): Record<string, unknown> =>
     arm === "managed" ? managedAnswer(p, allies, jury) : arm === "solid" ? solidAnswer(p, allies) : arm === "reckless" ? recklessAnswer(p, reckless) : passiveAnswer(p);
@@ -375,7 +417,8 @@ export async function playSeason(
       const wk = ((await mcp.callTool("getGameState", {})) as StateView).week ?? 0;
       if (wk > tendedWeek) {
         tendedWeek = wk;
-        if (arm === "solid" || arm === "managed") await tendAllies(mcp, allies);
+        if (arm === "solid") await tendRealistic(mcp, allies, tending, wk);
+        else if (arm === "managed") await tendAllies(mcp, allies);
         else await recklessWeek(mcp, reckless, wk);
       }
     }

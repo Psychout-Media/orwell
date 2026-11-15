@@ -54,7 +54,7 @@ def test_oob_defaults_are_deepseek_flash_and_portrait_stays_openrouter():
     d = settings_mod.DEFAULT_SETTINGS
     assert d["default_model"] == "deepseek-flash"
     assert d["utility_model"] == "deepseek-flash"
-    assert d["image_model"] == "google/gemini-3.1-flash-image"  # PO (c): unchanged
+    assert d["image_model"] == "openai/gpt-image-2.6-sunburst"  # ORW-362 (Kevin 2026-11-14): GPT Image via the OpenRouter Image API
 
 
 def test_curated_deepseek_list_has_no_stale_legacy_names():

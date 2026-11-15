@@ -184,3 +184,25 @@ API), and **persisted stores keep whatever they carry** — nothing is migrated 
 - **Owed live verification:** narration quality and the tool-call rate on `deepseek-flash` vs the GLM-4.7
   incumbent (the A/B above) — this amendment only changes the default.
 
+## Amendment 2026-11-14 (ORW-362) — GPT Image 2.6 Sunburst is the portrait default
+
+**Config + one transport route; the engine/closed set is untouched.** Kevin's decision (2026-11-14): switch
+portraits from Nano Banana (`google/gemini-3.1-flash-image`) to OpenAI GPT Image 2.6 Sunburst
+(`openai/gpt-image-2.6-sunburst`), first for portraits on the public text-to-image arena at medium quality,
+which is the `image_quality` default. `DEFAULT_SETTINGS.image_model` now carries it.
+
+- **Route:** OpenRouter serves this model on its Image API only (`POST {base}/images`, no chat-completions
+  image output). `_generate_one` sends any OpenRouter model whose id starts `openai/gpt-image-` to
+  `_generate_via_openrouter_images` (`frontend/src/orwell_portraits.py`); every other OpenRouter image model
+  keeps the `/chat/completions` route. Body: `model`, `prompt`, `n: 1`, `aspect_ratio: "1:1"`,
+  `quality` (low/medium/high, anything else medium), `output_format: "png"`, and for a reference image
+  (re-shoot or player intake) `input_references` as a data-URL image part. The PNG is `data[0].b64_json`.
+- **Resolution:** the slug is not in the endpoint's chat model list, so `_resolve_model` accepts a
+  `openai/gpt-image-*` spec for the first enabled OpenRouter endpoint without a catalog probe (as a fal slug is).
+- **Spend:** `usage.cost` goes to the token ledger (call class `portrait`, provider `openrouter`); missing usage counts as 0.
+- **Fallback:** a non-200, empty data, missing/undecodable b64 or an exception (timeout included) records
+  `gpt-image-failed` with the reason (it shows red as before), then that one portrait is made with the first
+  resolvable `IMAGE_AUTODETECT_CANDIDATES` entry (Gemini) on the chat route. One fallback attempt, no loop,
+  so no houseguest is left without a photo.
+- **Rollout / rollback:** the prompt is unchanged, so existing portraits are not re-shot. Roll back by setting
+  `image_model` to `google/gemini-3.1-flash-image`. Live behaviour is verified by the first real portraits after deploy.

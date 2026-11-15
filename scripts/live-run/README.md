@@ -25,6 +25,25 @@ Hook it to whatever notices a dev update (the merge watcher or a deploy hook) an
 2. `python3 scripts/live-run/live_short.py --run-dir <the staged run dir>` (use the FE venv for Playwright; `TMPDIR` on disk if `/tmp` is a nearly full tmpfs).
 3. Read `report.md` in the run dir. Exit code: 0 pass, 1 fail, 2 could not run. Stop the rig by PID when done.
 
+## Rig slots (ORW-344): two playtests at once
+
+The rehearsal kit used to have exactly one rig. It now has two, picked by ONE variable, `RIG_SLOT` (default 1), read by every kit and live-run script (`scripts/rehearsal-kit/slot.sh`):
+
+| | slot 1 (today's rig, unchanged) | slot 2 |
+|---|---|---|
+| engine / front end | :18765 / :17000 | :18766 / :17001 |
+| lock | `live-short/rig.lock` | `live-short/rig-2.lock` (beside it) |
+| worktree | `/home/ryne/orwell-rehearsal` | `/home/ryne/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
+| run pointer | `/tmp/claude-1000/a11_run` | `/tmp/claude-1000/a11_run_2` |
+| run directories | `rehearsal-<date>` | `slot2-rehearsal-<date>` (a glob of slot 1's never matches them) |
+
+A stage writes `slot.env` into the run directory it creates, so the scripts copied there keep following THEIR run's slot. Slot 2 never creates, edits or reads slot 1's worktree, lock, pointer or run directories.
+
+`scripts/live-run/week.sh` plays one whole Week 1 on the real narrator under a spend cap (`RIG_SPEND_CAP`, default $3, estimated from the model-call archive at a deliberately high rate; `spend_guard.py` stops the run by PID file when it is reached) and writes `spend.json` and `rig-stats.md` (the sent size per call and per turn, and the E22 rate) into the run directory. `RIG_DRY=1` stands the slot up, checks the front end and engine answer, and tears it down: no model calls, nothing spent.
+
+    RIG_SLOT=2 RIG_DRY=1 scripts/live-run/week.sh          # prove a slot
+    RIG_SLOT=2 RIG_SPEND_CAP=3 scripts/live-run/week.sh    # one capped week
+
 ## Pass bar (short tier)
 
 A run PASSES when every FAIL check holds. WARN checks are listed in the report and do not fail the run.

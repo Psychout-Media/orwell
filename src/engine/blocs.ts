@@ -71,8 +71,17 @@ const bondOf = (rel: RelationshipModel, a: EntityId, b: EntityId): number => {
 };
 
 /** The MUTUAL bond between two houseguests — a bloc edge needs both directions. */
-const mutualBond = (rel: RelationshipModel, a: EntityId, b: EntityId): number =>
+export const mutualBond = (rel: RelationshipModel, a: EntityId, b: EntityId): number =>
   Math.min(bondOf(rel, a, b), bondOf(rel, b, a));
+
+/** How tight a group actually is: the WEAKEST internal mutual bond (1 for a group of one). The ONE definition of bloc cohesion, shared with the formal alliances' neglect check (ORW-353). */
+export function cohesionOf(members: readonly EntityId[], bond: (a: EntityId, b: EntityId) => number): number {
+  let cohesion = 1;
+  for (let i = 0; i < members.length; i++) {
+    for (let j = i + 1; j < members.length; j++) cohesion = Math.min(cohesion, bond(members[i]!, members[j]!));
+  }
+  return cohesion;
+}
 
 /**
  * Detect the house's current blocs from the live relationship graph. Greedy clustering over the
@@ -167,12 +176,7 @@ export function detectBlocs(deps: BlocDeps): Bloc[] {
       const agg = members.reduce((sum, m) => sum + rel.edge(m, o).threat, 0);
       if (agg > topThreat) { topThreat = agg; sharedTarget = o; }
     }
-    let cohesion = 1;
-    for (let i = 0; i < members.length; i++) {
-      for (let j = i + 1; j < members.length; j++) {
-        cohesion = Math.min(cohesion, bond(members[i]!, members[j]!));
-      }
-    }
+    const cohesion = cohesionOf(members, bond);
     const loyalties = members.map(loyaltyOf);
     const loyaltyStrength =
       BLOC.weakestWeight * Math.min(...loyalties) +

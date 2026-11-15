@@ -33,12 +33,18 @@ export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?:
   return { s, nights, finished: live().finished === true };
 }
 
-/** A freshly cast, PLAYED game (a person has started talking): the agendas exist, the cast and pre-show ties already do. */
-export function startPlayedSeason(seed: number): GameSessionAdapter {
+/** A freshly cast, PLAYED game (a person has started talking): the agendas exist, the cast and pre-show ties already do. Also hands back the sandbox (its event store) for a scenario that reads the scenes. */
+export function startPlayedSandbox(seed: number) {
   GameSessionAdapter.setTimeOfDayEnabled(true);
-  const s = new GameSessionRegistry().sandboxFor(`agenda-bdd-${seed}-${Math.random()}`).session as GameSessionAdapter;
+  const sb = new GameSessionRegistry().sandboxFor(`agenda-bdd-${seed}-${Math.random()}`);
+  const s = sb.session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed });
   s.setPerConversationClockEnabled(true);
   s.noteMessage({ messageId: "agenda-bdd-0" });
-  return s;
+  return { s, sb };
+}
+
+/** A freshly cast, PLAYED game (a person has started talking): the agendas exist, the cast and pre-show ties already do. */
+export function startPlayedSeason(seed: number): GameSessionAdapter {
+  return startPlayedSandbox(seed).s;
 }

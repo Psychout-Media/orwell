@@ -47,6 +47,8 @@ EXPECTED = {name: ALL for name in PHRASES}
 # N-16 is the one deliberate exception, and only in two cells: it carries NO closed-set OUTCOME claim (so the cheap outcome gate is False by design) and it needs >= 2 distinct start-cue families across the
 # narration (so no single streamed SENTENCE can be judged). It is caught at the scene level, in the grounded draft, and post-turn.
 EXPECTED["N-16"] = (False, False, True, True, True)
+# ORW-373: A-9 (a competition RESULT narrated while the competition is unsettled) is an EARLY ceremony claim: the scene breaker drops only that sentence and keeps the scene (a rewrite, no cut), so its scene cell is "not cut".
+EXPECTED["A-9"] = (True, True, False, True, True)
 
 
 def _run(coro):

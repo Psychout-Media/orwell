@@ -1508,6 +1508,10 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       try { window.documentModule.clearSelection(); } catch {}
     }
     currentSessionId = id;
+    // ORW-352: selecting a real session abandons any pending New Chat (a pending chat means "no session yet"). A stray one - armed late by onboarding's async New Chat
+    // handler after the opener had already created the casting chat - survived loadSessions() converging back onto the canonical chat, and the player's first send
+    // then MATERIALIZED it: a second session row, the send's holder keyed to it, the window switched back mid-send, and the turn never settled (every later message queued).
+    _pendingChat = null;
     // #1626 increment 2: now that the active session id is known, restore its producer byline from the
     // per-session map BEFORE history renders (the module-eval restore in chat.js runs too early —
     // currentSessionId is unset then). A session with no entry resets to the "Production" default, so a
@@ -1611,8 +1615,7 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       const data = await res.json();
       if (navToken !== _sessionNavToken || currentSessionId !== id) return;
       msgHistory = data.history || [];
-      // ORW-275: a played game spanning 2+ weeks shows ONE week (the current by default) with the others one tap away; with fewer weeks this returns the same array.
-      msgHistory = _chapterRows(id, msgHistory);
+      // ORW-275's week filter (_chapterRows) is applied just before the paint, below - NOT here: see ORW-293 there.
       modelName = data.model || null;
       // The model returned by /api/history is the authoritative one the
       // backend will use for this session. Write it back into the cached
@@ -1684,6 +1687,11 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
       _liveHoldersToKeep = _collectLiveHolders();
       chatHistory.innerHTML = '';
     }
+
+    // ORW-275: a played game spanning 2+ weeks shows ONE week (the current by default) with the others one tap away; with fewer weeks this returns the same array.
+    // ORW-293: chosen HERE, after the 120 ms fade, not when the history arrived. A week picked during the fade used to be painted over by the rows chosen before
+    // the pick (Week 2 drawn back over Week 1 - main red at d1dbc361).
+    if (!isOC) msgHistory = _chapterRows(id, msgHistory);
 
     // Suppress per-message entrance animations during bulk history render
     if (chatHistory) chatHistory.classList.add('no-animate');

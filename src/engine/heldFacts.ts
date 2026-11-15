@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { hashSeed } from "./characterFactory";
 import type { KnowledgeFact } from "../domain/knowledge";
 
 /**
@@ -41,7 +42,11 @@ export function heldCandidates(holderFacts: readonly KnowledgeFact[], listenerFa
       ...(f.subject !== undefined ? { subject: f.subject } : {}),
     });
   }
-  return out.sort((a, b) => (a.factId < b.factId ? -1 : a.factId > b.factId ? 1 : 0));
+  // ORW-334: order by what the fact SAYS, not by its counter id (`know:N` comes from a counter shared with every event, so an unrelated record would re-order ties); the id only breaks an exact content tie.
+  return out.sort((a, b) => {
+    const ka = hashSeed(a.content), kb = hashSeed(b.content);
+    return ka !== kb ? ka - kb : a.factId < b.factId ? -1 : a.factId > b.factId ? 1 : 0;
+  });
 }
 
 export interface ToldSnapshot { entries: Array<[holder: EntityId, factId: string, listener: EntityId, told: Told]> }

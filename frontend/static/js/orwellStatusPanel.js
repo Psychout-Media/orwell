@@ -140,6 +140,40 @@ import { onNarrowChange } from './platform.js';
     return !!(st && !st.hoh && st.week === 1 && !st.finished);
   }
 
+  // ORW-363 (Ryne, playtest 11-15: "One of the wigits says the first HOH is tonight. But it's day 1. Isn't the first HOH comp on day 2?"): the pre-HOH line
+  // follows the engine's schedule instead of a fixed "tonight". Day 1 is the premiere, so the first HOH comp is TOMORROW; from Day 2 it is today. The time of day
+  // is the schedule's own phase for the HOH comp (`daySchedule.phase`, from the game state) when the engine reports it, else the ruled comp slot, the afternoon.
+  // Pure + Vault-free (public day number + public schedule), node-testable.
+  function preHohLabel(st) {
+    const gs = (st && st._state) || {};
+    const ds = gs.daySchedule;
+    const phase = (ds && ds.next === "hoh-competition" && typeof ds.phase === "string" && ds.phase) || "afternoon";
+    const day = Number.isInteger(st && st.dayNumber) ? st.dayNumber : (Number.isInteger(gs.dayNumber) ? gs.dayNumber : null);
+    return "First HOH: " + (day !== null && day >= 2 ? "this " : "tomorrow ") + phase;
+  }
+
+  // ORW-363, widened (Ryne, 11-15: "Those tools should be a guide to player on what to expect. Next. For example, when we wake up the tool should say, Nominations this
+  // evening."): the panel always names the NEXT scheduled event and when it happens, straight from the engine's `daySchedule` (next / phase / due / tomorrow) - never fixed
+  // text. Without a schedule (the premiere, before the clock runs) the pre-HOH line above stands; otherwise nothing is shown. Pure + Vault-free (the public schedule).
+  const NEXT_EVENT_NAME = {
+    "hoh-competition": "HOH competition", nominations: "Nominations", "veto-draw": "Veto player draw", "veto-competition": "Veto competition",
+    "veto-ceremony": "Veto meeting", eviction: "Eviction", "final-eviction": "Final eviction", finale: "Finale",
+  };
+  function nextEventWhen(ds) {
+    if (ds.due) return "now";
+    const p = ds.phase === "late-night" ? "night" : String(ds.phase || "");
+    if (ds.tomorrow) return "tomorrow " + p;
+    return p === "night" ? "tonight" : "this " + p;
+  }
+  function nextEventLabel(st) {
+    const ds = st && st._state && st._state.daySchedule;
+    if (ds && ds.next && NEXT_EVENT_NAME[ds.next] && ds.phase) {
+      const name = ds.next === "hoh-competition" && isPreHoh(st) ? "First HOH" : NEXT_EVENT_NAME[ds.next];
+      return name + ": " + nextEventWhen(ds);
+    }
+    return isPreHoh(st) ? preHohLabel(st) : null;
+  }
+
   // M2-3: the premiere's NOT-yet-met ids (the unlit tiles). ORW-196: during the staged ENTRANCES the engine's `remaining` lists the not-yet-arrived houseguests as ANONYMOUS ordinal
   // placeholders (`unarrived:N`, no name), so they can't be matched to roster tiles by id. When the caller passes the roster (`rosterKeys`: [{id,name}]) and the projection carries `met`,
   // the unmet set is the roster minus the met houseguests (by id or name); otherwise (older payloads / no roster) it falls back to the `remaining` ids. Pure + node-testable; reads ONLY the
@@ -370,7 +404,7 @@ import { onNarrowChange } from './platform.js';
         <div class="os-ceremony" id="os-ceremony">
           <div class="os-you" id="os-you">You<span class="os-badge" id="os-you-badge" hidden></span><span class="os-rest" id="os-you-rest" hidden title="How rested you are — your own read"></span><span class="os-hint" id="os-you-hint" hidden></span></div>
           <button type="button" class="os-skip" id="os-skip" hidden title="Re-open the skip-or-keep-watching card. Skipping is one-way: you confirm it on the card.">Skip ahead to the finale</button>
-          <div class="os-prehoh" id="os-prehoh" hidden>First HOH tonight</div>
+          <div class="os-prehoh" id="os-prehoh" hidden>First HOH</div>
           <div id="os-board">
             <div class="os-row"><span class="os-k">HOH</span><span class="os-v" id="os-hoh">—</span></div>
             <div class="os-row"><span class="os-k">Noms</span><span class="os-v os-noms" id="os-noms">—</span></div>
@@ -568,13 +602,15 @@ import { onNarrowChange } from './platform.js';
         ? "used" + (veto.holder ? " · " + veto.holder.name : "")
         : (veto.holder ? veto.holder.name : "—");
     setText(el.querySelector("#os-veto"), vetoText);
-    // M2-3: pre-HOH board reframe — swap the three dead em-dash rows for a single "First HOH tonight"
+    // M2-3: pre-HOH board reframe — swap the three dead em-dash rows for a single "First HOH: tomorrow afternoon" (ORW-363: from the schedule)
     // line until the first HOH is crowned (the rows still exist + update underneath, just hidden).
     { const preHoh = isPreHoh(st);
       const boardEl = el.querySelector("#os-board");
       const preHohEl = el.querySelector("#os-prehoh");
       if (boardEl) boardEl.hidden = preHoh;
-      if (preHohEl) preHohEl.hidden = !preHoh; }
+      // ORW-363 widened: the same line names the NEXT scheduled event all season ("Nominations: this evening"), not only before the first HOH.
+      const nextLine = nextEventLabel(st);
+      if (preHohEl) { preHohEl.hidden = !nextLine; if (nextLine) setText(preHohEl, nextLine); } }
     announceDeltas(el, st, {
       hoh: name(st.hoh),
       noms: noms.length ? noms.join(", ") : "—",

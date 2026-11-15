@@ -118,7 +118,7 @@ describe("goals outlive moods", () => {
 
   it("a slightly bigger new threat does not replace a held target for a stubborn holder, but does for a flexible one", () => {
     const run = (k: Archetype) => {
-      // Fill all week slots so a new candidate must REPLACE a held goal.
+      // A holder gets ONE get-them-out week goal (ORW-350), so a new, bigger threat must REPLACE the held target (RIVAL), never add a second.
       const v0 = view(char(k), { threats: [{ toward: RIVAL, threat: 0.62 }, { toward: OTHER, threat: 0.6 }, { toward: FIFTH, threat: 0.58 }], emotional: 0.5 });
       const a = seedAgenda(v0, board(), SEED);
       const v1 = { ...v0, threats: [...v0.threats, { toward: "npc:6", threat: 0.7 }] };
@@ -127,6 +127,18 @@ describe("goals outlive moods", () => {
     expect(active(run("loyalist"), "get-them-out", "npc:6"), "a loyalist holds on").toBeUndefined();
     expect(active(run("wildcard"), "get-them-out", "npc:6"), "a wildcard switches").toBeDefined();
     expect(resolved(run("wildcard"), "get-them-out")?.status).toBe("replaced");
+  });
+});
+
+describe("a week is not all scheming (ORW-350)", () => {
+  it("a holder with several threat reads keeps ONE get-them-out week goal, and the other slots go to other things", () => {
+    const v = view(char("villain"), { threats: [{ toward: RIVAL, threat: 0.8 }, { toward: OTHER, threat: 0.75 }, { toward: FIFTH, threat: 0.7 }], affinity: [{ toward: ALLY, affinity: 0.8 }], emotional: 0.5 });
+    const a = seedAgenda(v, board(), SEED);
+    const week = a.goals.filter((g) => g.horizon === "week");
+    expect(week.filter((g) => g.kind === "get-them-out"), "one get-them-out").toHaveLength(1);
+    expect(week[0]!.kind === "get-them-out" || week.some((g) => g.kind === "get-them-out")).toBe(true);
+    expect(week.length, "the other slots are used by other kinds").toBeGreaterThan(1);
+    expect(week.find((g) => g.kind === "get-them-out")?.target, "the strongest threat is the one kept").toBe(RIVAL);
   });
 });
 

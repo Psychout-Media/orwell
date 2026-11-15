@@ -74,6 +74,10 @@ IMAGE_AUTODETECT_CANDIDATES = (
 )
 
 
+# ORW-362: model-id prefix of OpenAI GPT Image models on OpenRouter (Image API route, not chat).
+OPENROUTER_GPT_IMAGE_PREFIX = "openai/gpt-image-"
+
+
 def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Dict]:
     """Resolve a model specifier to (endpoint_url, model_id, headers).
 
@@ -134,6 +138,12 @@ def _resolve_model(spec: str, owner: Optional[str] = None) -> Tuple[str, str, Di
                     slug = model_name if "/" in model_name else FAL_SEEDREAM_EDIT_SLUG
                     return build_chat_url(base), slug, headers
                 continue  # a non-fal model spec never resolves against a fal endpoint
+
+            # ORW-362: OpenAI's GPT Image models are served on OpenRouter's Image API only, so they are
+            # NOT in the endpoint's chat model list. Accept the slug as-is for an OpenRouter endpoint
+            # (no catalog probe), the same way a fal slug is accepted above.
+            if model_name.lower().startswith(OPENROUTER_GPT_IMAGE_PREFIX) and "openrouter.ai" in base.lower():
+                return build_chat_url(base), model_name, headers
 
             if provider == "anthropic":
                 # Anthropic: match against hardcoded model list
