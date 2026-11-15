@@ -1,6 +1,6 @@
 /**
  * ORW-383: after the player wakes, how long do the houseguests stay in the bedrooms? Usage (the seating flag decides what is measured):
- *   ORWELL_SLEEPERS_IN_BED=1 npx tsx scripts/probes/sleeperDispersal.ts [messages=700] [seeds=4]
+ *   npx tsx scripts/probes/sleeperDispersal.ts [messages=700] [seeds=4]   (ORW-466: in a played game sleepers now wake in their own bed; the ORW-383 flag is gone)
  * Offsets count this probe's own noteMessage calls (loop iterations); endHeldNight's internal noteMessage calls are not sampled, so after a held night the offset is a lower bound on the real message count since the wake. Per wake (a day change), the share of houseguests in a bedroom at 0, 1, 2, 4, 8, 12, 16, 24 messages after the wake. Read-only: a throwaway game on a fake clock.
  */
 import { composeRuntime } from "../../src/composition/runtime";
