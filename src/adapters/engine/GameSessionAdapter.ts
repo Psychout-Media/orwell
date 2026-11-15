@@ -3353,11 +3353,17 @@ export class GameSessionAdapter implements GameSession {
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
       const photoHair = cleanPhotoHair(rawPhotoHair);
+      // ORW-437: a write-back that omits an optional look field keeps the one already stored (the whole facet is replaced
+      // below, so without this a later profile would silently erase it); removal goes through recordLookExtras `clear`.
+      const prior = target.character.physicalCharacteristics as (PhysicalCharacteristics & { wardrobe?: string[]; onCamera?: string; photoHair?: string }) | undefined;
+      const keepWardrobe = wardrobe === undefined && prior?.wardrobe !== undefined ? prior.wardrobe : wardrobe;
+      const keepOnCamera = onCamera === undefined && prior?.onCamera !== undefined ? prior.onCamera : onCamera;
+      const keepPhotoHair = photoHair === undefined && prior?.photoHair !== undefined ? prior.photoHair : photoHair;
       req = {
         ...req,
         physicalCharacteristics: {
-          ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
-          ...(photoHair !== undefined ? { photoHair } : {}),
+          ...rest, ...(keepWardrobe !== undefined ? { wardrobe: keepWardrobe } : {}), ...(keepOnCamera !== undefined ? { onCamera: keepOnCamera } : {}),
+          ...(keepPhotoHair !== undefined ? { photoHair: keepPhotoHair } : {}),
         },
       };
     }
@@ -3447,7 +3453,7 @@ export class GameSessionAdapter implements GameSession {
       const collides = name.toLowerCase() === ctx.playerName.toLowerCase()
         || ctx.npcs.some((n) => n.id !== target.id && (n.name ?? "").trim().toLowerCase() === name.toLowerCase());
       if (isReasonableName(name) && !collides) {
-        target.name = name;
+        this.renameHouseguest(target, name); // ORW-437: the public prose written around the old given name follows the new one (a later biography field still overwrites it)
         publicFields.push("name");
       }
     }
@@ -3725,7 +3731,8 @@ export class GameSessionAdapter implements GameSession {
       // off the name and leave the portrait rendering the name's gender). The given-name token is swapped to
       // the final presentation, surname kept, so name + portrait + narration read the same gender. (The
       // display name lives on the Houseguest wrapper — `n.name` — not on the static Character.)
-      if (pub.name !== undefined) this.renameHouseguest(n, pub.name);
+      // ORW-437: the same name freeze `recordCastProfile` applies: a name the player has been told never changes on a live fold.
+      if (pub.name !== undefined && !this.introducedNames.has(n.id)) this.renameHouseguest(n, pub.name);
       if (proposed[n.id]) applied++;
     }
 
@@ -3821,7 +3828,7 @@ export class GameSessionAdapter implements GameSession {
       const target = cast.npcs.find((n) => n.id === c.id);
       if (!target) continue;
       let touched = false;
-      if (c.name !== undefined) { target.name = c.name; touched = true; }
+      if (c.name !== undefined) { this.renameHouseguest(target, c.name); touched = true; } // ORW-437: a name-only update carries into the floor prose
       if (c.identityConcept !== undefined) { target.character.identityConcept = c.identityConcept; touched = true; }
       if (c.archetype !== undefined) { target.character.archetype = c.archetype; touched = true; }
       if (c.stats !== undefined) { target.character.stats = { ...c.stats }; touched = true; }
@@ -7454,7 +7461,7 @@ export class GameSessionAdapter implements GameSession {
     const prior = n.name;
     n.name = next;
     const c = n.character;
-    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation"] as const) {
+    for (const k of ["biography", "identityConcept", "background", "appearance", "presentation", "demeanor"] as const) {
       const v = c[k];
       if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }

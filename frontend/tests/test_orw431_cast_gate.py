@@ -225,9 +225,9 @@ def test_stale_genesis_identity_without_a_writer_one_is_mended_by_name():
     prof = {"biography": CARDS["Thomas Sizemore"]["biography"].replace("Thomas", "Samir")}
     assert any(c.startswith("identity-") for c in gate.card_codes(prof, npc, [npc]))
     n, w, _ = _go(run([npc], lambda h, i: profile_json(prof["biography"])))
-    if n:
-        assert "Nia" not in w["npc:5"].get("identityConcept", "Samir") and not any(
-            c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
+    assert n == 1  # ORW-437: the card is written (a refusal must not let this test pass without checking the mend)
+    assert "Nia" not in w["npc:5"].get("identityConcept", "") and not any(
+        c.startswith("identity-") for c in gate.card_codes(w["npc:5"], npc, [npc]))
 
 
 # ---- the worst case: one card never gets onCamera and never gets a biography --------------------------------
@@ -321,6 +321,50 @@ def test_none_notable_is_not_a_repeated_mark():
         g.accept(n["id"], {}, n, cast)
     assert "rep-mark" not in g.codes
 
+
+# ---- ORW-437 review: a nickname is a shortening, never a longer different name ----------------------------
+def test_longer_distinct_name_is_not_a_nickname():
+    npc = {"id": "npc:1", "name": "Samir Nesbitt"}
+    bio = "Samira grew up in Macon. Samira fixes boats. Samira dislikes noise."
+    assert "story-name" in ca.story_name_codes(bio, npc)
+
+
+def test_shortening_is_a_nickname_unless_it_is_another_cast_first_name():
+    npc = {"id": "npc:1", "name": "Samuel Nesbitt"}
+    bio = "Sam grew up in Macon. Sam fixes boats. Sam dislikes noise."
+    assert ca.story_name_codes(bio, npc) == []
+    other = [npc, {"id": "npc:2", "name": "Sam Ortiz"}]
+    assert "story-cast-name" in ca.story_name_codes(bio, npc, other)
+    assert ca.repair_story_name(bio, npc, other).startswith("Samuel grew")
+
+
+# ---- ORW-437 review of #2731 --------------------------------------------------------------------------------
+def test_spelled_out_and_numeric_year_counts_agree():
+    from src import orwell_cast_gate as G
+    assert G.background_codes({"background": "ran a kitchen for eight years", "biography": "He spent 8 years on the line."}) == []
+    assert G.background_codes({"background": "ran a kitchen for eight years", "biography": "He spent 9 years on the line."}) == ["background-years"]
+
+
+def test_oversize_or_many_sentence_biography_is_reported_non_blocking():
+    from src import orwell_cast_gate as G
+    base = {"id": "npc:1", "name": "Samir Nesbitt", "genderPresentation": "man", "age": 23, "identityConcept": "a quiet welder who reads a room first",
+            "physicalCharacteristics": dict(LOOK), "voice": dict(VOICE)}
+    four = "Samir grew up in Macon. He welds. He reads a room. He keeps lists."
+    assert "bio-format" in G.card_codes({"biography": four}, base)
+    assert "bio-format" in G.card_codes({"biography": "Samir " + "welds well. " * 80}, base)
+    assert not G.is_blocking("bio-format")
+    assert "bio-format" not in G.card_codes({"biography": "Samir grew up in Macon and welds. He reads a room before he speaks."}, base)
+
+
+def test_a_rewrite_keeps_the_first_drafts_look_subfields_it_omitted():
+    from src import orwell_cast_gate as G
+    npc = npc_of("npc:1", "Samir Nesbitt", "man", 23)
+    first = json.loads(profile_json("Nia grew up in Macon. Nia welds boats. Nia keeps lists of everything and never sleeps."))
+    async def rewrite(_n, _c):
+        return {"biography": "Samir grew up in Macon and welds boats. He keeps lists of everything and never sleeps.",
+                "physicalCharacteristics": {"hair": "short"}}
+    got, left = _go(G.run_gate(G.SeasonGate("u"), first, npc, [npc], rewrite))
+    assert got is not None and got["physicalCharacteristics"].get("wardrobe") == LOOK["wardrobe"]
 
 # ---- ORW-431b: an authored card never has an empty identity line --------------------------------------------
 class _Engine:

@@ -23,7 +23,9 @@ def npc_of(name, cast_extra=()):
 
 def cast15(npc, wrong_idx=None):
     firsts = ["Ava", "Bo", "Cal", "Dee", "Eli", "Fay", "Gus", "Hal", "Ivy", "Jon", "Kai", "Lou", "Max", "Ned", "Oli"]
-    return [{"id": f"npc:{i}", "name": f"{f} Surname{i}"} for i, f in enumerate(firsts)] + [npc]
+    # ORW-437: 14 others with unique ids that never collide with the card's own id, plus the card: a cast of exactly 15
+    others = [{"id": f"npc:other{i}", "name": f"{f} Surname{i}"} for i, f in enumerate(firsts[:14])]
+    return others + [npc]
 
 
 # ---- the cause at the writers: what each step is given and told ----------------------------------------
@@ -55,7 +57,7 @@ def test_name_repair_runs_before_the_pronoun_check_so_nia_she_becomes_samir_he()
     npc = npc_of("Samir Nesbitt")
     text = "Nia grew up in Converse. Off the clock Nia sings alto and she keeps her patience. Nia hums while she works."
     # before the name is repaired the sentences are skipped as being about "another capitalised person"
-    assert 1 not in ca.pronoun_conflict_sentences(text, npc)
+    assert ca.pronoun_conflict_sentences(text, npc) == []  # ORW-437: every sentence is about "Nia", so none is read as Samir's
     fixed = ca.repair_story_text(text, {}, npc)
     assert fixed == "Samir grew up in Converse. Off the clock Samir sings alto and he keeps his patience. Samir hums while he works."
 
@@ -143,7 +145,8 @@ def test_cause_briana_is_marked_authored_but_has_no_biography_and_the_roster_nev
 def test_biography_floor_boundary():
     ok = "A" * 39 + ". " + "B" * 38 + "."  # 80 chars, 2 sentences
     assert len(ok) == 80 and ca._biography_meets_floor(ok)
-    assert not ca._biography_meets_floor(ok[:-1])
+    short = "A" * 38 + ". " + "B" * 38 + "."  # 79 chars and still two sentences: only the length rule can reject it
+    assert len(short) == 79 and len(ca._SENTENCE_TERMINATORS.findall(short)) >= 2 and not ca._biography_meets_floor(short)
     assert not ca._biography_meets_floor("C" * 90 + ".")  # one sentence
 
 
@@ -220,3 +223,38 @@ def test_final_check_returns_a_flat_list_of_reason_code_strings():
 def test_a_card_whose_floor_biography_still_stands_is_written_even_when_the_writer_omits_its_own():
     npc = {**_BRIANA_NPC, "biography": _GOOD_BIO}
     assert "story-no-biography" not in ca.card_consistency({}, npc)
+
+
+# ---- ORW-437 review of #2733: the REAL roster card (from `_roster_cards`) carries the story fields ----------
+def test_real_roster_card_with_blank_biography_is_picked_up_by_backfill():
+    from routes.orwell_routes import _roster_cards, _roster_payload
+    house = [
+        {"id": "npc:1", "name": "Ann Lee", "status": "active", "authored": True, "biography": "",
+         "identityConcept": "a nurse who organises", "physicalCharacteristics": {"wardrobe": ["tee"]}},
+        {"id": "npc:2", "name": "Bo Kim", "status": "active", "authored": True, "biography": "A long story here.",
+         "identityConcept": "", "physicalCharacteristics": {}},
+        {"id": "npc:3", "name": "Cy Ode", "status": "active", "authored": True, "biography": "Fine.",
+         "identityConcept": "a welder who reads a room"},
+        {"id": "npc:4", "name": "Di Fo", "status": "active", "authored": True, "biography": "Fine.",
+         "identityConcept": "a welder who reads a room", "physicalCharacteristics": {"wardrobe": ["tee"]}},
+    ]
+    cards = _roster_cards({"house": house}, "u")
+    assert ca.unauthored_ids("u", cards) == ["npc:1", "npc:2"]
+    assert ca.unauthored_ids("u", cards, include_look=True) == ["npc:1", "npc:2", "npc:3", "npc:4"]
+    body = _roster_payload("u", cards, stale=False)["roster"]
+    assert all("biography" not in c and "physicalCharacteristics" not in c for c in body)  # wire shape unchanged
+
+
+# ---- ORW-437 review of #2729 ---------------------------------------------------------------------------------
+
+def test_possessive_openers_are_not_subjects_and_may_is_not_a_name():
+    npc = {"id": "n", "name": "Samir Nesbitt", "genderPresentation": "man"}
+    assert ca.story_name_codes("Nia's bakery closed. Nia's mother cried.", npc) == []
+    assert ca.story_name_codes("May be the quiet one. May be not.", npc) == []
+
+
+def test_a_wrong_full_name_subject_is_found_and_swapped_whole():
+    npc = {"id": "n", "name": "Samir Nesbitt", "genderPresentation": "man"}
+    bio = "Nia Smith grew up in Macon. Nia Smith fixes boats."
+    assert "story-name" in ca.story_name_codes(bio, npc)
+    assert ca.repair_story_name(bio, npc) == "Samir grew up in Macon. Samir fixes boats."

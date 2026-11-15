@@ -350,9 +350,9 @@ async def resolve_authoring_llm_fn(owner: Optional[str], *,
     routing (still at the authoring temperature). Every call flows through the module-level
     `_resolve_llm_fn`, so tests that stub it keep intercepting the authoring path.
 
-    ``json_mode`` (ORW-387): True (the default, byte-identical) requests ``response_format=json_object``. A caller whose
-    prompt asks for plain PROSE must pass False: a strict provider (DeepSeek) answers HTTP 400 to json_object when the
-    prompt never says "json".
+    This resolver always requests ``response_format=json_object`` (it takes no ``json_mode`` argument). A caller whose
+    prompt asks for plain PROSE (a strict provider such as DeepSeek answers HTTP 400 to json_object when the prompt
+    never says "json") uses `resolve_prose_llm_fn`, which calls `_resolve_llm_fn(json_mode=False)` (ORW-387).
 
     ``min_output_tokens`` (2026-07-13 genesis-cap fix): a per-call-family FLOOR on the resolved
     output cap — the full-cast genesis SKETCH passes ``GENESIS_SKETCH_MIN_OUTPUT_TOKENS`` because
@@ -1051,10 +1051,15 @@ _BAND_BRAND_NAMES = (
     "converse", "patagonia", "harley", "rolex", "birkenstock", "ray-ban", "dr. martens", "doc martens",
     "louis vuitton", "chanel", "prada", "champion", "yeezy", "jordans", "under armour", "north face",
     "lululemon", "hollister", "abercrombie", "burberry", "versace", "off-white", "stussy", "timberland",
+    "wrangler", "ariat", "stetson", "new balance", "columbia", "hanes", "fila", "asics", "hurley", "quiksilver",
+    "oakley", "nautica", "ralph lauren", "tommy hilfiger", "calvin klein", "uniqlo", "dickies",
+    "russell athletic", "fruit of the loom", "zara", "h&m", "fendi", "dior", "hermes", "tiffany",
+    "canada goose", "arc'teryx", "arcteryx", "salomon", "crocs", "skechers", "hoka", "saucony",
 )
 _BAND_BRAND_RE = re.compile(
     r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
 _ONCAMERA_MAX = 240
+_SPOT_MAX = 3  # at most this many houseguests share one house spot in their on-camera moment
 _PHOTOHAIR_MAX = 90
 _SPOT_PATTERNS = (
     ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
@@ -1068,8 +1073,9 @@ _ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*someone (?:who|you|t
 _PHOTOHAIR_BANNED_RE = re.compile(
     r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _PHOTOHAIR_BANNED_WORDS), re.I)
 _PRONOUN_CONTRADICTIONS = {
-    "man": re.compile(r"\b(?:she|her|hers|herself)\b", re.I),
-    "woman": re.compile(r"\b(?:he|him|his|himself)\b", re.I),
+    # ORW-437: man/woman also reject they/them (a sheet line is about ONE person and the prompt pins he/him or she/her).
+    "man": re.compile(r"\b(?:she|her|hers|herself|they|them|their|theirs|themselves)\b", re.I),
+    "woman": re.compile(r"\b(?:he|him|his|himself|they|them|their|theirs|themselves)\b", re.I),
     "nonbinary": re.compile(r"\b(?:he|him|his|himself|she|her|hers|herself)\b", re.I),
 }
 _PIECE_CUT_RE = re.compile(r"\s+(?:with|over|in|and|on|under|featuring|paired)\b|[,;(]", re.I)
@@ -1133,8 +1139,9 @@ _LOOK_PROBLEM_TEXT = {
     "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
     "oncamera-shape": "onCamera must name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
     "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
-    "pronoun-mismatch": "a pronoun in onCamera or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
+    "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
     "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
+    "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
     "wardrobe-taken": "the MAIN (first) wardrobe piece repeats one already taken in this cast; choose a different garment",
 }
 
@@ -1196,8 +1203,11 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             out.append("oncamera-scene")
         elif len(oncamera_spots(oc)) != 1:
             out.append("oncamera-shape")
+        elif isinstance(taken, dict) and (taken.get("spots") or {}).get(next(iter(oncamera_spots(oc))), 0) >= _SPOT_MAX:
+            out.append("oncamera-taken")  # ORW-437: that house spot already holds three houseguests
     gender = (npc or {}).get("genderPresentation")
     if gender and (pronoun_mismatch(str(pc.get("onCamera") or ""), gender)
+                   or pronoun_mismatch(str(pc.get("photoHair") or ""), gender)
                    or pronoun_mismatch(" ".join(items), gender)):
         out.append("pronoun-mismatch")
     if "photoHair" in pc and photohair_is_messy(str(pc.get("photoHair") or "")):
@@ -1238,12 +1248,14 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             pc.pop("wardrobe", None)
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
-        elif code in ("oncamera-shape", "oncamera-scene"):
+        elif code in ("oncamera-shape", "oncamera-scene", "oncamera-taken"):
             pc.pop("onCamera", None)
         elif code == "pronoun-mismatch":
             gender = (npc or {}).get("genderPresentation")
             if pronoun_mismatch(str(pc.get("onCamera") or ""), gender):
                 pc.pop("onCamera", None)
+            if pronoun_mismatch(str(pc.get("photoHair") or ""), gender):
+                pc.pop("photoHair", None)
             if pronoun_mismatch(" ".join(str(x) for x in (pc.get("wardrobe") or []) if isinstance(pc.get("wardrobe"), list)), gender):
                 pc.pop("wardrobe", None)
         elif code == "photohair-messy":
@@ -1295,7 +1307,7 @@ _FEATURES = {
     "tooth-gap": (re.compile(r"\b(?:gap-?toothed|gappy|gap[- ]tooth(?:ed)?|(?:a |the )?gap (?:in|between) (?:her|his|their|the) (?:front )?teeth|tooth gap)\b", re.I),
                   re.compile(r"\bgap|diastema", re.I)),
     "tattoo": (re.compile(r"\b(?:tattoo(?:s|ed)?|inked|ink(?:ed)? (?:sleeve|forearm|arm)s?)\b", re.I),
-               re.compile(r"\btattoo|\bink(?:ed)?\b|\bsleeve", re.I)),
+               re.compile(r"\btattoo|\bink(?:ed)?\b|\b(?:full|half)[- ]sleeves?(?!\s+(?:tee|t-?shirt|shirt|top|blouse|sweater|kurta)s?\b)", re.I)),  # ORW-437: a "short-sleeve shirt" is not a tattoo
     "glasses": (re.compile(r"\b(?:(?:wire|horn|round|thick|black|tortoiseshell)[- ]?(?:rimmed|framed)? ?glasses|glasses|spectacles|eyeglasses|bespectacled)\b", re.I),
                 re.compile(r"glasses|spectacles|eyeglasses|bespectacled|frames\b", re.I)),
     "scar": (re.compile(r"\bscars?\s+(?:above|across|on|over|under|along|through|beside|near)\b|\ban?\s+(?:[\w-]+\s+)?scar\b", re.I), re.compile(r"\bscar", re.I)),
@@ -1318,10 +1330,14 @@ _FEATURE_NOUN_CLAUSE = {
 def _look_text(profile: dict, npc: dict) -> str:
     """Every public look string the card will carry: the authored facet over the seeded one, plus the narrator's appearance line."""
     parts = []
-    for src in ((npc or {}).get("physicalCharacteristics"), (profile or {}).get("physicalCharacteristics")):
-        if isinstance(src, dict):
-            for v in src.values():
-                parts.extend(str(x) for x in v) if isinstance(v, list) else parts.append(str(v))
+    # ORW-437: the authored facet REPLACES the seeded one on the card, so it alone is read when present (a feature the
+    # author removed must not be kept "consistent" by the seeded block); the seeded facet stands in when none was authored.
+    authored = (profile or {}).get("physicalCharacteristics")
+    seeded = (npc or {}).get("physicalCharacteristics")
+    src = authored if isinstance(authored, dict) and authored else seeded
+    if isinstance(src, dict):
+        for v in src.values():
+            parts.extend(str(x) for x in v) if isinstance(v, list) else parts.append(str(v))
     parts.append(str((npc or {}).get("appearance") or ""))
     return " ".join(parts)
 
@@ -1357,6 +1373,13 @@ def _plainly_the_houseguest(sentence: str, npc: dict, *, names: bool = True) -> 
     if not names:
         return True
     own = {w.lower() for k in ("name", "hometown", "vocation") for w in re.findall(r"[A-Za-z']+", str((npc or {}).get(k) or ""))}
+    # ORW-437: a sentence OPENED by another person's name ("Dana trusted her gut.") is about them, not the houseguest.
+    lead = re.match(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(?:\s+[A-Z][a-z]+)?\s+([a-z]+)", sentence)
+    if lead:
+        low = lead.group(1).lower()
+        if (low not in own and low not in _NOT_A_NAME and lead.group(2) not in _NOT_A_VERB
+                and not low.endswith(("ing", "ly"))):
+            return False
     for m in _NAMED_PERSON_RE.finditer(sentence):
         if m.start() > 0 and m.group(0).lower() not in own and m.group(0) != "Orwell":
             return False
@@ -1406,6 +1429,8 @@ def _they_verbs(text: str) -> str:
             new = verb
         elif lv.endswith("ies") and len(lv) > 4:
             new = verb[:-3] + "y"
+        elif lv.endswith("oes"):
+            new = verb[:-2]  # ORW-437: "goes" -> "go", "echoes" -> "echo" (never "goe")
         elif re.search(r"(?:ch|sh|ss|x|z)es$", lv):
             new = verb[:-2]
         else:
@@ -1424,6 +1449,22 @@ def pronoun_conflict_sentences(text: str, npc: dict) -> list:
     return [i for i in range(0, len(parts), 2) if rx.search(parts[i]) and _plainly_the_houseguest(parts[i], npc)]
 
 
+_NAME_BEFORE_AGE_RE = re.compile(r"(?<![\w])([A-Z][a-z]{2,})(?:\s+[A-Z][a-z]+)?,?\s*(?:\(|aged?\s+|an?\s+)?$")
+_PLACE_PREP_RE = re.compile(r"\b(?:in|from|of|to|near|at|around|outside|across|born)\s+$", re.I)
+
+
+def _age_after_other_name(sentence: str, start: int, npc: dict) -> bool:
+    """True when the age number at `start` directly follows a capitalised name that is not the houseguest's own and is
+    not a place ("Marcus, 45" or "Dana (45"): that is another person's age, never rewritten to the card's."""
+    before = sentence[max(0, start - 48):start]
+    m = _NAME_BEFORE_AGE_RE.search(before)
+    if not m or m.start() == 0 and start - 48 <= 0 and sentence[:m.start(1)].strip() == "":
+        return False  # a sentence-opening word is not read as a name here
+    if m.group(1).lower() in _own_words(npc):
+        return False
+    return not _PLACE_PREP_RE.search(before[:m.start(1)])
+
+
 def _wrong_age_spans(text: str, npc: dict) -> list:
     """(start, end) of each stated-age number that is not the card age. Only sentences about no one else are read: a
     "12-year-old niece" or "her 52-year-old mother" is another person's age. A stated age under 18 is never a houseguest's."""
@@ -1437,7 +1478,11 @@ def _wrong_age_spans(text: str, npc: dict) -> list:
         if i % 2 == 0 and _plainly_the_houseguest(part, npc, names=False):
             for rx in _AGE_FORMS:
                 out += [(pos + m.start(1), pos + m.end(1)) for m in rx.finditer(part)
-                        if int(m.group(1)) != age and int(m.group(1)) >= 18]
+                        if int(m.group(1)) != age and int(m.group(1)) >= 18
+                        # ORW-437: "At age 19, she left home" is a past life event, read only inside the "at N" window;
+                        # and an age right after another person's capitalised name ("Marcus, 45") is theirs.
+                        and not (part[:m.start()].rstrip().lower().endswith("at") and abs(int(m.group(1)) - age) > _AT_AGE_WINDOW)
+                        and not _age_after_other_name(part, m.start(), npc)]
             out += [(pos + m.start(2), pos + m.end(2)) for m in _AT_AGE_RE.finditer(part)
                     if int(m.group(2)) != age and abs(int(m.group(2)) - age) <= _AT_AGE_WINDOW]
         pos += len(part)
@@ -1467,7 +1512,7 @@ def story_missing_features(text: str, profile: dict, npc: dict) -> list:
 # sentence and a verb follows. The check fires only when the houseguest's own first name never appears in the text
 # and the same other name opens the first sentence or two or more sentences. A relative or boss named in passing
 # is never a subject-opener, so it is left alone.
-_SUBJECT_RE = re.compile(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(?:['\u2019]s)?\s+([a-z]+)")
+_SUBJECT_RE = re.compile(r"^[\"'\u201c\u2018(\s]*([A-Z][a-z]{2,})(['\u2019]s)?(?:\s+[A-Z][a-z]+)?\s+([a-z]+)")  # ORW-437: group 2 = possessive, optional surname
 _NOT_A_VERB = frozenset({"and", "or", "but", "of", "in", "on", "at", "to", "from", "for", "with", "the", "a", "an",
                          "who", "whose", "which", "that", "as", "by", "than", "nor", "so", "if", "into", "over"})
 _NOT_A_NAME = frozenset(w.lower() for w in (
@@ -1476,7 +1521,7 @@ _NOT_A_NAME = frozenset(w.lower() for w in (
     "Also Her His Its Our Your Whenever Behind Beyond Across Along Among Around Beneath Despite Instead Meanwhile "
     "Nobody Everyone Someone Anyone Nothing Something Everything Today Tonight Yesterday Often Sometimes Lately "
     "Recently Eventually Still Later Soon Now Here Over Under With Without From Into Upon Within Beside Besides "
-    "Orwell Sunday Monday Tuesday Wednesday Thursday Friday Saturday January February March April June July August "
+    "May Orwell Sunday Monday Tuesday Wednesday Thursday Friday Saturday January February March April June July August "
     "September October November December Off-camera Fresh Quiet Soft Gentle Sharp Warm Cool Quick Steady Young Older "
     "Small Large Little Early Late Good Great Real Free Open Private Public Single Double Second Third First Last "
     "Next Both Neither Either Another Other Such What Which Whoever Whatever Whichever However Still Yet Perhaps "
@@ -1502,7 +1547,7 @@ def _cast_first_names(cast, npc: dict) -> frozenset:
     return frozenset(out)
 
 
-def _subject_names(text: str, npc: dict) -> dict:
+def _subject_names(text: str, npc: dict, cast=None) -> dict:
     """First names that open sentences as the grammatical subject, in order: {name: sentence count}. Empty when the
     houseguest's own first name is in the text (the biography is then about them), or when there is no card name."""
     own_first = _first_name(npc).lower()
@@ -1511,19 +1556,24 @@ def _subject_names(text: str, npc: dict) -> dict:
     if re.search(r"\b%s\b" % re.escape(own_first), text, re.I):
         return {}
     own = _own_words(npc)
+    cast_first = _cast_first_names(cast, npc)
     counts: dict = {}
     for part in _sentences(text)[::2]:
         m = _SUBJECT_RE.match(part)
         if not m:
             continue
-        tok, nxt = m.group(1), m.group(2)
+        tok, nxt = m.group(1), m.group(3)
         low = tok.lower()
+        if m.group(2):
+            continue  # ORW-437: "Nia's bakery" is a possessive, never the sentence's subject
         if nxt in _NOT_A_VERB or low in _NOT_A_NAME or low in own:
             continue
         if low.endswith("ing") and len(low) > 5:
             continue
-        if own_first.startswith(low) or low.startswith(own_first):
-            continue  # a nickname or a longer form of the card's own first name: not claimed
+        if own_first.startswith(low) and low not in cast_first:
+            # ORW-437: a nickname is a SHORTENING the card's own first name starts with (Sam for Samuel) and is not
+            # another cast member's first name. A LONGER name (Samira for Samir) is a different person, never a nickname.
+            continue
         if re.search(r"\b(?:in|from|of|to|near|at|around|outside|across)\s+%s\b" % re.escape(tok), text):
             continue  # a place, used as a place elsewhere in the text
         counts[tok] = counts.get(tok, 0) + 1
@@ -1535,7 +1585,7 @@ def _subject_names(text: str, npc: dict) -> dict:
 def story_name_codes(text: str, npc: dict, cast=None) -> list:
     """`story-name` (a first name nobody on the cast owns is the subject) and/or `story-cast-name` (another cast
     member's first name is the subject). [] when the text is about the houseguest or names no subject."""
-    subj = _subject_names(text, npc)
+    subj = _subject_names(text, npc, cast)
     if not subj:
         return []
     cast_first = _cast_first_names(cast, npc)
@@ -1547,11 +1597,13 @@ def story_name_codes(text: str, npc: dict, cast=None) -> list:
     return out
 
 
-def repair_story_name(text: str, npc: dict) -> str:
+def repair_story_name(text: str, npc: dict, cast=None) -> str:
     """Swap each wrong subject first name (every occurrence, with its possessive) for the card's first name."""
     out = text
     own_first = _first_name(npc)
-    for tok in _subject_names(text, npc):
+    for tok in _subject_names(text, npc, cast):
+        # ORW-437: a wrong FULL name ("Nia Smith grew up") is swapped whole, so the card's first name never trails a stray surname
+        out = re.sub(r"\b%s(?:\s+[A-Z][a-z]+)?\b(?=['\u2019]s\b|\s+[a-z])" % re.escape(tok), own_first, out)
         out = re.sub(r"\b%s\b" % re.escape(tok), own_first, out)
     return out
 
@@ -1645,12 +1697,12 @@ def _drop_feature(text: str, code: str) -> str:
     return re.sub(r"^\s+", "", kept) if kept.strip() else out
 
 
-def repair_story_text(text: str, profile: dict, npc: dict) -> str:
+def repair_story_text(text: str, profile: dict, npc: dict, cast=None) -> str:
     """Mend one story text deterministically: the houseguest's own wrong pronouns, a wrong age, a look feature the look
     lacks, and "Big Brother". Returns the text unchanged when nothing is wrong (and never an empty string)."""
     if not isinstance(text, str) or not text.strip():
         return text
-    out = repair_story_name(text, npc)  # first: the repaired name makes the pronoun and age checks below see the houseguest
+    out = repair_story_name(text, npc, cast)  # first: the repaired name makes the pronoun and age checks below see the houseguest
     pin = str((npc or {}).get("genderPresentation") or "").strip().lower()
     bad = pronoun_conflict_sentences(out, npc)
     if bad:
@@ -1670,19 +1722,19 @@ def repair_story_text(text: str, profile: dict, npc: dict) -> str:
     return out if out.strip() else text
 
 
-def repair_story(profile: dict, npc: dict) -> list:
+def repair_story(profile: dict, npc: dict, cast=None) -> list:
     """Repair the biography in `profile` and the card's identityConcept in place; returns the story codes repaired
     (`biography`, `identityConcept`). The repaired identityConcept rides along in `profile` for the write-back."""
     done = []
     bio = profile.get("biography")
     if isinstance(bio, str):
-        fixed = repair_story_text(bio, profile, npc)
+        fixed = repair_story_text(bio, profile, npc, cast)
         if fixed != bio:
             profile["biography"] = fixed
             done.append("biography")
     ident = profile.get("identityConcept") or (npc or {}).get("identityConcept")  # ORW-431: the writer's own, else genesis's
     if isinstance(ident, str) and ident.strip():
-        fixed = repair_story_text(ident, profile, npc)
+        fixed = repair_story_text(ident, profile, npc, cast)
         if fixed != ident:
             profile["identityConcept"] = fixed
             done.append("identityConcept")
@@ -1769,7 +1821,8 @@ async def write_photo_sheet(card: dict, taken: Optional[dict], llm_fn: LlmFn) ->
     fields: dict = {}
     problems: list = []
     for attempt in (0, 1):
-        msgs = messages if attempt == 0 else messages + [
+        # ORW-437: the strict retry names real problems; after a RAISED first call there are none, so resend the original.
+        msgs = messages if attempt == 0 or not problems else messages + [
             {"role": "user", "content": look_retry_message(problems, taken)}]
         try:
             text = await llm_fn(msgs)
@@ -1808,19 +1861,25 @@ async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
         mine = photo_sheet_taken([current])
         piece = (mine["mainPieces"] or [None])[0]
         spot = next(iter(mine["spots"]), None)
-        offender = bool((piece is not None and main_piece_key(piece) in {main_piece_key(x) for x in taken["mainPieces"]})
-                        or (spot is not None and taken["spots"].get(spot, 0) >= 3))
+        piece_dup = piece is not None and main_piece_key(piece) in {main_piece_key(x) for x in taken["mainPieces"]}
+        spot_full = spot is not None and taken["spots"].get(spot, 0) >= _SPOT_MAX
+        offender = bool(piece_dup or spot_full)
         if offender:
             try:
                 fields, codes = await write_photo_sheet(card, {"mainPieces": list(taken["mainPieces"]),
                                                                "spots": dict(taken["spots"])}, llm_fn)
                 fields = {k: v for k, v in fields.items() if k in SHEET_FIELDS}
-                if fields:
-                    res = await write_look_fn(str(card["id"]), fields)
+                # ORW-437 (review of #2665): a failing field is OMITTED by the writer, so the old value would stand. When
+                # the omitted field is the offending one (the repeated main piece, the full spot) it is cleared, never
+                # left stored and counted for later guests; the backfill refills a cleared field.
+                clear = [k for k, bad in (("wardrobe", piece_dup), ("onCamera", spot_full)) if bad and fields and k not in fields and k in phys]  # (no fields at all = the writer failed: the original stands)
+                if fields or clear:
+                    res = await write_look_fn(str(card["id"]), {**fields, **({"clear": clear} if clear else {})})
                     if isinstance(res, dict) and res.get("accepted"):
-                        merged = dict(phys)
+                        merged = {k: v for k, v in phys.items() if k not in clear}
                         merged.update(fields)
-                        card = {**card, "physicalCharacteristics": merged}
+                        card["physicalCharacteristics"] = merged  # ORW-437: in place, so the caller's post-pass check sees the stored sheet
+                        card = {**card}
                         phys = merged
                         rewritten += 1
                         logger.info(f"[cast-authoring] photo sheet rewritten for {card['id']} (de-duplication)")
@@ -2039,7 +2098,7 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
     # (genesis's was written before the name, gender and age were settled and is never shown once this lands).
     if isinstance(obj.get("identityConcept"), str):
         ic = " ".join(obj["identityConcept"].split())
-        if 12 <= len(ic) <= 300:
+        if 12 <= len(ic) <= 250:  # ORW-437: the prompt promises "under 250 characters"
             out["identityConcept"] = ic
     # The PUBLIC occupation (#849) — forwarded so the engine keeps it in lockstep with the biography and
     # re-grounds the hidden stakes off the job the player will infer. A blank / runaway value is dropped
@@ -2206,7 +2265,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                       user: Optional[str] = None,
                       seed: Optional[int] = None,
                       hands: Optional[dict] = None,
-                      look_write_fn: Optional[Callable[[str, dict], Awaitable[dict]]] = None) -> int:
+                      look_write_fn: Optional[Callable[[str, dict], Awaitable[dict]]] = None,
+                      live_look_sink: bool = True) -> int:
     """For each NPC in `cast`: build the producer prompt → `llm_fn` → parse → `write_fn`
     (recordCastProfile). Best-effort PER houseguest: one failure never aborts the rest (the seeded
     floor stays authoritative for any NPC that couldn't be authored). Returns how many were written.
@@ -2692,11 +2752,14 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                 _spend_attempt(ukey, hid)
                 try:
                     look_messages = build_authoring_messages(npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
+                    # ORW-437: the first draft rides along as the assistant turn, so the retry FIXES it (the accepted voice and
+                    # hidden storyline stay) instead of replacing it with a fresh draft.
                     look_text = await llm_fn(look_messages + [
+                        {"role": "assistant", "content": json.dumps(profile, ensure_ascii=False)},
                         {"role": "user", "content": look_retry_message(problems)}])
                     look_profile = parse_authored_profile(look_text or "", hid)
                 except Exception as e:
-                    logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
+                    logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: look-retry-call-failed ({type(e).__name__})")
                     look_profile = None
                 if (look_profile is not None and not look_problems(look_profile, npc)
                         and not story_problems(look_profile, npc, cast) and not _no_bio(look_profile)
@@ -2709,7 +2772,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                         f"({', '.join(applied)}) — look-fallback")
             # ORW-388: whatever the retry did not clear is mended deterministically (the biography here, and the card's
             # identityConcept, which genesis wrote and no retry can rewrite). Codes and the id only in the log.
-            repaired = [] if _gate_on else repair_story(profile, npc)  # ORW-431: the gate below mends (and counts) it
+            repaired = [] if _gate_on else repair_story(profile, npc, cast)  # ORW-431: the gate below mends (and counts) it
             if repaired:
                 logger.warning(f"[cast-authoring] repaired the story text of {hid} ({', '.join(repaired)}) — story-repair")
             # ORW-431: THE ONE GATE at the end. The final card (roster card + this profile) must be complete and
@@ -2806,11 +2869,15 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     # ORW-380: the photo-sheet de-duplication post-pass, then the per-NPC completion signals.
     if len(authored_cards) > 1:
         try:
-            if look_write_fn is None:
+            # ORW-437 (review of #2677): the engine's look-only write-back lands on the LIVE cast. A run whose own sink
+            # is the next-season holding store (`live_look_sink=False`, no `look_write_fn`) skips the pass: there is no
+            # holding-store look write, and a live write would put next-season sheets on the running season's cards.
+            if look_write_fn is None and live_look_sink:
                 async def look_write_fn(h: str, fields: dict) -> dict:  # noqa: F811 - the engine's look-only write-back
                     from src import orwell_engine
                     return await orwell_engine.record_look_extras(h, fields, user=user)
-            await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
+            if look_write_fn is not None:
+                await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
     for _hid, _card in authored_cards.items():
@@ -3055,6 +3122,7 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         rparts: list[str] = []
         _usage: dict = {}
         _finish: Optional[str] = None
+        _error_frame: Optional[str] = None  # ORW-437: the provider's `event: error` frame, when one arrives
         # #1002: request strict JSON (response_format) so a model that honours it can't leak prose/
         # reasoning into the body. Threads through stream_llm_with_fallback → stream_llm onto the
         # OpenAI-style payload; a provider that ignores it is harmless (the strict prompt + the one-shot
@@ -3071,6 +3139,9 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
             piece = _delta_text(chunk)
             if piece:
                 parts.append(piece)
+                continue
+            if isinstance(chunk, str) and chunk.lstrip().startswith("event: error"):
+                _error_frame = _error_frame or chunk  # ORW-437: the stream failed; the text so far is a PARTIAL
                 continue
             # S3b: keep reasoning/thinking deltas in a SEPARATE buffer (never the visible body) so a
             # misrouted JSON answer is recoverable — see the empty-visible fallback in `_fn`.
@@ -3123,6 +3194,10 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                 )
             except Exception:
                 pass
+        if _error_frame is not None:
+            # ORW-437 (review of #2668): an error frame mid-stream means everything before it is a partial response (a
+            # cut-off summary would be stored as the day's memory); `_fn` turns it into a raised failure.
+            return _error_frame, "error", ""
         return "".join(parts), _finish, "".join(rparts)
 
     async def _fn(messages) -> str:
@@ -3140,6 +3215,10 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         elif not isinstance(messages, list):
             messages = [{"role": "user", "content": str(messages)}]
         text, finish, reasoning = await _once(messages, _max_tokens)
+        if finish == "error":
+            # ORW-437: a failed stream RAISES (never returns the frame as text): every consumer already wraps the call in a
+            # try/except and takes its own failure path (nothing stored, a retry or the floor), and nothing is retried-over or recovered.
+            raise RuntimeError("provider-error-frame")
         # 2026-07-13 retry-on-length: `finish_reason == "length"` means the completion was CUT OFF
         # by the output cap — for a JSON-authoring call the body is chopped mid-object and
         # unparseable, so a same-cap retry (#1057) can never fix it. Re-issue EXACTLY ONCE at
@@ -3151,6 +3230,9 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                 f"[cast-authoring] completion hit the output cap (finish_reason=length at "
                 f"max_tokens={_max_tokens}) — retrying ONCE at a doubled cap {retry_cap}")
             retry_text, _retry_finish, retry_reasoning = await _once(messages, retry_cap)
+            if _retry_finish == "error":
+                # ORW-437: the doubled-cap retry ended in an error frame: raise, never hand the frame back as a completion.
+                raise RuntimeError("provider-error-frame")
             if retry_text:
                 return retry_text
             # The retry's visible body was also empty — carry its reasoning as an extra recovery source.
@@ -3309,7 +3391,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
     # Only the DEFAULT sink mutates the LIVE cast; a `write` override targets the next-season
     # holding store (which deliberately does not touch the live board), so don't push for it.
     is_live_write = write is None
-    written = await author_cast(cast, llm_fn, write or _write, on_authored, user=owner, seed=seed)
+    written = await author_cast(cast, llm_fn, write or _write, on_authored, user=owner, seed=seed, **({} if is_live_write else {"live_look_sink": False}))
     # #617: enrichment landed on the live game — push a server-side "game-updated" so open pages
     # reconcile now instead of waiting for the next poll. Best-effort/fail-soft.
     if written and is_live_write:
@@ -3389,9 +3471,13 @@ def card_missing_story(card: dict, look: bool = False) -> bool:
     clears a contradicting biography and nothing refilled it) is still unfinished: the background retry takes it again."""
     if card.get("biographyDraft") is True or card.get("storyMissing") is True:
         return True  # ORW-438: only genesis's draft stands, or the roster already worked this out from the full card
+    if look and card.get("lookMissing") is True:
+        return True  # the roster worked out a missing look field from the full card (non-blocking: only the look backfill asks)
     pc = card.get("physicalCharacteristics")
+    if "physicalCharacteristics" not in card and not isinstance(pc, dict):
+        return False  # a thin stub (no story keys at all) says nothing; a roster card from `_roster_cards` carries the keys (None when absent)
     if not isinstance(pc, dict):
-        return False  # a thin roster stub says nothing about the story; a full card always carries its look block
+        pc = {}  # a house entry with no look block: the look is missing, the story checks below still run
     if look and look_fields_missing(pc):  # ORW-431: a missing look sub-field is NON-BLOCKING: it asks for a backfill, it never holds the season start
         return True
     bio = card.get("biography")

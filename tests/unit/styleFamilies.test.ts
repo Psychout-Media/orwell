@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { STYLE_FAMILIES, STYLE_FAMILY_LABELS, familyForLabel, familiesMentioned } from "../../src/domain/styleFamilies";
-import { cleanWardrobe, cleanOnCamera } from "../../src/domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../src/domain/physicalCharacteristics";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer } from "../../src/engine/deepProfile";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
@@ -64,6 +64,17 @@ describe("ORW-360 wardrobe / onCamera cleaning", () => {
     expect(w[1]!.length).toBe(60);
     expect(cleanWardrobe("nope")).toBeUndefined();
     expect(cleanWardrobe([" ", ""])).toBeUndefined();
+  });
+  it("ORW-437: C1 controls are stripped, and fewer than two wardrobe items is not a facet", () => {
+    expect(cleanWardrobe(["a\u0085b", "c\u009fd"])).toEqual(["a b", "c d"]);
+    expect(cleanWardrobe(["only one piece"])).toBeUndefined();
+    expect(cleanWardrobe(["one", " "])).toBeUndefined();
+    expect(cleanOnCamera("a\u0085b")).toBe("a b");
+  });
+  it("ORW-437: photoHair clamps to 90 chars, strips controls and drops an empty line", () => {
+    expect(cleanPhotoHair("h".repeat(300))!.length).toBe(90);
+    expect(cleanPhotoHair("a\u0000b\u0085c")).toBe("a b c");
+    expect(cleanPhotoHair("  ")).toBeUndefined();
   });
   it("clamps onCamera to 240 chars and strips control characters", () => {
     expect(cleanOnCamera("y".repeat(500))!.length).toBe(240);

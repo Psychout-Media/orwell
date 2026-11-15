@@ -16,6 +16,7 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
+BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
 _SENT_END = re.compile(r"[.!?][\"'”’)\]]*(?=\s|$)")
@@ -58,21 +59,32 @@ def _subject(text: str, npc: dict, cast) -> str:
 _YEARS = re.compile(r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty)[- ]years?\b", re.I)
 
 
+_NUM_WORDS = {w: str(i) for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
+    "eighteen nineteen twenty".split())}
+_NUM_WORDS.update({"thirty": "30", "forty": "40"})
+
+
+def _year_counts(text: str) -> set:
+    """The year counts a text states, spelled-out and numeric forms normalised ("eight years" == "8 years")."""
+    return {_NUM_WORDS.get(m.group(1).lower(), m.group(1).lower()) for m in _YEARS.finditer(text)}
+
+
 def background_codes(card: dict) -> list:
     """`background` (genesis) and `biography` (authoring) state one life: a different year count in the two is a conflict."""
     bg, bio = card.get("background"), card.get("biography")
     if not (isinstance(bg, str) and isinstance(bio, str)):
         return []
-    a = {m.group(1).lower() for m in _YEARS.finditer(bg)}
-    b = {m.group(1).lower() for m in _YEARS.finditer(bio)}
+    a = _year_counts(bg)
+    b = _year_counts(bio)
     return ["background-years"] if a and b and not (a & b) else []
 
 
-def mend(profile: dict, npc: dict) -> list:
+def mend(profile: dict, npc: dict, cast=None) -> list:
     """Deterministic repairs on the profile in place: the story repairs (name, pronoun, age, feature, show name for
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
-    done = list(A.repair_story(profile, npc))
+    done = list(A.repair_story(profile, npc, cast))
     return done
 
 
@@ -105,6 +117,11 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
     ident = card.get("identityConcept")
     if isinstance(bio, str) and bio.strip() and not ends_cleanly(bio):
         codes.append("bio-no-stop")
+    if isinstance(bio, str) and bio.strip():
+        # ORW-437: the format the rewrite message asks for (2-3 sentences, about 480 characters). NON-BLOCKING and counted: a
+        # prod cast writer runs near 500 characters, so only a text 50% over the ask (or past three sentences) is reported.
+        if len(bio) > BIO_OVERSIZE_CHARS or len(_SENT_END.findall(bio)) > 3:
+            codes.append("bio-format")
     first = str(card.get("name") or "").split(" ")[0]
     if isinstance(bio, str) and bio.strip() and first and not re.search(r"\b%s\b" % re.escape(first), bio, re.I):
         codes.append("bio-no-own-name")  # non-blocking: a floor biography (written with no name) reads as a fragment
@@ -193,7 +210,7 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
     gate.checked += 1
     first = card_codes(profile, npc, cast, gate.registry)
     gate.count(first)
-    if mend(profile, npc):
+    if mend(profile, npc, cast):
         gate.repaired += 1
     codes = card_codes(profile, npc, cast, gate.registry)
     tries = 0
@@ -209,7 +226,11 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
         if isinstance(fresh, dict):
             # keep the first draft's look/voice/hidden fields the re-write did not return; the story text is the new one
             merged = {**profile, **{k: v for k, v in fresh.items() if v not in (None, "", [], {})}}
-            mend(merged, npc)
+            if isinstance(profile.get("physicalCharacteristics"), dict) and isinstance(merged.get("physicalCharacteristics"), dict):
+                # ORW-437: deep-merge the look, so an optional sub-field the re-write omitted keeps the first draft's value
+                merged["physicalCharacteristics"] = {**profile["physicalCharacteristics"], **{
+                    k: v for k, v in merged["physicalCharacteristics"].items() if v not in (None, "", [], {})}}
+            mend(merged, npc, cast)
             profile.clear()
             profile.update(merged)
         codes = card_codes(profile, npc, cast, gate.registry)

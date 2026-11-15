@@ -116,6 +116,7 @@ const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|s
 const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
 const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
 const WORN_WORD_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/gi;
+const HAIR_WORD_RE = /\b(?:hair|curls?|curly|waves?|wavy|braids?|braided|bun|ponytail|fade|crop|cropped|locs|afro|bob|buzz\w*|bald|mohawk|pixie|lob|bangs?|fringe)\b/i;
 const HAIR_CUT_MARKERS = [", usually", " usually", " that ", " by ", " until "] as const;
 
 const PRONOUNS: Record<Gender | "none", { subj: string; obj: string; plural: boolean }> = {
@@ -150,13 +151,23 @@ export function trimWrittenHair(hair: string): string {
 
 /** Strip the aging / rough words from a written facet part (the ageLook is dropped whole instead). */
 export function stripWornWords(t: string): string {
-  return t.replace(WORN_WORD_RE, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ")
+  const had = WORN_WORD_RE.test(t);
+  WORN_WORD_RE.lastIndex = 0;
+  // a list of worn words ("rough or worn") goes whole, joiner included
+  t = t.replace(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b(?:\s*,\s*|\s+(?:and|or)\s+)(?=(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b)/gi, "");
+  let out = t.replace(WORN_WORD_RE, "").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ")
     .replace(/^[\s,;]+|[\s,;]+$/g, "").trim();
+  if (had) {
+    // ORW-437: removing "rugged" from "rugged and tall" must not leave "and tall"; drop the orphaned joiner at either end.
+    out = out.replace(/^(?:and|or)\s+/i, "").replace(/[\s,]+(?:and|or)$/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").trim();
+  }
+  return out;
 }
 
 /** The prose `appearance` of a legacy character: cut like hair (no "usually ..." clauses), scar / birthmark / burn parts and worn words removed. */
 export function legacyAppearance(appearance: string): string {
-  const parts = appearance.split(/,|;/).map((x) => trimWrittenHair(x.trim()))
+  // ORW-437: only a HAIR fragment is cut at "usually / that / by / until"; other clauses keep their full words.
+  const parts = appearance.split(/,|;/).map((x) => (HAIR_WORD_RE.test(x) ? trimWrittenHair(x.trim()) : x.trim()))
     .filter((x) => x !== "" && !NOT_SENT_MARK_RE.test(x));
   return stripWornWords(parts.join(", "));
 }
@@ -164,7 +175,8 @@ export function legacyAppearance(appearance: string): string {
 /** Keep only the signature parts of a (possibly compound) distinguishing mark; scars, birthmarks, burns and chipped teeth are not sent. */
 export function signatureMarkClause(mark: string | undefined): string {
   if (!isRealMark(mark)) return "";
-  const parts = mark.split(/;|,\s*plus\b/i).map((p) => p.replace(/^[\s,]*(?:and\s+)?/i, "").trim()).filter((p) => p !== "");
+  // ORW-437: also split a compound joined by ", and a ..." / " and a ...", so a signature part survives next to an excluded one.
+  const parts = mark.split(/;|,\s*plus\b|,?\s+and\s+(?=(?:an?|the)\s)/i).map((p) => p.replace(/^[\s,]*(?:and\s+)?/i, "").trim()).filter((p) => p !== "");
   const kept = parts.filter((p) => SIGNATURE_MARK_RE.test(p) && !NOT_SENT_MARK_RE.test(p));
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }

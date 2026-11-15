@@ -45,31 +45,36 @@ export interface PhysicalCharacteristics {
 
 export const WARDROBE_ITEM_MAX = 60;
 export const WARDROBE_MAX_ITEMS = 3;
+export const WARDROBE_MIN_ITEMS = 2;
 export const ON_CAMERA_MAX = 240;
 export const PHOTO_HAIR_MAX = 90;
 
-/** Strip control characters and collapse whitespace. */
+/** Strip control characters (C0, DEL and the C1 range U+0080-U+009F) and collapse whitespace. */
 function cleanText(v: unknown): string {
   // eslint-disable-next-line no-control-regex
-  return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim() : "";
+  return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\s+/g, " ").trim() : "";
 }
 
-/** Clean + clamp the authored `wardrobe` (control chars stripped, items clamped, at most 3). */
+/** One clean line clamped to `max` characters, or undefined when nothing is left. */
+function cleanLine(v: unknown, max: number): string | undefined {
+  const t = cleanText(v).slice(0, max).trim();
+  return t.length > 0 ? t : undefined;
+}
+
+/** Clean + clamp the authored `wardrobe` (control chars stripped, items clamped, 2 to 3 items: fewer than two is not a facet). */
 export function cleanWardrobe(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const items = v.map((x) => cleanText(x).slice(0, WARDROBE_ITEM_MAX).trim()).filter((x) => x.length > 0)
     .slice(0, WARDROBE_MAX_ITEMS);
-  return items.length > 0 ? items : undefined;
+  return items.length >= WARDROBE_MIN_ITEMS ? items : undefined;
 }
 
 /** Clean + clamp the authored `onCamera` line. */
 export function cleanOnCamera(v: unknown): string | undefined {
-  const t = cleanText(v).slice(0, ON_CAMERA_MAX).trim();
-  return t.length > 0 ? t : undefined;
+  return cleanLine(v, ON_CAMERA_MAX);
 }
 
 /** ORW-380: clean + clamp the authored `photoHair` line. */
 export function cleanPhotoHair(v: unknown): string | undefined {
-  const t = cleanText(v).slice(0, PHOTO_HAIR_MAX).trim();
-  return t.length > 0 ? t : undefined;
+  return cleanLine(v, PHOTO_HAIR_MAX);
 }

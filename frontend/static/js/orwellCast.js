@@ -469,7 +469,7 @@
     // the same src is never re-assigned, so a loaded face never reloads.
     entry.portrait = url || null;
     entry.holder.textContent = "";
-    if (entry.expandBtn) entry.expandBtn.hidden = !url; // ORW-359: nothing to enlarge without a photo
+    if (entry.expandBtn) entry.expandBtn.hidden = true; // ORW-359: nothing to enlarge without a photo; ORW-437: nor before it has decoded (shown in reveal())
     // J2-15: until a portrait (0051) backfills, a single shared 👤 silhouette made the
     // "meet 15 distinct people" payoff read as interchangeable placeholders. Render a
     // per-houseguest monogram instead — the name's initial over a deterministic tint
@@ -524,6 +524,7 @@
     const reveal = () => {
       if (revealed) return; // load can follow a synchronous cache-hot reveal — run once
       revealed = true;
+      if (entry.expandBtn && entry.portrait === url) entry.expandBtn.hidden = false; // ORW-437: the photo is on screen now
       img.classList.remove("oc-img-pending");
       if (justLanded) {
         // The G22 arrival fade (reduced-motion guarded in the CSS above); drop the

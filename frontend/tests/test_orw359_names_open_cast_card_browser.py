@@ -159,7 +159,9 @@ def test_names_and_faces_open_the_right_cast_card(fe):
             linked = page.evaluate("[...document.querySelectorAll('#r1 .ow-name-link')].map(e => e.textContent + '>' + e.dataset.hg)")
             assert "Priya Nair>npc:4" in linked and "Dana Cho>npc:3" in linked and "Marcus>npc:2" in linked, linked
             assert not any(x.startswith("Dana>") for x in linked), "an ambiguous first name stays plain text"
-            assert not any(x.startswith("Marcus>") and "ville" in x for x in linked)
+            # ORW-437: a partial match inside "Marcusville" would leave a link whose next sibling text starts with "ville"
+            assert page.evaluate("[...document.querySelectorAll('#r1 .ow-name-link')].filter(e => (e.nextSibling && e.nextSibling.textContent || '').startsWith('ville')).length") == 0
+            assert "Marcusville" in page.evaluate("document.getElementById('r1').textContent"), "the fixture really holds the longer word"
             assert page.evaluate("document.querySelector('#r1 #code1').querySelector('.ow-name-link')") is None, "code is skipped"
             assert page.evaluate("document.querySelector('#r1 #link1').querySelector('.ow-name-link')") is None, "links are skipped"
             assert page.evaluate("document.getElementById('p2').textContent") .count("Priya Nair's plan") == 1, "the text is untouched ('s stays outside)"
@@ -190,6 +192,16 @@ def test_names_and_faces_open_the_right_cast_card(fe):
             _dossier_name(page)
             page.wait_for_selector("#orwell-dossier .od-portrait button.od-photo-btn", timeout=5000)
             w, hh = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
+            # ORW-437: the photo is measured once the window has settled (two identical readings 120 ms apart); a reading taken
+            # while the dossier is still opening or reflowing was the source of an intermittent 216 px result in CI.
+            prev = None
+            for _ in range(30):
+                cur = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
+                if cur == prev:
+                    break
+                prev = cur
+                page.wait_for_timeout(120)
+            w, hh = cur
             assert w >= 280 and hh >= 280 and abs(w - hh) <= 2, (w, hh)
             assert page.get_attribute("#orwell-dossier .od-portrait button.od-photo-btn", "aria-label") == "View photo of Marcus Bell"
             page.click("#orwell-dossier .od-portrait button.od-photo-btn")
@@ -275,6 +287,10 @@ def test_phone_width_has_no_sideways_scroll_and_keyboard_only_path(fe):
                 page.wait_for_timeout(1200)  # let the window animation and the photo settle
                 page.screenshot(path=os.path.join(SHOTS, "after-phone-412-dossier-large-photo.png"), timeout=90000)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), "no sideways scroll with the dossier open"
+            # ORW-437: the kit re-clamps every open window whenever a top banner appears or the viewport changes (a banner can arrive at any moment in CI).
+            # That pass must never shrink the dossier below the width its large photo needs; fire it on purpose so the result no longer depends on timing.
+            page.evaluate("window.dispatchEvent(new CustomEvent('orwell:banner-inset')); window.dispatchEvent(new Event('resize'))")
+            frames(page, 6)
             w, hh = page.evaluate("(() => { const r = document.querySelector('#orwell-dossier .od-portrait').getBoundingClientRect(); return [r.width, r.height]; })()")
             assert w >= 280 and hh >= 280 and abs(w - hh) <= 2, (w, hh)
             page.wait_for_selector("#orwell-dossier .od-portrait button.od-photo-btn", timeout=5000)

@@ -154,7 +154,8 @@ def test_failure_is_recorded_red(season, monkeypatch):
     monkeypatch.setattr(P, "_note_generation_failure", lambda u, h, r, **k: seen.append(r))
     _run(U.upgrade_tick("u", now=5000.0))
     _run(U.upgrade_tick("u", now=5100.0))
-    assert any(r.startswith("portrait-upgrade-failed") for r in seen)
+    # ORW-437: recorded RED exactly once, by the pipeline that failed (the upgrader no longer records it a second time)
+    assert len(seen) == 1 and "http-500" in seen[0]
 
 
 def test_current_version_season_does_nothing(season, monkeypatch):
@@ -257,7 +258,7 @@ def test_sheets_rewritten_for_every_stale_houseguest_with_name_gender_and_taken(
     # each later writer sees the main pieces and spots of the houseguests rewritten before it
     assert record[1]["input"]["taken"] == {"mainPieces": ["a leather jacket"], "spots": {"kitchen": 1}}
     assert record[2]["input"]["taken"]["mainPieces"] == ["a leather jacket", "a flannel shirt"]
-    # the old scene-like npc:1 line that the new sheet replaced is not cleared away (it was rewritten); photoHair rides along
+    # photoHair rides along with the rewritten sheet that is stored for npc:1
     assert stored[0][1]["photoHair"] == "sleek neat braid over one shoulder"
     assert "PHOTO SHEET" in record[0]["system"] and "genderPresentation" in record[0]["system"]
 
@@ -308,6 +309,7 @@ def test_no_current_file_shoots_without_a_reference(season, monkeypatch):
     _run(U.upgrade_tick("u", now=0.0))
     _run(U.upgrade_tick("u", now=100.0))
     # no file on disk: the manifest entry is stale but there is nothing to carry; no reference, no prefix
+    assert len(shoot.get("calls", [])) == 1  # ORW-437: a skipped candidate must not let the loop below pass vacuously
     for c in shoot.get("calls", []):
         assert c["ref"] is None and not c["prompt"].startswith("The same person")
 
@@ -321,6 +323,7 @@ def test_a_writer_that_gives_nothing_keeps_the_old_photo_when_an_old_sheet_would
     state["house"] = [_card(1, physicalCharacteristics={"wardrobe": ["a", "b"], "onCamera": "She jokes then leaves the kitchen."})]
     _run(U.upgrade_tick("u", now=0.0))
     assert _run(U.upgrade_tick("u", now=100.0)) == "failed"
+    assert len(record) == 2  # ORW-437: the writer was called and the strict retry ran (both gave nothing)
     assert log == [] and stored == []
     assert (d / "npc_1.png").read_bytes() == b"PNG:old"
 
@@ -369,3 +372,57 @@ def test_evicted_and_jury_are_upgraded_too_but_after_the_house(season, monkeypat
         assert _run(U.upgrade_tick("u", now=100.0 + 20 * k)) == "upgraded"
     assert log == ["v2 prompt npc:3", "v2 prompt npc:1", "v2 prompt npc:2"]
     assert _run(U.upgrade_tick("u", now=300.0)) == "done"
+
+
+# ---- ORW-437 review ------------------------------------------------------------------------------------------
+
+def test_a_stale_generation_heartbeat_does_not_block_the_upgrader_but_a_fresh_one_does():
+    import time
+    P._INFLIGHT.clear()
+    P._GEN_PROGRESS.clear()
+    P._GEN_PROGRESS[P._safe_user("u")] = {"active": True, "updatedAt": time.time() - P._GEN_PROGRESS_STALE_S - 5}
+    assert U._full_generation_running("u") is False
+    P._GEN_PROGRESS[P._safe_user("u")] = {"active": True, "updatedAt": time.time()}
+    assert U._full_generation_running("u") is True
+    P._GEN_PROGRESS.clear()
+    P._INFLIGHT[P._safe_user("u")] = 1
+    assert U._full_generation_running("u") is True  # the in-flight registry stays authoritative
+    P._INFLIGHT.clear()
+
+
+def test_a_429_keeps_the_breathing_gap_before_the_next_attempt():
+    st = {"failed": 0, "fails": {}, "retry_at": {}, "next_ok_at": 0.0, "rate_limited": False}
+    U._note_failure("u", "u", "npc_1", st, 100.0, 0.0, RuntimeError("http-429: slow down"))
+    assert st["rate_limited"] is True and st["next_ok_at"] >= 100.0 + U.GAP_S
+
+
+def test_the_billing_gate_only_reads_the_users_own_provider_host(season, monkeypatch):
+    state, d = season
+    log, stored = [], []
+    _gen(monkeypatch, log)
+    _fake_engine(monkeypatch, stored)
+    state["house"] = [_card(1)]
+    P.reset_billing_breaker()
+
+    async def host(user):
+        return "mine.example"
+    monkeypatch.setattr(P, "image_provider_host", host)
+    try:
+        P._trip_billing_breaker("other.example")          # an unrelated provider is out of credits
+        _run(U.upgrade_tick("u", now=0.0))
+        assert _run(U.upgrade_tick("u", now=100.0)) == "upgraded"
+        P._trip_billing_breaker("mine.example")           # the user's own provider is
+        state["house"] = [_card(2)]
+        assert _run(U.upgrade_tick("u", now=200.0)) == "waiting"
+    finally:
+        P.reset_billing_breaker()
+
+
+def test_a_failure_the_pipeline_already_recorded_is_not_recorded_again(monkeypatch):
+    seen = []
+    monkeypatch.setattr(P, "_note_generation_failure", lambda *a, **k: seen.append(a))
+    st = {"failed": 0, "fails": {}, "retry_at": {}, "next_ok_at": 0.0, "rate_limited": False}
+    U._note_failure("u", "u", "npc_1", st, 1.0, 0.0, U._PipelineFailure("http-500"))
+    assert seen == []
+    U._note_failure("u", "u", "npc_2", st, 1.0, 0.0, RuntimeError("look-write-failed"))
+    assert len(seen) == 1

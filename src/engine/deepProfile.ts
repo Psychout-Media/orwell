@@ -400,7 +400,8 @@ export function generatePhysicalCharacteristics(
     // context falls back to the old independent per-NPC pick.
     heightBuild: spread ? spread.heightBuild : rng.pick(HEIGHT_BUILD),
     skinTone: spread ? spread.skinTone : rng.pick(SKIN_TONE),
-    hair: spread ? spread.hair : rng.pick(HAIR_DESC.filter((h) => age >= 40 || !isGrayHair(h))),
+    // ORW-437: the same min/max age bounds `dealHairSpread` applies (a 50-year-old never draws a bob tagged 18 to 45).
+    hair: spread ? spread.hair : rng.pick(HAIR_ENTRIES.filter((e) => age >= e.minAge && age <= e.maxAge).map((e) => e.desc)),
     facialFeatures: spread ? spread.facial : rng.pick(FACIAL),
     // 2026-07-21 prompt audit: the mark rides the cast-wide capped deal when a spread is supplied (the
     // live path) — a lone regeneration without cast context keeps the per-NPC pick over the same pool.
