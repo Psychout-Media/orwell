@@ -7298,6 +7298,7 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
     beat_s = _PD_BEAT_S if beat_s is None else beat_s
     it = stream.__aiter__()
     deadline = None
+    nxt = None
     try:
         while True:
             if deadline is None and armed():
@@ -7330,6 +7331,12 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
                 return
             yield chunk
     finally:
+        if nxt is not None and not nxt.done():  # closed mid-keepalive: stop the pending read first, or aclose() hits "already running" and the upstream read carries on
+            nxt.cancel()
+            try:
+                await nxt
+            except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read)
+                pass
         try:
             await it.aclose()
         except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
