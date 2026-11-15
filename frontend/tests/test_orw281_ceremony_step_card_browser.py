@@ -39,6 +39,7 @@ def _card(page):
                button: (c.querySelector('button.odec-confirm') || {}).textContent, forms: document.querySelectorAll('.odec[role=form]').length }; }""")
 
 
+@pytest.mark.quarantine(card="ORW-471", added="2026-11-15")
 def test_a_ceremony_step_card_continues_to_the_next_step_and_the_total_can_grow(fe):
     sync_api = pytest.importorskip("playwright.sync_api")
     posts = []

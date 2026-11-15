@@ -263,7 +263,10 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
-import { moveInBeds, claimBed, freeBeds, sleepRoomOf, BED_CROWD_PULL, type BedsState } from "../../engine/beds";
+import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
+import { roomLabel, themedRoomAliases } from "../../engine/roomLabels";
+import { BED_RULES, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, spotScore, swapBeds, type BedReader } from "../../engine/bedClaims";
+import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
@@ -1168,6 +1171,7 @@ export class GameSessionAdapter implements GameSession {
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
+    this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     this.advanceClockPerConversation();
@@ -5341,6 +5345,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.presence) return { playerMove: null, whereabouts: null };
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
+    const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
+    if (bedChanged) this.persist();
     const dest = parsePlayerMoveIntent(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
@@ -5599,36 +5605,164 @@ export class GameSessionAdapter implements GameSession {
 
   /**
    * ORW-466 (Ryne 2026-11-15: "most people would have an assigned bed... every house guest is choosing which bed they would like to sleep in for the season"): each houseguest's bed, claimed on
-   * move-in day in entrance order (early arrivals first, as on the show). The player is skipped here and picks for themselves (until that lever lands, they get the bed left over at their first
-   * bedtime - `bedThePlayer`). A PLAYED game only: a headless or calibration game never assigns beds, so its seeded outcomes stay exactly as they were. Each NPC reads a room by who is already in it
-   * (their feeling for them: first impressions, pre-show ties) and their own nature (a social houseguest likes a busy room, a private one a quiet room), plus a little luck from a side stream; within the room they share half of a double only with someone they really like, else take a single
+   * move-in day in entrance order (early arrivals first, as on the show). The player is skipped here and picks for themselves in their own words (`resolvePlayerBed`; slice 2), or gets
+   * the bed left over at their first bedtime (`bedThePlayer`). A PLAYED game only: a headless or calibration game never assigns beds, so its seeded outcomes stay exactly as they were. Each NPC reads a room by who is already in it
+   * (their feeling for them: first impressions, pre-show ties) and their own nature (a social houseguest likes a busy room, a private one a quiet room), plus a little luck from a side stream; for half of a double, the bedmate counts far more than the room
    * (`${seed}:beds:...`) so no shared roll moves. Supersedes the ORW-383 "sleepers in bed" setting (an arbitrary room per houseguest), which is deleted.
    */
   private ensureBeds(): BedsState | undefined {
     const s = this.live;
     if (!s || !this.house || s.playedGame !== true) return undefined;
-    if (s.beds) return s.beds;
-    const order = s.premiereEntrance?.order ?? [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
-    const seed = this.gameSeed ?? 0;
-    s.beds = moveInBeds(
-      order,
-      (who, _room, mates) => {
-        const crowd = (this.statsOf(who).social - 0.5) * BED_CROWD_PULL * mates.length; // social likes company, private likes quiet
-        const ties = mates.reduce((t, m) => t + Math.max(0, this.rel.edge(who, m).affinity - 0.5), 0); // drawn to people they already like
-        return crowd + ties;
-      },
-      (who, room) => new SeededRandom(hashSeed(`${seed}:beds:${who}:${room}`)).next(),
-      (who, other) => this.rel.edge(who, other).affinity, // half of a double only next to someone they really like (beds.ts SHARE_DOUBLE_AT)
-      { skip: new Set([PLAYER]), day: s.dayNumber ?? 1 },
-    );
+    s.beds ??= { owner: {}, claims: [] };
+    // ORW-466 slice 2: every NPC already INSIDE claims, in entrance order (a staged premiere still in its entrances: only those who have walked in). Idempotent - an NPC with a bed is skipped,
+    // so calling this at each arrival claims for that arrival (and catches up whoever walked in before the game was played, still in their order).
+    const pe = s.premiereEntrance;
+    const order = pe ? (pe.stage === "entrances" ? pe.order.slice(0, pe.arrived) : pe.order) : [this.house.player.id, ...this.house.npcs.map((n) => n.id)];
+    const living = new Set(this.livingIds());
+    for (const who of order) if (who !== PLAYER && living.has(who) && !s.beds.owner[who]) this.claimNpcBed(s.beds, who, living);
     return s.beds;
+  }
+
+  /** ORW-466 slice 2: the engine's read for the bed pick (stats; affinity above a stranger's). */
+  private bedReader(): BedReader {
+    const base = RELATIONSHIP_CONSTANTS.baseline.affinity;
+    return { stats: (who) => this.statsOf(who), warmth: (who, other) => this.rel.edge(who, other).affinity - base };
+  }
+  /** ORW-466: the `share` for half of a double (pull/aversion toward the would-be bedmate, `BED_RULES`). */
+  private bedShare(r: BedReader = this.bedReader()): (who: EntityId, other: EntityId) => number { return bedmateShare(r, RELATIONSHIP_CONSTANTS.baseline.affinity); }
+
+  /** ORW-466 slice 2: one NPC claims the bed they read best, with a little luck from a side stream (`${seed}:beds:...`, so no shared roll moves); the house sees who they chose to room with. */
+  private claimNpcBed(beds: BedsState, who: EntityId, living: ReadonlySet<EntityId>): void {
+    const seed = this.gameSeed ?? 0;
+    const r = this.bedReader();
+    const bed = pickBedFor(beds, who, living, r, this.bedShare(r), (w, room) => new SeededRandom(hashSeed(`${seed}:beds:${w}:${room}`)).next());
+    if (!bed || !claimBed(beds, who, bed, this.live?.dayNumber ?? 1, "move-in", living)) return;
+    this.noteBedChoice(beds, who, roomOfBed(bed), living);
+  }
+
+  /** ORW-466 themes: what a room is called this season (its themed name), or the plain label without a theme. */
+  private roomName(room: Room): string { return roomLabel(room, this.live?.houseTheme); }
+
+  /** ORW-466: who chose to room with whom is PUBLIC - a player-witnessed house fact (the bags on the beds are there for anyone to see), never the Vault. */
+  private noteBedChoice(beds: BedsState, who: EntityId, room: Room, living: ReadonlySet<EntityId>, verb = "claims a bed in"): void {
+    const mates = roommatesIn(beds, room, living).filter((m) => m !== who);
+    const withWhom = mates.length ? `, rooming with ${mates.map((m) => this.nameOf(m)).join(", ")}` : ", the first to pick that room";
+    const pe = this.live?.premiereEntrance;
+    const inside = pe && pe.stage === "entrances" ? pe.order.slice(0, pe.arrived) : [...living];
+    const witness = [...new Set([PLAYER, who, ...inside.filter((id) => living.has(id))])];
+    this.onPlayerEvent?.(`${this.nameOf(who)} ${verb} ${this.roomName(room)}${withWhom}`, witness, "bed-claim");
+  }
+
+  /** ORW-466 slice 2: may the player claim a bed in their own words right now (`BED_RULES.playerClaimWindow`)? Only once they are inside the house. */
+  private playerBedWindowOpen(beds: BedsState): boolean {
+    const pe = this.live?.premiereEntrance;
+    if (pe && pe.stage === "entrances" && pe.arrived <= pe.playerPos) return false; // still outside, waiting to walk in
+    return BED_RULES.playerClaimWindow === "any-time" || this.phase === "premiere" || !beds.owner[PLAYER];
+  }
+
+  /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
+  private playerBedNote: string | null = null;
+
+  /**
+   * ORW-466 slice 2: the player claims a bed in their OWN words, resolved here BEFORE the narrator writes (the ORW-419 seam: called from `resolvePlayerMove`, which the front end runs on every
+   * player message before the moment prompt is built). A free bed in the named room is claimed; a full room is refused in fiction; a taken bed is a swap ask the owner answers from how they feel
+   * about the player and how much they cared about their bed. Returns true when anything changed (the caller persists).
+   */
+  private resolvePlayerBed(text: string): boolean {
+    this.playerBedNote = null;
+    const beds = this.ensureBeds();
+    if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
+    const living = new Set(this.livingIds());
+    const theme = this.live?.houseTheme;
+    const aliases = themedRoomAliases(theme);
+    const rooms = BEDROOM_LAYOUT.map((r) => ({ room: r.room, names: [...new Set([...bedroomNames(r.room, roomDisplayName(r.room)), ...bedroomNames(r.room, roomLabel(r.room, theme)), ...aliases.filter(([, room]) => room === r.room).map(([a]) => a)])] }));
+    const people = this.house.npcs.filter((n) => living.has(n.id)).map((n) => ({ id: n.id, names: [n.name, n.name.split(/\s+/)[0]!].filter((x) => x.length >= 2) }));
+    const intent = parsePlayerBedIntent(text, rooms, people);
+    if (!intent) return false;
+    const day = this.live?.dayNumber ?? 1;
+    let room: Room | undefined;
+    let bed: BedId | undefined;
+    if (intent.kind === "claim") room = intent.room;
+    else if (intent.kind === "near") {
+      const theirs = beds.owner[intent.who];
+      if (!theirs) { this.playerBedNote = `the player wants a bed near ${this.nameOf(intent.who)}, who has not claimed one yet`; return false; }
+      room = roomOfBed(theirs);
+      // next to someone in half of a double: the other half, when it is free
+      if (isDoubleSpot(theirs)) { const near = intent.who; const s = pickSpot(beds, PLAYER, room, living, (_w, o) => (o === near ? 1 : 0)); if (s && isDoubleSpot(s) && bedOfSpot(s) === bedOfSpot(theirs)) bed = s; }
+    }
+    if (room !== undefined) {
+      const prefer = intent.kind === "claim" ? intent.prefer : undefined;
+      const mine = beds.owner[PLAYER];
+      if (mine && roomOfBed(mine) === room && !bed && (!prefer || isDoubleSpot(mine) === (prefer === "double"))) { this.playerBedNote = `the player already has their bed in ${this.roomName(room)}`; return false; }
+      bed ??= freeBedIn(beds, room, living, prefer);
+      if (!bed) { this.playerBedNote = `the player wanted a bed in ${this.roomName(room)}, but every spot there is taken (they can ask one of its owners to swap)`; return false; }
+      claimBed(beds, PLAYER, bed, day, "move-in", living);
+      const mate = bedPartner(beds, PLAYER, living);
+      this.playerBedNote = `the player just claimed ${isDoubleSpot(bed) ? `half of a double${mate ? ` next to ${this.nameOf(mate)}` : ""}` : "a single bed"} in ${this.roomName(room)} (engine truth: voice it as theirs)`;
+      this.noteBedChoice(beds, PLAYER, room, living);
+      return true;
+    }
+    // A swap ask: the owner decides.
+    const owner = (intent as { who: EntityId }).who;
+    const theirBed = beds.owner[owner];
+    if (!theirBed || !living.has(owner)) { this.playerBedNote = `the player asked ${this.nameOf(owner)} to swap beds, but ${this.nameOf(owner)} has no bed yet`; return false; }
+    if (!BED_RULES.swapsAllowed) { this.playerBedNote = `the player asked ${this.nameOf(owner)} for their bed; it is taken and stays theirs`; return false; }
+    const ownRoom = roomOfBed(theirBed);
+    const mine = beds.owner[PLAYER];
+    const r = this.bedReader();
+    const share = this.bedShare(r);
+    const ownerTo = mine ? undefined : pickBedFor(beds, owner, living, r, share, () => 0);
+    const theirNew = mine ?? ownerTo;
+    if (!theirNew) { this.playerBedNote = `the player asked ${this.nameOf(owner)} to swap beds, but there is no free spot to give them`; return false; }
+    const newRoom = roomOfBed(theirNew);
+    // How much the owner cares: their spot now (room + bedmate) against the one they would get, read without the two of them in each other's place.
+    const away = new Set<EntityId>([PLAYER]);
+    const care = spotScore(beds, owner, theirBed, living, r, share, away) - spotScore(beds, owner, theirNew, living, r, share, away);
+    // The other half of the owner's double has a say - unless that half is the player themselves (asking is their consent).
+    const half = otherHalf(beds, theirBed, living, owner);
+    const halfPartner = half === PLAYER ? undefined : half;
+    const verdict = decideSwap(owner, PLAYER, care, r, halfPartner);
+    if (!verdict.accept) {
+      this.playerBedNote = verdict.vetoedBy
+        ? `the player asked ${this.nameOf(owner)} to swap beds; ${this.nameOf(owner)} was willing, but ${this.nameOf(verdict.vetoedBy)}, who shares that double, said NO`
+        : `the player asked ${this.nameOf(owner)} to swap beds; ${this.nameOf(owner)} said NO and keeps their ${isDoubleSpot(theirBed) ? "half of a double" : "bed"} in ${this.roomName(ownRoom)} (engine truth: voice the refusal in their own way)`;
+      return false;
+    }
+    if (!swapBeds(beds, PLAYER, owner, ownerTo, day, living)) return false;
+    this.playerBedNote = `the player asked ${this.nameOf(owner)} to swap beds and ${this.nameOf(owner)} said YES: the player now has ${this.nameOf(owner)}'s bed in ${this.roomName(ownRoom)}, and ${this.nameOf(owner)} moved to ${this.roomName(newRoom)}`;
+    this.noteBedChoice(beds, owner, newRoom, living, "swaps beds with the player and moves to");
+    this.noteBedChoice(beds, PLAYER, ownRoom, living, "takes a bed in");
+    return true;
+  }
+
+  /**
+   * ORW-466 slice 2: the narrator's per-turn BEDS line during the move-in pick (the player's claim window): which bedrooms have free beds and who sleeps in each, the player's own bed, and this
+   * turn's claim result. Public facts only (bed ownership is in plain sight). Undefined outside the window or before beds exist.
+   */
+  private bedsLine(): string | undefined {
+    const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
+    if (!beds || !this.playerBedWindowOpen(beds)) return undefined;
+    const living = new Set(this.livingIds());
+    const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
+    const rooms = BEDROOM_LAYOUT.map((spec) => {
+      const who = roommatesIn(beds, spec.room, living);
+      const total = spotsIn(spec);
+      const free = freeBeds(beds, living).filter((b) => roomOfBed(b) === spec.room);
+      const freeSingles = free.filter((b) => !isDoubleSpot(b)).length;
+      const names = who.map((id) => { const p = bedPartner(beds, id, living); return p ? `${label(id)} (sharing a double with ${label(p)})` : label(id); });
+      const room = `${this.roomName(spec.room)} (${spec.singles} singles, ${spec.doubles} doubles)`;
+      return `${room}: ${free.length > 0 ? `${free.length} of ${total} spots free (${freeSingles} single${freeSingles === 1 ? "" : "s"}, ${free.length - freeSingles} double ${free.length - freeSingles === 1 ? "half" : "halves"})` : "full"}${names.length ? `; sleeping there: ${names.join(", ")}` : "; nobody yet"}`;
+    });
+    const mine = beds.owner[PLAYER];
+    const own = mine ? `The player's bed is in ${this.roomName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
+    return `${rooms.join("; ")}. ${own}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
   }
 
   /** ORW-466: the player's bed - the bed left over at their first bedtime if they never picked one (as on the show) - and the player in it (the HOH room for the HOH). Inside a commit only. */
   private bedThePlayer(): void {
     const beds = this.ensureBeds();
     if (!beds || !this.presence || !this.live) return;
-    if (!beds.owner[PLAYER]) {
+    if (!beds.owner[PLAYER] && BED_RULES.leftoverAtFirstBedtime) { // ORW-466 slice 2 (Q4, data): the bed left over at the player's first bedtime
       const inHouse = new Set(this.livingIds());
       const left = freeBeds(beds, inHouse)[0];
       if (left) claimBed(beds, PLAYER, left, this.live.dayNumber ?? 1, "leftover", inHouse);
@@ -6356,6 +6490,7 @@ export class GameSessionAdapter implements GameSession {
     if (pe.stage === "entrances") {
       const r = this.recordArrival(pe.arrived);
       pe.arrived += 1;
+      this.ensureBeds(); // ORW-466 slice 2: the arriver claims a bed as they walk in (a played game only; headless games stay bed-free)
       if (pe.arrived >= pe.order.length) {
         pe.stage = "toast";
         s.champagneCircle = "gathered"; // the existing whole-house pin
@@ -14834,7 +14969,9 @@ export class GameSessionAdapter implements GameSession {
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
-    const view = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
+    const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
+    const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
+    const view = bedsNow ? { ...view2, beds: bedsNow } : view2;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)

@@ -558,6 +558,8 @@ export interface GameStateView {
   whileYouSlept?: string;
   /** 0148: a nap is open to the player right now (played game, clock running, morning or afternoon, no event or decision in the way). Only then does the narrator get the NAP line, so the fixed prompt pays nothing for it. Absent otherwise. */
   napOpen?: true;
+  /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
+  beds?: string;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
