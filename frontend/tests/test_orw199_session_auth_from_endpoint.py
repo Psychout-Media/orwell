@@ -285,3 +285,35 @@ def test_endpoint_key_overrides_request_or_env_supplied_key(db):
     _ep(db, "or", OR_BASE, "sk-endpoint")
     out = er.resolve_session_headers(_sess(OR_BASE, {"Authorization": "Bearer sk-from-request"}))
     assert out["Authorization"] == "Bearer sk-endpoint"
+
+
+# ---- ORW-200 (the server env key): never on a row, supplied at call time ----------------------
+OAI = "https://api.openai.com/v1/chat/completions"
+
+
+def test_env_key_is_supplied_at_call_time_not_stored(db, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-env")
+    out = er.resolve_session_headers(_sess(OAI, {}))
+    assert out.get("Authorization") == "Bearer sk-test-env"
+
+
+def test_env_key_on_an_existing_row_is_stripped_by_the_migration(db, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-env")
+    _row(db, "s1", OAI, {"Authorization": "Bearer sk-test-env"})
+    _row(db, "s2", "https://custom.example/v1", {"Authorization": "Bearer other"})
+    assert er.migrate_strip_session_auth_headers() == 1
+    assert "Authorization" not in (_stored(db, "s1") or {})
+    assert (_stored(db, "s2") or {}).get("Authorization") == "Bearer other"  # unresolvable custom rows untouched
+    assert er.migrate_strip_session_auth_headers() == 0
+
+
+def test_persisting_an_env_key_header_strips_it(db, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-env")
+    out = er.persistable_session_headers(OAI, {"Authorization": "Bearer sk-test-env", "X-Trace": "1"})
+    assert out == {"X-Trace": "1"}
+
+
+def test_openai_route_does_not_write_the_key_onto_the_row():
+    src = open(os.path.join(FRONTEND, "routes", "session_routes.py"), encoding="utf-8").read()
+    body = src.split("def create_session_openai")[1].split("@router.")[0]
+    assert "session.headers" not in body and "Bearer" not in body
