@@ -112,10 +112,10 @@ def test_framing_appends_the_location_barrier_fail_open():
     assert "_whereabouts_barrier_directive(" in src
     # It reads the whereabouts off the SAME game_state snapshot (no extra round-trip; supports D1).
     # deliberate re-pin (ORW-311): the call also passes the engine's public `asleep` list so the narrator is barred from voicing houseguests who have turned in.
-    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))' in src
+    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"), game_state.get("playerMove"))' in src
     # The fetch is wrapped in try/except (fail-open) and warns on failure.
     loc_call = src.index('_loc = _whereabouts_barrier_directive(')
-    assert "except Exception" in src[loc_call:loc_call + 400]
+    assert "except Exception" in src[loc_call:loc_call + 600]  # window widened with the playerMove argument (ORW-478)
     assert "location grounding skipped" in src
     # It runs after gm_prompt is built and before the prompt is prepended to the preface.
     fallback = src.index('gm_prompt = (mp or {}).get("systemPrompt") or FALLBACK_GM_PROMPT')
@@ -124,3 +124,26 @@ def test_framing_appends_the_location_barrier_fail_open():
     # It runs AFTER the pending barrier (both are location/decision grounding; order is intentional).
     pending_call = src.index("_barrier = _pending_barrier_directive(")
     assert pending_call < loc_call
+
+
+# --- ORW-478: the player's own move reaches the briefing, and a houseguest left off the roster does not just vanish ---
+
+def _wa(room="kitchen", present=()):
+    return {"room": room, "present": [{"id": f"npc:{i}", "name": n} for i, n in enumerate(present, 1)], "nearby": []}
+
+
+def test_a_player_move_this_turn_is_stated_in_the_directive():
+    d = chat_helpers._whereabouts_barrier_directive(_wa("kitchen", ["Role A"]), None, {"from": "living-room", "to": "kitchen"})
+    assert "THE PLAYER JUST MOVED: from the living room to the kitchen" in d
+    assert "Open this turn's scene in the kitchen" in d and "never in the living room" in d
+
+
+def test_no_move_line_without_a_move_or_for_a_refused_or_same_room_move():
+    for mv in (None, {}, {"refused": True, "reason": "x"}, {"from": "kitchen", "to": "kitchen"}, "kitchen"):
+        assert "JUST MOVED" not in chat_helpers._whereabouts_barrier_directive(_wa("kitchen", ["Role A"]), None, mv)
+
+
+def test_an_empty_roster_tells_the_narrator_to_show_a_departure_not_a_vanishing():
+    alone = chat_helpers._whereabouts_barrier_directive(_wa("bedroom-a", []))
+    assert "do not make them vanish" in alone and "stepping out" in alone
+    assert "do not make them vanish" not in chat_helpers._whereabouts_barrier_directive(_wa("kitchen", ["Role A"]))
