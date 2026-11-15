@@ -55,7 +55,7 @@ run env NODE_OPTIONS='--import tsx' ORWELL_BDD_FEATURES=$'docs/features/0110-vot
 
 step "py_compile the front end"
 # shellcheck disable=SC2046
-run python3 -m py_compile $(git ls-files 'frontend/**/*.py')
+run python3 -m py_compile $(git ls-files 'frontend/*.py' 'frontend/**/*.py')
 for s in $(git ls-files 'frontend/scripts/*' 'frontend/integrations/**'); do
   # ORW-239: only a non-python shebang is skipped; a real compile error fails the step.
   if head -1 "$s" | grep -q python; then run python3 -m py_compile "$s"; fi

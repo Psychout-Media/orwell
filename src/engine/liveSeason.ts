@@ -95,7 +95,7 @@ import {
 import {
   phaseForHour, bedtimeDepthFor, restDeficitForDepth, emergentBedtimeHour, wakeHourAfterBed, DAY_START, WAKE_HOUR, DAY_END_HOUR, type TimeOfDay,
 } from "./timeOfDay";
-import { CLOCK } from "./sleepConstants";
+import { CLOCK, NAP } from "./sleepConstants";
 
 /**
  * The LIVE weekly loop (feature 0011, wired into the running game). Unlike
@@ -822,6 +822,10 @@ export interface LiveSeasonState {
   lastSleepDepth?: number;
   /** ORW-322: how many conversation ticks the PLAYER has played in the night band (20:00 on) since the last wake. Sleep debt is banked off the clock edge ONLY when this is > 0 - i.e. when the player chose to stay up. Ceremony-beat hours (presentation) alone never bank debt. Undefined (serialization-neutral) when 0. */
   nightTurns?: number;
+  /** 0148 / ORW-417: hours the player has napped TODAY (the nap credit `playerRestDeficit` reads). Reset by `playerTurnIn` (a night in bed resets the credit with the night). Absent (serialization-neutral) when 0. Persisted. */
+  napHoursToday?: number;
+  /** 0148: the player's last nap, for the one-shot "while you slept" read the narrator gets on waking (the room they slept in, who was in it at the start, the hour they woke). Vault-free (ids + hours). Cleared once voiced. */
+  napWake?: { room: string; before: string[]; startHour: number; endHour: number; wokenBy?: "event" | "evening" };
   /**
    * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
    * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
@@ -833,6 +837,8 @@ export interface LiveSeasonState {
    * when off => byte-identical. Persisted with the season.
    */
   desireApproachedAt?: Record<string, number>;
+  /** ORW-423 (played games only): the running run of same-purpose approaches to the player (desire, count, last in-game hour); caps lobbying pile-ups. Absent in headless sims => byte-identical. */
+  approachStreak?: { desire: string; count: number; lastHour: number };
   /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
   pitched?: Record<string, number>;
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
@@ -2299,6 +2305,7 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
         s.lastSleepPhase = DAY_END_HOUR;
       }
       s.nightTurns = undefined;
+      s.napHoursToday = undefined; s.napWake = undefined; // 0148: a new day - the nap credit resets with the night
       s.wakeHour = undefined;
       s.dayNumber = (s.dayNumber ?? 1) + 1; // A69: a real night passed - it is a new day
       s.nightDepth = WAKE_HOUR;
@@ -2484,6 +2491,7 @@ export function crossToNextDay(s: LiveSeasonState): void {
   if (!s.playerRetired && s.nightDepth >= DAY_END_HOUR - 0.01) { s.lastSleepDepth = DAY_END_HOUR; s.lastSleepPhase = DAY_END_HOUR; }
   s.wakeHour = undefined;
   s.nightTurns = undefined; // ORW-322: a new night starts counting from zero
+  s.napHoursToday = undefined; s.napWake = undefined; // 0148: a new day - the nap credit resets with the night
   s.nightDepth = WAKE_HOUR;
   s.timeOfDay = DAY_START;
   s.playerRetired = false;
@@ -2502,6 +2510,8 @@ export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   s.lastSleepPhase = hour; // legacy field name; now the clock-hour the player was last awake to
   s.playerRetired = true;
   s.nightTurns = undefined; // ORW-322: the player chose bed; their debt is the bed hour just stamped
+  s.napHoursToday = undefined; // 0148: a night in bed resets the nap credit along with the night
+  s.napWake = undefined;
   // ORW-116 (b): the night the player just took IS the night the pending day-break would have rolled. Mark that gate crossed (the turn-in already rolled the day), or the clock ticks that follow (which clear
   // `playerRetired`) would leave the gate held again - a second night nobody asked for.
   if (nightBreakPending(s)) markNightGateCrossed(s);
@@ -2512,9 +2522,20 @@ export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   s.timeOfDay = DAY_START;
 }
 
-/** The player's hidden sleep deficit today (0..1) — graded by the clock-hour they were last awake to. */
-export function playerRestDeficit(s: LiveSeasonState): number {
+/** 0148: the nap factor (0 < f <= 1) on today's deficit: every NAP.halvingHours of nap halves what is left, never to zero. 1 with no nap (byte-identical). Pure. */
+export function napFactor(hoursNappedToday: number | undefined): number {
+  const h = hoursNappedToday ?? 0;
+  return h > 0 ? Math.pow(0.5, h / NAP.halvingHours) : 1;
+}
+
+/** The player's hidden sleep deficit from last NIGHT alone (0..1), before any nap credit - what the multi-night fatigue meter accrues (its own history is never rewritten by a nap). */
+export function playerNightDeficit(s: LiveSeasonState): number {
   return restDeficitForDepth(s.lastSleepDepth ?? WAKE_HOUR);
+}
+
+/** The player's hidden sleep deficit today (0..1) — graded by the clock-hour they were last awake to, eased by any nap taken today (0148). */
+export function playerRestDeficit(s: LiveSeasonState): number {
+  return playerNightDeficit(s) * napFactor(s.napHoursToday);
 }
 
 /**

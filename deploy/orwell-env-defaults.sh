@@ -71,6 +71,7 @@
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
 #   ORWELL_DISCLOSURE_ENGINE    A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a PLAYED game npcVoice.knows is only what the player also holds; a declined press carries deflect. ON 2026-11-14; read-only projection, moves no outcome.
+#   ORWELL_NAP                  0148 / ORW-417 (Ryne 2026-11-15): the player's daytime nap - 0.5-3h in the morning/afternoon, every 2h halves the sleep deficit (never to zero), an event always wakes the player. ON 2026-11-15; off => the lever refuses 'not available'.
 #   ORWELL_MOOD_CUE             ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood WORD as the player last saw it (a memory, not a live feed; no number, no cause). ON 2026-11-14; read-only projection, moves no outcome.
 #   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
 #   ORWELL_HOUSE_LIFE           ORW-315 (ORW-253 slice 3): hour-by-hour house life from goals replaces the 7-stock-scene tick in a PLAYED game. ON 2026-11-13; balance reported, not gated.
@@ -194,6 +195,7 @@ ORWELL_MOOD_CAMPAIGN=1
 ORWELL_DRIFT_FIX=1
 ORWELL_NPC_MEMORY_SPEECH=1
 ORWELL_MOOD_CUE=1
+ORWELL_NAP=1
 ORWELL_DISCLOSURE_ENGINE=1
 ORWELL_DRIVE_DECISIONS=1
 ORWELL_LIES_CAUGHT=1

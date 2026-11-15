@@ -34,6 +34,8 @@ export interface HouseSuspicionDeps {
   knowledge: KnowledgeService;
   /** A DEDICATED rng stream — MUST NOT be the shared society/vote stream (calibration neutrality). */
   rng: RandomnessSource;
+  /** 0148: the player is napping - they are not a node of the rumor graph this tick (nothing reaches a sleeper). Absent => unchanged. */
+  playerAsleep?: boolean;
 }
 
 /** What the house whispered this tick (for tests/telemetry) — never surfaced raw to anyone. */
@@ -84,7 +86,7 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
   // 3. Diffuse the Vault-free POSITION suspicion (names + room + "keep slipping off" — never the scene's
   //    content) NPC-to-NPC along the affinity graph. NO `rel`/`subjects` ⇒ NO fold (texture only); the
   //    dedicated rng ⇒ zero shared-stream draws. A chain reaching the player lands a player belief.
-  const everyone = [player, ...npcs];
+  const everyone = deps.playerAsleep ? [...npcs] : [player, ...npcs];
   const edges: Array<readonly [EntityId, EntityId]> = [];
   for (let i = 0; i < everyone.length; i++) {
     for (let j = i + 1; j < everyone.length; j++) {

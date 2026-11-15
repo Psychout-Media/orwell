@@ -122,7 +122,7 @@ def test_retry_message_names_problem_not_text():
 # ---- end to end through author_cast: one strict retry, then the fallbacks ----------------------------
 from conftest import _run  # noqa: E402
 
-_NPC = {"id": "npc:1", "name": "A", "age": 22, "presentation": "western ranch",
+_NPC = {"biography": "A seeded floor biography that the engine keeps when the writer omits its own.", "id": "npc:1", "name": "A", "age": 22, "presentation": "western ranch",
         "physicalCharacteristics": {"hair": "short brown hair", "heightBuild": "tall and lean", "style": "x",
                                      "distinguishingMark": "none notable"}}
 

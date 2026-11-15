@@ -139,7 +139,7 @@ def _clear_error() -> None:
 # anti-stale ladders do not climb against it.
 _INTEGRITY_REFUSAL: dict = {}
 _REFUSED_TURN: dict = {}
-_MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "createCharacter", "noteMessage", "runCompetition"})
+_MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "nap", "createCharacter", "noteMessage", "runCompetition"})
 
 
 def _refusal_key(user) -> str:
@@ -498,6 +498,15 @@ def mutation_count(user: str | None = None) -> int:
     return _MUTATION_COUNT.get(user or "", 0)
 
 
+def _note_ledger_write(user: str | None, name: str, res) -> None:
+    """ORW-435: tell the sync ledger an FE-dispatched write landed (it decides whether it bumped beatSeq and whether it falls between turns)."""
+    try:
+        from src import orwell_sync_ledger as _led
+        _led.note_engine_write(user, name, res)
+    except Exception:  # failsoft-ok: ledger bookkeeping is observability-only; the write itself already succeeded
+        pass
+
+
 async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
@@ -518,6 +527,8 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     try:
         try:
             res = await _call_inner(name, args, user=user, timeout=timeout)
+            if name not in engine_read_cache.PURE_READS:
+                _note_ledger_write(user, name, res)  # ORW-435: the single seam every FE-owned engine write passes through
         finally:
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
@@ -1171,6 +1182,20 @@ async def turn_in(expected_beat_seq: int | None = None, idempotency_key: str | N
     if idempotency_key is not None:
         args["idempotencyKey"] = idempotency_key
     return await _call("turnIn", args, user=user)
+
+
+async def nap(hours: float | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None) -> dict:
+    """0148 (the player's nap): the ENGINE moves the clock by the slept span (cut at the evening and at a scheduled event coming due), lives the house unseen,
+    and eases the sleep deficit the competition reads. ``hours`` is the player's own length (0.5-3; the engine rounds/clamps). Returns ``{"ok": false, "reason", "why"}``
+    (no state change) when refused. A mutating lever, so it threads the SAME optional sync-spine fields as ``turn_in`` (CAS + at-most-once)."""
+    args: dict = {}
+    if hours is not None:
+        args["hours"] = hours
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    if idempotency_key is not None:
+        args["idempotencyKey"] = idempotency_key
+    return await _call("nap", args, user=user)
 
 
 async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None) -> dict:
