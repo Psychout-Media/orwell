@@ -1885,10 +1885,15 @@ def _bedtime_clock_note(turn_in_output) -> str:
         lab = st.get("clockLabel") if isinstance(st, dict) else None
         if isinstance(lab, str) and lab.strip():
             from src.zero_clocks import narrator_clock, zero_clocks_on  # ORW-377
+            from routes.chat_helpers import _clock_is_before_house_wake  # ORW-422
+            _early = _clock_is_before_house_wake(lab) or (isinstance(st, dict) and st.get("earlyMorning") is True)
+            _x = (" The player went to bed early, so they wake EARLY, before the house's morning wake-up call: they wake ALONE in the dark early morning, and every houseguest is still asleep. "
+                  "Nobody greets them or comes in, and never write \"the house is up\" or \"everyone is awake\", morning light, breakfast, or any people up and about; voice only the quiet dark and what the result shows. "
+                  "Name the part of the day (early morning), never a clock time.") if _early else ""
             if zero_clocks_on():
-                return (_BEDTIME_DIRECT_NOTE + f" It is now {narrator_clock(lab.strip())} (the house has no clocks: name the part of the day, never a clock time); if it is the small hours or early morning "
+                return (_BEDTIME_DIRECT_NOTE + _x + f" It is now {narrator_clock(lab.strip())} (the house has no clocks: name the part of the day, never a clock time); if it is the small hours or early morning "
                         "it is still the dark with the house asleep - never say morning has come unless that is the part of the day.")
-            return (_BEDTIME_DIRECT_NOTE + f" The engine clock now reads {lab.strip()}: if you name a time use exactly that; if it is before 7am it is still the dark small hours with the house asleep - "
+            return (_BEDTIME_DIRECT_NOTE + _x + f" The engine clock now reads {lab.strip()}: if you name a time use exactly that; if it is before 7am it is still the dark small hours with the house asleep - "
                     "never say morning has come or name any other hour.")
     except Exception:
         pass
@@ -5730,6 +5735,10 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # `turnIn`; DROP the phantom morning before emission and re-ground next turn.
             if chat_helpers._sentence_has_unbacked_morning_claim(part):
                 if not await chat_helpers.screen_streamed_unbacked_morning(owner, part):
+                    continue
+            # ORW-422: "the house is up" / a morning greeting while the engine clock is before the 8am house wake (early bed => wakes alone, house asleep).
+            if chat_helpers._sentence_has_house_awake_claim(part):
+                if not await chat_helpers.screen_streamed_house_awake(owner, part):
                     continue
             # ORW-355: "It's 8:15 in the morning" while the engine clock reads 4:15am - DROP the false clock before emission.
             if chat_helpers._sentence_has_in_the_clock_claim(part):
