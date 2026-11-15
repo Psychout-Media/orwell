@@ -3352,15 +3352,11 @@ def card_missing_story(card: dict, look: bool = False) -> bool:
     return not (isinstance(bio, str) and bio.strip()) or not (isinstance(ident, str) and ident.strip())
 
 
-def nameless_floor_biography(card: dict) -> bool:
-    """ORW-438: True for a card the writer has not finished (not authored, or a required look field missing) whose
-    biography never uses the card's first name: genesis's name-free first draft, which must not be shown."""
-    bio = card.get("biography")
-    first = _first_name(card)
-    if not isinstance(bio, str) or not first:
-        return False
-    unfinished = card.get("authored") is not True or bool(look_fields_missing(card.get("physicalCharacteristics")))
-    return unfinished and not re.search(r"\b%s\b" % re.escape(first), bio, re.I)
+def is_genesis_draft_biography(card: dict) -> bool:
+    """ORW-438: True only when the engine records that this card's biography is still genesis's nameless first draft
+    (`biographyDraft`, set at the genesis commit and cleared when the writer's biography lands). Provenance, never a
+    guess from the text, so a real biography is never hidden; a save from before the flag simply lacks it."""
+    return isinstance(card, dict) and card.get("biographyDraft") is True and isinstance(card.get("biography"), str)
 
 
 def unauthored_ids(user: Optional[str], roster_cards: list, *, include_look: bool = False) -> list:

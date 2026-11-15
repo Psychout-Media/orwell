@@ -804,10 +804,10 @@ _PERSONA_FIELDS = (
 def _public_persona(card: dict) -> dict:
     out = {k: card.get(k) for k in _PERSONA_FIELDS if card.get(k) not in (None, "")}
     # ORW-438: genesis writes its first biography without the houseguest's name ("Runs compliance for a regional credit
-    # union..."). Until the authoring writer has finished the card, that fragment is not shown; the card keeps its
-    # identity line and structured facts, and the real biography appears when the backfill lands.
+    # union..."). While the engine marks the stored biography as that draft (`biographyDraft`), it is not shown; the
+    # card keeps its identity line and structured facts, and the real biography appears when the writer's lands.
     bio = out.get("biography")
-    if isinstance(bio, str) and orwell_cast_authoring.nameless_floor_biography(card):
+    if isinstance(bio, str) and orwell_cast_authoring.is_genesis_draft_biography(card):
         out.pop("biography", None)
     return out
 

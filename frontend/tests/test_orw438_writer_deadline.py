@@ -112,19 +112,25 @@ def test_the_authoring_slot_is_free_at_the_ceiling_so_the_next_houseguest_starts
     assert elapsed < CLEANUP_S
 
 
-# ---- what the player sees ----
-def test_a_card_the_writer_has_not_finished_hides_genesis_nameless_first_draft():
-    card = {"id": "npc:3", "name": "Samir Nesbitt", "authored": True,
-            "biography": "Runs compliance for a regional credit union and sings in a choir.",
-            "identityConcept": "A soft-spoken apprentice.", "vocation": "funeral service apprentice",
-            "physicalCharacteristics": {"hair": "short"}}
+# ---- what the player sees: decided by provenance, never by the text ----
+DRAFT = "Runs compliance for a regional credit union and sings in a choir."
+
+
+def test_the_draft_is_hidden_only_while_the_engine_marks_it_as_genesis_draft():
+    card = {"id": "npc:3", "name": "Samir Nesbitt", "authored": True, "biography": DRAFT, "biographyDraft": True,
+            "vocation": "funeral service apprentice", "physicalCharacteristics": {"hair": "short"}}
     persona = R._public_persona(card)
     assert "biography" not in persona and persona["vocation"] == "funeral service apprentice"
 
 
-def test_a_finished_card_and_a_named_biography_are_shown():
-    pc = {"hair": "short", "wardrobe": ["a", "b"], "onCamera": "kitchen", "photoHair": "short"}
-    done = {"id": "npc:3", "name": "Samir Nesbitt", "authored": True, "biography": "Runs compliance for a credit union.", "physicalCharacteristics": pc}
-    assert R._public_persona(done)["biography"].startswith("Runs compliance")
-    named = {"id": "npc:3", "name": "Samir Nesbitt", "authored": False, "biography": "Samir grew up in Converse. He sings."}
-    assert "biography" in R._public_persona(named)
+def test_a_finished_card_shows_its_biography_whatever_it_says():
+    for text in (DRAFT, "Loves puzzles.", "Spent a decade somewhere."):
+        done = {"id": "npc:3", "name": "Samir Nesbitt", "authored": True, "biography": text}  # marker cleared by the writer
+        assert R._public_persona(done)["biography"] == text
+
+
+def test_honorific_and_initial_names_and_legacy_cards_are_never_hidden():
+    for name in ("Dr. Mara Voss", "J.T. Baker", "Alex Rowe"):
+        legacy = {"id": "npc:3", "name": name, "authored": False, "biography": "Loves puzzles."}  # an older save: no marker
+        assert R._public_persona(legacy)["biography"] == "Loves puzzles."
+    assert ca.is_genesis_draft_biography({"biographyDraft": False, "biography": "x"}) is False

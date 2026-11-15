@@ -160,6 +160,8 @@ export interface HouseguestCard {
    * the still-floor cards. It is NOT hidden content and is safe on the player-facing roster.
    */
   authored?: boolean;
+  /** ORW-438: true while `biography` is genesis's nameless first draft (the writer has not replaced it yet). Public, Vault-free. */
+  biographyDraft?: boolean;
   /**
    * ORW-381: how this houseguest is cast and reads on camera, `{ label, read }` ("the charmer"). PUBLIC,
    * Vault-free, presentation only (no mechanic reads it). Absent on a save from before ORW-381.
