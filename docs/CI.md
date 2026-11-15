@@ -18,6 +18,16 @@ It is `ci/fast-checks.sh`. Not every check in it is repeated in a slower lane: t
 
 **Shard counts** (the lane is as long as its longest leg): `test-unit` 8 legs (it collects the coverage too, see below; balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.
 
+## Browser lane: two workers per leg (ORW-414), and the ORW-413 parts that were dropped
+
+The `fe-browser-tests` legs run `pytest -m browser -n 2 --dist loadfile`. ORW-414 (#2714) gave every browser stack a kernel-assigned free port and its own data directory, and its body said the lane "needs `-n 2` in ci.yml (ORW-413)"; ORW-413's two PRs never added it, so the lane stayed serial (found by the live check of 2026-11-15 11:30 MST). `--dist loadfile` keeps one file's tests on one worker, so a module-scoped stack boots once per file. The A41 skip guard (0 skips) works under xdist (checked locally on three files, 6 passed, 0 skipped).
+
+Dropped from ORW-413, with the reason (the card said to build them or record why not):
+
+- **Build `dist/` once and download it.** Left out on purpose in #2704, and the evidence agrees: in run 43745734739 the build step took 0 to 1 s in the browser legs and 5 to 7 s in the others, about what an artifact upload plus download costs. Nothing to win.
+- **Finer path filters (CI-only, portrait-only front end).** A change to `ci/`, `.github/workflows/` or `.github/actions/` counts in every filter on purpose (ORW-218 review): those files are steps of every job, so a CI-only change can break any lane. A "portrait-only" filter needs a per-file map of which front-end tests read which files; that map is exactly what failed three times (the main breaks of #2457 and #2681, ORW-416), and `test_ci_fe_reads_repo_filter.py` exists to keep the existing coarse lists honest. The docs-only and front-end-tests-only rules that already exist stay.
+- **Related-tests selection on PRs and a `full-ci` label.** The merge queue (on since 2026-11-15 10:53 MST) runs the full suite on every `merge_group`, so main is never under-tested, but selection would still let a PR go green and then fail in the queue, which costs a full queue round. Measured: the 544 s PR run 43745734739 was set by one browser leg (519 s); the unit legs took 253 s and 241 s, so selecting unit tests would not have shortened it. The browser lane cannot be selected by changed module (the reads are by file path, see above). With nothing narrowed, a `full-ci` label would have nothing to force. Reopen it only if a measured PR run is again set by a lane that selection can shorten.
+
 ## The flaky-test rule (ORW-229)
 
 A flaky test is one that fails and then passes on the same code. Flakes waste everyone's time and teach people to ignore red, so we handle them the same way every time. Kevin approved this rule on 2026-11-06 (Plane ORW-229).
