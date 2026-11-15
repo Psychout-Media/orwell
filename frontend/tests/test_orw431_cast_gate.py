@@ -346,6 +346,13 @@ def test_spelled_out_and_numeric_year_counts_agree():
     assert G.background_codes({"background": "ran a kitchen for eight years", "biography": "He spent 9 years on the line."}) == ["background-years"]
 
 
+def test_hyphenated_compound_year_counts_are_read_whole():
+    from src import orwell_cast_gate as G
+    assert G._year_counts("thirty-five years and twenty-one years and 8 years and ninety years") == {"35", "21", "8", "90"}
+    assert G.background_codes({"background": "ran a kitchen for thirty-five years", "biography": "He spent 35 years on the line."}) == []
+    assert G.background_codes({"background": "ran a kitchen for thirty-five years", "biography": "He spent five years on the line."}) == ["background-years"]
+
+
 def test_oversize_or_many_sentence_biography_is_reported_non_blocking():
     from src import orwell_cast_gate as G
     base = {"id": "npc:1", "name": "Samir Nesbitt", "genderPresentation": "man", "age": 23, "identityConcept": "a quiet welder who reads a room first",
