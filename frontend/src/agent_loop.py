@@ -6449,7 +6449,7 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
 
 
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
-                             nudges_fired, auto_backfills) -> None:
+                             nudges_fired, auto_backfills, turn_token=None) -> None:
     """0065 Part D — emit ONE Vault-free sync-ledger entry for a finished live-game turn.
 
     Captures the closed-set sync activity of the turn and hands it to `orwell_sync_ledger.record_turn`
@@ -6494,6 +6494,7 @@ def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before,
             desync_detected=desync_seen,
             stale_rejections=stale_this_turn,
             idempotency_hits=0,
+            turn_token=turn_token,
         )
     except Exception as _led_err:
         try:
@@ -7590,12 +7591,19 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
             _ttfw_rec, _ttfw_tok = _ttfw.begin_turn(kwargs.get("session_id"))
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
+    _ledger_tokens: list = []
     try:
-        async for _evt in _stream_agent_loop_impl(*args, **kwargs):
+        async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
+            try:
+                from src import orwell_sync_ledger as _led_end
+                _led_end.end_turn(kwargs.get("owner"), _tok)
+            except Exception as _e:  # failsoft-ok: bookkeeping only; the next casting park / record_turn also clears the window
+                logger.debug("ORW-435: end_turn failed: %s", _e)
         if _ttfw_rec is not None:
             _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
@@ -7648,6 +7656,7 @@ async def _stream_agent_loop_impl(
     game_mode=False,  # False | True/"game" (live season) | "casting" (framed pre-game) — P3
     tool_policy: Optional[ToolPolicy] = None,
     _is_teacher_run: bool = False,
+    _ledger_turn_tokens: Optional[list] = None,  # ORW-435: the public wrapper's list; the turn's sync-ledger window token is appended so the wrapper's `finally` can always close it
 ) -> AsyncGenerator[str, None]:
     """Streaming agent loop generator.
 
@@ -8339,6 +8348,7 @@ async def _stream_agent_loop_impl(
     # reads of process-local state — never any new tracking. Fail-open: a hiccup leaves them None.
     _ledger_beat_seq_before = None
     _ledger_stale_before = 0
+    _ledger_turn_token = None
     # Finding 6/7 (#1664): the S1b/S1c int-baseline comparison needs a turn-start beatSeq baseline for
     # EVERY live game — owner=None (auth-off single-tenant, the owner's actual posture) included, so a
     # SILENT advance is not miscounted as an unconverted stall. `last_beat_seq` keys via `_beat_seq_key`,
@@ -8349,6 +8359,13 @@ async def _stream_agent_loop_impl(
         try:
             from routes import chat_helpers as _ch_baseline
             _ledger_beat_seq_before = _ch_baseline.last_beat_seq(owner)
+        except Exception:
+            pass
+        try:
+            from src import orwell_sync_ledger as _led_begin
+            _ledger_turn_token = _led_begin.begin_turn(owner)  # ORW-435: writes from here to record_turn are inside this turn's own beat movement
+            if _ledger_turn_tokens is not None:
+                _ledger_turn_tokens.append(_ledger_turn_token)
         except Exception:
             pass
     if _is_live_game and owner:
@@ -11900,6 +11917,7 @@ async def _stream_agent_loop_impl(
             tool_events=tool_events,
             beat_seq_before=_ledger_beat_seq_before,
             stale_before=_ledger_stale_before,
+            turn_token=_ledger_turn_token,
             nudges_fired=(_turn_advance_nudges + _turn_approach_nudges
                           + _turn_narrate_nudges + _turn_reapproach_nudges + _intent_nudge_count),
             auto_backfills=(_turn_record_nudges + _turn_deal_nudges + _turn_move_nudges
