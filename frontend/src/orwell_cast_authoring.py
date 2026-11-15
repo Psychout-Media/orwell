@@ -1235,6 +1235,7 @@ _STORY_PROBLEM_TEXT = {
     "story-feature": "the biography names a physical feature (tooth gap, tattoo, glasses, scar, birthmark, freckles...) that the look block does not have; remove it or add it to the look",
     "story-show-name": "the show is called Orwell; never write Big Brother",
     "story-name": "the biography is about someone other than the houseguest: write it about the houseguest by the exact name in the skeleton (first name or full name), never another first name as its subject",
+    "story-no-biography": "the biography is missing or too short: write a presentable biography of at least two sentences about this houseguest",
     "story-cast-name": "the biography is about another houseguest on the cast: write it about this houseguest by the exact name in the skeleton",
 }
 _LOOK_PROBLEM_TEXT.update(_STORY_PROBLEM_TEXT)
@@ -1254,7 +1255,7 @@ _OTHER_PERSON_RE = re.compile(
     r"boyfriend|girlfriend|ex|daughter|son|kids?|child|children|aunt|uncle|cousin|niece|nephew|grandmother|"
     r"grandfather|grandma|grandpa|grandparents?|parents?|twin|friend|best friend|roommate|neighbou?r|boss|"
     r"manager|coach|mentor|teacher|professor|student|clients?|customers?|patients?|crew|team|colleagues?|"
-    r"coworkers?|rivals?|family|people|someone|girls|boys|men|women|guys)\b", re.I)
+    r"coworkers?|rivals?|family|someone|girls|boys|men|women|guys)\b", re.I)
 _NAMED_PERSON_RE = re.compile(r"(?<!\bthe )(?<!\bThe )\b[A-Z][a-z]{2,}\b")
 _SENT_SPLIT_RE = re.compile(r"(?<=[.!?])(\s+)")
 _PRON_RE = re.compile(r"\b(she|he|they|her|hers|herself|him|his|himself|them|their|theirs|themself|themselves)\b", re.I)
@@ -1533,6 +1534,48 @@ def story_problems(profile: dict, npc: dict, cast=None) -> list:
     if _BB_RE.search(bio):
         out.append("story-show-name")
     out += story_name_codes(bio, npc, cast)
+    return out
+
+
+
+# ── ORW-430: the one final check, run after ALL repairs ────────────────────────────────────────────────
+# `card_consistency` is the single place the accept path asks "is this card consistent". Codes only, never text.
+# Repaired before this runs (so a code here that is not a hole means the repair could not settle it):
+#   story-name, story-cast-name (name swapped for the card's), story-pronoun, story-age, story-feature, story-show-name
+#   (all mended by repair_story_text, for the biography and the identityConcept).
+# Only reported: story-no-biography (retried once; if still missing the card is NOT written, so it stays unauthored and
+# the existing backfill picks it up; RED soft failure), look-missing-<field> (wardrobe/onCamera/photoHair come from the
+# photo-sheet pass, which may still fill them; reported, RED at the end of the run if still missing, and the card is
+# listed by `unauthored_ids` so the backfill takes it again), identity-missing (genesis owns the identity; the writer cannot
+# make one and no filler is invented), identity-* (an identity problem the repair could not settle).
+_IDENTITY_MIN_CHARS = 20
+_REQUIRED_LOOK_FIELDS = ("wardrobe", "onCamera", "photoHair")
+
+
+def look_fields_missing(pc_a, pc_b=None) -> list:
+    """The required photo-sheet fields (wardrobe, onCamera, photoHair) that neither look block carries."""
+    pcs = [x for x in (pc_a, pc_b) if isinstance(x, dict)]
+    return [f for f in _REQUIRED_LOOK_FIELDS if not any(x.get(f) not in (None, "", [], {}) for x in pcs)]
+_BIO_FINAL_MIN_CHARS = 40
+
+
+def card_consistency(profile: dict, npc: dict, cast=None) -> list:
+    out = []
+    bio = (profile or {}).get("biography")
+    if not isinstance(bio, str) or len(bio.strip()) < _BIO_FINAL_MIN_CHARS:  # a repair may trim a floor-clearing text
+        out.append("story-no-biography")
+    out += story_problems(profile, npc, cast)
+    ident = (profile or {}).get("identityConcept") or (npc or {}).get("identityConcept")
+    if not isinstance(ident, str) or len(ident.strip()) < _IDENTITY_MIN_CHARS:
+        out.append("identity-missing")
+    else:
+        if pronoun_conflict_sentences(ident, npc):
+            out.append("identity-pronoun")
+        if story_age_conflict(ident, npc):
+            out.append("identity-age")
+        out += ["identity-" + c.replace("story-", "") for c in story_name_codes(ident, npc, cast)]
+    out += ["look-missing-" + f for f in look_fields_missing((profile or {}).get("physicalCharacteristics"),
+                                                              (npc or {}).get("physicalCharacteristics"))]
     return out
 
 
@@ -2554,7 +2597,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return 0
             # ORW-360: the look accept path. One strict retry naming the problem(s); then per-axis fallbacks.
             # ORW-388: the biography's own story checks (pronoun, age, look feature, show name) ride the same single strict retry.
-            problems = look_problems(profile, npc) + story_problems(profile, npc, cast)
+            _no_bio = lambda p: [] if _biography_meets_floor(str((p or {}).get("biography") or "").strip()) else ["story-no-biography"]
+            problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
                 _spend_attempt(ukey, hid)
@@ -2567,7 +2611,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     logger.warning(f"[cast-authoring] look-check retry call failed for {hid}: {e}")
                     look_profile = None
                 if (look_profile is not None and not look_problems(look_profile, npc)
-                        and not story_problems(look_profile, npc, cast)
+                        and not story_problems(look_profile, npc, cast) and not _no_bio(look_profile)
                         and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
                     profile = look_profile
                 else:
@@ -2580,6 +2624,23 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             repaired = repair_story(profile, npc)
             if repaired:
                 logger.warning(f"[cast-authoring] repaired the story text of {hid} ({', '.join(repaired)}) — story-repair")
+            # ORW-430: the final check, after every repair. A card with no usable biography is NEVER written as authored:
+            # it stays on the floor (unauthored_ids picks it up again, bounded by the attempt ledger) and the fault is RED.
+            final = card_consistency(profile, npc, cast)
+            if final:
+                logger.warning(f"[cast-authoring] final consistency check for {hid}: {', '.join(final)}")
+            if "story-no-biography" in final:
+                floor_below += 1
+                try:
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "cast-authoring:biography-missing",
+                        f"authoring for {hid} produced no usable biography after the strict retry — the card is left "
+                        "unauthored so the background retry takes it again",
+                        corrected="left-unauthored", user=user, houseguest=hid)
+                except Exception:  # pragma: no cover - the health record must never break authoring
+                    pass
+                return 0
             # #1057: the write-back is SERIALIZED + degradation-retried (it must not run concurrently
             # against the orchestrator integrity checkpoint).
             res = await _write_with_retries(profile, hid)
@@ -2612,6 +2673,18 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
+    for _hid, _card in authored_cards.items():
+        _miss = look_fields_missing(_card.get("physicalCharacteristics"))
+        if _miss:
+            logger.warning(f"[cast-authoring] {_hid} finished authoring without {', '.join(_miss)} — look-fields-missing")
+            try:
+                from src import log_rings
+                log_rings.record_soft_failure(
+                    "cast-authoring:look-fields-missing",
+                    f"{_hid} finished authoring without {', '.join(_miss)}; the roster backfill takes the card again",
+                    corrected="left-for-backfill", user=user, houseguest=_hid)
+            except Exception:  # pragma: no cover - the health record must never break authoring
+                pass
     if on_authored is not None:
         for _hid in authored_ids:
             try:
@@ -3171,6 +3244,19 @@ def _safe_user(user: Optional[str]) -> str:
     return str(user) if user else "default"
 
 
+def card_missing_story(card: dict) -> bool:
+    """ORW-430: a card marked authored whose public biography or identity is empty, or that lacks a required photo-sheet field (the game-start coherence repair
+    clears a contradicting biography and nothing refilled it) is still unfinished: the background retry takes it again."""
+    pc = card.get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return False  # a thin roster stub says nothing about the story; a full card always carries its look block
+    if look_fields_missing(pc):
+        return True
+    bio = card.get("biography")
+    ident = card.get("identityConcept")
+    return not (isinstance(bio, str) and bio.strip()) or not (isinstance(ident, str) and ident.strip())
+
+
 def unauthored_ids(user: Optional[str], roster_cards: list) -> list:
     """ACTIVE NPC ids on the roster still on the DETERMINISTIC FLOOR (deep profile not authored).
 
@@ -3188,7 +3274,7 @@ def unauthored_ids(user: Optional[str], roster_cards: list) -> list:
         if card.get("isPlayer") or card.get("id") == "player":
             continue  # the player's profile is human-authored — NEVER deep-authored here
         hid = card.get("id")
-        if hid and card.get("authored") is not True:
+        if hid and (card.get("authored") is not True or card_missing_story(card)):
             out.append(str(hid))
     return out
 
