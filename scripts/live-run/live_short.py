@@ -151,7 +151,8 @@ class Chat:
             self.page.wait_for_timeout(2000)
             bs = self.page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
             busy = self.page.evaluate(BUSY_JS)
-            stable = stable + 1 if (sig == prev and not busy) else 0
+            arrived = len(bs) > before  # a reply that has not started yet (the casting finalize builds the whole season first) is not "settled"
+            stable = stable + 1 if (sig == prev and not busy and arrived) else 0
             prev = sig
             if stable >= 3: break
         bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
