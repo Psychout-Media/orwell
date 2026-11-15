@@ -35,7 +35,7 @@ import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTe
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
 import { computePlayerReceipts, type Receipt } from "../../engine/receipts";
-import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent } from "../../engine/daySchedule";
+import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, beatFeltHours, todaysEvent, dueTomorrow } from "../../engine/daySchedule";
 /** ORW-262: an eviction night / finale reveals over ~5 steps; its ~2h budget is spread across them for a played game. */
 const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
@@ -14864,7 +14864,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire

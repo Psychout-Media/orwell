@@ -159,6 +159,18 @@ export function minutesUntilDue(live: LiveSeasonState | null | undefined): numbe
 
 
 /**
+ * ORW-363 (Ryne, playtest 11-15: "Those tools should be a guide to player on what to expect. Next."): is the next milestone on a LATER day than now - behind the night that
+ * has not passed yet? The HUD says "tomorrow afternoon" then, and "this afternoon" otherwise. The same rule `minutesUntilDue` / `milestoneDue` use. `false` with no milestone or
+ * no clock. A pure read - never mutates, never draws rng.
+ */
+export function dueTomorrow(live: LiveSeasonState | null | undefined): boolean {
+  const m = nextMilestone(live);
+  if (!m || live?.timeOfDay === undefined) return false;
+  const hour = live.nightDepth ?? WAKE_HOUR;
+  return nightGatePendingForDue(live) && hour < DAY_END_HOUR - 0.01;
+}
+
+/**
  * ORW-258: a pending night gate defers an event's due-ness ONLY for a game a person is playing (`playedGame`) - plus the premiere's own week-1 HOH rule, which predates it. A headless driver (calibration sims,
  * UAT) never announces a message, so for it "due" stays exactly what it was: the seeded season is byte-identical.
  */
