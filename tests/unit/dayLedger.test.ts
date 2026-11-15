@@ -220,7 +220,10 @@ describe("ORW-387 - a provider error is never a day's memory", () => {
     process.env.ORWELL_DAY_CONDENSE = "1";
     const { session } = rig(23, true);
     closeNight(session);
+    const textOf = () => session.dayLedger().find((d) => d.tier === "day" && d.day === 1)!.text;
+    const before = textOf();
     expect(session.recordDaySummary({ day: 1, text: ERR }).accepted).toBe(false);
+    expect(textOf(), "a refused error leaves the day entry exactly as it was").toBe(before);
     const live = (session as unknown as { live: { dayLedger: { day: number; tier: string; text?: string }[] } }).live;
     live.dayLedger.find((d) => d.tier === "day" && d.day === 1)!.text = ERR; // a save written before the fix
     expect(session.recordDaySummary({ day: 1, text: "The real day." }).accepted).toBe(true);

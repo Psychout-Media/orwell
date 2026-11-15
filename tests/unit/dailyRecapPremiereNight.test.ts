@@ -3,7 +3,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 
 /**
- * ORW-382 (Ryne, live playtest 11-15: no "day in review" when he went to bed on Day 1): the premiere night has no ceremony or deal, so the recap carried NOTHING and the narrator rightly skipped it.
+ * ORW-382 (live playtest 11-15: the player who went to bed on Day 1 got no "day in review"): the premiere night has no ceremony or deal, so the recap carried NOTHING and the narrator rightly skipped it.
  * The review is now also built from the scenes the player WITNESSED (never a hidden event). Roles only.
  */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
@@ -23,6 +23,8 @@ describe("ORW-382 - every bedtime has a day in review, the premiere night includ
     expect(v.dailyRecap?.highlights).toEqual([]); // no ceremony or deal on the premiere
     expect((v.dailyRecap?.yourDay ?? []).length, "the review has the player's own witnessed scenes").toBeGreaterThan(0);
     expect(v.dailyRecap!.yourDay!.length).toBeLessThanOrEqual(5);
+    const seen = (s.record.events() as { hidden: boolean; witnessSet: string[]; content: string }[]).filter((e) => !e.hidden && e.witnessSet.includes(s.getGameState().player.id));
+    for (const line of v.dailyRecap!.yourDay!) expect(seen.some((e) => e.content.trim().startsWith(line.slice(0, 40))), `"${line}" comes from a witnessed, non-hidden event`).toBe(true);
     for (const line of v.dailyRecap!.yourDay!) expect(line, "no provenance bookkeeping reaches the review").not.toMatch(/^surfaced to player via|overheard:|told-by:/);
   });
 

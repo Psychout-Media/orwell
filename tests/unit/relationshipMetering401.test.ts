@@ -27,8 +27,7 @@ describe("ORW-401 relationship metering (played game)", () => {
     }
     expect(prev).toBeLessThan(0.95);
     expect(steps[0]!).toBeGreaterThan(0);
-    expect(steps[9]!).toBeLessThan(steps[3]!);
-    expect(steps[3]!).toBeLessThan(steps[1]!);
+    for (let i = 1; i < steps.length; i++) expect(steps[i]!, `scene ${i + 1} moves it less than scene ${i}`).toBeLessThan(steps[i - 1]!);
     expect(steps[29]!).toBeGreaterThan(0); // no hard cap: the scene still moves it a little
   });
 
