@@ -364,7 +364,11 @@ async def _post_tool_once(path: str, name: str, args: dict | None, user: str | N
     return data["result"]
 
 
-async def _post_tool(path: str, name: str, args: dict | None, user: str | None, timeout: float | None = None) -> dict:
+#: ORW-439: a QUIET (diagnostic) call is bounded by its own timeout; this is the default when the caller gives none.
+_QUIET_TIMEOUT_S = 2.0
+
+
+async def _post_tool(path: str, name: str, args: dict | None, user: str | None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """POST one tool call to the engine; shared by the player and admin channels.
 
     Raises :class:`EngineToolError` when the engine answers with a structured ``{"error": ...}`` body
@@ -383,6 +387,11 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
+    if quiet:
+        # ORW-439: a diagnostic read. ONE attempt, bounded by its own timeout, then raise: no retry, no restart wait, no reconnecting
+        # marker, no recorded/cleared banner error and no integrity-refusal bookkeeping - the player must never see an engine-error
+        # banner for (or lose a real error to) a call made only to explain a counter.
+        return await _post_tool_once(path, name, args, user, timeout if timeout is not None else _QUIET_TIMEOUT_S)
     # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
     # Other wider-timeout pollers keep retrying every transient kind.
     tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
@@ -507,7 +516,7 @@ def _note_ledger_write(user: str | None, name: str, res) -> None:
         pass
 
 
-async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
+async def _call(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """G1b: every engine call flows through the I/O tap — what was written and
     what came back (or the failure) — feeding the /admin/status viewer.
 
@@ -526,7 +535,8 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
         _DISCLOSURE_TURN[_disclosure_key(user)] = True  # N-17: an engine disclosure was attempted this turn (set before the call so a mid-turn stream sees it)
     try:
         try:
-            res = await _call_inner(name, args, user=user, timeout=timeout)
+            res = await (_call_inner(name, args, user=user, timeout=timeout, quiet=True) if quiet
+                         else _call_inner(name, args, user=user, timeout=timeout))
             if name not in engine_read_cache.PURE_READS:
                 _note_ledger_write(user, name, res)  # ORW-435: the single seam every FE-owned engine write passes through
         finally:
@@ -550,10 +560,12 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
         raise
 
 
-async def _call_inner(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None) -> dict:
+async def _call_inner(name: str, args: dict | None = None, user: str | None = None, timeout: float | None = None, *, quiet: bool = False) -> dict:
     """Invoke a player-channel tool over the engine's HTTP MCP transport, for `user`'s sandbox.
     `timeout` overrides the default for latency-sensitive FRAMING calls (C18: a hung engine must
     fail a turn's framing in ~2s, not stall it for the full default)."""
+    if quiet:
+        return await _post_tool("/player/call", name, args, user, timeout=timeout, quiet=True)
     return await _post_tool("/player/call", name, args, user, timeout=timeout)
 
 
@@ -1083,8 +1095,9 @@ async def beat_log(since_beat_seq: int, user: str | None = None, timeout: float 
 
     Returns ``{ beatSeq, bumps:[{seq, tool, at}], truncated }``: tool NAMES, counter values and timestamps only (the engine's diagnostic
     ring; in memory there, never saved). A pure read: it commits and bumps nothing. An engine without the tool raises
-    :class:`EngineToolError`; the caller decides what that means (the sync ledger leaves its alarm as it was)."""
-    return await _call("beatLog", {"sinceBeatSeq": int(since_beat_seq)}, user=user, timeout=timeout)
+    :class:`EngineToolError`; the caller decides what that means (the sync ledger leaves its alarm as it was). QUIET: one attempt, no
+    retry or restart wait, and it never records, clears or marks anything the player's health banner reads."""
+    return await _call("beatLog", {"sinceBeatSeq": int(since_beat_seq)}, user=user, timeout=timeout, quiet=True)
 
 
 async def get_visible_state(user: str | None = None) -> dict:

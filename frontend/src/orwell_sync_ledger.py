@@ -186,7 +186,14 @@ _UNKNOWN_LOG_EVERY_S = 300.0
 # Used only to explain a beatSeq gap: a bump caused by a tool the FE itself dispatched in the window is a COUNTING miss (a wrong list,
 # a tool that bumps twice, a commit that lands after the call returned), not an unrecorded state change. Per user, tool NAME -> calls;
 # drained at `record_turn` with the other between-turn buffers. Names only; bounded.
+# SPAN: exactly the writes between the previous ledgered turn's end and this turn's start - the same span as the beatSeq gap it is
+# compared against (`_LAST_BEAT_AFTER` -> this turn's beatSeqBefore). It is therefore reset everywhere the per-window counters
+# (`_PENDING_FE_WRITES`) are reset: consumed at `record_turn`, dropped by `clear()` and `park_pending_unledgered_turn()`, and put
+# back with them when a durable write fails. Writes inside a turn (`_IN_TURN`) are never recorded here.
 _WINDOW_DISPATCHED: dict[str, dict[str, int]] = {}
+#: A tool may legitimately commit twice in ONE call (e.g. a write plus its follow-up commit); more bumps than this per dispatch this
+#: FE made are not explained by this FE's own calls, so the gap stays a red alarm.
+MAX_BUMPS_PER_DISPATCH = 2
 _OUTSIDE_A_TOOL_CALL = "outside-a-tool-call"  # the engine's cause label for a commit made with no tool call running
 _MAX_GAP_BUMPS = 16
 
@@ -552,6 +559,8 @@ def park_pending_unledgered_turn(user: str | None) -> None:
         _drain_pending_stale(k)
         _drain_pending_fe_writes(k)
         with _LOCK:
+            _WINDOW_DISPATCHED.pop(k, None)  # ORW-439: same span as the FE-write count it sits beside
+        with _LOCK:
             if belts:
                 pb = _PARKED_BELTS.setdefault(k, {})
                 for name, count in belts.items():
@@ -682,8 +691,8 @@ def peek_unexplained_gap(user: str | None, *, beat_seq_before: Any, stale_reject
     """ORW-439 - would `record_turn` raise the dropped-fold alarm for this turn? Pure peek: drains nothing, records nothing.
 
     The ledger is synchronous, but asking the engine WHY the counter moved is an async network call, so the turn path asks here first
-    and does the call itself. Returns ``{since, before, gap, dispatched}`` (``dispatched``: tool name -> calls this FE made between
-    turns) when the alarm would fire, else None."""
+    and does the call itself. Returns ``{since, before, gap, dispatched, counted, counted_writes}`` (``dispatched``: tool name -> calls this FE made between
+    turns; ``counted``: the allowance `_unexplained_gap` subtracted; ``counted_writes``: the FE-write part of it) when the alarm would fire, else None."""
     try:
         k = _key(user)
         before = _clean_int(beat_seq_before)
@@ -695,7 +704,8 @@ def peek_unexplained_gap(user: str | None, *, beat_seq_before: Any, stale_reject
         gap = _unexplained_gap(last_after, before, bool(desync_detected), stale, fe)
         if not gap:
             return None
-        return {"since": last_after, "before": before, "gap": before - last_after, "dispatched": dispatched}
+        return {"since": last_after, "before": before, "gap": before - last_after, "dispatched": dispatched,
+                "counted": stale + fe, "counted_writes": fe}
     except Exception:  # failsoft-ok: observability-only peek; None leaves the alarm exactly as it was
         return None
 
@@ -722,15 +732,37 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
         tools[b["tool"]] = tools.get(b["tool"], 0) + 1
     dispatched = info.get("dispatched") if isinstance(info.get("dispatched"), dict) else {}
     complete = beat_log.get("truncated") is False and len(bumps) == before - since
-    foreign = sorted(t for t in tools if t == _OUTSIDE_A_TOOL_CALL or t not in dispatched)
-    if complete and bumps and not foreign:
+    # The rule (deliberately conservative). Every tool T in the gap must be (a) NOT one the ledger already counts, (b) dispatched by
+    # this FE in the window at least once, (c) within MAX_BUMPS_PER_DISPATCH bumps per dispatch. Bumps of counted tools are only
+    # tolerated up to what the ledger counted (`counted_writes`), and the ledger's allowance plus the explained bumps must close the gap.
+    problems: list[str] = []
+    explained = 0
+    counted_bumps = 0
+    for t, n in sorted(tools.items()):
+        calls = _clean_int(dispatched.get(t))
+        if t in BUMPING_WRITES:
+            counted_bumps += n
+        elif t == _OUTSIDE_A_TOOL_CALL or calls <= 0:
+            problems.append(f"{t} x{n} (not dispatched by this FE in the window)")
+        elif n > calls * MAX_BUMPS_PER_DISPATCH:
+            problems.append(f"{t} x{n} from {calls} call(s) (more than {MAX_BUMPS_PER_DISPATCH} per call)")
+        else:
+            explained += n
+    if counted_bumps > _clean_int(info.get("counted_writes")):
+        problems.append(f"counted tool(s) bumped {counted_bumps}, the ledger counted {_clean_int(info.get('counted_writes'))}")
+    if _clean_int(info.get("counted")) + explained < before - since:
+        problems.append("the bumps the ledger counted plus the explained ones do not cover the gap")
+    if complete and bumps and not problems:
         kind, note = "counting-miss", ""
     else:
         kind = "unexplained"
         note = ("the engine's log does not reach back that far" if beat_log.get("truncated") is not False
                 else "the engine's log is missing bumps in the gap" if not complete
-                else "bump(s) not caused by a tool this FE dispatched in the window: " + ", ".join(foreign))
-    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools, "note": note}
+                else "not explained by this FE's own calls: " + "; ".join(problems))
+    tools_out = {t: n for t, n in tools.items() if t not in BUMPING_WRITES}
+    calls_out = {t: _clean_int(dispatched.get(t)) for t in tools_out}
+    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools_out if kind == "counting-miss" else tools,
+            "calls": calls_out, "note": note}
 
 
 def _describe_causes(expl: dict) -> str:
@@ -747,7 +779,7 @@ def _clean_gap_explanation(v: Any) -> dict | None:
         if isinstance(b, dict):
             names = _clean_names([b.get("tool")])
             bumps.append({"seq": _clean_int(b.get("seq")), "tool": names[0] if names else "?"})
-    return {"kind": v["kind"], "bumps": bumps, "tools": _clean_belt_map(v.get("tools"))}
+    return {"kind": v["kind"], "bumps": bumps, "tools": _clean_belt_map(v.get("tools")), "calls": _clean_belt_map(v.get("calls"))}
 
 
 def record_turn(
@@ -791,7 +823,7 @@ def record_turn(
         drained_forced = _drain_pending_forced(k)
         drained_fe_writes = _drain_pending_fe_writes(k)
         with _LOCK:
-            _WINDOW_DISPATCHED.pop(k, None)  # ORW-439: the between-turn dispatch record is consumed with the other between-turn buffers
+            drained_dispatch = _WINDOW_DISPATCHED.pop(k, None)  # ORW-439: the between-turn dispatch record is consumed with the other between-turn buffers
         expl = _clean_gap_explanation(gap_explanation)
         merged_belts = _clean_belt_map(belts_fired)
         for name, count in drained_belts.items():
@@ -853,7 +885,7 @@ def record_turn(
                 # one WARNING names the tool(s) and how many bumps each, and the entry carries it so a developer sees which list to fix.
                 entry["gapExplanation"] = expl
                 logger.warning("[orwell] sync-ledger: counting miss - beatSeq moved %d between turns, all from tools this FE dispatched "
-                               "but did not count: %s", gap, ", ".join(f"{t} x{n}" for t, n in sorted(expl["tools"].items())))
+                               "but does not count (fix the BUMPING_WRITES / NON_BUMPING_WRITES list or the tool): %s", gap, "; ".join(f"{t}: {n} bumps from {expl.get('calls', {}).get(t, 0)} call(s)" for t, n in sorted(expl["tools"].items())))
             else:
                 if expl is not None:
                     entry["gapExplanation"] = expl
@@ -878,6 +910,10 @@ def record_turn(
             with _LOCK:
                 if drained_fe_writes:
                     _PENDING_FE_WRITES[k] = _PENDING_FE_WRITES.get(k, 0) + drained_fe_writes
+                if drained_dispatch:  # ORW-439: the dispatch record goes back with the FE-write count it explains
+                    rb = _WINDOW_DISPATCHED.setdefault(k, {})
+                    for _n, _c in drained_dispatch.items():
+                        rb[_n] = rb.get(_n, 0) + _c
                 if drained_stale:
                     _PENDING_STALE[k] = _PENDING_STALE.get(k, 0) + drained_stale
                 if drained_belts:
@@ -930,6 +966,7 @@ def clear(user: str | None) -> None:
         _PENDING_STALE.pop(k, None)
         _PENDING_FORCED.pop(k, None)
         _PENDING_FE_WRITES.pop(k, None)
+        _WINDOW_DISPATCHED.pop(k, None)  # ORW-439
         _PARKED_BELTS.pop(k, None)
         _PARKED_FORCED.pop(k, None)
         _LAST_BEAT_AFTER.pop(k, None)

@@ -55,7 +55,7 @@ def _engine(monkeypatch, beat_log):
     """Stub the HTTP transport only. `beat_log`: a dict answer, or an exception to raise (an older engine without the tool)."""
     seen = []
 
-    async def transport(name, args=None, user=None, timeout=None):
+    async def transport(name, args=None, user=None, timeout=None, **_kw):
         seen.append((name, args))
         if name == "beatLog":
             if isinstance(beat_log, Exception):
@@ -97,7 +97,7 @@ def test_a_gap_caused_by_a_dispatched_but_uncounted_tool_is_a_counting_miss_not_
     assert expl["kind"] == "counting-miss"
     assert _reds() == []
     warn = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "counting miss" in r.getMessage()]
-    assert len(warn) == 1 and "recordRoomCanon x2" in warn[0]
+    assert len(warn) == 1 and "recordRoomCanon: 2 bumps from 1 call" in warn[0]
     assert entry["gapExplanation"]["kind"] == "counting-miss"
     assert entry["gapExplanation"]["tools"] == {"recordRoomCanon": 2}
 
@@ -117,8 +117,13 @@ def test_a_bump_from_a_tool_this_fe_did_not_dispatch_in_the_window_stays_red(_le
     _engine(monkeypatch, _bumps("recordRoomCanon", "advanceGame"))
     _dispatch("recordRoomCanon")  # advanceGame was never dispatched here (another window / device drove it)
     expl, _ = _finish_turn()
-    assert expl["kind"] == "unexplained" and "advanceGame" in expl["note"]
+    assert expl["kind"] == "unexplained" and "counted tool" in expl["note"]
     assert len(_reds()) == 1 and "seq 12 advanceGame" in _text(_reds()[0])
+
+
+def test_a_bump_from_an_uncounted_tool_this_fe_did_not_dispatch_stays_red_and_says_so(_led):
+    out = _classify(["recordRoomCanon", "recordDaySummary"], {"recordRoomCanon": 1})
+    assert out["kind"] == "unexplained" and "recordDaySummary x1 (not dispatched" in out["note"]
 
 
 def test_an_engine_without_the_tool_leaves_the_alarm_exactly_as_before(_led, monkeypatch):
@@ -177,5 +182,164 @@ def test_the_new_tool_is_a_pure_read_in_the_ledger_lists_and_is_never_counted(_l
 def test_the_stored_explanation_holds_names_and_numbers_only(_led):
     cleaned = ledger._clean_gap_explanation({"kind": "unexplained", "note": "secret prose",
                                              "bumps": [{"seq": 3, "tool": "x", "args": {"a": "secret"}}], "tools": {"x": 1}})
-    assert cleaned == {"kind": "unexplained", "bumps": [{"seq": 3, "tool": "x"}], "tools": {"x": 1}}
+    assert cleaned == {"kind": "unexplained", "bumps": [{"seq": 3, "tool": "x"}], "tools": {"x": 1}, "calls": {}}
     assert ledger._clean_gap_explanation({"kind": "other"}) is None
+
+
+# ---- review round: the downgrade rule (H1) ----------------------------------------------------------------------------------
+
+def _classify(tools, dispatched, counted=0, counted_writes=0, since=10):
+    n = len(tools)
+    info = {"since": since, "before": since + n, "dispatched": dispatched, "counted": counted, "counted_writes": counted_writes}
+    return ledger.classify_gap(info, _bumps(*tools, start=since + 1))
+
+
+def test_one_dispatch_and_three_bumps_of_an_uncounted_tool_stays_red(_led):
+    out = _classify(["recordRoomCanon"] * 3, {"recordRoomCanon": 1})
+    assert out["kind"] == "unexplained" and "more than 2 per call" in out["note"]
+
+
+def test_one_dispatch_and_two_bumps_of_an_uncounted_tool_is_a_counting_miss(_led):
+    out = _classify(["recordRoomCanon"] * 2, {"recordRoomCanon": 1})
+    assert out["kind"] == "counting-miss" and out["tools"] == {"recordRoomCanon": 2} and out["calls"] == {"recordRoomCanon": 1}
+
+
+def test_a_counted_tool_bumping_beyond_what_the_ledger_counted_stays_red(_led):
+    # another window sends recordInteraction x3; this FE sent it once and the ledger counted one
+    out = _classify(["recordInteraction"] * 3, {"recordInteraction": 1}, counted=1, counted_writes=1)
+    assert out["kind"] == "unexplained"
+    # the same name, one bump, one counted: nothing left unexplained by the rule's own counts, but the arithmetic is the ledger's
+    ok = _classify(["recordInteraction", "recordRoomCanon"], {"recordInteraction": 1, "recordRoomCanon": 1}, counted=1, counted_writes=1)
+    assert ok["kind"] == "counting-miss"
+
+
+def test_a_counted_tool_in_the_log_with_nothing_counted_stays_red(_led):
+    out = _classify(["recordInteraction", "recordRoomCanon"], {"recordInteraction": 1, "recordRoomCanon": 1}, counted=0, counted_writes=0)
+    assert out["kind"] == "unexplained"
+
+
+def test_the_arithmetic_must_close_over_the_whole_gap(_led):
+    # 3 bumps: one counted-tool bump the ledger counted, two uncounted ones explained -> closes; with a stale-only allowance it does not
+    assert _classify(["noteMessage", "recordRoomCanon", "recordRoomCanon"], {"recordRoomCanon": 1}, counted=1, counted_writes=1)["kind"] == "counting-miss"
+    assert _classify(["noteMessage", "recordRoomCanon", "recordRoomCanon"], {"recordRoomCanon": 1}, counted=0, counted_writes=1)["kind"] == "unexplained"
+
+
+def test_the_same_named_write_from_elsewhere_is_red_end_to_end(_led, monkeypatch):
+    _engine(monkeypatch, _bumps("recordInteraction", "recordInteraction", "recordInteraction"))
+    _dispatch("recordInteraction")  # this FE sent one (counted), the engine log shows three
+    expl, _ = _finish_turn(before=13, last_after=10)
+    assert expl["kind"] == "unexplained"
+    assert len(_reds()) == 1
+
+
+def test_the_gap_peek_reports_the_ledgers_own_allowance(_led):
+    ledger._LAST_BEAT_AFTER["player"] = 10
+    ledger._PENDING_FE_WRITES["player"] = 1
+    info = ledger.peek_unexplained_gap("player", beat_seq_before=13, stale_rejections=0)
+    assert info["counted"] == 1 and info["counted_writes"] == 1 and info["gap"] == 3
+
+
+# ---- M2: the dispatch window has the same span as the gap -------------------------------------------------------------------
+
+def test_a_dispatch_recorded_before_clear_is_not_available_to_a_later_gap(_led):
+    ledger.note_engine_write("player", "recordRoomCanon", {})
+    ledger.clear("player")
+    ledger._LAST_BEAT_AFTER["player"] = 10
+    info = ledger.peek_unexplained_gap("player", beat_seq_before=12)
+    assert info["dispatched"] == {}
+    assert _classify(["recordRoomCanon"] * 2, info["dispatched"])["kind"] == "unexplained"
+
+
+def test_a_dispatch_from_a_parked_never_ledgered_turn_does_not_downgrade_a_later_gap(_led):
+    ledger.note_engine_write("player", "recordRoomCanon", {})
+    ledger.park_pending_unledgered_turn("player")
+    assert "player" not in ledger._WINDOW_DISPATCHED
+    ledger._LAST_BEAT_AFTER["player"] = 10
+    info = ledger.peek_unexplained_gap("player", beat_seq_before=12)
+    assert _classify(["recordRoomCanon"] * 2, info["dispatched"])["kind"] == "unexplained"
+
+
+def test_a_failed_durable_write_puts_the_dispatch_record_back_with_the_fe_write_count(_led, monkeypatch):
+    ledger.note_engine_write("player", "noteMessage", {})
+    monkeypatch.setattr(ledger, "atomic_write_json", lambda *a, **k: (_ for _ in ()).throw(OSError("disk")))
+    ledger.record_turn("player", beat_seq_before=11, beat_seq_after=11)
+    assert ledger._WINDOW_DISPATCHED.get("player") == {"noteMessage": 1}
+    assert ledger._PENDING_FE_WRITES.get("player") == 1
+
+
+# ---- M1: the quiet diagnostic read, through the REAL _post_tool --------------------------------------------------------------
+
+httpx = importlib.import_module("httpx")
+
+
+class _SeqClient:
+    """The HTTP client only: yields the next scripted Response / raises the next scripted Exception."""
+
+    def __init__(self, script):
+        self._script, self.calls = list(script), 0
+
+    async def post(self, *_a, **_k):
+        self.calls += 1
+        item = self._script.pop(0) if self._script else None
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+def _resp(status, payload):
+    return httpx.Response(status, json=payload, request=httpx.Request("POST", oe.ENGINE_URL.rstrip("/") + "/player/call"))
+
+
+@pytest.fixture
+def _real_post_tool(monkeypatch):
+    async def _no_sleep(_s):
+        return None
+    monkeypatch.setattr(oe.asyncio, "sleep", _no_sleep)
+    monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 3)  # retries ON: a quiet call must still make one attempt
+    oe._clear_error()
+    oe._clear_reconnecting()
+    oe._client = None
+    oe._client_factory = None
+    yield lambda script: _install(monkeypatch, script)
+    oe._clear_error()
+    oe._clear_reconnecting()
+    oe._client = None
+    oe._client_factory = None
+
+
+def _install(monkeypatch, script):
+    client = _SeqClient(script)
+    monkeypatch.setattr(oe.httpx, "AsyncClient", lambda *a, **k: client)
+    return client
+
+
+def test_explain_ledger_gap_end_to_end_with_the_http_client_stubbed(_led, _real_post_tool):
+    """The real await call site: `_explain_ledger_gap` -> `beat_log` -> `_call` -> `_post_tool` (quiet) -> stubbed client."""
+    client = _real_post_tool([_resp(200, {"result": _bumps("recordRoomCanon", "recordRoomCanon")})])
+    ledger._LAST_BEAT_AFTER["player"] = 10
+    ledger.note_engine_write("player", "recordRoomCanon", {})
+    expl = asyncio.run(al._explain_ledger_gap("player", beat_seq_before=12, stale_before=0))
+    assert expl["kind"] == "counting-miss" and client.calls == 1
+    assert oe.last_engine_error() is None
+
+
+@pytest.mark.parametrize("script", [
+    [_resp(400, {"error": 'tool "beatLog" is not available on channel "player"'})] * 4,
+    [httpx.ConnectError("refused")] * 4,
+    [httpx.ReadTimeout("slow")] * 4,
+    [_resp(503, {"error": "restarting"})] * 4,
+], ids=["tool-error", "refused", "timeout", "restarting-503"])
+def test_a_failing_quiet_gap_read_leaves_the_banner_alone_and_leaves_the_alarm_red(_led, _real_post_tool, script):
+    client = _real_post_tool(script)
+    _MARKED = oe.reconnecting()
+    ledger._LAST_BEAT_AFTER["player"] = 10
+    expl = asyncio.run(al._explain_ledger_gap("player", beat_seq_before=12, stale_before=0))
+    assert expl is None
+    assert client.calls == 1  # one attempt, no retry, no restart wait
+    assert oe.last_engine_error() is None and oe.reconnecting() is _MARKED is False
+
+
+def test_a_stale_allowance_cannot_launder_extra_bumps_of_a_counted_tool(_led):
+    # allowance 2 = 1 stale rejection + 1 counted write; two counted-tool bumps are in the log: the ledger counted only one write
+    out = _classify(["recordInteraction", "recordInteraction"], {"recordInteraction": 1}, counted=2, counted_writes=1)
+    assert out["kind"] == "unexplained" and "counted tool(s) bumped 2" in out["note"]
