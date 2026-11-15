@@ -6025,7 +6025,7 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
-  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null {
+  whereabouts(opts?: { search?: boolean; lookingFor?: undefined } | { search: true; lookingFor?: string }): WhereaboutsView | null {
     const v = this.whereaboutsBase();
     if (!v || !opts?.search || !this.house) return v;
     return { ...v, search: this.houseSearchView(this.house.player.id, v.room as Room, !!v.houseEvent, opts.lookingFor) };

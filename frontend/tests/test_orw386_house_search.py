@@ -219,6 +219,8 @@ def test_search_target_ignores_lowercase_words_that_are_first_names():
     gs = _roster("Will Baker", "Miguel Ortega")
     assert chat_helpers._search_target("where is Miguel, will you check", gs) == "Miguel Ortega"
     assert chat_helpers._search_target("where is will", gs) is None
+    assert chat_helpers._search_target("where is miguel?", gs) == "Miguel Ortega"  # an ordinary first name matches in any case (review of #2804)
+    assert chat_helpers._search_target("WHERE IS MIGUEL", gs) == "Miguel Ortega"
     assert chat_helpers._search_target("Where is Will?", gs) == "Will Baker"
 
 

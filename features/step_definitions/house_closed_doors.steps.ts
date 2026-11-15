@@ -62,8 +62,14 @@ Then("the houseguests behind doors are listed as not in view with no room named"
 });
 
 Then("the houseguests the player can see are still named in their rooms", function (this: BbWorld) {
-  const e = entry(this, bag(this).speaker);
-  assert.equal(e.status, "awake"); assert.equal(e.room, "kitchen");
+  const b = bag(this);
+  // every houseguest the player can see (all of the others sit in the kitchen), not only one; and the kitchen roster names them all
+  const hidden = new Set([b.behind, b.inHoh, b.inDiary]);
+  const visible = b.result!.search!.houseguests.filter((e) => !hidden.has(e.id));
+  assert.ok(visible.length >= 2, "more than one houseguest is in view");
+  for (const e of visible) { assert.equal(e.status, "awake", e.id); assert.equal(e.room, "kitchen", e.id); }
+  const kitchen = b.result!.search!.rooms.find((r) => r.room === "kitchen");
+  assert.deepEqual(kitchen?.present.map((p) => p.id).sort(), visible.map((e) => e.id).sort());
 });
 
 Then("only the houseguest in view is placed in a room", function (this: BbWorld) {
