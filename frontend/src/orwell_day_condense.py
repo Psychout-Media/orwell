@@ -470,6 +470,11 @@ def kickoff_heal(owner, ledger: list) -> None:
                 await run_condense(owner, day)
             except Exception as e:  # pragma: no cover - defensive
                 logger.warning("[day-condense] heal task failed: %s", e)
+                try:
+                    from src import log_rings
+                    log_rings.record_soft_failure("day-condense:heal-task-failed", e, corrected="raw history stays in the prompt")
+                except Exception:  # failsoft-ok: recorder-self
+                    pass
             finally:
                 _IN_FLIGHT.discard(k)
 
@@ -479,3 +484,8 @@ def kickoff_heal(owner, ledger: list) -> None:
             _IN_FLIGHT.discard(k)
     except Exception as e:  # fail-soft: healing must never hurt a turn
         logger.debug("[day-condense] heal kickoff skipped: %s", e)
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("day-condense:heal-kickoff-failed", e, corrected="raw history stays in the prompt")
+        except Exception:  # failsoft-ok: recorder-self
+            pass
