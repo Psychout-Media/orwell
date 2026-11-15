@@ -7875,7 +7875,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     _SCHEDULE_STEER[_hkey] = _schedule_not_due_steer(phase, str(_ds.get("phase") or ""), str(_ds.get("next") or ""), bool(_ds.get("tomorrow")), briefing=_briefing_of(game_state))
                     _mins = _ds.get("minutesUntil")
                     if isinstance(_mins, int) and not isinstance(_mins, bool) and 0 < _mins <= _PRODUCTION_WARN_MINUTES:
-                        _SCHEDULE_STEER[_hkey] = _production_warning_steer(phase, _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
+                        _SCHEDULE_STEER[_hkey] = _production_warning_steer(str(_ds.get("next") or phase), _mins)  # A7: the notice replaces the plain not-yet cue inside the last half hour
                     logger.info("[orwell] production holds %s for user=%s - not due yet (message %d/%d); the house stays social", phase, user, _hn + 1, _PRODUCTION_HOLD_CAP)
                     return _hold_for_social(game_state)
                 logger.warning("[orwell] production hold cap (%d messages) reached at %s for user=%s - the clock is not bringing the event in; releasing it", _PRODUCTION_HOLD_CAP, phase, user)
