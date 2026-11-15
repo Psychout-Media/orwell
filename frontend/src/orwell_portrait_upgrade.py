@@ -15,8 +15,10 @@ played keeps faces shot under the old wording. This module walks them quietly:
     needs: first houseguest ~45 s after the user is first seen (or the season changes), then ~15 s apart;
   * if a full cast generation is running for that user it waits;
   * per houseguest: (1) fill in the clothing pieces + on-camera line when the public profile lacks them
-    (one writer call over PUBLIC fields only; needs ORW-360's look fields, behind `look_fill_supported`),
-    (2) fetch the fresh prompt from the engine, (3) one forced silent re-shoot. The old file stays until
+    (ORW-380: ALWAYS rewrite the photo sheet, wardrobe + photoHair + onCamera, with the shared writer and
+    checker from orwell_cast_authoring, one houseguest at a time so each sees the others' main pieces and
+    spots; behind `look_fill_supported`), (2) fetch the fresh prompt from the engine, (3) one forced silent
+    re-shoot with the current portrait file as the reference image (up to `portrait_parallel` at once). The old file stays until
     the new image succeeds, then swaps atomically and records the current prompt version;
   * a failure keeps the old photo, is recorded RED through the portrait failure recorder, and that
     houseguest is retried later with a growing wait (5, 15, 45 min, then every 2 h). The loop never
@@ -38,13 +40,8 @@ TICK_S = 5.0
 RETRY_WAITS_S = (5 * 60.0, 15 * 60.0, 45 * 60.0)
 RETRY_STEADY_S = 2 * 60 * 60.0
 
-# The ONLY card fields the look writer ever sees (public profile). Never a Vault-adjacent field.
-WRITER_INPUT_FIELDS = ("identityConcept", "archetype", "demeanor", "presentation", "age", "vocation",
-                       "hometown", "biography", "voice", "style", "styleFamily")
-_PHYS_PUBLIC_FIELDS = ("presentation", "style", "styleFamily", "family")
-
 # per safe-user state: {"sig", "armed_at", "next_ok_at", "fails": {sid: n}, "retry_at": {sid: ts},
-#                       "started_at", "done": int, "failed": int}
+#                       "started_at", "done": int, "failed": int, "sheets": {sid: fields}}
 _STATE: dict = {}
 _TASK = None
 LIVE_IDLE_MINUTES_DEFAULT = 15  # same default as ORWELL_UPDATE_IDLE_MINUTES in deploy/orwell-live-game.sh
@@ -56,7 +53,8 @@ def _st(user) -> dict:
     from src import orwell_portraits as P
     return _STATE.setdefault(P._safe_user(user), {"sig": None, "armed_at": None, "next_ok_at": 0.0,
                                                   "fails": {}, "retry_at": {}, "started_at": None,
-                                                  "done": 0, "failed": 0, "rate_limited": False})
+                                                  "done": 0, "failed": 0, "rate_limited": False,
+                                                  "sheets": {}})
 
 
 def _player_idle_seconds() -> Optional[int]:
@@ -124,86 +122,61 @@ def stale_candidates(user, state: dict, manifest: dict) -> list:
     return sorted(stale, key=lambda sid: (rank[sid], sid))
 
 
-# ── the look writer (public fields only) ─────────────────────────────────────────────────────
+# ── the photo sheet (ORW-380): written with the shared instruction and checker ──────────────────
 
-def writer_input(card: dict) -> dict:
-    """Allowlisted PUBLIC profile fields for the look writer; nothing else can ride."""
-    out = {k: card[k] for k in WRITER_INPUT_FIELDS if card.get(k) not in (None, "", [], {})}
-    phys = card.get("physicalCharacteristics")
-    if isinstance(phys, dict):
-        sub = {k: phys[k] for k in _PHYS_PUBLIC_FIELDS if phys.get(k) not in (None, "")}
-        if sub:
-            out["physicalCharacteristics"] = sub
-    if isinstance(out.get("biography"), str):
-        out["biography"] = out["biography"][:600]
-    return out
-
-
-def needs_look(card: dict) -> bool:
-    phys = card.get("physicalCharacteristics")
-    phys = phys if isinstance(phys, dict) else {}
-    return not (phys.get("wardrobe") and phys.get("onCamera"))
-
-
-def look_checked(raw: dict, card: dict) -> tuple:
-    """Run ORW-360's own checks (`look_problems`) over the proposed fields. Returns (accepted_fields,
-    problem_codes). A field that trips a check is omitted (the writer's own fallback rule: wardrobe-shape
-    and style-wrong-family drop the wardrobe, oncamera-shape drops onCamera)."""
+def sheet_taken(state: dict, st: dict, stale_set: set, exclude_sid: str) -> dict:
+    """The `taken` lists for one houseguest: main pieces and spot counts of the houseguests whose sheet is
+    already current: those rewritten this run (`st["sheets"]`, which overrides the state) and those whose
+    portrait is not stale. Their stored fields come from the game state."""
     from src import orwell_cast_authoring as CA
-    pc = {}
-    if isinstance(raw, dict):
-        if "wardrobe" in raw:
-            pc["wardrobe"] = raw["wardrobe"]
-        if "onCamera" in raw:
-            pc["onCamera"] = raw["onCamera"]
-    if not pc:
-        return {}, ["empty"]
-    ctx = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
-    if ctx.get("style"):
-        pc["style"] = ctx["style"]
-    profile = {"physicalCharacteristics": dict(pc)}
-    problems = CA.look_problems(profile, card)
-    CA.apply_look_fallbacks(profile, card, [p for p in problems if p in ("wardrobe-shape", "oncamera-shape", "style-wrong-family")])
-    out = {k: profile["physicalCharacteristics"][k] for k in ("wardrobe", "onCamera")
-           if profile["physicalCharacteristics"].get(k)}
-    return out, [p for p in problems if p not in ("gray-hair-young", "build-contradiction")]
-
-
-_LOOK_SYSTEM = (
-    "You write two short fields for one reality-show houseguest from their PUBLIC profile only. "
-    "Reply with ONLY a JSON object: {\"wardrobe\": [2-3 short items], \"onCamera\": \"...\"}. "
-    "wardrobe: 2-3 specific clothing pieces in their style family; no visible words, logos, band or "
-    "brand names. onCamera: 1-2 sentences, at most 240 characters, visible personality only, placed in "
-    "exactly one spot from: kitchen, living room, dining room, backyard, lounge, a bedroom.")
-_LOOK_RETRY = ("Your reply was not valid. Reply with ONLY the JSON object, wardrobe 2-3 short items "
-               "without words/logos/brands, onCamera at most 240 characters naming one house spot.")
-
-
-async def write_look(card: dict, owner) -> dict:
-    """One writer call (+ one strict retry) over `writer_input(card)`; returns the validated subset
-    ({} when nothing passed or no model)."""
-    import json
-    from src import orwell_cast_authoring as CA
-    llm = await CA.resolve_authoring_llm_fn(owner)
-    if llm is None:
-        return {}
-    messages = [{"role": "system", "content": _LOOK_SYSTEM},
-                {"role": "user", "content": json.dumps(writer_input(card), ensure_ascii=False)}]
-    look: dict = {}
-    problems: list = []
-    for attempt in (0, 1):
-        msgs = messages if attempt == 0 else messages + [{"role": "user", "content": CA.look_retry_message(
-            [p for p in problems if p != "empty"] or ["wardrobe-shape", "oncamera-shape"])}]
-        try:
-            text = await llm(msgs)
-        except Exception as e:  # failsoft-ok: best-effort-enrichment (the look is optional; the photo still upgrades)
-            logger.info("[portrait-upgrade] look writer call failed: %s", e)
+    from src import orwell_portraits as P
+    cards = []
+    for hg in state.get("house") if isinstance(state.get("house"), list) else []:
+        if not isinstance(hg, dict):
             continue
-        got, problems = look_checked(CA._extract_json(text or "") or {}, card)
-        look.update({k: v for k, v in got.items() if k not in look})
-        if len(look) == 2:
-            break
-    return look
+        sid = P._safe_id(str(hg.get("id") or hg.get("name")))
+        if sid == exclude_sid:
+            continue
+        phys = dict(hg.get("physicalCharacteristics") or {}) if isinstance(hg.get("physicalCharacteristics"), dict) else {}
+        if sid in st.get("sheets", {}):
+            for k in CA.SHEET_FIELDS:
+                phys.pop(k, None)
+            phys.update(st["sheets"][sid])
+        elif sid in stale_set:
+            continue  # an old sheet, not yet rewritten: it does not count
+        cards.append({"physicalCharacteristics": phys})
+    return CA.photo_sheet_taken(cards)
+
+
+async def rewrite_sheet(user, sid: str, card: dict, state: dict, st: dict, stale_set: set) -> dict:
+    """ALWAYS rewrite one houseguest's photo sheet (wardrobe, photoHair, onCamera) with the shared writer, given
+    the taken lists, and store it through recordLookExtras (an old field the writer left out is cleared, so a
+    scene-like v2 line cannot ride into the v3 prompt). Returns the stored fields. Raises when the writer
+    produced nothing for a card that still carries an old sheet (retried later with the growing wait)."""
+    from src import orwell_cast_authoring as CA
+    from src import orwell_engine
+    from src import orwell_portraits as P
+    llm = await CA.resolve_authoring_llm_fn(user)
+    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    had_old = any(phys.get(k) for k in CA.SHEET_FIELDS)
+    fields: dict = {}
+    if llm is not None:
+        taken = sheet_taken(state, st, stale_set, P._safe_id(str(sid)))
+        fields, codes = await CA.write_photo_sheet({**card, "id": sid}, taken, llm)
+        if "wardrobe-taken" in codes:
+            logger.info("[portrait-upgrade] sheet for %s keeps a taken main piece (wardrobe-taken)", sid)
+    if not fields:
+        if had_old:
+            raise RuntimeError("look-write-failed")
+        return {}
+    clear = [k for k in CA.SHEET_FIELDS if k not in fields and phys.get(k)]
+    res = await orwell_engine.record_look_extras(sid, {**fields, **({"clear": clear} if clear else {})}, user=user)
+    if not (isinstance(res, dict) and res.get("accepted")):
+        if had_old:
+            raise RuntimeError("look-store-failed")
+        return {}
+    st.setdefault("sheets", {})[P._safe_id(str(sid))] = dict(fields)
+    return fields
 
 
 # ── one step ─────────────────────────────────────────────────────────────────────────────────
@@ -225,26 +198,35 @@ def _portrait_cost_since(user, since_ms: int) -> float:
         return 0.0
 
 
-async def upgrade_one(user, sid: str, card: dict) -> bool:
-    """Fill in the look when missing, then force the single silent re-shoot. True on a landed new face."""
+async def shoot_one(user, sid: str, card: dict) -> bool:
+    """Fetch the fresh prompt and force the single silent re-shoot with the current portrait file as the
+    reference (the person stays; the brief changes the rest). True on a landed new face."""
     from src import orwell_engine
     from src import orwell_portraits as P
-    if look_fill_supported() and needs_look(card):
-        try:
-            look = await write_look(card, user)
-            if look:
-                await orwell_engine.record_look_extras(sid, look, user=user)
-        except Exception as e:  # failsoft-ok: best-effort-enrichment (no look is fine; the photo still upgrades)
-            logger.info("[portrait-upgrade] look fill-in for %s skipped: %s", sid, e)
     pp = await orwell_engine.get_portrait_prompt(sid, user=user)
     if not isinstance(pp, dict) or not pp.get("prompt"):
         raise RuntimeError("no-prompt")
-    entry = {"houseguestId": sid, "name": pp.get("name") or card.get("name") or "", "prompt": pp["prompt"]}
+    entry = {"houseguestId": sid, "name": pp.get("name") or card.get("name") or "", "prompt": pp["prompt"],
+             "identityPrefix": True}
     await P.generate_and_store([entry], user, record_beats=False, force_ids=[sid], silent=True)
     stored = P.load_manifest(user).get(P._safe_id(sid))
     if isinstance(stored, dict) and not P._entry_version_stale(stored):
         return True
     raise RuntimeError(P.last_gen_error_class(user, sid) or "generation-failed")
+
+
+async def upgrade_one(user, sid: str, card: dict, state: Optional[dict] = None, st: Optional[dict] = None,
+                      stale_set: Optional[set] = None) -> bool:
+    """Rewrite the photo sheet, then force the single silent re-shoot. True on a landed new face."""
+    if look_fill_supported():
+        try:
+            await rewrite_sheet(user, sid, card, state or {"house": [card]}, st if st is not None else {"sheets": {}},
+                                stale_set if stale_set is not None else set())
+        except RuntimeError:
+            raise
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (no sheet is fine; the photo still upgrades)
+            logger.info("[portrait-upgrade] photo sheet for %s skipped: %s", sid, e)
+    return await shoot_one(user, sid, card)
 
 
 async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
@@ -268,7 +250,7 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
     sig = _season_sig(state)
     if st["sig"] != sig:  # first sight, or a different season was loaded: restart the quiet window
         st.update(sig=sig, armed_at=now, next_ok_at=0.0, fails={}, retry_at={}, started_at=None,
-                  done=0, failed=0, rate_limited=False)
+                  done=0, failed=0, rate_limited=False, sheets={})
     cands = stale_candidates(user, state, P.load_manifest(user))
     if not cands:
         if st["started_at"] is not None:  # this season's upgrade just finished: one line with its cost
@@ -282,31 +264,77 @@ async def upgrade_tick(user, *, now: Optional[float] = None) -> str:
         return "waiting"
     if _full_generation_running(user) or not P.image_generation_available(user):
         return "waiting"
+    if P.billing_breaker_open():  # ORW-397: the provider refused billing/auth; wait for the hourly re-probe
+        return "waiting"
     ready = [c for c in cands if st["retry_at"].get(c, 0.0) <= now]
     if not ready:
         return "waiting"
     live = await game_is_live()
-    width = 1 if (live or st["rate_limited"]) else P.portrait_parallel(user)
+    solo = live or st["rate_limited"] or P.billing_breaker_probing()  # ORW-397: one probe call
+    width = 1 if solo else P.portrait_parallel(user)
     batch = ready[:width]
     if st["started_at"] is None:
         st["started_at"] = int(time.time() * 1000)
     gap = GAP_S if live else 0.0
     _BUSY.add(safe)
     try:
-        results = await asyncio.gather(*[_upgrade_sid(user, safe, state, sid, st, now, gap) for sid in batch],
-                                       return_exceptions=True)
+        # ORW-380: the photo sheets are written ONE houseguest at a time (each one's `taken` lists need the
+        # sheets written before it), then the shoots run up to `width` at once.
+        stale_set = set(cands)
+        ready_to_shoot = []
+        results = []
+        for sid in batch:
+            card = _card_of(state, sid)
+            if look_fill_supported():
+                try:
+                    await rewrite_sheet(user, str(card.get("id") or sid), card, state, st, stale_set)
+                except Exception as e:  # failsoft-ok: handled-by-terminal (recorded RED, retried later)
+                    _note_failure(user, safe, sid, st, now, gap, e)
+                    results.append("failed")
+                    continue
+            ready_to_shoot.append(sid)
+        results += await asyncio.gather(*[_upgrade_sid(user, safe, state, sid, st, now, gap) for sid in ready_to_shoot],
+                                        return_exceptions=True)
     finally:
         _BUSY.discard(safe)
     ok = [r for r in results if r == "upgraded"]
     return "upgraded" if ok else "failed"
 
 
-async def _upgrade_sid(user, safe: str, state: dict, sid: str, st: dict, now: float, gap: float) -> str:
+def _card_of(state: dict, sid: str) -> dict:
     from src import orwell_portraits as P
-    card = next((h for h in state.get("house", []) if isinstance(h, dict)
+    return next((h for h in state.get("house", []) if isinstance(h, dict)
                  and P._safe_id(str(h.get("id") or h.get("name"))) == sid), {})
+
+
+def _note_failure(user, safe: str, sid: str, st: dict, now: float, gap: float, e: Exception) -> None:
+    from src import orwell_portraits as P
+    reason = str(e) or type(e).__name__
+    if P.is_billing_error(reason):  # ORW-397: not this houseguest's fault; the breaker owns the wait
+        st["failed"] += 1
+        st["next_ok_at"] = now + gap
+        P._note_gen_error("portrait-upgrade-failed", reason)
+        P._note_generation_failure(user, sid, reason)  # one credits/billing soft failure per breaker trip
+        logger.info("[portrait-upgrade] %s not upgraded for %s: provider billing/auth refused (%s)", sid, safe, reason)
+        return
+    n = st["fails"].get(sid, 0) + 1
+    st["fails"][sid] = n
+    st["retry_at"][sid] = now + retry_wait_s(n)
+    st["failed"] += 1
+    st["next_ok_at"] = now + gap
+    if P.is_rate_limited(reason):  # ORW-378: the rest of this season's upgrade goes one at a time
+        st["rate_limited"] = True
+    P._note_gen_error("portrait-upgrade-failed", reason)
+    P._note_generation_failure(user, sid, f"portrait-upgrade-failed: {reason}")
+    logger.info("[portrait-upgrade] %s failed for %s (%s); old photo kept, retry in %.0fs",
+                sid, safe, reason, retry_wait_s(n))
+
+
+async def _upgrade_sid(user, safe: str, state: dict, sid: str, st: dict, now: float, gap: float) -> str:
+    """The shoot for one houseguest whose photo sheet is already written (see `upgrade_tick`)."""
+    card = _card_of(state, sid)
     try:
-        await upgrade_one(user, str(card.get("id") or sid), card)
+        await shoot_one(user, str(card.get("id") or sid), card)
         st["fails"].pop(sid, None)
         st["retry_at"].pop(sid, None)
         st["done"] += 1
@@ -314,18 +342,7 @@ async def _upgrade_sid(user, safe: str, state: dict, sid: str, st: dict, now: fl
         logger.info("[portrait-upgrade] %s upgraded for %s", sid, safe)
         return "upgraded"
     except Exception as e:  # failsoft-ok: handled-by-terminal (the old photo stays; recorded RED below; retried later)
-        reason = str(e) or type(e).__name__
-        n = st["fails"].get(sid, 0) + 1
-        st["fails"][sid] = n
-        st["retry_at"][sid] = now + retry_wait_s(n)
-        st["failed"] += 1
-        st["next_ok_at"] = now + gap
-        if P.is_rate_limited(reason):  # ORW-378: the rest of this season's upgrade goes one at a time
-            st["rate_limited"] = True
-        P._note_gen_error("portrait-upgrade-failed", reason)
-        P._note_generation_failure(user, sid, f"portrait-upgrade-failed: {reason}")
-        logger.info("[portrait-upgrade] %s failed for %s (%s); old photo kept, retry in %.0fs",
-                    sid, safe, reason, retry_wait_s(n))
+        _note_failure(user, safe, sid, st, now, gap, e)
         return "failed"
 
 

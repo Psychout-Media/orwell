@@ -90,6 +90,9 @@ DEFAULT_SETTINGS = {
     # ORW-378: portraits generated at once (new casts, backfills, the background upgrader). Clamped 1-4
     # where read (orwell_portraits.portrait_parallel); a provider 429 drops a run to one at a time.
     "portrait_parallel": 3,
+    # ORW-384: deepseek-flash (DeepSeek API only, never another provider) checks every new NPC cast photo; one re-shoot fixes a failure. Fails open.
+    "portrait_check_enabled": True,
+    "portrait_check_model": "deepseek-flash",
     "vision_model": "",
     "vision_enabled": True,
     # Ordered fallback chain for the Vision model (image analysis, OCR, tagging).

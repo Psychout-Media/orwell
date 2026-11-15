@@ -69,3 +69,60 @@ describe("recordLookExtras", () => {
     expect(JSON.stringify(p)).not.toMatch(INK);
   });
 });
+
+describe("ORW-380 photoHair", () => {
+  it("is stored, clamped to 90 chars with control characters stripped, and changes nothing else", () => {
+    const { sb, id, npc } = setup();
+    const before = JSON.parse(JSON.stringify(npc().character));
+    const r = sb.session.recordLookExtras({ houseguestId: id, photoHair: `sleek neat braid\u0001 ${"x".repeat(200)}` });
+    expect(r).toEqual({ accepted: true, fields: ["photoHair"] });
+    const after = JSON.parse(JSON.stringify(npc().character));
+    expect(after.physicalCharacteristics.photoHair.length).toBeLessThanOrEqual(90);
+    expect(after.physicalCharacteristics.photoHair).toMatch(/^sleek neat braid x/);
+    delete after.physicalCharacteristics.photoHair;
+    expect(after).toEqual(before);
+  });
+
+  it("travels with the other two fields and shows on the public card", () => {
+    const { sb, id } = setup();
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan"], onCamera: "She sits in the lounge.", photoHair: "a glossy low bun" }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "onCamera", "photoHair"] });
+    const card = sb.session.getGameState().house.find((h) => h.id === id)!;
+    expect((card.physicalCharacteristics as { photoHair?: string }).photoHair).toBe("a glossy low bun");
+  });
+
+  it("the ink guard reverts a tattoo written into photoHair on a no-ink skeleton; empty photoHair alone is nothing-valid", () => {
+    const { sb, npc } = setup();
+    const INK = /\btattoo|\bink(?:ed)?\b|\bblackwork\b|\bbody art\b|\b(?:full|half)[- ]sleeves?/i;
+    const clean = sb.session.snapshot().house!.npcs.find((n) => !INK.test(JSON.stringify(n.character.physicalCharacteristics)))!;
+    const r = sb.session.recordLookExtras({ houseguestId: clean.id, photoHair: "a neat bun with a tattoo behind the ear" });
+    expect(r.accepted).toBe(false);
+    expect(npc().character.physicalCharacteristics!.photoHair).toBeUndefined();
+    expect(sb.session.recordLookExtras({ houseguestId: clean.id, photoHair: "  " })).toMatchObject({ accepted: false, reason: "nothing-valid" });
+  });
+});
+
+describe("ORW-380 recordCastProfile photoHair", () => {
+  it("is cleaned and clamped like wardrobe and onCamera", () => {
+    const { sb, id } = setup();
+    const card = sb.session.getGameState().house.find((h) => h.id === id)!;
+    const base = card.physicalCharacteristics!;
+    const res = sb.session.recordCastProfile({ houseguestId: id, physicalCharacteristics: { ...base, photoHair: `a neat bun${"!".repeat(200)}` } as never });
+    expect(res.accepted).toBe(true);
+    const after = sb.session.getGameState().house.find((h) => h.id === id)!.physicalCharacteristics as { photoHair?: string };
+    expect(after.photoHair!.length).toBe(90);
+  });
+});
+
+describe("ORW-380 clear", () => {
+  it("removes an old look field the new writer left out, and nothing else", () => {
+    const { sb, id, npc } = setup();
+    sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], onCamera: "She sits in the lounge." });
+    const r = sb.session.recordLookExtras({ houseguestId: id, photoHair: "a neat low bun", clear: ["onCamera", "bogus"] });
+    expect(r).toEqual({ accepted: true, fields: ["photoHair"], cleared: ["onCamera"] });
+    const p = npc().character.physicalCharacteristics!;
+    expect(p.onCamera).toBeUndefined();
+    expect(p.wardrobe).toEqual(["a grey cardigan", "dark jeans"]);
+    expect(sb.session.recordLookExtras({ houseguestId: id, clear: ["onCamera"] })).toMatchObject({ accepted: false });
+  });
+});

@@ -171,7 +171,13 @@ def _note_generation_failure(user: Optional[str], houseguest_id: str, reason: st
     beside the existing portrait-log attempt row + the reconciler's retry-budget stamp. Also carries
     fal.ai transport failures — they surface UP through `_note_gen_error` to this terminal, so this is
     the ONE place a portrait failure is RED-recorded (no double-record). Best-effort: health logging
-    must never break the run."""
+    must never break the run.
+
+    ORW-397: a billing/auth failure (401/402/403) records ONE "credits/billing" soft failure per
+    breaker trip instead of one per houseguest; a breaker-skipped houseguest records nothing."""
+    if is_billing_error(reason):
+        _record_billing_soft_failure(user)
+        return
     try:
         from src import log_rings
         log_rings.record_soft_failure(
@@ -582,7 +588,8 @@ def _provider_error_reason(resp) -> Optional[str]:
 
 
 def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
-                duration_ms: int = 0, detail: Optional[str] = None) -> None:
+                duration_ms: int = 0, detail: Optional[str] = None,
+                check: Optional[dict] = None) -> None:
     """Append one generation attempt/outcome to the capped JSONL ring. Best-effort:
     a logging failure must never break the generation pipeline itself.
 
@@ -598,6 +605,8 @@ def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
     }
     if (not ok) and detail:
         entry["detail"] = str(detail)[:200]
+    if isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
+        entry["check"] = {k: v for k, v in check.items() if k in ("ok", "problems", "reshot", "first")}
     try:
         lines = []
         try:
@@ -1035,6 +1044,97 @@ async def _generate_via_images_edit(client, base_url: str, model_id: str, prompt
         return None
 
 
+# ── ORW-397: per-provider billing breaker ───────────────────────────────────────────────────
+# An out-of-credit (402) or unauthorised (401/403) image provider stays that way until an operator
+# fixes the account, so retrying every houseguest (and falling back to a second chat call) only burns
+# calls. On the first such status the provider's breaker opens: no further image call goes to that
+# host until BILLING_REPROBE_S has passed, then ONE probe is let through; a probe that succeeds closes
+# the breaker, one that fails re-opens it. In-memory only (a restart simply probes once).
+BILLING_REPROBE_S = 60 * 60.0
+BILLING_BREAKER_OPEN_REASON = "billing-breaker-open"
+_BILLING_STATUSES = frozenset({401, 402, 403})
+_BILLING_BREAKER: dict = {}  # host -> {"opened_at": monotonic, "recorded": bool}
+_PROVIDER_PROVEN = {"ok": False}  # a call has succeeded since the last trip; until then calls go one at a time
+_FIRST_CONTACT_LOCK: dict = {}  # event loop -> asyncio.Lock
+
+
+def is_billing_error(reason: Optional[str], detail: Optional[str] = None) -> bool:
+    """True for HTTP 401/402/403 from the image provider (credits/billing/auth) or the breaker's own
+    skip reason."""
+    if str(reason or "") == BILLING_BREAKER_OPEN_REASON:
+        return True
+    for text in (reason, detail):
+        status = _http_status_of(text)
+        if status in _BILLING_STATUSES:
+            return True
+    return False
+
+
+def _provider_host(url: Optional[str]) -> str:
+    from urllib.parse import urlparse
+    return (urlparse(str(url or "")).hostname or "unknown").lower()
+
+
+def billing_breaker_open(now: Optional[float] = None) -> bool:
+    """True while any provider breaker is open and its re-probe time has not come."""
+    now = time.monotonic() if now is None else now
+    return any(now < b["opened_at"] + BILLING_REPROBE_S for b in _BILLING_BREAKER.values())
+
+
+def billing_breaker_probing(now: Optional[float] = None) -> bool:
+    """True when a breaker is open but its hour is up, so the next call is the single re-probe."""
+    return bool(_BILLING_BREAKER) and not billing_breaker_open(now)
+
+
+def _breaker_allows(host: str) -> bool:
+    """Closed => True. Open and inside the window => False. Window elapsed => True for ONE caller
+    (the window restarts, so a parallel caller is refused while the probe is in flight)."""
+    b = _BILLING_BREAKER.get(host)
+    if b is None:
+        return True
+    now = time.monotonic()
+    if now < b["opened_at"] + BILLING_REPROBE_S:
+        return False
+    b["opened_at"] = now
+    return True
+
+
+def _trip_billing_breaker(host: str) -> None:
+    b = _BILLING_BREAKER.get(host)
+    _PROVIDER_PROVEN["ok"] = False
+    _BILLING_BREAKER[host] = {"opened_at": time.monotonic(), "recorded": bool(b and b["recorded"]), "host": host}
+    logger.info("[portraits] image provider %s refused billing/auth; breaker open for %.0fs", host, BILLING_REPROBE_S)
+
+
+def _close_billing_breaker(host: str) -> None:
+    if _BILLING_BREAKER.pop(host, None) is not None:
+        logger.info("[portraits] image provider %s answered again; breaker closed", host)
+
+
+def reset_billing_breaker() -> None:
+    _BILLING_BREAKER.clear()
+    _PROVIDER_PROVEN["ok"] = False
+    _FIRST_CONTACT_LOCK.clear()
+
+
+def _record_billing_soft_failure(user: Optional[str]) -> None:
+    """ONE admin-visible soft failure per breaker trip, saying credits/billing."""
+    open_ones = [b for b in _BILLING_BREAKER.values() if not b["recorded"]]
+    if not open_ones:
+        return
+    for b in open_ones:
+        b["recorded"] = True
+    try:
+        from src import log_rings
+        log_rings.record_soft_failure(
+            "portraits:provider-billing",
+            "image provider refused the request (HTTP 401/402/403): out of credits or billing/auth problem. "
+            "Portrait generation is paused and re-probes at most hourly; add credits or fix the key.",
+            corrected="billing-breaker", user=user)
+    except Exception:  # pragma: no cover — failsoft-ok: recorder-self (health logging must never break the run)
+        pass
+
+
 async def _generate_via_chat_completions(client, chat_url: str, model_id: str,
                                          prompt: str, headers: dict,
                                          reference_png: Optional[bytes] = None) -> Optional[bytes]:
@@ -1148,6 +1248,9 @@ async def _generate_via_openrouter_images(client, base_url: str, model_id: str, 
         resp = await client.post(base_url.rstrip("/") + "/images", json=body, headers=headers)
         if resp.status_code != 200:
             logger.info("[portraits] openrouter images %s: %s", resp.status_code, (resp.text or "")[:200])
+            if resp.status_code in _BILLING_STATUSES:  # ORW-397: keep the real status as the class
+                _note_gen_error(f"http-{resp.status_code}", _provider_error_reason(resp))
+                return None
             _note_gen_error("gpt-image-failed", f"http-{resp.status_code}: {_provider_error_reason(resp) or ''}".strip(": "))
             return None
         data = resp.json()
@@ -1201,6 +1304,30 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
 async def _generate_one(prompt: str, user: Optional[str],
                         reference_png: Optional[bytes] = None,
                         keep_identity: bool = True) -> Optional[bytes]:
+    """ORW-397 billing breaker around `_generate_one_inner` (see the breaker block above): no call
+    while the provider's breaker is open; a 401/402/403 opens it; a success closes it."""
+    ctx: dict = {}
+    if _PROVIDER_PROVEN["ok"]:
+        png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
+    else:
+        # No success seen since start/the last trip: go one at a time, so a refused provider sees ONE
+        # call (the breaker then blocks the callers queued behind it).
+        lock = _FIRST_CONTACT_LOCK.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+        async with lock:
+            png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
+    host = ctx.get("host")
+    if host and not ctx.get("skipped"):
+        if png:
+            _PROVIDER_PROVEN["ok"] = True
+            _close_billing_breaker(host)
+        elif is_billing_error(_LAST_GEN_ERROR, _LAST_GEN_DETAIL):
+            _trip_billing_breaker(host)
+    return png
+
+
+async def _generate_one_inner(prompt: str, user: Optional[str],
+                              reference_png: Optional[bytes] = None,
+                              keep_identity: bool = True, _ctx: Optional[dict] = None) -> Optional[bytes]:
     """Generate a single image from `prompt`; return PNG bytes, or None on any failure.
 
     Best-effort: every failure path returns None (never raises) so a flaky image API can
@@ -1265,6 +1392,13 @@ async def _generate_one(prompt: str, user: Optional[str],
         _note_gen_error("no-model")
         return None
 
+    if _ctx is not None:
+        _ctx["host"] = _provider_host(url)
+        if not _breaker_allows(_ctx["host"]):
+            _ctx["skipped"] = True
+            _note_gen_error(BILLING_BREAKER_OPEN_REASON)
+            return None
+
     # fal.ai Seedream (issue #1153 / ADR 0016 §C) — a reference-image (img2img) image provider on a
     # SEPARATE API surface. It has no OpenAI /images path and no chat path: POST the model slug
     # directly with `image_urls` for identity-carry. Detected by the resolved URL's host so it routes
@@ -1308,6 +1442,8 @@ async def _generate_one(prompt: str, user: Optional[str],
                                                             headers, reference_png, quality, user=user)
                 if png:
                     return png
+                if is_billing_error(_LAST_GEN_ERROR, _LAST_GEN_DETAIL):
+                    return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
                 return await _gpt_image_fallback(client, user, prompt, reference_png)
             if is_openrouter:
                 # OpenRouter does image-to-image natively via the chat image part (G26).
@@ -1372,7 +1508,14 @@ def _prompt_fingerprint(prompt: Optional[str]) -> Optional[str]:
 # Only a portrait actually shot with the new prompt records PORTRAIT_PROMPT_VERSION (new seasons,
 # missing faces, a forced single re-shoot). A background upgrader (ORW-369) walks `stale_portrait_ids`
 # and re-shoots one houseguest at a time through `generate_and_store(..., force_ids=[id])`.
-PORTRAIT_PROMPT_VERSION = 2
+PORTRAIT_PROMPT_VERSION = 3
+
+# ORW-380: prepended to the prompt of a forced upgrade re-shoot (the ORW-369 upgrader) that carries the current
+# portrait as the reference image: it keeps the person and lets the new brief change everything else.
+UPGRADE_IDENTITY_PREFIX = (
+    "The same person as in the reference photo: keep their face, skin tone and age. Everything else (hair "
+    "styling, clothes, pose, setting and light) follows this brief, with clear even skin and no marks other "
+    "than those named. ")
 
 
 def _entry_prompt_version(entry) -> int:
@@ -1407,9 +1550,38 @@ def _stamp_version_one(user: Optional[str], sid: str) -> None:
         _save_manifest(user, manifest)
 
 
+async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref: Optional[bytes]):
+    """ORW-384: check a fresh NPC cast photo; on a fail re-shoot ONCE (same prompt + a fix line, same
+    reference) and keep the second unless it has MORE problems. Returns (png, check_meta|None). Fail
+    open: a skipped check returns the photo untouched with no meta; this never raises."""
+    try:
+        from src import orwell_portrait_check as C
+        facts = C.facts_from_prompt(prompt)
+        first = await C.check_portrait(png, facts, user)
+        if first is None:
+            return png, None
+        if first["ok"]:
+            return png, {"ok": True, "problems": [], "reshot": False}
+        meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
+        png2 = await _generate_one(prompt + " Fix in this version: " + C.problems_in_words(first["problems"]) + ".",
+                                   user, reference_png=ref)
+        if not png2:
+            meta["reshot"] = False
+            return png, meta
+        second = await C.check_portrait(png2, facts, user)
+        if second is None:
+            return png2, meta  # re-shot but the second look was skipped: keep the fix, verdict stays the first's
+        meta["ok"], meta["problems"] = second["ok"], second["problems"]
+        return (png, {**meta, "ok": False, "problems": first["problems"]}) if len(second["problems"]) > len(first["problems"]) \
+            else (png2, meta)
+    except Exception as e:  # failsoft-ok: fail-open (the photo is kept as is)
+        logger.info("[portraits] photo check skipped: %s", e)
+        return png, None
+
+
 def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: str,
                     source: str = "generated", fingerprint: Optional[str] = None,
-                    ref_clean: Optional[bool] = None) -> str:
+                    ref_clean: Optional[bool] = None, check: Optional[dict] = None) -> str:
     """Persist one portrait + update the manifest; return its stored filename.
 
     `source` (G26) records HOW the portrait was made: 'generated' (text-to-image, the default),
@@ -1454,6 +1626,9 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
     entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
     if source == "reference" and ref_clean:
         entry["refClean"] = True
+    if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
+        entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
+                          "reshot": bool(check.get("reshot"))}
     manifest[_safe_id(houseguest_id)] = entry
     _save_manifest(user, manifest)
     if replaced_in_place:
@@ -1761,8 +1936,8 @@ def finalize_player_headshot(user: Optional[str], png: bytes, kind: str = "studi
 
 
 # --- the studio: generate N image-to-image options off the uploaded photo ---
-_STUDIO_BASE = ("photorealistic candid reality-TV cast portrait, natural unretouched skin "
-                "texture, soft practical lighting, head-and-shoulders")
+_STUDIO_BASE = ("photorealistic candid reality-TV cast portrait, natural skin, "
+                "soft practical lighting, head-and-shoulders")
 _STUDIO_VARIANTS = (
     "a natural easy smile, soft window light, looking at camera",
     "three-quarter angle, a relaxed confident look, warm practical light",
@@ -2062,7 +2237,15 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         _INFLIGHT.setdefault(_safe_user(user), set()).add(sid)
         try:
             t0 = time.monotonic()
-            png = await _generate_one(str(prompt), user, reference_png=ref)
+            # ORW-380: an upgrader re-shoot (forced, with the current file as the reference) carries the
+            # identity prefix instead of the generic "minimal alteration" one (keep_identity=False).
+            _upgrade_ref = bool(ref and sid in reshoot_ids and entry.get("identityPrefix") is True
+                                and _safe_id(str(hid)) in forced)
+            if _upgrade_ref:
+                png = await _generate_one(UPGRADE_IDENTITY_PREFIX + str(prompt), user, reference_png=ref,
+                                          keep_identity=False)
+            else:
+                png = await _generate_one(str(prompt), user, reference_png=ref)
             duration_ms = int((time.monotonic() - t0) * 1000)
             if ref and not png:
                 source = "generated"  # reference failed; the log carries the reason
@@ -2079,11 +2262,14 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 _note_generation_failure(user, str(hid), reason)
                 skipped += 1
                 return
+            check_meta = None
+            if not is_player:  # ORW-384: NPC cast photos only (never the player's own photo)
+                png, check_meta = await _portrait_check_pass(png, str(prompt), user, ref)
             try:
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
-                                    ref_clean=ref_clean)
-                log_attempt(str(hid), True, None, duration_ms)
+                                    ref_clean=ref_clean, check=check_meta)
+                log_attempt(str(hid), True, None, duration_ms, check=check_meta)
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
                 if not silent:

@@ -39,6 +39,59 @@ except Exception:  # pragma: no cover
     logger = _L()
 
 
+# ── ORW-380: the PHOTO SHEET instruction, shared by every writer ──────────────────────────────
+#
+# One text, used by new-cast authoring (`_SYSTEM`) and by the running-season upgrader / the new-cast
+# de-duplication pass (`PHOTO_SHEET_SYSTEM`). The checker below (`look_problems`) enforces the same rules.
+_ONCAMERA_BANNED_WORDS = (
+    "then", "says", "said", "narrates", "narrating", "jokes", "joke", "story", "monologue", "answers",
+    "answering", "asks", "humming", "calling out", "mid-sentence", "mid-story", "mid-joke", "everyone",
+    "someone", "whoever", "anyone", "stranger", "the group", "the others", "houseguests", "scrubs",
+    "scrubbing", "cooking", "washing", "counting", "ticking off", "hands flying", "gesturing", "paces",
+    "pacing",
+)
+_PHOTOHAIR_BANNED_WORDS = (
+    "usually", "by afternoon", "messy", "frizzy", "flyaway", "flyaways", "fly-away", "fly away", "ragged",
+    "unruly", "fuzzy", "frays", "frayed", "shoved",
+)
+PHOTO_SHEET_RULES = (
+    "PHOTO SHEET: three optional fields that say how this person looks on the day of the cast photo "
+    "shoot. They are public and describe only what a camera sees. Use the houseguest's name and "
+    "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
+    "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
+    "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
+    "visible words, logos, band names or brand names. The FIRST piece is the MAIN piece (the jacket, "
+    "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
+    "the garment, for example \"leather jacket\" or \"flannel shirt\"). "
+    "(2) photoHair: at most 90 characters: the SAME cut, length and colour as their written hair, "
+    "styled and neat for a photo shoot, said positively (for example \"sleek neat braid over one "
+    "shoulder\", \"glossy waves swept into a high ponytail\", \"buzzed close with a clean line-up\"). "
+    "Never use these words: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, "
+    "frays, shoved. "
+    "(3) onCamera: the MOMENT: ONE still moment a photographer captures, chosen for THIS person from "
+    "their demeanor, identity concept and voice energy. It says where they are in the house, how they "
+    "hold themselves, where they look, and one expression, in one to three short sentences of at most "
+    "240 characters. It names exactly ONE spot from: kitchen, living room, dining room, backyard, "
+    "lounge, a bedroom; pick the spot this person would be in, but not one that taken.spots shows "
+    "already used by 3 other houseguests. Eyes on the camera, unless the person is guarded or aloof "
+    "(then looking away is allowed). Hands at rest or doing ONE simple thing (arms folded, hands in "
+    "pockets, holding a mug, chin on fist, elbow propped). Mouth closed, smiling, or one open laugh "
+    "for the loudest personalities, never mid-word. At most one prop, and it is theirs, never a chore. "
+    "It ends with a read of who they are in 3-8 words, introduced by \"the one who\" (for example "
+    "\"the one who misses nothing\"). It is a still photograph, not a scene: no sequence of events, "
+    "no speech, no chores, no other people. Never use these words: "
+    + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
+    "Write it starting with the pronoun that matches genderPresentation. "
+    "When the input carries castingType, the moment, the clothes and the hair styling should make this "
+    "person read as their casting type at a glance, without naming the type."
+)
+PHOTO_SHEET_SYSTEM = (
+    "You write the PHOTO SHEET for one reality-show houseguest from their PUBLIC profile only. "
+    + PHOTO_SHEET_RULES +
+    " Reply with ONLY a JSON object: {\"wardrobe\": [...], \"photoHair\": \"...\", \"onCamera\": \"...\"}."
+)
+
+
 # ── the producer-framed authoring prompt ──────────────────────────────────────
 #
 # ANTI-SYCOPHANCY (mandate #3): an NPC's STORYLINE is authored as if the player does not exist.
@@ -61,8 +114,8 @@ _SYSTEM = (
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
-    '"distinguishingMark", "ageLook", "style", "wardrobe", "onCamera" } — short phrases (wardrobe is an '
-    "array, onCamera a short prose line); this single facet is what BOTH "
+    '"distinguishingMark", "ageLook", "style", "wardrobe", "photoHair", "onCamera" } — short phrases '
+    "(wardrobe is an array, photoHair and onCamera short lines, see PHOTO SHEET below); this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
     "background) — never a generic default; vary it widely across the cast. When the skeleton shows a "
@@ -76,18 +129,13 @@ _SYSTEM = (
     "STYLE: the skeleton's presentation is this person's style FAMILY. Write \"style\" INSIDE that "
     "family, as THIS person would wear it given their age, job and hometown; never blend in another "
     "family (no rocker edge layered over bohemian). "
-    "WARDROBE: 2-3 specific clothing or accessory pieces in that family (each under 60 characters), "
-    "with no visible words, logos, band names or brand names. "
-    "ONCAMERA: 1-2 sentences of VISIBLE personality drawn from their story, demeanor and voice "
-    "(register, rhythm, energy, directness, humor, signature): posture, gaze, expression, grooming, one "
-    "telling clothing detail, and ONE spot in the house from: kitchen, living room, dining room, "
-    "backyard, lounge, a bedroom. Only what a camera can see; no plot, no other people, no text; at "
-    "most 240 characters. Example: \"leans toward the lens like he's about to cut in, brows up "
-    "mid-joke, a smirk that undercuts whatever he just said; shirt buttoned to the collar, apron "
-    "folded neat over one shoulder; at the kitchen counter.\" "
+    + PHOTO_SHEET_RULES + " "
     "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
     "hair under 35 unless it is written as dyed. BUILD COHERENCE: heightBuild must not combine "
-    "opposites (for example broad-shouldered with willowy),\n"
+    "opposites (for example broad-shouldered with willowy). Keep the FITNESS LEVEL of the seeded "
+    "heightBuild: an athletic person stays athletic, a soft or slight one stays so; enrich the wording "
+    "only, in neutral, flattering terms (never \"gone soft\" or \"soft through the middle from long "
+    "shifts\"),\n"
     '  "voice": the houseguest\'s IDIOLECT — how THIS person talks, all season: { "register", '
     '"rhythm", "energy", "directness", "humor", "stressTell", "signature", "lexicon", "catchphrases" }. '
     'The first six are SHORT dial phrases (e.g. register "folksy", rhythm "rambling", humor "dry", '
@@ -120,6 +168,21 @@ _SYSTEM = (
 # that honours it returns strict JSON (no prose/reasoning leaking into the body). A provider that
 # ignores it is harmless: the prompt reinforcement above + the one-shot retry below still apply.
 _RESPONSE_FORMAT = {"type": "json_object"}
+
+
+def _response_format_for(messages) -> Optional[dict]:
+    """ORW-391: JSON mode only for a prompt that asks for JSON. DeepSeek (the OOB utility model) answers 400 "Prompt must contain the word 'json'" to a json_object request whose prompt does not, and the shared utility fn
+    is also used for PROSE calls (the ORW-271 day condense): that call failed after every bedtime and the day was never condensed. Any message mentioning "json" (any case) keeps the format exactly as before."""
+    try:
+        for m in messages or []:
+            c = m.get("content") if isinstance(m, dict) else None
+            if isinstance(c, str) and "json" in c.lower():
+                return _RESPONSE_FORMAT
+            if isinstance(c, list) and any(isinstance(b, dict) and "json" in str(b.get("text", "")).lower() for b in c):
+                return _RESPONSE_FORMAT
+    except Exception:
+        return _RESPONSE_FORMAT
+    return None
 
 # #1044: the SHARED background-utility sampling temperature. This module's `_resolve_llm_fn` is the
 # common resolver for several background lanes (zeitgeist / off-screen texture / identity / the gateway
@@ -952,18 +1015,87 @@ _BAND_BRAND_NAMES = (
 _BAND_BRAND_RE = re.compile(
     r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
 _ONCAMERA_MAX = 240
+_PHOTOHAIR_MAX = 90
 _SPOT_PATTERNS = (
     ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
     ("dining room", re.compile(r"\bdining room\b", re.I)), ("backyard", re.compile(r"\bback ?yard\b", re.I)),
     ("lounge", re.compile(r"\blounge\b", re.I)), ("bedroom", re.compile(r"\bbedrooms?\b", re.I)),
 )
+_ONCAMERA_BANNED_RE = re.compile(
+    r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _ONCAMERA_BANNED_WORDS), re.I)
+# The closing read may say "someone who ...": that one clause is exempt from the ban on "someone".
+_ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*someone (?:who|you|that)\b[^,;.\u2014\u2013-]*[.!]?\s*$", re.I)
+_PHOTOHAIR_BANNED_RE = re.compile(
+    r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _PHOTOHAIR_BANNED_WORDS), re.I)
+_PRONOUN_CONTRADICTIONS = {
+    "man": re.compile(r"\b(?:she|her|hers|herself)\b", re.I),
+    "woman": re.compile(r"\b(?:he|him|his|himself)\b", re.I),
+    "nonbinary": re.compile(r"\b(?:he|him|his|himself|she|her|hers|herself)\b", re.I),
+}
+_PIECE_CUT_RE = re.compile(r"\s+(?:with|over|in|and|on|under|featuring|paired)\b|[,;(]", re.I)
+
+
+def oncamera_spots(text: str) -> set:
+    """The house spots a moment names (a set of canonical names)."""
+    return {name for name, rx in _SPOT_PATTERNS if rx.search(text or "")}
+
+
+def oncamera_is_scene(text: str) -> bool:
+    """A moment that reads as a scene: a banned word, more than one spot, or over 240 characters. The
+    closing "someone who ..." read is exempt from the word ban."""
+    t = str(text or "")
+    if len(t) > _ONCAMERA_MAX or len(oncamera_spots(t)) > 1:
+        return True
+    return bool(_ONCAMERA_BANNED_RE.search(_ONCAMERA_READ_RE.sub("", t)))
+
+
+def photohair_is_messy(text: str) -> bool:
+    t = str(text or "")
+    return len(t) > _PHOTOHAIR_MAX or bool(_PHOTOHAIR_BANNED_RE.search(t))
+
+
+def pronoun_mismatch(text: str, gender) -> bool:
+    rx = _PRONOUN_CONTRADICTIONS.get(str(gender or ""))
+    return bool(rx and rx.search(str(text or "")))
+
+
+def main_piece_key(piece) -> str:
+    """The head noun phrase of a main piece, compared on its last two words ("a worn leather jacket with
+    brass buttons" -> "leather jacket")."""
+    t = _PIECE_CUT_RE.split(str(piece or "").lower().strip())[0]
+    words = re.findall(r"[a-z][a-z'-]*", t)
+    return " ".join(words[-2:])
+
+
+def photo_sheet_taken(cards: list) -> dict:
+    """The `taken` lists the photo-sheet writer is given: the main pieces and the spot counts of the
+    houseguests in `cards` (public stored fields only)."""
+    pieces: list = []
+    spots: dict = {}
+    for c in cards or []:
+        phys = (c or {}).get("physicalCharacteristics") if isinstance(c, dict) else None
+        if not isinstance(phys, dict):
+            continue
+        wd = phys.get("wardrobe")
+        if isinstance(wd, list) and wd and str(wd[0]).strip():
+            pieces.append(str(wd[0]).strip())
+        found = oncamera_spots(str(phys.get("onCamera") or ""))
+        if len(found) == 1:
+            spot = next(iter(found))
+            spots[spot] = spots.get(spot, 0) + 1
+    return {"mainPieces": pieces, "spots": spots}
+
 
 _LOOK_PROBLEM_TEXT = {
     "gray-hair-young": "hair reads gray/silver/salt-and-pepper for someone under 35 (write it as dyed, or pick a natural colour that fits their age)",
     "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
     "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
     "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
-    "oncamera-shape": "onCamera must be at most 240 characters and name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
+    "oncamera-shape": "onCamera must name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
+    "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
+    "pronoun-mismatch": "a pronoun in onCamera or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
+    "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
+    "wardrobe-taken": "the MAIN (first) wardrobe piece repeats one already taken in this cast; choose a different garment",
 }
 
 _LOOK_RETRY_TAIL = (
@@ -972,10 +1104,14 @@ _LOOK_RETRY_TAIL = (
 )
 
 
-def look_retry_message(problems: list) -> str:
-    """The strict retry text naming each look problem (reuses the strict JSON-only instruction)."""
-    named = "; ".join(f"{p}: {_LOOK_PROBLEM_TEXT[p]}" for p in problems)
-    return (f"{_STRICT_RETRY} Your profile's look failed these checks: {named}.{_LOOK_RETRY_TAIL}")
+def look_retry_message(problems: list, taken: Optional[dict] = None) -> str:
+    """The strict retry text naming each look problem (reuses the strict JSON-only instruction). With
+    `taken`, the taken lists ride along so a wardrobe-taken or spot retry can see them."""
+    named = "; ".join(f"{p}: {_LOOK_PROBLEM_TEXT[p]}" for p in problems if p in _LOOK_PROBLEM_TEXT)
+    extra = ""
+    if isinstance(taken, dict) and taken:
+        extra = " taken = " + json.dumps(taken, ensure_ascii=False) + "."
+    return (f"{_STRICT_RETRY} Your profile's look failed these checks: {named}.{extra}{_LOOK_RETRY_TAIL}")
 
 
 def _age_of(npc: dict):
@@ -986,10 +1122,11 @@ def _age_of(npc: dict):
         return None
 
 
-def look_problems(profile: dict, npc: dict) -> list:
+def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> list:
     """The look-check reason codes the authored ``physicalCharacteristics`` trips ([] when clean or when
-    there is no facet). The optional wardrobe/onCamera are checked only when present (absent = omitted,
-    ORW-361 then uses its fallback lines). Vault-free: codes only, never the authored text."""
+    there is no facet). The optional wardrobe/photoHair/onCamera are checked only when present (absent =
+    omitted, the prompt then uses its fallback lines). `taken` ({"mainPieces": [...], "spots": {...}}) turns on
+    the wardrobe-taken check. Vault-free: codes only, never the authored text."""
     from src.orwell_style_families import families_mentioned, family_for_label
     pc = (profile or {}).get("physicalCharacteristics")
     if not isinstance(pc, dict):
@@ -1015,15 +1152,26 @@ def look_problems(profile: dict, npc: dict) -> list:
         out.append("wardrobe-shape")
     if "onCamera" in pc:
         oc = str(pc.get("onCamera") or "")
-        spots = {name for name, rx in _SPOT_PATTERNS if rx.search(oc)}
-        if len(oc) > _ONCAMERA_MAX or len(spots) != 1:
+        if oncamera_is_scene(oc):
+            out.append("oncamera-scene")
+        elif len(oncamera_spots(oc)) != 1:
             out.append("oncamera-shape")
+    gender = (npc or {}).get("genderPresentation")
+    if gender and (pronoun_mismatch(str(pc.get("onCamera") or ""), gender)
+                   or pronoun_mismatch(" ".join(items), gender)):
+        out.append("pronoun-mismatch")
+    if "photoHair" in pc and photohair_is_messy(str(pc.get("photoHair") or "")):
+        out.append("photohair-messy")
+    if items and isinstance(taken, dict):
+        key = main_piece_key(items[0])
+        if key and key in {main_piece_key(x) for x in (taken.get("mainPieces") or [])}:
+            out.append("wardrobe-taken")
     return out
 
 
 def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
     """After the strict retry still fails: hair and build fall back to the seeded brief's value for that
-    axis; style falls back to the family sample and wardrobe is omitted; onCamera is omitted. Mutates
+    axis (never to a seeded hair that itself reads gray); style falls back to the family sample and wardrobe is omitted; onCamera / photoHair are omitted; a pronoun mismatch omits the offending field; wardrobe-taken keeps the clothes. Mutates
     ``profile`` in place; returns the reason codes applied."""
     from src.orwell_style_families import family_for_label
     pc = profile.get("physicalCharacteristics")
@@ -1033,7 +1181,14 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
     seeded = seeded if isinstance(seeded, dict) else {}
     for code in problems:
         if code == "gray-hair-young" and seeded.get("hair"):
-            pc["hair"] = str(seeded["hair"])
+            seeded_hair = str(seeded["hair"])
+            if _GRAY_HAIR_RE.search(seeded_hair) and not _DYED_RE.search(seeded_hair):
+                # The seeded hair itself reads gray: drop the gray words (never fall back to a gray head on someone young).
+                pc["hair"] = _GRAY_HAIR_RE.sub("dark", seeded_hair)
+            else:
+                pc["hair"] = seeded_hair
+        elif code == "gray-hair-young":
+            pc["hair"] = _GRAY_HAIR_RE.sub("dark", str(pc.get("hair") or "")) or "dark hair"
         elif code == "build-contradiction" and seeded.get("heightBuild"):
             pc["heightBuild"] = str(seeded["heightBuild"])
         elif code == "style-wrong-family":
@@ -1043,10 +1198,163 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             pc.pop("wardrobe", None)
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
-        elif code == "oncamera-shape":
+        elif code in ("oncamera-shape", "oncamera-scene"):
             pc.pop("onCamera", None)
+        elif code == "pronoun-mismatch":
+            gender = (npc or {}).get("genderPresentation")
+            if pronoun_mismatch(str(pc.get("onCamera") or ""), gender):
+                pc.pop("onCamera", None)
+            if pronoun_mismatch(" ".join(str(x) for x in (pc.get("wardrobe") or []) if isinstance(pc.get("wardrobe"), list)), gender):
+                pc.pop("wardrobe", None)
+        elif code == "photohair-messy":
+            pc.pop("photoHair", None)
+        # wardrobe-taken: never drop clothes for this alone: the piece stays (the code is returned, so it is logged)
     return list(problems)
 
+
+
+# ── ORW-380: the shared photo-sheet writer (running-season upgrader, new-cast de-duplication pass) ──────
+
+# The ONLY card fields the photo-sheet writer ever sees: public profile fields. Never a Vault-adjacent field.
+SHEET_WRITER_FIELDS = ("name", "genderPresentation", "age", "ethnicity", "vocation", "hometown", "demeanor",
+                       "archetype", "identityConcept", "presentation")
+_SHEET_PHYS_FIELDS = ("heightBuild", "hair", "style")
+SHEET_FIELDS = ("wardrobe", "photoHair", "onCamera")
+
+
+def photo_sheet_writer_input(card: dict, taken: Optional[dict] = None) -> dict:
+    """Allowlisted PUBLIC inputs for the photo-sheet writer: name, genderPresentation, age, ethnicity, vocation,
+    hometown, demeanor, archetype, identityConcept, voice (energy and register only), presentation,
+    physicalCharacteristics.{heightBuild, hair, style}, castingType ({label, read}, when the card has it), and the `taken` lists."""
+    card = card if isinstance(card, dict) else {}
+    out = {k: card[k] for k in SHEET_WRITER_FIELDS if card.get(k) not in (None, "", [], {})}
+    ct = card.get("castingType")
+    if isinstance(ct, dict):
+        sub = {k: str(ct[k]) for k in ("label", "read") if ct.get(k) not in (None, "")}
+        if sub:
+            out["castingType"] = sub
+    voice = card.get("voice")
+    if isinstance(voice, dict):
+        sub = {k: voice[k] for k in ("energy", "register") if voice.get(k) not in (None, "")}
+        if sub:
+            out["voice"] = sub
+    phys = card.get("physicalCharacteristics")
+    if isinstance(phys, dict):
+        sub = {k: phys[k] for k in _SHEET_PHYS_FIELDS if phys.get(k) not in (None, "")}
+        if sub:
+            out["physicalCharacteristics"] = sub
+    out["taken"] = {"mainPieces": list((taken or {}).get("mainPieces") or []),
+                    "spots": dict((taken or {}).get("spots") or {})}
+    return out
+
+
+def sheet_problems(fields: dict, card: dict, taken: Optional[dict] = None) -> list:
+    """The look-check codes over a proposed photo sheet (`fields` holds wardrobe / photoHair / onCamera)."""
+    pc = {k: fields[k] for k in SHEET_FIELDS if isinstance(fields, dict) and k in fields}
+    if not pc:
+        return []
+    phys = card.get("physicalCharacteristics") if isinstance(card, dict) else None
+    if isinstance(phys, dict) and phys.get("style"):
+        pc["style"] = phys["style"]
+    return look_problems({"physicalCharacteristics": pc}, card, taken)
+
+
+def sheet_fallbacks(fields: dict, card: dict, problems: list) -> dict:
+    """Apply the fallbacks to a copy of `fields` (a failing field is omitted, wardrobe-taken keeps the clothes)."""
+    profile = {"physicalCharacteristics": {k: fields[k] for k in SHEET_FIELDS if k in fields}}
+    apply_look_fallbacks(profile, card, list(problems))
+    return {k: v for k, v in profile["physicalCharacteristics"].items() if k in SHEET_FIELDS and v}
+
+
+def _clean_sheet(raw) -> dict:
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    wd = raw.get("wardrobe")
+    if isinstance(wd, list):
+        items = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()]
+        if items:
+            out["wardrobe"] = items
+    for k in ("photoHair", "onCamera"):
+        v = raw.get(k)
+        if isinstance(v, str) and v.strip():
+            out[k] = " ".join(v.split())
+    return out
+
+
+async def write_photo_sheet(card: dict, taken: Optional[dict], llm_fn: LlmFn) -> tuple:
+    """The ONE photo-sheet writer. One model call over `photo_sheet_writer_input(card, taken)` with the shared
+    instruction; the shared checker; on any problem ONE strict retry naming it (with the taken lists); then the
+    fallbacks (a failing field is omitted; wardrobe-taken keeps the clothes). Returns ``(fields, codes)``: the
+    accepted fields and the reason codes still standing after the retry. Logs codes and the houseguest id only."""
+    hid = str((card or {}).get("id") or "?")
+    messages = [{"role": "system", "content": PHOTO_SHEET_SYSTEM},
+                {"role": "user", "content": json.dumps(photo_sheet_writer_input(card, taken), ensure_ascii=False)}]
+    fields: dict = {}
+    problems: list = []
+    for attempt in (0, 1):
+        msgs = messages if attempt == 0 else messages + [
+            {"role": "user", "content": look_retry_message(problems, taken)}]
+        try:
+            text = await llm_fn(msgs)
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the photo sheet is optional)
+            logger.info(f"[photo-sheet] writer call failed for {hid}: {type(e).__name__}")
+            continue
+        got = _clean_sheet(_extract_json(text or "") or {})
+        if not got:
+            problems = problems or ["wardrobe-shape", "oncamera-shape"]
+            continue
+        fields = got
+        problems = sheet_problems(fields, card, taken)
+        if not problems:
+            return fields, []
+        logger.info(f"[photo-sheet] check failed for {hid} ({', '.join(problems)})"
+                    + (" - retrying once" if attempt == 0 else ""))
+    if not fields:
+        return {}, problems
+    out = sheet_fallbacks(fields, card, problems)
+    logger.warning(f"[photo-sheet] fell back for {hid} after the retry ({', '.join(problems)})")
+    return out, problems
+
+
+async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
+    """The new-cast de-duplication post-pass. Walk `cards` (houseguests with their authored sheets) in id order
+    building the taken lists (main pieces, spot counts). A houseguest whose main piece repeats an earlier one, or
+    whose spot already has 3 houseguests, gets ONLY their photo sheet rewritten by `write_photo_sheet` given the
+    taken lists; the accepted fields are stored with `write_look_fn(houseguest_id, fields)`. One writer call per
+    offender, one pass; a failure leaves the original sheet. Returns how many sheets were rewritten."""
+    ordered = sorted((c for c in (cards or []) if isinstance(c, dict) and c.get("id")), key=lambda c: str(c["id"]))
+    taken: dict = {"mainPieces": [], "spots": {}}
+    rewritten = 0
+    for card in ordered:
+        phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+        current = {"physicalCharacteristics": phys}
+        mine = photo_sheet_taken([current])
+        piece = (mine["mainPieces"] or [None])[0]
+        spot = next(iter(mine["spots"]), None)
+        offender = bool((piece is not None and main_piece_key(piece) in {main_piece_key(x) for x in taken["mainPieces"]})
+                        or (spot is not None and taken["spots"].get(spot, 0) >= 3))
+        if offender:
+            try:
+                fields, codes = await write_photo_sheet(card, {"mainPieces": list(taken["mainPieces"]),
+                                                               "spots": dict(taken["spots"])}, llm_fn)
+                fields = {k: v for k, v in fields.items() if k in SHEET_FIELDS}
+                if fields:
+                    res = await write_look_fn(str(card["id"]), fields)
+                    if isinstance(res, dict) and res.get("accepted"):
+                        merged = dict(phys)
+                        merged.update(fields)
+                        card = {**card, "physicalCharacteristics": merged}
+                        phys = merged
+                        rewritten += 1
+                        logger.info(f"[cast-authoring] photo sheet rewritten for {card['id']} (de-duplication)")
+            except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheet stands)
+                logger.info(f"[cast-authoring] photo-sheet de-duplication skipped for {card.get('id')}: {type(e).__name__}")
+        now = photo_sheet_taken([{"physicalCharacteristics": phys}])
+        taken["mainPieces"].extend(now["mainPieces"])
+        for k, v in now["spots"].items():
+            taken["spots"][k] = taken["spots"].get(k, 0) + v
+    return rewritten
 
 
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
@@ -1265,6 +1573,9 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
             oc = phys.get("onCamera")
             if isinstance(oc, str) and oc.strip():
                 facet["onCamera"] = " ".join(oc.split())
+            ph = phys.get("photoHair")
+            if isinstance(ph, str) and ph.strip():
+                facet["photoHair"] = " ".join(ph.split())
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -1392,7 +1703,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                       *, concurrency: int = _AUTHOR_CONCURRENCY,
                       user: Optional[str] = None,
                       seed: Optional[int] = None,
-                      hands: Optional[dict] = None) -> int:
+                      hands: Optional[dict] = None,
+                      look_write_fn: Optional[Callable[[str, dict], Awaitable[dict]]] = None) -> int:
     """For each NPC in `cast`: build the producer prompt → `llm_fn` → parse → `write_fn`
     (recordCastProfile). Best-effort PER houseguest: one failure never aborts the rest (the seeded
     floor stays authoritative for any NPC that couldn't be authored). Returns how many were written.
@@ -1409,6 +1721,13 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     `on_authored(houseguest_id)` — when supplied — is fired AFTER each successful, engine-accepted
     write-back (per-NPC portrait gating, #7). It is best-effort: a callback raising never aborts
     authoring. It is never fired for an NPC that wasn't authored / was refused.
+
+    ORW-380: the callbacks fire once ALL profiles are authored, after the photo-sheet de-duplication
+    post-pass (`dedupe_photo_sheets`): authoring runs houseguests concurrently, so no writer could see the
+    others' clothes and spots; the pass walks the cast in id order and rewrites ONLY the photo sheet of a
+    houseguest whose main piece repeats an earlier one or whose spot already has 3 (one extra writer call
+    per offender, one pass, `look_write_fn` or the engine's recordLookExtras stores it). A clean cast
+    makes zero extra calls; a failure leaves the original sheet. Portraits are requested after the pass.
 
     T0-6 — the ONE Casting Bible: `seed` (the season seed, when known — always known on the live
     kickoff paths) mints this cast's FacetLedger via the SAME slot alignment `orwell_cast_genesis`
@@ -1465,6 +1784,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     # refusals dropped good profiles). A single-flight lock funnels every write-back through one at a time
     # — authoring still parallelizes the (slow) LLM calls, only the (fast) commit is serialized.
     write_lock = asyncio.Lock()
+    authored_cards: dict = {}  # ORW-380: houseguest id -> the card with its authored sheet (for the post-pass)
+    authored_ids: list = []
     # #1002 / #1057: per-season tallies for the end-of-run diagnostic counter — how many NPCs fell back to
     # the deterministic floor, and WHY. The breakdown distinguishes every no-op cause so a live-verify can
     # read exactly where the loss is (no-JSON prose vs. empty/truncated provider output vs. a write-back
@@ -1873,16 +2194,34 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             # FEPY-5 (#621): a rejected/odd write-back was silently dropped here — already logged inside
             # `_write_with_retries`; the seeded floor still stands (best-effort, never aborts).
             return 0
-        # The write-back landed — signal this one NPC's completion so its portrait can shoot now (#7).
-        if on_authored is not None:
-            try:
-                on_authored(hid)
-            except Exception as e:  # pragma: no cover - defensive: a gate callback must never abort
-                logger.warning(f"[cast-authoring] on_authored({hid}) failed: {e}")
+        # The write-back landed. Keep the authored card so the post-pass can see the sheet; the per-NPC
+        # completion signal (the portrait gate, #7) fires after the photo-sheet de-duplication pass below.
+        _phys = profile.get("physicalCharacteristics")
+        authored_cards[hid] = {**npc, "id": hid,
+                               "physicalCharacteristics": {**(npc.get("physicalCharacteristics") or {}),
+                                                           **(_phys if isinstance(_phys, dict) else {})},
+                               **({"voice": profile["voice"]} if isinstance(profile.get("voice"), dict) else {})}
+        authored_ids.append(hid)
         return 1
 
     results = await asyncio.gather(*[_author_one(npc) for npc in (cast or [])])
     written = sum(results)
+    # ORW-380: the photo-sheet de-duplication post-pass, then the per-NPC completion signals.
+    if len(authored_cards) > 1:
+        try:
+            if look_write_fn is None:
+                async def look_write_fn(h: str, fields: dict) -> dict:  # noqa: F811 - the engine's look-only write-back
+                    from src import orwell_engine
+                    return await orwell_engine.record_look_extras(h, fields, user=user)
+            await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
+            logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
+    if on_authored is not None:
+        for _hid in authored_ids:
+            try:
+                on_authored(_hid)
+            except Exception as e:  # pragma: no cover - defensive: a gate callback must never abort
+                logger.warning(f"[cast-authoring] on_authored({_hid}) failed: {e}")
     # #1002 / #1057: the per-season diagnostic counter — the headline "did the LLM actually enrich the
     # cast, or did it all fall back to the thin deterministic floor?" line. `total` counts the authorable
     # NPCs (the player is human-authored and skipped); the floor tallies break down EVERY no-op cause so a
@@ -2108,7 +2447,7 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         # `_AUTHORING_STREAM_WALL_CLOCK_S` (e.g. a test, or a future admin knob) actually takes effect.
         async for chunk in _bounded_stream(stream_llm_with_fallback(
             candidates, messages, temperature=_temperature, policy=_policy,
-            max_tokens=cap, response_format=_RESPONSE_FORMAT), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
+            max_tokens=cap, response_format=_response_format_for(messages)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
             # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
             piece = _delta_text(chunk)
             if piece:

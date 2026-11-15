@@ -25,7 +25,7 @@ import type {
 import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
-import { humanizeIds, humanizeForRetrospective } from "./humanize";
+import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./humanize";
 import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
@@ -217,7 +217,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -2999,7 +2999,7 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Slice first so humanize runs on a bounded tail.
-      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanize(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
+      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {
@@ -3290,14 +3290,16 @@ export class GameSessionAdapter implements GameSession {
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
     if (req.physicalCharacteristics !== undefined) {
-      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, ...rest } = req.physicalCharacteristics as
-        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown };
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown };
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
+      const photoHair = cleanPhotoHair(rawPhotoHair);
       req = {
         ...req,
         physicalCharacteristics: {
           ...rest, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}),
+          ...(photoHair !== undefined ? { photoHair } : {}),
         },
       };
     }
@@ -11241,13 +11243,15 @@ export class GameSessionAdapter implements GameSession {
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !highlights.includes(e.content) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0)
+      .filter((e) => !e.hidden && !highlights.includes(e.content) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
-    const surfaced = knownAll.slice(knFrom)
+    const surfacedRaw = knownAll.slice(knFrom)
       .filter((f) => f.pathway !== NO_NPC_PATHWAY)
-      .map((f) => this.humanize(f.content));
+      .map((f) => this.humanizeTidy(f.content));
+    // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
+    const surfaced = [...new Set(surfacedRaw)];
     const hook = this.buildDailyRecapHook(day, surfaced);
     const recap: DailyRecapView = { day, highlights, surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
@@ -11273,6 +11277,11 @@ export class GameSessionAdapter implements GameSession {
     }
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
+    // ORW-400: the day rolled for a played game - last night's room tenure and conversation partners do not carry into the morning. presenceBase and the shared rng are untouched (headless/golden runs identical).
+    if (s.playedGame === true) {
+      if (this.presenceTenure) for (const id of [...this.presenceTenure.keys()]) this.presenceTenure.set(id, 0);
+      this.convoPartners = null;
+    }
     if (this.messageMode) (s.dailyRecapLog ??= []).push(recap);
     if (s.dailyRecapLog && s.dailyRecapLog.length > DAILY_RECAP_LOG_CAP) s.dailyRecapLog.splice(0, s.dailyRecapLog.length - DAILY_RECAP_LOG_CAP);
     return recap;
@@ -14058,6 +14067,11 @@ export class GameSessionAdapter implements GameSession {
   /** Replace raw entity ids in a loop event string with the houseguests' public names.
    *  Delegates to the whole-token substituter so beat prose like "the veto players are drawn"
    *  is never mangled by the player's bare-word id "player" (audit A8). */
+  /** ORW-400: `humanize` plus the pathway/drift-marker tidy, for player-facing knowledge lines (recap, ledger, "knows"). */
+  private humanizeTidy(content: string): string {
+    return tidyPathwaySlugs(this.humanize(content));
+  }
+
   private humanize(content: string): string {
     const all = this.house ? [this.house.player, ...this.house.npcs] : [];
     return humanizeIds(content, all);
@@ -14184,7 +14198,7 @@ export class GameSessionAdapter implements GameSession {
           ? (this.npcKnowledge?.known(p.id) ?? [])
               .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
               .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
-              .map((f) => this.humanize(f.content))
+              .map((f) => this.humanizeTidy(f.content))
           : v.knows;
         const e: import("../../ports/GameSession").PresentKnowledgeView = {
           id: p.id,
@@ -14470,7 +14484,7 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, source: "web_search" };
   }
 
-  /** ORW-369: look-only write-back (wardrobe + onCamera for one existing houseguest); see the port. */
+  /** ORW-369: look-only write-back (wardrobe + onCamera + photoHair for one existing houseguest); see the port. */
   recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
     if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
     const target = this.house.npcs.find((n) => n.id === req.houseguestId);
@@ -14479,21 +14493,30 @@ export class GameSessionAdapter implements GameSession {
     if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
     const wardrobe = cleanWardrobe(req.wardrobe);
     const onCamera = cleanOnCamera(req.onCamera);
-    if (wardrobe === undefined && onCamera === undefined) return { accepted: false, fields: [], reason: "nothing-valid" };
+    const photoHair = cleanPhotoHair(req.photoHair);
+    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair"] as const;
+    const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
+    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
     const playerName = (this.house.player.name ?? "").trim();
-    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""}`.toLowerCase();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
-    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}) };
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}) };
     const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
     const fields: string[] = [];
     const next = { ...prior };
     if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
     if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
-    if (fields.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
-    target.character.physicalCharacteristics = next; // only the two keys differ; appearance / every other field untouched
+    if (photoHair !== undefined && guarded.photoHair === photoHair) { next.photoHair = photoHair; fields.push("photoHair"); }
+    // ORW-380: `clear` removes an old field the new writer left out (a stale scene-like line must not ship in the v3 prompt).
+    const cleared: string[] = [];
+    for (const c of clear) {
+      if (!fields.includes(c) && next[c] !== undefined) { delete next[c]; cleared.push(c); }
+    }
+    if (fields.length === 0 && cleared.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
+    target.character.physicalCharacteristics = next; // only the look keys differ; appearance / every other field untouched
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
-    return { accepted: true, fields };
+    return { accepted: true, fields, ...(cleared.length > 0 ? { cleared } : {}) };
   }
 
   /**
