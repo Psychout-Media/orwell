@@ -42,7 +42,10 @@ POLL=${WATCH_PR_POLL:-30}
 deadline=$(( $(date +%s) + mins*60 )); reruns=0; floor_attempt=0
 declare -A seen=()      # job ids already analysed
 declare -A flakejobs=() # job name -> 1: failures that are known flakes
+declare -A superseded=() # run ids cancelled by a newer run of the same ref
+declare -A unknown=()
 declare -A cancelled=() # job name -> 1: cancelled / timed out
+names() { local k; for k in "$@"; do printf "%s; " "$k"; done; }
 now() { TZ=America/Phoenix date +%H:%M:%S; }
 say() { echo "$(now) $*"; }
 log_of() { gh api "repos/$R/actions/jobs/$1/logs" 2>/dev/null; }
@@ -99,11 +102,27 @@ while :; do
         flakejobs[$jname]=1; say "known flake in $jname: $(jq -r '.tests|join("; ")' <<<"$parsed") (will re-run when the run completes)"
       else report_failure "$jid" "$jname" "$parsed" "$rid"; exit 2; fi
     done < <(jq -r '.jobs[]|select(.conclusion=="failure" and .name!="ci-gate")|"\(.databaseId)\t\(.name)"' <<<"$rj")
-    while IFS= read -r cn; do
-      [ -n "$cn" ] && [ -z "${cancelled[$cn]:-}" ] && { cancelled[$cn]=1; say "job cancelled (time limit?): $cn (will re-run when the run completes)"; }
-    done < <(jq -r '.jobs[]|select((.conclusion=="cancelled" or .conclusion=="timed_out") and .name!="ci-gate")|.name' <<<"$rj")
+    while IFS=$'\t' read -r cid cn; do
+      [ -z "${cn:-}" ] && continue; [ -n "${seen[$cid]:-}" ] && continue; seen[$cid]=1
+      ann=$(gh api "repos/$R/check-runs/$cid/annotations" --jq '.[].message' 2>/dev/null)
+      if grep -q "higher priority waiting request\|Canceling since" <<<"$ann"; then
+        superseded[$rid]=1; say "job $cn was cancelled because a newer run of this ref took over (not a time limit, not a failure)"
+      elif grep -q "exceeded the maximum execution time" <<<"$ann"; then
+        cancelled[$cn]=1; say "job hit its TIME LIMIT: $cn (will re-run when the run completes)"
+      else unknown[$cn]=1; fi
+    done < <(jq -r '.jobs[]|select((.conclusion=="cancelled" or .conclusion=="timed_out") and .name!="ci-gate")|"\(.databaseId)\t\(.name)"' <<<"$rj")
+    for cn in "${!unknown[@]}"; do   # cancelled with no stated reason: a dependent of a superseded job is superseded too
+      if [ -n "${superseded[$rid]:-}" ]; then say "job $cn was cancelled along with the superseded jobs"
+      else cancelled[$cn]=1; say "job cancelled for an unknown reason: $cn (will re-run when the run completes)"; fi
+    done; unknown=()
     # 2. the run is over
     if [ "$rst" = completed ] && [ "$att" -gt "$floor_attempt" ]; then
+      if [ -n "${superseded[$rid]:-}" ] && [ "${#flakejobs[@]}" -eq 0 ] && [ "${#cancelled[@]}" -eq 0 ]; then
+        say "run $rid was superseded by a newer run of this ref; waiting for it (none yet: a new push or ready_for_review starts one)"
+        [ -n "$only_run" ] && exit 2
+        [ "$(date +%s)" -ge "$deadline" ] && { say "DEADLINE ${mins} min: PR #$pr head ${head:0:10}, only superseded runs"; exit 4; }
+        sleep "$POLL"; continue
+      fi
       gate=$(jq -r '[.jobs[]|select(.name=="ci-gate")|.conclusion]|first // "none"' <<<"$rj")
       if [ "$gate" = success ]; then
         if [ "$dr" = true ]; then say "ci-gate is green but PR #$pr is a draft (reruns $reruns)"; exit 5; fi
@@ -116,10 +135,10 @@ while :; do
       if [ "${#flakejobs[@]}" -gt 0 ] || [ "${#cancelled[@]}" -gt 0 ]; then
         if [ "$reruns" -lt 3 ]; then
           reruns=$((reruns+1)); gh run rerun "$rid" -R "$R" --failed >/dev/null 2>&1
-          say "re-run $reruns of 3 of run $rid (flakes: ${!flakejobs[*]:-none}; cancelled: ${!cancelled[*]:-none})"
+          say "re-run $reruns of 3 of run $rid (flakes: $(names "${!flakejobs[@]}")cancelled: $(names "${!cancelled[@]}"))"
           floor_attempt=$att; flakejobs=(); cancelled=(); sleep "$POLL"; continue
         fi
-        say "no re-run (limit 3 reached, or --run replay) for run $rid; red or cancelled: ${!flakejobs[*]:-} ${!cancelled[*]:-}"; exit 2
+        say "no re-run (limit 3 reached, or --run replay) for run $rid; red or cancelled: $(names "${!flakejobs[@]}" "${!cancelled[@]}")"; exit 2
       fi
       [ "$dr" = true ] && { say "draft PR #$pr: run $rid finished, ci-gate=$gate (a draft cannot pass ci-gate)"; exit 5; }
       say "run $rid finished with ci-gate=$gate and no failed job found: https://github.com/$R/actions/runs/$rid"; exit 2
