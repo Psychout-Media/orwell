@@ -83,8 +83,8 @@ while :; do
   j=$(gh pr view "$pr" -R "$R" --json state,isDraft,mergeable,headRefOid,headRefName 2>/dev/null) || { sleep "$POLL"; continue; }
   st=$(jq -r .state <<<"$j"); dr=$(jq -r .isDraft <<<"$j"); mg=$(jq -r .mergeable <<<"$j")
   head=$(jq -r .headRefOid <<<"$j"); br=$(jq -r .headRefName <<<"$j")
-  [ "$st" = "MERGED" ] && { say "PR #$pr already merged"; exit 0; }
-  [ "$st" = "CLOSED" ] && { say "PR #$pr is closed"; exit 5; }
+  [ -z "$only_run" ] && [ "$st" = "MERGED" ] && { say "PR #$pr already merged"; exit 0; }
+  [ -z "$only_run" ] && [ "$st" = "CLOSED" ] && { say "PR #$pr is closed"; exit 5; }
   [ -z "$only_run" ] && [ "$mg" = "CONFLICTING" ] && { say "PR #$pr has a MERGE CONFLICT with main at head ${head:0:10}: rebase it"; exit 3; }
   if [ -n "$only_run" ]; then run="{\"databaseId\":$only_run}"; merge=0; reruns=3
   else run=$(gh run list -R "$R" --branch "$br" --workflow CI --limit 30 --json databaseId,status,headSha,createdAt \
