@@ -1112,6 +1112,21 @@ export interface RecordRoomCanonReq {
   feature: string;
 }
 
+/** ORW-369: a look-only write-back for ONE existing houseguest: the clothing pieces and the on-camera line, nothing else. */
+export interface RecordLookExtrasReq {
+  houseguestId: string;
+  wardrobe?: string[];
+  onCamera?: string;
+}
+
+export interface RecordLookExtrasResult {
+  accepted: boolean;
+  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  fields: string[];
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -3151,6 +3166,15 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+
+  /**
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
+   * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
+   * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,
+   * and persists in the background without a beat. Vault-free: public fields only.
+   */
+  recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult;
 
   /**
    * The FE-driven producer-DEEPENING write-back (increment 3 of #1626) — fold an AUTHORED overlay onto

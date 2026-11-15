@@ -36,10 +36,6 @@ RETRY_STEADY_S = 2 * 60 * 60.0
 WRITER_INPUT_FIELDS = ("identityConcept", "archetype", "demeanor", "presentation", "age", "vocation",
                        "hometown", "biography", "voice", "style", "styleFamily")
 _PHYS_PUBLIC_FIELDS = ("presentation", "style", "styleFamily", "family")
-ON_CAMERA_MAX = 240
-ON_CAMERA_SPOTS = ("kitchen", "living room", "dining room", "backyard", "lounge", "bedroom")
-WARDROBE_MAX_ITEMS = 3
-WARDROBE_ITEM_MAX = 60
 
 # per safe-user state: {"sig", "armed_at", "next_ok_at", "fails": {sid: n}, "retry_at": {sid: ts},
 #                       "started_at", "done": int, "failed": int}
@@ -56,13 +52,10 @@ def _st(user) -> dict:
 
 
 def look_fill_supported() -> bool:
-    """The look fill-in needs ORW-360's engine fields; off (clear seam) until that code is present."""
+    """The look fill-in rides ORW-360's fields and the look-only engine tool `recordLookExtras`."""
     try:
         from src import orwell_engine
-        if not hasattr(orwell_engine, "record_look_extras"):
-            return False
-        import src.orwell_style_families  # noqa: F401  (ORW-360's module)
-        return True
+        return hasattr(orwell_engine, "record_look_extras")
     except Exception:
         return False
 
@@ -114,45 +107,28 @@ def needs_look(card: dict) -> bool:
     return not (phys.get("wardrobe") and phys.get("onCamera"))
 
 
-def _validate_wardrobe(v) -> Optional[list]:
-    if not isinstance(v, list):
-        return None
-    items = [" ".join(str(x).split()) for x in v if isinstance(x, str) and str(x).strip()]
-    if not 2 <= len(items) <= WARDROBE_MAX_ITEMS or any(len(i) > WARDROBE_ITEM_MAX for i in items):
-        return None
-    return items
-
-
-def _validate_on_camera(v) -> Optional[str]:
-    if not isinstance(v, str):
-        return None
-    t = " ".join(v.split())
-    if not t or len(t) > ON_CAMERA_MAX:
-        return None
-    return t if any(spot in t.lower() for spot in ON_CAMERA_SPOTS) else None
-
-
-def _validate_look(raw: dict) -> dict:
-    """ORW-360's validators when that module is present (the one source of the rules), else the local
-    equivalents. A field that fails is omitted."""
-    out = {}
-    try:
-        from src import orwell_style_families as sf  # ORW-360
-        vw = getattr(sf, "validate_wardrobe", None)
-        vc = getattr(sf, "validate_on_camera", None)
-    except Exception:
-        vw = vc = None
-    for key, local, ext in (("wardrobe", _validate_wardrobe, vw), ("onCamera", _validate_on_camera, vc)):
-        val = local(raw.get(key)) if isinstance(raw, dict) else None
-        if val is not None and ext is not None:
-            try:
-                ok = ext(val)
-                val = val if (ok is True or ok is None or ok) else None
-            except Exception:
-                val = None
-        if val is not None:
-            out[key] = val
-    return out
+def look_checked(raw: dict, card: dict) -> tuple:
+    """Run ORW-360's own checks (`look_problems`) over the proposed fields. Returns (accepted_fields,
+    problem_codes). A field that trips a check is omitted (the writer's own fallback rule: wardrobe-shape
+    and style-wrong-family drop the wardrobe, oncamera-shape drops onCamera)."""
+    from src import orwell_cast_authoring as CA
+    pc = {}
+    if isinstance(raw, dict):
+        if "wardrobe" in raw:
+            pc["wardrobe"] = raw["wardrobe"]
+        if "onCamera" in raw:
+            pc["onCamera"] = raw["onCamera"]
+    if not pc:
+        return {}, ["empty"]
+    ctx = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    if ctx.get("style"):
+        pc["style"] = ctx["style"]
+    profile = {"physicalCharacteristics": dict(pc)}
+    problems = CA.look_problems(profile, card)
+    CA.apply_look_fallbacks(profile, card, [p for p in problems if p in ("wardrobe-shape", "oncamera-shape", "style-wrong-family")])
+    out = {k: profile["physicalCharacteristics"][k] for k in ("wardrobe", "onCamera")
+           if profile["physicalCharacteristics"].get(k)}
+    return out, [p for p in problems if p not in ("gray-hair-young", "build-contradiction")]
 
 
 _LOOK_SYSTEM = (
@@ -176,15 +152,16 @@ async def write_look(card: dict, owner) -> dict:
     messages = [{"role": "system", "content": _LOOK_SYSTEM},
                 {"role": "user", "content": json.dumps(writer_input(card), ensure_ascii=False)}]
     look: dict = {}
+    problems: list = []
     for attempt in (0, 1):
-        msgs = messages if attempt == 0 else messages + [{"role": "user", "content": _LOOK_RETRY}]
+        msgs = messages if attempt == 0 else messages + [{"role": "user", "content": CA.look_retry_message(
+            [p for p in problems if p != "empty"] or ["wardrobe-shape", "oncamera-shape"])}]
         try:
             text = await llm(msgs)
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the look is optional; the photo still upgrades)
             logger.info("[portrait-upgrade] look writer call failed: %s", e)
             continue
-        raw = CA._extract_json(text or "")
-        got = _validate_look(raw or {})
+        got, problems = look_checked(CA._extract_json(text or "") or {}, card)
         look.update({k: v for k, v in got.items() if k not in look})
         if len(look) == 2:
             break

@@ -193,11 +193,33 @@ def test_writer_input_is_public_fields_only():
     assert out["vocation"] == "teacher" and out["identityConcept"] == "a baker"
 
 
-def test_look_validators():
-    assert U._validate_look({"wardrobe": ["denim jacket", "white tee"], "onCamera": "Laughs in the kitchen."}) == {
-        "wardrobe": ["denim jacket", "white tee"], "onCamera": "Laughs in the kitchen."}
-    assert U._validate_look({"wardrobe": ["one"], "onCamera": "x" * 300}) == {}
-    assert U._validate_look({"wardrobe": ["a", "b"], "onCamera": "In the garage."}) == {"wardrobe": ["a", "b"]}
+def test_look_checks_reuse_the_writers_validators():
+    card = _card(1)
+    ok = {"wardrobe": ["denim jacket", "white tee"], "onCamera": "Laughs easily in the kitchen."}
+    assert U.look_checked(ok, card)[0] == ok
+    bad, probs = U.look_checked({"wardrobe": ["one"], "onCamera": "x" * 300}, card)
+    assert bad == {} and set(probs) == {"wardrobe-shape", "oncamera-shape"}
+    got, _ = U.look_checked({"wardrobe": ["a jacket", "b tee"], "onCamera": "In the garage."}, card)
+    assert got == {"wardrobe": ["a jacket", "b tee"]}  # a field that fails is omitted
+
+
+def test_write_look_one_strict_retry(monkeypatch):
+    CA = importlib.import_module("src.orwell_cast_authoring")
+    calls = []
+
+    async def llm(msgs):
+        calls.append(msgs)
+        return "no json" if len(calls) == 1 else json.dumps(
+            {"wardrobe": ["denim jacket", "white tee"], "onCamera": "Laughs easily in the kitchen."})
+
+    async def resolve(owner, **k):
+        return llm
+    monkeypatch.setattr(CA, "resolve_authoring_llm_fn", resolve)
+    look = _run(U.write_look(_card(1), "u"))
+    assert len(calls) == 2 and look["wardrobe"] == ["denim jacket", "white tee"]
+    sent = json.dumps(calls[0])
+    for bad in ("VAULT-SECRET", "VAULT-GOAL", "opinions"):
+        assert bad not in sent
 
 
 def test_look_filled_only_when_missing_and_from_public_fields(season, monkeypatch):
