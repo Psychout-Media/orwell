@@ -152,6 +152,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "getMomentPrompt": return { moment: "nominations" };
     case "whereabouts": return { search: true }; // ORW-386: the sweep reads the house search too (a superset of the plain read)
     case "getVisibleStateFor": return { entity: PLAYER };
+    case "beatLog": return { sinceBeatSeq: 0 }; // ORW-439: the diagnostic read takes the caller's last-seen counter (required)
     case "renderScene": return { mode: "scene" };
     case "socialRead": return { houseguest: npc(1) };
     case "askProducers": return { question: "is anyone working against me?" };
