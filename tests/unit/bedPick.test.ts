@@ -84,7 +84,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     }
   });
 
-  it("a half-double swap needs only that spot owner's yes: the other half's sleeper has no veto (BED_RULES.halfDoublePartnerVeto false)", () => {
+  it("a half-double swap is a shared trade: the spot owner AND the other half's sleeper must agree (Ryne 2026-11-15: \"they should get a say\")", () => {
     const s = premiere();
     walkIn(s);
     const beds = liveOf(s).beds!;
@@ -94,11 +94,14 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     seat(a!, "bedroom-c#d1:1"); seat(b!, "bedroom-c#d1:2");
     relOf(s).edge(a!, b!).affinity = 0.25;
     relOf(s).edge(a!, "player").affinity = 0.95; // the spot's owner likes the player
-    relOf(s).edge(b!, "player").affinity = 0; // the other half does not
+    relOf(s).edge(b!, "player").affinity = 0; // the other half does not: they say no
     s.resolvePlayerMove({ text: `Could I swap beds with ${nameOf(s, a!)}?` });
-    expect(beds.owner["player"], "the player is in the double now").toBe("bedroom-c#d1:1");
+    expect(beds.owner["player"], "the other half said no: no swap").not.toBe("bedroom-c#d1:1");
+    expect(beds.owner[a!]).toBe("bedroom-c#d1:1");
+    relOf(s).edge(b!, "player").affinity = 0.95; // now the other half is warm too
+    s.resolvePlayerMove({ text: `Could I swap beds with ${nameOf(s, a!)}?` });
+    expect(beds.owner["player"], "both agreed: the player is in the double now").toBe("bedroom-c#d1:1");
     expect(beds.owner[b!], "the other half keeps their spot").toBe("bedroom-c#d1:2");
-    expect(beds.owner[a!]).not.toBe("bedroom-c#d1:1");
   });
 
   it("a player who never picks gets the last free bed at their first bedtime", () => {
