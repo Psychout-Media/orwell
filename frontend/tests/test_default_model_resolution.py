@@ -59,10 +59,10 @@ def test_oob_default_chat_model_is_deepseek_flash():
     )
 
 
-def test_oob_default_image_model_is_gemini_flash_image():
+def test_oob_default_image_model_is_gpt_image_sunburst():
     from src.settings import DEFAULT_SETTINGS
-    assert DEFAULT_SETTINGS["image_model"] == "google/gemini-3.1-flash-image", (
-        "the assumed default image model must be gemini-3.1-flash-image"
+    assert DEFAULT_SETTINGS["image_model"] == "openai/gpt-image-2.6-sunburst", (
+        "ORW-362: the default image model is GPT Image 2.6 Sunburst (OpenRouter Image API)"
     )
 
 
@@ -369,7 +369,7 @@ def test_reset_drops_stale_model_selection_so_defaults_stand(monkeypatch, tmp_pa
     from src.settings import DEFAULT_SETTINGS
     effective = {**DEFAULT_SETTINGS, **preserved}
     assert effective["default_model"] == "deepseek-flash"
-    assert effective["image_model"] == "google/gemini-3.1-flash-image"
+    assert effective["image_model"] == "openai/gpt-image-2.6-sunburst"
 
 
 def test_reset_resets_even_a_valid_served_selection_to_defaults(monkeypatch, tmp_path):
@@ -387,7 +387,7 @@ def test_reset_resets_even_a_valid_served_selection_to_defaults(monkeypatch, tmp
     from src.settings import DEFAULT_SETTINGS
     effective = {**DEFAULT_SETTINGS, **preserved}
     assert effective["default_model"] == "deepseek-flash"
-    assert effective["image_model"] == "google/gemini-3.1-flash-image"
+    assert effective["image_model"] == "openai/gpt-image-2.6-sunburst"
 
 
 def test_no_sakana_fugu_seed_anywhere_in_frontend_source():

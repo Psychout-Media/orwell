@@ -72,13 +72,17 @@ DEFAULT_SETTINGS = {
     # into a player-visible surface (audit 2026-10-25 Tier 1 #10, option (b)). Presentation-only: no balance
     # or game-state effect either way.
     "offscreen_texture_enrichment": False,
-    # OOB default image model. OpenRouter is the default provider and serves Google's Gemini
-    # flash-image models via /chat/completions; gemini-3.1-flash-image is the out-of-box pick —
+    # OOB default image model (ORW-362, Kevin 2026-11-14): OpenAI GPT Image 2.6 Sunburst via OpenRouter's
+    # Image API (POST /api/v1/images; see orwell_portraits._generate_via_openrouter_images). If that call
+    # fails, the one portrait falls back to google/gemini-3.1-flash-image on /chat/completions. Rollback:
+    # set image_model back to google/gemini-3.1-flash-image. Background on the Gemini pick it replaced:
+    # OpenRouter serves Google's Gemini
+    # flash-image models via /chat/completions; gemini-3.1-flash-image was the out-of-box pick —
     # newest-generation Gemini photorealism at ~current-default cost (~1.2x gemini-2.5-flash-image,
     # ~4x cheaper than gemini-3-pro-image), and it does reference-image identity-carry on the same key.
     # (Overridable in Settings → Image generation; the "Auto-detect" option resolves to the same
     # family — see IMAGE_AUTODETECT_CANDIDATES in src/ai_interaction.py.)
-    "image_model": "google/gemini-3.1-flash-image",
+    "image_model": "openai/gpt-image-2.6-sunburst",
     "image_quality": "medium",
     "vision_model": "",
     "vision_enabled": True,
