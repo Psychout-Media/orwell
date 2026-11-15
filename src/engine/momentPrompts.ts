@@ -1535,6 +1535,7 @@ export function renderGameContext(view: GameStateView): string {
     // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
+    ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
     ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT
