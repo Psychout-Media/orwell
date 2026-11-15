@@ -199,3 +199,63 @@ describe("ORW-404 — durability backlog alarm and /health shape", () => {
     expect(store.durability()).toMatchObject({ saveDurableVersion: 8, saveDurabilityPending: false });
   });
 });
+
+describe("review of #2732 — a checkpoint is not durable until its directory fsync succeeded", () => {
+  const CP = 50;
+  const mk = (extra: Record<string, unknown>) => {
+    const dir = tmp();
+    const store = new FileSaveStore(dir, {
+      fsyncMode: "background", syncFile: async () => {}, syncFileSync: () => {}, onError: () => {}, ...extra,
+    } as never);
+    return { dir, store };
+  };
+
+  it("flushDurable: a failing directory fsync leaves the checkpoint un-durable and retries", async () => {
+    let dirFail = true;
+    const dirCalls: number[] = [];
+    const { store } = mk({
+      syncFile: () => new Promise<void>(() => {}), // the background fsync never settles: only the flush can make it durable
+      syncDir: async () => { throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+      syncDirSync: () => { dirCalls.push(1); if (dirFail) throw Object.assign(new Error("EIO"), { code: "EIO" }); },
+    });
+    for (let i = 1; i <= CP; i++) store.saveFor("u", snap(i));
+    await settle();
+    store.flushDurable();
+    expect(dirCalls.length).toBe(1);
+    expect(store.durability().saveDurableVersion).toBeLessThan(CP);
+    dirFail = false;
+    store.flushDurable();
+    expect(dirCalls.length).toBe(2); // dirDirty survived the failure
+    expect(store.durability().saveDurableVersion).toBe(CP);
+  });
+
+  it("flushDurable still syncs the directory while a background directory fsync is in flight", async () => {
+    let release: () => void = () => {};
+    const dirCallsSync: number[] = [];
+    const { store } = mk({
+      syncDir: () => new Promise<void>((res) => { release = res; }),
+      syncDirSync: () => { dirCallsSync.push(1); },
+    });
+    for (let i = 1; i <= CP; i++) store.saveFor("u", snap(i));
+    await settle(); // background sync reached its (stalled) directory fsync
+    store.flushDurable();
+    expect(dirCallsSync.length).toBe(1);
+    release();
+  });
+});
+
+describe("review of #2732 — shutdown quiesces before it flushes", () => {
+  it("quiesce completes before flush starts, and a throwing quiesce still flushes and exits", async () => {
+    const order: string[] = [];
+    const sd = createShutdown({
+      quiesce: async () => { order.push("quiesce"); await settle(); order.push("quiesced"); },
+      flush: async () => { order.push("flush"); },
+      exit: () => { order.push("exit"); },
+    });
+    await sd();
+    expect(order).toEqual(["quiesce", "quiesced", "flush", "exit"]);
+    const o2: string[] = [];
+    await createShutdown({ quiesce: () => { throw new Error("x"); }, flush: async () => { o2.push("flush"); }, exit: () => { o2.push("exit"); } })();
+    expect(o2).toEqual(["flush", "exit"]);
+  });
+});

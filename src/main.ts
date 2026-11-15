@@ -74,12 +74,19 @@ const requireUser = /^(1|true|yes|on)$/i.test(process.env["ORWELL_ENGINE_MULTIUS
 // spray ids to mint unlimited sandboxes (only createCharacter may start a fresh one).
 const knownUser = (user: string): boolean => runtime.knownUser(user);
 
-startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus, saveStatus: runtime.saveDurability }, host);
+const server = startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus, saveStatus: runtime.saveDurability }, host);
 // Clean shutdown (no background timers to tear down — the runtime is purely turn-driven). ORW-404: the
 // per-save fsync runs in the background, so flush the newest un-synced save of every user (async,
 // bounded to 10 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
 // disk can never hold the process in the handler; the flush is non-blocking so the timer can fire.
 const shutdown = createShutdown({
+  // Review of #2732: stop accepting and drain (bounded 1.5 s, then cut the stragglers) BEFORE the flush, so no request can write a newer save after the flush snapshots its work.
+  quiesce: () => new Promise<void>((resolve) => {
+    const cut = setTimeout(() => { server.closeAllConnections?.(); resolve(); }, 1_500);
+    if (typeof cut.unref === "function") cut.unref();
+    server.close(() => { clearTimeout(cut); resolve(); });
+    server.closeIdleConnections?.();
+  }),
   flush: () => runtime.flushSavesAsync(10_000),
   exit: (code) => process.exit(code),
   hardExitMs: DEFAULT_HARD_EXIT_MS,
