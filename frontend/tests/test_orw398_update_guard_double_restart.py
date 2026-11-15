@@ -75,7 +75,8 @@ def test_deferred_run_still_runs_when_nothing_else_went_ahead(tmp_path):
 
 # ── updater wiring ──────────────────────────────────────────────────────────
 def test_updater_exits_zero_when_superseded_and_when_already_at_ref():
-    assert re.search(r'__ud_rc.*\n\s*if \[\[ \$__ud_rc -eq 10 \]\]; then.*\n.*\n\s*exit 0', UPDATE)
+    # ORW-406: a superseded run no longer exits blindly; the under-lock check decides (see test_orw406_review_followups)
+    assert re.search(r'if \[\[ \$__ud_rc -eq 10 \]\]; then(?:(?!\n  fi).)*\n  fi', UPDATE, re.S)
     m = re.search(r'if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\n(.*?)\nfi\n', UPDATE, re.S)
     assert m and "fetch_target" in m.group(1) and "exit 0" in m.group(1)
     # the already-at-ref check sits before the update is armed / anything is touched
