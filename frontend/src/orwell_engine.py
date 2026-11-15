@@ -142,6 +142,11 @@ _REFUSED_TURN: dict = {}
 _MUTATING_OK_CLEARS = frozenset({"advanceGame", "submitDecision", "turnIn", "nap", "createCharacter", "noteMessage", "runCompetition"})
 
 
+def _is_structured_nap_refusal(name: str, data) -> bool:
+    """The engine answered a `nap` with ``{"ok": false, ...}``: refused, no state change."""
+    return name == "nap" and isinstance(data, dict) and data.get("ok") is False
+
+
 def _refusal_key(user) -> str:
     return user or "__anon__"
 
@@ -417,7 +422,7 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
         else:
             _clear_error()
             _clear_reconnecting()  # a success ends any reconnecting state
-            if name in _MUTATING_OK_CLEARS:
+            if name in _MUTATING_OK_CLEARS and not _is_structured_nap_refusal(name, data):  # review of #2737: a refused nap changed nothing, so it must not clear the standing red
                 _INTEGRITY_REFUSAL.pop(_refusal_key(user), None)  # ORW-321: a mutating call went through - the standing red clears
             return data
     # Unreachable (the loop either returns or raises), but keep the type-checker honest.
@@ -520,6 +525,7 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
     import time as _t
     from src import log_rings as _rings
     t0 = _t.monotonic()
+    res = None
     if name not in engine_read_cache.PURE_READS:
         engine_read_cache.invalidate(user)  # ORW-166: a possible mutation starts - nothing cached for this user may be served or joined
     if name in _DISCLOSURE_TOOLS:
@@ -533,7 +539,8 @@ async def _call(name: str, args: dict | None = None, user: str | None = None, ti
             if name not in engine_read_cache.PURE_READS:
                 # ...and again once it has landed OR FAILED: a write that timed out client-side may still have been applied by the engine
                 engine_read_cache.invalidate(user)
-                _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
+                if not _is_structured_nap_refusal(name, res):  # review of #2737: a refused nap is a no-op, not a mutation (a failed/timed-out call still counts: res is None)
+                    _MUTATION_COUNT[user or ""] = _MUTATION_COUNT.get(user or "", 0) + 1  # ORW-167: lets the agent loop tell "this turn changed the game" at turn end
         if name in ("sealedFromHouse", "knowledgeScopeManifest"):
             _rings.record_io(name, args, True, int((_t.monotonic() - t0) * 1000),
                              {"_stripped": "io-ring-sealed"}, user=user)
