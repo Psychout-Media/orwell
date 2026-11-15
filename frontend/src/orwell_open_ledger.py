@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from typing import Awaitable, Callable, Optional
 
@@ -69,6 +70,64 @@ def _record_full(user: Optional[str]) -> None:
     from src import log_rings
     log_rings.record_soft_failure("open-ledger:full", RuntimeError("the engine refused an open-ledger write: full"),
                                   corrected="the entry was not kept; resolve or withdraw old ones", user=user)
+
+
+# ── grounding: is an extracted entry really in the narration? ────────────────────────────────────────────────────────────
+# The extraction is a second model. "Copy what was said; invent nothing" is an instruction, not a guarantee, and an entry the
+# narration never contained would be remembered by the engine as something that was said. Each entry is therefore compared
+# with the narration the extractor was given. What to DO with a weak one is the owners' call (a strict rule also drops
+# faithful entries when the narration reports speech indirectly and the extractor turns it into a quote), so the default
+# only measures: mode `report` keeps every entry and records how many were weak; `strict` drops them; `off` skips the check.
+GROUNDING_MIN = 0.6
+_GROUND_WORD = re.compile(r"[^\W_]{3,}")
+
+
+def _plain(t: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[\"'\u2018\u2019\u201c\u201d`*_]+", "", (t or "").lower())).strip()
+
+
+def grounding(text: str, narration: str) -> float:
+    """How much of an entry's wording is in the narration it came from, 0.0 to 1.0: 1.0 when the sentence appears there as
+    written (case, quote marks, spacing and a closing full stop aside); otherwise the share of its words of three letters or
+    more that occur anywhere in the narration. Says nothing about meaning: a faithful paraphrase scores low. In a script
+    written without spaces a sentence is one run of letters, so anything not as written scores about 0: `strict` would drop
+    nearly every such entry."""
+    a, b = _plain(text), _plain(narration)
+    if not a:
+        return 0.0
+    core = a.rstrip(".!?").strip()
+    # as written, on whole words: a short entry ("ok") must not count as present because it sits inside another word ("broke")
+    if core and re.search(r"(?<![^\W_])" + re.escape(core) + r"(?![^\W_])", b):
+        return 1.0
+    words = _GROUND_WORD.findall(a)
+    if not words:
+        return 0.0
+    have = set(_GROUND_WORD.findall(b))
+    return sum(1 for w in words if w in have) / len(words)
+
+
+def grounding_mode() -> str:
+    """`ORWELL_OPEN_LEDGER_GROUNDING`: `report` (default: keep every entry, record the weak ones), `strict` (drop the weak
+    ones), `off` (no check)."""
+    v = str(os.environ.get("ORWELL_OPEN_LEDGER_GROUNDING", "")).strip().lower()
+    return v if v in ("strict", "off") else "report"
+
+
+def _record_weak_grounding(user: Optional[str], weak: int, total: int, lowest: float, dropped: bool) -> None:
+    """One admin-visible observation per turn that had a weakly grounded entry: counts and the lowest score only, never the
+    entry's text. Not a failure (nothing went wrong in the pipeline), so it is not RED."""
+    try:
+        what = "dropped" if dropped else "kept (report mode)"
+        logger.info(f"[open-ledger] grounding: {weak} of {total} extracted entr{'y' if total == 1 else 'ies'} under {GROUNDING_MIN:.0%} "
+                    f"word overlap with the narration (lowest {lowest:.0%}); {what}")
+        from src import log_rings
+        log_rings.record_overseer(
+            "observation", "open-ledger:weak-grounding",
+            f"{weak} of {total} extracted entries share under {GROUNDING_MIN:.0%} of their words with the narration "
+            f"(lowest {lowest:.0%}); {what}",
+            lever=("drop" if dropped else None), ok=True, user=user)
+    except Exception:  # failsoft-ok: recorder-self
+        pass
 
 
 def _norm(v: str, limit: int) -> str:
@@ -182,7 +241,17 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
         refused_full = False
-        for entry in clean_entries(parsed, {p["id"] for p in people}, known):
+        mode = grounding_mode()
+        entries = clean_entries(parsed, {p["id"] for p in people}, known)
+        weak, lowest = 0, 1.0
+        for entry in entries:
+            if mode != "off":
+                score = grounding(entry["text"], narration[:NARRATION_MAX_CHARS])  # against exactly what the extractor was shown
+                if score < GROUNDING_MIN:
+                    weak += 1
+                    lowest = min(lowest, score)
+                    if mode == "strict":
+                        continue
             try:  # review of #2721: one failing write must not discard the rest or misreport the count
                 res = await write(entry)
             except Exception as e:
@@ -196,6 +265,8 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
                 refused_full = True
         if refused_full:
             _record_full(owner)  # once per turn, however many writes were refused
+        if weak:
+            _record_weak_grounding(owner, weak, len(entries), lowest, dropped=(mode == "strict"))
         if resolve is not None and opens:
             for r in clean_resolutions(parsed, {o["id"] for o in opens}):
                 try:
