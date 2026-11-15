@@ -84,3 +84,24 @@ describe("ORW-437 follow-up to the common-word rule (review of #2775)", () => {
     expect(renameGivenNameInProse("Her rival Namea Other waits.", "Namea Surnamea", "Nameb Surnamea")).toBe("Her rival Namea Other waits.");
   });
 });
+
+describe("ORW-437 re-check of #2775: own full name with a possessive, more relations, the May she grew up with", () => {
+  const swap = (text: string, from: string) => renameGivenNameInProse(text, `${from} Surnamea`, "Nameb Surnamea");
+  it("renames the card's own full name before a possessive and keeps another person's", () => {
+    expect(renameGivenNameInProse("Lola Lawrence's sister agrees. Lola Lawrence\u2019s aunt too.", "Lola Lawrence", "Zorvan Lawrence"))
+      .toBe("Zorvan Lawrence's sister agrees. Zorvan Lawrence\u2019s aunt too.");
+    expect(renameGivenNameInProse("Lola Other's sister agrees.", "Lola Lawrence", "Zorvan Lawrence")).toBe("Lola Other's sister agrees.");
+  });
+  it("renames person uses after more relations and the determiner + month + pronoun", () => {
+    expect(swap("She grew up in the care of Grace.", "Grace")).toBe("She grew up in the care of Nameb.");
+    expect(swap("A niece of Rose waits.", "Rose")).toBe("A niece of Nameb waits.");
+    expect(swap("An aunt of Mark waits.", "Mark")).toBe("An aunt of Nameb waits.");
+    expect(swap("The May she grew up with left.", "May")).toBe("The Nameb she grew up with left.");
+  });
+  it("keeps months and common-word uses", () => {
+    expect(swap("Born in June, she left.", "June")).toBe("Born in June, she left.");
+    expect(swap("In May she moved.", "May")).toBe("In May she moved.");
+    expect(swap("A Hope for the future.", "Hope")).toBe("A Hope for the future.");
+    expect(swap("Free Will matters.", "Will")).toBe("Free Will matters.");
+  });
+});

@@ -548,7 +548,9 @@ const CLAUSE_STARTERS: ReadonlySet<string> = new Set(["she", "he", "they", "who"
 /** "friend of Grace", "daughter of Hope": a person relation before the preposition makes the name a person. */
 const RELATIONS: ReadonlySet<string> = new Set([
   "friend", "daughter", "son", "sister", "brother", "mother", "father", "cousin", "wife", "husband", "partner", "boyfriend",
-  "girlfriend", "roommate", "rival", "ally",
+  "girlfriend", "roommate", "rival", "ally", "aunt", "uncle", "niece", "nephew", "grandmother", "grandfather", "grandma", "grandpa",
+  "mom", "dad", "mum", "mother-in-law", "father-in-law", "stepmother", "stepfather", "boss", "mentor", "coach", "neighbour",
+  "neighbor", "student", "teacher", "care",
 ]);
 
 /**
@@ -580,18 +582,18 @@ export function renameGivenNameInProse(text: string, priorName: string, nextName
   return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (m, offset: number) => {
     const rest = text.slice(offset + m.length);
     const sur = /^\s+([A-Z][\p{L}'\u2019-]*)/u.exec(rest);
-    if (sur && !ownSurname.has(sur[1]!)) return m; // another person's full name ("Lola Other")
+    if (sur && !ownSurname.has(sur[1]!.replace(/['\u2019]s$/i, ""))) return m; // another person's full name ("Lola Other")
     if (!common) return newGiven;
     if (/^['\u2019]s\b/i.test(rest)) return newGiven; // a possessive is a person
     const before = text.slice(0, offset);
     const words = before.match(/[A-Za-z]+/g) ?? [];
     const prevWord = /([A-Za-z]+)\s*$/.exec(before)?.[1]?.toLowerCase();
     if (prevWord === undefined || !COMMON_USE_BEFORE.has(prevWord)) return newGiven;
-    if (MONTH_NAMES.has(oldGiven.toLowerCase())) return m;
     if (DETERMINERS.has(prevWord)) {
       const next = /^\s+([A-Za-z]+)/.exec(rest)?.[1]?.toLowerCase();
       return next !== undefined && CLAUSE_STARTERS.has(next) ? newGiven : m;
     }
+    if (MONTH_NAMES.has(oldGiven.toLowerCase())) return m;
     if (PREPOSITIONS.has(prevWord)) {
       const rel = words.length >= 2 ? words[words.length - 2]!.toLowerCase() : "";
       return RELATIONS.has(rel) ? newGiven : m;
