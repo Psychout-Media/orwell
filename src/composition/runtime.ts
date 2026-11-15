@@ -159,6 +159,7 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // state outside the commit seam; re-seed the non-degradation baseline to the freshly-saved state so the
   // next player-turn commit isn't refused as a "degradation" against the stale floor baseline (the same
   // seedBaseline discipline a resume-from-disk uses — audit E6).
+  registry.setOnResume((user) => orchestrator.seedBaselineIfAbsent(user));
   registry.setOnBackgroundCommit((user) => orchestrator.seedBaseline(user));
   // God Mode can SEE sandbox health (B58/audit E5+E6): integrity, faults, the circuit state.
   registry.setHealthProvider((user) => orchestrator.sandboxHealth(user));

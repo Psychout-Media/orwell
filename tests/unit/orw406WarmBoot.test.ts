@@ -39,6 +39,14 @@ describe("ORW-406 warm before taking traffic", () => {
     expect(rt.warmStatus().warmed).toBe(true);
   });
 
+  it("review of #2720: a sandbox a request resumes first already has a non-degradation baseline", () => {
+    const rt = boot(seeded());
+    const baselines = (rt.orchestrator as unknown as { baselines: Map<string, unknown> }).baselines;
+    expect(baselines.has("player-a")).toBe(false);
+    rt.registry.sandboxFor("player-a"); // the warm-up has not reached it; its first commit must be checked
+    expect(baselines.has("player-a")).toBe(true);
+  });
+
   it("no save means warm at once; an eager (non-deferred) boot is warm too", () => {
     const empty = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orw406-"))), deferResume: true });
     expect(empty.warmStatus().warmed).toBe(true);
