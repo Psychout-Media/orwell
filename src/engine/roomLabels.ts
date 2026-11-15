@@ -52,7 +52,7 @@ export function themedRoomAliases(themeId?: string): ReadonlyArray<readonly [ali
   const add = (alias: string, room: Room): void => {
     const a = alias.trim().toLowerCase().replace(/\s+/g, " ");
     if (a.length < 3) return;
-    (byAlias.get(a) ?? byAlias.set(a, new Set()).get(a)!).add(room);
+    for (const form of new Set([a, a.normalize("NFD").replace(/[\u0300-\u036f]/g, "")])) (byAlias.get(form) ?? byAlias.set(form, new Set()).get(form)!).add(room); // "séance" and "seance" both
   };
   for (const [room, { name }] of Object.entries(t.rooms) as Array<[Room, { name: string }]>) {
     const full = name.toLowerCase();
