@@ -216,8 +216,27 @@ update_defer_notify() {
   ops_progress_step 0 "$1"
 }
 update_defer_cancelled() { [[ -n "${__UD_PROGRESS:-}" ]] && ops_progress_fail "update deferral was cancelled before it started" || true; }
+# ORW-398: who/how this run started, in the ops update log (a deferred run is otherwise anonymous there).
+# Flags only: tokens travel in the environment, never argv.
+ops_log_invocation() {
+  local log="${APP_DIR%/}/data/ops-update.log"
+  { printf '== orwell-update.sh invoked %s: user=%s uid=%s ssh=%s argv=[%s] force=%s rollback=%s set-token=%s no-restart=%s ref=%s pid=%s ==\n' \
+      "$(date -Is)" "$(id -un 2>/dev/null || echo '?')" "$(id -u)" "${SSH_CONNECTION:-none}" "$*" \
+      "$FORCE" "$ROLLBACK" "$SET_TOKEN" "$NO_RESTART" "${REF:-none}" "$$"
+  } >> "$log" 2>/dev/null || true
+}
+ops_log_invocation "$@"
+__UD_WAITED=0
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
-  update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env"
+  __ud_rc=0
+  update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
+  if [[ $__ud_rc -eq 10 ]]; then   # ORW-398: a later run went ahead and already did this update
+    echo "==> nothing to do: superseded by an update run that already went ahead."
+    exit 0
+  fi
+  [[ $__ud_rc -eq 0 ]] || exit "$__ud_rc"
+  # A run that waited and then woke must not redo work another run finished (checked after the lock, below).
+  __UD_WAITED=1
 fi
 
 # ── ONE shared lock for every run in this tree: the web Update, Update + Reset, a manual update,
@@ -900,6 +919,18 @@ UPDATE_ARMED=0; PHASE="starting"
 trap on_update_exit EXIT
 trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP   # route signals through the EXIT trap
 
+# ORW-398: a run that waited out a live game and woke up must not redo work another run finished. Under the lock
+# (so any run that went ahead has finished), if the checkout is already at the requested ref there is nothing to
+# build and nothing to restart: exit 0 before anything is touched.
+if [[ "${__UD_WAITED:-0}" == 1 && $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]]; then
+  if fetch_target >/dev/null 2>&1 \
+     && [[ "$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null)" == "$(git -C "$APP_DIR" rev-parse --verify --quiet "${TARGET}^{commit}" 2>/dev/null)" ]]; then
+    echo "==> the code is already at the requested ref ($(git -C "$APP_DIR" rev-parse --short HEAD)) — a deferred run has nothing to do; not restarting"
+    [[ -z "${__UD_PROGRESS:-}" ]] || ops_progress_done "already up to date"
+    exit 0
+  fi
+fi
+
 echo "==> updating orwell in ${APP_DIR} (save in ${APP_DIR}/data is preserved)"
 PREV_SHA="$(git -C "$APP_DIR" rev-parse HEAD)"
 # ORW-229: take the record of the last successful update, then delete it BEFORE anything changes (and before
@@ -1412,14 +1443,19 @@ if [[ "$APP_DIR" == "/opt/orwell" ]]; then
   install -m 644 "${APP_DIR}/deploy/logrotate/orwell" /etc/logrotate.d/orwell
   ORWELL_JOURNAL_CAP="${ORWELL_JOURNAL_MAX_USE:-300M}"
   mkdir -p /etc/systemd/journald.conf.d
-  cat > /etc/systemd/journald.conf.d/orwell.conf <<EOF
+  JOURNALD_DROPIN="$(cat <<EOF
 # Written by orwell-update.sh (DEPLOY-14, mirrors orwell-install.sh's log_management): cap persistent
 # journal storage so orwell-engine / orwell-frontend's continuous logging can't slow-burn toward disk
 # exhaustion on a small LXC disk. Override by editing this file and: systemctl restart systemd-journald
 [Journal]
 SystemMaxUse=${ORWELL_JOURNAL_CAP}
 EOF
-  systemctl restart systemd-journald 2>/dev/null || true
+)"
+  # ORW-398: restart journald only when the drop-in's content actually changed (a restart on every update is noise).
+  if [[ ! -f /etc/systemd/journald.conf.d/orwell.conf ]] || [[ "$(cat /etc/systemd/journald.conf.d/orwell.conf)" != "$JOURNALD_DROPIN" ]]; then
+    printf '%s\n' "$JOURNALD_DROPIN" > /etc/systemd/journald.conf.d/orwell.conf
+    systemctl restart systemd-journald 2>/dev/null || true
+  fi
 else
   # Legacy /opt/bbai box: ONE warning (the shipped units + logrotate config hard-code /opt/orwell).
   echo "WARN: app dir is ${APP_DIR} — the shipped systemd/logrotate units hard-code /opt/orwell, so the"
