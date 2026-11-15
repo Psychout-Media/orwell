@@ -44,9 +44,11 @@ The rehearsal kit used to have exactly one rig. It now has two, picked by ONE va
 |---|---|---|
 | engine / front end | :18765 / :17000 | :18766 / :17001 |
 | lock | `live-short/rig.lock` | `live-short/rig-2.lock` (beside it) |
-| worktree | `/home/ryne/orwell-rehearsal` | `/home/ryne/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
+| worktree | `$RIG_HOME/orwell-rehearsal` | `$RIG_HOME/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
 | run pointer | `/tmp/claude-1000/a11_run` | `/tmp/claude-1000/a11_run_2` |
 | run directories | `rehearsal-<date>` | `slot2-rehearsal-<date>` (a glob of slot 1's never matches them) |
+
+`RIG_HOME` is the rig user's home directory: the main checkout (`orwell`), the worktrees, `orwell-playtest` and `.config/orwell/secrets.env` all live under it. It defaults to `$HOME` (the rig runs as its own user); set `ORWELL_RIG_HOME=<dir>` when the rig's files live elsewhere. A stage records it in the run's `slot.env`.
 
 A stage writes `slot.env` into the run directory it creates, so the scripts copied there keep following THEIR run's slot. Slot 2 never creates, edits or reads slot 1's worktree, lock, pointer or run directories.
 
@@ -76,6 +78,22 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | T19 | The engine moves the player first (ORW-418/419), `--crossover` only: after "I walk to the kitchen." on the Week 2 morning (the living room if already in the kitchen) the engine has the player in that room; a move the engine refused in fiction (`playerMove.refused`) is WARN | FAIL |
 | C1 | While the engine says the veto competition is not due, no reply narrates competition play (apparatus, rounds, eliminations, a winner) | FAIL |
 | C2 | A veto-morning reply voices the draw | FAIL |
+| C3 | A clock the reply states matches the engine's clock (within an hour) | WARN |
+| C4 | No ceremony is voiced (key turn, nominations read) before the engine ran it | FAIL |
+| C5 | Nominees named in the narration are the engine's nominees | FAIL |
+| C6 | Everyone who speaks in the player's room is in that room per the engine | FAIL |
+| A1 | Every houseguest is inside by the end of the premiere | FAIL |
+| A2 | Arrivals keep progressing (no long flat stretch of the inside count) | FAIL |
+| D1 | Day one is not skipped: after the premiere the clock still reads Day 1 | FAIL |
+| K1 | No skipped time: a clock jump over an hour needs a bed or nap message, the 8am wake, the runner's own move, or a sanctioned ceremony (competition crown share, staged eviction ballots, the veto draw when the reply voices it) | FAIL (notes for the sanctioned cases) |
+| K2 | A competition is never crowned inside one message that also moves the clock by hours | FAIL |
+| K3 | An event the schedule reports due fires within a few messages | FAIL |
+| N1, N2, N5, N12 | A daytime goodnight does not end the day (N1); "hang out until morning" never reaches morning (N2); an early bed wakes before the house (N5); a nap stays in the day (N12) | FAIL |
+| N4 | The bed reply names the evicted houseguest in the day in review | WARN |
+| N7, N8 | The Nightfall card lists who is awake; the Whereabouts card shows no sleeper with the player. A missing card is recorded as `N7-widget-missing` / `N8-widget-missing` | FAIL / WARN when the card is missing |
+| W2, W3, W10 | Only with `RIG_CROSSOVER=1`: a Week recap card after the bed, the HOH next in the afternoon, the bubble header shows the new week | FAIL |
+| X0 | Only with `RIG_CROSSOVER=1`: eviction night is reached and Week 2 begins with no HOH | FAIL |
+| T1c, T2b | A settled reply's bubble has its footer (T1c); a player request gets a scene, not a thin answer (T2b) | WARN |
 
 ## Deliberately not covered yet
 

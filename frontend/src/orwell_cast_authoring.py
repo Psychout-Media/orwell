@@ -81,7 +81,9 @@ PHOTO_SHEET_RULES = (
     "\"the one who misses nothing\"). It is a still photograph, not a scene: no sequence of events, "
     "no speech, no chores, no other people. Never use these words: "
     + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
-    "Write it starting with the pronoun that matches genderPresentation. "
+    "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
+    "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
+    "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
 )
@@ -110,7 +112,8 @@ _SYSTEM = (
     "common, pronounceable FIRST and LAST name (two words), diverse and ordinary, NEVER invented/fantasy/"
     "gibberish.\n"
     '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
-    "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card),\n"
+    "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card; "
+    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; do not put the person's name in it, and make it one complete phrase that reads as a sentence),\n"
     '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
@@ -1899,6 +1902,19 @@ async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
     return rewritten
 
 
+# Opening patterns, dealt by the card's slot in the cast (modulo the list), so cards written in parallel do not converge on
+# "A <age>-year-old ..." or "He stands ...". Steering text only; the checks and the gate are unchanged.
+IDENTITY_OPENINGS = ("the occupation", "what they care about most", "where they come from", "a trait people notice first",
+                     "what they are known for in the house", "how a stranger would meet them")
+ONCAMERA_OPENINGS = ("the house spot", "the hands", "the gaze", "the lean or posture of the shoulders", "the expression",
+                     "the prop in reach")
+
+
+def opening_pattern(slot: int) -> dict:
+    return {"identityConcept opens with": IDENTITY_OPENINGS[slot % len(IDENTITY_OPENINGS)],
+            "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)]}
+
+
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
                              hand: Optional[dict] = None) -> list[dict]:
     """The producer prompt for ONE houseguest. Seeds the LLM with the houseguest's PUBLIC skeleton
@@ -1964,7 +1980,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
     if isinstance(hand, dict):
         try:
             from src.orwell_facet_ledger import render_hand
-            rendered = render_hand(hand)
+            rendered = render_hand(hand, hometown=not str(npc.get("hometown") or "").strip())  # the card's own hometown wins over the dealt one
             if rendered:
                 hand_rule = (f"\nDEALT FACETS (the casting office's bible for {name} — honor them; "
                              f"the committed skeleton above already reflects this deal): {rendered}.")
@@ -1982,10 +1998,18 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         ph = taken.get("phrases") if isinstance(taken.get("phrases"), dict) else {}
         if ph.get("oncamera_endings"):
             parts.append("onCamera lines already end: " + " | ".join(ph["oncamera_endings"]))
+        if ph.get("photohair_openings"):
+            parts.append("photoHair lines already open: " + " | ".join(ph["photohair_openings"]) + " (open this one differently)")
         if ph.get("identity_openers"):
             parts.append("identity lines already open: " + " | ".join(ph["identity_openers"]))
+        if ph.get("oncamera_openings"):
+            parts.append("onCamera lines already open: " + " | ".join(ph["oncamera_openings"]))
         if ph.get("marks"):
             parts.append("distinguishing marks already used (every mark is unique in the cast): " + " | ".join(ph["marks"]))
+        op = taken.get("openings") if isinstance(taken.get("openings"), dict) else {}
+        if op:
+            # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
+            parts.append("OPENING PATTERN for this card: " + "; ".join(f"{k} {v}" for k, v in op.items()))
         if parts:
             taken_rule = ("\nCAST-WIDE TAKEN LIST (the other houseguests occupy this ground — do NOT "
                           "duplicate it or drift this houseguest toward it): " + "; ".join(parts) + ".")
@@ -2338,6 +2362,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         except Exception as e:  # pragma: no cover - defensive: a ledger hiccup never breaks authoring
             logger.warning(f"[cast-authoring] facet-ledger mint failed (plain prompts stand): {e}")
 
+    slot_of = {str(n.get("id")): i for i, n in enumerate(n for n in (cast or []) if isinstance(n, dict))}
+
     def _taken_for(hid: str) -> dict:
         """The cast-wide taken-list for one houseguest: the OTHER houseguests' actually-COMMITTED
         vocation/hometown (read straight off the roster — genesis already settled these; a per-NPC
@@ -2348,6 +2374,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             "hometowns": [n.get("hometown") for n in (cast or [])
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("hometown")],
             **({"phrases": season_gate.taken_phrases(hid)} if season_gate.registry else {}),
+            "openings": opening_pattern(slot_of.get(hid, 0)),
         }
     # #1057: SERIALIZE the engine write-back. The per-NPC recordCastProfile write-backs collide on the
     # orchestrator integrity checkpoint when they run concurrently (the live-verify's 3 `degradation`

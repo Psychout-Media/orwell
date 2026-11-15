@@ -85,7 +85,18 @@ class Engine:
             h, _ = self.hour()
             if h is None or h >= 24 or n > 700: break
             self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
-        self.call("turnIn"); self.call("noteMessage", {"messageId": f"{tag}-wake"})
+        # ORW-446: a goodnight is HELD while a staged ceremony is open (reason "ceremony"): finish the ceremony (advance its watch steps, answer its card) and go to bed again.
+        for k in range(30):
+            r = self.call("turnIn") or {}
+            h = r.get("held")
+            if not (isinstance(h, dict) and h.get("reason") == "ceremony"): break
+            a = self.call("advanceGame") or {}
+            p = a.get("pending")
+            if p and p.get("kind") != "ceremony-step":
+                o = [x.get("id") for x in (p.get("options") or [])]
+                try: self.call("submitDecision", {"kind": p.get("kind"), "choice": o[:2] if p.get("kind") == "nominations" else (o[0] if o else None), "use": False, "intent": "compete", "vote": o[0] if o else "a"})
+                except RuntimeError: pass
+        self.call("noteMessage", {"messageId": f"{tag}-wake"})
 
     def tick_to_night(self, tag):
         """Let the evening pass with the engine's own message ticks until the NIGHT period (a player may not go to bed earlier)."""
@@ -130,11 +141,17 @@ class Engine:
             h = a.get("held")
             # A DAYTIME "not due yet" hold names the event and the minutes until it: let that time pass (sleeping instead skipped the event's day, night after
             # night - a live run sat in the premiere until Day 43). Anything else (a night hold, nothing happening) is a bed, as before.
-            if isinstance(h, dict) and h.get("next") not in (None, "bedtime") and isinstance(h.get("minutesUntil"), int) and h["minutesUntil"] > 0:
+            if is_schedule_hold(h):
                 self.to_just_before_due(f"{tag}-{i}-due")
                 for k in range(3): self.call("noteMessage", {"messageId": f"{tag}-{i}-due-x{k}"})
             elif h or not a.get("event"): self.sleep_through_night(f"{tag}-{i}")
         return False
+
+
+def is_schedule_hold(h):
+    """True only for the engine's DAYTIME schedule hold (an event not yet due). A night or bedtime hold also carries `next` and a positive `minutesUntil`, but no `reason`
+    (src/ports/GameSession.ts `held`: reason "schedule" is present only on the schedule hold), and a night hold is a bed, never a wait for the event."""
+    return isinstance(h, dict) and h.get("reason") == "schedule" and h.get("next") not in (None, "bedtime") and isinstance(h.get("minutesUntil"), int) and h["minutesUntil"] > 0
 
 
 class Chat:
@@ -239,14 +256,16 @@ def widgets(eng, check, chat, where):
     st = eng.call("getGameState")
     awake = [(x.get("name") or "").split()[0] for x in (st.get("awake") or []) if isinstance(x, dict)]
     night = chat.page.evaluate("(document.getElementById('orwell-night') || {}).innerText || ''")
-    if night:
+    if not night: check(f"N7-widget-missing[{where}]", False, "the Nightfall card is absent or empty, so the awake list was not checked in the browser", "warn")
+    else:
         if awake: check(f"N7-widget-lists-the-awake[{where}]", all(n in night for n in awake) and "Turned in" not in night, f"widget {night[:120]!r} vs engine awake {awake}")
         else: check(f"N7-widget-lists-the-awake[{where}]", "turned in" in night.lower(), f"widget {night[:120]!r}, engine: nobody awake")
     pres = chat.page.evaluate("(document.getElementById('orwell-presence') || {}).innerText || ''")
     w = st.get("whereabouts") or {}
     with_me = {(x.get("name") or "").split()[0] for x in (w.get("present") or []) if isinstance(x, dict)}
     asleep = {(x.get("name") or "").split()[0] for x in (st.get("asleep") or []) if isinstance(x, dict)}
-    if pres:
+    if not pres: check(f"N8-widget-missing[{where}]", False, "the Whereabouts card is absent or empty, so the sleepers-with-me rule was not checked in the browser", "warn")
+    else:
         shown_asleep = sorted(n for n in asleep if n and n not in with_me and re.search(r"\b" + re.escape(n) + r"\b", pres.split("\n")[0]))
         check(f"N8-whereabouts-shows-no-sleeper-with-me[{where}]", not shown_asleep, f"Whereabouts header {pres.split(chr(10))[0][:100]!r}; asleep shown with the player: {shown_asleep}")
 
@@ -333,12 +352,13 @@ def main():
     sys.exit(1 if hard else 0)
 
 
-# T13: a clock time the player can read ("8:15", "8:15pm", "9 am", "nine o'clock", "noon"/"midnight" said as a time). Parts of the day are allowed.
-ZERO_CLOCK_RE = re.compile(r"(?i)\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+o'?clock\b")
-NAP_MSG_RE = re.compile(r"(?i)\b(?:take|taking|have|grab) (?:a |an )?(?:nap|lie[- ]down|rest)\b|\bnap\b")
+# T13: a clock time the player can read ("8:15", "8:15pm", "9 am", "nine o'clock", "noon"/"midnight" only in a time phrase: "at/by/until noon", "it's midnight", "noon sharp"; not "Midnight snack", "the midnight-blue dress" or "high noon"). Parts of the day are allowed.
+ZERO_CLOCK_RE = re.compile(r"(?i)\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+o'?clock\b|\b(?:at|by|until|till|past|after|before|around)\s+(?:noon|midnight)\b|\bit(?:'s| is)\s+(?:almost |nearly |just |about )?(?:noon|midnight)\b|\b(?:noon|midnight)\s+sharp\b")
+NAP_MSG_RE = re.compile(r"(?i)\b(?:take|taking|have|grab) (?:a |an )?(?:nap|lie[- ]down|rest)\b")
 BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
 
 
+<<<<<<< HEAD
 _NUMW = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
 _NUM = r"(\d{1,2}|" + "|".join(sorted(_NUMW, key=len, reverse=True)) + r")"
 # the whole house named outright: "N of us left / still in the house", "N houseguests remain", "all N of us"
@@ -364,6 +384,11 @@ def headcount_claims(text):
         else: continue
         out.append((sev, n, m.group(0).strip() + (house_words or ""), bool(house_words)))
     return out
+=======
+def draw_voiced(text):
+    """The reply voices the veto chip draw (the ceremony that sanctions about an hour of clock, and the C2 check)."""
+    return bool(re.search(r"(?i)veto", text or "") and re.search(r"(?i)draw|chip|pull|playing for", text or ""))
+>>>>>>> origin/main
 
 
 def abs_hours(label):
@@ -420,7 +445,7 @@ def score(turns, checks, check, turn_limit):
             elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5:
                 # ORW-347: a staged eviction night reads its ballots one per engine step (5 minutes each, up to 15 voters ~ 75 min, more when the reply also plays the goodbye steps) and a reply may play several steps. Same phase, same evening, never across a night: the scheduled ceremony playing out, not skipped time.
                 check(f"K1-clock-jump-ceremony[{t['label']}]", True, f"+{gap:.1f}h: the eviction night's ballots read inside one reply (5 min per staged step)", "note")
-            elif t.get("phase_before") == t.get("phase") == "veto-competition" and gap <= 1.5:
+            elif t.get("phase_before") == t.get("phase") == "veto-competition" and gap <= 1.5 and draw_voiced(t.get("text")):
                 # ORW-281: the veto chip draw is its own morning mini ceremony and costs a ceremony's felt hours (~1h, daySchedule DURATION_CATEGORY "veto-draw": "ceremony"),
                 # so the reply that voices the draw moves the clock about an hour. Sanctioned, not skipped time.
                 check(f"K1-clock-jump-veto-draw[{t['label']}]", True, f"+{gap:.1f}h: the veto draw ceremony (ORW-281, about 1h)", "note")
@@ -481,7 +506,7 @@ def score(turns, checks, check, turn_limit):
         m = COMP_PLAY_RE.search(t["text"])
         check(f"C1-no-pre-narrated-comp[{t['label']}]", not m, f"competition play narrated while the engine had not run it: {m.group(0)!r}" if m else "house talk only")
     draw = [t for t in turns if t["label"].startswith("veto-morning")]
-    check("C2-draw-voiced", any(re.search(r"(?i)veto", t["text"]) and re.search(r"(?i)draw|chip|pull|playing for", t["text"]) for t in draw), "a veto-morning reply voices the draw")
+    check("C2-draw-voiced", any(draw_voiced(t["text"]) for t in draw), "a veto-morning reply voices the draw")
 
 
 # The vault note "Live Run Pass Bar" (the Auditor's) numbers the checks; the short tier's own ids map onto it here.
@@ -492,6 +517,14 @@ NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden 
                "T15 the awake list, T18 naps, T20 early sleepers wake alone: need the full week or the widget",
                "T17 and T19 run only with --crossover",
                "eviction night and the finale: the short tier stops at the Week 1 veto morning"]
+NOT_COVERED_CROSSOVER = "the finale and everything after Week 2's start: a `--crossover` run plays on through Week 1's eviction night into Week 2, no further"
+
+
+def not_covered(checks):
+    """The coverage list for THIS run: a run that drove the crossover (it left X0 checks) did cover eviction night and Week 2's start."""
+    if any(str(c.get("id", "")).startswith("X0-") for c in checks):
+        return NOT_COVERED[:-1] + [NOT_COVERED_CROSSOVER]
+    return list(NOT_COVERED)
 
 
 def _header(run_dir, turns):
@@ -517,7 +550,7 @@ def write(run_dir, turns, checks, error):
     json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
     L = [f"# Live run (short tier) - {verdict}", ""] + _header(run_dir, turns) + [f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
     L += ["## Checked against the Live Run Pass Bar", ""] + [f"- {bar}: {', '.join(sorted({c['id'].split('[')[0] for c in checks if c['id'].split('[')[0].split('-')[0] in ids})) or '-'}" for bar, ids in BAR_MAP] + [""]
-    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in NOT_COVERED] + [""]
+    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks)] + [""]
     if hard or warn:
         L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
     L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]

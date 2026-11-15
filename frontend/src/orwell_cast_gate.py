@@ -95,7 +95,79 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
     done = list(A.repair_story(profile, npc, cast))
+    if _drop_name_from_oncamera(profile, npc):
+        done.append("oncamera-name")
     return done
+
+
+_IRREGULAR_PLURAL = {"is": "are", "has": "have", "does": "do", "goes": "go", "was": "were"}
+
+
+# Words ending in -s that are never a third-person verb after a name ("always stands"): left as they are (same list as the TS side).
+_S_ADVERBS = frozenset((
+    "always sometimes perhaps nevertheless besides otherwise towards afterwards backwards forwards upwards downwards regardless "
+    "nowadays indoors outdoors overseas mostly thus anyways nonetheless meanwhile").split())
+
+
+def plural_verb(v: str):
+    """The plural form of a third-person singular verb ("stands" -> "stand"), or None when it cannot be done safely."""
+    w = v.lower()
+    if w in _S_ADVERBS:
+        return None
+    if w in _IRREGULAR_PLURAL:
+        return _IRREGULAR_PLURAL[w]
+    if not re.fullmatch(r"[a-z]+s", w) or re.search(r"(?:ss|us|ous|ics)$", w) or len(w) < 4:
+        return None
+    if re.search(r"[^aeiou]ies$", w):
+        return w[:-3] + "y"
+    if re.search(r"(?:ch|sh|x|z|ss|o)es$", w):
+        return w[:-2]
+    return w[:-1]
+
+
+def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
+    """The card's own first name never rides in the on-camera line (it reaches the image provider): it becomes the pronoun
+    (the possessive for "Name's"). For a they/them card the verb after it is made plural ("they stand"), or the safe wording
+    "the houseguest" is used when it cannot be."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    cam = phys.get("onCamera") if isinstance(phys, dict) else None
+    first = str((npc or {}).get("name") or "").split(" ")[0]
+    if not (isinstance(cam, str) and first and re.search(r"\b%s\b" % re.escape(first), cam)):
+        return False
+    pin = str((npc or {}).get("genderPresentation") or "").lower()
+    subj, poss = {"man": ("he", "his"), "woman": ("she", "her")}.get(pin, ("they", "their"))
+    plural = subj == "they"
+    esc = re.escape(first)
+    out = re.sub(r"\b%s(?:'s|\u2019s)(?![^\W\d_])" % esc, poss, cam)
+    pat = re.compile(r"\b%s(?![^\W_-])" % esc)
+    for _ in range(20):
+        m = pat.search(out)
+        if not m:
+            break
+        head, rest = out[:m.start()], out[m.end():]
+        initial = head.strip() == "" or re.search(r"[.!?]\s+$", head) is not None
+        if not plural:
+            word = subj.capitalize() if initial else subj
+        else:
+            vm = re.match(r"^(\s+)((?:(?:[A-Za-z]+ly|always|sometimes|often|never|perhaps)\s+)?)([A-Za-z]+)", rest)
+            if re.match(r"^\s*,", rest):
+                word = "The houseguest" if initial else "the houseguest"  # "Name, arms folded, stands ...": the verb is not next
+            elif vm is None:
+                word = "They" if initial else "they"
+            else:
+                pv = plural_verb(vm.group(3))
+                if pv is None:
+                    word = "The houseguest" if initial else "the houseguest"
+                else:
+                    word = "They" if initial else "they"
+                    rest = vm.group(1) + vm.group(2) + pv + rest[vm.end():]
+        out = head + word + rest
+    if out == cam:
+        return False
+    if out[:1].islower():
+        out = out[:1].upper() + out[1:]
+    phys["onCamera"] = out
+    return True
 
 
 # TWO TIERS (Kevin's coordinator, 2026-11-15). A season must never wait on a non-blocking code.
@@ -182,6 +254,8 @@ class SeasonGate:
                "subject": _subject(bio, card, cast),
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
+               "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:3]),
+               "hair_open": " ".join(_norm(phys.get("photoHair")).split()[:2]),
                "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
@@ -208,11 +282,11 @@ class SeasonGate:
 
     def taken_phrases(self, hid: str) -> dict:
         """What earlier cards in this cast already use, for the next writer's prompt (writer-side repetition fix)."""
-        out = {"oncamera_endings": [], "identity_openers": [], "marks": []}
+        out = {"oncamera_endings": [], "oncamera_openings": [], "photohair_openings": [], "identity_openers": [], "marks": []}
         for o, r in self.registry.items():
             if o == hid:
                 continue
-            for k, key in (("oncamera_endings", "oncam_end"), ("identity_openers", "ident_open"), ("marks", "mark")):
+            for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("photohair_openings", "hair_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
                 if r.get(key) and r[key] not in out[k]:
                     out[k].append(r[key])
         return {k: v for k, v in out.items() if v}

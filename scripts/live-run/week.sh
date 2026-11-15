@@ -9,8 +9,8 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"
 STATE=$RIG_STATE_DIR; mkdir -p "$STATE"; REF=${1:-main}; CAP=${RIG_SPEND_CAP:-3}
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-WEEK BUSY (another live run holds rig slot $RIG_SLOT)"; exit 3; }
-git -C /home/ryne/orwell fetch -q origin "$REF" || { echo "LIVE-WEEK COULD-NOT-RUN fetch failed"; exit 2; }
-SHA=$(git -C /home/ryne/orwell rev-parse --short=8 "origin/$REF")
+git -C "$RIG_HOME/orwell" fetch -q origin "$REF" || { echo "LIVE-WEEK COULD-NOT-RUN fetch failed"; exit 2; }
+SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 "origin/$REF")
 if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then echo "LIVE-WEEK COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
 RUN=$(cat "$RIG_RUN_PTR")
 python3 - <<P || { echo "LIVE-WEEK COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
@@ -22,8 +22,8 @@ if [ "${RIG_DRY:-0}" = 1 ]; then
   "$KIT/stop.sh" >/dev/null 2>&1
   echo "LIVE-WEEK DRY slot=$RIG_SLOT $SHA fe=$FE engine=$EN run=$RUN"; [ "$FE" = 200 ] && [ "$EN" = 200 ]; exit $?
 fi
-TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
-PY=${ORWELL_PY:-/home/ryne/orwell/frontend/.venv/bin/python3}; LLMIO="$WT/frontend/data/llm-io.jsonl"
+TMPDIR=${TMPDIR:-$RIG_HOME/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
+PY=${ORWELL_PY:-$RIG_HOME/orwell/frontend/.venv/bin/python3}; LLMIO="$WT/frontend/data/llm-io.jsonl"
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>&1 & echo $! > "$RUN/spend.pid"
 EXTRA=""; [ "${RIG_WEEKS:-1}" -gt 1 ] && EXTRA="--season --stop-after-week $RIG_WEEKS"   # RIG_WEEKS=3: Week 1 then weeks 2 and 3 (ORW-350), stopping when week 3 ends
 "$PY" "$HERE/live_week.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" $EXTRA > "$RUN/live_week.out" 2>&1 & echo $! > "$RUN/driver.pid"
