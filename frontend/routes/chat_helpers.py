@@ -623,7 +623,8 @@ def parse_stated_wait(player_msg) -> tuple:
     if not m:
         return (None, False)
     span = m.group(0).lower()
-    if _REST_OF_BAND_RE.search(span):
+    # Review of #2772: the match span ends at "until"/"till", so "hang out until the rest of the afternoon" lost its band; test the message from the intent on.
+    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(str(player_msg)[m.start():]):
         return (None, True)
     d = _STATED_DURATION_RE.search(span)
     if not d:
@@ -7773,12 +7774,16 @@ def current_game_day(user) -> Optional[int]:
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
+_STAMP_REFRESH_TIMEOUT = 2.0  # seconds: the persist-time stamp refresh is best-effort and must stay short
+
+
 async def refresh_framed_game_stamps(user) -> None:
     """ORW-445: re-stamp the bubble's moment/week/day from a state read AFTER the turn's tools ran (persist time). The framing stash is read at the START of the turn, so a
     tool that moves the clock (a nap 11am -> 2pm) left the header one band behind. Fail-soft: any hiccup / pre-game / non-started read keeps the start-of-turn stamp, never blocks the save."""
     try:
         from src import orwell_engine
-        gs = await orwell_engine.get_game_state(user=user)
+        # Review of #2772: bounded, so a stalled engine read can never hold the save for the full framing timeout (the start-of-turn stamp stands).
+        gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
         if not isinstance(gs, dict) or not gs.get("started"):
             return
         key = user or "default"
