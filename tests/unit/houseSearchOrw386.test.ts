@@ -52,18 +52,21 @@ function stage(hidden: string): { s: GameSessionAdapter; npcs: EntityId[] } {
 }
 
 describe("ORW-386 house search (engine)", () => {
-  it("ORW-462: two awake houseguests behind a bedroom door are unseen in a plain search (no room named), and the one being looked for is found: open the door", () => {
+  type Priv462 = { trackedSightings: Map<EntityId, unknown> | null; lastSeenAt: Map<EntityId, unknown> | null; presenceTickCount: number; live: { dayNumber?: number } };
+  const clearRecords = (s: GameSessionAdapter): void => { const p = s as unknown as Priv462; p.trackedSightings = null; p.lastSeenAt = null; };
+  const find = (v: ReturnType<GameSessionAdapter["whereabouts"]>, id: EntityId) => v!.search!.houseguests.find((e) => e.id === id)!;
+
+  it("ORW-462: two awake houseguests behind a bedroom door are unseen in a plain search (no room named); asking for one with nothing known gets `unknown`, never the room", () => {
     const { s, npcs } = stage("bedroom-a");
+    clearRecords(s);
     const [, , , , , , , , , , , , , h1, h2] = npcs;
     const wa = s.whereabouts({ search: true })!;
     const listed = [...wa.present, ...wa.nearby.flatMap((r) => r.present)].map((p) => p.id);
     expect(listed).not.toContain(h1);
     expect(listed).not.toContain(h2);
-    const find = (v: typeof wa, id: EntityId) => v.search!.houseguests.find((e) => e.id === id)!;
     for (const id of [h1!, h2!]) {
       expect(find(wa, id)).toMatchObject({ status: "unseen" });
       expect(find(wa, id).room, "a closed room's occupants are not named").toBeUndefined();
-      expect(find(wa, id).fact).toContain("behind a door");
     }
     expect(wa.search!.rooms.map((r) => r.room), "no room behind a door is listed").not.toContain("bedroom-a");
     // what the player CAN see is still named
@@ -71,56 +74,78 @@ describe("ORW-386 house search (engine)", () => {
     expect(find(wa, npcs[12]!)).toMatchObject({ status: "awake", room: "living-room", access: "open" });
     expect(find(wa, npcs[0]!).status).toBe("asleep");
     expect(find(wa, npcs[0]!).room, "a sleeper behind a door is not located either").toBeUndefined();
-    // looking for h1 by first name: always resolves, through the door
-    const name = find(wa, h1!).name;
-    const wl = s.whereabouts({ search: true, lookingFor: name })!;
-    expect(find(wl, h1!)).toMatchObject({ status: "behind-door", room: "bedroom-a", access: "open" });
-    expect(find(wl, h1!).action).toContain("open the door");
+    // looking for h1: the player has no way to know, so the game does not say
+    const wl = s.whereabouts({ search: true, lookingFor: find(wa, h1!).name })!;
+    expect(find(wl, h1!)).toMatchObject({ status: "unknown" });
+    expect(find(wl, h1!).room).toBeUndefined();
+    expect(find(wl, h1!).fact).toContain("look around the house or ask around");
     expect(find(wl, h2!).status, "only the named houseguest is resolved").toBe("unseen");
   });
 
-  it("ORW-462: a houseguest asleep in a bed the player is looking for is found behind the door too", () => {
-    const { s, npcs } = stage("bedroom-a");
-    const sleeper = npcs[0]!;
-    const e = s.whereabouts({ search: true, lookingFor: sleeper })!.search!.houseguests.find((x) => x.id === sleeper)!;
-    expect(e).toMatchObject({ status: "behind-door", access: "open" });
-    expect(e.room).toMatch(/^bedroom-[abc]$/);
-  });
-
-  it("ORW-462: the HOH room is closed to the player: a plain search says unseen; asking for someone in it gets it said by a houseguest who knows", () => {
-    const { s, npcs } = stage("hoh-room");
-    const wa = s.whereabouts({ search: true })!;
-    for (const id of [npcs[13]!, npcs[14]!]) {
-      const e = wa.search!.houseguests.find((x) => x.id === id)!;
-      expect(e.status).toBe("unseen");
-      expect(e.room).toBeUndefined();
+  it("ORW-462: a sleeper, the HOH room and the diary room are `unknown` too when the player has no record (no loophole through any closed door)", () => {
+    for (const hidden of ["bedroom-a", "hoh-room", "diary-room"]) {
+      const { s, npcs } = stage(hidden);
+      clearRecords(s);
+      for (const id of [npcs[0]!, npcs[13]!]) {
+        const e = find(s.whereabouts({ search: true, lookingFor: id }), id);
+        expect(e.status, `${hidden} ${id}`).toBe("unknown");
+        expect(e.room).toBeUndefined();
+      }
     }
-    expect(wa.search!.rooms.map((r) => r.room)).not.toContain("hoh-room");
-    const target = wa.search!.houseguests.find((x) => x.id === npcs[13])!;
-    const told = s.whereabouts({ search: true, lookingFor: target.name })!.search!.houseguests.find((x) => x.id === npcs[13])!;
-    expect(told).toMatchObject({ status: "told", room: "hoh-room", access: "closed" });
-    expect(told.toldBy?.id, "a houseguest the player can see says so").toBe(npcs[11]);
-    expect(told.fact).toContain("door closed");
-  });
-
-  it("ORW-462: the diary room too, and with nobody else present the house's public knowledge says it", () => {
-    const { s, npcs } = stage("diary-room");
-    const t = npcs[13]!;
-    const told = s.whereabouts({ search: true, lookingFor: t })!.search!.houseguests.find((x) => x.id === t)!;
-    expect(told).toMatchObject({ status: "told", room: "diary-room", access: "closed" });
-    // nobody the player can see: nobody present to say it, the house knows
-    const h = s as unknown as Hack;
-    h.presence.set(npcs[11]!, "bedroom-b"); h.presence.set(npcs[12]!, "bedroom-b");
-    const alone = s.whereabouts({ search: true, lookingFor: t })!.search!.houseguests.find((x) => x.id === t)!;
-    expect(alone.status).toBe("told");
-    expect(alone.toldBy).toBeUndefined();
-  });
-
-  it("ORW-462: the HOH room, when the player holds the crown, is an unlocked door: the houseguest looked for is found by opening it", () => {
     const { s, npcs } = stage("hoh-room");
-    (s as unknown as Hack).ceremony.hoh = PLAYER;
-    const e = s.whereabouts({ search: true, lookingFor: npcs[13]! })!.search!.houseguests.find((x) => x.id === npcs[13])!;
-    expect(e).toMatchObject({ status: "behind-door", access: "open", room: "hoh-room" });
+    clearRecords(s);
+    (s as unknown as Hack).ceremony.hoh = PLAYER; // even the player's own HOH room is not confirmed by the game
+    expect(find(s.whereabouts({ search: true, lookingFor: npcs[13]! }), npcs[13]!).status).toBe("unknown");
+  });
+
+  it("ORW-462: a full roster sweep with no prior sightings reveals only what is in view", () => {
+    const { s, npcs } = stage("bedroom-a");
+    clearRecords(s);
+    const wa = s.whereabouts()!;
+    const inView = new Set([...wa.present, ...wa.nearby.flatMap((r) => r.present)].map((p) => p.id));
+    for (const id of npcs) {
+      const e = find(s.whereabouts({ search: true, lookingFor: id }), id);
+      if (e.room !== undefined) expect(inView.has(id), `${id} is named in ${e.room} but is not in view`).toBe(true);
+      else expect(["unseen", "unknown", "asleep", "arriving"]).toContain(e.status);
+    }
+  });
+
+  it("ORW-462: the player's record of a witnessed 'walked into X' is a LEAD, never a confirmation", () => {
+    const { s, npcs } = stage("bedroom-a");
+    clearRecords(s);
+    const h1 = npcs[13]!;
+    const p = s as unknown as Priv462;
+    p.trackedSightings = new Map([[h1, { room: "bedroom-a", tick: p.presenceTickCount, pathway: "tracked:test", confidence: 0.5 }]]);
+    const e = find(s.whereabouts({ search: true, lookingFor: h1 }), h1);
+    expect(e).toMatchObject({ status: "lead", room: "bedroom-a" });
+    expect(e.fact).toContain("last seen heading into the bedroom A");
+    expect(e.fact).toContain("not confirmed");
+    expect(find(s.whereabouts({ search: true }), h1).status, "without asking for them the record is not volunteered").toBe("unseen");
+  });
+
+  it("ORW-462: a last-known sighting in view is a lead with the part of the day; a different day says the day", () => {
+    const { s, npcs } = stage("bedroom-a");
+    clearRecords(s);
+    const h1 = npcs[13]!;
+    const p = s as unknown as Priv462;
+    const day = p.live.dayNumber ?? 1;
+    p.lastSeenAt = new Map([[h1, { room: "kitchen", tick: 1, day, part: "afternoon" }]]);
+    expect(find(s.whereabouts({ search: true, lookingFor: h1 }), h1).fact).toContain("last seen in the kitchen around the afternoon - not confirmed");
+    p.lastSeenAt = new Map([[h1, { room: "kitchen", tick: 1, day: day - 1 || 7, part: "evening" }]]);
+    expect(find(s.whereabouts({ search: true, lookingFor: h1 }), h1).fact).toMatch(/last seen in the kitchen on day \d+/);
+  });
+
+  it("ORW-462: a first name shared by two active houseguests resolves nobody", () => {
+    const { s, npcs } = stage("bedroom-a");
+    clearRecords(s);
+    const h = s as unknown as { house: { npcs: { id: string; name: string }[] } };
+    const [a, b] = [npcs[13]!, npcs[14]!];
+    h.house.npcs.find((x) => x.id === a)!.name = "Alex Smith";
+    h.house.npcs.find((x) => x.id === b)!.name = "Alex Jones";
+    const wl = s.whereabouts({ search: true, lookingFor: "Alex" })!;
+    expect(find(wl, a).status).toBe("unseen");
+    expect(find(wl, b).status).toBe("unseen");
+    expect(find(s.whereabouts({ search: true, lookingFor: "Alex Jones" }), b).status).toBe("unknown");
   });
 
   it("asleep = 11 and the living room roster = that houseguest, in the counts and the narrator's terminal block", () => {
