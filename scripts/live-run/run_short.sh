@@ -33,7 +33,7 @@ json.dump({"sha": sha, "ref": ref, "cap": cap, "model": model}, open(f"{run}/met
 P
 curl -s --max-time 10 -H "x-orwell-token: rehlocal" "$RIG_ENGINE_URL/health" > "$RUN/health.json" 2>/dev/null || true
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>&1 & echo $! > "$RUN/spend.pid"
-"$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
+"$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" ${RIG_CROSSOVER:+--crossover} > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
 wait "$(cat "$RUN/driver.pid")"; RC=$?
 kill "$(cat "$RUN/spend.pid")" 2>/dev/null
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" --once >/dev/null 2>&1   # a final spend.json for the report

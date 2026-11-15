@@ -164,11 +164,44 @@ class Chat:
                 "finalized": bool(new) and new[-1]["done"], "timed_out": time.time() - t0 >= limit}
 
 
+CROSS_EVENING = ["I hang out in the kitchen with whoever is still up until morning.", "I chat quietly about tonight's eviction with the people near me."]
+CROSS_BED = "It's been a long night. I say goodnight and go to bed."
+CROSS_MORNING = ["I get up and look around the house. What's happening today?", "I find someone to talk to about the new week."]
+
+
+def crossover(eng, play, check, chat):
+    """ORW-433 (Ryne: "the turn over going to bed / waking up ... crossovers from week to week"): from the Week 1 veto morning the engine is driven to eviction night
+    (the closed set answered with the simplest legal picks), then the night and the crossover are played through the REAL chat: an evening, a "hang out until
+    morning" ask that must not reach morning, the player's own goodnight, and the Week 2 morning. Checks map to the Auditor's ORW-433 lines."""
+    eng.play_pendings_until("hoh-competition", "x1", max_steps=80)
+    st = eng.call("getGameState"); wk0, day0 = st.get("week"), st.get("dayNumber")
+    check("X0-reached-eviction-night", st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh"), f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    evicted = [h.get("name") for h in (st.get("house") or []) if isinstance(h, dict) and h.get("status") not in (None, "active")]
+    for i, line in enumerate(CROSS_EVENING): play(f"cross-evening-{i + 1}", line)
+    st = eng.call("getGameState")
+    check("N2-hang-out-never-reaches-morning", st.get("dayNumber") == day0 and st.get("timeOfDay") not in ("morning", "afternoon"), f"after 'hang out until morning': {st.get('clockLabel')} ({st.get('timeOfDay')}), started Day {day0}")
+    eng.tick_to_night("x-night")
+    bed = play("cross-bed", CROSS_BED)
+    st = eng.call("getGameState")
+    check("N2-the-bed-ends-the-night", (st.get("dayNumber") or 0) == (day0 or 0) + 1, f"after the goodnight: {st.get('clockLabel')} (was Day {day0}) - the narrator must call the bed")
+    check("W2-week-chapter-at-the-bed", chat.page.evaluate("!!document.querySelector('.ow-week-card')"), "a Week recap card is on the page after the bed after eviction")
+    last = evicted[-1] if evicted else None
+    check("N4-the-bed-voices-the-day", bool(last) and last.split()[0] in bed["text"], f"the bed reply names the evicted houseguest ({last}) as part of the day in review", "warn")
+    for i, line in enumerate(CROSS_MORNING): play(f"cross-morning-{i + 1}", line)
+    st = eng.call("getGameState"); ds = st.get("daySchedule") or {}
+    check("W3-hoh-next-in-the-afternoon", ds.get("next") == "hoh-competition" and ds.get("phase") == "afternoon", f"schedule next {ds.get('next')!r} at {ds.get('phase')!r} on {st.get('clockLabel')}")
+    mo = st.get("moment") or ""
+    check("W10-week-numbers-agree", f"Week {st.get('week')}" in mo or not mo, f"moment {mo!r} vs engine week {st.get('week')}")
+    hdr = chat.page.evaluate("(() => { const s = [...document.querySelectorAll('#chat-history .role-timestamp-moment')].pop(); return s ? s.textContent : ''; })()")
+    check("W10-the-bubble-header-shows-the-new-week", f"Week {st.get('week')}" in (hdr or ""), f"last bubble header {hdr!r} vs engine week {st.get('week')}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
     ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
+    ap.add_argument("--crossover", action="store_true", help="ORW-433: after the veto morning, play on to eviction night and cross into Week 2 through the real chat bed")
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
     a = ap.parse_args()
     if a.rescore:
@@ -231,6 +264,7 @@ def main():
             st = eng.call("getGameState")
             check("G2-reached-veto-morning", st.get("phase") == "veto-competition", f"phase {st.get('phase')} at {st.get('clockLabel')}")
             for i, line in enumerate(VETO_MORNING): play(f"veto-morning-{i + 1}", line)
+            if a.crossover: crossover(eng, play, check, chat)
             b.close()
     except Exception as e:  # noqa: BLE001
         print("could not run:", repr(e)[:300]); write(a.run_dir, turns, checks, str(e)); sys.exit(2)
