@@ -44,9 +44,11 @@ The rehearsal kit used to have exactly one rig. It now has two, picked by ONE va
 |---|---|---|
 | engine / front end | :18765 / :17000 | :18766 / :17001 |
 | lock | `live-short/rig.lock` | `live-short/rig-2.lock` (beside it) |
-| worktree | `/home/ryne/orwell-rehearsal` | `/home/ryne/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
+| worktree | `$RIG_HOME/orwell-rehearsal` | `$RIG_HOME/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
 | run pointer | `/tmp/claude-1000/a11_run` | `/tmp/claude-1000/a11_run_2` |
 | run directories | `rehearsal-<date>` | `slot2-rehearsal-<date>` (a glob of slot 1's never matches them) |
+
+`RIG_HOME` is the rig user's home directory: the main checkout (`orwell`), the worktrees, `orwell-playtest` and `.config/orwell/secrets.env` all live under it. It defaults to `$HOME` (the rig runs as its own user); set `ORWELL_RIG_HOME=<dir>` when the rig's files live elsewhere. A stage records it in the run's `slot.env`.
 
 A stage writes `slot.env` into the run directory it creates, so the scripts copied there keep following THEIR run's slot. Slot 2 never creates, edits or reads slot 1's worktree, lock, pointer or run directories.
 

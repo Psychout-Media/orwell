@@ -6,7 +6,7 @@ set -euo pipefail
 KIT=$(cd "$(dirname "$0")" && pwd); . "$KIT/slot.sh"   # RIG_SLOT (default 1) decides every port and path; see slot.sh
 if ss -ltn | grep -qE ":$RIG_ENGINE_PORT\b|:$RIG_FE_PORT\b"; then echo "FATAL: ports $RIG_ENGINE_PORT/$RIG_FE_PORT are busy - another run holds rig slot $RIG_SLOT; not staging" >&2; exit 1; fi   # both slots: an occupied slot 1 is never staged over
 . "$KIT/env_override.sh"; rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1   # a bad override fails HERE, before the checkout and the build
-git -C /home/ryne/orwell fetch -q origin
+git -C "$RIG_HOME/orwell" fetch -q origin
 rig_ensure_worktree || exit 1
 git -C $WT checkout -q -f --detach origin/${STAGE_REF:-main}
 MAIN_SHA=$(git -C $WT rev-parse HEAD)
@@ -25,13 +25,13 @@ echo $RUN > $RIG_RUN_PTR
 rm -rf $WT/frontend/data; (cd $WT && npm run build --silent >/dev/null 2>&1)
 for f in t.sh p.sh last.sh daemon.py env.sh check6.sh pr.sh slot.sh; do cp $KIT/$f $RUN/$f; done; rig_write_slot_env $RUN
 sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
-( cd $WT; set -a; . /home/ryne/.config/orwell/secrets.env; set +a; unset OPENROUTER_API_KEY
+( cd $WT; set -a; . "$RIG_HOME/.config/orwell/secrets.env"; set +a; unset OPENROUTER_API_KEY
   . deploy/orwell-env-defaults.sh
   eval "$(orwell_optin_env_defaults $RUN/engine-data | sed 's/^/export /')"
   # RIG_ENV_OVERRIDE="ORWELL_X=0 ORWELL_Y=1": applied AFTER the deploy defaults, so a proof run can stage a known-bad build with one flag flipped (ORW-109).
   rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
-  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE=/home/ryne/orwell/.orwell-data/models
+  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid
   cd frontend
   [ "$RIG_SLOT" = 1 ] || export PYTHONDONTWRITEBYTECODE=1   # a shared venv is never written to

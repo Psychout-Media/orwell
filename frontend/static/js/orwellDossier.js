@@ -38,7 +38,7 @@
 
   // Persona facet -> a short label. Mirrors the route's `_PERSONA_FIELDS` allowlist order.
   const PERSONA_LABELS = {
-    strategyStyle: "Strategy", vocation: "Vocation",
+    vocation: "Vocation",
     hometown: "Hometown", age: "Age", demeanor: "Demeanor", background: "Background",
   };
 

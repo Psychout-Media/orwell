@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """P0d helper (READ-ONLY): print the clock facts after each message.
-  python3 p0d_read.py BASE_URL [COOKIE_HEADER]        e.g.  python3 p0d_read.py http://10.0.1.243 'session=...'
+  python3 p0d_read.py BASE_URL [COOKIE_HEADER]        e.g.  python3 p0d_read.py http://<host> 'session=...'
 Reads GET /api/orwell/state only. Prints: timeOfDay, daySchedule {next, phase, due, minutesUntil}, beatSeq if present.
 The in-game clock is not shown as an hour; the signal is daySchedule.minutesUntil (minutes to the next scheduled event), which should drop by 5 per player message."""
 import json, sys, urllib.request

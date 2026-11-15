@@ -28,7 +28,7 @@ def _wt_from_slot_env(run):
             if k == "WT" and v: return shlex.split(v)[0]
     except OSError: pass
     return None
-WT = os.environ.get("WT") or _wt_from_slot_env(RUN) or "/home/ryne/orwell-rehearsal"  # slot 1 by default; the run's own slot worktree first (a slot-2 run), else slot 1
+WT = os.environ.get("WT") or _wt_from_slot_env(RUN) or os.path.join(os.environ.get("ORWELL_RIG_HOME") or os.path.expanduser("~"), "orwell-rehearsal")  # slot 1 by default; the run's own slot worktree first (a slot-2 run), else slot 1
 db = sqlite3.connect(f"file:{WT}/frontend/data/app.db?mode=ro", uri=True)
 msgs = [r[0] or "" for r in db.execute("select content from chat_messages where role='assistant'")]
 LEAK = re.compile(r"(?i)</?think|\bnpc:\d|\bas an ai\b|\bi (?:cannot|can't) (?:help|comply)|\badvanceGame\b|\bgetGameState\b|\bBOARD\b|engine-committed|\bsystem prompt\b|\btool[_ ]call\b|\"toolCalls\"|^\s*\{\s*\"")

@@ -4,8 +4,8 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SEASON BUSY (rig slot $RIG_SLOT)"; exit 3; }   # one run per slot: never attach to, or stop, another run's services
 RUN=$(cat $RIG_RUN_PTR)
-export TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"
-/home/ryne/orwell/frontend/.venv/bin/python3 "$HERE/live_week.py" --season --resume --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --max-turns-total ${MAX_TURNS:-800} --run-dir "$RUN" > "$RUN/live_season_resume.out" 2>&1; RC=$?
+export TMPDIR=${TMPDIR:-$RIG_HOME/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"
+"$RIG_HOME/orwell/frontend/.venv/bin/python3" "$HERE/live_week.py" --season --resume --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --max-turns-total ${MAX_TURNS:-800} --run-dir "$RUN" > "$RUN/live_season_resume.out" 2>&1; RC=$?
 "$KIT/stop.sh" >/dev/null 2>&1
 case $RC in 0) V=PASS;; 1) V=FAIL;; *) V=COULD-NOT-RUN;; esac
-echo "LIVE-SEASON $V $(git -C /home/ryne/orwell rev-parse --short=8 origin/main) $RUN/report.md"; exit $RC
+echo "LIVE-SEASON $V $(git -C "$RIG_HOME/orwell" rev-parse --short=8 origin/main) $RUN/report.md"; exit $RC
