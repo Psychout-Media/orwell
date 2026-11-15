@@ -49,7 +49,8 @@ describe("#1391 — narrator-prompt token budget (anti-re-bloat gate)", () => {
   // 46,056 chars. Consciously bumped, not widened to sneak past — this is exactly the class of addition
   // the gate exists to make visible.
   it("BASE_GAME_MASTER_PROMPT stays under its fixed-instruction budget", () => {
-    const BUDGET = 47_000; // ~11.75k tok — ≈2.0% over the 46,056-char post-2026-07-16 size
+    const BUDGET = 47_100; // +100 for ORW-417: the nap lever's one manifest line (its instructions ride the per-turn NAP line instead)
+    // ~11.75k tok — ≈2.0% over the 46,056-char post-2026-07-16 size
     expect(BASE_GAME_MASTER_PROMPT.length).toBeLessThanOrEqual(BUDGET);
   });
 
@@ -72,7 +73,8 @@ describe("#1391 — narrator-prompt token budget (anti-re-bloat gate)", () => {
   //    sizes, so a bump here can also mean a legitimately richer cast — re-baseline consciously.
   it("the assembled character-creation prompt stays under its budget", () => {
     // 2026-07-16 re-baseline (same BASE growth as above): now 55,990 chars (pre-game, no cast).
-    const BUDGET = 57_100; // ~14.3k tok — ≈2.0% over the 55,990-char post-2026-07-16 size
+    const BUDGET = 57_200; // +100 for ORW-417 (the nap manifest line in BASE)
+    // ~14.3k tok — ≈2.0% over the 55,990-char post-2026-07-16 size
     expect(buildSystemPrompt("character-creation", PRE_GAME_VIEW).length).toBeLessThanOrEqual(BUDGET);
   });
 

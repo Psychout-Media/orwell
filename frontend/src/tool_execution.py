@@ -1173,7 +1173,7 @@ async def execute_tool_block(
         do_inspect_non_vault_state, do_override_mechanic, do_configure_game,
         do_manage_sandbox, do_sandbox_health,
         do_create_character, do_update_casting, do_advance_game, do_submit_decision,
-        do_request_self_eviction, do_turn_in,
+        do_request_self_eviction, do_turn_in, do_nap,
         do_social_initiatives, do_diary_room, do_make_deal, do_confide, do_ask_juror, do_whereabouts, do_move_to,
         do_form_alliance, do_join_alliance,
         do_expose_secret, do_trade_secret,
@@ -1664,6 +1664,9 @@ async def execute_tool_block(
     elif tool == "requestSelfEviction":
         desc = "requestSelfEviction"
         result = await do_request_self_eviction(content, owner=owner)
+    elif tool == "nap":
+        desc = "nap"
+        result = await do_nap(content, owner=owner)
     elif tool == "turnIn":
         desc = "turnIn"
         result = await do_turn_in(content, owner=owner)

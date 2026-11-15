@@ -490,6 +490,25 @@ export class Orchestrator {
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;
+    // 0148 (the player's nap): the house lives the slept hours - unseen - on this same per-turn machinery: one tick per SOCIETY_TICK_HOURS slept (at least one, cap EXTRA_TICK_CAP + 1), each on its own seeded SIDE stream
+    // (user, absolute hour, index) so the shared per-user stream the competition/vote spine reads is untouched. Only a nap sets the hours (a played game), so every headless seeded run is byte-identical.
+    const napHours = session.consumeNapHours();
+    if (napHours > 0) {
+      const absNap = session.inGameAbsHour();
+      const hourNap = session.inGameHour();
+      if (hourNap !== undefined) this.lastSocietyTickHour.set(user, hourNap);
+      this.noteTickAbs(user, session);
+      this.lastTurnTickAt.set(user, this.clock.now());
+      const n = Math.min(EXTRA_TICK_CAP + 1, Math.max(1, Math.floor(napHours / SOCIETY_TICK_HOURS)));
+      try {
+        for (let i = 0; i < n; i++) {
+          this.advance(user, "offscreen-tick", { ...(i === 0 ? { baseline: candidate } : {}), supplementary: true, rng: new SeededRandom(hashSeed(`${this.seed}:${user}:nap-tick:${absNap ?? 0}:${i}`)) });
+        }
+      } finally {
+        session.endNapTicks(); // the sleeping player was out of the awake set for these ticks only
+      }
+      return;
+    }
     // Once the FE announces player messages (`noteMessage`), the announcement itself steps the in-game clock INSIDE the tool - so a clock-only change must not make this commit look like a
     // beat commit (which would earn an un-debounced society tick every message). Strip ONLY the clock fields from the comparison in that mode.
     const clockFree = (l: SessionSnapshot["live"] | undefined): string => loopFingerprint(l, session.messageModeNow()); // ORW-323: see chatProgress.ts

@@ -1,0 +1,38 @@
+{
+ "id": "npc:15",
+ "name": "Briana Pickett",
+ "status": "active",
+ "archetype": "peacemaker",
+ "strategyStyle": "strategic",
+ "background": "raised a house full of kids and now cares for the dying for a living",
+ "age": 22,
+ "presentation": "beachy surf",
+ "vocation": "home-health aide",
+ "hometown": "Macon, Georgia",
+ "demeanor": "jolly until the spoon drops",
+ "identityConcept": "A booming, bear-hugging home-health aide who feeds the whole house, kisses every forehead, and quietly decides who gets buried first.",
+ "physicalCharacteristics": {
+  "heightBuild": "short and compact, average height with a sturdy soft build",
+  "skinTone": "warm tan complexion",
+  "hair": "long glossy dark loose waves",
+  "facialFeatures": "strong cheekbones, wide warm smile, thick dark brows",
+  "distinguishingMark": "none notable",
+  "ageLook": "fresh, early-twenties energy, round cheeks",
+  "style": "beachy surf \u2014 faded tees and board shorts worn easy",
+  "wardrobe": [
+   "faded coral cotton tee",
+   "navy board shorts",
+   "woven shell necklace"
+  ],
+  "onCamera": "She stands in the backyard with her hands loose at her sides, chin lifted, eyes on the camera and a closed easy smile, the one who keeps the peace.",
+  "photoHair": "long glossy dark waves loose and shining past her shoulders"
+ },
+ "ethnicity": "Mexican American",
+ "genderPresentation": "woman",
+ "authored": true,
+ "castingType": {
+  "label": "the competitor",
+  "read": "focused eyes, set jaw, ready stance"
+ },
+ "voice": "talks in a folksy, measured, blunt voice \u2014 manic, no humor; under pressure deflects with a joke"
+}

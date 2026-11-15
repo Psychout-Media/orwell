@@ -11,6 +11,17 @@ import type { SessionSnapshot } from "../engine/sessionSnapshot";
  * layer, so no outward module may import this (enforced by dependency-cruiser,
  * like `VaultStore`/`SoulProvider`).
  */
+/** ORW-404: save-sync backlog numbers for `/health` (operational only; no ids, no content). */
+export interface SaveDurability {
+  saveLatestVersion: number;
+  saveDurableVersion: number;
+  /** Age (ms) of the oldest save not yet fsynced; 0 when none. */
+  saveOldestUnsyncedAgeMs: number;
+  saveUnsyncedUsers: number;
+  /** True while the reported user's marker is 0 because nothing has been synced yet since boot (not a lag). */
+  saveDurabilityPending?: boolean;
+}
+
 export interface UserSaveStore {
   /** Persist the user's latest snapshot (a new version; prior versions are never overwritten). */
   saveFor(user: string, snapshot: SessionSnapshot): void;
@@ -35,4 +46,10 @@ export interface UserSaveStore {
    * downgrade. Best-effort; a no-op when no save exists. Optional.
    */
   quarantineIncompatible?(user: string): void;
+  /** ORW-404: the fsync backlog (stores that fsync in the background). Optional. */
+  durability?(): SaveDurability;
+  /** ORW-404: synchronously harden every un-synced save before exit, bounded by `timeoutMs`. Optional. */
+  flushDurable?(timeoutMs?: number): void;
+  /** ORW-404: non-blocking shutdown flush (async fsync, resolves by `timeoutMs` even if a sync never settles). Optional. */
+  flushDurableAsync?(timeoutMs?: number): Promise<void>;
 }

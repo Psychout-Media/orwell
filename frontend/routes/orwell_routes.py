@@ -1155,7 +1155,7 @@ def setup_orwell_routes() -> APIRouter:
         # forever (mandate #1, anti-"sameness"). Debounced per user in orwell_cast_authoring;
         # fire-and-forget, NEVER blocks this response. A missing utility model is a silent no-op.
         try:
-            unauthored = orwell_cast_authoring.unauthored_ids(user, cards)
+            unauthored = orwell_cast_authoring.unauthored_ids(user, cards, include_look=True)
             if unauthored:
                 orwell_cast_authoring.kickoff_authoring_backfill(unauthored, user)
         except Exception as e:
@@ -1309,7 +1309,7 @@ def setup_orwell_routes() -> APIRouter:
             return {"kicked": False, "missing": []}
         if not isinstance(state, dict) or state.get("started") is False:
             return {"kicked": False, "missing": []}
-        missing = orwell_cast_authoring.unauthored_ids(user, _roster_cards(state, user))
+        missing = orwell_cast_authoring.unauthored_ids(user, _roster_cards(state, user), include_look=True)
         kicked = False
         if missing:
             # The MANUAL lever — a deliberate click runs now, bypassing the auto-poll debounce
