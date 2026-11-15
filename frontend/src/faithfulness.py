@@ -209,7 +209,9 @@ def faithfulness_unreframable_mode() -> str:
 #   persona  — a houseguest acts against their established PUBLIC persona.
 #   leak     — asserts hidden machinery or a fact with no in-fiction pathway to the player.
 #   omission — a beat the board says is pending was narrated around but not advanced.
-FAITH_DIMENSIONS = ("board", "persona", "leak", "omission")
+#   time     — (ORW-434) states a part of day, a schedule placement (today/tomorrow), or a sleeping
+#              houseguest speaking/acting, that contradicts the projection's `time` block.
+FAITH_DIMENSIONS = ("board", "persona", "leak", "omission", "time")
 
 # The ADR-0005 classification of a detected slip. 'open' = texture the engine never owned; 'closed' =
 # an actual outcome/state the engine owns; 'none' = no slip. This is THE split the whole role turns
@@ -244,6 +246,63 @@ class FaithfulnessVerdict:
         """True iff this verdict names a real slip to act on — a concrete lever AND a concrete
         classification. ``none``/``none`` is the healthy turn (logged by no one)."""
         return self.lever != "none" and self.classification != "none"
+
+
+# ORW-434: the projection cap is enforced STRUCTURALLY (whole list entries dropped, oldest first) so the
+# serialized JSON always parses; a plain string cut used to chop the knowledge list mid-string.
+_LIST_PATHS = (("visible", "knowledge"), ("knowledge",), ("visible", "visibleEvents"), ("visibleEvents",),
+               ("roster",))
+
+
+def _dump(projection: Any) -> str:
+    return json.dumps(projection, sort_keys=True, default=str)
+
+
+def _list_at(obj: Any, path: tuple):
+    for k in path:
+        if not isinstance(obj, dict):
+            return None
+        obj = obj.get(k)
+    return obj if isinstance(obj, list) else None
+
+
+def serialize_projection(projection: Any, cap: int) -> str:
+    """Serialize ``projection`` to JSON of at most ``cap`` characters that ALWAYS parses. Over the cap, drop
+    whole entries from the FRONT (oldest first) of the knowledge list, then the visible events, then the
+    roster; if still over, fall back to the board and time blocks alone, then ``{}``. Never mutates input."""
+    try:
+        out = _dump(projection)
+        if len(out) <= cap or not isinstance(projection, dict):
+            return out if len(out) <= cap else "{}"
+        work = json.loads(out)                        # a private deep copy: the caller's dict is untouched
+        for path in _LIST_PATHS:
+            lst = _list_at(work, path)
+            if not lst:
+                continue
+            lo, hi = 0, len(lst)                      # smallest number of oldest entries to drop that fits
+            while lo < hi:
+                mid = (lo + hi) // 2
+                lst2 = lst[mid:]
+                parent = work
+                for k in path[:-1]:
+                    parent = parent[k]
+                parent[path[-1]] = lst2
+                if len(_dump(work)) <= cap:
+                    hi = mid
+                else:
+                    lo = mid + 1
+            parent = work
+            for k in path[:-1]:
+                parent = parent[k]
+            parent[path[-1]] = lst[lo:]
+            out = _dump(work)
+            if len(out) <= cap:
+                return out
+        core = {k: work[k] for k in ("board", "time") if k in work}
+        out = _dump(core)
+        return out if len(out) <= cap else "{}"
+    except Exception:
+        return "{}"
 
 
 # ── the sparse trigger (the *when*) ────────────────────────────────────────────────
@@ -339,7 +398,9 @@ class FaithfulnessJudge:
             "board=contradicts a board fact (HOH/noms/veto/eviction/vote/winner); persona=a houseguest "
             "acts against their established PUBLIC persona; leak=asserts hidden machinery or a fact "
             "with no in-fiction pathway to the player; omission=a pending beat was narrated around but "
-            "not advanced."),
+            "not advanced; time=the narration states a part of day or a today/tomorrow schedule placement that "
+            "contradicts the projection's `time` block (partOfDay, nextEvent), or has a houseguest listed in "
+            "`time.asleep` speaking, moving or acting as awake."),
         "casting": (
             "board=contradicts a casting fact the player gave (their name, stated background, strategy "
             "or preferences); persona=the producer breaks the casting-interview producer voice; "
@@ -355,10 +416,7 @@ class FaithfulnessJudge:
 
     def _prompt(self, narration: str, projection: Any, context: str = "in-game") -> str:
         narr = (narration or "")[: self._MAX_NARRATION]
-        try:
-            proj = json.dumps(projection, sort_keys=True, default=str)[: self._MAX_PROJECTION]
-        except Exception:
-            proj = "{}"
+        proj = serialize_projection(projection, self._MAX_PROJECTION)
         dim_help = self._DIMENSION_HELP.get(context, self._DIMENSION_HELP["in-game"])
         where = ("the CASTING INTERVIEW (before the game starts)" if context == "casting"
                  else "a live Big Brother game")
@@ -442,8 +500,14 @@ class FaithfulnessJudge:
             # THE WALL (mandate #3): 'adopt' is only ever valid for an OPEN-set slip. A reply that
             # proposes adopting a CLOSED-set (or unclassified) slip is rejected — the one thing the
             # role must never do is let a misnarration canonicalize a closed-set outcome.
-            if lever == "adopt" and classification != "open":
+            if lever == "adopt" and classification != "open" and dimension != "time":
                 return self._fallback.assess(narration, projection)
+
+            # ORW-434: a time slip (part of day, schedule placement, a sleeper acting) is an engine-owned
+            # CLOSED fact: it is never adopted as canon. A non-clean time verdict uses the SAME lever a board
+            # contradiction that needs the narrator re-grounded uses (reground); never a new lever.
+            if dimension == "time" and (lever != "none" or classification != "none"):
+                classification, lever = "closed", "reground"
 
             return FaithfulnessVerdict(
                 dimension=dimension if dimension in FAITH_DIMENSIONS else "none",

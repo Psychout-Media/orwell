@@ -4288,6 +4288,29 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
 # houseguest's persona, leaks hidden machinery, or drops a beat. P2 is SHADOW-mode only (judge + log,
 # no correction); the adopt/reframe correction lands in P3/P4. Vault-free, live-only, fail-soft.
 
+def _faith_time_block(gs: dict) -> dict:
+    """ORW-434: the judge's time/continuity facts, read from the ORW-409 briefing (one board read, the same
+    player-visible facts the narrator is told): the part of day (a band, never a clock number under zero
+    clocks), the next scheduled event (today/tomorrow, its part of day, whether it is due), the player's
+    room and who is asleep (names). Vault-free; a missing fact is left out, never invented."""
+    from routes.briefing import build_briefing
+    b = build_briefing(gs)
+    out: dict = {}
+    if b.part_of_day:
+        out["partOfDay"] = b.part_of_day
+    if b.next_event:
+        ev: dict = {"name": b.next_event, "when": b.next_day or "today"}
+        if b.next_part:
+            ev["partOfDay"] = b.next_part
+        if b.due is not None:
+            ev["due"] = b.due
+        out["nextEvent"] = ev
+    if b.location:
+        out["playerRoom"] = b.location
+    out["asleep"] = list(b.asleep)
+    return out
+
+
 async def _faith_build_projection(owner) -> dict:
     """Assemble the Vault-free PROJECTION the faithfulness judge reasons over: the live board (the
     closed-set fields, mirroring chat_helpers._beat_signature) + the player's known visible state.
@@ -4309,6 +4332,7 @@ async def _faith_build_projection(owner) -> dict:
                               for h in (gs.get("house") or [])
                               if isinstance(h, dict) and h.get("id") and h.get("name")
                               and h.get("status", "active") == "active"]
+            proj["time"] = _faith_time_block(gs)
     except Exception:
         pass
     try:
