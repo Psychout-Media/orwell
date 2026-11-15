@@ -30,7 +30,7 @@ import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./human
 import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
-import { moodWord, voiceFingerprint } from "../../engine/voice";
+import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -223,6 +223,7 @@ import { cleanWardrobe, cleanOnCamera, cleanPhotoHair } from "../../domain/physi
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
+import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
@@ -261,6 +262,8 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { recohereCastingTypes } from "../../domain/castingTypes";
+import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
@@ -3589,6 +3592,7 @@ export class GameSessionAdapter implements GameSession {
     // #1067/R-BND discipline) is the correct one here too. Non-degradation is intact: once the season
     // starts, every commit checkpoints against the authored baseline as before. On a STANDALONE adapter
     // (tests, the 0065 next-season scratch) `backgroundPersist` falls back to `onPersist` — byte-identical.
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, this.prewarm!.seed); // ORW-432: no-op unless a trait changed
     this.backgroundPersist();
 
     return { accepted: true, publicFields: [...publicFields], hiddenFields: [...hiddenFields], reason: "authored profile sealed (live)" };
@@ -3716,6 +3720,7 @@ export class GameSessionAdapter implements GameSession {
     // must persist DURABLY without a beatSeq bump or the integrity checkpoint — route it through
     // `backgroundPersist` (which re-seeds the non-degradation baseline) just like the profile write-back,
     // rather than relying on an unrelated later commit (which would refuse the skinTone change as degradation).
+    if (ctx.prewarm) this.recohereCastingTypes(ctx.npcs, ctx.seed); // ORW-432: no-op unless a trait changed
     if (ctx.prewarm) this.persist();
     else this.backgroundPersist();
 
@@ -3803,6 +3808,7 @@ export class GameSessionAdapter implements GameSession {
     // converges; a name that already coheres — every UNISEX name (coherent with any presentation) and every
     // nonbinary pin — is left untouched, so the deterministic floor cast is a byte-identical no-op.
     this.cohereGenesisNames(cast);
+    this.recohereCastingTypes(cast.npcs, cast.seed); // ORW-432: genesis may have replaced archetype/demeanor
 
     // The validated tie graph → stored for `seedSeededRelationships` to prefer over the floor draw at
     // createCharacter (where the move-in edges exist, so TIE_AFFINITY_BIAS folds + the ties seal). The
@@ -6665,6 +6671,7 @@ export class GameSessionAdapter implements GameSession {
     // `startNewGame` just regenerated PLUS the authoring, so the seeded competition/vote calibration is
     // unchanged; only the authored prose/secrets differ. The cast is consumed — clear the holding store.
     if (adopt) this.house = { player: this.house.player, npcs: adopt.npcs };
+    const castingRepaired = adopt ? this.recohereCastingTypes(this.house.npcs, seed) : []; // ORW-432: before the cast can be shown
     this.intake = emptyIntake(); // the interview is over — its material lives on the player now
     this.week = 1;
     this.phase = "premiere";
@@ -6828,7 +6835,14 @@ export class GameSessionAdapter implements GameSession {
     // corrected dossier is what durably lands. This is the production caller that makes the pure
     // castingIntake validator/repair REACHED — a model-authored cast can never go live internally
     // contradictory (Lily Evans). A deterministic floor cast is always coherent ⇒ a no-op (byte-neutral).
-    const castCoherence = this.enforceCastCoherence();
+    const baseCoherence = this.enforceCastCoherence();
+    // ORW-432: the trait pass (casting type, voice line, heightBuild) merges into the same summary (ids + field names only).
+    const traitFixes = this.enforceTraitAgreement(seed, castingRepaired);
+    const castCoherence: GameStateView["castCoherence"] = traitFixes.length === 0 ? baseCoherence : {
+      repaired: (baseCoherence?.repaired ?? 0) + traitFixes.length,
+      floored: baseCoherence?.floored ?? 0,
+      houseguests: [...(baseCoherence?.houseguests ?? []), ...traitFixes],
+    };
     // ORW-208: report (never silently swallow) a requested strategy style the chosen archetype does not offer.
     const _res = resolveStrategyStyle(archetype, strategyStyle);
     const styleAdjusted = _res.adjusted && archetype ? { ..._res.adjusted, archetype } : undefined;
@@ -7396,6 +7410,59 @@ export class GameSessionAdapter implements GameSession {
       const v = c[k];
       if (typeof v === "string") c[k] = renameGivenNameInProse(v, prior, next);
     }
+  }
+
+  /**
+   * ORW-432: after genesis, identity or authoring changed a houseguest's archetype, demeanor or strategy style, re-check
+   * each casting type against the final traits and re-pick the ones that no longer fit (unused compatible types, else
+   * least conflict) off the seeded `${seed}:casting-type` stream. Pre-game only (the type is first shown once the
+   * season exists, so no visible re-pick); a no-op for a cast that already fits. Public traits only.
+   */
+  private recohereCastingTypes(npcs: Houseguest[], seed: number): EntityId[] {
+    const { types } = recohereCastingTypes(
+      new SeededRandom(hashSeed(`${seed}:casting-type`)),
+      npcs.map((n) => n.character.castingType),
+      npcs.map((n) => n.character.age),
+      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+    );
+    const changed: EntityId[] = [];
+    npcs.forEach((n, i) => {
+      const t = types[i]!;
+      if (n.character.castingType?.id !== t.id) { n.character.castingType = { id: t.id, label: t.label, read: t.read }; changed.push(n.id); }
+    });
+    return changed;
+  }
+
+  /**
+   * ORW-432: the end-of-creation trait pass. Runs `traitContradictions` on every card after genesis, identity and
+   * authoring have all landed, and repairs what it finds deterministically: a voice whose rendered line pairs traits
+   * that cannot coexist gets the carrying dial replaced (seeded, signature and lexicon untouched); a heightBuild that
+   * names two heights keeps its first. Casting types were re-placed just before (`castingRepaired`). Returns ids and
+   * field names only, merged into the `castCoherence` summary the front end rolls up. A clean floor cast is a no-op.
+   */
+  private enforceTraitAgreement(seed: number, castingRepaired: readonly EntityId[]): Array<{ id: EntityId; fields: string[]; action: "repaired" | "floored" }> {
+    if (!this.house) return [];
+    const out: Array<{ id: EntityId; fields: string[]; action: "repaired" | "floored" }> = [];
+    for (const n of this.house.npcs) {
+      const c = n.character;
+      const fields: string[] = castingRepaired.includes(n.id) ? ["castingType"] : [];
+      const codes = traitContradictions({
+        archetype: c.archetype, strategyStyle: c.strategyStyle, demeanor: c.demeanor, castingType: c.castingType,
+        physicalCharacteristics: c.physicalCharacteristics ? { heightBuild: c.physicalCharacteristics.heightBuild } : undefined,
+        ...(c.voice ? { voice: voiceFingerprint(c.voice) } : {}),
+      });
+      if (codes.includes("trait-height-build") && c.physicalCharacteristics) {
+        c.physicalCharacteristics.heightBuild = repairHeightBuild(c.physicalCharacteristics.heightBuild);
+        fields.push("physicalCharacteristics.heightBuild");
+      }
+      if (codes.includes("trait-voice") && c.voice) {
+        const fixed = repairVoiceConflicts(c.voice, c.demeanor, new SeededRandom(hashSeed(`${seed}:voice-repair:${n.id}`)));
+        c.voice = fixed.voice;
+        for (const d of fixed.changed) fields.push(`voice.${d}`);
+      }
+      if (fields.length > 0) out.push({ id: n.id, fields, action: "repaired" });
+    }
+    return out;
   }
 
   private seedDeepProfiles(seed: number): void {

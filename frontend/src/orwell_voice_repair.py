@@ -37,36 +37,46 @@ ACTION_REMOVED = "removed"
 
 _ENTRY_RE = re.compile(r"^(lexicon|catchphrases)\[(\d+)\]$")
 
-# The roster clause format, the exact inverse of the engine's `voiceFingerprint`:
-#   talks in a {register}, {rhythm}, {directness} voice — {energy}, {humor} humor; under pressure {stressTell}
-# Seeded values come from a closed vocabulary with no commas, so the split counts are exact. Anything that
-# does not split into exactly 3 + 2 parts is ambiguous (e.g. an AUTHORED clause whose dial has a comma) and
-# is refused: no floor is better than a wrong floor.
-# The engine prints the humor dial "none" as "no humor" (`HUMOR_WORDS` in src/engine/voice.ts); read it back as "none".
+# The roster clause formats, the exact inverse of the engine's `voiceFingerprint` (ORW-432: several shapes,
+# one per houseguest, listed in VOICE_LINE_TEMPLATES in src/domain/traitConsistency.ts and mirrored in
+# frontend/tests/fixtures/engine_voice_vocabulary.json). Seeded values come from a closed vocabulary with no
+# commas, so each template inverts exactly; a clause that matches none, or matches one ambiguously (e.g. an
+# AUTHORED clause whose dial has a comma or a literal template word), is refused: no floor is better than a
+# wrong floor. The engine prints the humor dial "none" as "no humor" (`HUMOR_WORDS` in src/engine/voice.ts);
+# read it back as "none".
 _HUMOR_FROM_WORD = {"no": "none"}
-_HEAD = "talks in a "
-_VOICE_SEP = " voice — "
-_HUMOR_SEP = " humor; under pressure "
+VOICE_LINE_TEMPLATES = (
+    "talks in a {register}, {rhythm}, {directness} voice \u2014 {energy}, {humor} humor; under pressure {stressTell}",
+    "{energy} and {directness}, with a {register} way of putting things and a {rhythm} rhythm; {humor} humor; when pressed, {stressTell}",
+    "{register} and {rhythm} on a good day, {directness} on a bad one; {energy} energy, {humor} humor; if it gets tense, {stressTell}",
+    "a {directness} talker, {register} and {rhythm}, {energy} in the room, {humor} humor; at the first sign of pressure {stressTell}",
+)
+_SLOT_RE = re.compile(r"\{(\w+)\}")
+
+
+def _template_regex(template: str):
+    out, pos = [], 0
+    for m in _SLOT_RE.finditer(template):
+        out.append(re.escape(template[pos:m.start()]))
+        out.append(f"(?P<{m.group(1)}>[^,;]+?)")
+        pos = m.end()
+    out.append(re.escape(template[pos:]))
+    return re.compile("^" + "".join(out) + "$")
+
+
+_TEMPLATE_RES = tuple(_template_regex(t) for t in VOICE_LINE_TEMPLATES)
 
 
 def parse_voice_clause(clause: Optional[str]) -> Optional[dict]:
     """Read the six seeded dials back out of a roster-card `voice` clause. `None` when absent/ambiguous."""
-    if not isinstance(clause, str) or not clause.startswith(_HEAD):
+    if not isinstance(clause, str) or not clause:
         return None
-    body = clause[len(_HEAD):]
-    if body.count(_VOICE_SEP) != 1 or body.count(_HUMOR_SEP) != 1:
+    hits = [m for m in (rx.match(clause) for rx in _TEMPLATE_RES) if m]
+    if len(hits) != 1:
         return None
-    head, rest = body.split(_VOICE_SEP)
-    mid, tell = rest.split(_HUMOR_SEP)
-    head_parts = head.split(", ")
-    mid_parts = mid.split(", ")
-    if len(head_parts) != 3 or len(mid_parts) != 2:
-        return None
-    register, rhythm, directness = (p.strip() for p in head_parts)
-    energy, humor = (p.strip() for p in mid_parts)
-    humor = _HUMOR_FROM_WORD.get(humor, humor)
-    out = {"register": register, "rhythm": rhythm, "directness": directness,
-           "energy": energy, "humor": humor, "stressTell": tell.strip()}
+    g = {k: v.strip() for k, v in hits[0].groupdict().items()}
+    g["humor"] = _HUMOR_FROM_WORD.get(g["humor"], g["humor"])
+    out = {k: g[k] for k in SEEDED_DIAL_KEYS}
     if not all(out.values()):
         return None
     return out
