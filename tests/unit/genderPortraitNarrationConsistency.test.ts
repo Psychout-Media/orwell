@@ -83,7 +83,7 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
     let proved = false;
 
     for (const seed of [11, 23, 47, 101, 202, 303, 404]) {
-      const s = new GameSessionAdapter();
+      let s = new GameSessionAdapter();
       const view0 = s.createCharacter({ playerName: "The Player", seed });
 
       // Find an active houseguest whose FIRST name reads clearly man/woman, and propose the opposite.
@@ -96,8 +96,14 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
       const firstName = target.name.split(/\s+/)[0] ?? target.name;
       const opposite: "man" | "woman" = nameGenderOf(firstName) === "man" ? "woman" : "man";
 
-      const res = s.recordCastIdentity({ facets: { [target.id]: { genderPresentation: opposite } } });
-      expect(res.accepted).toBe(true);
+      // ORW-437: a live fold after createCharacter no longer flips an introduced houseguest (name and presentation are
+      // one identity once told), so the divergence is built the way a pre-fold card or an older save carries it: the
+      // stored facet is set through the durable snapshot, leaving the drawn name pointing the other way.
+      const snap = JSON.parse(JSON.stringify(s.snapshot()));
+      snap.house.npcs.find((n: { id: string }) => n.id === target.id).character.genderPresentation = opposite;
+      s = new GameSessionAdapter();
+      s.restore(snap);
+      const res = { accepted: true };
 
       // Re-read live state AFTER the fold.
       const view = s.getGameState();

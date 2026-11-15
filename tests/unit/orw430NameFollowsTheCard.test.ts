@@ -57,3 +57,30 @@ describe("ORW-437 only name-shaped occurrences of a common-word given name are r
       .toBe("In Nameb's kitchen and last night Nameb left, of Nameb we say little.");
   });
 });
+
+describe("ORW-437 follow-up to the common-word rule (review of #2775)", () => {
+  const swap = (text: string, from: string) => renameGivenNameInProse(text, `${from} Surnamea`, "Nameb Surnamea");
+  it("keeps months and common-word uses", () => {
+    expect(swap("In May she moved.", "May")).toBe("In May she moved.");
+    expect(swap("May moved to Tulsa in May.", "May")).toBe("Nameb moved to Tulsa in May.");
+    expect(swap("The Rose family farms here.", "Rose")).toBe("The Rose family farms here.");
+    expect(swap("Her Will to win shows.", "Will")).toBe("Her Will to win shows.");
+    expect(swap("She has a Grace under pressure.", "Grace")).toBe("She has a Grace under pressure.");
+    expect(swap("Every Mark on the wall is hers.", "Mark")).toBe("Every Mark on the wall is hers.");
+    expect(swap("A cousin in June, a friend in May.", "June")).toBe("A cousin in June, a friend in May.");
+  });
+  it("renames real names the first rule missed", () => {
+    expect(swap("Her friend Will brought tea.", "Will")).toBe("Her friend Nameb brought tea.");
+    expect(swap("Summer's laugh carries.", "Summer")).toBe("Nameb's laugh carries.");
+    expect(swap("The Mark she grew up with left.", "Mark")).toBe("The Nameb she grew up with left.");
+    expect(swap("She met a Mark who sells boats.", "Mark")).toBe("She met a Nameb who sells boats.");
+    expect(swap("A friend of Grace waits.", "Grace")).toBe("A friend of Nameb waits.");
+    expect(swap("The daughter of Hope waits.", "Hope")).toBe("The daughter of Nameb waits.");
+    expect(swap("Her rival on Rose's team.", "Rose")).toBe("Her rival on Nameb's team.");
+  });
+  it("never renames another person's full name that shares the given name", () => {
+    expect(renameGivenNameInProse("Her rival Lola Other waits. Lola Lawrence grins. Lola waves.", "Lola Lawrence", "Zorvan Lawrence"))
+      .toBe("Her rival Lola Other waits. Zorvan Lawrence grins. Zorvan waves.");
+    expect(renameGivenNameInProse("Her rival Namea Other waits.", "Namea Surnamea", "Nameb Surnamea")).toBe("Her rival Namea Other waits.");
+  });
+});

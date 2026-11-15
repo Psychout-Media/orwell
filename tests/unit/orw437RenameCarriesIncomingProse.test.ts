@@ -39,4 +39,17 @@ describe("ORW-437 recordCastIdentity: an introduced houseguest keeps name and pr
     expect(res.accepted).toBe(true);
     for (const n of s.snapshot().house!.npcs) expect([n.name, n.character.genderPresentation]).toEqual(before.get(n.id));
   });
+
+  it("before anyone is introduced (pre-game) the same fold still changes the presentation, so the freeze is what holds it", () => {
+    const s = new GameSessionAdapter();
+    s.preSeedCast({ seed: 7 });
+    const cast = s.snapshot().prewarm!.npcs;
+    const flips = cast.filter((n) => n.character.genderPresentation === "man" || n.character.genderPresentation === "woman");
+    const facets: Record<string, { genderPresentation: "man" | "woman" }> = {};
+    for (const n of flips) facets[n.id] = { genderPresentation: n.character.genderPresentation === "man" ? "woman" : "man" };
+    const before = new Map(flips.map((n) => [n.id, n.character.genderPresentation]));
+    expect(s.recordCastIdentity({ facets }).accepted).toBe(true);
+    const changed = s.snapshot().prewarm!.npcs.filter((n) => before.has(n.id) && n.character.genderPresentation !== before.get(n.id));
+    expect(changed.length).toBeGreaterThan(0);
+  });
 });
