@@ -96,11 +96,16 @@ Feature: House presence and lingering play
     Then the engine has the player in the living room
     And the game state hands the narrator the move from the backyard to the living room
 
-  Scenario: A future or conditional phrase is not a move
+  Scenario Outline: A future or conditional phrase is not a move
     Given a started game with the player in the backyard and no house event in session
-    When the engine reads the player's words "I'll go to the kitchen later"
+    When the engine reads the player's words "<words>"
     Then the engine has the player in the backyard
     And the game state hands the narrator no move
+
+    Examples:
+      | words                              |
+      | I'll go to the kitchen later       |
+      | if it rains I will go to the kitchen |
 
   Scenario Outline: During a house event the player's move is refused with a reason and nothing moves
     Given a seeded season paused at <event>
