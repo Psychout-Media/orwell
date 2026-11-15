@@ -92,3 +92,45 @@ def test_check_never_fetches_engine_state_and_skips_without_a_cached_state(monke
 def test_flag_off_counts_nothing(monkeypatch):
     monkeypatch.setenv("ORWELL_PREDISPLAY_CHECK", "0")
     assert asyncio.new_event_loop().run_until_complete(pc.check_and_count("It's 8:15.", "u")) == []
+
+
+# ── ORW-408 second round ─────────────────────────────────────────────────────────────────────────────────────────────
+
+def test_an_inch_mark_is_not_a_quote_so_later_chunks_are_still_checked():
+    # finding 6: `5'10"` is a height, not an opening quote; the round must not read as "inside a quote" afterwards
+    round_text = "A tall houseguest, 5'10\", leans on the counter. "
+    assert pc.quote_open_after(round_text) is False
+    assert pc.FACT_ASLEEP in pc.find_conflicts("Sleeper Role walks in.", STATE, zero_clocks=False, in_quote=pc.quote_open_after(round_text))
+
+
+def test_a_stray_quote_does_not_exempt_the_rest_of_the_round():
+    # an odd count must stop carrying at a paragraph break
+    assert pc.quote_open_after('Someone says, "Wait.') is True
+    assert pc.quote_open_after('Someone says, "Wait.\n\nThe kettle clicks. ') is False
+
+
+def test_a_carried_quote_is_bounded_in_length():
+    long_open = '"' + ("a long unclosed line, " * 60)
+    assert len(long_open) > 600 and pc.quote_open_after(long_open) is False
+    assert pc.quote_open_after('"short line, still going') is True
+
+
+def test_a_normal_multi_chunk_quote_still_carries():
+    assert pc.quote_open_after('She says, "Nobody\'s safe. ') is True
+    assert pc.quote_open_after('She says, "Nobody\'s safe. The nominations are tonight." ') is False
+
+
+def test_a_short_sentence_equal_to_a_shown_one_is_not_dropped_as_a_repeat():
+    shown = "The kitchen is quiet. Okay. "
+    assert pc.drop_repeated_prefix("Okay. The kettle clicks off.", shown) == "Okay. The kettle clicks off."
+    assert pc.drop_repeated_prefix("Fine.", "Fine. ") == "Fine."
+
+
+def test_a_long_repeated_sentence_is_still_dropped():
+    shown = "The kitchen is quiet and everyone is waiting. "
+    assert pc.drop_repeated_prefix("The kitchen is quiet and everyone is waiting. The kettle clicks off.", shown).strip() == "The kettle clicks off."
+
+
+def test_a_stated_clock_time_in_dialogue_is_still_a_conflict():
+    # the zero-clocks rule (ORW-377) covers houseguests as well as the narrator: quoted speech is NOT exempt
+    assert pc.find_conflicts('She says, "Meet at 3:00 PM."', STATE, zero_clocks=True) == [pc.FACT_CLOCK]
