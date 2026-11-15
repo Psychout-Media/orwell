@@ -24,3 +24,19 @@ describe("ORW-437 recordCastProfile: the incoming story follows the rename", () 
     expect(live.character.identityConcept).toBe("Zorvan hums through every silence.");
   });
 });
+
+describe("ORW-437 recordCastIdentity: an introduced houseguest keeps name and presentation together", () => {
+  it("a live fold that proposes the other presentation changes neither the name nor the presentation", () => {
+    const s = new GameSessionAdapter();
+    s.createCharacter({ playerName: "The Player", seed: 7 }); // the premiere introduces everyone
+    const cast = s.snapshot().house!.npcs;
+    const flips = cast.filter((n) => n.character.genderPresentation === "man" || n.character.genderPresentation === "woman").slice(0, 6);
+    expect(flips.length).toBeGreaterThan(0);
+    const facets: Record<string, { genderPresentation: "man" | "woman" }> = {};
+    for (const n of flips) facets[n.id] = { genderPresentation: n.character.genderPresentation === "man" ? "woman" : "man" };
+    const before = new Map(cast.map((n) => [n.id, [n.name, n.character.genderPresentation]]));
+    const res = s.recordCastIdentity({ facets });
+    expect(res.accepted).toBe(true);
+    for (const n of s.snapshot().house!.npcs) expect([n.name, n.character.genderPresentation]).toEqual(before.get(n.id));
+  });
+});

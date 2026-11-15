@@ -3729,7 +3729,9 @@ export class GameSessionAdapter implements GameSession {
       const pub = layer.public[n.id];
       if (!pub) continue;
       n.character.ethnicity = pub.ethnicity;
-      n.character.genderPresentation = pub.genderPresentation;
+      // ORW-437: once the player has been told the name, name and presentation are one introduced identity: a live fold
+      // changes neither (the name freeze below would otherwise leave a name that no longer fits the presentation).
+      if (!this.introducedNames.has(n.id)) n.character.genderPresentation = pub.genderPresentation;
       // A houseguest may have FLIPPED out↔private on a re-fold: set the public out facet when present, and
       // CLEAR it otherwise (a now-private orientation must never linger on the public Character).
       if (pub.outOrientation !== undefined) n.character.outOrientation = pub.outOrientation;
