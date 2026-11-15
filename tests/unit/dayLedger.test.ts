@@ -201,6 +201,19 @@ describe("ORW-271 - played-game byte-identity and rng neutrality", () => {
   });
 });
 
+describe("review of #2668/#2685 - prose that merely starts with Event: or Data:, and the Key list", () => {
+  it("accepts such prose, and keeps the Key list when the prose is long", () => {
+    process.env.ORWELL_DAY_CONDENSE = "1";
+    const { session } = rig(23, true);
+    closeNight(session);
+    const long = `Event: the night ended badly. ${"word ".repeat(700)}Key list: a promise to Dana; the nickname Moose`;
+    expect(session.recordDaySummary({ day: 1, text: long }).accepted).toBe(true);
+    const t = session.dayLedger().find((d) => d.day === 1 && d.tier === "day")!.text!;
+    expect(t.startsWith("Event: the night")).toBe(true);
+    expect(t.endsWith("the nickname Moose")).toBe(true);
+  });
+});
+
 describe("ORW-387 - a provider error is never a day's memory", () => {
   const ERR = 'event: error data: {"status": 400, "text": "Provider returned HTTP 400: bad request"}';
   it("refuses an error-shaped summary, and lets a real one replace a stored error (a real one still stands)", () => {

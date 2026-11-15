@@ -25,4 +25,19 @@ describe("ORW-382 - every bedtime has a day in review, the premiere night includ
     expect(v.dailyRecap!.yourDay!.length).toBeLessThanOrEqual(5);
     for (const line of v.dailyRecap!.yourDay!) expect(line, "no provenance bookkeeping reaches the review").not.toMatch(/^surfaced to player via|overheard:|told-by:/);
   });
+
+  it("review of #2664/#2672: a witnessed scene with the same words as a highlight stays; gossip and surfacing bookkeeping never ride", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const s = new GameSessionRegistry().sandboxFor("recap-kinds").session as any;
+    s.createCharacter({ playerName: "P", seed: 6 });
+    const pid = s.getGameState().player.id;
+    const mk = (id: string, type: string, content: string) => ({ id, ts: 9000 + Number(id.replace(/\D/g, "")), type, initiator: pid, witnessSet: [pid], hidden: false, content });
+    const orig = s.record;
+    const extra = [mk("season:77", "season", "The same words"), mk("x1", "interaction", "The same words"), mk("x2", "gossip", "gossip rumor reaches you"), mk("x3", "surfacing", "surfaced elsewhere")];
+    s.setRecordProviders({ events: () => [...orig.events(), ...extra], hidden: orig.hidden });
+    const v = s.turnIn();
+    const day = v.dailyRecap?.yourDay ?? s.dailyRecap()?.yourDay ?? [];
+    expect(day).toContain("The same words");
+    expect(day.join("|")).not.toMatch(/gossip rumor|surfaced elsewhere/);
+  });
 });
