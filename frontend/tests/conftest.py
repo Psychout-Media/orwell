@@ -195,6 +195,17 @@ def _engine_client_no_retry_backoff(request, monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _reset_portrait_billing_breaker() -> None:
+    """ORW-397: the image-provider billing breaker is module state; a test that fakes a 402 must not leave it open for the next one."""
+    try:
+        from src import orwell_portraits
+        orwell_portraits.reset_billing_breaker()
+    except Exception:  # failsoft-ok: test-hygiene (module may be unimportable in a narrow test)
+        pass
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _ensure_current_event_loop() -> None:
     """Py3.12 guard: `asyncio.get_event_loop()` RAISES ("There is no current event loop in thread
     'MainThread'") when no loop is set for the thread — unlike 3.11, which silently auto-created one.
@@ -403,3 +414,12 @@ def zero_clocks_off(monkeypatch) -> None:
     import src.settings as _st
     _real = _st.get_setting
     monkeypatch.setattr(_st, "get_setting", lambda k, d=None: False if k == "zero_clocks" else _real(k, d))
+
+
+@pytest.fixture(autouse=True)
+def _portrait_photo_check_off(monkeypatch) -> None:
+    """ORW-384: the automatic photo check adds awaits (a DeepSeek endpoint lookup) to every NPC portrait
+    task. Tests of the generation pipeline stub `_generate_one` and drain with a fixed number of loop turns,
+    so the check is OFF by default here; test_orw384_photo_check.py puts the real one back."""
+    from src import orwell_portrait_check as _c
+    monkeypatch.setattr(_c, "check_enabled", lambda user: False)

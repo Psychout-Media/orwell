@@ -355,3 +355,26 @@ def test_orw363_the_panel_names_the_next_event_and_when_from_the_engine_schedule
     assert _node_eval(fns, 'nextEventLabel({"week": 3, "hoh": {"id": "x"}})') is None
     # no schedule before the first HOH (the premiere): the Day-1 line
     assert _node_eval(fns, 'nextEventLabel({"week": 1, "dayNumber": 1})') == "First HOH: tomorrow afternoon"
+
+
+def test_orw370_the_panel_names_each_final_hoh_part_from_the_schedule():
+    """ORW-370: the three-part Final HOH is three competitions on one `hoh-competition` milestone; the engine's daySchedule now carries `finalHohPart`, and the panel names it."""
+    src = _read(PANEL)
+    fns = "\n".join(_fn_body(src, n) for n in ("isPreHoh", "preHohLabel", "nextEventWhen", "nextEventLabel"))
+    names = src[src.index("const NEXT_EVENT_NAME"): src.index("};", src.index("const NEXT_EVENT_NAME")) + 2]
+    fns = names + "\n" + fns
+
+    def lab(part, phase="afternoon", **extra):
+        ds = dict({"next": "hoh-competition", "phase": phase, "due": False}, **extra)
+        if part is not None:
+            ds["finalHohPart"] = part
+        st = {"week": 11, "dayNumber": 80, "hoh": {"id": "hg-1", "name": "n"}, "_state": {"daySchedule": ds}}
+        return _node_eval(fns, "nextEventLabel(" + json.dumps(st) + ")")
+
+    assert lab(1) == "Final HOH part 1: this afternoon"
+    assert lab(2) == "Final HOH part 2: this afternoon"
+    assert lab(3, tomorrow=True) == "Final HOH part 3: tomorrow afternoon"
+    assert lab(2, due=True) == "Final HOH part 2: now"
+    # an ordinary HOH (no part) keeps its name; a stray part on another event never renames it
+    assert lab(None) == "HOH competition: this afternoon"
+    assert lab(7) == "HOH competition: this afternoon"

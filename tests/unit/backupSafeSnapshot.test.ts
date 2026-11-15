@@ -1,0 +1,74 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+/** ORW-403 — backup takes a verified consistent copy of the live WAL database. */
+const SCRIPT = join(process.cwd(), "deploy", "orwell-backup.sh");
+const PY = `
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA journal_mode=WAL"); c.execute("PRAGMA wal_autocheckpoint=0")
+c.execute("CREATE TABLE t(v)"); c.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(50)]); c.commit()
+# keep connection open (uncheckpointed WAL) until stdin closes
+sys.stdout.write("ready\\n"); sys.stdout.flush(); sys.stdin.read()
+`;
+const READ = `
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+print(c.execute("select count(*) from t").fetchone()[0], c.execute("pragma integrity_check").fetchone()[0])
+`;
+
+let root: string;
+beforeEach(() => { root = mkdtempSync(join(tmpdir(), "bk403-")); });
+afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+function run(env: NodeJS.ProcessEnv = {}) {
+  return spawnSync("bash", [SCRIPT, join(root, "out")], { env: { ...process.env, APP_DIR: join(root, "app"), ...env }, encoding: "utf8" });
+}
+
+describe("orwell-backup.sh database snapshot (ORW-403)", () => {
+  it("archives a consistent copy with uncheckpointed WAL rows, without sqlite3 CLI", async () => {
+    const data = join(root, "app", "frontend", "data");
+    mkdirSync(data, { recursive: true });
+    mkdirSync(join(root, "app", "data"), { recursive: true });
+    writeFileSync(join(data, "note.txt"), "x");
+    const db = join(data, "app.db");
+    const { spawn } = await import("node:child_process");
+    const holder = spawn("python3", ["-c", PY, db], { stdio: ["pipe", "pipe", "inherit"] });
+    await new Promise<void>((r) => holder.stdout!.once("data", () => r()));
+    // PATH stripped of any sqlite3 CLI: only a dir with python3/bash/tar basics via symlinks
+    const bin = join(root, "bin"); mkdirSync(bin);
+    for (const t of ["bash", "python3", "tar", "gzip", "date", "mkdir", "stat", "id", "find", "wc", "tr", "chmod", "rm", "mktemp", "basename", "dirname", "env", "cat", "ls"]) {
+      const w = spawnSync("bash", ["-c", `command -v ${t}`], { encoding: "utf8" }).stdout.trim();
+      if (w) spawnSync("ln", ["-s", w, join(bin, t)]);
+    }
+    const r = run({ PATH: bin });
+    holder.stdin!.end();
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stderr).not.toMatch(/checkpoint skipped/);
+    const out = join(root, "out");
+    const arch = readdirSync(out).find((f) => f.endsWith(".tar.gz"))!;
+    const names = spawnSync("tar", ["-tzf", join(out, arch)], { encoding: "utf8" }).stdout;
+    expect(names).not.toMatch(/app\.db-wal|app\.db-shm/);
+    expect(names).toMatch(/frontend\/data\/app\.db$/m);
+    expect(names).toMatch(/frontend\/data\/note\.txt/);
+    const ex = join(root, "ex"); mkdirSync(ex);
+    spawnSync("tar", ["-xzf", join(out, arch), "-C", ex]);
+    const res = spawnSync("python3", ["-I", "-c", READ, join(ex, "frontend", "data", "app.db")], { encoding: "utf8" });
+    expect(res.stdout.trim()).toBe("50 ok");
+    expect(readdirSync(out).filter((f) => f.startsWith(".app.db.snapshot"))).toEqual([]);
+  });
+
+  it("prints the error and writes no backup when the database is corrupt", () => {
+    const data = join(root, "app", "frontend", "data");
+    mkdirSync(data, { recursive: true });
+    writeFileSync(join(data, "app.db"), "not a database at all, just junk bytes ".repeat(200));
+    const r = run();
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toMatch(/snapshot failed/);
+    expect(r.stderr.length).toBeGreaterThan(30);
+    const out = join(root, "out");
+    expect(existsSync(out) ? readdirSync(out).filter((f) => f.endsWith(".tar.gz")) : []).toEqual([]);
+  });
+});

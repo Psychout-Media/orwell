@@ -597,7 +597,7 @@ export interface GameStateView {
    */
   /** A8 (flag `ORWELL_DESIRE_CLOCK`): an NPC whose own desire clock crossed its threshold is cutting into the conversation - public name + coarse desire only. Absent when off / nobody. */
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true };
+  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3 };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -1125,12 +1125,18 @@ export interface RecordLookExtrasReq {
   houseguestId: string;
   wardrobe?: string[];
   onCamera?: string;
+  /** ORW-380: shoot-day hair, at most 90 chars. */
+  photoHair?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
+  clear?: string[];
 }
 
 export interface RecordLookExtrasResult {
   accepted: boolean;
-  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  /** Field names actually stored (`wardrobe`, `onCamera`, `photoHair`); never a value. */
   fields: string[];
+  /** ORW-380: field names removed through `clear`. */
+  cleared?: string[];
   /** Present when `accepted` is false: a code, never an echo of the text. */
   reason?: string;
 }
@@ -2199,6 +2205,8 @@ export interface DailyRecapView {
   highlights: string[];
   /** Gossip that reached the player's own knowledge today via a real in-game pathway (0002). */
   surfaced: string[];
+  /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), when no ceremony/deal made the highlights - so every bedtime, the premiere night included, has something to review. Absent when empty. */
+  yourDay?: string[];
   /** The non-committal forward tease, when an eligible in-motion thread exists; absent on a quiet day. */
   hook?: DailyRecapHook;
 }
@@ -3186,7 +3194,7 @@ export interface GameSession {
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
-   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields
    * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
    * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
    * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,

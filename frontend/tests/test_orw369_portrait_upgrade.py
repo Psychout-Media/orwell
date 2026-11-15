@@ -31,6 +31,17 @@ def season(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "image_gen_disabled", lambda: False)
     U._STATE.clear()
     U._BUSY.clear()
+
+    async def _live():  # ORW-378: these tests are the live-game (one at a time) path
+        return True
+
+    monkeypatch.setattr(U, "game_is_live", _live)
+    CA = importlib.import_module("src.orwell_cast_authoring")
+
+    async def _no_writer(owner, **k):  # ORW-380: no look writer unless a test supplies one
+        return None
+
+    monkeypatch.setattr(CA, "resolve_authoring_llm_fn", _no_writer)
     P._INFLIGHT.clear()
     P._GEN_PROGRESS.clear()
     state = {"started": True, "player": {"id": "player", "name": "Me"},
@@ -59,16 +70,17 @@ def season(tmp_path, monkeypatch):
 def _gen(monkeypatch, log, fail=()):
     live = {"n": 0, "max": 0}
 
-    async def fake(prompt, user, reference_png=None):
+    async def fake(prompt, user, reference_png=None, keep_identity=True):
         live["n"] += 1
         live["max"] = max(live["max"], live["n"])
         await asyncio.sleep(0)
         live["n"] -= 1
-        log.append(prompt)
+        live.setdefault("calls", []).append({"prompt": prompt, "ref": reference_png, "keep": keep_identity})
+        log.append(prompt.replace(P.UPGRADE_IDENTITY_PREFIX, ""))
         if any(f in prompt for f in fail):
             P._note_gen_error("http-500")
             return None
-        return b"PNG:new:" + prompt.encode()
+        return b"PNG:new:" + prompt.replace(P.UPGRADE_IDENTITY_PREFIX, "").encode()
 
     monkeypatch.setattr(P, "_generate_one", fake)
     return live
@@ -127,7 +139,7 @@ def test_old_file_stays_until_success_and_failure_retries_with_growing_wait(seas
     P._generate_one  # noqa
     log.clear()
 
-    async def ok(prompt, user, reference_png=None):
+    async def ok(prompt, user, reference_png=None, keep_identity=True):
         return b"PNG:fresh"
     monkeypatch.setattr(P, "_generate_one", ok)
     assert _run(U.upgrade_tick("u", now=now)) == "upgraded"
@@ -145,13 +157,13 @@ def test_failure_is_recorded_red(season, monkeypatch):
     assert any(r.startswith("portrait-upgrade-failed") for r in seen)
 
 
-def test_version2_season_does_nothing(season, monkeypatch):
+def test_current_version_season_does_nothing(season, monkeypatch):
     state, d = season
     log = []
     _gen(monkeypatch, log)
     m = P.load_manifest("u")
     for k in m:
-        m[k]["promptVersion"] = 2
+        m[k]["promptVersion"] = P.PORTRAIT_PROMPT_VERSION
     P._save_manifest("u", m)
     for t in (0, 100, 200):
         assert _run(U.upgrade_tick("u", now=float(t))) == "idle"
@@ -183,67 +195,150 @@ def test_a_different_season_restarts_the_quiet_window(season, monkeypatch):
     assert _run(U.upgrade_tick("u", now=101.0)) == "waiting"  # re-armed on load
 
 
-def test_writer_input_is_public_fields_only():
-    card = _card(1, identityConcept="a baker", presentation="soft tailoring",
-                 physicalCharacteristics={"hair": "x", "presentation": "soft", "wardrobe": ["a"]})
-    out = U.writer_input(card)
-    blob = json.dumps(out)
-    for bad in ("VAULT-SECRET", "VAULT-GOAL", "opinions", "secrets", "trueGoals", "hair"):
-        assert bad not in blob
-    assert out["vocation"] == "teacher" and out["identityConcept"] == "a baker"
-
-
-def test_look_checks_reuse_the_writers_validators():
-    card = _card(1)
-    ok = {"wardrobe": ["denim jacket", "white tee"], "onCamera": "Laughs easily in the kitchen."}
-    assert U.look_checked(ok, card)[0] == ok
-    bad, probs = U.look_checked({"wardrobe": ["one"], "onCamera": "x" * 300}, card)
-    assert bad == {} and set(probs) == {"wardrobe-shape", "oncamera-shape"}
-    got, _ = U.look_checked({"wardrobe": ["a jacket", "b tee"], "onCamera": "In the garage."}, card)
-    assert got == {"wardrobe": ["a jacket", "b tee"]}  # a field that fails is omitted
-
-
-def test_write_look_one_strict_retry(monkeypatch):
+def _sheet_llm(monkeypatch, replies, record):
+    """A fake photo-sheet writer: `replies(name, n)` gives the JSON for that houseguest's n-th call."""
     CA = importlib.import_module("src.orwell_cast_authoring")
-    calls = []
+    live = {"n": 0, "max": 0}
 
     async def llm(msgs):
-        calls.append(msgs)
-        return "no json" if len(calls) == 1 else json.dumps(
-            {"wardrobe": ["denim jacket", "white tee"], "onCamera": "Laughs easily in the kitchen."})
+        live["n"] += 1
+        live["max"] = max(live["max"], live["n"])
+        await asyncio.sleep(0)
+        live["n"] -= 1
+        inp = json.loads(msgs[1]["content"])
+        record.append({"system": msgs[0]["content"], "input": inp, "msgs": msgs})
+        n = sum(1 for r in record if r["input"].get("name") == inp.get("name"))
+        return json.dumps(replies(inp.get("name"), n))
 
     async def resolve(owner, **k):
         return llm
+
     monkeypatch.setattr(CA, "resolve_authoring_llm_fn", resolve)
-    look = _run(U.write_look(_card(1), "u"))
-    assert len(calls) == 2 and look["wardrobe"] == ["denim jacket", "white tee"]
-    sent = json.dumps(calls[0])
-    for bad in ("VAULT-SECRET", "VAULT-GOAL", "opinions"):
-        assert bad not in sent
+    return live
 
 
-def test_look_filled_only_when_missing_and_from_public_fields(season, monkeypatch):
-    state, d = season
-    _gen(monkeypatch, [])
-    state["house"] = [_card(1), _card(2, physicalCharacteristics={"wardrobe": ["a", "b"], "onCamera": "In the lounge."})]
-    seen_inputs, stored = [], []
-
-    async def fake_write_look(card, owner):
-        seen_inputs.append(U.writer_input(card))
-        return {"wardrobe": ["x", "y"], "onCamera": "In the kitchen."}
-
+def _fake_engine(monkeypatch, stored):
     async def record(hid, look, user=None):
-        stored.append((hid, look))
-        return {"accepted": True}
+        stored.append((hid, dict(look)))
+        return {"accepted": True, "fields": [k for k in ("wardrobe", "photoHair", "onCamera") if k in look]}
 
     monkeypatch.setattr(U, "look_fill_supported", lambda: True)
-    monkeypatch.setattr(U, "write_look", fake_write_look)
     monkeypatch.setattr(engine, "record_look_extras", record, raising=False)
+
+
+def _sheet(name, piece, spot, pron="She"):
+    return {"wardrobe": [piece, "dark trousers"], "photoHair": "sleek neat braid over one shoulder",
+            "onCamera": f"{pron} stands in the {spot}, arms folded, eyes on the camera, a small smile, the one who misses nothing."}
+
+
+def test_sheets_rewritten_for_every_stale_houseguest_with_name_gender_and_taken(season, monkeypatch):
+    state, d = season
+    state["house"] = [
+        _card(1, genderPresentation="woman", ethnicity="Irish", presentation="soft tailoring", voice={"energy": "low", "register": "dry", "catchphrases": ["VAULT-PHRASE"]},
+              physicalCharacteristics={"heightBuild": "tall", "hair": "a braid", "style": "x", "wardrobe": ["old", "old2"], "onCamera": "She jokes then leaves the kitchen."}),
+        _card(2, genderPresentation="man"), _card(3, genderPresentation="nonbinary")]
+    log, record, stored = [], [], []
+    _gen(monkeypatch, log)
+    _fake_engine(monkeypatch, stored)
+    live = _sheet_llm(monkeypatch, lambda name, n: {
+        "Guest 1": _sheet("g1", "a leather jacket", "kitchen"),
+        "Guest 2": _sheet("g2", "a flannel shirt", "backyard", "He"),
+        "Guest 3": _sheet("g3", "a denim jacket", "lounge", "They")}[name], record)
     _run(U.upgrade_tick("u", now=0.0))
     assert _run(U.upgrade_tick("u", now=100.0)) == "upgraded"
-    assert _run(U.upgrade_tick("u", now=200.0)) == "upgraded"
-    assert [h for h, _ in stored] == ["npc:1"]  # npc:2 already had its look
-    assert "VAULT-SECRET" not in json.dumps(seen_inputs)
+    for t in (200.0, 300.0):
+        _run(U.upgrade_tick("u", now=t))
+    assert [h for h, _ in stored] == ["npc:1", "npc:2", "npc:3"]  # ALWAYS rewritten, even npc:1 that had a sheet
+    first = record[0]["input"]
+    assert first["name"] == "Guest 1" and first["genderPresentation"] == "woman"
+    assert first["voice"] == {"energy": "low", "register": "dry"}
+    assert first["taken"] == {"mainPieces": [], "spots": {}}
+    assert "VAULT" not in json.dumps(record) and "secrets" not in json.dumps(first) and "opinions" not in json.dumps(first)
+    # each later writer sees the main pieces and spots of the houseguests rewritten before it
+    assert record[1]["input"]["taken"] == {"mainPieces": ["a leather jacket"], "spots": {"kitchen": 1}}
+    assert record[2]["input"]["taken"]["mainPieces"] == ["a leather jacket", "a flannel shirt"]
+    # the old scene-like npc:1 line that the new sheet replaced is not cleared away (it was rewritten); photoHair rides along
+    assert stored[0][1]["photoHair"] == "sleek neat braid over one shoulder"
+    assert "PHOTO SHEET" in record[0]["system"] and "genderPresentation" in record[0]["system"]
+
+
+def test_sheets_are_written_one_at_a_time_then_the_shoots_run_in_parallel(season, monkeypatch):
+    state, d = season
+    log, record, stored = [], [], []
+    shoot = _gen(monkeypatch, log)
+    _fake_engine(monkeypatch, stored)
+    live = _sheet_llm(monkeypatch, lambda name, n: _sheet(name, {"Guest 1": "a green parka", "Guest 2": "a cream cardigan", "Guest 3": "a navy blazer"}[name], "kitchen"), record)
+
+    async def idle():
+        return False
+
+    monkeypatch.setattr(U, "game_is_live", idle)
+    monkeypatch.setattr(P, "portrait_parallel", lambda user: 3)
+    _run(U.upgrade_tick("u", now=0.0))
+    assert _run(U.upgrade_tick("u", now=100.0)) == "upgraded"
+    assert live["max"] == 1 and len(record) == 3          # sheets: strictly sequential
+    assert shoot["max"] >= 2                                # shoots: more than one at once
+    assert [h for h, _ in stored] == ["npc:1", "npc:2", "npc:3"]
+    assert record[2]["input"]["taken"]["spots"] == {"kitchen": 2}
+
+
+def test_shoot_uses_the_current_file_as_the_reference_with_the_prefix_and_records_version_3(season, monkeypatch):
+    state, d = season
+    log, stored = [], []
+    shoot = _gen(monkeypatch, log)
+    _fake_engine(monkeypatch, stored)
+    state["house"] = [_card(1)]
+    _run(U.upgrade_tick("u", now=0.0))
+    assert _run(U.upgrade_tick("u", now=100.0)) == "upgraded"
+    call = shoot["calls"][0]
+    assert call["ref"] == b"PNG:old" and call["keep"] is False
+    assert call["prompt"] == ("The same person as in the reference photo: keep their face, skin tone and age. "
+                              "Everything else (hair styling, clothes, pose, setting and light) follows this brief, "
+                              "with clear even skin and no marks other than those named. v2 prompt npc:1")
+    assert P.PORTRAIT_PROMPT_VERSION == 3
+    assert P.load_manifest("u")["npc_1"]["promptVersion"] == 3
+
+
+def test_no_current_file_shoots_without_a_reference(season, monkeypatch):
+    state, d = season
+    log = []
+    shoot = _gen(monkeypatch, log)
+    state["house"] = [_card(1)]
+    (d / "npc_1.png").unlink()
+    _run(U.upgrade_tick("u", now=0.0))
+    _run(U.upgrade_tick("u", now=100.0))
+    # no file on disk: the manifest entry is stale but there is nothing to carry; no reference, no prefix
+    for c in shoot.get("calls", []):
+        assert c["ref"] is None and not c["prompt"].startswith("The same person")
+
+
+def test_a_writer_that_gives_nothing_keeps_the_old_photo_when_an_old_sheet_would_ride(season, monkeypatch):
+    state, d = season
+    log, stored, record = [], [], []
+    _gen(monkeypatch, log)
+    _fake_engine(monkeypatch, stored)
+    _sheet_llm(monkeypatch, lambda name, n: {}, record)
+    state["house"] = [_card(1, physicalCharacteristics={"wardrobe": ["a", "b"], "onCamera": "She jokes then leaves the kitchen."})]
+    _run(U.upgrade_tick("u", now=0.0))
+    assert _run(U.upgrade_tick("u", now=100.0)) == "failed"
+    assert log == [] and stored == []
+    assert (d / "npc_1.png").read_bytes() == b"PNG:old"
+
+
+def test_a_field_the_checker_drops_clears_the_old_one(season, monkeypatch):
+    state, d = season
+    log, stored, record = [], [], []
+    _gen(monkeypatch, log)
+    _fake_engine(monkeypatch, stored)
+    bad = {"wardrobe": ["a plain navy cardigan", "dark jeans"], "photoHair": "a neat bun",
+           "onCamera": "She says hello, then laughs in the kitchen."}
+    _sheet_llm(monkeypatch, lambda name, n: bad, record)
+    state["house"] = [_card(1, genderPresentation="woman", physicalCharacteristics={"onCamera": "She cooks then paces the kitchen.", "wardrobe": ["x", "y"]})]
+    _run(U.upgrade_tick("u", now=0.0))
+    assert _run(U.upgrade_tick("u", now=100.0)) == "upgraded"
+    hid, look = stored[0]
+    assert "onCamera" not in look and look["clear"] == ["onCamera"] and look["wardrobe"][0] == "a plain navy cardigan"
+    assert len(record) == 2  # one strict retry
 
 
 def test_runs_as_a_background_task_off_the_request_path(monkeypatch):

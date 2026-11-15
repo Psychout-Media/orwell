@@ -58,7 +58,7 @@ class _Entry:
 
 
 _ENTRIES: dict[tuple[str, str], _Entry] = {}
-_INFLIGHT: dict[tuple[str, str], tuple[int, "asyncio.Future[Any]"]] = {}   # key -> (start tick, the shared engine call)
+_INFLIGHT: dict[tuple, tuple[int, "asyncio.Future[Any]"]] = {}   # key -> (start tick, the shared engine call)
 _INV: dict[str, int] = {}        # user -> tick of their latest invalidation
 _BEAT: dict[str, Any] = {}       # user -> the beatSeq their last stored read carried
 _TICK = itertools.count(1)       # ONE process-wide clock for read starts and invalidations; a tick is never handed out twice
@@ -155,15 +155,15 @@ def _note_beat_locked(u: str, value: Any, own_key: tuple[str, str]) -> None:
     _BEAT[u] = beat
 
 
-async def _lead(key: tuple[str, str], u: str, start: int, fetch: Callable[[], Awaitable[Any]]) -> Any:
+async def _lead(key: tuple[str, str], flight_key: tuple, u: str, start: int, fetch: Callable[[], Awaitable[Any]]) -> Any:
     """The ONE engine call behind a key. Runs as its own task so a cancelled caller (the request-timeout middleware, a client disconnect)
     never cancels the call out from under the followers sharing it."""
     try:
         value = await fetch()
     finally:
         with _LOCK:
-            if _INFLIGHT.get(key, (None, None))[1] is asyncio.current_task():
-                _INFLIGHT.pop(key, None)
+            if _INFLIGHT.get(flight_key, (None, None))[1] is asyncio.current_task():
+                _INFLIGHT.pop(flight_key, None)
     stored = copy.deepcopy(value)
     with _LOCK:
         if _fresh(u, start):  # no mutation landed for this user since the read began: safe to store
@@ -172,28 +172,30 @@ async def _lead(key: tuple[str, str], u: str, start: int, fetch: Callable[[], Aw
     return value
 
 
-async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]]) -> Any:
-    """Serve `name` for `user` from the cache, a shared in-flight call, or `fetch()`. Only CACHEABLE tools are ever stored."""
+async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]], timeout_class: Any = None) -> Any:
+    """ORW-396: in-flight calls are keyed by `timeout_class` too, so a read with a wider timeout never joins a tighter-timeout call (it would fail at the shorter bound).
+    Stored entries stay shared across classes (a fresh answer is a fresh answer). Serve `name` for `user` from the cache, a shared in-flight call, or `fetch()`. Only CACHEABLE tools are ever stored."""
     ttl = _ttl_s()
     if name not in CACHEABLE or ttl <= 0:
         return await fetch()
     u = _ukey(user)
     key = (u, name)
+    flight_key = (u, name, timeout_class)
     with _LOCK:
         ent = _ENTRIES.get(key)
         if ent is not None and _fresh(u, ent.start) and (time.monotonic() - ent.t) < ttl:
             hit, task = ent.value, None
         else:
             hit = None
-            flight = _INFLIGHT.get(key)
+            flight = _INFLIGHT.get(flight_key)
             if flight is not None and _fresh(u, flight[0]) and not flight[1].done():
                 task = flight[1]
             else:
                 _maybe_sweep_locked()
                 start = next(_TICK)
-                task = asyncio.ensure_future(_lead(key, u, start, fetch))
+                task = asyncio.ensure_future(_lead(key, flight_key, u, start, fetch))
                 task.add_done_callback(lambda t: t.cancelled() or t.exception())  # mark retrieved: a failure nobody awaited must not log noise
-                _INFLIGHT[key] = (start, task)
+                _INFLIGHT[flight_key] = (start, task)
     if task is None:
         return copy.deepcopy(hit)
     # shield: cancelling THIS caller (leader or follower) leaves the shared call running for everyone else
