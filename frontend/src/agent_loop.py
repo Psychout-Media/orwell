@@ -1900,6 +1900,52 @@ def _bedtime_direct_note(turn_in_output) -> str:
     return _bedtime_clock_note(turn_in_output) + _bedtime_recap_directive(turn_in_output)
 
 
+def _post_turn_in_asleep_block(turn_in_output) -> str:
+    """ORW-405 - the morning-state lines for the narrator after the FE ran the player's turnIn: the part of the day and who is still asleep (names only, from the turnIn result's public status). '' if unreadable."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        st = data.get("status") if isinstance(data, dict) and isinstance(data.get("status"), dict) else (data if isinstance(data, dict) else {})
+        tod = str(st.get("timeOfDay") or "").strip()
+        names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
+        lines = []
+        if tod:
+            lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
+        if names:
+            lines.append(f"- Still asleep ({len(names)}): {', '.join(names)}. They are NOT awake in this scene: do not write them up, talking or moving about; only the houseguests not listed are awake.")
+        return ("\n" + "\n".join(lines)) if lines else ""
+    except Exception:
+        return ""
+
+
+async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> bool:
+    """ORW-405 - after the FE ran the player's turnIn itself, the per-turn GAME CONTEXT in the system message was built BEFORE it and still says night. Re-fetch the engine's moment prompt (the post-turnIn board),
+    swap its volatile slice in for the stale one, and add the morning / asleep lines. Mutates the system message in `messages` in place; fail-open (False = left as it was). Flag ORWELL_POST_TURNIN_CONTEXT (0 = off)."""
+    if os.getenv("ORWELL_POST_TURNIN_CONTEXT", "1") == "0":
+        return False
+    try:
+        from routes import chat_helpers as _ch
+        from src import orwell_engine as _oe
+        key = owner or "default"
+        old_vol = _ch._LAST_FRAMED_MOMENT_VOLATILE.get(key)
+        if not old_vol:
+            return False
+        mp = await _oe.get_moment_prompt(user=owner)
+        txt = (mp or {}).get("systemPrompt") if isinstance(mp, dict) else None
+        i = txt.find("\n- Week: ") if isinstance(txt, str) else -1
+        if i < 0:
+            return False
+        new_vol = txt[i:].rstrip("\n") + _post_turn_in_asleep_block(turn_in_output)
+        for m in messages:
+            if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str) and old_vol in m["content"]:
+                m["content"] = m["content"].replace(old_vol, new_vol, 1)
+                _ch._LAST_FRAMED_MOMENT_VOLATILE[key] = txt[i:]
+                return True
+        return False
+    except Exception as _e:
+        logger.warning(f"[orwell] ORW-405 post-turnIn context rebuild skipped: {_e}")
+        return False
+
+
 def _bedtime_board_allows(status) -> bool:
     """ORW-310 — the board lets the player turn in: a started game, the clock running and in a deep-night
     band, and NO open player pending. (After a turnIn the clock reads morning, so 'already asleep' is the
@@ -8463,6 +8509,8 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out)})
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
+                                if await _refresh_context_after_turn_in(messages, _force_owner, _bt_out):
+                                    _note_belt(owner, "bedtime-context-rebuilt")
                                 logger.info(f"[orwell] ORW-310b ran the player's turnIn directly (rejecter model) round={round_num} user={_force_owner}")
                         except Exception as _bt_dir_err:
                             logger.warning(f"[orwell] ORW-310b direct turnIn skipped: {_bt_dir_err}")
@@ -8707,6 +8755,11 @@ async def _stream_agent_loop_impl(
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state)
+                                    try:  # ORW-408: count (never alter) narration that contradicts an engine hard fact; the rewrite needs a held-back reply (see src/predisplay_check.py)
+                                        from src.predisplay_check import check_and_count as _pd_check
+                                        await _pd_check(_guarded.text, owner)
+                                    except Exception:  # failsoft-ok: counter only
+                                        pass
                                     # Greptile P1 (#1746): mirror any DROP back into the raw round
                                     # buffer so a phantom sentence the player never saw also never
                                     # survives into the persisted/reload text or a post-turn belt.

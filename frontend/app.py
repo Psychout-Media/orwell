@@ -219,6 +219,9 @@ if AUTH_ENABLED:
         # Engine-reachability probe (doctor script, monitoring, the engine-status banner pre-login).
         # Vault-free and user-free: engine up/down + a connection-error string — no game state.
         "/api/orwell/health",
+        # ORW-396: the client failure beacon (POST) promises "always 204": it must work logged-out (login page / expired session).
+        # Already per-client rate-limited and field-capped in the handler; it logs three clipped strings and touches no game data.
+        "/api/orwell/fe-report",
         "/api/version",
         "/login",
         # The local-HTTPS CA root (feature 0074): a fresh device must fetch + trust this PUBLIC cert
@@ -1075,6 +1078,11 @@ app.router.lifespan_context = _lifespan
 async def _startup_event():
     global upload_cleanup_task
     logger.info("Application starting up...")
+    try:  # ORW-406: a fresh process has no turn in flight; clear a stale signal left by the last one
+        from src.turn_inflight import publish_inflight as _pub_inflight
+        _pub_inflight(0)
+    except Exception:
+        pass
     # Backfill the in-memory LLM I/O ring from its durable archive BEFORE any model call, so the
     # "LLM I/O (live)" status-page view isn't blank after a restart (the ring is per-process; the
     # file persists). Must run pre-traffic so seeded history keeps lower seq than live calls.

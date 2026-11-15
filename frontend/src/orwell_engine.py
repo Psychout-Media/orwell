@@ -383,7 +383,9 @@ async def _post_tool(path: str, name: str, args: dict | None, user: str | None, 
     get_moment_prompt path, ≤ _FRAMING_TIMEOUT) must fail in seconds — so a *timeout* there is NOT
     retried (it would double an already-bounded wait). Fast-failing blips (refused connection, gateway
     5xx, empty body) still retry cheaply; the pollers (wider timeouts) retry every transient kind."""
-    tight = timeout is not None and timeout <= _FRAMING_TIMEOUT
+    # ORW-396: the status poll (gameStatus at the 8 s poll timeout) also never retries a TIMEOUT - 3 x 8 s would outlast the request middleware.
+    # Other wider-timeout pollers keep retrying every transient kind.
+    tight = timeout is not None and (timeout <= _FRAMING_TIMEOUT or (name == "gameStatus" and timeout <= _POLL_TIMEOUT))
     last_exc: Exception | None = None
     for attempt in range(_RETRY_ATTEMPTS + 1):
         try:
@@ -1035,18 +1037,20 @@ async def game_status(user: str | None = None) -> dict:
     Power of Veto this week), empty before the chip draw runs, so a narrator names the real field
     instead of inventing who competes.
     """
-    return await _call("gameStatus", {}, user=user)
+    # ORW-396: a status read is a poller-class call - the POLL timeout (no retry on timeout), never the 30 s default x 3 tries that outlasted the 45 s middleware.
+    return await _call("gameStatus", {}, user=user, timeout=_POLL_TIMEOUT)
 
 
 async def get_game_state_polled(user: str | None = None, timeout: float | None = None) -> dict:
     """ORW-166: :func:`get_game_state` for the HUD POLLERS only - a <=400 ms-old, single-flight, per-user, mutation-invalidated copy
     (``engine_read_cache``). The chat framing path keeps calling :func:`get_game_state` directly, so the narrator reads state exactly as fresh as its own turn."""
-    return await engine_read_cache.read("getGameState", user, lambda: get_game_state(user=user, timeout=timeout))
+    return await engine_read_cache.read("getGameState", user, lambda: get_game_state(user=user, timeout=timeout),
+                                  timeout_class=timeout if timeout is not None else _FRAMING_TIMEOUT)
 
 
 async def game_status_polled(user: str | None = None) -> dict:
     """ORW-166: :func:`game_status` for the HUD pollers (same cache contract as :func:`get_game_state_polled`)."""
-    return await engine_read_cache.read("gameStatus", user, lambda: game_status(user=user))
+    return await engine_read_cache.read("gameStatus", user, lambda: game_status(user=user), timeout_class=_POLL_TIMEOUT)
 
 
 async def state_delta(since_beat_seq: int | None = None, user: str | None = None) -> dict:
