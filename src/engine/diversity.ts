@@ -529,16 +529,41 @@ export function showmancePlausible(a: ShowmanceIdentity, b: ShowmanceIdentity): 
 // re-export so the cap is a single source of truth in tests/imports
 export { MAX_PER_AGE_BAND };
 
+/** Given names that are also everyday words or months: only these need the context rule below. */
+const COMMON_WORD_NAMES: ReadonlySet<string> = new Set([
+  "may", "will", "grace", "hope", "summer", "faith", "mark", "art", "rose", "june", "april", "august", "dawn", "joy", "ivy", "pearl",
+  "amber", "frank", "lane", "chase", "cliff", "drew", "gene", "guy", "hunter", "miles", "autumn", "winter", "storm", "river", "sky",
+  "rain", "bill", "jack", "rich", "ray", "jay", "pat",
+]);
+/** A word before the name that makes a common-word reading ("in May", "the will", "her faith", "last summer") the likelier one. */
+const COMMON_USE_BEFORE: ReadonlySet<string> = new Set([
+  "in", "of", "on", "last", "next", "this", "every", "each", "since", "until", "during", "early", "late", "mid", "the", "a", "an",
+  "her", "his", "their", "my", "our", "your", "its", "free", "good", "bad", "ill", "some", "no", "any",
+]);
+
 /**
  * ORW-430: carry a given-name change into a public prose string. Swaps the old FIRST name (whole word, with its
  * possessive) for the new first name, only when the first name changed. Pure; a no-op otherwise.
+ *
+ * Name-shaped occurrences only (review of #2748). The match is case-sensitive, so a lower-case use ("free will",
+ * "the mark") is never touched. When the old given name is also an everyday word or a month (May, Will, Grace, Hope,
+ * Summer, Faith, Mark, Art, Rose ...), a capitalised occurrence right after a preposition ("in", "of", "on"), article,
+ * possessive or time word ("last", "next", "every") is left alone ("in May", "last Summer", "the Art"), EXCEPT a
+ * possessive ("May's"), which is always a person. Sentence-initial uses and uses after a verb, comma, "and",
+ * "named", "with" or "by" are renamed. Any other given name is renamed everywhere.
  */
 export function renameGivenNameInProse(text: string, priorName: string, nextName: string): string {
   const oldGiven = priorName.trim().split(/\s+/)[0] ?? "";
   const newGiven = nextName.trim().split(/\s+/)[0] ?? "";
   if (!oldGiven || !newGiven || oldGiven === newGiven) return text;
   const esc = oldGiven.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const common = COMMON_WORD_NAMES.has(oldGiven.toLowerCase());
   // ORW-437: a hyphen or an apostrophe-prefix keeps a longer name whole ("Nia-Lee", "D'Nia" are other people); the card
   // name's own possessive ("Nia's") is still swapped because only a following word character or hyphen blocks a match.
-  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), newGiven);
+  return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (m, offset: number) => {
+    if (!common) return newGiven;
+    if (/^['\u2019]s\b/i.test(text.slice(offset + m.length))) return newGiven; // a possessive is a person
+    const prev = /([A-Za-z]+)\s*$/.exec(text.slice(0, offset));
+    return prev && COMMON_USE_BEFORE.has(prev[1]!.toLowerCase()) ? m : newGiven;
+  });
 }

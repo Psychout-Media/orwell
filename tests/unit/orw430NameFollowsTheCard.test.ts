@@ -36,3 +36,24 @@ describe("ORW-430 the adapter's rename carries the prose", () => {
     expect(npc.character.identityConcept).toBe("Nameb hums through every silence.");
   });
 });
+
+describe("ORW-437 only name-shaped occurrences of a common-word given name are renamed (review of #2748)", () => {
+  const swap = (text: string, from: string) => renameGivenNameInProse(text, `${from} Surnamea`, "Nameb Surnamea");
+  it("leaves months, nouns and 'in/of/last' uses alone", () => {
+    expect(swap("She was born in May and left last May for good.", "May")).toBe("She was born in May and left last May for good.");
+    expect(swap("A strong free Will, the Will of the house, her Faith in the Summer.", "Will")).toBe("A strong free Will, the Will of the house, her Faith in the Summer.");
+    expect(swap("Every Summer she sails; last Summer, too.", "Summer")).toBe("Every Summer she sails; last Summer, too.");
+    expect(swap("A degree in Art and the Art of the deal.", "Art")).toBe("A degree in Art and the Art of the deal.");
+  });
+  it("still renames sentence-initial, after-verb, possessive and list uses", () => {
+    expect(swap("May grew up in Converse. Everyone calls May a force, and May's sister agrees; ask May.", "May"))
+      .toBe("Nameb grew up in Converse. Everyone calls Nameb a force, and Nameb's sister agrees; ask Nameb.");
+    expect(swap("Grace fixes boats. In Grace’s kitchen, named Grace by her aunt, Grace sings.", "Grace"))
+      .toBe("Nameb fixes boats. In Nameb’s kitchen, named Nameb by her aunt, Nameb sings.");
+    expect(swap("Mark, Hope and Rose met Mark by the pier.", "Mark")).toBe("Nameb, Hope and Rose met Nameb by the pier.");
+  });
+  it("renames every capitalised use of an ordinary given name, wherever it sits", () => {
+    expect(swap("In Namea's kitchen and last night Namea left, of Namea we say little.", "Namea"))
+      .toBe("In Nameb's kitchen and last night Nameb left, of Nameb we say little.");
+  });
+});
