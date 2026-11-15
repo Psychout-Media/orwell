@@ -108,8 +108,8 @@ def test_neat_photohair_passes():
 def test_wardrobe_taken_compares_the_last_two_words(piece):
     taken = {"mainPieces": ["a tan leather jacket", "a flannel shirt"], "spots": {}}
     assert ca.look_problems(_pc(wardrobe=[piece, "dark jeans"]), _npc(), taken) == ["wardrobe-taken"]
-    assert ca.look_problems(_pc(wardrobe=["a grey flannel shirt", "x"]), _npc(), taken) == ["wardrobe-taken"]
-    assert ca.look_problems(_pc(wardrobe=["a denim jacket", "x"]), _npc(), taken) == []
+    assert ca.look_problems(_pc(wardrobe=["a grey flannel shirt", "dark jeans"]), _npc(), taken) == ["wardrobe-taken"]
+    assert ca.look_problems(_pc(wardrobe=["a denim jacket", "dark jeans"]), _npc(), taken) == []
     assert ca.look_problems(_pc(wardrobe=["jeans", "a leather jacket"]), _npc(), taken) == []  # only the MAIN piece counts
     assert ca.look_problems(_pc(wardrobe=[piece, "dark jeans"]), _npc()) == []                  # no taken list, no check
 

@@ -204,7 +204,7 @@ def test_cast_repetition_is_reported_and_the_next_writer_is_told_what_is_taken(c
         n["physicalCharacteristics"].update(onCamera="eyes down, the one who watches", distinguishingMark="a pale knuckle scar")
         n["identityConcept"] = f"A restless {n['name']} who is ahead of the game."
         g.accept(n["id"], {}, n, cast)
-    assert g.codes == {"rep-oncamera-end": 2, "rep-ident-open": 2, "rep-mark": 2}
+    assert {k: v for k, v in g.codes.items() if not k.startswith("realism-")} == {"rep-oncamera-end": 2, "rep-ident-open": 2, "rep-mark": 2}  # ORW-480: the casting-director counts ride beside these
     t = g.taken_phrases("npc:9")
     user = ca.build_authoring_messages(cast[0], taken={"phrases": t})[1]["content"]
     assert "every mark is unique" in user and "pale knuckle scar" in user
