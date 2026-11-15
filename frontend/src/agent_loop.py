@@ -5829,7 +5829,7 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
 def _split_sentences_keep_dotted_times(text: str) -> list:
     """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
     zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
-    parts = re.split(r"(?<=[.!?\n])", text)
+    parts = re.split(r"(?<=[.!?\n])(?!(?<=\d\.)\d)", text)  # review of #2751: no cut inside a dotted numeric time ("9.15am", "4.30pm"): the digit after a digit-dot continues the number
     out: list = []
     for p in parts:
         if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):

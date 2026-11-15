@@ -103,13 +103,16 @@ def scrub_tool_output(text: Any) -> Any:
 # morning/afternoon/evening" ("three in the morning"), "it's eight-thirty" / "at seven fifteen", "twelve noon/midnight", "noon/midnight sharp|exactly|on the dot".
 # DELIBERATELY ALLOWED: plain "noon"/"midnight" (bands people say naturally), durations ("for two hours", "an hour later"), counts and days ("three of us", "7 days", "Day 4"), a bare "at eight" / "at nine".
 _HW = r"(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})"
+_TO_FORM_RE = re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:to|till|until)\s+" + _HW + r"\b(?!\s+(?:minutes?|hours?|days?|weeks?|people|of|more|times|seconds?|years?))", re.IGNORECASE)
+_VOTE_BEFORE_RE = re.compile(r"\b(?:vot(?:e|es|ed|ing)|tallies|tally|ballots?|margin|score[ds]?|unanimous(?:ly)?)\b", re.IGNORECASE)  # review of #2751: a tally word BEFORE "five to two" makes it a count, not a time
 _CLOCK_TIME_RES = (
     re.compile(r"(?<![\d:.])\d{1,2}:[0-5]\d(?![\d:])"),
     re.compile(r"(?<![\w.])\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![\w])", re.IGNORECASE),
     re.compile(r"\b" + _HW + r"\s+o[’']?\s?clock\b", re.IGNORECASE),
     re.compile(r"\b(?:(?:a\s+)?quarter|half)\s+(?:past|to|after|till|until)\s+" + _HW + r"\b", re.IGNORECASE),
     re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:past|after)\s+" + _HW + r"\b", re.IGNORECASE),
-    re.compile(r"\b(?:five|ten|twenty(?:[- ]five)?)(?:\s+minutes)?\s+(?:to|till|until)\s+" + _HW + r"\b(?!\s+(?:minutes?|hours?|days?|weeks?|people|of|more|times|seconds?|years?))", re.IGNORECASE),  # review of #2657: "ten to eight" too
+    # review of #2657: "ten to eight" too. The to-form is its own constant (`_TO_FORM_RE`): a vote tally reads the same ("by a vote of five to two"), see `sentence_states_zero_clock_time_raw`
+    _TO_FORM_RE,
     re.compile(r"(?<![\w:.])\d{1,2}\.[0-5]\d\s?(?:a\.?m\.?|p\.?m\.?)(?![\w])", re.IGNORECASE),  # review of #2657: "9.15am" / "4.30pm"
     re.compile(r"(?<!\bno )(?<!\bany )(?<!\bevery )(?<!\bsome )(?<!\beach )(?<!\bthe )(?<!\bfor )\b" + _HW + r"\s+in\s+the\s+(?:morning|afternoon|evening)\b", re.IGNORECASE),
     re.compile(r"\b(?:it(?:'s|’s|\s+is)|at|by|around|about)\s+" + _HW + r"[- ](?:fifteen|thirty|forty[- ]five|oh[- ]\w+)\b", re.IGNORECASE),
@@ -121,4 +124,9 @@ def sentence_states_zero_clock_time_raw(text: Any) -> bool:
     """Does `text` state a clock reading? Pure; independent of the setting (the caller gates on `zero_clocks_on`)."""
     if not isinstance(text, str) or not text:
         return False
-    return any(r.search(text) for r in _CLOCK_TIME_RES)
+    for r in _CLOCK_TIME_RES:
+        for m in r.finditer(text):
+            if r is _TO_FORM_RE and _VOTE_BEFORE_RE.search(text[:m.start()]):
+                continue  # "By a vote of five to two, ...": a tally, so the eviction sentence must not be dropped as a clock reading
+            return True
+    return False

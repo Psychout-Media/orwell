@@ -185,6 +185,7 @@ def test_orw437_shown_and_stored_text_agree_for_dotted_times_compounds_and_plain
 def test_orw437_dotted_and_to_form_times_are_dropped(setting, clocky):
     out = _guard(f"The kettle clicks off. {clocky} The player stays put.")
     assert clocky not in out and "The kettle clicks off." in out
+    assert out == "The kettle clicks off. The player stays put.", out  # review of #2751: the whole clock sentence goes and nothing else (no leftover fragment, the trailing sentence stays)
 
 
 @pytest.mark.parametrize("fine", ["It takes five to ten minutes.", "Ten to twelve of them nod.", "Version 2.5pm is not a time."])
@@ -205,3 +206,27 @@ def test_orw437_punctuation_after_a_dotted_time_goes_with_it_and_stored_text_agr
     out_shown, stored = _stream(chunk, before)
     assert out_shown == shown
     assert stored == before + shown
+
+
+@pytest.mark.parametrize("chunk,shown", [
+    ("The kettle ticked. The clock says 9.15am. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+    ("The kettle ticked. At 4.30pm the doors open. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+])
+def test_orw437_a_dotted_numeric_time_is_one_sentence_part_and_stored_text_agrees(setting, chunk, shown):
+    """review of #2751: the splitter cut "9.15am" at the dot, so dropping the clock part left "The clock says 9." on screen. The whole sentence goes, shown and stored (real `_guard_stream_chunk` + `_apply_mirror_ops`); three true sentences stay."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + shown
+
+
+def test_orw437_a_vote_tally_is_not_a_clock_reading(setting):
+    """review of #2751: "five to two" matched the to-form ("ten to eight"). A tally word before it makes it a count, so the sentence stays; a real time with the word after it is still dropped."""
+    from src.zero_clocks import sentence_states_zero_clock_time_raw as raw
+    for tally in ("By a vote of five to two, the group picked pizza.", "The panel scored it ten to eight, and nobody argued.", "On the ballot it went five to two."):
+        assert not raw(tally), tally
+    for clock in ("Ten to eight, by the light.", "It was ten to eight when the vote began.", "At five to two the hallway was empty."):
+        assert raw(clock), clock
+    from routes import chat_helpers as ch  # the predicate the pre-emission guard asks (the full guard also screens vote sentences against the live board, which is not under test here)
+    assert not ch.sentence_states_zero_clock_time("By a vote of five to two, the group picked pizza.")
+    assert ch.sentence_states_zero_clock_time("Ten to eight, by the light.")
