@@ -61,35 +61,45 @@ describe("ORW-430 a real contradiction is mended, not blanked", () => {
 
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 
-describe("ORW-430 enforceCastCoherence at season start", () => {
-  type Npc = { character: Record<string, unknown> & { biography?: string; deepProfileAuthored?: boolean } };
-  const setup = (biography: string) => {
-    const s = new GameSessionAdapter();
-    s.createCharacter({ playerName: "The Player", seed: 7 });
-    const npc = (s as unknown as { house: { npcs: Npc[] } }).house.npcs[0]!;
+describe("ORW-430 season start (createCharacter adopting a warm cast) keeps the correct biography", () => {
+  type Snap = ReturnType<GameSessionAdapter["snapshot"]>;
+  // Warm a cast, put a biography on one warmed houseguest through the durable snapshot (the production hand-off), then
+  // finalize a live season that ADOPTS the warm: the one production caller of the coherence gate (review of #2742).
+  const startWith = (biography: string) => {
+    const seed = 7;
+    const warm = new GameSessionAdapter();
+    warm.preSeedCast({ seed });
+    const snap: Snap = warm.snapshot();
+    const npc = snap.prewarm!.npcs[0]!;
     npc.character.genderPresentation = "woman";
     npc.character.age = 22;
     npc.character.biography = biography;
-    npc.character.deepProfileAuthored = true;
-    (s as unknown as { enforceCastCoherence: () => unknown }).enforceCastCoherence();
-    return npc;
+    (npc.character as { deepProfileAuthored?: boolean }).deepProfileAuthored = true;
+    const s = new GameSessionAdapter();
+    s.restore(JSON.parse(JSON.stringify(snap)));
+    const view = s.createCharacter({ playerName: "The Player", seed });
+    const live = s.snapshot().house!.npcs.find((n) => n.id === npc.id)!.character as { biography?: string; deepProfileAuthored?: boolean };
+    return { live, view, id: npc.id };
   };
   const good = "She waits tables at a Macon diner and knows every regular by their order.";
 
   it("keeps the correct sentences of a biography with one impossible span, and the card stays authored", () => {
-    const npc = setup(`${good} She spent thirty years behind the counter.`);
-    expect(npc.character.biography).toBe(good);
-    expect(npc.character.deepProfileAuthored).toBe(true);
+    const { live, view, id } = startWith(`${good} She spent thirty years behind the counter.`);
+    expect(live.biography).toBe(good);
+    expect(live.deepProfileAuthored).toBe(true);
+    expect(view.castCoherence?.houseguests.some((h) => h.id === id && h.fields.includes("biography"))).toBe(true);
   });
 
   it("a biography with nothing left is cleared and the card counts as NOT authored, so the backfill writes it again", () => {
-    const npc = setup("She spent thirty years behind the counter.");
-    expect(npc.character.biography).toBeUndefined();
-    expect(npc.character.deepProfileAuthored).toBe(false);
+    const { live } = startWith("She spent thirty years behind the counter.");
+    expect(live.biography).toBeUndefined();
+    expect(live.deepProfileAuthored).toBe(false);
   });
 
-  it("a correct biography is left byte-for-byte", () => {
+  it("a correct biography is left byte-for-byte and is not reported", () => {
     const bio = "Her father ran the Macon diner where he taught her to carry four plates. Her brother still cooks there and his pancakes are famous.";
-    expect(setup(bio).character.biography).toBe(bio);
+    const { live, view, id } = startWith(bio);
+    expect(live.biography).toBe(bio);
+    expect(view.castCoherence?.houseguests.some((h) => h.id === id)).not.toBe(true);
   });
 });
