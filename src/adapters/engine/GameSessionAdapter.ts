@@ -5753,11 +5753,12 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house`). `voters` only on
+   * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house` while in the game; ORW-447: an evicted player is out of `house` and `voters`). `voters` only on
    * eviction night: the living house minus the HOH and the nominees (distinct, so a nominee who is also the HOH is not taken off twice).
    */
   private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number; asleep?: number } {
-    const living = this.livingIds();
+    // ORW-447: `livingIds()` keeps the player even after their eviction; the house and voter counts count only people in the house, so an evicted player is not one of them.
+    const living = this.live && playerHasLeft(this.live, PLAYER) ? this.livingIds().filter((id) => id !== PLAYER) : this.livingIds();
     const out: { room: number; others: number; house: number; voters?: number; asleep?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
     const asleep = this.asleepNpcs(); // ORW-386: the narrator's "N asleep" is checked against this same number the HUD list carries (absent with the clock off)
     if (asleep) out.asleep = asleep.length;
