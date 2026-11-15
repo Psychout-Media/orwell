@@ -139,3 +139,28 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
 def test_a_raw_tool_tag_reply_is_machinery():
     # ORW-440: a whole reply of "</tool_use>" reached the player; the short tier must flag it.
     assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]
+
+
+def _t16(text, house=16, room=4):
+    got = _score([_turn("t1", text, counts={"room": room, "others": room - 1, "house": house})])
+    return got.get("T16-headcount-includes-the-player[t1]")
+
+
+def test_t16_a_house_headcount_that_leaves_the_player_out_fails():
+    # ORW-376 (Ryne): the narrator counted the OTHER houseguests' names and said "us" one short. The engine's counts.house includes the player.
+    bad = _t16("All 14 of us are crammed into this house for one more week.")
+    assert bad and not bad["ok"] and bad["severity"] == "fail", bad
+    left = _t16("There are fifteen houseguests left in the house now.")
+    assert left and not left["ok"] and left["severity"] == "fail", left
+    loose = _t16("Fifteen of us and only one key.")
+    assert loose and not loose["ok"] and loose["severity"] == "warn", "an unqualified 'N of us' may be the room: a warning, not a fail"
+
+
+def test_t16_the_right_house_count_and_a_room_count_are_not_flagged():
+    assert _t16("16 of us, and nobody trusts anybody yet.") is None
+    assert _t16("Sixteen houseguests remain in the house.") is None
+    assert _t16("The four of us at the table go quiet.") is None, "a room count is not a house total"
+    assert _t16("The four of us go quiet.", room=4) is None, "'N of us' that is the room's own count"
+    assert _t16("Twelve houseguests walked through those doors on night one.") is None, "a houseguest count with no house word may be the season's cast"
+    assert _t16("She has three wins and two of us owe her.", room=6) is None, "a small 'N of us' is a pair or a huddle"
+    assert _score([_turn("t1", "All 14 of us are here.")]).get("T16-headcount-includes-the-player[t1]") is None, "no engine counts recorded: nothing to compare"
