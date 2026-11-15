@@ -141,7 +141,8 @@ def pytest_collection_modifyitems(config, items):
     # The shard applies to THIS session only: drop the variable now so a pytest launched by a test (a child process) is not sharded again (ORW-193 regression:
     # a nested run over another file collected 0 tests, exit 5). Belt and braces with _ci_shard.nested_env() at the call sites.
     os.environ.pop("ORWELL_CI_SHARD", None)
-    keep_files = select_shard([str(i.fspath) for i in items], idx, total)
+    browser_files = frozenset(str(i.fspath) for i in items if i.get_closest_marker("browser"))
+    keep_files = select_shard([str(i.fspath) for i in items], idx, total, browser_files=browser_files)
     dropped = [i for i in items if str(i.fspath) not in keep_files]
     if dropped:
         config.hook.pytest_deselected(items=dropped)
