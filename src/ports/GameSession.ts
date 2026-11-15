@@ -2581,6 +2581,10 @@ export interface HangOutReq {
   expectedBeatSeq?: number;
   /** Cap on beats this call (1..8; default 8). */
   maxBeats?: number;
+  /** ORW-445: the player's own stated wait length, in-game minutes (hard-capped at 180). Stops at the EARLIER of this and the usual stop reasons. Absent => unchanged. */
+  maxMinutes?: number;
+  /** ORW-445: the player asked to wait out the rest of the current part of the day ("the rest of the morning"): the target is the next band edge. Combined with maxMinutes, the smaller wins. */
+  untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";

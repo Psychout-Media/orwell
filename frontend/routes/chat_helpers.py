@@ -602,9 +602,55 @@ _PRODUCTION_HOLD_CAP = 150
 # "Hang out until X" (PO 2026-11-04): the player's safe fast-forward. A wait/chill-until intent is recognised HERE (FE-driven, not a model lever); the ENGINE runs the
 # short timed beats and decides the stop reason, and this one-turn steer hands the narrator that stop to voice. Same stash/pop shape as `_SCHEDULE_STEER`.
 _HANGOUT_STEER: dict = {}
+# ORW-445: a wait length the player STATED in their own words ("a couple of hours", "an hour", "half an hour", "45 minutes"). Parsed FE-side into a hangOut target (minutes);
+# the engine stops at the EARLIER of it and its usual stop reasons and hard-caps at 3 h. No stated duration => no target => the hang-out runs exactly as before.
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40, "forty-five": 45, "sixty": 60}
+_NUM_PAT = r"(?:\d+|" + "|".join(sorted((re.escape(w) for w in _NUM_WORDS), key=len, reverse=True)) + r")"
+_STATED_DURATION_PAT = (
+    r"(?:an?\s+hour\s+and\s+a\s+half|half\s+an?\s+hour|(?:an?|another|one)\s+(?:more\s+)?hour|(?:an?\s+)?(?:couple|few)(?:\s+of)?(?:\s+more)?\s+hours|"
+    + _NUM_PAT + r"(?:\s+more)?\s+(?:hours?|hrs?|minutes?|mins?))"
+)
+_STATED_DURATION_RE = re.compile(_STATED_DURATION_PAT, re.IGNORECASE)
+_REST_OF_BAND_RE = re.compile(r"\bthe\s+rest\s+of\s+the\s+(?:morning|afternoon|evening)\b", re.IGNORECASE)
+HANGOUT_STATED_CAP_MINUTES = 180  # mirrors HANGOUT.maxStatedMinutes (src/engine/hangOut.ts); the engine enforces it too
+
+
+def parse_stated_wait(player_msg) -> tuple:
+    """ORW-445: (max_minutes | None, until_band_end) from the wait phrase in the player's message. The player's own words only; (None, False) when no duration is stated."""
+    m = _HANGOUT_INTENT_RE.search(str(player_msg or ""))
+    if not m:
+        return (None, False)
+    span = m.group(0).lower()
+    if _REST_OF_BAND_RE.search(span):
+        return (None, True)
+    d = _STATED_DURATION_RE.search(span)
+    if not d:
+        return (None, False)
+    t = d.group(0)
+    if re.match(r"an?\s+hour\s+and\s+a\s+half", t):
+        mins = 90
+    elif t.startswith("half"):
+        mins = 30
+    elif re.search(r"couple", t):
+        mins = 120
+    elif re.search(r"few", t):
+        mins = 180
+    else:
+        n = re.match(r"(\d+|[a-z-]+)", t)
+        if re.match(r"(?:an?|another|one)\s+(?:more\s+)?hour", t):
+            mins = 60
+        else:
+            word = n.group(1) if n else ""
+            val = int(word) if word.isdigit() else _NUM_WORDS.get(word, 0)
+            mins = val * (1 if re.search(r"min", t) else 60)
+    if mins <= 0:
+        return (None, False)
+    return (min(mins, HANGOUT_STATED_CAP_MINUTES), False)
+
+
 _HANGOUT_INTENT_RE = re.compile(
     r"\b(?:hang(?:ing)?\s+out|chill(?:ing)?|kick\s+back|lounge(?:\s+around)?|relax|socialize|mingle|pass\s+the\s+time|kill\s+(?:some\s+)?time|wait(?:\s+around)?|take\s+it\s+easy)\b"
-    r"[^.?!\n]{0,60}?\b(?:until|till|'til|til|for\s+(?:a\s+(?:while|bit|few\s+hours)|some\s+time|the\s+(?:afternoon|rest\s+of\s+the\s+(?:morning|day))))\b",
+    r"[^.?!\n]{0,60}?\b(?:until|till|'til|til|for\s+(?:a\s+(?:while|bit|few\s+hours)|some\s+time|the\s+(?:afternoon|rest\s+of\s+the\s+(?:morning|day))|" + _STATED_DURATION_PAT + r"|the\s+rest\s+of\s+the\s+(?:afternoon|evening)))\b",
     re.IGNORECASE)
 _HANGOUT_STOP_LINES = {
     "event-due": "production is calling everyone - the scheduled event is on now (the house gathers).",
@@ -655,7 +701,13 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     try:
         if not hang_out_intent(player_msg) or not game_state.get("started") or game_state.get("pending"):
             return False
-        res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user)
+        _mins, _band = parse_stated_wait(player_msg)  # ORW-445: the player's own stated wait length (None => unchanged)
+        _kw = {}
+        if _mins is not None:
+            _kw["max_minutes"] = _mins
+        if _band:
+            _kw["until_band_end"] = True
+        res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)
         _refresh_beat_seq(user, res)
         if not isinstance(res, dict) or not res.get("ok"):
             return False
@@ -7502,6 +7554,31 @@ def current_game_week(user) -> Optional[int]:
 def current_game_day(user) -> Optional[int]:
     """ORW-271: the engine's in-game day number stashed by `apply_game_framing` this turn (None pre-game / casting)."""
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
+
+
+async def refresh_framed_game_stamps(user) -> None:
+    """ORW-445: re-stamp the bubble's moment/week/day from a state read AFTER the turn's tools ran (persist time). The framing stash is read at the START of the turn, so a
+    tool that moves the clock (a nap 11am -> 2pm) left the header one band behind. Fail-soft: any hiccup / pre-game / non-started read keeps the start-of-turn stamp, never blocks the save."""
+    try:
+        from src import orwell_engine
+        gs = await orwell_engine.get_game_state(user=user)
+        if not isinstance(gs, dict) or not gs.get("started"):
+            return
+        key = user or "default"
+        moment = _format_game_moment(gs)
+        if moment:
+            _LAST_FRAMED_GAME_MOMENT[key] = moment
+        gw = gs.get("week")
+        if isinstance(gw, int) and not isinstance(gw, bool) and gw > 0:
+            _LAST_FRAMED_GAME_WEEK[key] = gw
+        gd = gs.get("dayNumber")
+        if isinstance(gd, int) and not isinstance(gd, bool) and gd > 0:
+            _LAST_FRAMED_GAME_DAY[key] = gd
+    except Exception as e:
+        try:
+            record_soft_failure("persist-stamp-refresh-failed", e, corrected="kept-start-of-turn-stamp", user=user)
+        except Exception:
+            pass
 
 
 def current_game_moment(user) -> Optional[str]:
