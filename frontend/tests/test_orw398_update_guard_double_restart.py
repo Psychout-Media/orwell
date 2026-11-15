@@ -180,3 +180,16 @@ def test_a_superseded_deferred_run_gives_up_after_the_bounded_wait(tmp_path):
         assert r.returncode == 75
     finally:
         holder.kill()
+
+
+@needs_bash
+def test_only_a_run_that_really_deferred_is_marked_as_waited(tmp_path):
+    # review of #2689: --force / an idle game / no signal must keep the full update, so they must not set the flag the under-lock "already done" check reads.
+    flag = LOOP.replace('echo "RC=$rc', 'echo "DEFERRED=$UPDATE_WAIT_DEFERRED RC=$rc')
+    def run(idle, force, on_sleep=":"):
+        ops = tmp_path / "ops"; ops.mkdir(exist_ok=True)
+        env = {"ORWELL_UPDATE_ROOT_CONF": str(tmp_path / "none.conf")}
+        return bash(flag.format(run=tmp_path / "run", on_sleep=on_sleep, idle=idle, ops=ops, force=force), env).stdout
+    assert "DEFERRED=0 RC=0" in run(idle=5000, force=0)
+    assert "DEFERRED=0 RC=0" in run(idle=30, force=1)
+    assert "DEFERRED=1 RC=0" in run(idle=30, force=0, on_sleep='[[ $T -ge 1000180 ]] && IDLE=2000 || true')

@@ -238,6 +238,7 @@ update_run_supersede() {
 update_wait_for_idle_game() {
   local db="$1" ops="$2" force="${3:-0}" envf="${4:-}"
   local my_seq thr max poll start now waited idle verdict since until_ errs=0 last_log=-1 msg
+  UPDATE_WAIT_DEFERRED=0
   thr="$(update_defer_setting ORWELL_UPDATE_IDLE_MINUTES "$ORWELL_UPDATE_IDLE_MINUTES_DEFAULT" 1 120 "$envf")"
   max="$(update_defer_setting ORWELL_UPDATE_MAX_DEFER_MINUTES "$ORWELL_UPDATE_MAX_DEFER_MINUTES_DEFAULT" 1 1440 "$envf" 240)"
   poll="$(update_defer_setting ORWELL_UPDATE_DEFER_POLL_SECONDS "$ORWELL_UPDATE_DEFER_POLL_SECONDS_DEFAULT" 5 300 "$envf")"
@@ -253,7 +254,7 @@ update_wait_for_idle_game() {
   while :; do
     now="$(_update_defer_now)"; waited=$((now - start))
     if [[ "$(update_run_seq_read)" != "$my_seq" ]]; then
-      update_defer_clear_status
+      # No status clear here: the run that went ahead cleared the shared deferred status BEFORE publishing its token, and a second clear could erase a newer waiter's status.
       trap - INT TERM HUP EXIT
       echo "==> a later update run already went ahead (forced, manual or idle) — this deferred run is superseded; exiting without restarting"
       return 10
@@ -289,6 +290,7 @@ update_wait_for_idle_game() {
         return 0 ;;
     esac
     msg="Update deferred: a game is live (last player message ${idle}s ago; waiting for ${thr} min idle). Runs by ${until_} at the latest, or force it from the admin page."
+    UPDATE_WAIT_DEFERRED=1   # this run really waited (the updater re-checks under the lock only for a run that did)
     update_defer_write_status "live game: last player message ${idle}s ago (< ${thr} min idle needed)" "$since" "$until_" "$((start + max * 60))"
     type update_defer_notify >/dev/null 2>&1 && update_defer_notify "$msg"
     if (( waited / 300 != last_log )); then   # first pass, then at most every 5 minutes

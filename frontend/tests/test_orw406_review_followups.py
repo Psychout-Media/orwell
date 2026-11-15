@@ -121,3 +121,16 @@ def test_deferred_run_is_superseded_only_if_the_restart_marker_equals_head():
     assert m and "exit 0" not in m.group(1)
     chk = re.search(r'^if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\nfi\n', UPDATE, re.S | re.M).group(0)
     assert "update_restarted_sha_read" in chk and "exit 0" in chk
+
+
+def test_updater_waits_on_the_directory_the_front_end_publishes_to():
+    # review of #2686: frontend/src/turn_inflight.py publishes to ORWELL_INFLIGHT_DIR (else its data dir); the updater must watch the same file.
+    assert "ORWELL_INFLIGHT_DIR" in UPDATE and "/turns-in-flight" in UPDATE
+    assert UPDATE.index("ORWELL_INFLIGHT_DIR") < UPDATE.index("update_wait_for_no_turn \"")
+
+
+def test_update_plus_reset_waits_for_warm_after_the_reset_owns_the_final_restart():
+    # review of #2720: the updater skips its warm wait under --no-restart, so the script that does the final restart must run it.
+    reset = (ROOT / "deploy" / "orwell-oobe-reset.sh").read_text()
+    assert "orwell-live-game.sh" in reset and "update_wait_for_warm" in reset
+    assert reset.index('do_svc start "$svc"') < reset.index("update_wait_for_warm \"http")
