@@ -1,7 +1,7 @@
 """ORW-406 slice 2 - the page rides through a release (a ~5-8 s front-end restart).
 
 (a) the engine-status banner shows only once a front-end failure has lasted > 10 s; (b) a turn sent while the socket is down is held and sent
-exactly once, in order, with its own clientMsgId, after the reconnect; (c) the HUD's "feed offline" dot waits the same 10 s.
+exactly once, in order, with its own clientMsgId, after the reconnect; (c) the HUD's "feed offline" dot waits the same 10 s (pinned by a source-text guard only: the status panel needs a full DOM, so (c) is NOT behaviourally covered here).
 Driven against the REAL modules in Node with stubs (the test_ws_close_rejects_pending_turn.py idiom). Roles only.
 """
 import os
@@ -19,6 +19,8 @@ function assert(c, m) { if (!c) { throw new Error("ASSERT: " + m); } }
 process.on("unhandledRejection", (e) => { console.error("UNHANDLED:", e); process.exit(1); });
 const tick = () => new Promise((r) => setImmediate(r));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// review of #2719: poll for the condition with a bounded wait instead of sleeping a fixed margin against the 500 ms reconnect backoff
+async function until(cond, what, ms) { const end = Date.now() + (ms || 8000); while (!cond()) { if (Date.now() > end) { throw new Error("ASSERT: timed out waiting for " + what); } await sleep(10); } }
 let lastSock = null; const socks = [];
 global.CustomEvent = function (t, i) { this.type = t; this.detail = i && i.detail; };
 global.WebSocket = function (url) {
@@ -64,10 +66,10 @@ async function handshake() {
   assert(first.sent.filter((f) => f.t === "turn").length === 0, "nothing is sent on the dead socket");
   assert(settled.length === 0, "queued sends neither resolve nor error during the gap");
   // the reconnect (backoff 500 ms)
-  await sleep(700);
+  await until(() => lastSock !== first, "the reconnect socket");
   assert(lastSock !== first, "a new socket was opened");
   await handshake();
-  await sleep(500);
+  await until(() => lastSock.sent.filter((f) => f.t === "turn").length >= 2, "both queued turns on the new socket");
   const turns = lastSock.sent.filter((f) => f.t === "turn");
   assert(turns.length === 2, "exactly two turn frames after the reconnect, got " + turns.length);
   assert(turns[0].d.clientMsgId === "c-1" && turns[1].d.clientMsgId === "c-2", "in order, same ids: " + JSON.stringify(turns.map((t) => t.d.clientMsgId)));
@@ -76,6 +78,27 @@ async function handshake() {
   assert(settled.join() === "c-1,c-2", "both resolve once: " + settled.join());
   // never double-sent on the old socket either
   assert(socks.reduce((n, s) => n + s.sent.filter((f) => f.t === "turn").length, 0) === 2, "exactly-once across all sockets");
+  console.log("OK"); process.exit(0);
+})();
+"""
+
+_WS_SENT = _WS.split("(async function main()")[0] + r"""
+(async function main() {
+  await tick(); await handshake();
+  const first = lastSock;
+  // a turn goes out on the live socket ...
+  const settled = [];
+  WS.sendTurnWhenLive({ message: "one", clientMsgId: "c-1" }, 20000).then(() => settled.push("ok"), (e) => settled.push("ERR"));
+  await tick();
+  assert(first.sent.filter((f) => f.t === "turn").length === 1, "the turn was transmitted on the live socket");
+  // ... and the socket drops before any ack
+  first.readyState = 3; first.onclose();
+  await until(() => lastSock !== first, "the reconnect socket");
+  await handshake();
+  await sleep(300);  // give a (wrong) resend every chance to fire
+  const resent = lastSock.sent.filter((f) => f.t === "turn");
+  assert(resent.length === 0, "a turn already transmitted must NOT be re-sent on the new socket (duplicate turn), got " + resent.length);
+  assert(socks.reduce((n, s) => n + s.sent.filter((f) => f.t === "turn").length, 0) === 1, "exactly one turn frame across all sockets");
   console.log("OK"); process.exit(0);
 })();
 """
@@ -130,12 +153,16 @@ def test_turns_sent_during_a_socket_gap_are_queued_and_sent_once_in_order():
     _run(_WS, "orwellWs.js")
 
 
+def test_a_turn_already_transmitted_on_a_dropped_socket_is_not_re_sent():
+    _run(_WS_SENT, "orwellWs.js")
+
+
 def test_engine_status_banner_waits_out_a_release_sized_gap():
     _run(_STATUS, "orwellEngineStatus.js")
 
 
 def test_status_panel_feed_dot_and_chat_wiring_are_gated():
-    """(c) + the chat seam: static guards (the panel needs a full DOM; the wiring is a few lines)."""
+    """(c) + the chat seam: SOURCE-TEXT guards only, not behaviour (the panel needs a full DOM; the wiring is a few lines). They fail if the gate or the seam is removed, not if it is never reached."""
     panel = open(os.path.join(_STATIC, "orwellStatusPanel.js")).read()
     assert "Date.now() - _failSince >= 10000" in panel
     chat = open(os.path.join(_STATIC, "chat.js")).read()
