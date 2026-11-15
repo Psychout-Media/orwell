@@ -56,18 +56,28 @@ def _subject(text: str, npc: dict, cast) -> str:
     return low if low in names else ""
 
 
-_YEARS = re.compile(r"\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty)[- ]years?\b", re.I)
-
-
+_ONES = "one two three four five six seven eight nine".split()
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
 _NUM_WORDS = {w: str(i) for i, w in enumerate(
     "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
-    "eighteen nineteen twenty".split())}
-_NUM_WORDS.update({"thirty": "30", "forty": "40"})
+    "eighteen nineteen".split())}
+_NUM_WORDS.update({k: str(v) for k, v in _TENS.items()})
+# a compound ("thirty-five") must be read whole, or "five years" would be taken out of the middle of it (review of #2748)
+_YEARS = re.compile(
+    r"\b(?:(" + "|".join(_TENS) + r")[- ](" + "|".join(_ONES) + r")|(\d{1,3}|" + "|".join(_NUM_WORDS) + r"))[- ]years?\b", re.I)
 
 
 def _year_counts(text: str) -> set:
-    """The year counts a text states, spelled-out and numeric forms normalised ("eight years" == "8 years")."""
-    return {_NUM_WORDS.get(m.group(1).lower(), m.group(1).lower()) for m in _YEARS.finditer(text)}
+    """The year counts a text states, spelled-out and numeric forms normalised ("eight years" == "8 years",
+    "thirty-five years" == "35 years")."""
+    out = set()
+    for m in _YEARS.finditer(text):
+        if m.group(1):
+            out.add(str(_TENS[m.group(1).lower()] + _ONES.index(m.group(2).lower()) + 1))
+        else:
+            tok = m.group(3).lower()
+            out.add(_NUM_WORDS.get(tok, str(int(tok)) if tok.isdigit() else tok))
+    return out
 
 
 def background_codes(card: dict) -> list:

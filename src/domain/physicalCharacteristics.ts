@@ -55,16 +55,21 @@ function cleanText(v: unknown): string {
   return typeof v === "string" ? v.replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ").replace(/\s+/g, " ").trim() : "";
 }
 
+/** Clip to at most `max` CODE POINTS, so a surrogate pair (an emoji) is never cut in half (review of #2716). */
+export function clipCodePoints(t: string, max: number): string {
+  return t.length <= max ? t : Array.from(t).slice(0, max).join("");
+}
+
 /** One clean line clamped to `max` characters, or undefined when nothing is left. */
 function cleanLine(v: unknown, max: number): string | undefined {
-  const t = cleanText(v).slice(0, max).trim();
+  const t = clipCodePoints(cleanText(v), max).trim();
   return t.length > 0 ? t : undefined;
 }
 
 /** Clean + clamp the authored `wardrobe` (control chars stripped, items clamped, 2 to 3 items: fewer than two is not a facet). */
 export function cleanWardrobe(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
-  const items = v.map((x) => cleanText(x).slice(0, WARDROBE_ITEM_MAX).trim()).filter((x) => x.length > 0)
+  const items = v.map((x) => clipCodePoints(cleanText(x), WARDROBE_ITEM_MAX).trim()).filter((x) => x.length > 0)
     .slice(0, WARDROBE_MAX_ITEMS);
   return items.length >= WARDROBE_MIN_ITEMS ? items : undefined;
 }

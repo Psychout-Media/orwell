@@ -229,13 +229,13 @@ def test_they_verbs_goes_becomes_go():
 
 
 def test_a_short_sleeve_shirt_is_not_a_tattoo():
-    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 30,
+    npc = {"id": "n", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30,
            "physicalCharacteristics": {"hair": "short", "style": "casual", "wardrobe": ["a short-sleeve shirt"]}}
     assert ca.story_missing_features("Dev has a tattoo on his arm.", {}, npc) == ["tattoo"]
 
 
 def test_a_feature_the_author_removed_is_not_kept_consistent_by_the_seeded_facet():
-    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 30,
+    npc = {"id": "n", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30,
            "physicalCharacteristics": {"distinguishingMark": "a tattoo on the forearm"}}
     profile = {"physicalCharacteristics": {"distinguishingMark": "none notable", "style": "casual"}}
     assert ca.story_missing_features("Dev has a tattoo on his arm.", profile, npc) == ["tattoo"]
@@ -243,13 +243,23 @@ def test_a_feature_the_author_removed_is_not_kept_consistent_by_the_seeded_facet
 
 
 def test_at_age_nineteen_is_a_past_event_and_another_persons_age_is_not_rewritten():
-    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 34}
+    npc = {"id": "n", "name": "Namea Surnamea", "genderPresentation": "man", "age": 34}
     assert ca.story_age_conflict("At age 19, he left home.", npc) is False
     assert ca.story_age_conflict("Dev is aged 40 and proud.", npc) is True
-    assert ca.story_age_conflict("His rival Marcus, 45, never lets it go.", npc) is False
+    assert ca.story_age_conflict("His rival Nameb, 45, never lets it go.", npc) is False
+
+
+def test_that_and_what_are_not_the_word_at_and_a_name_opening_a_sentence_is_another_persons_age():
+    npc = {"id": "n", "name": "Namea Surnamea", "genderPresentation": "man", "age": 34}
+    # "that 52-year-old" ends in the letters "at" but is not "at 52": a wrong age after it is still a conflict
+    assert ca.story_age_conflict("He is that 52-year-old who never sleeps.", npc) is True
+    assert ca.story_age_conflict("At 52, he left home.", npc) is False
+    # a sentence that opens with another person's name and age is theirs, not the houseguest's
+    assert ca.story_age_conflict("Nameb aged 45 never lets it go.", npc) is False
+    assert ca.story_age_conflict("Aged 45, he never lets it go.", npc) is True
 
 
 def test_a_sentence_opened_by_another_name_is_not_the_houseguests_pronoun_error():
-    npc = {"id": "n", "name": "Dev Rao", "genderPresentation": "man", "age": 34}
-    assert ca.pronoun_conflict_sentences("Dana trusted her gut.", npc) == []
+    npc = {"id": "n", "name": "Namea Surnamea", "genderPresentation": "man", "age": 34}
+    assert ca.pronoun_conflict_sentences("Namec trusted her gut.", npc) == []
     assert ca.pronoun_conflict_sentences("Fiercely loyal, she never quits.", npc) == [0]

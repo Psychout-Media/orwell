@@ -166,6 +166,49 @@ def test_failure_falls_back_to_gemini_once(monkeypatch, client):
     assert op._consume_gen_error() is None
 
 
+def _failing_fallback(monkeypatch, client, reason):
+    chat = _setup(monkeypatch, GPT, client)
+
+    async def fail_chat(c, url, model_id, prompt, headers, reference_png=None):
+        chat.append(model_id)
+        op._note_gen_error(reason)
+        return None
+    monkeypatch.setattr(op, "_generate_via_chat_completions", fail_chat)
+    op._consume_gen_error()
+    return chat
+
+
+def test_a_transient_fallback_failure_keeps_its_reason_so_the_reconciler_sees_an_outage(monkeypatch):
+    _failing_fallback(monkeypatch, _Client(_Resp(404, {}, text="x")), "http-429")
+    assert _run(op._generate_one("p", "u")) is None
+    assert op._consume_gen_error() == "http-429"
+
+
+def test_a_permanent_fallback_failure_still_leaves_the_gpt_reason(monkeypatch):
+    _failing_fallback(monkeypatch, _Client(_Resp(404, {}, text="x")), "http-400")
+    assert _run(op._generate_one("p", "u")) is None
+    assert op._consume_gen_error() == "gpt-image-failed"
+
+
+def test_an_open_billing_breaker_on_the_fallback_host_blocks_the_fallback_call(monkeypatch):
+    chat = _failing_fallback(monkeypatch, _Client(_Resp(404, {}, text="x")), "http-500")
+    op.reset_billing_breaker()
+    try:
+        op._trip_billing_breaker(op._provider_host(BASE + "/chat/completions"))
+        assert _run(op._gpt_image_fallback(None, "u", "p", None, ctx={})) is None
+        assert chat == []  # no paid call went to the host whose breaker is open
+    finally:
+        op.reset_billing_breaker()
+
+
+@pytest.mark.parametrize("bad", [2.5, "abc", True, "2.5"])
+def test_a_malformed_retry_counter_is_exhausted_not_zero(bad):
+    m = {"a": {"check": {"ok": False}, "source": "generated", "checkRetries": bad},
+         "b": {"check": {"ok": False}, "source": "generated"},
+         "c": {"check": {"ok": False}, "source": "generated", "checkRetries": 1}}
+    assert op.check_retry_ids(m) == ["b", "c"]
+
+
 # ── resolution without a model-list entry ───────────────────────────────────────────────
 
 def test_resolve_model_accepts_gpt_image_without_catalog(monkeypatch):

@@ -333,12 +333,18 @@ describe("ORW-380 — portrait photo brief v3", () => {
     expect(signatureMarkClause("a small nose stud, plus a scar on the chin")).toBe("A small nose stud.");
     expect(signatureMarkClause("freckles across the nose; a beauty mark by the lip")).toBe("Freckles across the nose, a beauty mark by the lip.");
     expect(signatureMarkClause("a gap between the front teeth")).toBe("A gap between the front teeth.");
+    expect(signatureMarkClause("a tattoo and chipped teeth")).toBe("A tattoo.");        // review of #2748: no article after "and"
+    expect(signatureMarkClause("a scar on the chin and glasses")).toBe("Glasses.");
     expect(signatureMarkClause("round glasses")).toBe("Round glasses.");
     expect(none).not.toContain("scar");
   });
 
   it("written hair is cut at the first of ', usually', ' usually', ' that ', ' by ', ' until '", () => {
     expect(trimWrittenHair("a braid that frays by afternoon")).toBe("a braid");
+    expect(legacyAppearance("a rugged haircut that grows out by spring, tall")).toBe("a haircut, tall");
+    expect(legacyAppearance("tidy hairstyle usually in a clip, lean")).toBe("tidy hairstyle, lean");
+    expect(stripWornWords("tall and rugged, lean")).toBe("tall, lean");
+    expect(stripWornWords("lean, rugged and tall")).toBe("lean and tall");
     expect(trimWrittenHair("dark waves, usually in a clip")).toBe("dark waves");
     expect(trimWrittenHair("grey crop usually damp")).toBe("grey crop");
     expect(trimWrittenHair("curls pinned up until noon, then loose")).toBe("curls pinned up");

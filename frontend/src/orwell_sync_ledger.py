@@ -485,6 +485,8 @@ def _wrote(name: str, result: Any) -> bool:
     if isinstance(result, dict):
         if result.get("accepted") is False:
             return False
+        if result.get("duplicate") is True or result.get("replay") is True or result.get("replayed") is True:
+            return False  # an idempotent mutator answering a repeat: the first call already bumped (review of #2743)
         if result.get("status") in ("noop", "illegal"):
             return False
         move = result.get("playerMove")
