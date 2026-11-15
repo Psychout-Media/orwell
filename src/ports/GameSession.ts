@@ -1842,6 +1842,14 @@ export interface WhereaboutsView {
   turnsHere: number;
   companions: Array<{ id: EntityId; name: string; turnsHere: number }>;
   /**
+   * ORW-376 - the engine-owned HEADCOUNTS, the player INCLUDED, so the narrator quotes a number instead of counting a list of the
+   * OTHER people's names (which is always one short of "us"). `room` = everyone in the player's room (the player + `others`);
+   * `others` = the houseguests with the player; `house` = everyone still in the game (the player included); `voters` = on
+   * eviction night, who casts a ballot (the house minus the HOH and the nominees). Counts of people the player can already
+   * see - Vault-free; a read-side projection only (no rng, no fold).
+   */
+  counts?: { room: number; others: number; house: number; voters?: number };
+  /**
    * TRACKED OCCUPANCY (0077 Phase 2 — the privacy payoff): who the player BELIEVES is behind a closed
    * door, learned by WATCHING them head in (never the live map). Each carries the believed room (+ zone),
    * how long ago the sighting was (`sinceTurns`), a Vault-safe `stale` flag (derived from AGE, never the
