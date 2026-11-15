@@ -457,7 +457,8 @@ async def _capture_season_outcome(user: Optional[str]) -> bool:
 
 def _roster_story_flags(hg: dict) -> dict:
     """`storyMissing` (blank biography or identity, or genesis's draft) and `lookMissing` (a photo-sheet look field absent; non-blocking, only the look backfill reads it)."""
-    full = {**hg, "physicalCharacteristics": hg.get("physicalCharacteristics")}
+    # An entry that carries any story key is a full card even without a look block (the key is then None); a thin stub with none stays unflagged.
+    full = {**hg, "physicalCharacteristics": hg.get("physicalCharacteristics")} if ("biography" in hg or "identityConcept" in hg) else hg
     story = orwell_cast_authoring.card_missing_story(full)
     out = {"storyMissing": True} if story else {}
     if not story and orwell_cast_authoring.card_missing_story(full, look=True):
