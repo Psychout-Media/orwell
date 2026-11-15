@@ -2,7 +2,7 @@
 #
 # orwell — one-liner Proxmox LXC installer.
 #
-# On the Proxmox host shell (the repo is PRIVATE — this is the ONE authenticated moment, ever).
+# On the Proxmox host shell (the repo is public, ORW-426, but the deploy path authenticates with a token — this is the ONE authenticated moment, ever).
 # Use a fine-grained PAT (Contents: Read-only on Psychout-Media/orwell) OR a classic PAT (repo scope)
 # — A4/ruling #17. Two non-obvious requirements, both baked into the command below:
 #   1. EXPORT the token. In `VAR=x bash -c "$(curl …$VAR…)"` the command substitution is expanded
