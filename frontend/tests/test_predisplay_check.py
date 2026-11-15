@@ -94,6 +94,7 @@ def test_flag_off_counts_nothing_and_reads_nothing(monkeypatch):
     reads = []
     monkeypatch.setattr(erc, "peek", lambda *a, **k: reads.append("peek") or STATE)
     monkeypatch.setattr(orwell_engine, "get_game_state_polled", lambda *a, **k: reads.append("polled"))
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda *a, **k: reads.append("direct"))  # review of #2751: the direct engine read is a second entry point
     monkeypatch.setenv("ORWELL_PREDISPLAY_CHECK", "0")
     assert asyncio.new_event_loop().run_until_complete(pc.check_and_count("It's 8:15.", "u")) == []
     assert reads == [], "review of #2682: a disabled checker must not touch the cache or the engine"
