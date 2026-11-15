@@ -80,6 +80,12 @@ async function main() {
         continue;
       }
       if (!adv.held) continue;
+      // A DAYTIME "not due yet" hold names the event and the minutes until it: let that time pass (going to bed instead skipped the event's day, so the game
+      // never left Week 1). Only a night hold (or a hold with nothing named) is a bed.
+      if (adv.held.next && adv.held.next !== "bedtime" && typeof adv.held.minutesUntil === "number" && adv.held.minutesUntil > 0) {
+        const st0 = await call<State>("getGameState");
+        if (st0.timeOfDay !== "night" && st0.timeOfDay !== "late-night") { for (let k = 0; k < Math.ceil(adv.held.minutesUntil / 5) + 1 && k < 300; k++) await note(); continue; }
+      }
       // A held advance: bed at this night's chosen hour (time passes by messages until then), from the night period on (the bedtime gate).
       const target = BED_HOURS[nights % BED_HOURS.length]!;
       for (let k = 0; k < 400; k++) {
