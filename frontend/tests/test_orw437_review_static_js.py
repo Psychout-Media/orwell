@@ -48,7 +48,7 @@ def test_status_surfaces_small_fixes():
     assert "PENDING_MAX_MS" in _src("orwellReadCoalesce.js")                                   # #2684
     assert "_monoNow" in _src("orwellEngineStatus.js") and "Date.now" not in _src("orwellEngineStatus.js").split("_gapQuiet")[1][:300]   # #2719
     panel = _src("orwellStatusPanel.js")
-    assert "navigator.onLine === false" in panel and "stBeat !== stateBeat" in panel and "document.hidden" in panel   # #2719, #2648
+    assert "!navigator.onLine" in panel and "stBeat !== stateBeat" in panel and "document.hidden" in panel   # #2719, #2648
     assert "All the houseguests have turned in" in _src("orwellNightStatus.js") and "if (state) _lastAwake = null" in _src("orwellNightStatus.js")   # #2678
     assert "else _chapterRows(id, [])" in _src("sessions.js")                                  # #2651
     assert "outerHTML" not in _src("orwellChapters.js").split("__guardTrigger")[1][:200]      # #2679
