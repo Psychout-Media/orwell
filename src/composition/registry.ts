@@ -839,6 +839,7 @@ export class GameSessionRegistry {
       // rev; a later resume rebuilds the sandbox (rev bumps) and re-exports fresh.
       this.snapshotCache.delete(next[0]);
       this.rev.delete(next[0]);
+      try { this.onUnload?.(next[0]); } catch { /* releasing a baseline never breaks the unload */ }
     }
   }
 
@@ -982,6 +983,12 @@ export class GameSessionRegistry {
   private onResume?: (user: string) => void;
   setOnResume(fn: (user: string) => void): void {
     this.onResume = fn;
+  }
+
+  /** Unload hook (review of #2747): an LRU-unloaded sandbox's non-degradation baseline (a full snapshot) is released with it. */
+  private onUnload?: (user: string) => void;
+  setOnUnload(fn: (user: string) => void): void {
+    this.onUnload = fn;
   }
 
   setOnBackgroundCommit(fn: (user: string) => void): void {

@@ -185,4 +185,15 @@ describe("diagnostic only: never persisted, nothing but seq/tool/at", () => {
     }
     expect(JSON.stringify(bumps)).not.toContain("secret-looking");
   });
+
+  it("a rolled-back bump that evicted the oldest ring entry gives that entry back (review of #2757)", async () => {
+    const live = (await game()).session;
+    const rebuilt = (await game()).session; // the restored copy: one bump behind
+    for (let i = 0; i < 64; i++) { live.bumpBeatSeq(); rebuilt.bumpBeatSeq(); }
+    const before = live.beatLog(0).bumps.map((x) => x.seq); // the full ring, as it was before the refused bump
+    expect(before.length).toBe(64);
+    live.bumpBeatSeq(); // the refused commit's bump: it evicts the oldest entry
+    rebuilt.adoptBeatLog(live.beatLogEntries());
+    expect(rebuilt.beatLog(0).bumps.map((x) => x.seq)).toEqual(before);
+  });
 });

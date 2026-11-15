@@ -344,7 +344,10 @@ export type ClockBand = "early morning" | "morning" | "midday" | "afternoon" | "
  * LATE NIGHT hands over to EARLY MORNING. Late night is midnight to 2am; early morning runs from 2am to the house's wake-up call (`WAKE_HOUR`, the morning band). The old "small hours" band is gone.
  */
 export const EARLY_MORNING_START_HOUR = 26;
-/** Is this engine clock hour (the `nightDepth` scale: 8 = 8am ... 24 = midnight ... 31.9 = 7:54am) in the early-morning band? Pure. */
+/**
+ * Is this engine clock hour in the early-morning band? Pure. Two scales are accepted: the 8-32 `nightDepth` scale (8 = 8am ... 24 = midnight ...
+ * 31.9 = 7:54am, still up past midnight) AND the 0-24 scale a player wakes on after an early bed (2 up to, not including, the house's wake-up call at 8).
+ */
 export function isEarlyMorning(hour: number | undefined): boolean {
   if (typeof hour !== "number") return false;
   // ORW-441: the clock reads on TWO scales. Still up past midnight it runs 24-32 (the late-night phase); after an early bed the night rolls and the player wakes at bed+8h on the 0-24 scale (4:55am = 4.9, phase "morning").

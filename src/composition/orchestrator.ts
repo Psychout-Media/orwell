@@ -234,6 +234,11 @@ export class Orchestrator {
     if (!this.baselines.has(user)) this.seedBaseline(user);
   }
 
+  /** Release only the non-degradation baseline (a full snapshot) of an LRU-unloaded sandbox; its next resume re-seeds it. */
+  dropBaseline(user: string): void {
+    this.baselines.delete(user);
+  }
+
   /** Per-user deterministic RNG stream (seed + user), created once and advanced across ticks. */
   private rngFor(user: string): SeededRandom {
     let r = this.rngs.get(user);
