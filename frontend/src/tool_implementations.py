@@ -4832,7 +4832,7 @@ async def do_create_character(
             motivation=args.get("motivation"),
             private_strategy=args.get("privateStrategy"),
             interview_notes=args.get("interviewNotes"),
-            gender_presentation=drop_unstated_gender(args, PLAYER_TURN_TEXT.get()).get("genderPresentation"),
+            gender_presentation=drop_unstated_gender(args, _gender_evidence_text()).get("genderPresentation"),
             seed=args.get("seed"),
             # The ONE sanctioned player-channel restart door (D1/R1): a confirmed play-again over a
             # finished/abandoned season delegates through the engine's registry.resetUser hinge.
@@ -5252,10 +5252,18 @@ def player_stated_gender(value, text: str) -> bool:
     return bool(pat and pat.search(text or ""))
 
 
+def _gender_evidence_text() -> str:
+    """The player's words for this turn PLUS their last few messages of the session (ORW-476): an answer
+    given a turn earlier than the call that records it still counts."""
+    return f"{PLAYER_TURN_TEXT.get()}\n{PLAYER_RECENT_TEXT.get()}"
+
+
 def drop_unstated_gender(args: dict, text: str) -> dict:
-    """ORW-476: remove a model-supplied `genderPresentation` the player never stated (never name-inferred)."""
+    """ORW-476: remove a model-supplied `genderPresentation` the player never stated (never name-inferred).
+    The explicit SKIP marker ("skipped") always passes: it asserts nothing about the player, it only
+    records that the question was asked and declined so it is not asked again."""
     gp = args.get("genderPresentation")
-    if gp is None or player_stated_gender(gp, text):
+    if gp is None or str(gp).strip().lower() == "skipped" or player_stated_gender(gp, text):
         return args
     logger.info("[orwell] ORW-476: dropped genderPresentation=%r - the player did not state it", gp)
     return {k: v for k, v in args.items() if k != "genderPresentation"}
@@ -5269,7 +5277,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
-        args = drop_unstated_gender(args, PLAYER_TURN_TEXT.get())
+        args = drop_unstated_gender(args, _gender_evidence_text())
         res = await orwell_engine.update_casting(args, user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
@@ -5854,6 +5862,8 @@ def _parse_secret_lever(raw) -> Optional[Dict]:
 import contextvars as _cv
 
 PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_text", default="")
+# ORW-476: the player's last few messages (current turn included) - the evidence window for a stated gender.
+PLAYER_RECENT_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_recent_text", default="")
 
 _DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"
 _DEAL_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,

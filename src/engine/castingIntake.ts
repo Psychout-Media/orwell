@@ -76,7 +76,7 @@ export const CASTING_COVERAGE: ReadonlyArray<{ field: keyof CastingIntake; ask: 
   // does NOT gate `ready` (name-only) or `finalizable` (the floor above), so a player who declines to
   // answer never blocks casting. Landing it LAST keeps it the lowest-priority ask, asked only once
   // everything else the floor/finalize gate actually needs is already on file.
-  { field: "genderPresentation", ask: "their pronouns / how they present — man, woman, or nonbinary (optional; never re-ask if they'd rather skip it)" },
+  { field: "genderPresentation", ask: "ASK them, in one casual line, for their pronouns or gender (man, woman, nonbinary — or they can skip). Never guess it from their name. Record their answer; if they skip or would rather not say, record genderPresentation: \"skipped\" so it is not asked again (a skip leaves them neutral, and never blocks casting)" },
 ];
 
 /**
@@ -148,6 +148,10 @@ export function aliasCastingKeys(req: object): UpdateCastingReq {
   return out as UpdateCastingReq;
 }
 
+/** ORW-476: the stored marker for "asked, and the player declined" — satisfies the ask, leaves the gender unset. */
+export const GENDER_SKIPPED = "skipped";
+const GENDER_SKIP_RE = /^\s*(?:skip(?:ped)?|decline[d]?|pass|none|n\/a|prefer not(?: to say)?|rather not(?: say)?|no answer|unstated|not stated|unspecified)\b/i;
+
 /**
  * Merge one update into the intake: scalars set/overwrite when provided; notes APPEND (never
  * replace). Every accepted value is hard-capped (C8): scalars to `scalarMax`, notes to `noteMax`
@@ -162,7 +166,9 @@ export function mergeCastingUpdate(intake: CastingIntake, rawReq: UpdateCastingR
   for (const { field } of CASTING_COVERAGE) {
     if (field === "interviewNotes") continue;
     const v = req[field];
-    if (typeof v === "string" && v.trim().length > 0) next[field] = v.trim().slice(0, CASTING_LIMITS.scalarMax);
+    if (typeof v === "string" && v.trim().length > 0) {
+      next[field] = field === "genderPresentation" && GENDER_SKIP_RE.test(v) ? GENDER_SKIPPED : v.trim().slice(0, CASTING_LIMITS.scalarMax);
+    }
   }
   for (const raw of req.interviewNotes ?? []) {
     const note = String(raw).trim().slice(0, CASTING_LIMITS.noteMax);

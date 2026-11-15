@@ -713,6 +713,22 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
     return ""
 
 
+def _recent_user_text(messages: List[Dict], max_user: int = 4) -> str:
+    """ORW-476: the last few user messages as plain text (the evidence window for a stated gender)."""
+    out = []
+    for msg in reversed(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+        if isinstance(content, str) and content.strip():
+            out.append(content[:1500])
+        if len(out) >= max_user:
+            break
+    return "\n".join(out)
+
+
 def _recent_context_for_retrieval(messages: List[Dict], max_user: int = 3, max_chars: int = 600) -> str:
     """Build the tool-retrieval query from the last few USER turns, not just
     the latest one.
@@ -7872,6 +7888,8 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         from src.tool_implementations import PLAYER_TURN_TEXT as _ptt
         _msgs = kwargs.get("messages") if "messages" in kwargs else (args[2] if len(args) > 2 else None)
         _ptt.set(_extract_last_user_message(_msgs or []) or "")
+        from src.tool_implementations import PLAYER_RECENT_TEXT as _prt
+        _prt.set(_recent_user_text(_msgs or []))
     except Exception:
         _ptt = None
     _mut0 = None

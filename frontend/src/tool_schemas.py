@@ -1865,7 +1865,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     },
                     "genderPresentation": {
                         "type": "string",
-                        "enum": ["man", "woman", "nonbinary"],
+                        "enum": ["man", "woman", "nonbinary", "skipped"],
                         "description": (
                             "OPTIONAL — the player's own pronouns/presentation, if they mentioned it "
                             "(never required, never inferred from their name)."
@@ -1939,9 +1939,9 @@ FUNCTION_TOOL_SCHEMAS = [
                     },
                     "genderPresentation": {
                         "type": "string",
-                        "enum": ["man", "woman", "nonbinary"],
+                        "enum": ["man", "woman", "nonbinary", "skipped"],
                         "description": (
-                            "OPTIONAL — if they mention their pronouns or how they present, map it to the "
+                            "Ask once; 'skipped' if they decline. OPTIONAL — if they mention their pronouns or how they present, map it to the "
                             "closest of these three (never required, never re-asked if they'd rather skip it). "
                             "Never inferred from their name — only record this from what they actually said."
                         ),
