@@ -6030,6 +6030,8 @@ async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_
         try:
             if await chat_helpers.screen_streamed_scene_break(owner, clean):
                 scene_broken = True
+            elif (_rw := chat_helpers.take_scene_rewrite(owner)):
+                clean = _rw  # ORW-358: only a wrong tally sentence was dropped; the rest of the beat streams on
         except Exception:
             pass
     if scene_broken:

@@ -577,6 +577,10 @@
         const r = await fetch("/api/orwell/ceremony-continue", { method: "POST", credentials: "same-origin" });
         if (!r.ok) throw Object.assign(new Error("HTTP " + r.status), { httpStatus: r.status });
         const res = await r.json().catch(() => ({}));
+        // ORW-293: this step is DONE - record it like a submitted decision, so a status read that started before the press (rearm / backstop) and lands after it can
+        // never mount it again (the stranded "2 of 2 - Continue" flake: the engine was already past it). The NEXT step has its own signature and arms normally.
+        _userDismissed = true;
+        _dismissedSig = _sig(pending);
         removeCard();
         if (window.orwellGameChanged) window.orwellGameChanged("ceremony-step", res && res.beatSeq);
         // The next step (or the next binding decision) arrives on the same view: mount it now.
@@ -624,6 +628,11 @@
   }
 
   function render(pending) {
+    // ORW-359 (found when a live run's eviction vote card never enabled Confirm): the same pending is dispatched again by several seams (the chat tool-output seam, the surface-the-pending belt, a socket state frame,
+    // the backstop poll). Each one rebuilt the card from scratch, so a player who had already picked a name (or a tone, or a nominee) saw their pick cleared and Confirm go grey under their cursor. A card already
+    // mounted for the SAME decision (same kind, options and prompt) is left exactly as it is; a different decision (or none) still replaces it.
+    const mounted = document.getElementById(CARD_ID);
+    if (mounted && pending && pending.kind && pending.kind !== "ceremony-step" && !mounted.classList.contains("odec-done") && mounted.dataset.sig === _sig(pending)) return;
     removeCard();
     if (!pending || !pending.kind) return;
     if (pending.kind === "ceremony-step") { renderCeremonyStep(pending); return; }
@@ -674,6 +683,7 @@
     // (flavor over an already-decided result) is inspectable/testable — not only distinguishable
     // via the confirm label. `pending.binding === false` ⇒ "false"; everything else binds ⇒ "true".
     card.dataset.binding = String(pending.binding !== false);
+    card.dataset.sig = _sig(pending); // ORW-359: which decision this card is for (a repeat of the same one must not rebuild it)
 
     const head = document.createElement("div");
     head.className = "odec-head";
@@ -1260,8 +1270,11 @@
   // (or the status re-poll) re-arms a genuinely NEW decision but NEVER re-shoves the SAME card
   // the player just waved away to decide in conversation.
   let _dismissedSig = null;
+  // ORW-293: a ceremony WATCH step has no options and often no prompt, so every step used to share ONE signature; it now carries its ceremony kind and step
+  // number, so "this step is done" never hides the NEXT step.
   const _sig = (p) => (p && p.kind)
     ? p.kind + "|" + ((p.options || []).map((o) => o && o.id).join(",")) + "|" + (p.prompt || "")
+      + (p.ceremony ? "|" + String(p.ceremony.kind || "") + ":" + String(p.ceremony.step || "") : "")
     : "";
   // ORW-298: a mounted ceremony WATCH card must follow the engine's pending. A typed progress message
   // ("next") advances the step with no button press, so the card's own Continue handler never runs and the

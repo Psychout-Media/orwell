@@ -704,7 +704,10 @@ def coherence_conflicts(profile: dict, npc: dict) -> list[str]:
 
     age = (npc or {}).get("age")
     if isinstance(age, (int, float)) and not isinstance(age, bool) and int(age) < _YOUNG_AGE_CEILING:
-        if bio and (_ELDER_LIFE_STAGE.search(bio) or _LONG_CAREER.search(bio)):
+        # ORW-356: a houseguest whose PINNED vocation is itself "retired ..." (the engine's own fact, e.g. a 24-year-old retired firefighter-paramedic after an injury) must be
+        # allowed to say so in the biography; the elder life-stage rule is for a retirement the engine did NOT pin. The multi-decade career span still applies.
+        _pinned_retired = bool(_ELDER_LIFE_STAGE.search(str((npc or {}).get("vocation") or "")))
+        if bio and (((not _pinned_retired) and _ELDER_LIFE_STAGE.search(bio)) or _LONG_CAREER.search(bio)):
             drop.add("biography")
 
     # E1 (#1733): the authored voice fingerprint — script garble, a degenerate dial ("none"/"n/a"), or
