@@ -283,7 +283,7 @@ def test_sheets_are_written_one_at_a_time_then_the_shoots_run_in_parallel(season
     assert record[2]["input"]["taken"]["spots"] == {"kitchen": 2}
 
 
-def test_shoot_uses_the_current_file_as_the_reference_with_the_prefix_and_records_version_3(season, monkeypatch):
+def test_shoot_uses_the_current_file_as_the_reference_with_the_prefix_and_records_version_4(season, monkeypatch):
     state, d = season
     log, stored = [], []
     shoot = _gen(monkeypatch, log)
@@ -296,8 +296,8 @@ def test_shoot_uses_the_current_file_as_the_reference_with_the_prefix_and_record
     assert call["prompt"] == ("The same person as in the reference photo: keep their face, skin tone and age. "
                               "Everything else (hair styling, clothes, pose, setting and light) follows this brief, "
                               "with clear even skin and no marks other than those named. v2 prompt npc:1")
-    assert P.PORTRAIT_PROMPT_VERSION == 3
-    assert P.load_manifest("u")["npc_1"]["promptVersion"] == 3
+    assert P.PORTRAIT_PROMPT_VERSION == 4
+    assert P.load_manifest("u")["npc_1"]["promptVersion"] == 4
 
 
 def test_no_current_file_shoots_without_a_reference(season, monkeypatch):

@@ -467,6 +467,40 @@ def _consume_gen_detail() -> Optional[str]:
     return d
 
 
+# ORW-480: the dollar cost the provider returned for the image(s) and checks of the current task, summed, consumed by the
+# attempt logger (prod's portrait log recorded no cost). Per asyncio task like the reasons above; None when no call returned one.
+_TASK_COST: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+_LAST_COST: Optional[float] = None
+
+
+def _note_gen_cost(cost) -> None:
+    """Add a provider-returned dollar cost (a number; anything else is ignored) to the current task's running total."""
+    global _LAST_COST
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost != cost or cost < 0:
+        return
+    t = _gen_task()
+    if t is not None:
+        _TASK_COST[t] = _TASK_COST.get(t, 0.0) + float(cost)
+    else:
+        _LAST_COST = (_LAST_COST or 0.0) + float(cost)
+
+
+def _consume_gen_cost() -> Optional[float]:
+    """The summed cost noted since the last consume (None when the provider returned none), then reset."""
+    global _LAST_COST
+    t = _gen_task()
+    if t is not None and t in _TASK_COST:
+        return round(_TASK_COST.pop(t), 6)
+    c, _LAST_COST = _LAST_COST, None
+    return None if c is None else round(c, 6)
+
+
+def _usage_cost(data) -> Optional[float]:
+    u = data.get("usage") if isinstance(data, dict) else None
+    c = u.get("cost") if isinstance(u, dict) else None
+    return float(c) if isinstance(c, (int, float)) and not isinstance(c, bool) else None
+
+
 # ORW-389: the houseguest id the current task is shooting, so provider log lines can name them.
 _CURRENT_HID: contextvars.ContextVar = contextvars.ContextVar("orwell_portrait_hid", default=None)
 
@@ -620,7 +654,7 @@ def _provider_error_reason(resp) -> Optional[str]:
 
 def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
                 duration_ms: int = 0, detail: Optional[str] = None,
-                check: Optional[dict] = None) -> None:
+                check: Optional[dict] = None, cost: Optional[float] = None) -> None:
     """Append one generation attempt/outcome to the capped JSONL ring. Best-effort:
     a logging failure must never break the generation pipeline itself.
 
@@ -636,6 +670,8 @@ def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
     }
     if (not ok) and detail:
         entry["detail"] = str(detail)[:200]
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+        entry["costUsd"] = round(float(cost), 6)  # ORW-480: only when the provider returned one (images, the check and any re-shoot)
     if isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
         entry["check"] = {k: v for k, v in check.items() if k in ("ok", "problems", "reshot", "first")}
     try:
@@ -1256,6 +1292,7 @@ async def _generate_via_chat_completions(client, chat_url: str, model_id: str,
             data = resp.json()
         except Exception:
             return None, "bad-json", None, resp.status_code
+        _note_gen_cost(_usage_cost(data))
         img_url = _extract_chat_image_url(data)
         if not img_url:
             return None, "no-image-in-response", _chat_text_hint(data), resp.status_code
@@ -1330,6 +1367,7 @@ async def _generate_via_openrouter_images(client, base_url: str, model_id: str, 
             return None
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         cost = usage.get("cost")
+        _note_gen_cost(cost)
         try:
             from src import orwell_token_ledger
             orwell_token_ledger.record_turn(user, call_class="portrait",
@@ -1539,6 +1577,7 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
                 _note_gen_error(f"http-{resp.status_code}", _provider_error_reason(resp))
                 return None
             data = resp.json()
+            _note_gen_cost(_usage_cost(data))
             images = data.get("data", [])
             if not images:
                 _note_gen_error("empty-response")
@@ -1584,7 +1623,7 @@ def _prompt_fingerprint(prompt: Optional[str]) -> Optional[str]:
 # Only a portrait actually shot with the new prompt records PORTRAIT_PROMPT_VERSION (new seasons,
 # missing faces, a forced single re-shoot). A background upgrader (ORW-369) walks `stale_portrait_ids`
 # and re-shoots one houseguest at a time through `generate_and_store(..., force_ids=[id])`.
-PORTRAIT_PROMPT_VERSION = 3
+PORTRAIT_PROMPT_VERSION = 4  # ORW-480: v4 = the shot card and face card wording (v3 = ORW-380)
 
 # ORW-380: prepended to the prompt of a forced upgrade re-shoot (the ORW-369 upgrader) that carries the current
 # portrait as the reference image: it keeps the person and lets the new brief change everything else.
@@ -1712,7 +1751,8 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
 
 def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: str,
                     source: str = "generated", fingerprint: Optional[str] = None,
-                    ref_clean: Optional[bool] = None, check: Optional[dict] = None) -> str:
+                    ref_clean: Optional[bool] = None, check: Optional[dict] = None,
+                    cast_look_reshot: bool = False) -> str:
     """Persist one portrait + update the manifest; return its stored filename.
 
     `source` (G26) records HOW the portrait was made: 'generated' (text-to-image, the default),
@@ -1758,6 +1798,8 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
         entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
     if source == "reference" and ref_clean:
         entry["refClean"] = True
+    if cast_look_reshot:  # ORW-480: this photo was re-shot once by the cast-level look; it is never sent back again
+        entry["castLookReshot"] = True
     if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
         entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
                           "reshot": bool(check.get("reshot"))}
@@ -2395,7 +2437,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                     reason = f"{reason}: {_detail}"
                 if is_rate_limited(reason):
                     run["rate_limited"] = True  # ORW-378: the rest of this run goes one at a time
-                log_attempt(str(hid), False, reason, duration_ms, detail=_detail)
+                log_attempt(str(hid), False, reason, duration_ms, detail=_detail, cost=_consume_gen_cost())
                 # Stamp the failure class so the G20 reconciler can spare a TRANSIENT failure
                 # (402 credits, 429, 5xx, transport) from the permanent retry budget.
                 _record_gen_result(user, str(hid), False, reason)
@@ -2417,7 +2459,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
                                     ref_clean=ref_clean, check=check_meta)
-                log_attempt(str(hid), True, None, duration_ms, check=check_meta)
+                log_attempt(str(hid), True, None, duration_ms, check=check_meta, cost=_consume_gen_cost())
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
                 if not silent:
@@ -2461,6 +2503,17 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                     reshoot_ids.add(_safe_id(str(hid)))
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the L17 distinctness pass is a refinement; the as-generated cast portraits stand)
             logger.info("[portraits] L17 distinctness pass failed: %s", e)
+
+    # ORW-480: the cast-level look: ONE vision call over a contact sheet of the whole cast (look-alike pairs, a prop / pose / room /
+    # light shown too often); a flagged photo is re-shot once with the reason. Fail open, bounded, logged with its cost.
+    if generated and not silent:
+        try:
+            look = await cast_look_pass(prompts, user)
+            for hid in look.get("reshotIds", []):
+                newly_shown.append((str(hid), f"/api/orwell/portrait/{_safe_id(hid)}"))
+                reshoot_ids.add(_safe_id(str(hid)))
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the cast-level look is a refinement; the shot cast stands)
+            logger.info("[portraits] cast look failed: %s", e)
 
     if not silent:
         _progress_finish(user)  # L15: the run is done — the panel drops to the idle cadence
@@ -2617,6 +2670,75 @@ async def dedupe_lookalikes(prompts: list, user: Optional[str],
             logger.info("[portraits] L17 regen persist failed for %s: %s", hid, e)
             _note_generation_failure(user, str(hid), f"lookalike-regen-persist-failed: {e}")
     return {"regenerated": len(regenerated_ids), "regeneratedIds": regenerated_ids, "offenders": offenders}
+
+
+async def cast_look_pass(prompts: list, user: Optional[str]) -> dict:
+    """ORW-480: look at the whole cast at once (one vision call over a contact sheet) and re-shoot, once each and at most
+    `CAST_RESHOOT_MAX` photos, the ones it names (the later of two look-alikes; a prop, pose, room or light shown too often).
+    A photo already re-shot (by its own check or by an earlier cast look) is never sent back; the player's own photo is never
+    in the sheet. Each image's provider cost is logged when the provider returns one. Never raises; a skipped look changes nothing.
+    Returns ``{checked, flagged, reshotIds, cost?}``."""
+    out: dict = {"checked": 0, "flagged": {}, "reshotIds": []}
+    try:
+        from src import orwell_portrait_check as C
+        manifest = load_manifest(user)
+        ids, pngs, by_id = [], [], {}
+        for entry in prompts or []:
+            if not isinstance(entry, dict):
+                continue
+            hid = entry.get("houseguestId") or entry.get("id")
+            if not hid or not entry.get("prompt") or _safe_id(str(hid)) == PLAYER_PORTRAIT_ID:
+                continue
+            stored = manifest.get(_safe_id(str(hid)))
+            f = portrait_file(user, str(hid))
+            if f is None or (isinstance(stored, dict) and stored.get("source") == "upload"):
+                continue
+            ids.append(str(hid)); pngs.append(f.read_bytes()); by_id[str(hid)] = (entry, stored)
+        out["checked"] = len(ids)
+        result = await C.check_cast(pngs, user)
+        if result is None:
+            return out
+        if result.get("cost") is not None:
+            log_attempt("cast-look", True, None, 0, cost=result["cost"])
+        spared = {h for h, (_e, m) in by_id.items() if isinstance(m, dict) and (
+            m.get("castLookReshot") or (isinstance(m.get("check"), dict) and m["check"].get("reshot")))}
+        sends = C.cast_sends_back(result, ids, spared)
+        out["flagged"] = dict(sends)
+        logger.info("[portraits] cast look for %s: pairs=%s repeats=%s sent back=%s", _safe_user(user), result.get("pairs"),
+                    [(r["kind"], r["numbers"]) for r in result.get("repeats", [])], list(sends))
+        for hid, reason in sends.items():
+            entry, stored = by_id[hid]
+            prompt = str(entry.get("prompt") or "")
+            fix = prompt + " Fix in this version: " + reason + "."
+            _consume_gen_error(); _consume_gen_detail(); _consume_gen_cost()
+            t0 = time.monotonic()
+            token = _CURRENT_HID.set(hid)
+            try:
+                png2 = await _generate_one(fix, user)  # no reference image: the reference would carry the face being replaced
+                if not png2:
+                    log_attempt(hid, False, (_consume_gen_error() or "cast-look-reshoot-failed"), int((time.monotonic() - t0) * 1000),
+                                detail=_consume_gen_detail(), cost=_consume_gen_cost())
+                    continue
+                facts = C.facts_from_prompt(prompt)
+                second = await C.check_portrait(png2, facts, user)
+                old = ((stored or {}).get("check") or {}) if isinstance(stored, dict) else {}
+                if second is not None and not second["ok"] and len(second["problems"]) > len(old.get("problems") or []) and old.get("ok") is not False:
+                    log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check={"ok": False, "problems": second["problems"], "reshot": True},
+                                cost=_consume_gen_cost())  # the new image is worse than the old one: the old one stays, the spend is logged
+                    continue
+                meta = {"ok": True if second is None else second["ok"], "problems": [] if second is None else second["problems"], "reshot": True}
+                _write_portrait(user, hid, png2, str((stored or {}).get("name") or entry.get("name") or ""), source="generated",
+                                fingerprint=_prompt_fingerprint(prompt), check=meta, cast_look_reshot=True)
+                log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check=meta, cost=_consume_gen_cost())
+                out["reshotIds"].append(hid)
+            finally:
+                try:
+                    _CURRENT_HID.reset(token)
+                except (ValueError, RuntimeError):  # failsoft-ok: a token from another context; the value dies with the task
+                    pass
+    except Exception as e:  # failsoft-ok: fail-open (the cast stands as shot)
+        logger.info("[portraits] cast look skipped: %s", type(e).__name__)
+    return out
 
 
 async def _record_image_beats(shown: list, user: Optional[str],

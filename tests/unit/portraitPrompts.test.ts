@@ -72,7 +72,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     for (const pp of view.portraitPrompts!) {
       expect(pp.houseguestId).toBeTruthy();
       expect(pp.name).toBeTruthy();
-      expect(pp.prompt).toContain("Official cast portrait");
+      expect(pp.prompt).toContain("A real photograph by a reality show");
     }
     // The player is NOT in the cast portrait set.
     expect(view.portraitPrompts!.some((p) => p.houseguestId === PLAYER)).toBe(false);
@@ -101,7 +101,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     expect(got).not.toBeNull();
     expect(got!.houseguestId).toBe(someNpc.id);
     expect(got!.name).toBe(someNpc.name);
-    expect(got!.prompt).toContain("Official cast portrait");
+    expect(got!.prompt).toContain("A real photograph by a reality show");
 
     expect(adapter.getPortraitPrompt("npc:does-not-exist" as EntityId)).toBeNull();
   });
@@ -120,7 +120,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     const before = adapter.getPortraitPrompt(npc.id as EntityId);
     expect(before).not.toBeNull();
     expect(before!.houseguestId).toBe(npc.id);
-    expect(before!.prompt).toContain("Official cast portrait");
+    expect(before!.prompt).toContain("A real photograph by a reality show");
     // A pre-game authoring write-back MUTATES the warm store — the served prompt must reflect the
     // store AS IT STANDS (the per-NPC authored shoot fetches at shoot time, never a stale snapshot).
     adapter.recordCastProfile({
@@ -243,7 +243,7 @@ describe("0051 — recordImageBeat (recorded or it didn't happen; player-witness
 });
 
 /** ORW-380: photo brief v3. One paragraph in a fixed order; three fixtures (full sheet, none, legacy). */
-describe("ORW-380 — portrait photo brief v3", () => {
+describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   const anchor = STYLE_ANCHOR_VARIANTS[4]!;
   const facet = {
     heightBuild: "tall and lean", skinTone: "warm brown skin", hair: "short dark curls, usually pushed back by noon",
@@ -254,7 +254,6 @@ describe("ORW-380 — portrait photo brief v3", () => {
   const base = { appearance: "legacy prose appearance", age: 27, presentation: "easygoing", ethnicity: "West African",
     genderPresentation: "man" as const, demeanor: "warm and guarded", identityConcept: "a chaos-agent podcaster", vocation: "podcaster" };
   const ID = "hg:7";
-  const idHash = fnv1a(ID);
   const full = buildPortraitPrompt(ID, "Fixture One", {
     ...base,
     physicalCharacteristics: {
@@ -264,47 +263,32 @@ describe("ORW-380 — portrait photo brief v3", () => {
   }, anchor).prompt;
   const none = buildPortraitPrompt(ID, "Fixture One", { ...base, physicalCharacteristics: facet }, anchor).prompt;
   const legacy = buildPortraitPrompt(ID, "Fixture One", base, anchor).prompt;
-  const OPEN = "Official cast portrait of a contestant on a reality TV show, photographed by the show's photographer inside the house where the show is filmed.";
-  const TAIL = "Hair and makeup done for the shoot, well groomed and camera-ready, but a real, believable person and not a model: keep the stated age and build exactly, with natural skin that is not airbrushed. Shot at eye level on a full-frame camera with an 85mm portrait lens, shallow depth of field, crisp focus on the eyes, soft flattering light, true-to-life colour. The only person in the frame; no text or logos.";
-  const WHO = "Waist-up portrait of a 27-year-old West African man with warm brown skin, tall and lean, a narrow nose, wide-set eyes and a square jaw, looks their age, crisp and youthful.";
-  const MARKS = "A tattoo half-sleeve on the left forearm, dimples.";
-  const KITCHEN = ["bright soft window light from the side", "bright, airy morning light"][idHash % 2]!;
 
-  it("full photo sheet: the exact sentences in the exact order", () => {
-    expect(full).toBe([
-      OPEN, WHO, "Hair: short dark curls, shaped and neat.", MARKS,
-      "Wearing a faded grey hoodie, dark jeans.",
-      "He leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
-      "Setting: the house kitchen, softly out of focus behind him.", `Light: ${KITCHEN}.`, TAIL,
-    ].join(" "));
+  it("full photo sheet: the sentences in order, the old studio recipe gone", () => {
+    const order = ["A real photograph by a reality show's unit photographer", "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks their age, crisp and youthful.",
+      "Face: ", "Hair: short dark curls, shaped and neat.", "A tattoo half-sleeve on the left forearm, dimples.", "Wearing a faded grey hoodie, dark jeans.",
+      "Setting: ", "Light: ", "The moment: ", "Keep the stated age and build exactly.", "The only person in the frame; no text or logos."];
+    let at = -1;
+    for (const o of order) { const i = full.indexOf(o); expect(i, o).toBeGreaterThan(at); at = i; }
+    expect(full).not.toMatch(/Waist-up|softly out of focus|85mm|shallow depth|soft flattering|Official cast portrait|camera-ready/);
+    expect(full).toMatch(/unit photographer/);
+    expect(full).toMatch(/visible pores/);
+    // the written face line is replaced by the dealt face card (seven concrete features), the writer's on-camera line is not sent
+    expect(full).not.toContain("kitchen island");
+    expect(full).not.toContain("someone who misses nothing");
   });
 
-  it("no photo sheet: written hair trimmed and neatened, style line, fallback pose and room by demeanor and id hash", () => {
-    const rooms = ["kitchen", "living room", "dining room", "backyard", "lounge", "bedroom"];
-    const room = rooms[idHash % 6]!;
-    const lights: Record<string, string[]> = {
-      kitchen: ["bright soft window light from the side", "bright, airy morning light"],
-      "dining room": ["bright soft window light from the side", "bright, airy morning light"],
-      backyard: ["warm golden-hour light", "soft open shade in late afternoon"],
-    };
-    const lamp = ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"];
-    const light = (lights[room] ?? lamp)[idHash % 2]!;
-    expect(none).toBe([
-      OPEN, WHO, "Hair: short dark curls, neatly styled.", MARKS,
-      "Wearing clothes in this style: relaxed streetwear.",
-      "He leans in with a big open smile, looking into the camera.",
-      `Setting: the house ${room}, softly out of focus behind him.`, `Light: ${light}.`, TAIL,
-    ].join(" "));
-  });
-
-  it("legacy (no facet): a person with the prose appearance, the presentation as style, no hair line", () => {
-    expect(legacy).toContain("Waist-up portrait of a 27-year-old West African man with legacy prose appearance.");
+  it("no photo sheet and legacy cards still build every part (the shot and face are dealt alone)", () => {
+    expect(none).toContain("Hair: short dark curls, neatly styled.");
+    expect(none).toContain("Wearing clothes in this style: relaxed streetwear.");
+    expect(legacy).toContain("The subject is a 27-year-old West African man with legacy prose appearance.");
     expect(legacy).toContain("Wearing clothes in this style: easygoing.");
     expect(legacy).not.toContain("Hair:");
     const noGender = buildPortraitPrompt(ID, "Fixture One", { appearance: "tall", age: 41, presentation: "quiet" }, anchor).prompt;
-    expect(noGender).toContain("Waist-up portrait of a 41-year-old person with tall.");
-    expect(noGender).toContain("They stand relaxed with an easy half-smile, looking into the camera.");
-    expect(noGender).toContain("behind them.");
+    expect(noGender).toContain("The subject is a 41-year-old person with tall.");
+    for (const p of [none, legacy, noGender]) { expect(p).toContain("Setting: "); expect(p).toContain("The moment: "); expect(p).toContain("Face: "); }
+    expect(buildPortraitPrompt(ID, "X", { ...base, genderPresentation: "nonbinary", physicalCharacteristics: facet }, anchor).prompt)
+      .toContain("West African nonbinary person with a soft androgynous look");
   });
 
   it("worn / rough words never reach the prompt; a legacy prose appearance is cut like hair and carries no scar words", () => {
@@ -312,7 +296,7 @@ describe("ORW-380 — portrait photo brief v3", () => {
       ...facet, heightBuild: "rugged and tall", facialFeatures: "a rough jaw and tired eyes", hair: "worn dark curls, usually pinned",
       wardrobe: ["a worn grey hoodie", "dark jeans"], style: "rough streetwear" } }, anchor).prompt;
     expect(p).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);
-    expect(p).toContain("tall, a jaw and eyes");
+    expect(p).toContain("with warm brown skin, tall,");
     expect(p).toContain("Hair: dark curls, neatly styled.");
     const legacyP = buildPortraitPrompt(ID, "X", { ...base, appearance: "athletic, a scar over the left eye, close-cropped hair usually under a cap, a birthmark on the neck, a warm smile" }, anchor).prompt;
     expect(legacyP).toContain("with athletic, close-cropped hair, a warm smile.");
@@ -355,62 +339,20 @@ describe("ORW-380 — portrait photo brief v3", () => {
     for (const w of ["weathered and sun-creased", "a worn look", "tired around the eyes", "haggard", "a lived-in face"]) {
       const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: w } }, anchor).prompt;
       expect(p).not.toContain(w);
-      expect(p).toContain("a square jaw.");
+      expect(p).toContain("tall and lean.");
     }
   });
 
-  it("light follows the spot: backyard, kitchen/dining, living room/lounge/bedroom", () => {
-    const withSpot = (spot: string, id: string) => buildPortraitPrompt(id, "X", { ...base, physicalCharacteristics: {
-      ...facet, onCamera: `He stands in the ${spot}, hands in pockets, eyes on the camera, an easy smile, someone at home anywhere.` } }, anchor).prompt;
-    const lightOf = (p: string) => /Light: ([^.]*(?:, [^.]*)?)\./.exec(p)![1]!;
-    const sets: Array<[string, string[]]> = [
-      ["backyard", ["warm golden-hour light", "soft open shade in late afternoon"]],
-      ["kitchen", ["bright soft window light from the side", "bright, airy morning light"]],
-      ["dining room", ["bright soft window light from the side", "bright, airy morning light"]],
-      ["living room", ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"]],
-      ["lounge", ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"]],
-      ["bedroom", ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"]],
-    ];
-    for (const [spot, opts] of sets) {
-      const seen = new Set<string>();
-      for (let i = 0; i < 12; i++) {
-        const p = withSpot(spot, `hg:${i}`);
-        expect(p).toContain(`Setting: the house ${spot},`);
-        const l = lightOf(p);
-        expect(opts).toContain(l);
-        expect(l).toBe(opts[fnv1a(`hg:${i}`) % 2]);
-        seen.add(l);
-      }
-      expect(seen.size).toBe(2);
-    }
-  });
-
-  it("a moment with no subject gets one; the fallback pose follows the demeanor; a they-person gets plural verbs", () => {
-    const mk = (onCamera: string, g: "man" | "woman" | "nonbinary" = "woman") => buildPortraitPrompt(ID, "X", {
-      ...base, genderPresentation: g, physicalCharacteristics: { ...facet, onCamera } }, anchor).prompt;
-    expect(mk("Leaning on the kitchen doorframe, arms folded, someone who misses nothing")).toContain(" She is leaning on the kitchen doorframe, arms folded, someone who misses nothing. Setting: the house kitchen, softly out of focus behind her.");
-    expect(mk("On the backyard steps, chin on fist, a calm read", "nonbinary")).toContain("They are on the backyard steps, chin on fist, a calm read.");
-    const pose = (d: string, g: "man" | "nonbinary" = "man") => buildPortraitPrompt(ID, "X", { ...base, genderPresentation: g, demeanor: d, physicalCharacteristics: facet }, anchor).prompt;
-    expect(pose("bubbly and loud")).toContain("He leans in with a big open smile, looking into the camera.");
-    expect(pose("quiet, watchful")).toContain("He sits back, composed, with a small closed-mouth smile, looking into the camera.");
-    expect(pose("dry")).toContain("He stands relaxed with an easy half-smile, looking into the camera.");
-    expect(pose("quiet", "nonbinary")).toContain("They sit back, composed");
-    expect(buildPortraitPrompt(ID, "X", { ...base, genderPresentation: "nonbinary", physicalCharacteristics: facet }, anchor).prompt)
-      .toContain("West African nonbinary person with a soft androgynous look");
-  });
-
-  it("every built prompt is free of the banned words and is at most 200 words", () => {
-    const BANNED = /behind-the-scenes|handheld|casting-tape|imperfect framing|uneven|fluorescent|harsh|motion blur|unretouched|pores|stray hairs|flyaway|blemishes|tired|\brough\b|Big Brother/i;
+  it("every built prompt is free of the banned words and is at most 230 words", () => {
+    // ORW-480 on purpose: "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (Kevin then wanted a polished look);
+    // Kevin's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
+    const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|unretouched|blemishes|tired|\brough\b|Big Brother/i;
     const hairy = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired and weathered" } }, anchor).prompt;
     for (const p of [full, none, legacy, hairy]) {
       expect(p).not.toMatch(BANNED);
-      expect(p.split(/\s+/).length).toBeLessThanOrEqual(200);
+      expect(p.split(/\s+/).length).toBeLessThanOrEqual(230);
     }
     for (const a of STYLE_ANCHOR_VARIANTS) expect(a).not.toMatch(BANNED);
-  });
-
-  it("prints the three example prompts", () => {
-    if (process.env.ORW380_PRINT) console.log(`\nFULL:\n${full}\n\nNONE:\n${none}\n\nLEGACY:\n${legacy}\n`);
   });
 });
 
@@ -433,7 +375,8 @@ describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prom
     expect(after).not.toBe(before);
     expect(after).toContain("faded grey hoodie");
     expect(after).toContain("a neat low bun");
-    expect(after).toContain("Setting: the house kitchen");
+    expect(after).toContain("Setting: ");
+    expect(after).not.toContain("kitchen island"); // ORW-480: the writer's on-camera line is no longer sent; the shot card sets the place and the moment
   });
 });
 

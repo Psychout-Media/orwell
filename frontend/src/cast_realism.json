@@ -894,6 +894,46 @@
      ]
     }
    }
+  },
+  "place": {
+   "field": "shotCard",
+   "multi": false,
+   "cap": {
+    "share": 0.2,
+    "min": 3
+   },
+   "dealt": true,
+   "note": "ORW-480 photo: where the photo is taken (rooms of the house and outdoors); dealt by src/engine/shotCards.ts, no spot on more than 3 of 15"
+  },
+  "framing": {
+   "field": "shotCard",
+   "multi": false,
+   "cap": {
+    "share": 0.34,
+    "min": 2
+   },
+   "dealt": true,
+   "note": "ORW-480 photo: close-up, half-length, three-quarter, seated wide, full length; none on more than 5 of 15"
+  },
+  "light": {
+   "field": "shotCard",
+   "multi": false,
+   "cap": {
+    "share": 0.27,
+    "min": 2
+   },
+   "dealt": true,
+   "note": "ORW-480 photo: window, overcast, golden hour, shade, lamps at night, flash, midday sun; none on more than 4 of 15"
+  },
+  "face-value": {
+   "field": "faceCard",
+   "multi": false,
+   "cap": {
+    "share": 0.2,
+    "min": 3
+   },
+   "dealt": true,
+   "note": "ORW-480 photo: any one face-structure value (shape, nose, eyes, brows, jaw, mouth) on at most 3 of 15; quirks never repeat; any two faces differ on 4 of 7 axes"
   }
  },
  "unreal-clothes": {

@@ -258,7 +258,9 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
     // ORW-361: the portrait line drops the mark (said once, faint, on its own line) and keeps the rest.
     const f = npc.physicalCharacteristics!;
     // ORW-380: the portrait line is "skin, build, face" (+ age-look unless it says worn); hair has its own line.
-    expect(pp.prompt).toContain([f.skinTone, f.heightBuild, f.facialFeatures].join(", "));
+    // ORW-480 (on purpose): the portrait line is now "skin, build" and the face is the dealt face card (seven concrete features, a feature the written face line names is kept as a pin), so the written face line is no longer sent verbatim.
+    expect(pp.prompt).toContain([f.skinTone, f.heightBuild].join(", "));
+    expect(pp.prompt).toContain("Face: ");
     expect(ctx).toContain(sharedLook);
   });
 

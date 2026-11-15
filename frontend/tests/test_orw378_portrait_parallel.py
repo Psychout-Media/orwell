@@ -70,7 +70,7 @@ def test_cast_of_six_runs_three_at_once(env, monkeypatch):
     m = P.load_manifest("u")
     assert sorted(m) == ["npc_1", "npc_2", "npc_3", "npc_5", "npc_6"]  # the failure is isolated, no lost write
     assert all(e["promptVersion"] == P.PORTRAIT_PROMPT_VERSION for e in m.values())
-    assert P.PORTRAIT_PROMPT_VERSION == 3
+    assert P.PORTRAIT_PROMPT_VERSION == 4
 
 
 def test_all_six_manifest_entries_and_progress(env, monkeypatch):

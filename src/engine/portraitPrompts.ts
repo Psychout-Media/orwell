@@ -12,7 +12,7 @@
 
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import { genderPresentationPhrase } from "../domain/gender";
-import { fnv1a } from "../domain/num";
+import { dealPortraitPlans, faceSentence, type PortraitPlan, type ShotSheet } from "./shotCards";
 
 export { genderPresentationPhrase };
 
@@ -60,6 +60,9 @@ export interface PublicAppearanceFacets {
    */
   identityConcept?: string;
   vocation?: string;
+  /** ORW-480: the casting type (label and read) and the voice's energy line: the PUBLIC sheet reads the shot card's moment comes from. */
+  castingType?: { label?: string; read?: string };
+  voiceEnergy?: string;
 }
 
 /**
@@ -91,27 +94,6 @@ export interface PortraitPromptResult {
 
 type Gender = "man" | "woman" | "nonbinary";
 
-/** The spots a moment can name, in the words the Setting line uses. Order is the order the text is searched. */
-const SPOTS: ReadonlyArray<{ name: string; re: RegExp }> = [
-  { name: "kitchen", re: /\bkitchen\b/i },
-  { name: "living room", re: /\bliving[- ]room\b/i },
-  { name: "dining room", re: /\bdining[- ]room\b/i },
-  { name: "backyard", re: /\b(?:backyard|back yard)\b/i },
-  { name: "lounge", re: /\blounge\b/i },
-  { name: "bedroom", re: /\bbedroom\b/i },
-];
-/** The fallback rooms, dealt by houseguest-id hash when the moment names none. */
-const FALLBACK_ROOMS = ["kitchen", "living room", "dining room", "backyard", "lounge", "bedroom"] as const;
-
-const LIGHT_BY_SPOT: Record<string, readonly [string, string]> = {
-  backyard: ["warm golden-hour light", "soft open shade in late afternoon"],
-  kitchen: ["bright soft window light from the side", "bright, airy morning light"],
-  "dining room": ["bright soft window light from the side", "bright, airy morning light"],
-  "living room": ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
-  lounge: ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
-  bedroom: ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
-};
-
 const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark|gap)\b/i;
 const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
 const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
@@ -126,18 +108,12 @@ const PRONOUNS: Record<Gender | "none", { subj: string; obj: string; plural: boo
   none: { subj: "They", obj: "them", plural: true },
 };
 
-const BRIEF_TAIL =
-  "Hair and makeup done for the shoot, well groomed and camera-ready, but a real, believable person and not a model: "
-  + "keep the stated age and build exactly, with natural skin that is not airbrushed. Shot at eye level on a full-frame "
-  + "camera with an 85mm portrait lens, shallow depth of field, crisp focus on the eyes, soft flattering light, "
-  + "true-to-life colour. The only person in the frame; no text or logos.";
 
 const sentence = (t: string): string => {
   const x = t.trim().replace(/[\s.]+$/, "");
   return x === "" ? "" : `${x}.`;
 };
 const upperFirst = (t: string): string => (t === "" ? t : t[0]!.toUpperCase() + t.slice(1));
-const lowerFirst = (t: string): string => (t === "" ? t : t[0]!.toLowerCase() + t.slice(1));
 
 /** The written hair cut at the first "usually / that / by / until" clause, ready to take ", neatly styled". */
 export function trimWrittenHair(hair: string): string {
@@ -184,104 +160,25 @@ export function signatureMarkClause(mark: string | undefined): string {
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }
 
-function spotOf(onCamera: string): string | undefined {
-  let best: { name: string; at: number } | undefined;
-  for (const sp of SPOTS) {
-    const m = sp.re.exec(onCamera);
-    if (m && (best === undefined || m.index < best.at)) best = { name: sp.name, at: m.index };
-  }
-  return best?.name;
-}
-
-/** A word run that already carries its own grammatical subject: ", she stands", ". He grins", "; her gaze stays". */
-const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:he|she|they|his|her|their|the houseguest)\s+[a-z]+/i;
-const OPENS_WITH_SPOT_RE = /^(?:kitchen|living room|dining room|backyard|lounge|bedroom)\b/i;
-
-/** The plural form of a third-person singular verb ("stands" to "stand"), or undefined when it cannot be done safely. */
-/** Words ending in -s that are never a third-person verb after a name ("always stands"): a they/them line keeps them as they are. */
-const S_ADVERBS: ReadonlySet<string> = new Set([
-  "always", "sometimes", "perhaps", "nevertheless", "besides", "otherwise", "towards", "afterwards", "backwards", "forwards", "upwards",
-  "downwards", "regardless", "nowadays", "indoors", "outdoors", "overseas", "mostly", "thus", "anyways", "nonetheless", "meanwhile",
-]);
-export function pluralVerb(v: string): string | undefined {
-  const w = v.toLowerCase();
-  if (S_ADVERBS.has(w)) return undefined;
-  const irregular: Record<string, string> = { is: "are", has: "have", does: "do", goes: "go", was: "were" };
-  if (irregular[w] !== undefined) return irregular[w];
-  if (!/^[a-z]+s$/.test(w) || /(?:ss|us|ous|ics)$/.test(w) || w.length < 4) return undefined;
-  if (/[^aeiou]ies$/.test(w)) return w.slice(0, -3) + "y";
-  if (/(?:ch|sh|x|z|ss|o)es$/.test(w)) return w.slice(0, -2);
-  return w.slice(0, -1);
-}
-
-/** After a "they" that stands where a name was, the verb must agree ("they stand"); else the safe wording "the houseguest". */
-function theyThenVerb(rest: string): { text: string; ok: boolean } {
-  if (/^\s*,/.test(rest)) return { text: rest, ok: false }; // "Name, arms folded, stands ...": the verb is not next, use "the houseguest"
-  const m = /^(\s+)((?:(?:[A-Za-z]+ly|always|sometimes|often|never|perhaps)\s+)?)([A-Za-z]+)/.exec(rest);
-  if (m === null) return { text: rest, ok: true }; // "they." or end of text: nothing to agree
-  const pv = pluralVerb(m[3]!);
-  if (pv === undefined) return { text: rest, ok: false };
-  const keep = /^[A-Z]/.test(m[3]!) ? pv[0]!.toUpperCase() + pv.slice(1) : pv;
-  return { text: m[1]! + m[2]! + keep + rest.slice(m[0].length), ok: true };
-}
-
-/** The houseguest's own first name never reaches the image provider: it becomes the pronoun (or the possessive). */
-function dropOwnName(t: string, ownName: string | undefined, subj: string): string {
-  const first = (ownName ?? "").trim().split(/\s+/)[0] ?? "";
-  if (first === "") return t;
-  const esc = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const poss = subj === "He" ? "his" : subj === "She" ? "her" : "their";
-  const plural = subj === "They";
-  let out = t.replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, "gu"), poss);
-  const re = new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, "u");
-  for (let guard = 0, m = re.exec(out); m !== null && guard < 20; guard++, m = re.exec(out)) {
-    const head = out.slice(0, m.index);
-    const initial = head.trim() === "" || /[.!?]\s+$/.test(head);
-    let rest = out.slice(m.index + m[0].length);
-    let word: string;
-    if (!plural) word = initial ? subj : subj.toLowerCase();
-    else {
-      const r = theyThenVerb(rest);
-      if (r.ok) { word = initial ? "They" : "they"; rest = r.text; } else word = initial ? "The houseguest" : "the houseguest";
-    }
-    out = head + word + rest;
-  }
-  return out;
-}
-
+const SHOT_OPENER = "A real photograph by a reality show's unit photographer, taken during the season";
 /**
- * Make the moment a sentence with a subject. A line that already carries one (it opens with a pronoun, or has a
- * ", she stands" / ". He grins" / ", her gaze stays" clause) is kept; an -ing or preposition opener gets "He is" in front;
- * a spot word ("Backyard, perched ...") gets "He is in the"; any other fragment (the writer's new openings: "Hands loose
- * at his sides ...", "Gaze straight into the lens ...", "A heavy mug in one hand ...") gets "He is photographed with".
- * The card's own first name is replaced by the pronoun first (review of #2781).
+ * The shared closing asks (ORW-480). They replace the old studio recipe (85mm portrait lens, shallow depth of field,
+ * soft flattering light, hair and makeup done for the shoot, "softly out of focus behind"): a real photograph, a
+ * readable place, real skin, an unposed moment; the hard protections stay (the only person in frame, no text or logos).
  */
-function momentSentence(onCamera: string, subj: string, plural: boolean, ownName?: string): string {
-  const t = dropOwnName(onCamera.trim(), ownName, subj);
-  const be = plural ? "are" : "is";
-  if (/^(?:he|she|they|his|her|their|the houseguest)\b/i.test(t)) return sentence(upperFirst(t));
-  if (OWN_SUBJECT_RE.test(t)) return sentence(upperFirst(t));
-  if (OPENS_WITH_SPOT_RE.test(t)) return sentence(`${subj} ${be} in the ${lowerFirst(t)}`);
-  if (/^[A-Za-z-]+ing\b/.test(t) || /^(?:on|in|at|by|near|beside|against|under|over|inside|outside|behind|with)\b/i.test(t)) {
-    return sentence(`${subj} ${be} ${lowerFirst(t)}`);
-  }
-  return sentence(`${subj} ${be} photographed with ${lowerFirst(t)}`);
-}
-
-function fallbackPose(demeanor: string | undefined, plural: boolean): string {
-  const d = (demeanor ?? "").toLowerCase();
-  if (/\b(?:warm|bubbly|loud|chatty)\b/.test(d)) return plural ? "lean in with a big open smile" : "leans in with a big open smile";
-  if (/\b(?:guarded|cold|quiet|watchful|steady)\b/.test(d)) {
-    return plural ? "sit back, composed, with a small closed-mouth smile" : "sits back, composed, with a small closed-mouth smile";
-  }
-  return plural ? "stand relaxed with an easy half-smile" : "stands relaxed with an easy half-smile";
-}
+const REAL_PHOTO_TAIL =
+  "Keep the stated age and build exactly. Real skin with visible pores, fine lines and small natural asymmetries, loose hairs "
+  + "and creased clothes, no retouching or beauty filter. The place stays sharp enough to read, never blurred away. Natural hands "
+  + "with five fingers, ordinary real garments with proper seams and fit, nothing held beyond what is stated. "
+  + "The only person in the frame; no text or logos.";
 
 /**
- * Build the photo-brief v3 prompt (ORW-380): ONE paragraph, in a fixed order, from the public facets only.
- * No name, no job, no season anchor (still stored by the adapter, ignored here), no random expression,
- * framing, lighting or backdrop lines. The pose and the room come from the writer's `onCamera` moment, or
- * (absent) from the demeanor and a houseguest-id hash, so the same houseguest always gets the same shot.
+ * Build the photo-brief v4 prompt (ORW-480): ONE paragraph from the public facets and the SHOT CARD and FACE CARD dealt
+ * across the cast (`dealPortraitPlans`). The place, time of day, framing, angle, light, the moment (what the person is
+ * doing, derived from their casting read, demeanor, voice energy), the gaze and any held prop come from the shot card;
+ * the face structure from the face card. No name, no job, no season anchor (still stored by the adapter, ignored here).
+ * `plan` is the cast's deal for this person; without it the person is dealt alone (the same output for the same person
+ * only when they are the whole cast), so a caller with the roster should always pass the cast's plan.
  *
  * The name is accepted for the stable call signature and for the result record; it is not sent.
  */
@@ -290,27 +187,33 @@ export function buildPortraitPrompt(
   name: string,
   facets: PublicAppearanceFacets,
   _styleAnchor: string,
+  plan?: PortraitPlan,
 ): PortraitPromptResult {
-  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, demeanor, presentation } = facets;
+  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, presentation } = facets;
   const look = physicalCharacteristics as PortraitLook | undefined;
   const clean = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
   const pr = PRONOUNS[genderPresentation ?? "none"];
-  const idHash = fnv1a(houseguestId);
+  const sheet = sheetOf(houseguestId, name, facets);
+  const card = plan ?? dealPortraitPlans([sheet]).get(houseguestId)!;
+  const { shot, face } = card;
 
-  // 2. Who: age, heritage, gender, then the written face.
+  // 2. Who: age, heritage, gender, then the build and skin; the face comes from the face card.
   const noun = genderPresentation === "man" ? "man" : genderPresentation === "woman" ? "woman"
     : genderPresentation === "nonbinary" ? "nonbinary person with a soft androgynous look" : "person";
   const article = age === 8 || age === 11 || age === 18 || (age >= 80 && age <= 89) ? "an" : "a";
-  const who = `Waist-up portrait of ${article} ${age}-year-old ${ethnicity ? `${ethnicity} ` : ""}${noun}`;
+  const who = `The subject is ${article} ${age}-year-old ${ethnicity ? `${ethnicity} ` : ""}${noun}`;
   let withClause: string;
+  let faceLine = "";
   if (look) {
     const ageLook = clean(look.ageLook);
-    const bits = [look.skinTone, look.heightBuild, look.facialFeatures].map((x) => stripWornWords(clean(x))).filter((x) => x !== "");
+    const bits = [look.skinTone, look.heightBuild].map((x) => stripWornWords(clean(x))).filter((x) => x !== "");
     if (ageLook !== "" && !AGE_LOOK_BLOCK_RE.test(ageLook)) bits.push(ageLook);
     withClause = bits.length > 0 ? ` with ${bits.join(", ")}` : "";
+    faceLine = faceSentence(face);
   } else {
     const prose = legacyAppearance(appearance);
     withClause = prose !== "" ? ` with ${prose}` : "";
+    faceLine = faceSentence(face);
   }
 
   // 3. Hair: the shoot-day line, or the written cut trimmed and neatened.
@@ -330,24 +233,49 @@ export function buildPortraitPrompt(
   const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}`)
     : sentence(`Wearing clothes in this style: ${styleText}`);
 
-  // 6 + 7. The moment and the room.
-  const onCamera = clean(look?.onCamera);
-  const spot = (onCamera !== "" ? spotOf(onCamera) : undefined) ?? FALLBACK_ROOMS[idHash % FALLBACK_ROOMS.length]!;
-  const momentLine = onCamera !== "" ? momentSentence(onCamera, pr.subj, pr.plural, name)
-    : sentence(`${pr.subj} ${fallbackPose(demeanor, pr.plural)}, looking into the camera`);
-  const settingLine = `Setting: the house ${spot}, softly out of focus behind ${pr.obj}.`;
-
-  // 8. Light, chosen for the spot (the two choices split by the id hash).
-  const lights = LIGHT_BY_SPOT[spot]!;
-  const lightLine = `Light: ${lights[idHash % 2]!}.`;
+  // 6. The shot: place and light, then the moment and any prop.
+  const settingLine = `${sentence(`Setting: ${shot.place}`)} ${sentence(`Light: ${shot.light}`)}`;
+  const momentLine = sentence(`The moment: ${shot.moment}`);
+  const propLine = shot.prop !== undefined ? sentence(`${pr.subj} has ${shot.prop} with ${pr.obj}`) : "";
 
   const prompt = [
-    "Official cast portrait of a contestant on a reality TV show, photographed by the show's photographer inside the house where the show is filmed.",
+    sentence(`${SHOT_OPENER}: ${shot.framing}, ${shot.angle}, on ${shot.lens}`),
     sentence(`${who}${withClause}`),
-    hairLine, markLine, clothesLine, momentLine, settingLine, lightLine, BRIEF_TAIL,
+    faceLine, hairLine, markLine, clothesLine, settingLine, momentLine, propLine, REAL_PHOTO_TAIL,
   ].filter((x) => x !== "").join(" ");
 
   return { houseguestId, name, prompt };
+}
+
+/** The sheet the shot and face deals read: public facets only. */
+function sheetOf(id: string, name: string, f: PublicAppearanceFacets): ShotSheet {
+  const look = f.physicalCharacteristics;
+  return {
+    id, name, age: f.age,
+    ...(f.genderPresentation !== undefined ? { genderPresentation: f.genderPresentation } : {}),
+    ...(f.demeanor !== undefined ? { demeanor: f.demeanor } : {}),
+    ...(f.castingType?.read !== undefined ? { castingRead: f.castingType.read } : {}),
+    ...(f.castingType?.label !== undefined ? { castingLabel: f.castingType.label } : {}),
+    ...(f.voiceEnergy !== undefined ? { energy: f.voiceEnergy } : {}),
+    ...(f.vocation !== undefined ? { vocation: f.vocation } : {}),
+    ...(f.identityConcept !== undefined ? { identityConcept: f.identityConcept } : {}),
+    ...(look?.facialFeatures !== undefined ? { facialFeatures: look.facialFeatures } : {}),
+  };
+}
+
+type CastEntry = Parameters<typeof buildCastPortraitPrompts>[0][number];
+/** The deal sheet of one cast entry (ORW-480). Exported so a report can deal exactly what the prompts were built from. */
+export function castSheetOf(hg: CastEntry): ShotSheet {
+  return sheetOf(hg.id, hg.name, {
+    appearance: hg.appearance ?? "", age: hg.age ?? 0, presentation: hg.presentation ?? "",
+    ...(hg.physicalCharacteristics !== undefined ? { physicalCharacteristics: hg.physicalCharacteristics } : {}),
+    ...(hg.genderPresentation !== undefined ? { genderPresentation: hg.genderPresentation } : {}),
+    ...(hg.demeanor !== undefined ? { demeanor: hg.demeanor } : {}),
+    ...(hg.identityConcept !== undefined ? { identityConcept: hg.identityConcept } : {}),
+    ...(hg.vocation !== undefined ? { vocation: hg.vocation } : {}),
+    ...(hg.castingType !== undefined ? { castingType: hg.castingType } : {}),
+    ...(hg.voiceEnergy !== undefined ? { voiceEnergy: hg.voiceEnergy } : {}),
+  });
 }
 
 /**
@@ -370,11 +298,15 @@ export function buildCastPortraitPrompts(
     demeanor?: string;
     identityConcept?: string;
     vocation?: string;
+    castingType?: { label?: string; read?: string };
+    voiceEnergy?: string;
   }>,
   styleAnchor: string,
 ): PortraitPromptResult[] {
-  return houseguests
-    .filter((hg) => hg.appearance && hg.age !== undefined && hg.presentation)
+  const complete = houseguests.filter((hg) => hg.appearance && hg.age !== undefined && hg.presentation);
+  // ORW-480: the shot and face cards are dealt ACROSS the whole cast (caps per value), then each prompt is built from its own.
+  const plans = dealPortraitPlans(complete.map((hg) => castSheetOf(hg)));
+  return complete
     .map((hg) =>
       buildPortraitPrompt(
         hg.id,
@@ -389,8 +321,11 @@ export function buildCastPortraitPrompts(
           ...(hg.demeanor !== undefined ? { demeanor: hg.demeanor } : {}),
           ...(hg.identityConcept !== undefined ? { identityConcept: hg.identityConcept } : {}),
           ...(hg.vocation !== undefined ? { vocation: hg.vocation } : {}),
+          ...(hg.castingType !== undefined ? { castingType: hg.castingType } : {}),
+          ...(hg.voiceEnergy !== undefined ? { voiceEnergy: hg.voiceEnergy } : {}),
         },
         styleAnchor,
+        plans.get(hg.id),
       ),
     );
 }
