@@ -445,7 +445,7 @@ describe("whereabouts (0049) — the Vault-free presence read", () => {
     // L21/L24: duration rides the view — the player's tenure + each companion's (a NamedRef + turnsHere).
     // 0077: `tracked` (closed-door beliefs) always rides the view; `zone`/`conspicuous` are optional.
     const required = ["companions", "nearby", "present", "room", "tracked", "turnsHere"];
-    // ORW-376 (spec 0049 amendment): the view also carries `counts`, the HEADCOUNT of people the player can already see (room, others, house, voters on a vote night). "No numbers"
+    // ORW-376 (spec 0049 amendment): the view also carries `counts`, the HEADCOUNT of people the player can already see (room, others, house, voters on a vote night) plus `asleep`, the whole-house turned-in count (the public asleep-list length, absent with the clock off). "No numbers"
     // in 0049/0077 means no relationship/stat/hidden numbers; durations (`turnsHere`) were already allowed, and a plain headcount joins them - and nothing else numeric.
     const allowed = [...required, "zone", "conspicuous", "counts"];
     expect(required.every((k) => k in w)).toBe(true);

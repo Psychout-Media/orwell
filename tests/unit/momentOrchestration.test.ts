@@ -253,8 +253,8 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
     expect(pp.prompt).toContain(npc.physicalCharacteristics!.skinTone); // the hair line is trimmed and neatened in v3
     expect(pp.prompt).toContain(npc.physicalCharacteristics!.heightBuild);
 
-    // The hinge: the EXACT physical clause the portrait builds is present verbatim in the narrator
-    // context — there is one description, voiced once and pictured once, never two that can diverge.
+    // The hinge, as it stands since ORW-380: the portrait carries the facet's own fields verbatim as the clause "skin, build, face" (asserted against the portrait prompt only: the narrator context
+    // voices build and hair through `physicalFacetToAppearance`, in a different order, so that clause never occurs there). The shared-source claim is the two `toContain` pairs above.
     // ORW-361: the portrait line drops the mark (said once, faint, on its own line) and keeps the rest.
     const f = npc.physicalCharacteristics!;
     // ORW-380: the portrait line is "skin, build, face" (+ age-look unless it says worn); hair has its own line.
