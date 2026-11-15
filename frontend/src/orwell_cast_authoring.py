@@ -3144,6 +3144,9 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                 f"[cast-authoring] completion hit the output cap (finish_reason=length at "
                 f"max_tokens={_max_tokens}) — retrying ONCE at a doubled cap {retry_cap}")
             retry_text, _retry_finish, retry_reasoning = await _once(messages, retry_cap)
+            if _retry_finish == "error":
+                # ORW-437: the doubled-cap retry ended in an error frame: raise, never hand the frame back as a completion.
+                raise RuntimeError("provider-error-frame")
             if retry_text:
                 return retry_text
             # The retry's visible body was also empty — carry its reasoning as an extra recovery source.

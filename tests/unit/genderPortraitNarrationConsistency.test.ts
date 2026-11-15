@@ -135,7 +135,10 @@ describe("#1140 — portrait and narration voice the SAME stored gender presenta
       // uncapped AI-override hole, now closed at the recordCastIdentity fold): the CURRENT display name
       // reads the SAME gender `g` the portrait + narration encode. The image model puts the name in the
       // prompt, so the name itself must point the right way — no "Marlon, a woman" mismatch survives.
-      expect(nameGenderOf(card.name), `flipped name ${card.name} should read ${g}`).toBe(g);
+      // ORW-437: this fold lands AFTER createCharacter, so every name has already been told to the player and a live
+      // fold never renames it (the same freeze `recordCastProfile` applies). The pre-game fold, where names are not yet
+      // introduced, still re-picks the name (covered by the diversity and castGenesisGenderCohere suites).
+      expect(card.name, `an introduced name never changes on a live fold`).toBe(target.name);
 
       proved = true;
       break;

@@ -126,3 +126,26 @@ def test_cast_authoring_writes_nothing_and_makes_no_strict_reparse(failing_fn):
     n = _run(A.author_cast([{"id": "npc:1", "name": "Ann Lee", "age": 30, "genderPresentation": "woman"}], failing_fn, write, user="u"))
     assert n == 0 and wrote == []
     assert len(failing_fn.calls) <= 2  # no strict-JSON reparse ladder rode over the failure
+
+
+def test_a_length_cut_reply_whose_doubled_cap_retry_ends_in_an_error_frame_raises(monkeypatch):
+    """The first reply is cut at finish_reason=length, the retry at the doubled cap ends in an error frame: the frame is
+    never returned as the completion (the off-screen texture writer would store it as scene prose)."""
+    monkeypatch.setattr(er, "resolve_endpoint", lambda prefix, owner=None: (_URL, "stub-chat-model", {}))
+    monkeypatch.setattr(er, "resolve_utility_fallback_candidates", lambda owner=None: [])
+    monkeypatch.setattr(er, "_resolve_fallback_candidates", lambda key, owner=None: [])
+    calls = []
+
+    async def fake(candidates, messages, **kw):
+        calls.append(1)
+        if len(calls) == 1:
+            yield "data: " + json.dumps({"delta": '{"scene": "cut off mid'}) + "\n\n"
+            yield "data: " + json.dumps({"type": "finish", "reason": "length"}) + "\n\n"
+        else:
+            yield ERR
+            yield "data: " + json.dumps({"type": "finish", "reason": "stop"}) + "\n\n"
+    monkeypatch.setattr(lc, "stream_llm_with_fallback", fake)
+    fn = _run(A.resolve_prose_llm_fn(A._resolve_llm_fn, "u"))
+    with pytest.raises(RuntimeError, match="provider-error-frame"):
+        _run(fn([{"role": "user", "content": "x"}]))
+    assert len(calls) == 2  # the length retry ran once, then the error raised
