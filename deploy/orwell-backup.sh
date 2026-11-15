@@ -37,11 +37,14 @@ mkdir -p "$DEST"
 # python3 but no sqlite3 CLI) into a temp file inside the backups dir, verify it with
 # PRAGMA integrity_check, and archive THAT copy in place of the live db/-wal/-shm. Errors are printed.
 FE_DB="${APP_DIR}/frontend/data/app.db"
-SNAP=""
-trap '[[ -n "$SNAP" ]] && rm -f "$SNAP"' EXIT
+SNAP=""; SNAPDIR=""
+# The snapshot lives in a temp DIRECTORY (SQLite also creates a journal beside it; a root-owned destination
+# would refuse that to the db owner). The directory is removed on exit.
+trap '[[ -n "$SNAPDIR" ]] && rm -rf --one-file-system -- "$SNAPDIR"' EXIT
 if [[ -f "$FE_DB" ]]; then
   command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 is required to snapshot ${FE_DB}" >&2; exit 1; }
-  SNAP="$(mktemp "${DEST}/.app.db.snapshot.XXXXXX")"
+  SNAPDIR="$(mktemp -d "${DEST}/.app.db.snapshot.XXXXXX")"
+  SNAP="${SNAPDIR}/app.db"
   SNAPPY='
 import sqlite3, sys
 src_path, dst_path = sys.argv[1], sys.argv[2]
@@ -59,7 +62,7 @@ if [r[0] for r in res] != ["ok"]:
 '
   DB_OWNER="$(stat -c %U "$FE_DB" 2>/dev/null || true)"
   if [[ "$(id -u)" -eq 0 && -n "$DB_OWNER" && "$DB_OWNER" != "root" ]] && command -v runuser >/dev/null 2>&1; then
-    chown "$DB_OWNER" "$SNAP"
+    chown "$DB_OWNER" "$SNAPDIR"
     runuser -u "$DB_OWNER" -- python3 -I -c "$SNAPPY" "$FE_DB" "$SNAP" || { echo "ERROR: database snapshot failed; no backup written" >&2; exit 1; }
   else
     python3 -I -c "$SNAPPY" "$FE_DB" "$SNAP" || { echo "ERROR: database snapshot failed; no backup written" >&2; exit 1; }
@@ -70,7 +73,7 @@ TAR_ARGS=(-czf "$OUT" -C "$APP_DIR" --exclude='data/models'
 [[ -d "${APP_DIR}/data" ]] && TAR_ARGS+=(data)
 [[ -d "${APP_DIR}/frontend/data" ]] && TAR_ARGS+=(frontend/data)
 if [[ -n "$SNAP" ]]; then
-  TAR_ARGS+=(--transform "s,^$(basename "$SNAP")\$,frontend/data/app.db," -C "$DEST" "$(basename "$SNAP")")
+  TAR_ARGS+=(--transform "s,^$(basename "$SNAP")\$,frontend/data/app.db," -C "$SNAPDIR" "$(basename "$SNAP")")
 fi
 tar "${TAR_ARGS[@]}"
 chmod 600 "$OUT"
