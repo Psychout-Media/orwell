@@ -45,7 +45,9 @@ async function main() {
       if (!Array.isArray(st.house) || st.phase === "premiere") return;
       const inHouse = st.house.filter((r) => r.status === "active").length + (st.player?.status === "active" ? 1 : 0);
       if (lastInHouse !== null && inHouse !== lastInHouse) {
-        rec("headcount -1: an eviction removes exactly one person", lastInHouse - inHouse === 1, `seed ${seed} ${where}: ${lastInHouse} -> ${inHouse}`);
+        const delta = inHouse - lastInHouse;
+        if (delta === 1 || delta === -2) rec(`INFO a reserve twist changed the house (${delta === 1 ? "battle-back: +1" : "double eviction: -2"})`, true, "");
+        else rec("headcount -1: an eviction removes exactly one person", delta === -1, `seed ${seed} ${where}: ${lastInHouse} -> ${inHouse} (phase ${st.phase}, week ${st.week}, player ${st.player?.status}, statuses ${JSON.stringify(st.house.reduce((m: Record<string, number>, r) => { m[String(r.status)] = (m[String(r.status)] ?? 0) + 1; return m; }, {}))})`);
         const h = st.whereabouts?.counts?.house;
         if (typeof h === "number") rec("headcount -1: the stated house count follows the eviction", h === inHouse, `seed ${seed} ${where}: house count ${h} vs ${inHouse} in`);
       }
@@ -124,10 +126,14 @@ async function main() {
           // INFO (needs a ruling, not pass/fail): what a goodnight does in the middle of an open ceremony, once per week. The bed is real if it goes through.
           if (!ceremonyBedTried.has(st0.week ?? 0)) {
             ceremonyBedTried.add(st0.week ?? 0);
-            const tb = await call<{ held?: unknown }>("turnIn", { idempotencyKey: `${user}-cer-${st0.week}` });
+            const tb = await call<{ held?: unknown; weekChapter?: unknown }>("turnIn", { idempotencyKey: `${user}-cer-${st0.week}` });
             const st1 = await call<State>("getGameState");
             rec("INFO a goodnight during an open ceremony is held (refused)", !!tb.held, `seed ${seed} week ${st0.week}: bed at ${st0.clockLabel} went through mid-ceremony, woke ${st1.clockLabel}, phase ${st1.phase}`);
-            if (!tb.held) nights++;
+            if (!tb.held) { // a real bed: hold it to the same chapter rule and move the probe's own week cursor (it consumed the chapter otherwise)
+              nights++;
+              rec("the week chapter rolls exactly at the first bed of a new week", !!tb.weekChapter === ((st0.week ?? 1) > lastBedWeek), `seed ${seed} mid-ceremony bed: week ${st0.week} (last bed in week ${lastBedWeek}) chapter ${tb.weekChapter ? "given" : "absent"}`);
+              lastBedWeek = st0.week ?? lastBedWeek;
+            }
           }
           continue;
         }
@@ -185,7 +191,7 @@ async function main() {
       rec("every bedtime carries a day recap", !!ti.dailyRecap, `seed ${seed} night ${nights}: bed ${before.clockLabel} (${before.phase}) had no dailyRecap`);
       const weekNow = after.week ?? before.week ?? 1;
       const chapterDue = (before.week ?? 1) > lastBedWeek;
-      rec("the week chapter rolls exactly at the first bed of a new week", !!ti.weekChapter === chapterDue, `seed ${seed} night ${nights}: week ${before.week} (last bed in week ${lastBedWeek}) chapter ${ti.weekChapter ? "given" : "absent"}`);
+      rec("the week chapter rolls exactly at the first bed of a new week", !!ti.weekChapter === chapterDue, `seed ${seed} night ${nights}: week ${before.week} (last bed in week ${lastBedWeek}) chapter ${ti.weekChapter ? "given" : "absent"}, phase ${before.phase}, player ${(before as State & { player?: { status?: string } }).player?.status}, keys ${Object.keys(ti).join(",")}`);
       lastBedWeek = before.week ?? lastBedWeek;
       void weekNow;
       await checkState("after wake");
