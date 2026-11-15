@@ -54,3 +54,37 @@ Feature: Conversation & scene system — the player's social game
       | scene         |
       | NPC dialogue  |
       | social read   |
+
+  # ORW-423 (#2736) + ORW-443 (#2769): the same-purpose approach cap. In a played game with the desire clock on, after two approaches of
+  # one purpose in a stretch the next one of that purpose waits (two quiet in-game hours, or a different purpose, release it), and the
+  # game state tells the narrator for that one message that an approach was held back. A game nobody is playing is unaffected. No rng.
+
+  Scenario: After two same-purpose approaches the next one is held back and the narrator is told
+    Given a played game with the desire clock on, stepped message by message until the approach cap holds a houseguest back
+    Then the two approaches just before it in that stretch were for the same purpose
+    And no houseguest cuts into the conversation on that message
+    And the game state tells the narrator an approach was held back
+
+  Scenario: The held-back signal lasts for that one message only
+    Given a played game with the desire clock on, stepped message by message until the approach cap holds a houseguest back
+    When the player keeps talking until a message on which nothing is held back
+    Then the game state no longer carries the held-back signal
+
+  Scenario: Two quiet in-game hours release the cap
+    Given a played game with the desire clock on, stepped message by message until the approach cap holds a houseguest back
+    When that same message is replayed as though the last approach came two quiet in-game hours earlier
+    Then the held houseguest now cuts into the conversation for that purpose
+    And the game state carries no held-back signal
+
+  Scenario: A different purpose is not held back by the cap
+    Given a played game with the desire clock on, stepped message by message until the approach cap holds a houseguest back
+    When that same message is replayed as though the stretch so far had been a different purpose
+    Then the held houseguest now cuts into the conversation for that purpose
+    And the game state carries no held-back signal
+
+  Scenario: A game nobody is playing is unaffected by the cap
+    Given a played game with the desire clock on, stepped message by message until the approach cap holds a houseguest back
+    When that same message is replayed in a game nobody is playing
+    Then the held houseguest now cuts into the conversation for that purpose
+    And the game state carries no held-back signal
+    And the stretch is left untouched
