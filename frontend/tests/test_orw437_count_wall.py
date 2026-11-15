@@ -60,3 +60,11 @@ def test_unclosed_curly_single_quote_unit_is_unrepairable():
     # review of #2652: a dropped unit that opens a U+2018 span and never closes it must not be "repaired" as balanced
     assert ch._dropped_unit_residue("She says ‘we won the veto.") is None
     assert ch._dropped_unit_residue("She says ‘we won’ and don’t care.") == ("", "")
+
+
+def test_style_keywords_do_not_match_inside_longer_words():
+    # review of #2649: "surf" is a beachy keyword but must not fire inside "surface"
+    from src.orwell_style_families import families_mentioned
+    assert "beachy" not in families_mentioned("a smooth surface finish and a matte sleeve")
+    assert "beachy" in families_mentioned("she surfs every morning, board shorts and all")
+    assert "healthcare" in families_mentioned("scrubs and clogs")
