@@ -42,6 +42,13 @@ describe("ORW-401 relationship metering (played game)", () => {
     expect(next).toBeGreaterThan(first * 0.5);
   });
 
+  it("restore drops NaN, negative and fractional counts instead of storing them (review of #2687)", () => {
+    const w = { v: "d1:morning" };
+    const a = setup(w);
+    a.cmd.restoreFoldMeter({ key: "d1:morning", counts: { x: Number.NaN, y: -3, z: 1.5, ok: 2 } });
+    expect(a.cmd.foldMeterState()?.counts).toEqual({ ok: 2 });
+  });
+
   it("snapshot/restore mid-window keeps the counts (a restart does not refill them)", () => {
     const w = { v: "d1:morning" };
     const a = setup(w);
