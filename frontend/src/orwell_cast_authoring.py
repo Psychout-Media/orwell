@@ -251,6 +251,10 @@ async def resolve_authoring_llm_fn(owner: Optional[str], *,
     routing (still at the authoring temperature). Every call flows through the module-level
     `_resolve_llm_fn`, so tests that stub it keep intercepting the authoring path.
 
+    ``json_mode`` (ORW-387): True (the default, byte-identical) requests ``response_format=json_object``. A caller whose
+    prompt asks for plain PROSE must pass False: a strict provider (DeepSeek) answers HTTP 400 to json_object when the
+    prompt never says "json".
+
     ``min_output_tokens`` (2026-07-13 genesis-cap fix): a per-call-family FLOOR on the resolved
     output cap — the full-cast genesis SKETCH passes ``GENESIS_SKETCH_MIN_OUTPUT_TOKENS`` because
     one completion must carry the whole 15-NPC skeleton JSON (the class cap is sized for one NPC).
@@ -1951,11 +1955,21 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
 
 # ── the live wiring (best-effort, background; graceful no-op when no model) ────
 
+async def resolve_prose_llm_fn(resolver, owner):
+    """ORW-387: resolve the shared utility completion for a PLAIN-PROSE prompt (no ``response_format``). ``resolver`` is
+    the caller's own ``_resolve_llm_fn`` reference; a legacy-signature stub (tests) gets the bare call."""
+    try:
+        return await resolver(owner, json_mode=False)
+    except TypeError:
+        return await resolver(owner)
+
+
 async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                           fallbacks_key: str = "utility",
                           include_utility_fallback: bool = False,
                           temperature: Optional[float] = None,
-                          min_output_tokens: Optional[int] = None) -> Optional[LlmFn]:
+                          min_output_tokens: Optional[int] = None,
+                          json_mode: bool = True) -> Optional[LlmFn]:
     """Build a one-shot completion fn over the user's UTILITY model (background-safe, like the email
     triage path). Returns None when no usable endpoint resolves — authoring then silently no-ops.
 
@@ -2108,7 +2122,7 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         # `_AUTHORING_STREAM_WALL_CLOCK_S` (e.g. a test, or a future admin knob) actually takes effect.
         async for chunk in _bounded_stream(stream_llm_with_fallback(
             candidates, messages, temperature=_temperature, policy=_policy,
-            max_tokens=cap, response_format=_RESPONSE_FORMAT), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
+            max_tokens=cap, response_format=(_RESPONSE_FORMAT if json_mode else None)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
             # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
             piece = _delta_text(chunk)
             if piece:
@@ -2246,6 +2260,8 @@ def _delta_text(chunk) -> str:
                     return ""
                 return str(d.get("delta") or d.get("content") or d.get("text") or "")
         return ""
+    if s.lstrip().startswith("event:"):
+        return ""  # ORW-387: an SSE control frame (`event: error` + its data line) is never the model's text
     return s
 
 

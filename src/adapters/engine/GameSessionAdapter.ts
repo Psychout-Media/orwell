@@ -506,6 +506,8 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
 const DAY_LEDGER_TEXT_CHARS = 900;
+/** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
+const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -11295,6 +11297,8 @@ export class GameSessionAdapter implements GameSession {
     const text = String(req.text ?? "")
       .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
     if (!text) return { accepted: false, reason: "empty" };
+    if (DAY_SUMMARY_ERROR_TEXT.test(text)) return { accepted: false, reason: "error-text" };
+    const stale = (t?: string) => !t || DAY_SUMMARY_ERROR_TEXT.test(t); // a stored error (a save from before ORW-387) may be replaced once
     const day = Math.trunc(req.day);
     if (req.tier === "week") {
       const [a, b] = req.coversDays ?? [day, day];
@@ -11303,7 +11307,7 @@ export class GameSessionAdapter implements GameSession {
       if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
       const existing = ledger.find((d) => d.tier === "week" && d.day === day);
       if (existing) {
-        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+        if (stale(existing.text)) existing.text = text; // idempotent: the first authored text stands (never overwritten)
       } else {
         ledger.push({
           day, tier: "week", coversDays: [from, to], text,
@@ -11314,7 +11318,7 @@ export class GameSessionAdapter implements GameSession {
     } else {
       const entry = ledger.find((d) => d.tier === "day" && d.day === day);
       if (!entry) return { accepted: false, reason: "unknown-day" };
-      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+      if (stale(entry.text)) entry.text = text; // idempotent: the first authored text stands
     }
     this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
     return { accepted: true };
