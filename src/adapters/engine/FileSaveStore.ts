@@ -127,6 +127,7 @@ export class FileSaveStore implements UserSaveStore {
   private static readonly RETAIN_RECENT = 5;
   /** Every Nth version is a periodic checkpoint... */
   private static readonly CHECKPOINT_EVERY = 50;
+  private static readonly UNSYNCED_TRACK_MAX = 1000;
   /** ...of which only the newest few are retained (the long-tail archive stays bounded). */
   private static readonly RETAIN_CHECKPOINTS = 3;
   /** While a user has no durable version yet, keep every file up to this many (never below). */
@@ -255,7 +256,9 @@ export class FileSaveStore implements UserSaveStore {
     if (background) {
       // The directory fsync (amortized to checkpoints, F-EN-1 #1562) rides the background sync too.
       if (isCheckpoint) { st.dirDirty = true; st.dirGen++; }
-      st.unsynced.push({ v: version, t: this.nowMs() });
+      // Bounded (review of #2732): a long stall must not grow this per save. Only the OLDEST entry (backlog age) and a count matter, so beyond the cap the newest slot is overwritten.
+      if (st.unsynced.length >= FileSaveStore.UNSYNCED_TRACK_MAX) st.unsynced[st.unsynced.length - 1] = { v: version, t: this.nowMs() };
+      else st.unsynced.push({ v: version, t: this.nowMs() });
       this.checkBacklogAlarm(dir, st);
       st.pending = version; // coalesce: only the newest pending version is ever synced
       this.kick(dir, st);

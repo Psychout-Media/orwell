@@ -282,3 +282,13 @@ describe("review of #2732 — a failing directory fsync for one user never stops
     }
   });
 });
+
+describe("review of #2732 — unsynced tracking is bounded under a long stall", () => {
+  it("1500 saves behind a stalled fsync keep the oldest age and a bounded list", () => {
+    const store = new FileSaveStore(tmp(), { fsyncMode: "background", syncFile: () => new Promise<void>(() => {}), syncDir: async () => {}, onError: () => {} } as never);
+    for (let i = 1; i <= 1500; i++) store.saveFor("u", snap(i));
+    const st = (store as unknown as { states: Map<string, { unsynced: unknown[] }> }).states.values().next().value!;
+    expect(st.unsynced.length).toBeLessThanOrEqual(1000);
+    expect(store.durability().saveUnsyncedUsers).toBe(1);
+  });
+});
