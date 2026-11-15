@@ -62,14 +62,14 @@ export function roommatesIn(state: BedsState, room: Room, inHouse: ReadonlySet<E
 /** Who shares `who`'s double (still in the house), if anyone. */
 export function bedPartner(state: BedsState, who: EntityId, inHouse: ReadonlySet<EntityId>): EntityId | undefined {
   const mine = state.owner[who];
-  if (!mine || !isDoubleSpot(mine)) return undefined;
+  if (!inHouse.has(who) || !mine || !isDoubleSpot(mine)) return undefined; // an evictee shares no live bed
   const bed = bedOfSpot(mine);
   return Object.entries(state.owner).find(([other, spot]) => other !== who && inHouse.has(other) && bedOfSpot(spot) === bed)?.[0];
 }
 
 /** Claim a free spot. Returns false (and changes nothing) when the spot is not free or does not exist. */
 export function claimBed(state: BedsState, who: EntityId, bed: BedId, day: number, why: BedClaim["why"], inHouse: ReadonlySet<EntityId>, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT): boolean {
-  if (!freeBeds(state, inHouse, layout).includes(bed)) return false;
+  if (!inHouse.has(who) || !freeBeds(state, inHouse, layout).includes(bed)) return false; // only someone in the house can claim, and only a free spot
   state.owner[who] = bed;
   state.claims.push({ who, bed, day, why });
   return true;

@@ -181,16 +181,22 @@ describe("ORW-432 card check on seven live-shaped cards (role labels)", () => {
 describe("ORW-432 what moved and what did not", () => {
   const SEEDS6 = [1, 2, 3, 77, 2026, 4242];
   it("stats, names, ages, hidden profiles, threads, biographies and every look field except the changed ones are byte-identical to main", () => {
-    let all = "";
-    for (const seed of SEEDS6) {
-      const { npcs } = generateHouse(new SeededRandom(seed));
-      const l = generateCastDeepLayer(seed, npcs);
-      // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-      const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0 } }));
-      const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: v.biography, physicalCharacteristics: v.physicalCharacteristics, castingType: 0 }]));
-      all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
-    }
-    expect(createHash("sha256").update(all).digest("hex")).toBe("3e72645352a5aa5f0e24114eaf5f36a5d4e15a250dde74602d32f7cc73f3180a");
+    // `blankText` also blanks what ORW-458 changed (the public background line and the floor biography built from it),
+    // so the first hash proves NO DRAW MOVED: it equals main's hash with the same blanking. The second pins the full text.
+    const run = (blankText: boolean) => {
+      let all = "";
+      for (const seed of SEEDS6) {
+        const { npcs } = generateHouse(new SeededRandom(seed));
+        const l = generateCastDeepLayer(seed, npcs);
+        // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
+        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0 } : {}) } }));
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: v.physicalCharacteristics, castingType: 0 }]));
+        all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
+      }
+      return createHash("sha256").update(all).digest("hex");
+    };
+    expect(run(true)).toBe("4bc2ae4cea0bab8b66643aae34ead42a5b064cc8502166a9d3f29654d3a42c7e"); // identical on main and on the ORW-458 branch: no random draw moved
+    expect(run(false)).toBe("4c4140a2b47d56162e5df2a5201306dad3ceeb33dd01acf695ffd771c3798c53"); // re-pinned on purpose by ORW-458: only the background text and the biography built from it
   });
 });
 

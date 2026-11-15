@@ -3,7 +3,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { resolvePending } from "../../features/support/answerPending";
 import { BEDROOM_LAYOUT, spotsIn } from "../../src/engine/data/bedrooms";
-import { roomOfBed, pickSpot, bedPartner, type BedsState } from "../../src/engine/beds";
+import { roomOfBed, pickSpot, bedPartner, freeBeds, type BedsState } from "../../src/engine/beds";
 
 /** ORW-466 (Ryne 2026-11-15: "most people would have an assigned bed... The HOH assigned bed would be upstairs in the HOH room"): every houseguest owns a bed, claimed on move-in day; sleepers sleep
  * and wake in their own bed (the HOH in the HOH room); the player gets the bed left over at their first bedtime until they pick one. Supersedes ORW-383's arbitrary-room setting. Also ORW-383's
@@ -60,13 +60,15 @@ describe("assigned beds (ORW-466); the state names who is awake (ORW-383)", () =
     toNight(s);
     s.turnIn({});
     const beds = liveOf(s).beds!;
-    const before = { ...beds.owner }; const claims = beds.claims.length;
+    const before = { ...beds.owner }; const claims = beds.claims.length; const priorClaims = beds.claims.map((c) => ({ ...c }));
     const gone = Object.keys(before).find((id) => id !== "player")!;
     liveOf(s).evictionOrder.push(gone);
     toNight(s);
     s.turnIn({});
     for (const [id, bed] of Object.entries(before)) if (id !== gone) expect(liveOf(s).beds!.owner[id], `${id} keeps their bed`).toBe(bed);
-    expect(liveOf(s).beds!.claims.length, "history is never thinned").toBeGreaterThanOrEqual(claims);
+    const inHouse = new Set(Object.keys(before).filter((id) => id !== gone));
+    expect(freeBeds(liveOf(s).beds!, inHouse), "the evictee's spot is free again").toContain(before[gone]);
+    expect(liveOf(s).beds!.claims.slice(0, claims), "history is never thinned or rewritten").toEqual(priorClaims);
   });
 
   it("doubles (Ryne: \"there could definitely be doubles in the mix\"): half of a double only next to someone they really like; otherwise a single", () => {
