@@ -23,7 +23,7 @@ export interface ShutdownOptions {
    * so the flush sees every save those requests made. May never settle.
    */
   drain?: () => Promise<void>;
-  /** Bound on the drain (ms). Default 8 000. */
+  /** Bound on the drain (ms). Default 5 000. */
   drainMs?: number;
   /** Non-blocking flush of un-synced saves; may never settle. */
   flush: () => Promise<void>;
@@ -33,14 +33,23 @@ export interface ShutdownOptions {
 }
 
 export const DEFAULT_HARD_EXIT_MS = 12_000;
-export const DEFAULT_DRAIN_MS = 8_000;
+/** In-flight requests normally finish in milliseconds; 5 s is a generous bound that still leaves the flush its share. */
+export const DEFAULT_DRAIN_MS = 5_000;
+/**
+ * The flush's own deadline. The three bounds must fit: DEFAULT_DRAIN_MS + DEFAULT_FLUSH_MS < DEFAULT_HARD_EXIT_MS,
+ * so a slow drain can never leave the flush less time than its deadline says before the hard exit cuts it.
+ */
+export const DEFAULT_FLUSH_MS = 6_000;
 
 export function createShutdown(opts: ShutdownOptions): () => Promise<void> {
   let started: Promise<void> | null = null;
   return () => {
     if (started) return started;
     try { opts.onStart?.(); } catch { /* stopping intake is best-effort; never block exit */ }
-    const timer = setTimeout(() => opts.exit(0), opts.hardExitMs ?? DEFAULT_HARD_EXIT_MS);
+    // Exactly one exit: the hard timer and a flush that returns late must not both call it.
+    let exited = false;
+    const exitOnce = (): void => { if (exited) return; exited = true; opts.exit(0); };
+    const timer = setTimeout(exitOnce, opts.hardExitMs ?? DEFAULT_HARD_EXIT_MS);
     if (typeof timer.unref === "function") timer.unref();
     started = (async () => {
       try { await opts.quiesce?.(); } catch { /* quiesce is best-effort: still flush */ }
@@ -56,7 +65,7 @@ export function createShutdown(opts: ShutdownOptions): () => Promise<void> {
       }
       try { await opts.flush(); } catch { /* never block exit */ }
       clearTimeout(timer);
-      opts.exit(0);
+      exitOnce();
     })();
     return started;
   };

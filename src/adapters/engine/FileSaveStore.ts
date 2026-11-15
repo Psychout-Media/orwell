@@ -331,9 +331,11 @@ export class FileSaveStore implements UserSaveStore {
     // save since boot" nor "directory is new": flag it so that save (or the shutdown flush) syncs it.
     this.markDirDirty(st);
     const seq = st.parentSeq;
-    void this.syncDir(this.dataDir)
-      .then(() => { if (st.parentSeq === seq) st.parentDirty = false; })
-      .catch(() => { /* stays flagged for the shutdown flush / next save */ });
+    try {
+      void this.syncDir(this.dataDir)
+        .then(() => { if (st.parentSeq === seq) st.parentDirty = false; })
+        .catch(() => { /* stays flagged for the shutdown flush / next save */ });
+    } catch { /* a sync that throws before returning a promise must not replace the save's own error; the flag stays set */ }
   }
 
   private stateFor(dir: string, existing: number[], background: boolean): DirState {

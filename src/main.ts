@@ -1,4 +1,4 @@
-import { composeRuntime, createShutdown, DEFAULT_HARD_EXIT_MS, DEFAULT_DRAIN_MS } from "./composition/runtime";
+import { composeRuntime, createShutdown, DEFAULT_HARD_EXIT_MS, DEFAULT_DRAIN_MS, DEFAULT_FLUSH_MS } from "./composition/runtime";
 import { startHttpMcp } from "./adapters/mcp/HttpMcpServer";
 import { createEmbeddingsStatusTracker } from "./adapters/embedding/embeddingsStatus";
 
@@ -77,7 +77,7 @@ const knownUser = (user: string): boolean => runtime.knownUser(user);
 const httpServer = startHttpMcp({ resolve: runtime.registry.resolver() }, port, { token, adminToken, requireUser, knownUser, embeddingsStatus, timeOfDayStatus: runtime.timeOfDayStatus, warmStatus: runtime.warmStatus, saveStatus: runtime.saveDurability, shuttingDown: runtime.isShuttingDown }, host);
 // Clean shutdown (no background timers to tear down — the runtime is purely turn-driven). ORW-404: the
 // per-save fsync runs in the background, so flush the newest un-synced save of every user (async,
-// bounded to 10 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
+// bounded to 6 s) before exiting. A hard-exit timer (12 s) is armed BEFORE the flush, so a stalled
 // disk can never hold the process in the handler; the flush is non-blocking so the timer can fire.
 const shutdown = createShutdown({
   // Stop taking NEW tool calls with a clear, retryable answer (503 engine-restarting) instead of closing the
@@ -87,7 +87,7 @@ const shutdown = createShutdown({
   onStart: () => runtime.beginShutdown(),
   drain: () => httpServer.drainInflight(DEFAULT_DRAIN_MS),
   drainMs: DEFAULT_DRAIN_MS,
-  flush: () => runtime.flushSavesAsync(10_000),
+  flush: () => runtime.flushSavesAsync(DEFAULT_FLUSH_MS), // drain (5 s) + flush (6 s) fit inside the hard exit (12 s)
   exit: (code) => process.exit(code),
   hardExitMs: DEFAULT_HARD_EXIT_MS,
 });
