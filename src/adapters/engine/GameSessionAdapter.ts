@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -507,6 +507,8 @@ const PREWARM_PLAYER_NAME = "(pre-warm)";
 const DAY_LEDGER_MAX_EVENTS = 12;
 const DAY_LEDGER_EVENT_CHARS = 240;
 const DAY_LEDGER_TEXT_CHARS = 900;
+/** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
+const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:|data:)|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -5291,6 +5293,12 @@ export class GameSessionAdapter implements GameSession {
    * reads no soul/Vault number.
    */
   /** ADR 0006 — the awake set for the command port's witness/overhear grounding (`null` ⇒ clock off ⇒ everyone up). */
+  /** ORW-401: the in-game day + part-of-day window for relationship-fold metering; `null` ⇒ clock off (headless) ⇒ legacy. */
+  foldWindowKey(): string | null {
+    if (!this.timeOfDayEnabled || !this.messageMode || this.live?.playedGame !== true || !this.live.timeOfDay) return null; // played games in message mode only
+    return `d${this.live.dayNumber ?? 1}:${this.live.timeOfDay}`;
+  }
+
   awakeIds(): ReadonlySet<EntityId> | null {
     return this.awakeNow();
   }
@@ -5517,9 +5525,11 @@ export class GameSessionAdapter implements GameSession {
    * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house`). `voters` only on
    * eviction night: the living house minus the HOH and the nominees (distinct, so a nominee who is also the HOH is not taken off twice).
    */
-  private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number } {
+  private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number; asleep?: number } {
     const living = this.livingIds();
-    const out: { room: number; others: number; house: number; voters?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
+    const out: { room: number; others: number; house: number; voters?: number; asleep?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
+    const asleep = this.asleepNpcs(); // ORW-386: the narrator's "N asleep" is checked against this same number the HUD list carries (absent with the clock off)
+    if (asleep) out.asleep = asleep.length;
     if (this.phase === "eviction") {
       const off = new Set<EntityId>([...(this.ceremony.hoh ? [this.ceremony.hoh] : []), ...this.ceremony.nominees]);
       out.voters = living.filter((id) => !off.has(id)).length;
@@ -5527,7 +5537,61 @@ export class GameSessionAdapter implements GameSession {
     return out;
   }
 
-  whereabouts(): WhereaboutsView | null {
+  /**
+   * ORW-386 - can the player walk into `room` right now? The HOH room is the Head of Household's own room: a door that stays shut to anyone else (the player included,
+   * unless the player holds the crown). The diary room is its own beat, never a walk-in. Every other room is open.
+   */
+  private roomAccessFor(room: Room, me: EntityId): "open" | "closed" {
+    if (room === "diary-room") return "closed";
+    if (room === "hoh-room" && this.ceremony.hoh !== me) return "closed";
+    return "open";
+  }
+
+  /**
+   * ORW-386 - the house search (a read-side projection, no rng, no fold): every living houseguest in the house exactly once - the room they are in and whether the player can
+   * walk in, or that they are asleep. A room and an access word only (what a person could learn walking the house), never an activity, a companion or a number about anyone.
+   * `gathered` = a whole-house event is on (everyone is in the player's room).
+   */
+  private houseSearchView(me: EntityId, myRoom: Room, gathered: boolean): HouseSearchView {
+    const awake = this.awakeNow();
+    const notHere = this.notYetArrived();
+    const houseguests: HouseSearchEntry[] = [];
+    const byRoom = new Map<Room, NamedRef[]>();
+    for (const id of this.presenceActive()) {
+      if (id === me) continue;
+      const name = this.nameOf(id);
+      // The staged premiere entrances hide the houseguests who have not walked in yet from EVERY room (A9), while the house count still includes them: say so, so a search never reads "nowhere".
+      if (notHere?.has(id)) { houseguests.push({ id, name, status: "arriving", fact: "has not walked into the house yet (still to enter at the premiere)" }); continue; }
+      const where = gathered ? myRoom : this.presence!.get(id);
+      if (awake && !awake.has(id)) {
+        houseguests.push(where && where.startsWith("bedroom-")
+          ? { id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` }
+          : { id, name, status: "asleep", fact: "asleep, in bed" });
+        continue;
+      }
+      if (!where) continue; // never expected (every active houseguest is seated); the invariant test pins it
+      const access = this.roomAccessFor(where, me);
+      const label = roomDisplayName(where);
+      houseguests.push(where === myRoom
+        ? { id, name, status: "here", room: where, access, fact: `here with you in the ${label}` }
+        : { id, name, status: "awake", room: where, access, fact: access === "closed" ? `${label}, door closed` : `${label}, open - the player can walk in` });
+      (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
+    }
+    const asleep = this.asleepNpcs();
+    return {
+      houseguests,
+      ...(asleep ? { asleepCount: asleep.length } : {}),
+      rooms: [...byRoom].map(([room, present]) => ({ room, access: this.roomAccessFor(room, me), present })),
+    };
+  }
+
+  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null {
+    const v = this.whereaboutsBase();
+    if (!v || !opts?.search || !this.house) return v;
+    return { ...v, search: this.houseSearchView(this.house.player.id, v.room as Room, !!v.houseEvent) };
+  }
+
+  private whereaboutsBase(): WhereaboutsView | null {
     if (!this.house || !this.presence) return null;
     this.gatherForCeremony();
     const me = this.house.player.id;
@@ -5686,6 +5750,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.trackedSightings || !this.presence) return [];
     const me = this.house?.player.id;
     const myRoom = me ? this.presence.get(me) : undefined;
+    const awake = this.awakeNow();
     const out: Array<{ id: EntityId; sighting: TrackedSighting; age: number; stale: boolean }> = [];
     for (const [id, s] of [...this.trackedSightings]) {
       const age = this.presenceTickCount - s.tick;
@@ -5694,6 +5759,7 @@ export class GameSessionAdapter implements GameSession {
       // room) ⇒ the closed-door belief is resolved by direct observation; drop it.
       const live = this.presence.get(id);
       if (myRoom && live && (live === myRoom || areVisible(myRoom, live))) { this.trackedSightings.delete(id); continue; }
+      if (awake && !awake.has(id)) continue; // ORW-386: someone who has turned in is in bed, not behind the door the player last saw them go into (kept, not deleted: it is read again when they wake)
       out.push({ id, sighting: s, age, stale: age >= PRIVACY.staleAfterTicks });
     }
     return out;
@@ -10136,6 +10202,7 @@ export class GameSessionAdapter implements GameSession {
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
+      if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
     }
@@ -11313,6 +11380,8 @@ export class GameSessionAdapter implements GameSession {
     const text = String(req.text ?? "")
       .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DAY_LEDGER_TEXT_CHARS);
     if (!text) return { accepted: false, reason: "empty" };
+    if (DAY_SUMMARY_ERROR_TEXT.test(text)) return { accepted: false, reason: "error-text" };
+    const stale = (t?: string) => !t || DAY_SUMMARY_ERROR_TEXT.test(t); // a stored error (a save from before ORW-387) may be replaced once
     const day = Math.trunc(req.day);
     if (req.tier === "week") {
       const [a, b] = req.coversDays ?? [day, day];
@@ -11321,7 +11390,7 @@ export class GameSessionAdapter implements GameSession {
       if (covered.length === 0) return { accepted: false, reason: "unknown-day" };
       const existing = ledger.find((d) => d.tier === "week" && d.day === day);
       if (existing) {
-        if (!existing.text) existing.text = text; // idempotent: the first authored text stands (never overwritten)
+        if (stale(existing.text)) existing.text = text; // idempotent: the first authored text stands (never overwritten)
       } else {
         ledger.push({
           day, tier: "week", coversDays: [from, to], text,
@@ -11332,7 +11401,7 @@ export class GameSessionAdapter implements GameSession {
     } else {
       const entry = ledger.find((d) => d.tier === "day" && d.day === day);
       if (!entry) return { accepted: false, reason: "unknown-day" };
-      if (!entry.text) entry.text = text; // idempotent: the first authored text stands
+      if (stale(entry.text)) entry.text = text; // idempotent: the first authored text stands
     }
     this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
     return { accepted: true };

@@ -7808,6 +7808,7 @@ async def _stream_agent_loop_impl(
                 _ledger_dc = await _oe_dc.day_ledger(user=owner)
                 if _ledger_dc:
                     messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
+                    orwell_day_condense.kickoff_heal(owner, _ledger_dc)  # ORW-387: a closed day with no real summary is re-authored in the background
         except Exception as _e_dc:
             logger.debug("[day-condense] prompt view skipped: %s", _e_dc)
 
@@ -8880,7 +8881,7 @@ async def _stream_agent_loop_impl(
                         # not reply-channel body text.
                         yield f'data: {json.dumps({"error": str(err_msg)})}\n\n'
                 except json.JSONDecodeError:
-                    if round_num == 1:
+                    if round_num == _first_stream_round:
                         yield chunk
             elif chunk.startswith("event: "):
                 # Forward error events to frontend as visible text

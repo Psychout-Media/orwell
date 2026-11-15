@@ -230,9 +230,11 @@ __UD_WAITED=0
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   __ud_rc=0
   update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
-  if [[ $__ud_rc -eq 10 ]]; then   # ORW-398: a later run went ahead and already did this update
-    echo "==> nothing to do: superseded by an update run that already went ahead."
-    exit 0
+  if [[ $__ud_rc -eq 10 ]]; then
+    # ORW-398/406: a later run went ahead. It may have FAILED and reverted, so do not assume it did this update:
+    # the under-lock check below exits only if HEAD is at the requested ref AND the services were restarted on it.
+    echo "==> a later update run went ahead; checking under the lock that it finished this update"
+    __ud_rc=0
   fi
   [[ $__ud_rc -eq 0 ]] || exit "$__ud_rc"
   # A run that waited and then woke must not redo work another run finished (checked after the lock, below).
@@ -901,6 +903,7 @@ if [[ "$ROLLBACK" -eq 1 ]]; then
   if restore_build "$RB_SHA" "$RB_DIST" && verify_runnable; then
     play_follow_rollback || true
     systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
+    type update_restarted_sha_write >/dev/null 2>&1 && update_restarted_sha_write "$(git -C "$APP_DIR" rev-parse HEAD)"
     echo "==> rollback complete (now on ${RB_SHA}; the restored build was verified to start)."
     exit 0
   fi
@@ -921,10 +924,12 @@ trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP   # route signals
 
 # ORW-398: a run that waited out a live game and woke up must not redo work another run finished. Under the lock
 # (so any run that went ahead has finished), if the checkout is already at the requested ref there is nothing to
-# build and nothing to restart: exit 0 before anything is touched.
+# build and nothing to restart: exit 0 before anything is touched. ORW-406: "already at the ref" also needs the
+# restart marker to equal HEAD (the services run it); otherwise carry on, and the restart scope falls back to both.
 if [[ "${__UD_WAITED:-0}" == 1 && $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]]; then
   if fetch_target >/dev/null 2>&1 \
-     && [[ "$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null)" == "$(git -C "$APP_DIR" rev-parse --verify --quiet "${TARGET}^{commit}" 2>/dev/null)" ]]; then
+     && [[ "$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null)" == "$(git -C "$APP_DIR" rev-parse --verify --quiet "${TARGET}^{commit}" 2>/dev/null)" ]] \
+     && [[ "$(git -C "$APP_DIR" rev-parse HEAD 2>/dev/null)" == "$(type update_restarted_sha_read >/dev/null 2>&1 && update_restarted_sha_read)" ]]; then
     echo "==> the code is already at the requested ref ($(git -C "$APP_DIR" rev-parse --short HEAD)) — a deferred run has nothing to do; not restarting"
     [[ -z "${__UD_PROGRESS:-}" ]] || ops_progress_done "already up to date"
     exit 0
@@ -1616,13 +1621,10 @@ else
   # ORW-406: restart only what changed, and swap between turns.
   RESTART_SCOPE=both
   if type update_restart_scope >/dev/null 2>&1; then
-    RESTART_SCOPE="$(update_restart_scope "$(git -C "$APP_DIR" diff --name-only "$PREV_SHA" HEAD 2>/dev/null || true)")"
+    # Scope from what the services are RUNNING (the marker), not from the previous checkout.
+    RESTART_SCOPE="$(update_scope_since_restart "$APP_DIR")"
   fi
-  if [[ "$RESTART_SCOPE" == none ]]; then
-    echo "==> only front-end static files changed — no restart needed (they are served with revalidation)."
-    trap - EXIT
-    ops_progress_done "updated — no restart needed"
-  else
+  if true; then
     if [[ "$FORCE" != 1 ]] && type update_wait_for_no_turn >/dev/null 2>&1; then
       update_wait_for_no_turn "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/turns-in-flight"
     fi
@@ -1634,6 +1636,7 @@ else
       echo "==> restart services (${ENGINE_SVC}, ${FRONTEND_SVC})"
       systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"
     fi
+    type update_restarted_sha_write >/dev/null 2>&1 && update_restarted_sha_write "$(git -C "$APP_DIR" rev-parse HEAD)"
     trap - EXIT
     ops_progress_done "updated — services restarting"
   fi

@@ -450,7 +450,7 @@ describe("whereabouts (0049) — the Vault-free presence read", () => {
     const allowed = [...required, "zone", "conspicuous", "counts"];
     expect(required.every((k) => k in w)).toBe(true);
     if (w.counts) {
-      expect(Object.keys(w.counts).every((k) => ["room", "others", "house", "voters"].includes(k))).toBe(true);
+      expect(Object.keys(w.counts).every((k) => ["room", "others", "house", "voters", "asleep"].includes(k))).toBe(true);
       for (const v of Object.values(w.counts)) expect(Number.isInteger(v)).toBe(true);
       expect(w.counts.room).toBe(w.counts.others + 1); // the player is always counted
     }

@@ -308,24 +308,60 @@ _update_defer_now() { date +%s; }
 _update_defer_sleep() { sleep "$1" & wait $!; }   # `wait` so a trapped INT/TERM/HUP fires at once, not after the sleep
 
 # ── ORW-406: restart only what changed, and swap between turns ───────────────────────────────────────────
-# update_restart_scope <newline-separated changed paths> -> none | frontend | both
-#   none      every changed path is under frontend/static/ (the app serves static files with no-cache
-#             revalidation, ETag from mtime, so the new files are picked up with no restart and no version bump)
-#   frontend  every changed path is under frontend/ (the engine bundle and its deps are untouched)
+# update_restart_scope <newline-separated changed paths> -> frontend | both
+#   frontend  every changed path is under frontend/ (the engine bundle and its deps are untouched). This includes
+#             frontend/static/: constants.py parses static/js/theme.js once per process and the build id is cached,
+#             so a static-only change still needs the front end restarted (cheap; the engine is left alone).
 #   both      anything else (src/, package*.json, deploy/, units, ...) or an empty/unknown list: the old behaviour
 update_restart_scope() {
-  local paths="$1" p scope=none n=0
+  local paths="$1" p n=0
   while IFS= read -r p; do
     [[ -n "$p" ]] || continue
     n=$((n + 1))
     case "$p" in
-      frontend/static/*) ;;
-      frontend/*) [[ "$scope" == none ]] && scope=frontend ;;
+      frontend/*) ;;
       *) echo both; return 0 ;;
     esac
   done <<<"$paths"
   (( n > 0 )) || { echo both; return 0; }
-  echo "$scope"
+  echo frontend
+}
+
+# The SHA the services were last (re)started on, in the ROOT-owned run dir (the same place as the supersede token;
+# data/ belongs to the service user). The restart scope is computed from THIS, not from the previous checkout:
+# a run that committed new code and died before the restart must not hide that code from the next run.
+update_restarted_sha_read() {
+  local f="${ORWELL_RUN_DIR}/restarted-sha" v
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 0
+  v="$(head -c 80 "$f" 2>/dev/null | tr -d '\r\n' || true)"
+  [[ "$v" =~ ^[0-9a-f]{40}$ ]] && printf '%s' "$v"
+  return 0
+}
+update_restarted_sha_write() {
+  local dir="$ORWELL_RUN_DIR" tmp
+  [[ -L "$dir" ]] && return 0
+  mkdir -p "$dir" 2>/dev/null || return 0
+  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi
+  tmp="$(umask 022; mktemp "${dir}/.restarted-sha.XXXXXX" 2>/dev/null)" || return 0
+  printf '%s\n' "$1" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  mv -fT "$tmp" "${dir}/restarted-sha" 2>/dev/null || rm -f "$tmp"
+  return 0
+}
+update_restarted_sha_clear() { rm -f "${ORWELL_RUN_DIR}/restarted-sha" 2>/dev/null || true; return 0; }
+
+# update_scope_since_restart <git dir> -> frontend | both: what changed between what the services are running
+# (the marker) and HEAD. A missing/unreadable marker, a commit that is not in the checkout, or one that is not an
+# ancestor of HEAD (a shallow checkout cannot tell, so there an existing commit is accepted: the tree diff below
+# is correct for any two commits) means both.
+update_scope_since_restart() {
+  local g="$1" m
+  m="$(update_restarted_sha_read)"
+  [[ -n "$m" ]] || { echo both; return 0; }
+  git -C "$g" cat-file -e "${m}^{commit}" 2>/dev/null || { echo both; return 0; }
+  if ! git -C "$g" merge-base --is-ancestor "$m" HEAD 2>/dev/null; then
+    [[ "$(git -C "$g" rev-parse --is-shallow-repository 2>/dev/null)" == true ]] || { echo both; return 0; }
+  fi
+  update_restart_scope "$(git -C "$g" diff --name-only --no-renames "$m" HEAD 2>/dev/null || true)"
 }
 
 # 0 when the front end's turns-in-flight file says one or more turns are running, else 1. A missing, unreadable,

@@ -158,3 +158,19 @@ def test_refresh_parser_sums_setup_call_teardown_per_file():
         "noise 1.0s elsewhere\n"
     )
     assert parse_log(log) == {"test_x.py": 14.0, "test_y.py": 3.0}
+
+
+def test_every_browser_test_file_has_a_measured_duration():
+    """ORW-390: a browser file with no entry in _ci_durations.json is weighed as test count x mean seconds-per-test, which badly underweighs the slow
+    real-stack files; 21 such files piled into one shard (fe-browser-tests 5/5: 13-14 min against 4-9 for the rest, cancelled at the 15 min limit)."""
+    from conftest import _module_launches_browser  # the same structural rule that adds the `browser` marker
+    here = os.path.dirname(os.path.abspath(__file__))
+    table = load_durations()
+    missing = [n for n in _real_test_files() if _module_launches_browser(os.path.join(here, n)) and n not in table]
+    assert not missing, (
+        f"browser test file(s) with no entry in frontend/tests/_ci_durations.json: {missing}. Unweighed files make fe-browser-tests shards lopsided. "
+        "To add the entry, run this ONE command from the repo root (it takes a green main run's `--durations=0` logs, one per fe-browser-tests job: "
+        "`gh api repos/Psychout-Media/orwell/actions/jobs/<job id>/logs > leg-N.log`): `python3 frontend/tests/_ci_refresh_durations.py leg-1.log leg-2.log leg-3.log leg-4.log leg-5.log`. "
+        "A brand-new file is in no main log yet: add `\"<file name>\": <seconds>` to frontend/tests/_ci_durations.json by hand (a conservative 15 per test is fine) "
+        "and let the next refresh replace it with the measured time."
+    )
