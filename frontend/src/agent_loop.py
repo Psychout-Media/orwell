@@ -8883,7 +8883,7 @@ async def _stream_agent_loop_impl(
                         # not reply-channel body text.
                         yield f'data: {json.dumps({"error": str(err_msg)})}\n\n'
                 except json.JSONDecodeError:
-                    if round_num == 1:
+                    if round_num == _first_stream_round:
                         yield chunk
             elif chunk.startswith("event: "):
                 # Forward error events to frontend as visible text
