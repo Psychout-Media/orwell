@@ -317,3 +317,12 @@ def test_a_held_or_failed_time_write_does_not_switch_the_time_dimension_off():
     assert not _faith_turn_advanced_time([{"tool": "advanceGame", "output": '{"error": "no such beat"}', "exit_code": 0}])
     assert _faith_turn_advanced_time([{"tool": "turnIn", "output": '{"status": {"timeOfDay": "morning"}}', "exit_code": 0}])
     assert _faith_turn_advanced_time([{"tool": "nap", "output": "", "exit_code": 0}])
+
+
+def test_the_prompt_does_not_offer_the_time_dimension_without_a_time_block():
+    """review of #2741: a skipped time-advancing turn or a failed board read leaves the projection without `time`; the judge must not be asked to check time claims against nothing."""
+    j = FaithfulnessJudge(lambda p: "")
+    offered = lambda p: p.split("Decide three things:")[1].split("classification:")[0]
+    assert "'time'" not in offered(j.build_prompt("narr", {"board": {"week": 1}}))
+    assert "'time'" in offered(j.build_prompt("narr", {"board": {"week": 1}, "time": {"partOfDay": "night"}}))
+    assert "'time'" in offered(j.build_prompt("narr"))  # no projection given: the in-game list as before

@@ -228,10 +228,13 @@ FAITH_CLASSES = ("open", "closed", "none")
 FAITH_LEVERS = ("none", "adopt", "reframe", "reground")
 
 
-def dimensions_for(context: str = "in-game") -> tuple:
+def dimensions_for(context: str = "in-game", projection: Any = None) -> tuple:
     """The dimensions a junction may use. ORW-434: `time` is judged only in-game (the casting interview has no time block, and its
-    prompt does not define the dimension), so it is never offered or accepted there."""
-    return tuple(d for d in FAITH_DIMENSIONS if d != "time") if context == "casting" else FAITH_DIMENSIONS
+    prompt does not define the dimension), so it is never offered or accepted there. Review of #2741: the PROMPT does not offer it when the caller passed a projection that
+    carries no `time` block (a skipped time-advancing turn, a failed board read), so the judge is not asked to check time claims against nothing. `projection=None` (not given) keeps the in-game list.
+    The reply check stays context-only on purpose: a time verdict that still arrives without a time block is discarded downstream (`_faith_check` and the retro drain in agent_loop)."""
+    no_time = context == "casting" or (isinstance(projection, dict) and "time" not in projection)
+    return tuple(d for d in FAITH_DIMENSIONS if d != "time") if no_time else FAITH_DIMENSIONS
 
 
 @dataclass(frozen=True)
@@ -437,7 +440,7 @@ class FaithfulnessJudge:
             "faithful to that projection. You never receive hidden/secret state, so treat any "
             "assertion that goes BEYOND the projection as a potential leak, never as fact.\n"
             "Decide three things:\n"
-            f"  dimension: one of {list(dimensions_for(context))} or \"none\" — {dim_help}\n"
+            f"  dimension: one of {list(dimensions_for(context, projection))} or \"none\" — {dim_help}\n"
             f"  classification: one of {list(FAITH_CLASSES)} — open=texture the engine never decided "
             "(a detail/flavor/minor social beat); closed=an actual outcome or state the engine owns.\n"
             f"  lever: one of {list(FAITH_LEVERS)} — none=faithful; adopt=an OPEN-set slip, make the "
