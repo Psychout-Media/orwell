@@ -14,7 +14,7 @@ npm run ci:fast
 
 **You never hand-edit a duration table in a feature PR** (`ci/test-durations.json`, `ci/bdd-durations.json`, `frontend/tests/_ci_durations.json`). A new test file or feature with no entry is weighed by the splitter (the median for unit files and features, 15 s per test for a browser file) and listed as a warning in the job summary (`added by this change` or `by main`); an entry for a deleted file is ignored. None of these fails a PR. The tables are only balancing hints and are refreshed from main's own run logs by `npm run ci:refresh-durations`, `ci/refresh-test-durations.mjs` and `frontend/tests/_ci_refresh_durations.py` (a scheduled refresh PR is the follow-up, ORW-413 PR 3).
 
-It is `ci/fast-checks.sh`. Every check in it also still runs in its full lane; nothing was moved out of a lane's coverage.
+It is `ci/fast-checks.sh`. Not every check in it is repeated in a slower lane: the typecheck, the py_compile of the front end and the ES-module syntax check were moved out of the slower lanes and run only here. Nothing lost coverage, because the full suite still includes the `fast-checks` job and `ci-gate` requires it.
 
 **Shard counts** (the lane is as long as its longest leg): `test-unit` 8 legs (it collects the coverage too, see below; balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.
 
@@ -70,7 +70,7 @@ When the guard goes red, either fix the test and remove the marker, or delete th
 
 ## Flakes are quarantined the day they are seen (ORW-415)
 
-A flake that is seen goes into quarantine that same day, with a Plane card (rule 3 above; the 7-day clock then runs). Do not wait for it to fail a second PR: tonight one flaky test and one job time limit cost six re-runs. `scripts/ci/quarantine-flakes.py` reads the flaky-test lines the lanes already write (tests that passed only on the automatic retry) from the last N completed main runs and prints, per test, in how many runs it flaked plus the patch that adds the marker. It changes nothing by itself: open the card, put its number in place of `ORW-NNN`, apply the patch, open the PR.
+This is a PROPOSAL of the ORW-415 coordinator that tightens the ORW-229 rule Kevin approved (ORW-229 let a flake be fixed instead of quarantined, and rule 3 above quarantines only failures that are red on main); it stands once Kevin or Ryne confirms it. Until then, fixing the flake the same day is also acceptable. The proposal: a flake that is seen goes into quarantine that same day, with a Plane card (rule 3 above; the 7-day clock then runs). Do not wait for it to fail a second PR: tonight one flaky test and one job time limit cost six re-runs. `scripts/ci/quarantine-flakes.py` reads the flaky-test lines the lanes already write (tests that passed only on the automatic retry) from the last N completed main runs and prints, per test, in how many runs it flaked plus the patch that adds the marker. It changes nothing by itself: open the card, put its number in place of `ORW-NNN`, apply the patch, open the PR.
 
 ## CI tools for agents (`scripts/ci/`, ORW-415)
 
@@ -89,7 +89,7 @@ Status: NOT enabled. The coordinator turns it on; nothing here is applied by mer
 
 1. Save the current ruleset, so the rollback is exact:
    `gh api repos/Psychout-Media/orwell/rulesets/18797902 > ruleset-18797902.before.json`
-2. Build the new body: the existing rule plus a `merge_queue` rule. A ruleset update replaces the whole `rules` array, so the `required_status_checks` rule must be sent again unchanged. Write `ruleset-18797902.after.json`:
+2. Build the new body: the existing rule plus a `merge_queue` rule. A ruleset update replaces the whole `rules` array, so the `required_status_checks` rule must be sent again unchanged. Build `ruleset-18797902.after.json` from the saved copy so no live field is lost (the strict policy, `do_not_enforce_on_create` and the check list stay exactly as saved): `jq '{name, target, enforcement, conditions, bypass_actors, rules: (.rules + [<the merge_queue rule below>])}' ruleset-18797902.before.json > ruleset-18797902.after.json`. The result is expected to look like this (compare it with your file before step 3):
    ```json
    {
      "name": "main-required-ci",

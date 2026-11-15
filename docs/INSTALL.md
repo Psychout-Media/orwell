@@ -125,7 +125,7 @@ touched.**
 ## Manual / non-Proxmox install
 
 ```bash
-# Authenticate the clone once with your PAT, then keep the token OUT of git config
+# The repository is public, so the first clone needs no token. The PAT is for LATER update pulls: keep it OUT of git config
 # (the credential helper reads it from data/.env at fetch time — set it up below).
 git -c credential.helper='!f(){ echo username=x-access-token; echo password=$GIT_TOKEN; };f' \
   clone https://github.com/Psychout-Media/orwell.git /opt/orwell && cd /opt/orwell
