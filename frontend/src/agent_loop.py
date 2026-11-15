@@ -5834,8 +5834,10 @@ def _split_sentences_keep_dotted_times(text: str) -> list:
     for p in parts:
         if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):
             out[-1] += p
-        elif out and re.search(r"\b[ap]\.m\.$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z]", p):
-            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it)
+        elif out and re.search(r"\d\s?[ap]\.$", out[-1], re.IGNORECASE) and re.match(r"m(?![\w'])", p):
+            out[-1] += p  # review of #2751: "3 a.m and ..." / "9 p.m, Sam ..." (no closing period): the "m" belongs to the time
+        elif out and re.search(r"\b[ap]\.m\.?$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z,;:)]", p):
+            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it); so does the punctuation that follows it ("At 9 p.m., Sam left.")
         else:
             out.append(p)
     return out

@@ -191,3 +191,17 @@ def test_orw437_dotted_and_to_form_times_are_dropped(setting, clocky):
 def test_orw437_the_new_forms_leave_durations_alone(fine):
     from src.zero_clocks import sentence_states_zero_clock_time_raw as raw  # the detector itself (the loop's other closed-set screens read "five to ten" as a vote tally)
     assert not raw(fine)
+
+
+@pytest.mark.parametrize("chunk,shown", [
+    ("The kettle ticked. At 9 p.m., Sam yawned. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+    ("The kettle ticked. It was 9 p.m; Sam yawned. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+    ("The kettle ticked. Around 3 a.m and later, Sam yawned. Rain tapped the glass. The door clicked shut. ", "The kettle ticked. Rain tapped the glass. The door clicked shut. "),
+])
+def test_orw437_punctuation_after_a_dotted_time_goes_with_it_and_stored_text_agrees(setting, chunk, shown):
+    """review of #2751: ", Sam yawned." was left behind as an orphan part when "At 9 p.m." was dropped, and "3 a.m and" (no closing period) was split inside the time. Three true sentences stay,
+    in the shown text AND the stored text (real `_guard_stream_chunk` + `_apply_mirror_ops`)."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + shown
