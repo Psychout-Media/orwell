@@ -121,6 +121,8 @@ module.exports = {
       "docs/features/0141-private-orientation-disclosure.feature",
       "docs/features/0138-the-player-dossier.feature",
       "docs/features/0140-publicity-priced-promises.feature",
+      "docs/features/0142-deal-depth-ii.feature",
+      "docs/features/0143-casual-assurances.feature",
       "docs/features/0139-the-booth-has-receipts.feature",
       "docs/features/0144-visible-mood-never-opposite.feature",
       "docs/features/0145-npc-agendas.feature",
