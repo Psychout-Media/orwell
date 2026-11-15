@@ -36,7 +36,7 @@ def _prompts(n):
 def _gen(monkeypatch, delay=0.05, fail=(), code="http-500"):
     live = {"n": 0, "max": 0}
 
-    async def fake(prompt, user, reference_png=None):
+    async def fake(prompt, user, reference_png=None, keep_identity=True):
         live["n"] += 1
         live["max"] = max(live["max"], live["n"])
         await asyncio.sleep(delay)
@@ -70,7 +70,7 @@ def test_cast_of_six_runs_three_at_once(env, monkeypatch):
     m = P.load_manifest("u")
     assert sorted(m) == ["npc_1", "npc_2", "npc_3", "npc_5", "npc_6"]  # the failure is isolated, no lost write
     assert all(e["promptVersion"] == P.PORTRAIT_PROMPT_VERSION for e in m.values())
-    assert P.PORTRAIT_PROMPT_VERSION == 2
+    assert P.PORTRAIT_PROMPT_VERSION == 3
 
 
 def test_all_six_manifest_entries_and_progress(env, monkeypatch):
@@ -81,7 +81,7 @@ def test_all_six_manifest_entries_and_progress(env, monkeypatch):
     out = _run(P.generate_and_store(_prompts(6), "u", record_beats=False))
     assert out["generated"] == 6 and len(ticks) == 6
     m = P.load_manifest("u")
-    assert len(m) == 6 and all(e["promptVersion"] == 2 for e in m.values())
+    assert len(m) == 6 and all(e["promptVersion"] == P.PORTRAIT_PROMPT_VERSION for e in m.values())
 
 
 def test_429_drops_rest_of_run_to_one_at_a_time(env, monkeypatch):
@@ -92,7 +92,7 @@ def test_429_drops_rest_of_run_to_one_at_a_time(env, monkeypatch):
     calls = {"n": 0}
     live2 = {"n": 0, "max": 0}
 
-    async def fake(prompt, user, reference_png=None):
+    async def fake(prompt, user, reference_png=None, keep_identity=True):
         calls["n"] += 1
         live2["n"] += 1
         live2["max"] = max(live2["max"], live2["n"])
