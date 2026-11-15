@@ -29,7 +29,12 @@ NOTE_MAX_CHARS = 160
 PARTIES_MAX = 8
 MAX_ENTRIES_PER_TURN = 3
 MAX_RESOLUTIONS_PER_TURN = 2
+# ``lapsed`` is ENGINE-ONLY (ORW-448): the model may never set it, so it is not here and ``clean_resolutions`` drops it.
 _RESOLUTIONS = ("kept", "broken", "withdrawn")
+# ORW-448: the front end's own report on a DUE entry's one judgment pass (not resolutions, never model words): the pass ran, or the model call failed.
+_SETTLE_DONE = "offered"
+_SETTLE_FAILED = "unjudged"
+DUE_LINE_MAX_CHARS = 300
 _MIN_NARRATION_CHARS = 80
 NARRATION_MAX_CHARS = 3600  # review of #2692: 1800 skipped anything promised late in a long turn
 
@@ -57,11 +62,21 @@ _SYSTEM = (
 )
 
 
-def _system_prompt() -> str:
+# Appended ONLY on a turn that has DUE entries (ORW-448), so a turn with nothing due sends exactly the prompt it always did.
+_DUE_SYSTEM = (
+    " DUE: a public ceremony just happened, and the DUE list holds open entries that involve someone who took part in it, each with "
+    "the PUBLIC RESULT line the show announced. For each DUE entry, answer in resolutions with kept, broken or withdrawn and a "
+    "short note ONLY when that public result line (or the narration) clearly settles the promise or claim; otherwise leave the "
+    "entry out. Each DUE entry is offered for judgment once. The PUBLIC RESULT line is all you know of the ceremony: never guess at "
+    "anything else about it, and never say how anyone voted."
+)
+
+
+def _system_prompt(due: bool = False) -> str:
     """The extraction prompt behind the repo's untrusted-data fence: the narration quotes the player's own words, so
     text addressed to the extractor is data to judge, never an instruction (same fence as the other extractions)."""
     from src.agent_loop import _EXTRACTION_UNTRUSTED_FENCE
-    return _EXTRACTION_UNTRUSTED_FENCE + _SYSTEM
+    return _EXTRACTION_UNTRUSTED_FENCE + _SYSTEM + (_DUE_SYSTEM if due else "")
 
 
 def _record_full(user: Optional[str]) -> None:
@@ -178,9 +193,10 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
     return out
 
 
-def clean_resolutions(raw: object, open_ids: set[str]) -> list[dict]:
-    """Resolutions from an extraction reply: only for entries that were offered as open, a status in kept/broken/withdrawn,
-    a short one-line note, no repeats, at most ``MAX_RESOLUTIONS_PER_TURN``."""
+def clean_resolutions(raw: object, open_ids: set[str], limit: int = MAX_RESOLUTIONS_PER_TURN) -> list[dict]:
+    """Resolutions from an extraction reply: only for entries that were offered as open, a status in kept/broken/withdrawn
+    (never ``lapsed``: engine-only), a short one-line note, no repeats, at most ``limit`` (``MAX_RESOLUTIONS_PER_TURN`` plus
+    the number of DUE entries on a turn that has some)."""
     items = raw.get("resolutions") if isinstance(raw, dict) else None
     out: list[dict] = []
     done: set[str] = set()
@@ -192,7 +208,7 @@ def clean_resolutions(raw: object, open_ids: set[str]) -> list[dict]:
             continue
         done.add(eid)
         out.append({"entryId": eid, "status": status, "note": _norm(note, NOTE_MAX_CHARS)})
-        if len(out) >= MAX_RESOLUTIONS_PER_TURN:
+        if len(out) >= limit:
             break
     return out
 
@@ -214,6 +230,21 @@ def _parse(reply: str) -> object:
     return None
 
 
+async def _settle_due(due: list[dict], resolve: Optional[WriteFn], how: str) -> None:
+    """Tell the engine how a due entry's judgment pass ended: ``offered`` (judged: drop the flag) or ``unjudged`` (the model call
+    failed: keep it for the next turn; the engine drops it after three failed offers). Best effort: a failed report only leaves
+    the flag standing, which is the safe side."""
+    if resolve is None:
+        return
+    for o in due[:3]:
+        try:
+            await resolve({"entryId": o["id"], "status": how, "note": ""})
+        except Exception as e:
+            logger.debug(f"[open-ledger] due settle skipped: {e}")
+            from src import log_rings
+            log_rings.record_soft_failure("open-ledger:due-settle-failed", e)
+
+
 async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, write: WriteFn,
                               elsewhere: Optional[list[dict]] = None, open_items: Optional[list[dict]] = None,
                               resolve: Optional[WriteFn] = None, owner: Optional[str] = None) -> int:
@@ -223,21 +254,35 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
     entries for those here. Returns how many writes the engine ACCEPTED. Never raises."""
     try:
         people = [p for p in present if isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"]]
-        if not people or len(narration or "") < _MIN_NARRATION_CHARS:
+        items = [o for o in (open_items or []) if isinstance(o, dict) and isinstance(o.get("id"), str) and isinstance(o.get("text"), str)]
+        # ORW-448: entries the engine flagged DUE after a public ceremony (each with its public result line). With any due, the
+        # extraction runs even when nobody is present or the narration is short; with none, the early returns are as they were.
+        due = [o for o in items if isinstance(o.get("due"), str) and o["due"].strip()] if resolve is not None else []
+        if not due and (not people or len(narration or "") < _MIN_NARRATION_CHARS):
             return 0
         away = [p for p in (elsewhere or []) if isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"]]
-        opens = [o for o in (open_items or []) if isinstance(o, dict) and isinstance(o.get("id"), str) and isinstance(o.get("text"), str)]
-        roster = "\n".join(f"- {p['id']}: {str(p.get('name') or 'someone')[:60]}" for p in people)
+        due_ids = {o["id"] for o in due}
+        opens = [o for o in items if o["id"] not in due_ids]
+        roster = "\n".join(f"- {p['id']}: {str(p.get('name') or 'someone')[:60]}" for p in people) or "- (nobody is in the player's room)"
         user = f"PRESENT:\n{roster}\n(the player is: player)\n"
         if away:
             user += "\nELSEWHERE:\n" + "\n".join(f"- {p['id']}: {str(p.get('name') or 'someone')[:60]}" for p in away[:15]) + "\n"
+        if due:
+            user += "\nDUE:\n" + "\n".join(
+                f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]} | PUBLIC RESULT: {' '.join(str(o['due']).split())[:DUE_LINE_MAX_CHARS]}" for o in due[:3]) + "\n"
         if opens and resolve is not None:
             user += "\nOPEN:\n" + "\n".join(f"- {o['id']}: {o['text'][:TEXT_MAX_CHARS]}" for o in opens[:5]) + "\n"
-        reply = await llm([
-            {"role": "system", "content": _system_prompt()},
-            {"role": "user", "content": f"{user}\nTHE NARRATION:\n{narration[:NARRATION_MAX_CHARS]}\n\nJSON:"},
-        ])
+        try:
+            reply = await llm([
+                {"role": "system", "content": _system_prompt(bool(due))},
+                {"role": "user", "content": f"{user}\nTHE NARRATION:\n{(narration or '')[:NARRATION_MAX_CHARS]}\n\nJSON:"},
+            ])
+        except Exception:  # failsoft-ok: reraised-to-capture-failed (the outer handler records it; this only keeps the due flag for the next turn)
+            await _settle_due(due, resolve, _SETTLE_FAILED)  # the one chance is not spent: the flag stays for the next turn (the engine bounds the offers)
+            raise  # the outer handler records the failure, as before
         parsed = _parse(reply or "")
+        if due and parsed is None:
+            await _settle_due(due, resolve, _SETTLE_FAILED)  # an unreadable reply judged nothing
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
         refused_full = False
@@ -267,17 +312,25 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
             _record_full(owner)  # once per turn, however many writes were refused
         if weak:
             _record_weak_grounding(owner, weak, len(entries), lowest, dropped=(mode == "strict"))
-        if resolve is not None and opens:
-            for r in clean_resolutions(parsed, {o["id"] for o in opens}):
+        if resolve is not None and (opens or due):
+            judged: set[str] = set()
+            unwritten: set[str] = set()  # a due resolution the engine write failed on: judged, but not recorded, so it keeps its flag
+            for r in clean_resolutions(parsed, {o["id"] for o in opens} | due_ids, MAX_RESOLUTIONS_PER_TURN + len(due)):
                 try:
                     res = await resolve(r)
                 except Exception as e:
                     logger.debug(f"[open-ledger] resolve skipped: {e}")
                     from src import log_rings
                     log_rings.record_soft_failure("open-ledger:resolve-failed", e)
+                    unwritten.add(r["entryId"])
                     continue
                 if isinstance(res, dict) and res.get("accepted") is True:
                     accepted += 1
+                    judged.add(r["entryId"])
+        if due and parsed is not None:
+            # ORW-448: every due entry the pass did not resolve was still judged once (the answer was "leave it out"): drop its flag.
+            await _settle_due([o for o in due if o["id"] not in judged and o["id"] not in unwritten], resolve, _SETTLE_DONE)
+            await _settle_due([o for o in due if o["id"] in unwritten], resolve, _SETTLE_FAILED)
         return accepted
     except Exception as e:  # fail-soft: the ledger is enrichment, never the turn
         logger.debug(f"[open-ledger] skipped: {e}")

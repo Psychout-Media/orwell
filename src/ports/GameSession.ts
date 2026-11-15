@@ -1176,10 +1176,11 @@ export interface RecordOpenLedgerReq {
 }
 
 /** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
-export interface ResolveOpenLedgerReq { entryId: string; status: "kept" | "broken" | "withdrawn"; note: string }
+/** `offered` / `unjudged` (ORW-448) are the front end's report on a DUE entry's judgment pass, not resolutions: `offered` = judged (drops the flag), `unjudged` = the model call failed (keeps it, at most 3 times). `lapsed` is engine-only and is refused. */
+export interface ResolveOpenLedgerReq { entryId: string; status: "kept" | "broken" | "withdrawn" | "offered" | "unjudged"; note: string }
 export interface RecordOpenLedgerResolutionResult { accepted: boolean; reason?: string }
 /** One open entry that matters to whoever is here now (player-visible fields only). */
-export interface OpenLedgerItemView { id: string; text: string; speaker: string; parties: string[]; about?: string; kind: string }
+export interface OpenLedgerItemView { id: string; text: string; speaker: string; parties: string[]; about?: string; kind: string; /** ORW-448: present on an entry DUE for one judgment: the public result line of the ceremony that just happened. */ due?: string }
 
 export interface RecordOpenLedgerResult {
   accepted: boolean;
