@@ -2419,7 +2419,7 @@ export function advanceClockPerMessage(s: LiveSeasonState, hours: number): void 
 }
 
 /** ORW-116 (b): record that the night in front of the CURRENT beat's day-break has been crossed (by the player's own turn-in). */
-function markNightGateCrossed(s: LiveSeasonState): void {
+export function markNightGateCrossed(s: LiveSeasonState): void {
   switch (s.beat) {
     case "hoh-competition": s.firstNightPassed = true; if (s.week > 1) s.preHohNightPassed = true; break; // ORW-258: week 1+ keeps the original firstNightPassed write (headless sims byte-identical); week 2+ also arms its own gate
     case "nominations": s.preNomsNightPassed = true; break;
