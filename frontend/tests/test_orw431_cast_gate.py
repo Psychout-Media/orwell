@@ -122,7 +122,7 @@ def test_forty_seeded_casts_never_accept_an_inconsistent_card():
         n, w, _ = _go(run(cast, reply))
         for hid, prof in w.items():
             npc = next(c for c in cast if c["id"] == hid)
-            assert gate.card_codes(prof, npc, cast) == [], (seed, hid)
+            assert not [c for c in gate.card_codes(prof, npc, cast) if gate.is_blocking(c)], (seed, hid)
             accepted += 1
         assert n == len(w)
     assert accepted > 0
@@ -277,3 +277,46 @@ def test_own_job_role_noun_does_not_make_the_sentence_about_someone_else():
     p2 = {"biography": "Lydia runs a gym in Macon. She trains every client herself." + FILLER}
     gate.mend(p2, ident_card)
     assert p2["identityConcept"].endswith("she has already won in her head.")
+
+
+# ---- a card whose authoring call failed: picked up again, the final card has the name ----------------------
+def test_a_call_that_fails_for_one_card_is_listed_for_backfill_and_the_reauthored_card_has_the_name():
+    cast = [npc_of(f"npc:{i}", f"{f} Smith{i}", "woman", 30) for i, f in enumerate(["Ava", "Bea", "Cy"])]
+    for c in cast:
+        c["biography"] = "Runs compliance for a regional credit union but spends lunch hours at the climbing gym and the library."
+    failing = {"on": True}
+
+    async def run1():
+        written = {}
+
+        async def llm(messages):
+            hid = next(n["id"] for n in cast if f'"name": "{n["name"]}"' in messages[1]["content"])
+            if failing["on"] and hid == "npc:1":
+                raise RuntimeError("authoring stream exceeded its 30.0s wall-clock ceiling")
+            return profile_json(f"{[c for c in cast if c['id'] == hid][0]['name'].split()[0]} runs a shop in Macon. She fixes engines every day." + FILLER)
+
+        async def write(profile):
+            written[profile["houseguestId"]] = profile
+            return {"accepted": True}
+        n = await ca.author_cast(cast, llm, write, user="t431b")
+        return n, written, llm, write
+    n, w, llm, write = _go(run1())
+    assert n == 2 and "npc:1" not in w
+    cards = [{"id": c["id"], "authored": c["id"] in w, "biography": c["biography"], "identityConcept": c["identityConcept"],
+              "physicalCharacteristics": c["physicalCharacteristics"]} for c in cast]
+    assert ca.unauthored_ids("u", cards) == ["npc:1"]                      # the failed card is in the backfill's list (and the readiness wait)
+    assert gate.card_codes({}, cast[1], cast).count("bio-no-own-name") == 1  # the floor biography reads as a fragment
+    failing["on"] = False
+    ca._ATTEMPTS.clear() if hasattr(ca, "_ATTEMPTS") else None
+    n2 = _go(ca.author_cast([cast[1]], llm, write, user="t431b2"))        # what the backfill does
+    assert n2 == 1 and w["npc:1"]["biography"].startswith("Bea")
+    assert "bio-no-own-name" not in gate.card_codes(w["npc:1"], cast[1], cast)
+
+
+def test_none_notable_is_not_a_repeated_mark():
+    g = gate.SeasonGate("t")
+    cast = [npc_of(f"npc:{i}", f"{f} Smith", "man", 30) for i, f in enumerate(["Ava", "Bo"])]
+    for n in cast:
+        n["physicalCharacteristics"]["distinguishingMark"] = "none notable beyond a faint scar"
+        g.accept(n["id"], {}, n, cast)
+    assert "rep-mark" not in g.codes

@@ -105,6 +105,9 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
     ident = card.get("identityConcept")
     if isinstance(bio, str) and bio.strip() and not ends_cleanly(bio):
         codes.append("bio-no-stop")
+    first = str(card.get("name") or "").split(" ")[0]
+    if isinstance(bio, str) and bio.strip() and first and not re.search(r"\b%s\b" % re.escape(first), bio, re.I):
+        codes.append("bio-no-own-name")  # non-blocking: a floor biography (written with no name) reads as a fragment
     v = card.get("voice")
     if not (isinstance(v, dict) and v and v.get("lexicon")):
         codes.append("voice-missing")
@@ -151,7 +154,7 @@ class SeasonGate:
                "subject": _subject(bio, card, cast),
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
-               "mark": _norm(phys.get("distinguishingMark"))}
+               "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
             if rec[key] and any(r.get(key) == rec[key] for o, r in self.registry.items() if o != hid):

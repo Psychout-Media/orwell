@@ -1904,7 +1904,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         f"The skeleton's background and identityConcept are FACTS about {name}: the biography must agree with them "
         f"(same job, same years of service, same workplace) and may add to them, never contradict them.\n"
         f"The biography is about {name} and no one else: write it about {name} by that exact name (or by role), "
-        f"and never give them any other first name.\n"
+        f"and never give them any other first name. Use the first name at least once in the biography.\n"
         f"Write {name}'s secret bible as JSON now — their own independent life, no protagonist."
     )
     return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
