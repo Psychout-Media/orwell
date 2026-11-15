@@ -2,6 +2,20 @@
 
 How the GitHub checks run lives in `.github/workflows/ci.yml` (the per-job comments explain each lane). This page holds the rules people have to follow.
 
+## One run per PR, and the fast first signal (ORW-413)
+
+**A draft PR runs the full suite, the same as a ready one.** ORW-218 ran only a fast tier on a draft and the full suite when you marked it ready, so every PR paid two rounds and a draft's `ci-gate` was red by design. Now one run covers the PR: marking a draft ready starts nothing (`ready_for_review` is no longer a trigger), and the run that proved the last commit is the one that counts. `ci-gate` still fails closed: a job that applies to the change and was skipped fails it, and so would any run that was not the full suite.
+
+**`fast-checks` is the first signal.** It finishes in about a minute and no other job waits for it: typecheck, the source-pinned guard tests (the CI wiring pins, the F-3 window ratchet, no-new-bespoke-menu, the Vault-Wall dependency test), the Vault word scans that fail on a public string (the 0110 vote-deduction and 0023 consequence features), py_compile and the ES-module syntax check of the front end. Run the same set yourself before every push:
+
+```
+npm run ci:fast
+```
+
+It is `ci/fast-checks.sh`. Every check in it also still runs in its full lane; nothing was moved out of a lane's coverage.
+
+**Shard counts** (the lane is as long as its longest leg): `test-unit` and `coverage-shard` 8 legs each (balanced by `ci/test-durations.json`, refresh it with `npm run ci:refresh-durations` or from `test-unit` logs), `bdd` 3 legs (`ci/bdd-shard.mjs`, balanced by `ci/bdd-durations.json`; each leg prints `[bdd-shard] <feature> <seconds>` for the refresh), `fe-browser-tests` 10 legs (`frontend/tests/_ci_durations.json`). Every test file or feature still runs in exactly one leg; a unit test per table proves it.
+
 ## The flaky-test rule (ORW-229)
 
 A flaky test is one that fails and then passes on the same code. Flakes waste everyone's time and teach people to ignore red, so we handle them the same way every time. Kevin approved this rule on 2026-11-06 (Plane ORW-229).

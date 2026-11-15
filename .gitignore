@@ -44,3 +44,4 @@ orwell-debug-bundle-unsealed*.json
 .vitest-reports/
 __pycache__/
 .vitest-durations/
+.bdd-report.json
