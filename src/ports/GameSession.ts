@@ -447,6 +447,8 @@ export interface GameStateView {
    * told to name no other time. Absent pre-game / clock dormant => byte-identical.
    */
   clockLabel?: string;
+  /** ORW-377: zero-clocks narration view only (set by `getMomentPrompt` when `zeroClocks`, which also drops `clockLabel`): the part of the day + Day N ("small hours, Day 5"), never minutes. Never on the HUD / getGameState view. */
+  clockBand?: string;
   /**
    * ORW-345: the in-game DAY number behind `clockLabel` ("..., Day 4" -> 4), public and Vault-free, present under the same gate as `clockLabel`. The front end stamps it onto every saved chat row (`metadata.game_day`) so the
    * closed-day condensing of the narrator's prompt (ORW-271) can tell which rows belong to a closed day. It was only on `gameStatus`, never on this view, so on the live path no row was ever stamped and nothing condensed.
@@ -1074,6 +1076,10 @@ export interface MomentPromptReq {
    * terminal Show Brief for this turn. Absent ⇒ the response is byte-identical to before (no `showBrief`).
    */
   brief?: ShowBriefReq;
+  /**
+   * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
+   */
+  zeroClocks?: boolean;
 }
 
 /**
@@ -1841,6 +1847,14 @@ export interface WhereaboutsView {
    */
   turnsHere: number;
   companions: Array<{ id: EntityId; name: string; turnsHere: number }>;
+  /**
+   * ORW-376 - the engine-owned HEADCOUNTS, the player INCLUDED, so the narrator quotes a number instead of counting a list of the
+   * OTHER people's names (which is always one short of "us"). `room` = everyone in the player's room (the player + `others`);
+   * `others` = the houseguests with the player; `house` = everyone still in the game (the player included); `voters` = on
+   * eviction night, who casts a ballot (the house minus the HOH and the nominees). Counts of people the player can already
+   * see - Vault-free; a read-side projection only (no rng, no fold).
+   */
+  counts?: { room: number; others: number; house: number; voters?: number };
   /**
    * TRACKED OCCUPANCY (0077 Phase 2 — the privacy payoff): who the player BELIEVES is behind a closed
    * door, learned by WATCHING them head in (never the live map). Each carries the believed room (+ zone),

@@ -1850,6 +1850,10 @@
             <div class="admin-toggle-sub" style="margin-bottom:8px">A live in-game clock (morning to late night): the house thins as houseguests turn in for the night, staying up late dulls the next competition, and a "Nightfall" gadget shows who's still up. Applies to the live game immediately - no restart.</div>
           </div>
           <div class="admin-card">
+            <h2 style="display:flex;align-items:center;gap:6px;"><span aria-hidden="true" style="opacity:0.6;flex-shrink:0">🕰</span>Zero clocks in the house<span style="flex:1"></span><label class="ow-switch"><input type="checkbox" id="set-zeroClocksToggle" checked><span class="ow-switch-track"></span></label></h2>
+            <div class="admin-toggle-sub" style="margin-bottom:8px">Zero clocks in the house (times shown as parts of the day). Like the real show, the narrator and houseguests say "late night" or "the small hours", never "3:15am", and any clock-time sentence is dropped. The game still keeps its internal clock for the schedule and sleep. Applies immediately - no restart.</div>
+          </div>
+          <div class="admin-card">
             <h2 style="display:flex;align-items:center;gap:6px;"><span aria-hidden="true" style="opacity:0.6;flex-shrink:0">📊</span>Token Economy<span style="flex:1"></span></h2>
             <div class="admin-toggle-sub" style="margin-bottom:8px">Control model token spend on live-game turns (ADR 0010). Reasoning effort per call class is the dominant cost lever; the OpenRouter provider object steers routing &amp; caching; tiering trades cost to keep a long game's memory. Applies immediately - no restart. Watch spend at <code>/api/admin/token-economy</code>.</div>
             <div class="settings-col">
@@ -2799,10 +2803,12 @@
 <script src="/static/js/orwellMonogram.js"></script>  <!-- M2-2: the designed monogram + role-badge kit (ONE component for cast window / rail chips / decision cards) -->
 <script src="/static/js/orwellFactLine.js"></script>  <!-- M4-1: the shared fact-line renderer (fact text + pathway/source line) — consumed by the dossier window here and the M4-2 Memory Wall later -->
 <script src="/static/js/orwellDossier.js"></script>  <!-- M4-1: the houseguest dossier (public persona + met/last-seen + witnessed history + public deals/alliances, Vault-free) — composes the OrwellWindow kit -->
+<script src="/static/js/orwellPortraitViewer.js"></script>  <!-- ORW-359: full-size photo viewer (one modal kit window; opened from the dossier photo and the cast-tile expand button) -->
 <script src="/static/js/orwellCast.js"></script>  <!-- BB cast roster: portrait + name + status sidebar panel (Vault-free, 0051) -->
 <script src="/static/js/orwellCastPin.js"></script>  <!-- L12: pin the cast roster into the control-room gadget rail as a compact two-portrait gadget -->
 <script src="/static/js/orwellMemoryWall.js"></script>  <!-- M4-2: the Memory Wall (knowledge journal) — what the player knows, grouped by houseguest, each fact with its pathway (Vault-free; no number ever crosses) -->
 <script src="/static/js/orwellAvatar.js"></script>  <!-- BB account avatar: paints the finalized headshot into the user circle(s) (G27) -->
+<script src="/static/js/orwellChatNames.js"></script>  <!-- ORW-359: tap a name or face in the transcript to open that houseguest's cast card (ONE delegated listener + a settled-row name pass; game build only) -->
 <script src="/static/js/orwellChatFaces.js"></script>  <!-- OWN-8: transcript sender faces — player headshot / NPC roster portrait / Production monogram beside every chat row's role label (game build only; ONE observer seam covers history/live/resume/mirror) -->
 <script src="/static/js/orwellHeadshot.js"></script>  <!-- BB casting headshot studio: pre-game portrait upload + 3-option AI flow (G26/G27) -->
 <script src="/static/js/orwellRoomStrip.js"></script>  <!-- M3-1: the room strip — portrait chips for who's in your CURRENT room, mounted above the composer (Vault-free; idea 1) -->

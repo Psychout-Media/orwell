@@ -1,5 +1,5 @@
 import type {
-  EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq, ConsequenceDirection,
+  EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq,
 } from "../../ports/EngineCommands";
 import type { EventStore } from "../../ports/EventStore";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
@@ -18,7 +18,6 @@ import { isPrivateRoom, zonesSameEarshot, type Occupancy, type Zone } from "../.
 import { StaleBeatError, EngineRefusal } from "../../domain/errors";
 import { IMAGE_BUDGET } from "../../engine/imageConstants";
 import { computeExchangeAccounting, type ExchangeAccounting } from "../../engine/producerRead";
-import { kindFoldSignal, directionFoldSignal, type FoldSignal } from "../../engine/trajectory";
 
 const INTERACTION_KINDS: ReadonlySet<string> = new Set<InteractionType>([
   "alliance", "gossip", "conflict", "bonding", "strategy", "showmance", "betrayal",
@@ -66,8 +65,6 @@ export class EngineCommandsAdapter implements EngineCommands {
    * everyone is up ⇒ byte-identical to the prior behavior.
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
-  /** ORW-336 (0087) - the NPC->player momentum sink: one Vault-free fold signal per NPC a player scene touched. Unwired => inert. */
-  private playerTrajectorySink?: (npc: EntityId, signal: FoldSignal) => void;
   private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
   private heardAboutMeSink?: (h: { teller: EntityId; listeners: EntityId[]; nature: "targeting" | "betrayal" }) => void;
   private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }) => void;
@@ -182,11 +179,6 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** Wire the house occupancy (0049) so recorded scenes gain co-present witnesses + adjacent overhears. */
   setPresenceProvider(fn: () => Occupancy | null): void {
     this.presenceProvider = fn;
-  }
-
-  /** ORW-336 - wire the NPC->player trajectory so a recorded player scene feeds each present NPC's hidden momentum toward the player. Unwired => inert. */
-  setPlayerTrajectorySink(fn: (npc: EntityId, signal: FoldSignal) => void): void {
-    this.playerTrajectorySink = fn;
   }
 
   /** P4g - wire the NPC memory ledger so a recorded betrayal / conflict / kindness scene is remembered by the NPCs it touched. Unwired => inert. */
@@ -529,21 +521,6 @@ export class EngineCommandsAdapter implements EngineCommands {
         for (const e of aboutEdges) {
           if (e.direction === "more-threatened" && moved.has(e.holder)) this.playerCampaignFold(e.about, e.holder);
         }
-      }
-    }
-    // ORW-336 (0087 open question 4): a player-WITNESSED scene (player- OR NPC-initiated) also feeds each present NPC's hidden momentum TOWARD the player.
-    // DIRECTION only: the model's proposed `consequence.edges[].direction` for that NPC (emphasis is never read), else the
-    // scene `kind`'s implied direction; the AMOUNT is the engine's own (`deriveTrajectory` + TRAJECTORY_CONSTANTS). Rides
-    // the same witness set as the folds above; the session gates it to played games, so headless sims never reach it.
-    if (this.playerTrajectorySink && witnessSet.includes(PLAYER)) {
-      const dirsBy = new Map<EntityId, ConsequenceDirection[]>();
-      for (const e of genEdges ?? []) dirsBy.set(e.toward, [...(dirsBy.get(e.toward) ?? []), e.direction]);
-      const kindOk = !!req.kind && INTERACTION_KINDS.has(req.kind);
-      for (const w of witnessSet) {
-        if (w === PLAYER) continue;
-        const dirs = dirsBy.get(w);
-        if (dirs) this.playerTrajectorySink(w, directionFoldSignal(dirs));
-        else if (kindOk) this.playerTrajectorySink(w, kindFoldSignal(req.kind as InteractionType));
       }
     }
     // L27: index the scene's SUMMARY into each houseguest's semantic recall memory (0024) — every

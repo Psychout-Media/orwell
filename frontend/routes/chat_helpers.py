@@ -834,6 +834,8 @@ def engine_held_note(held) -> str:
     except (TypeError, ValueError):
         mins = None
     when = "later today" if mins is None or mins <= 0 else (f"in about {mins} minutes" if mins < 90 else f"in about {round(mins / 60)} hours")
+    if _zc_on() and mins is not None and mins > 0:
+        when = "very soon" if mins <= 30 else "later on"  # ORW-377: no minutes/hours counts - the house has no clocks
     return (f"Production hasn't called the house in yet: the {nxt} is not due until {when}, so nothing advanced. Stay in the scene, keep the houseguests talking, "
             "do NOT narrate it starting, and do not call advanceGame again until the production calls the house in.")
 
@@ -1130,11 +1132,20 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
     here = ", ".join(present) if present else "no other houseguest"
     nearby_line = ("\nAdjacent rooms right now: " + "; ".join(nearby_bits) + ". Those people STAY in their rooms this turn."
                    if nearby_bits else "")
+    counts = _engine_counts_of(whereabouts)
+    count_line = ""
+    if counts:
+        count_line = (("In this room: 1 person, you (you are alone). " if counts["others"] == 0 else
+                       f"In this room: {counts['room']} people, you included (you + {counts['others']} houseguest{'s' if counts['others'] != 1 else ''}); "
+                       f"a houseguest here saying \"all of us\" means {counts['room']}. ")
+                      + f"In the house: {counts['house']} people remain, you included. "
+                      + (f"Voting tonight: {counts['voters']} people (the house minus the HOH and the nominees). " if counts["voters"] is not None else "")
+                      + "QUOTE these numbers exactly or use no number at all; never count the room yourself. ")
     if present:
-        roster_line = (f"HARD ROSTER (this turn): the ONLY people in the room with the player are: {here}. "
+        roster_line = (count_line + f"HARD ROSTER (this turn): the ONLY people in the room with the player are: {here}. "
                        "Nobody else speaks, acts, reacts, laughs, overhears or is described as present this turn - a name that is not on this list may be MENTIONED in conversation, never seen or heard in the room. ")
     else:
-        roster_line = ("HARD ROSTER (this turn): the player is alone - nobody else is in the room. Nobody else speaks, acts, reacts, overhears or is described as present this turn; "
+        roster_line = (count_line + "HARD ROSTER (this turn): the player is alone - nobody else is in the room. Nobody else speaks, acts, reacts, overhears or is described as present this turn; "
                        "a name may be MENTIONED in conversation, never seen or heard in the room. ")
     # ORW-311 (Coordinator ruling 2026-11-12): a houseguest the engine says has TURNED IN for the night is in their bed. The roster only said who is in the player's room; with an empty roster the narrator still
     # voiced sleeping houseguests in the kitchen at 2:44am. Names only (the same public `asleep` list the HUD and the Show Brief carry); they may be mentioned, never seen or heard awake.
@@ -2771,14 +2782,65 @@ _CLAIM_HYPOTHETICAL_RE = re.compile(
 _CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
 
 
-def _committed_claim(regex, text: str) -> bool:
+# ORW-374: a RULES SPEECH ("Last person standing on the platform is the new Head of Household.") and future/conditional talk ("the winner will be the new
+# HOH") describe how the crown is decided, not a crowning. Judged on the WHOLE sentence before the match (a comma in a rules speech must not hide the
+# cue), and ONLY for the two HOH-crown detectors (`_CLAIM_NEW_HOH_RE`, `_CLAIM_SELF_HOH_WIN_RE`). A sentence-initial "Last/First <..> standing/to <..> <is|becomes|wins>"
+# is the rule form; a bare "last one standing" mid-sentence is a RESULT phrase ("Hoh Person, last one standing, is the new HOH") and is NOT a cue.
+_CLAIM_RULE_CUE_RE = re.compile(
+    r"\b(?:will\s+(?:be|become|win|take|earn|get)|would|shall|going\s+to|gonna|to\s+become|stands?\s+to|the\s+rules?|whoever|whichever)\b"
+    r"|(?:'|\u2019)ll\s+be\b",
+    re.IGNORECASE,
+)
+_RULE_SUBJECT_ANY_RE = re.compile(   # with-article form ("The last one standing is ...")
+    r"^\W*(?:the\s+)?(?:last|first)\s+(?:\w+\s+){0,3}?(?:standing|remaining|left|to\s+\w+)\b[^.:;\u2014\u2013]*\b(?:is|becomes|wins|gets|earns)\b",
+    re.IGNORECASE,
+)
+_RULE_SUBJECT_RE = re.compile(   # article-less rule form, judged on the WHOLE sentence (the cue sits AFTER the "last one standing" match)
+    r"^\W*(?:last|first)\s+(?:\w+\s+){0,3}?(?:standing|remaining|left|to\s+\w+)\b[^.:;\u2014\u2013]*\b(?:is|becomes|wins|gets|earns)\b",
+    re.IGNORECASE,
+)
+
+
+def _rule_subject(text: str, sent: str) -> bool:
+    """ORW-374: `sent` (a sentence of `text`) is the RULE form "Last person standing ... is the new HOH". The bare form always counts; the article form
+    ("The last houseguest standing is ...") is the narrator's recap voice and counts only INSIDE a double-quoted speech (the host reading the rules)."""
+    if _RULE_SUBJECT_RE.search(sent):
+        return True
+    if not _RULE_SUBJECT_ANY_RE.search(sent):
+        return False
+    pos = (text or "").find(sent)
+    head = (text or "")[:max(pos, 0)]
+    return (head.count('"') % 2 == 1) or (head.count("\u201c") > head.count("\u201d"))
+
+
+_VOCATIVE_PREFIX_RE = re.compile(
+    r"^[\s\"\u201c\u2018'*_\[(@]*([A-Z][\w.'\u2019-]*(?:\s+[A-Z][\w.'\u2019-]*){0,2})\]?[\s\"\u201d*_,:\u2014\u2013-]*$")
+
+
+def _self_crown_is_vocative(sentence, m, after) -> bool:
+    return _vocative_to_real_hoh(sentence, m.start(), after)
+
+
+def _vocative_to_real_hoh(sentence: str, start: int, after) -> bool:
+    """ORW-374: True when the text before a self-crown match ("<Name> - you are the new Head of Household") is a bare vocative naming the engine's REAL
+    HOH: the engine's own truth voiced to the crowned houseguest, not a claim about the player. A different name (or none) is not."""
+    hoh = str((after or {}).get("hohName") or "").strip()
+    if not hoh:
+        return False
+    m = _VOCATIVE_PREFIX_RE.match(sentence[:start])
+    return bool(m and _name_matches(m.group(1), hoh))
+
+
+def _committed_claim(regex, text: str, cue_re=None, skip=None, after=None) -> bool:
     """ORW-80 — True when `regex` matches `text` at least once OUTSIDE a hypothetical. A match whose OWN clause
     (the text after the last comma, semicolon, colon or dash before it) carries a conditional lead-in
     (`_CLAIM_HYPOTHETICAL_RE`) is talk about what might happen, not a claim that it did. A lead-in in an earlier
     clause does not cover a later claim ("Wondering if it was fair, you watch as the houseguest wins the veto"),
     and a committed claim in another sentence, or with the conditional after it ("she wins the veto, if you can
     believe it"), still counts. The match's own first word is checked too: a name-capturing pattern reads
-    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match."""
+    "Whoever wins the veto" as a NAME + "wins the veto", so the lead-in sits inside the match.
+    ORW-374: `cue_re` (e.g. `_CLAIM_RULE_CUE_RE`) is also tested against the WHOLE sentence prefix; `skip=(sentence, match, after)->bool`
+    exempts a match the caller can show is not a claim (a vocative to the engine's real HOH)."""
     if not text:
         return False
     for sentence in re.split(r"(?<=[.!?\n])", text):
@@ -2786,8 +2848,13 @@ def _committed_claim(regex, text: str) -> bool:
             words = m.group(0).split(None, 1)
             clause = _CLAIM_CLAUSE_SPLIT_RE.split(sentence[:m.start()])[-1]
             lead = re.sub(r"\s+", " ", clause + (words[0] if words else ""))   # one space, so the as/even look-behinds hold
-            if not _CLAIM_HYPOTHETICAL_RE.search(lead):
-                return True
+            if _CLAIM_HYPOTHETICAL_RE.search(lead):
+                continue
+            if cue_re is not None and (cue_re.search(sentence[:m.start()] + (words[0] if words else "")) or _rule_subject(text, sentence)):
+                continue
+            if skip is not None and skip(sentence, m, after):
+                continue
+            return True
     return False
 
 
@@ -3260,7 +3327,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #      (the exact live-red-team failure: "you won HOH" narrated with zero tool calls, an NPC actually
     #      won). Fires only when the board KNOWS the player is not HOH (`playerIsHoh is False`, never on
     #      the unknown/None case — an old-style signature without the field can't trip it).
-    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text) and after.get("playerIsHoh") is False:
+    if not desync and _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, _CLAIM_RULE_CUE_RE, _self_crown_is_vocative, after) and after.get("playerIsHoh") is False:
         desync = "a phantom HEAD OF HOUSEHOLD win (the engine shows you are NOT the Head of Household)"
     # (4b) A2: the model crowns a NAMED houseguest HOH who is NOT the one the engine crowned → the wrong
     #      identity on the throne. Scoped to the HOH beat AND a crown that really committed THIS turn
@@ -3278,7 +3345,7 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     #     Scoped to HOH phases (like the tally branch): outside the HOH beat, "the new HOH…" /
     #     "wins HOH" reads as reflection or flavor, not a committed crown — policing it elsewhere
     #     would rail-correct creative prose (ADR 0005 principle #1).
-    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text)
+    if not desync and (_committed_claim(_CLAIM_NEW_HOH_RE, text, _CLAIM_RULE_CUE_RE)
           and str(after.get("phase") or "").lower().startswith(_HOH_PHASES)
           and after.get("hoh") == before.get("hoh")
           and not (before.get("hoh") is None and after.get("hoh") is not None)):
@@ -4835,6 +4902,8 @@ def _unsettled_competition_result(text: str, live: dict, before: dict) -> Option
         for clause in _COMP_CLAUSE_SPLIT_RE.split(sent):
             if not clause.strip() or _COMP_HYPOTHETICAL_RE.search(clause):
                 continue
+            if _CLAIM_RULE_CUE_RE.search(clause) or _rule_subject(text, sent):  # ORW-374: a rules speech is not a result
+                continue
             if walked:  # ORW-273: round-level cues (a crowd reaction, who dropped) are the rounds the engine walked; only a WINNER / crown / title claim is ahead of the engine
                 _hit = any(not _COMP_ROUND_CUE_RE.fullmatch(m.group(0)) for m in _CLAIM_COMP_RESULT_RE.finditer(clause))
             else:
@@ -5092,6 +5161,17 @@ def _veto_possession_without_holder(text: str, live: dict) -> Optional[str]:
 # Live replay 4 (turns 59 and 94): asked what time it was, the narrator answered "It's 8:10am on day 3/4" - a canned line copied from its own earlier reply - while the engine clock read about noon (and the beat it named,
 # "the nomination ceremony this afternoon", was long over). A present-tense "it's H:MM am/pm" that disagrees with the engine's clock by more than the tolerance is a fabrication of a closed-set fact the engine states exactly.
 _CLOCK_STATEMENT_RE = re.compile(r"\b(?:it(?:'s|\u2019s|\s+is)|the\s+time\s+is|right\s+now\s+it(?:'s|\u2019s))\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b(?:[^.\n]{0,30}?\bday\s+(\d{1,2})\b)?", re.IGNORECASE)
+from src.zero_clocks import narrator_clock as _zc_narrator_clock, zero_clocks_on as _zc_on, sentence_states_zero_clock_time_raw as _zc_raw  # ORW-377
+
+
+def sentence_states_zero_clock_time(text: str) -> bool:
+    """ORW-377: with the zero-clocks setting ON, does this sentence state a clock time (the pre-emission guard drops it)? OFF / any hiccup => False (nothing dropped)."""
+    try:
+        return bool(text) and _zc_on() and _zc_raw(text)
+    except Exception:
+        return False
+
+
 _CLOCK_LABEL_RE = re.compile(r"^(\d{1,2}):(\d{2})(am|pm),\s*Day\s+(\d+)$")
 _CLOCK_TOLERANCE_MIN = 45
 
@@ -5116,7 +5196,7 @@ def _clock_misstated(text: str, live: dict) -> Optional[str]:
         diff = min(diff, 1440 - diff)
         said_day = int(m.group(4)) if m.group(4) else None
         if diff > _CLOCK_TOLERANCE_MIN or (said_day is not None and said_day != eng_day):
-            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + lab + " (use exactly that)"
+            return "the time as " + m.group(0).strip() + " - the engine's clock reads " + _zc_narrator_clock(lab) + " (use exactly that)"
     return None
 
 
@@ -5171,7 +5251,7 @@ def _time_of_day_words_misstated(text: str, live: dict) -> Optional[str]:
             lo, hi = span
             if lo - _CLOCK_TOLERANCE_MIN <= eng < hi + _CLOCK_TOLERANCE_MIN:
                 continue
-            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + lab + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
+            return "the light as '" + m.group(0).strip() + "' - the engine's clock reads " + _zc_narrator_clock(lab) + ", which is " + _tod_period_of(eng) + " (set the scene to the real time of day)"
     return None
 
 
@@ -5264,8 +5344,8 @@ def _sentence_has_closed_set_claim(text: str) -> bool:
     return bool(
         _committed_claim(_CLAIM_EVICTED_RE, text)
         or _committed_claim(_CLAIM_WINNER_RE, text)
-        or _committed_claim(_CLAIM_NEW_HOH_RE, text)
-        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text)   # A2: "you won HOH" — a self-crown the board can deny
+        or _committed_claim(_CLAIM_NEW_HOH_RE, text, _CLAIM_RULE_CUE_RE)
+        or _committed_claim(_CLAIM_SELF_HOH_WIN_RE, text, _CLAIM_RULE_CUE_RE)   # A2: "you won HOH" — a self-crown the board can deny
         or _committed_claim(_CLAIM_SELF_VETO_WIN_RE, text)  # A2: "you won the veto" — same
         or _committed_claim(_CLAIM_TALLY_RE, text)
         or _committed_claim(_CLAIM_EVICT_RESULT_RE, text)  # LIVE-7 (#540): self-counted majority/short
@@ -6052,7 +6132,7 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
-            "reads " + (str(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
+            "reads " + (_zc_narrator_clock(lab) if lab else tod) + " (" + tod + "). The night is NOT over until the engine moves it: when the player "
             "goes to bed, call the `turnIn` tool FIRST and voice the morning only from what it returns.")
         logger.warning("[orwell] pre-emission guard HELD an unbacked-morning claim for user=%s - engine clock still %s", user, tod)
         return False
@@ -6103,7 +6183,7 @@ async def screen_streamed_clock_time(user, sentence: str) -> bool:
             return True
         _stash_overclaim_reground(
             user,
-            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + lab + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
+            "RE-GROUND ON THE CLOCK - you stated the time as " + m.group(0).strip() + ", but the engine clock reads " + _zc_narrator_clock(lab) + ". If you name a time use exactly that; never narrate a different hour or a morning the clock has not reached.")
         logger.warning("[orwell] pre-emission guard HELD a misstated clock time for user=%s - engine clock %s", user, lab)
         return False
     except Exception as e:
@@ -6269,7 +6349,7 @@ def _sentence_has_headcount_claim(text: str) -> bool:
     """Cheap synchronous pre-filter (no engine read): does `text` state a headcount at all? Keeps the
     ORW-205 guard off every sentence that does not (mirrors `_sentence_has_met_everyone_claim`)."""
     try:
-        return bool(_headcount_claims(text))
+        return bool(_headcount_claims(text)) or bool(_engine_count_claims(text))  # ORW-376: + the room/house/vote counts
     except Exception:
         return False
 
@@ -6362,25 +6442,164 @@ def _note_headcount_hold(user, bad, ent: dict) -> None:
         pass
 
 
+# ── ORW-376 — the headcount wall beyond the premiere: the ENGINE's counts (player included) ───────── #
+#
+# The engine used to hand the narrator only the OTHER people's names, and the model counted that list, so "how many of us are
+# here" came out one short. The whereabouts view now carries `counts` {room, others, house, voters?}. A stated count the engine
+# contradicts is dropped like the premiere headcount (same sentence split, same next-turn re-ground). Closed-set claims only:
+# a room claim ("there are three of us in here", "the four of us"), an "others" claim ("the other three"), a house claim
+# ("eleven of us left"), a vote claim ("seven votes", "a 9-3 vote") past the number of legal voters. Subgroup talk ("the three of
+# us should ...", "one of us") and the idiomatic pair ("the two of us", unless anchored to the room) are never claims.
+_EC_NUM_RE = r"(" + _HC_NUM_ALT + r")"
+_EC_ROOM_ANCHOR = (r"(?:\s+(?:are\s+)?(?:right\s+now\s+)?(?:in\s+here|here|in\s+this\s+room|in\s+the\s+(?:kitchen|living\s*room|lounge|backyard|bedroom|"
+                   r"bathroom|hoh\s*room|storage\s*room|room)|together\s+in\s+(?:here|this\s+room)))")
+_EC_ROOM_US_RE = re.compile(r"\b(?:(there\s+(?:are|were|'s)\s+)|(?:the|all|just|only)\s+)" + _EC_NUM_RE + r"\s+of\s+us\b(" + _EC_ROOM_ANCHOR + r")?", re.IGNORECASE)
+_EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|need|needs|have\s+to|gotta|must|better|ought|going\s+to|gonna|might|may|'ll|’ll|against|vs|versus|\bto\b)\b", re.IGNORECASE)
+_EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
+_EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
+_EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
+_EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text"])
+
+
+def _ec_num(word: str) -> Optional[int]:
+    w = (word or "").lower()
+    if w.isdigit():
+        return int(w)
+    return _HC_NUMBER_WORDS.get(w)
+
+
+def _engine_count_claims(text: str) -> list:
+    """Every ENGINE-checkable count STATEMENT in `text` (kinds room / others / house / votes). Pure and engine-free."""
+    if not text or not _HC_NUM_RE.search(text):
+        return []
+    out = []
+    for m in _EC_ROOM_US_RE.finditer(text):
+        n = _ec_num(m.group(2))
+        if n is None or n < 2:
+            continue  # "one of us" is an idiom, never a count
+        anchored = bool(m.group(1) or m.group(3))
+        if n == 2 and not anchored:
+            continue  # "the two of us": a pair, not the room
+        if _EC_SUBGROUP_RE.match(text[m.end():]):
+            continue  # "the three of us should ...": a subgroup, not a headcount
+        out.append(_EcClaim("room", n, m.group(0).strip()))
+    for m in _EC_OTHER_RE.finditer(text):
+        n = _ec_num(m.group(1))
+        if n is not None and n >= 1:
+            out.append(_EcClaim("others", n, m.group(0).strip()))
+    for m in _EC_HOUSE_RE.finditer(text):
+        n = _ec_num(m.group(1))
+        if n is None or n < 2:
+            continue
+        who = re.sub(r"\s+", " ", m.group("who").lower())
+        out.append(_EcClaim("house" if who == "of us" else "house-loose", n, m.group(0).strip()))
+    for m in _EC_VOTES_RE.finditer(text):
+        nums = [x for x in (_ec_num(g) for g in m.groups() if g) if x is not None]
+        if nums:
+            out.append(_EcClaim("votes", sum(nums) if len(nums) > 1 else nums[0], m.group(0).strip()))
+    return out
+
+
+def _engine_counts_of(whereabouts) -> Optional[dict]:
+    """The validated `counts` off a whereabouts read, or None (unreadable / absent / malformed => fail-open)."""
+    try:
+        c = whereabouts.get("counts") if isinstance(whereabouts, dict) else None
+        if not isinstance(c, dict):
+            return None
+        for k in ("room", "others", "house"):
+            if not isinstance(c.get(k), int) or isinstance(c.get(k), bool) or c[k] < 0:
+                return None
+        v = c.get("voters")
+        return {"room": c["room"], "others": c["others"], "house": c["house"],
+                "voters": v if isinstance(v, int) and not isinstance(v, bool) else None}
+    except Exception:
+        return None
+
+
+def _engine_count_ok(claim, c: dict) -> bool:
+    """Does the engine's count back this stated count? A tally may carry one extra ballot (the HOH breaks a tie)."""
+    n = claim.n
+    if claim.kind == "room":
+        return n == c["room"]
+    if claim.kind == "others":
+        return n in (c["others"], c["others"] - 1)  # the speaker may be one of the others
+    if claim.kind == "house":
+        return n == c["house"]
+    if claim.kind == "house-loose":
+        return n in (c["house"], c["house"] - 1)  # "houseguests"/"people" may leave the player out
+    if claim.kind == "votes":
+        return c["voters"] is None or n <= c["voters"] + 1
+    return True
+
+
+def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
+    if not c:
+        return None
+    for claim in (_engine_count_claims(text) if claims is None else claims):
+        if not _engine_count_ok(claim, c):
+            return claim
+    return None
+
+
+def _engine_count_directive(claim, c: dict) -> str:
+    voters = f" Voting tonight: {c['voters']} people." if c.get("voters") is not None else ""
+    return (
+        "RE-GROUND ON THE HEADCOUNT — last turn you counted people yourself (\"" + claim.text[:80] + "\"), but the engine's counts are: "
+        f"In this room: {c['room']} people, you included (you + {c['others']} houseguests). In the house: {c['house']} people remain, you included.{voters} "
+        "Quote these exactly or use no number at all; never count the room yourself and never leave the player out of \"us\"."
+    )
+
+
+async def _live_engine_counts(user) -> Optional[dict]:
+    """The engine's LIVE counts off `whereabouts` (the player included), or None on any hiccup (fail-open)."""
+    from src import orwell_engine
+    try:
+        return _engine_counts_of(await orwell_engine.whereabouts(user=user))
+    except Exception as e:
+        logger.debug("[orwell] engine-count guard: whereabouts lookup failed user=%s: %s", user, _exc_detail(e))
+        return None
+
+
+def _note_engine_count_hold(user, bad, c: dict) -> None:
+    try:
+        _reground_enqueue(_desync_key(user), _engine_count_directive(bad, c))
+        logger.warning("[orwell] pre-emission guard HELD an engine-count claim for user=%s — stated %d (%s), engine counts %s", user, bad.n, bad.kind, c)
+    except Exception:
+        pass
+
+
+
 async def screen_headcount_wall(user, text: str) -> str:
     """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
     stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
     rest, the same `[.!?\\n]` split the presence wall uses, so `_mirror_wall_drop` can mirror it). Cheap hot
     path: no headcount statement anywhere ⇒ `text` verbatim with no engine read; otherwise ONE
-    `premiereIntros` read for the chunk. Outside the entrances/toast nothing is dropped. Fail-open: any
-    hiccup returns `text` unchanged."""
+    `premiereIntros` read for the chunk. ORW-376: outside the entrances/toast the same wall checks a stated
+    room / house / vote count against the engine's `whereabouts.counts` (ONE read, player included).
+    Fail-open: any hiccup returns `text` unchanged."""
     try:
         if not text or not text.strip() or not _sentence_has_headcount_claim(text):
             return text
         ent = await _live_headcount_entrance(user)
+        counts = None
         if ent is None:
-            return text
+            if not _engine_count_claims(text):
+                return text
+            counts = await _live_engine_counts(user)
+            if counts is None:
+                return text
         kept = []
         for part in re.split(r"(?<=[.!?\n])", text):
-            bad = _headcount_mismatch(part, ent)
-            if bad is not None:
-                _note_headcount_hold(user, bad, ent)
-                continue  # DROP — a count the engine contradicts never reaches the player
+            if ent is not None:
+                bad = _headcount_mismatch(part, ent)
+                if bad is not None:
+                    _note_headcount_hold(user, bad, ent)
+                    continue  # DROP — a count the engine contradicts never reaches the player
+            else:
+                ebad = _engine_count_mismatch(part, counts)
+                if ebad is not None:
+                    _note_engine_count_hold(user, ebad, counts)
+                    continue
             kept.append(part)
         return "".join(kept)
     except Exception as e:
@@ -6394,9 +6613,17 @@ async def screen_streamed_headcount(user, sentence: str) -> bool:
     next-turn re-ground; else EMIT (True). Fail-open: no claim, no entrance view, or any hiccup emits."""
     try:
         claims = _headcount_claims(sentence)
-        if not claims:
+        eclaims = _engine_count_claims(sentence)  # ORW-376
+        if not claims and not eclaims:
             return True
         ent = await _live_headcount_entrance(user)
+        if ent is None and eclaims:
+            counts = await _live_engine_counts(user)
+            ebad = _engine_count_mismatch(sentence, counts, eclaims)
+            if ebad is None:
+                return True
+            _note_engine_count_hold(user, ebad, counts)
+            return False
         bad = _headcount_mismatch(sentence, ent, claims)
         if bad is None:
             return True
@@ -6961,7 +7188,8 @@ _PRODUCTION_WARN_MINUTES = 30
 def _production_warning_steer(phase: str, minutes: int) -> str:
     """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only."""
     label = _MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " ")
-    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called (roughly {int(minutes)} in-game minutes away). Let the house feel it: a voice or a bell from production, "
+    _away = "a few minutes away" if _zc_on() else f"roughly {int(minutes)} in-game minutes away"  # ORW-377: no minutes count under zero clocks
+    return (f"PRODUCTION GIVES NOTICE - the {label} is about to be called ({_away}). Let the house feel it: a voice or a bell from production, "
             "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
 
 

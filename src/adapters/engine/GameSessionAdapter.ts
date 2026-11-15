@@ -244,10 +244,10 @@ import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
 import {
-  deriveTrajectory, decayTrajectory, STEADY, kindFoldSignal,
+  deriveTrajectory, decayTrajectory, STEADY,
   type Trajectory, type FoldSignal,
 } from "../../engine/trajectory";
-import { TRAJECTORY_CONSTANTS, TRAJECTORY_PLAYER_APPROACH } from "../../engine/trajectoryConstants";
+import { TRAJECTORY_CONSTANTS } from "../../engine/trajectoryConstants";
 import { buildSystemPrompt, momentForPhase, requiredLeverForPhase, renderStoryFacts, renderSurfacedFacts, renderHardConstraints, dedupeKeepNewest } from "../../engine/momentPrompts";
 import {
   producerForSeed, renderProducerVoice, mergeProducer, validateProducerProfile,
@@ -279,7 +279,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -4948,7 +4948,6 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
-    if (this.live?.playedGame === true && this.trajectoriesEnabled) this.applyTrajectoryToPulls(id, pulls);
     return pulls.length ? pulls : null;
   }
 
@@ -4969,23 +4968,6 @@ export class GameSessionAdapter implements GameSession {
       } else if (existing) { if (existing.avoid) existing.weight *= scale; } // grudge
       else pulls.push({ target: other, weight: MOVEMENT_INTENT.minCharge * scale, avoid: true });
     }
-  }
-
-  /**
-   * ORW-336 (0087) - the NPC's hidden MOMENTUM toward the PLAYER bends whether they seek or shun the player. A WARMING arc
-   * draws them toward the player (an avoid is lifted, an existing pull is scaled up); a COOLING/SOURING arc keeps them away
-   * (an existing pull becomes an avoid, or a soft avoid is added). Scaled by momentum, bounded by `TRAJECTORY_PLAYER_APPROACH`;
-   * below `minMomentum` nothing changes. Played games only (caller gates); no rng; engine-only state, never projected.
-   */
-  private applyTrajectoryToPulls(id: EntityId, pulls: MovementPull[]): void {
-    if (id === PLAYER || !this.presenceActive().includes(PLAYER)) return;
-    const t = this.trajectories.get(`${id}->${PLAYER}`);
-    if (!t || t.phase === "steady" || t.momentum < TRAJECTORY_PLAYER_APPROACH.minMomentum) return;
-    const scale = 1 + TRAJECTORY_PLAYER_APPROACH.gain * t.momentum;
-    const existing = pulls.find((p) => p.target === PLAYER);
-    const avoid = t.phase !== "warming";
-    if (existing) { existing.avoid = avoid; existing.weight *= scale; }
-    else pulls.push({ target: PLAYER, weight: MOVEMENT_INTENT.minCharge * scale, avoid });
   }
 
   /** ORW-32 - an observer who chose to AVOID a visibly rattled houseguest keeps away from them while the avoid lasts: any pull toward them becomes an avoid. Played games only (caller gates); no rng; engine-only state. */
@@ -5525,6 +5507,20 @@ export class GameSessionAdapter implements GameSession {
     return null;
   }
 
+  /**
+   * ORW-376 - the engine's own headcounts for the whereabouts read (the player ALWAYS counted in `room` and `house`). `voters` only on
+   * eviction night: the living house minus the HOH and the nominees (distinct, so a nominee who is also the HOH is not taken off twice).
+   */
+  private headCounts(othersHere: number): { room: number; others: number; house: number; voters?: number } {
+    const living = this.livingIds();
+    const out: { room: number; others: number; house: number; voters?: number } = { room: othersHere + 1, others: othersHere, house: living.length };
+    if (this.phase === "eviction") {
+      const off = new Set<EntityId>([...(this.ceremony.hoh ? [this.ceremony.hoh] : []), ...this.ceremony.nominees]);
+      out.voters = living.filter((id) => !off.has(id)).length;
+    }
+    return out;
+  }
+
   whereabouts(): WhereaboutsView | null {
     if (!this.house || !this.presence) return null;
     this.gatherForCeremony();
@@ -5561,6 +5557,7 @@ export class GameSessionAdapter implements GameSession {
         nearby: [],                       // no side rooms during a whole-house event
         turnsHere: this.presenceTenure?.get(me) ?? 0,
         companions: others.map((id) => ({ ...named(id), turnsHere: 0 })),
+        counts: this.headCounts(others.length),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
       };
@@ -5612,6 +5609,7 @@ export class GameSessionAdapter implements GameSession {
       // voices continuity (who has lingered with you vs. who just walked in) instead of resetting.
       turnsHere: this.presenceTenure?.get(me) ?? 0,
       companions: presentPlain.map((p) => ({ ...p, turnsHere: this.presenceTenure?.get(p.id) ?? 0 })),
+      counts: this.headCounts(presentPlain.length),
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
@@ -8911,30 +8909,10 @@ export class GameSessionAdapter implements GameSession {
    * the calibration spine is untouched.
    */
   recordTrajectoryFold(initiator: EntityId, partner: EntityId, type: InteractionType): void {
-    this.foldTrajectorySignal(initiator, partner, GameSessionAdapter.foldSignalFor(type));
-  }
-
-  /** Arcs fed by a PLAYER scene since the last off-screen tick (ORW-336): the tick's neglect decay skips them once,
-   *  so a scene the player just played is not decayed before it ever biases anything. Transient (not persisted). */
-  private playerFedArcs: Set<string> = new Set();
-
-  /**
-   * ORW-336 (0087 open question 4): fold one player-witnessed scene into the NPC->PLAYER arc. `signal` is built by the
-   * caller from DIRECTION only (the model's proposed consequence direction, else the scene kind) - the engine owns the
-   * amount (the existing `TRAJECTORY_CONSTANTS`). PLAYED games only (`live.playedGame`): a headless seeded sim never
-   * reaches this, so it stays byte-identical. Pure, no rng. VAULT-ONLY: the arc is read only by `applyTrajectoryToPulls`.
-   */
-  recordPlayerSceneTrajectory(npc: EntityId, signal: FoldSignal): void {
-    if (!this.trajectoriesEnabled || this.live?.playedGame !== true || npc === PLAYER) return;
-    this.foldTrajectorySignal(npc, PLAYER, signal);
-    this.playerFedArcs.add(`${npc}->${PLAYER}`);
-  }
-
-  private foldTrajectorySignal(initiator: EntityId, partner: EntityId, signal: FoldSignal): void {
     if (!this.trajectoriesEnabled) return;
     const key = `${initiator}->${partner}`;
     const folds = this.trajectoryFolds.get(key) ?? [];
-    folds.push(signal);
+    folds.push(GameSessionAdapter.foldSignalFor(type));
     while (folds.length > TRAJECTORY_CONSTANTS.recencyWindow) folds.shift();
     this.trajectoryFolds.set(key, folds);
     this.trajectories.set(key, deriveTrajectory(folds, this.trajectories.get(key)));
@@ -8948,10 +8926,8 @@ export class GameSessionAdapter implements GameSession {
    */
   decayUntouchedTrajectories(touched: ReadonlySet<string>): void {
     if (!this.trajectoriesEnabled) return;
-    const fed = this.playerFedArcs;
-    this.playerFedArcs = new Set();
     for (const [key, traj] of this.trajectories) {
-      if (touched.has(key) || fed.has(key)) continue;
+      if (touched.has(key)) continue;
       const next = decayTrajectory(traj);
       if (next.momentum <= 0 || next.phase === "steady") {
         this.trajectories.delete(key);
@@ -8970,7 +8946,9 @@ export class GameSessionAdapter implements GameSession {
    * carries NO raw edge state (only the nature's constant shape), so it crosses no wall.
    */
   private static foldSignalFor(type: InteractionType): FoldSignal {
-    return kindFoldSignal(type);
+    const imp = RELATIONSHIP_CONSTANTS.IMPACT[type];
+    const bondDelta = ((imp.affinity ?? 0) + (imp.trust ?? 0)) / 2;
+    return { bondDelta, threatDelta: imp.threat ?? 0, betrayal: type === "betrayal" };
   }
 
   // ─── 0104 — SEASON-OVER-SEASON NOTORIETY (a reputation that precedes the player) ─────────────────
@@ -14229,12 +14207,16 @@ export class GameSessionAdapter implements GameSession {
       : pk.length
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
+    // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
+    const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
+      ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
+      : view;
     const moment = req.moment ?? view.moment;
     // #1735 (A4) — the terminal HARD-CONSTRAINTS block, a SEPARATE field from `systemPrompt` so the
     // caller (the front-end) can append it as the LAST message before generation instead of folding it
     // into the leading system-prompt stack (the measured "lost in the middle" region). Absent when
     // there is nothing to pin (pre-game / no live whereabouts this turn) ⇒ byte-identical response.
-    const hardConstraints = renderHardConstraints(view);
+    const hardConstraints = renderHardConstraints(narrView);
     // Showrunner memory — the Show Brief v1 skeleton (K6 §3), built ONLY when the caller asked (`req.brief`, sent by the
     // FE behind ORWELL_SHOW_BRIEF). Absent ⇒ no field ⇒ the response is byte-identical. A pure read of the SAME
     // Vault-free view the prompt is built from; `systemPrompt` is untouched either way (the cached prefix).
@@ -14245,7 +14227,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(view, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -14255,7 +14237,7 @@ export class GameSessionAdapter implements GameSession {
     return {
       moment,
       systemPrompt: buildSystemPrompt(
-        moment, view, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
+        moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
         { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() },

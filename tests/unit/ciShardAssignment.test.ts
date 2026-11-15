@@ -85,4 +85,31 @@ describe("duration-aware shard assignment (ORW-218)", () => {
     const total = files.reduce((n, f) => n + weight(f), 0);
     expect(Math.max(...files.map(weight))).toBeLessThan(total / 4 / 2);
   });
+
+  // ORW-367: the six coverage-shard legs. The table used to be ~135 files stale (a fresh heavy file was balanced at the median weight), and shard 2 ran
+  // 9.4 min next to 2-5 min for the others. The split now has to be balanced on the table's OWN numbers for exactly the file set a CI leg runs
+  // (the heavy sims are excluded there), with unknown files weighed as the sequencer weighs them (the median).
+  describe("six coverage legs, by measured duration (ORW-367)", () => {
+    const heavy = (f: string): boolean => /^tests\/(uat|calibration)\//.test(f) || /^tests\/property\/(juryReach|calibrationGradient)/.test(f);
+    const legFiles = files.filter((f) => !heavy(f));
+    const unknownWeight = Math.max(MIN_WEIGHT_MS, [...Object.values(durations)].sort((a, b) => a - b)[Math.floor(Object.keys(durations).length / 2)]!);
+    const w = (f: string): number => Math.max(MIN_WEIGHT_MS, durations[f] ?? unknownWeight);
+    const loads = assignShards(legFiles, durations, 6).map((l) => l.reduce((n, f) => n + w(f), 0));
+    const median = [...loads].sort((a, b) => a - b)[Math.floor(loads.length / 2)]!;
+
+    it("the heaviest leg is within 1.3x the median leg", () => {
+      expect(Math.max(...loads) / median).toBeLessThanOrEqual(1.3);
+    });
+
+    it("the table is fresh: at least 95% of the test files a leg runs have a measured entry (refresh with `npm run ci:refresh-durations`)", () => {
+      const missing = legFiles.filter((f) => durations[f] === undefined);
+      expect(missing.length, `not in ${DURATIONS_RELATIVE_PATH}: ${missing.slice(0, 15).join(", ")}`).toBeLessThanOrEqual(Math.floor(legFiles.length * 0.05));
+    });
+
+    it("the split is identical when run twice and every file is in exactly one of the six legs", () => {
+      const a = assignShards(legFiles, durations, 6);
+      expect(assignShards(legFiles, durations, 6)).toEqual(a);
+      expect(() => assertPartition(legFiles, a)).not.toThrow();
+    });
+  });
 });

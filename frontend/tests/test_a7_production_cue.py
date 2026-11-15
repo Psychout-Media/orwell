@@ -11,6 +11,9 @@ ch = importlib.import_module("routes.chat_helpers")
 oe = importlib.import_module("src.orwell_engine")
 
 
+pytestmark = pytest.mark.usefixtures("zero_clocks_off")
+
+
 def _run(c):
     loop = asyncio.new_event_loop()
     try:

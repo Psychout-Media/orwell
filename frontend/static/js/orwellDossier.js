@@ -69,11 +69,23 @@
     content.innerHTML = `
       <style>
         #orwell-dossier { width: min(360px, 92vw); }
-        #orwell-dossier .od-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+        #orwell-dossier .od-head { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; margin-bottom: .5rem; }
+        /* ORW-359: the photo is shown large, full width, square, above the name. When a photo
+           exists it is a button that opens the full-size viewer (no right-click needed). */
         #orwell-dossier .od-portrait {
-          width: 56px; height: 56px; border-radius: 10px; overflow: hidden; flex: 0 0 auto;
+          display: block; width: 100%; max-width: 320px; aspect-ratio: 1 / 1; box-sizing: border-box;
+          border-radius: 10px; overflow: hidden; padding: 0; margin: 0 auto 0 0; position: relative;
           border: 1px solid var(--border, #355a66); background: rgba(255,255,255,.05);
         }
+        /* The square is the wrapper div (a bare <button> picked up a global height); the button fills it. */
+        #orwell-dossier .od-portrait > button.od-photo-btn {
+          position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; min-width: 0; padding: 0; margin: 0;
+          border: 0; background: transparent; cursor: zoom-in; font: inherit; color: inherit; border-radius: inherit;
+        }
+        #orwell-dossier .od-portrait > button.od-photo-btn:focus-visible { outline: 2px solid var(--ow-ios-blue, #0a84ff); outline-offset: 2px; }
+        #orwell-dossier .od-portrait img.od-photo-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+        #orwell-dossier .od-portrait .ow-mono-face { display: block; width: 100%; height: 100%; }
+        #orwell-dossier .od-portrait.od-evicted img, #orwell-dossier .od-portrait.od-evicted .ow-mono-svg { filter: grayscale(1); }
         #orwell-dossier .od-name { font-weight: 700; font-size: 1rem; color: var(--fg, #9cdef2); }
         #orwell-dossier .od-status { font-size: .72rem; opacity: .68; text-transform: uppercase; letter-spacing: .04em; margin-top: .1rem; }
         #orwell-dossier .od-section { margin-top: .7rem; }
@@ -112,7 +124,7 @@
       <div id="od-content" style="display:none">
         <div class="od-head">
           <div class="od-portrait" id="od-portrait"></div>
-          <div>
+          <div class="od-who">
             <div class="od-name" id="od-name"></div>
             <div class="od-status" id="od-status"></div>
           </div>
@@ -257,6 +269,44 @@
     }
   }
 
+  // ORW-359: the large photo block. A real portrait is a button (opens the full-size viewer);
+  // the designed monogram stays the no-photo fallback (and the broken-photo fallback).
+  function renderPortrait(el, data) {
+    const old = el.querySelector("#od-portrait");
+    const fresh = document.createElement("div");
+    fresh.id = "od-portrait";
+    fresh.className = "od-portrait" + (data.status === "evicted" ? " od-evicted" : "");
+    const monogram = () => window.OrwellMonogram ? window.OrwellMonogram.face({
+      id: data.id, name: data.name, status: data.status, portrait: null,
+    }) : null;
+    if (data.portrait) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "od-photo-btn";
+      btn.setAttribute("aria-label", "View photo of " + (data.name || "houseguest"));
+      btn.dataset.hg = String(data.id);
+      const img = document.createElement("img");
+      img.className = "od-photo-img";
+      img.alt = "";
+      img.onerror = () => {
+        img.onerror = null;
+        // Photo failed: the monogram takes over and there is nothing bigger to view.
+        const m = monogram();
+        fresh.replaceChildren(...(m ? [m] : []));
+      };
+      img.src = data.portrait;
+      btn.appendChild(img);
+      btn.addEventListener("click", () => {
+        if (window.OrwellPortraitViewer) window.OrwellPortraitViewer.open(data.id, btn, { name: data.name, portrait: data.portrait, status: data.status });
+      });
+      fresh.appendChild(btn);
+    } else {
+      const m = monogram();
+      if (m) fresh.appendChild(m);
+    }
+    old.replaceWith(fresh);
+  }
+
   function render(data) {
     const el = ensurePanel();
     const offline = el.querySelector("#od-offline");
@@ -274,13 +324,7 @@
     el.querySelector("#od-name").textContent = data.name || "";
     el.querySelector("#od-status").textContent = data.isPlayer
       ? "You" : statusLabel(data.status);
-    const portraitHolder = el.querySelector("#od-portrait");
-    portraitHolder.textContent = "";
-    if (window.OrwellMonogram) {
-      portraitHolder.appendChild(window.OrwellMonogram.face({
-        id: data.id, name: data.name, status: data.status, portrait: data.portrait,
-      }));
-    }
+    renderPortrait(el, data);
     renderBio(data.persona || {});
     renderFacts(data.persona || {});
     renderHistory(data.history);

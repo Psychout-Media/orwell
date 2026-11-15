@@ -158,6 +158,7 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
   // ── 1. NOW ──
   const now: string[] = ["1. NOW"];
   if (typeof view.clockLabel === "string" && view.clockLabel) now.push(`It is ${neutralizeForPrompt(view.clockLabel, 40)}.`);
+  else if (typeof view.clockBand === "string" && view.clockBand) now.push(`It is ${neutralizeForPrompt(view.clockBand, 40)} (the house has no clocks: name the part of the day, never a clock time).`);
   now.push(`You are in ${room(wa.room)} (${tenure(wa.turnsHere)}${wa.turnsHere > 0 ? " here" : ""}).`);
   const ev = wa.houseEvent ? EVENT_LABEL[wa.houseEvent.kind] : undefined;
   if (ev) now.push(`The house is gathered here for ${ev}.`);
@@ -231,6 +232,9 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
     if (seen.clock && view.clockLabel && seen.clock !== view.clockLabel) {
       changed.push(`- Clock: ${neutralizeForPrompt(seen.clock, 40)} -> ${neutralizeForPrompt(view.clockLabel, 40)}.`);
     }
+    else if (view.clockBand && seen.clock && seen.clock !== view.clockBand) {
+      changed.push(`- Part of the day: now ${neutralizeForPrompt(view.clockBand, 40)}.`); // ORW-377: the new band only, never the stored (possibly raw-clock) old one
+    }
     if (changed.length === 1) changed.push("Nothing you could see has changed.");
   }
 
@@ -262,7 +266,7 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
   const nextSeen: BriefSeenState = {
     v: 1,
     beatSeq: view.beatSeq,
-    ...(typeof view.clockLabel === "string" && view.clockLabel ? { clock: view.clockLabel } : {}),
+    ...(typeof view.clockLabel === "string" && view.clockLabel ? { clock: view.clockLabel } : typeof view.clockBand === "string" && view.clockBand ? { clock: view.clockBand } : {}),
     room: wa.room,
     here: hereIds,
     inView: inView.map((v) => ({ room: v.room, ids: v.ids })),

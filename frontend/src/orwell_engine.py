@@ -933,6 +933,12 @@ async def get_moment_prompt(moment: str | None = None, user: str | None = None, 
         args["moment"] = moment
     if brief is not None:
         args["brief"] = brief
+    try:
+        from src.zero_clocks import zero_clocks_on
+        if zero_clocks_on():
+            args["zeroClocks"] = True  # ORW-377: the narrator is handed the part of the day, never the clock time (presentation only)
+    except Exception:
+        pass
     return await _call("getMomentPrompt", args, user=user, timeout=timeout if timeout is not None else _FRAMING_TIMEOUT)
 
 

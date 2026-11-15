@@ -275,6 +275,10 @@
     }
     return null;
   }
+  // ORW-359 — every cached public roster card (player included), for the chat name-link pass.
+  function allCards() {
+    return Object.keys(_portraitById).map((k) => Object.assign({ id: k }, _portraitById[k]));
+  }
   async function refreshPortraitCache(force) {
     if (typeof fetch !== "function") return; // non-browser eval (node-executed test harnesses)
     const now = Date.now();
@@ -330,6 +334,6 @@
 
   window.OrwellMonogram = {
     face, svg, badgeSvg, rolesFrom, hueFor, patternFor, initialsFor, ensureCss,
-    portraitFor, refreshPortraitCache, cardFor, playerCard,
+    portraitFor, refreshPortraitCache, cardFor, playerCard, allCards,
   };
 })();

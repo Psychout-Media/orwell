@@ -33,6 +33,9 @@ DEFAULT_SETTINGS = {
     # ADR 0006 - the in-game time-of-day clock + nightly sleep economy (the engine's ORWELL_TIME_OF_DAY).
     # ON by default; the settings switch flips it on the LIVE engine (admin setTimeOfDay) with no restart.
     "time_of_day_enabled": True,
+    # ORW-377 - "zero clocks in the house": the narrator and houseguests say the PART OF THE DAY, never a clock time, and a clock-time sentence is dropped before the player sees it. Presentation only (the engine
+    # keeps its internal clock for the schedule, sleep and bedtime). ON by default; read per call, so flipping it needs no restart. OFF => the clock is shown and nothing is dropped, exactly as before.
+    "zero_clocks": True,
     # #1154 / ADR 0016 §D - FORCE the engine call (tool_choice) at the closed-set, ENGINE-OWNED beats
     # where a missed call is catastrophic: runCompetition (read the comp winner) at a competition phase
     # and advanceGame at a stalled ceremony/eviction advance-phase (incl. the goodbye-message/eviction

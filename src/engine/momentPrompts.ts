@@ -923,8 +923,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "evict <name>\") and a committed result — voice ONLY those. Do NOT announce a complete two-sided vote " +
     "count of your own (\"by a vote of 8 to 6\", \"7-5\", \"it's 9 to 1\") unless the game's own ballots add " +
     "up to EXACTLY that split. Inventing a tally is a fabrication: a made-up count routinely conjures a " +
-    "PHANTOM BALLOT — more votes than there are legal voters (the house is 16, minus the HOH and the two " +
-    "nominees, so far fewer people actually vote) — which is impossible and instantly breaks the show. When " +
+    "PHANTOM BALLOT — more votes than there are legal voters (the HOH and the nominees do not vote, so " +
+    "far fewer people vote than live in the house; the game states the exact voter count in the HARD " +
+    "CONSTRAINTS when it is eviction night) — which is impossible and instantly breaks the show. When " +
     "in doubt, voice the anonymized ballots and the committed result the game gave you and stop; never " +
     "supply a per-number tally the game did not hand you, and never state a number of votes that could not " +
     "have legally been cast.",
@@ -1513,6 +1514,10 @@ export function renderGameContext(view: GameStateView): string {
       ? [`- Time of day: ${view.timeOfDay} (engine truth — set the scene at THIS hour; never narrate a different time of day than the engine reports).`]
       : []),
     // P0 clock grounding: the EXACT engine clock, so a specific hour in the prose can only be this one ("it's noon" at 9:40 is a contradiction the player will see against the HUD).
+    // ORW-377 (zero clocks in the house): no clock time reaches the narrator. The part of the day only, and the rule against ever saying a clock time lives HERE (the per-turn context), not in the base prompt.
+    ...(view.clockBand
+      ? [`- Part of the day: ${view.clockBand} (engine truth). The house has no clocks, as on the real show: voice the part of the day (light, hush, who is up) and NEVER state a clock time: no "6:15", "3am", "8 o'clock", "quarter past eight", "it's eight in the morning". Durations ("for two hours") are fine.`]
+      : []),
     ...(view.clockLabel
       ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
       : []),
@@ -1647,6 +1652,25 @@ export function terminalKnowledgeItems(items: readonly string[]): string[] {
   return out;
 }
 
+/**
+ * ORW-376 - the engine's headcounts as plain sentences the narrator can quote (the player always counted). The engine hands the
+ * model only the OTHER people's names, and a model counting that list is one short of "us". Empty when the view carries no counts.
+ */
+export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number } } | null | undefined): string[] {
+  const c = wa?.counts;
+  if (!c) return [];
+  const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
+  const lines = [
+    c.others === 0
+      ? "In this room: 1 person, you (you are alone)."
+      : `In this room: ${c.room} people, you included (you + ${plural(c.others, "houseguest")}). A houseguest here saying "all of us" means ${c.room}.`,
+    `In the house: ${c.house} people remain, you included.`,
+  ];
+  if (c.voters !== undefined) lines.push(`Voting tonight: ${c.voters} people (the house minus the HOH and the nominees).`);
+  lines.push("QUOTE these numbers exactly or use no number at all; NEVER count the room yourself, and never leave the player out of \"us\".");
+  return lines;
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1662,6 +1686,7 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
         "house and cannot appear."
       : "- The player is ALONE right now. Do NOT place or voice any houseguest in this scene.",
   );
+  for (const l of headcountLines(wa)) lines.push(`- ${l}`);
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);
