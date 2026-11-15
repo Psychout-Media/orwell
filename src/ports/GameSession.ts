@@ -1163,7 +1163,7 @@ export interface RecordOpenLedgerReq {
 
 /** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
 export interface ResolveOpenLedgerReq { entryId: string; status: "kept" | "broken" | "withdrawn"; note: string }
-export interface ResolveOpenLedgerResult { accepted: boolean; reason?: string }
+export interface RecordOpenLedgerResolutionResult { accepted: boolean; reason?: string }
 /** One open entry that matters to whoever is here now (player-visible fields only). */
 export interface OpenLedgerItemView { id: string; text: string; speaker: string; parties: string[]; about?: string; kind: string }
 
@@ -3258,7 +3258,7 @@ export interface GameSession {
   /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
   /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */
-  resolveOpenLedger(req: ResolveOpenLedgerReq): ResolveOpenLedgerResult;
+  resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult;
   /** ORW-407 slice 2: the still-open entries that matter to those here now (bounded; player-visible fields only). [] before a played game. */
   openLedgerHere(): OpenLedgerItemView[];
 

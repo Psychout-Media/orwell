@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, ResolveOpenLedgerResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView,
@@ -14652,7 +14652,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
-  resolveOpenLedger(req: ResolveOpenLedgerReq): ResolveOpenLedgerResult {
+  resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
     if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
     if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
