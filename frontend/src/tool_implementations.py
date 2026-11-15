@@ -5520,7 +5520,10 @@ async def do_nap(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError as _e:
         # review of #2737: unparseable arguments are a failed tool call, never a silent one-hour nap that advances the game
         return {"error": f"nap arguments are not valid JSON: {_e}", "exit_code": 1}
-    hours = args.get("hours") if isinstance(args, dict) else None
+    if not isinstance(args, dict):
+        # review of #2751: valid JSON that is not an object (`null`, `[]`, `2`, a string) is as malformed as bad JSON: never a silent one-hour nap
+        return {"error": f"nap arguments must be a JSON object, got {type(args).__name__}", "exit_code": 1}
+    hours = args.get("hours")
     if not isinstance(hours, (int, float)) or isinstance(hours, bool):
         hours = None
     try:

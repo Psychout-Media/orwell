@@ -281,3 +281,19 @@ def test_orw437_malformed_nap_arguments_are_an_error_not_a_one_hour_nap(monkeypa
     monkeypatch.setattr(orwell_engine, "nap", fake_nap)
     out = asyncio.get_event_loop().run_until_complete(ti.do_nap("{not json", owner="orw437-nap"))
     assert out.get("exit_code") == 1 and "error" in out and called == []
+
+
+@pytest.mark.parametrize("blob", ["null", "[]", "[2]", "2", '"two hours"', "true"])
+def test_orw437_non_object_nap_arguments_are_an_error_not_a_one_hour_nap(monkeypatch, blob):
+    """review of #2751: valid JSON that is not an object used to read as 'no arguments' and advance a default one-hour nap."""
+    from src import orwell_engine
+    from src import tool_implementations as ti
+    called = []
+
+    async def fake_nap(**kw):
+        called.append(kw)
+        return {"ok": True}
+
+    monkeypatch.setattr(orwell_engine, "nap", fake_nap)
+    out = asyncio.get_event_loop().run_until_complete(ti.do_nap(blob, owner="orw437-nap-obj"))
+    assert out.get("exit_code") == 1 and "error" in out and called == []
