@@ -386,6 +386,28 @@ update_turn_in_flight() {
   [[ "$v" =~ ^[0-9]+$ ]] && (( 10#$v > 0 ))
 }
 
+# ORW-461: hold NEW turns while the update waits for the in-flight ones and restarts. The front end (frontend/src/turn_inflight.py) refuses a new turn at admission, with a retryable
+# `update-holding`, while <dir>/turns-hold says `until=<epoch>` in the future; the player's page waits ("one moment...") and re-sends the same turn after the restart. The hold is
+# bounded by its own `until`, so an updater that dies never leaves the game held for more than that. The directory is the same one as turns-in-flight; it is never created here.
+# $1 dir  $2 seconds the hold may last (default 240)
+update_turn_hold_begin() {
+  local dir="$1" secs="${2:-240}" tmp
+  [[ "$secs" =~ ^[0-9]{1,5}$ ]] || secs=240
+  [[ -d "$dir" && ! -L "$dir" ]] || return 0
+  tmp="$(umask 022; mktemp "${dir}/.turns-hold.XXXXXX" 2>/dev/null)" || return 0
+  printf 'until=%s\n' "$(( $(_update_defer_now) + 10#$secs ))" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  chmod 644 "$tmp" 2>/dev/null || true   # the front end runs as another user and must be able to read it
+  mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || rm -f "$tmp"
+  echo "==> holding new turns (the game restarts in a moment; players see 'one moment')"
+  return 0
+}
+update_turn_hold_end() {
+  local dir="$1"
+  [[ -n "$dir" ]] || return 0
+  rm -f "${dir}/turns-hold" 2>/dev/null || true
+  return 0
+}
+
 # Wait (bounded) until no turn is in flight. $1 = signal file. Bound: ORWELL_UPDATE_TURN_WAIT_SECONDS
 # (default 120, clamped 1..300). Always returns 0: after the bound the update proceeds.
 # $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).

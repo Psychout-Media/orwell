@@ -48,6 +48,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from src import agent_runs
 from src import session_events
+from src import turn_inflight as _turn_inflight  # ORW-461: the update hold + the admission count
 from src import orwell_game_session as ogs
 
 logger = logging.getLogger(__name__)
@@ -690,6 +691,15 @@ async def ws_session(websocket: WebSocket) -> None:
             if _turn_stream_factory is None:
                 await send({"t": "error", "ch": "chat", "cid": cid, "d": {"code": "turn-relay-unwired"}})
                 return
+            # ORW-461: the one admission gate. While an update holds new turns (the updater's `turns-hold` file) the turn is REFUSED here, before anything starts, with a retryable
+            # `update-holding`: nothing was written, so the client re-sends the same clientMsgId unchanged once the restart is over (no double send is possible). A turn that passes is
+            # counted as in flight from this line (atomically with the check) until its stream registers, so the updater's "0 in flight" can never miss it.
+            _tok = d.get("clientMsgId") if isinstance(d.get("clientMsgId"), str) else None
+            _held_until = _turn_inflight.check_and_admit(_tok or cid)
+            if _held_until is not None:
+                await send({"t": "error", "ch": "chat", "cid": cid,
+                            "d": {"code": "update-holding", "retryAfterMs": _turn_inflight.HOLD_RETRY_AFTER_MS, "untilMs": int(_held_until * 1000)}})
+                return
             try:
                 producer = _turn_stream_factory(d, sock["canonical"], user)
                 # queue-don't-cancel for GAME turns (ADR 0012 / 0064-C) — two windows serialize behind
@@ -699,6 +709,7 @@ async def ws_session(websocket: WebSocket) -> None:
                 await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True}})
             except Exception as e:
                 logger.warning("[ws] turn relay failed: %s", e)
+                _turn_inflight.admit_end(_tok or cid)
                 await send({"t": "error", "ch": "chat", "cid": cid, "d": {"code": "turn-failed"}})
 
         async def _handle_decision(frame: dict) -> None:
