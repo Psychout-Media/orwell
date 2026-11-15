@@ -1148,6 +1148,26 @@ export interface RecordLookExtrasResult {
   reason?: string;
 }
 
+/** ORW-407: the open-ledger write-back (a commitment or claim made to or by the player, free text). Exactly these four fields. */
+export interface RecordOpenLedgerReq {
+  /** Verbatim or near-verbatim from the narration, at most 240 characters. */
+  text: string;
+  /** `player` or a houseguest id. */
+  speaker: string;
+  addressedTo: string[];
+  /** A free string (at most 40 characters), never a closed list. */
+  kind: string;
+}
+
+export interface RecordOpenLedgerResult {
+  accepted: boolean;
+  /** Present when `accepted` is false: a code, never an echo of the text. */
+  reason?: string;
+  entryId?: string;
+  /** True when the same words by the same speaker were already kept. */
+  duplicate?: boolean;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -1162,7 +1182,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -3237,6 +3257,8 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
+  recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
 
   /**
    * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields

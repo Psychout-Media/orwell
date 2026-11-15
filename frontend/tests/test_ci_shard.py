@@ -124,7 +124,9 @@ def test_committed_table_is_valid_and_matches_the_real_test_files():
     assert os.path.exists(DURATIONS_PATH) and table, "frontend/tests/_ci_durations.json must exist and be non-empty"
     assert all(isinstance(v, float) and v >= 0 for v in table.values())
     on_disk = set(_real_test_files())
-    assert not (set(table) - on_disk), f"stale entries for deleted files (run tests/_ci_refresh_durations.py): {sorted(set(table) - on_disk)}"
+    stale = sorted(set(table) - on_disk)  # ORW-413 PR 2: deleting a test never needs a hand edit; a leftover entry is ignored by the splitter, so it only warns
+    if stale:
+        print(f"::warning::_ci_durations.json has entries for deleted files (ignored; the next refresh drops them): {stale}")
     # A file WITHOUT an entry (a new test) is fine: it still runs and gets the explicit default weight (test count x mean seconds-per-test of the known files).
     # Refresh the table now and then (tests/_ci_refresh_durations.py); a missing entry only costs balance, never coverage.
 
@@ -163,27 +165,22 @@ def test_refresh_parser_sums_setup_call_teardown_per_file():
 def test_every_browser_test_file_has_a_measured_duration():
     """ORW-390: a browser file with no entry in _ci_durations.json is weighed as test count x mean seconds-per-test, which badly underweighs the slow
     real-stack files; 21 such files piled into one shard (fe-browser-tests 5/5: 13-14 min against 4-9 for the rest, cancelled at the 15 min limit).
-    ORW-413: it FAILS only for a file this change adds (compared with the base: the merge ref's first parent in CI). A file main gained meanwhile (the PR is not at fault, and
-    the guard and the file landed a minute apart on 2026-11-15, turning main red) only WARNS in the job summary; the splitter weighs it at 15 s per test until the table is refreshed."""
+    ORW-413 PR 2: it NEVER fails. A feature PR must not need a hand edit of the table: an unmeasured browser file is weighed at 15 s per test by the splitter and listed in the job summary
+    (as added by this change, or by main), and the scheduled refresh adds the measured time."""
     from conftest import _module_launches_browser  # the same structural rule that adds the `browser` marker
     here = os.path.dirname(os.path.abspath(__file__))
     table = load_durations()
     missing = [n for n in _real_test_files() if _module_launches_browser(os.path.join(here, n)) and n not in table]
     must_fail, warn_only = classify_missing(missing, files_added_by_this_change(os.path.dirname(here)))
-    if warn_only:
-        msg = f"browser test file(s) with no entry in frontend/tests/_ci_durations.json (added by main, not by this change; weighed at 15 s per test): {warn_only}. Refresh the table."
+    if missing:
+        msg = f"browser test file(s) with no entry in frontend/tests/_ci_durations.json (weighed at 15 s per test until the next refresh; added by this change: {must_fail}; by main: {warn_only})"
         print(f"::warning::{msg}")
         if os.environ.get("GITHUB_STEP_SUMMARY"):
             with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
                 fh.write(f"### Duration table warning\n{msg}\n")
-    assert not must_fail, (
-        f"browser test file(s) this change adds with no entry in frontend/tests/_ci_durations.json: {must_fail}. Unweighed files make fe-browser-tests shards lopsided. "
-        "A brand-new file is in no main log yet: add `\"<file name>\": <seconds>` to frontend/tests/_ci_durations.json by hand (a conservative 15 per test is fine) "
-        "and let the next refresh replace it with the measured time (`python3 frontend/tests/_ci_refresh_durations.py leg-1.log ... leg-10.log`, the `gh api repos/Psychout-Media/orwell/actions/jobs/<job id>/logs` of the fe-browser-tests jobs of a green main run)."
-    )
 
 
-def test_missing_duration_fails_only_for_a_file_this_change_adds():
+def test_missing_duration_is_labelled_by_who_added_the_file():
     assert classify_missing(["a.py", "b.py"], {"a.py"}) == (["a.py"], ["b.py"])
     assert classify_missing(["a.py"], set()) == ([], ["a.py"])
     assert classify_missing(["a.py"], None) == (["a.py"], [])  # base unknown: fail closed

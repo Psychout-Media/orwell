@@ -75,6 +75,14 @@ export interface Runtime {
   /** Resume saved users from disk (the boot preload). Called automatically unless `deferResume`
    *  was set, in which case the entrypoint calls it after binding HTTP + warming the embedder. */
   resumeSaved(): void;
+  /**
+   * ORW-406 slice 3: the same resume as `resumeSaved`, but yielding to the event loop between users so a
+   * request arriving mid-warm-up is served at once (it builds its own sandbox through the same
+   * `registry.sandboxFor`, which caches per user, so no save is loaded twice). Resolves when every saved
+   * game is resident; never rejects. `warmStatus` reports readiness for `/health`.
+   */
+  warmSaved(): Promise<void>;
+  warmStatus(): { warmed: boolean; warmMs: number | null };
   /** The in-game clock's LIVE state (runtime FE flip, else the env default) — reported on `/health`. */
   timeOfDayStatus(): boolean;
 }
@@ -161,6 +169,24 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
       } catch { /* skip an unresumable save; the rest still boot */ }
     }
   };
+  // Pending only when the entrypoint deferred the resume AND a save exists; everything else is warm already.
+  const warmPending = !!opts.deferResume && (saveStore?.listUsers?.().length ?? 0) > 0;
+  let warmStart: number | null = null;
+  let warmMs: number | null = null;
+  const warmSaved = async (): Promise<void> => {
+    warmStart = performance.now();
+    try {
+      for (const user of saveStore?.listUsers?.() ?? []) {
+        await new Promise<void>((r) => setImmediate(r));
+        try {
+          registry.sandboxFor(user);
+          orchestrator.seedBaseline(user);
+        } catch { /* skip an unresumable save; the rest still warm */ }
+      }
+    } finally {
+      warmMs = Math.round(performance.now() - warmStart);
+    }
+  };
   // Default: resume eagerly (tests + every non-entrypoint caller keep the original behavior). The
   // entrypoint passes deferResume so it can bind /health + warm the embedder before resuming.
   if (!opts.deferResume) resumeSaved();
@@ -170,6 +196,8 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     clock,
     knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
     resumeSaved,
+    warmSaved,
+    warmStatus: () => ({ warmed: !warmPending || warmMs !== null, warmMs }),
     timeOfDayStatus: () => GameSessionAdapter.timeOfDayEffective(),
   };
 }
