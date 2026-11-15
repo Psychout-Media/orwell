@@ -520,7 +520,7 @@ export interface GameStateView {
   /**
    * ORW-419 - the player's OWN move this turn, resolved by the engine from the player's words BEFORE the narrator ran
    * (`resolvePlayerMove`): `{from, to}` room ids/names, or `{refused: true, reason}` when a house event pinned them. Absent when the
-   * player did not move this turn. Words and room names only, never a number. The narrator VOICES it; it never decides it.
+   * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
   player: PlayerCard | null;
@@ -3204,8 +3204,8 @@ export interface GameSession {
   /**
    * ORW-419 (intent-first moves) - FE-driven INFRA lever (NOT a model lever, never named in the narrator prompt): resolve the player's OWN
    * move from their message text, BEFORE the narrator runs, and perform it through the same code as `movePlayer` (so a comp/ceremony pin
-   * refuses it with an in-fiction reason and nothing else moves). Records the Vault-free `playerMove` on live state for this turn
-   * (persisted; cleared by the next resolve) and exposes it on `getGameState` / the moment view. No clear move => `playerMove: null`
+   * refuses it with an in-fiction reason and nothing else moves). Records the Vault-free `playerMove` on live state for the turn
+   * (persisted; replaced or cleared by the NEXT `resolvePlayerMove` call, so a turn on which the front end does not call it, e.g. incognito or the game build off, still carries the previous move) and exposes it on `getGameState` / the moment view. No clear move => `playerMove: null`
    * (the FE's post-reply move belt stays the fallback). Optional `expectedBeatSeq` CAS + `idempotencyKey` (a repeat key returns the
    * prior result without re-moving).
    */
@@ -3337,7 +3337,7 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
-  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. */
+  /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. Bounds the ENGINE enforces: per-field length caps, up to OPEN_LEDGER_MAX_ENTRIES (200) entries in total. The per-turn limits (3 entries, 2 resolutions) live only in the front-end extractor; the engine does not count writes per turn. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
   /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */
   resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult;
