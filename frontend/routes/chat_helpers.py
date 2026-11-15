@@ -1140,6 +1140,7 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
                        f"a houseguest here saying \"all of us\" means {counts['room']}. ")
                       + f"In the house: {counts['house']} people remain, you included. "
                       + (f"Voting tonight: {counts['voters']} people (the house minus the HOH and the nominees). " if counts["voters"] is not None else "")
+                      + (f"Asleep right now: {counts['asleep']} houseguest{'s' if counts['asleep'] != 1 else ''} (the game's asleep list). " if counts.get("asleep") is not None else "")
                       + "QUOTE these numbers exactly or use no number at all; never count the room yourself. ")
     if present:
         roster_line = (count_line + f"HARD ROSTER (this turn): the ONLY people in the room with the player are: {here}. "
@@ -1161,6 +1162,66 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
         "the prose foldable into the board: (1) NEVER place a houseguest who has already been evicted in any room - they have left the house for good; (2) NEVER invent a room that is not part of "
         "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied."
     )
+
+
+# ORW-386 - "Look for Miguel. Where is he?" had no engine fact to answer it: whereabouts lists only the player's room and the rooms in sight, so two awake houseguests in a bedroom were in NO listed room and the
+# narrator invented closed doors ("the house isn't giving him up"). When the player asks where someone is or searches the house, the engine's house search (whereabouts with search=true) is handed in as facts:
+# each houseguest's ROOM and whether the player can walk in. A room and an access word only - never what anyone is doing or with whom.
+_SEARCH_SWEEP_RE = re.compile(
+    r"\b(?:every|each|all(?:\s+(?:of\s+)?the)?)\s+(?:single\s+)?(?:room|bedroom|closet|corner)s?\b|\b(?:entire|whole)\s+house\b|\beverywhere\b|\bsearch(?:ing|ed)?\s+(?:the\s+)?(?:house|rooms?)\b"
+    r"|\bwhere\s+(?:is|are|'s|’s)\s+(?:everybody|everyone|anybody|anyone|everyone\s+else|the\s+(?:others|rest))\b|\bwhere\s+(?:did|has|have)\s+(?:everybody|everyone|they|he|she|the\s+(?:others|rest))\b",
+    re.IGNORECASE)
+_SEARCH_WHERE_RE = re.compile(r"\bwhere(?:\s+is|\s+are|\s+was|'s|’s)\s+(?!the\s+\w+\s+room\b|the\s+(?:kitchen|bathroom|backyard|yard|hallway|lounge)\b)\w+", re.IGNORECASE)
+_SEARCH_FIND_RE = re.compile(r"\b(?:(?:look(?:ing|ed)?|search(?:ing|ed)?|hunt(?:ing)?|scout(?:ing)?|go\s+(?:look|find)|check(?:ing)?)\s+for|(?:find|locate|track\s+down)(?!\s+out\b))\s+(?!a\b|an\b|some\b|the\s+(?:exit|door)\b)\w+", re.IGNORECASE)
+
+
+def _is_house_search(msg) -> bool:
+    """ORW-386: is the player asking where someone is, or searching the house? (Pure; a cheap pre-filter for the engine read - a false hit only adds engine facts to the turn.)"""
+    if not isinstance(msg, str) or not msg.strip():
+        return False
+    text = re.sub(r"\(\([^)]*\)\)", " ", msg, flags=re.DOTALL)
+    return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_FIND_RE.search(text))
+
+
+def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
+    """ORW-386: the narrator's facts for a house-search turn, from the engine's `whereabouts.search`: the room of each NAMED houseguest (every awake one when the message names nobody), whether the player can
+    walk in, who is asleep and how many, and each occupied room's roster. None without a usable search view (fail-open). Names + rooms only - nothing about activity or company, nothing from the Vault."""
+    if not isinstance(whereabouts, dict):
+        return None
+    sv = whereabouts.get("search")
+    if not isinstance(sv, dict) or not isinstance(sv.get("houseguests"), list):
+        return None
+    entries = [e for e in sv["houseguests"] if isinstance(e, dict) and e.get("name") and e.get("fact")]
+    if not entries:
+        return None
+    msg = (player_msg or "") if isinstance(player_msg, str) else ""
+
+    def _named(e) -> bool:
+        full = str(e["name"])
+        first = full.split()[0] if full.split() else full
+        return bool(re.search(r"\b" + re.escape(full) + r"\b", msg, re.IGNORECASE) or (len(first) > 2 and re.search(r"\b" + re.escape(first) + r"\b", msg, re.IGNORECASE)))
+
+    named = [e for e in entries if _named(e)]
+    shown = named or [e for e in entries if e.get("status") != "asleep"]
+    lines = ["HOUSE SEARCH (engine truth - the player is asking where someone is or searching the house, and the game has looked in every room for them):"]
+    for e in shown:
+        lines.append(f"- {e['name']}: {e['fact']}")
+    if not named:
+        lines.append("(Those are all the houseguests who are awake. Anyone not listed is asleep, below.)")
+    asleep = [str(e["name"]) for e in entries if e.get("status") == "asleep"]
+    ac = sv.get("asleepCount")
+    if isinstance(ac, int) and not isinstance(ac, bool):
+        lines.append(f"- Asleep right now: {ac} houseguest{'s' if ac != 1 else ''}" + (f" ({', '.join(asleep)})" if asleep else "") + ". Quote that number exactly or use no number at all.")
+    rooms = [r for r in (sv.get("rooms") or []) if isinstance(r, dict) and r.get("room") and r.get("present")]
+    if rooms:
+        lines.append("- Rooms with awake houseguests: " + "; ".join(
+            f"{str(r['room']).replace('-', ' ')}{' (door closed)' if r.get('access') == 'closed' else ''}: "
+            + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Every other room has no awake houseguest in it.")
+    lines.append(
+        "VOICE THIS: report each houseguest in the room the game gives, in your own words. A houseguest behind a closed door is behind THAT door - name the room and the closed door; never say they are nowhere, that the house is hiding them, "
+        "or that a room is empty when the game lists someone in it. A houseguest the game says has not walked into the house yet is outside it (the premiere entrances): never place them in a room or behind a door. A houseguest in an open room can be walked to (the player chooses whether to go; do not march them there). Say nothing about what anyone is doing in there or "
+        "who they are with - you are not told, so never invent it. Count only with the numbers above.")
+    return "\n".join(lines)
 
 
 def _premiere_progress_directive(premiere) -> Optional[str]:
@@ -6458,7 +6519,41 @@ _EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|nee
 _EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
 _EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
 _EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
-_EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text"])
+_EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], defaults=((),))
+# ORW-386 - two more closed-set claims the engine settles: "N asleep" (the game's asleep list) and "the X is empty" (a room the player can see into, which the engine rosters).
+_EC_ASLEEP_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:of\s+(?:them|us|you|the\s+(?:other\s+)?(?:houseguests|others|people))\s+)?(?:\w+\s+){0,2}?(?:asleep|sleeping|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", re.IGNORECASE)
+_EC_EMPTY_WORD_RE = re.compile(r"\b(?:empty|deserted|vacant)\b(?!\s*-?\s*(?:handed|of)\b)|\b(?:nobody|no\s+one)(?:'s|’s|\s+is|\s+was)?\s+(?:in|there)\b", re.IGNORECASE)
+_EC_EMPTY_CUT_RE = re.compile(r"\bbut\b|\bwhile\b|\bwhereas\b|\bthough\b|\bexcept\b|\bonly\b|;", re.IGNORECASE)
+_EC_ROOM_WORDS = (("kitchen", "kitchen"), ("living room", "living-room"), ("great room", "living-room"), ("dining room", "dining-room"), ("back yard", "backyard"), ("backyard", "backyard"),
+                  ("yard", "backyard"), ("hallway", "hallway"))
+
+
+def _ec_rooms_named(segment: str) -> list:
+    """The engine room ids named in `segment` (kitchen, living room, dining room, backyard, hallway), in order, once each."""
+    low = (segment or "").lower()
+    out: list = []
+    for word, slug in _EC_ROOM_WORDS:
+        if re.search(r"\b" + re.escape(word) + r"\b", low) and slug not in out:
+            out.append(slug)
+    return out
+
+
+def _empty_room_claims(text: str) -> list:
+    """ORW-386: rooms a sentence calls EMPTY ('the kitchen is empty', 'the kitchen, the living room, the dining room - all of them empty', 'an empty kitchen'). The rooms named in the clause that leads to the
+    empty word (cut at but/while/except/only/;) are the ones claimed empty. Skips ((asides)). Pure and engine-free."""
+    out: list = []
+    clean = re.sub(r"\(\([^)]*\)\)", " ", text or "", flags=re.DOTALL)
+    for sentence in re.split(r"(?<=[.!?\n])", clean):
+        for m in _EC_EMPTY_WORD_RE.finditer(sentence):
+            lead = sentence[:m.start()]
+            cuts = list(_EC_EMPTY_CUT_RE.finditer(lead))
+            seg = lead[cuts[-1].end():] if cuts else lead
+            rooms = _ec_rooms_named(seg)
+            if not rooms:  # "an empty kitchen": the room right after the word
+                rooms = _ec_rooms_named(re.match(r"\s*(?:\w+\s+)?\w+(?:\s+room)?", sentence[m.end():]).group(0)) if re.match(r"\s*(?:\w+\s+)?\w+", sentence[m.end():]) else []
+            if rooms:
+                out.append(_EcClaim("empty", 0, sentence.strip()[:100], tuple(rooms)))
+    return out
 
 
 def _ec_num(word: str) -> Optional[int]:
@@ -6470,9 +6565,15 @@ def _ec_num(word: str) -> Optional[int]:
 
 def _engine_count_claims(text: str) -> list:
     """Every ENGINE-checkable count STATEMENT in `text` (kinds room / others / house / votes). Pure and engine-free."""
-    if not text or not _HC_NUM_RE.search(text):
+    if not text:
         return []
-    out = []
+    out = _empty_room_claims(text)
+    if not _HC_NUM_RE.search(text):
+        return out
+    for m in _EC_ASLEEP_RE.finditer(text):
+        n = _ec_num(m.group(1))
+        if n is not None and n >= 2:
+            out.append(_EcClaim("asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
         if n is None or n < 2:
@@ -6510,8 +6611,16 @@ def _engine_counts_of(whereabouts) -> Optional[dict]:
             if not isinstance(c.get(k), int) or isinstance(c.get(k), bool) or c[k] < 0:
                 return None
         v = c.get("voters")
+        a = c.get("asleep")
+        # ORW-386: + the engine's asleep count and each visible room's roster size (the player's own room, then the sightline rooms), so "N asleep" and "the X is empty" are checked against engine facts.
+        rooms = {str(whereabouts.get("room") or ""): c["others"]}
+        for nb in (whereabouts.get("nearby") or []):
+            if isinstance(nb, dict) and nb.get("room"):
+                rooms[str(nb["room"])] = len(nb.get("present") or [])
         return {"room": c["room"], "others": c["others"], "house": c["house"],
-                "voters": v if isinstance(v, int) and not isinstance(v, bool) else None}
+                "voters": v if isinstance(v, int) and not isinstance(v, bool) else None,
+                "asleep": a if isinstance(a, int) and not isinstance(a, bool) and a >= 0 else None,
+                "rooms": rooms}
     except Exception:
         return None
 
@@ -6529,6 +6638,11 @@ def _engine_count_ok(claim, c: dict) -> bool:
         return n in (c["house"], c["house"] - 1)  # "houseguests"/"people" may leave the player out
     if claim.kind == "votes":
         return c["voters"] is None or n <= c["voters"] + 1
+    if claim.kind == "asleep":
+        # More asleep than the game's list is plainly wrong; fewer may be a subgroup ("two of them asleep in the bedroom"), so it is not a claim about the house.
+        return c.get("asleep") is None or n <= c["asleep"]
+    if claim.kind == "empty":
+        return all((c.get("rooms") or {}).get(r, 0) == 0 for r in claim.rooms)
     return True
 
 
@@ -6542,6 +6656,13 @@ def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
 
 
 def _engine_count_directive(claim, c: dict) -> str:
+    if claim.kind == "asleep":
+        return ("RE-GROUND ON THE HEADCOUNT - last turn you said how many are asleep (\"" + claim.text[:80] + "\"), but the engine's asleep list holds " + str(c.get("asleep")) + " houseguests. "
+                "Quote that number exactly or use no number at all; never count the sleepers yourself.")
+    if claim.kind == "empty":
+        occupied = [f"{r.replace('-', ' ')}: {n}" for r, n in (c.get("rooms") or {}).items() if n]
+        return ("RE-GROUND ON THE ROOMS - last turn you called a room empty (\"" + claim.text[:80] + "\"), but the engine has houseguests in it (rooms in view with other people: "
+                + ("; ".join(occupied) or "none") + "). Call a room empty ONLY when the game lists it empty; read the roster, never improvise it.")
     voters = f" Voting tonight: {c['voters']} people." if c.get("voters") is not None else ""
     return (
         "RE-GROUND ON THE HEADCOUNT — last turn you counted people yourself (\"" + claim.text[:80] + "\"), but the engine's counts are: "
@@ -8200,6 +8321,15 @@ async def apply_game_framing(
             freeze_capture_whereabouts(user, game_state.get("whereabouts"))
         except Exception as e:
             logger.warning("[orwell] location grounding skipped for user=%s: %s", _gkey, e)
+        # ORW-386 - the player asks where someone is / searches the house: hand the narrator the engine's house search (each houseguest's room + whether the player can walk in) so it never invents closed doors.
+        try:
+            if _is_house_search(player_msg):
+                _search_wa = await asyncio.wait_for(orwell_engine.whereabouts(user=user, search=True), orwell_engine._FRAMING_TIMEOUT)
+                _search_dir = _house_search_directive(_search_wa, player_msg)
+                if _search_dir:
+                    gm_prompt = gm_prompt + "\n\n" + _search_dir
+        except Exception as e:
+            logger.warning("[orwell] house-search framing skipped for user=%s: %s", _gkey, _exc_detail(e))
         # J3-13 (wayfinding): during the premiere, surface the engine's meet-everyone progress so a
         # ceremony-bound redirect ALWAYS names the gap (count + who's left), the audit's missing
         # consistency. Vault-free public facets from the same in-hand snapshot. Best-effort / fail-open.

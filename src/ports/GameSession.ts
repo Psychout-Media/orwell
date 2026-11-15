@@ -1815,6 +1815,27 @@ export interface MarkHouseguestMetOpts {
   via?: "player" | "belt";
 }
 
+/** ORW-386 - one houseguest's place in the house as a search would find it. Vault-free: a room, an access word and a ready sentence. */
+export interface HouseSearchEntry {
+  id: EntityId;
+  name: string;
+  status: "here" | "awake" | "asleep" | "arriving";
+  /** The room id (absent for a sleeper whose bed is not a known bedroom, and for one who has not walked in yet at the premiere entrances). */
+  room?: string;
+  /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Absent for a sleeper. */
+  access?: "open" | "closed";
+  /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
+  fact: string;
+}
+/** ORW-386 - the house search: every living houseguest once, plus the asleep headcount and each room's roster. */
+export interface HouseSearchView {
+  houseguests: HouseSearchEntry[];
+  /** How many NPC houseguests are asleep (the HUD's `asleep` list length); absent when the clock is off. */
+  asleepCount?: number;
+  /** Each room that holds at least one awake houseguest (the player excluded), with its names. Empty rooms are not listed. */
+  rooms: Array<{ room: string; access: "open" | "closed"; present: NamedRef[] }>;
+}
+
 /**
  * Where the player stands in the house RIGHT NOW (0049) — the Vault-free presence read. Who is in
  * the player's room and who is one room over: facts a houseguest could see or hear themselves.
@@ -1854,7 +1875,14 @@ export interface WhereaboutsView {
    * eviction night, who casts a ballot (the house minus the HOH and the nominees). Counts of people the player can already
    * see - Vault-free; a read-side projection only (no rng, no fold).
    */
-  counts?: { room: number; others: number; house: number; voters?: number };
+  counts?: { room: number; others: number; house: number; voters?: number; asleep?: number };
+  /**
+   * ORW-386 - the HOUSE SEARCH: present ONLY when the caller asks (`whereabouts({search:true})`, the FE does on a turn where the player asks where someone is or
+   * searches the house). Walking the whole house is something the player can do, so a search gives each living houseguest's ROOM (and whether the player can walk
+   * in: `open`, or `closed` for the HOH room while someone else holds it), or that they are asleep. A room and an access word only - never what anyone is doing there
+   * or with whom, never a number about them. Everyone is somewhere: `houseguests` has one entry per living houseguest who is in the house (the player excluded).
+   */
+  search?: HouseSearchView;
   /**
    * TRACKED OCCUPANCY (0077 Phase 2 — the privacy payoff): who the player BELIEVES is behind a closed
    * door, learned by WATCHING them head in (never the live map). Each carries the believed room (+ zone),
@@ -3043,7 +3071,7 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(): WhereaboutsView | null;
+  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;
