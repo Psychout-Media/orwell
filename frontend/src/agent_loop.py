@@ -5808,6 +5808,8 @@ def _split_sentences_keep_dotted_times(text: str) -> list:
     for p in parts:
         if out and re.search(r"\b[ap]\.$", out[-1]) and re.match(r"m\.", p, re.IGNORECASE):
             out[-1] += p
+        elif out and re.search(r"\b[ap]\.m\.$", out[-1], re.IGNORECASE) and re.match(r"[ \t]*[a-z]", p):
+            out[-1] += p  # "it was 9 p.m. and Sam yawned.": a lower-case word after a dotted time continues the sentence (the time does not end it)
         else:
             out.append(p)
     return out
@@ -5870,14 +5872,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
             # the two claim kinds not yet chyron-covered (the season winner, a player expulsion).
             # ORW-377 (zero clocks in the house): a stated clock time ("6:15", "3am", "quarter past eight") is dropped as a SENTENCE - never the scene. Closed-set only; fail-open.
             if chat_helpers.sentence_states_zero_clock_time(part):
-                # review of #2657: in a semicolon-joined compound only the clause that states the time goes; the safe clauses survive
-                _clauses = re.split(r"(?<=;)", part)
-                if len(_clauses) > 1:
-                    part = "".join(c for c in _clauses if not chat_helpers.sentence_states_zero_clock_time(c))
-                    if not part.strip():
-                        continue
-                else:
-                    continue
+                # the whole SENTENCE goes (review of #2754): a clause-level cut left "kitchen; and Sam yawned" on screen and the stored-text mirror could not follow it
+                continue
             if chat_helpers._sentence_has_chyron_covered_claim(part):
                 continue  # a chyron already carries this fact — the model's restatement never renders
             if chat_helpers._sentence_has_closed_set_claim(part):
@@ -6027,8 +6023,13 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
     surviving first clause right along with the dropped second one."""
     if after == before or not before:
         return round_response  # nothing dropped — the hot path
-    b_parts = re.split(split_pattern, before)
-    a_parts = re.split(split_pattern, after)
+    if split_pattern == r"(?<=[.!?\n])":
+        # the outcome guard splits with `_split_sentences_keep_dotted_times` (review of #2754: "3 a.m." is ONE unit there, so re-splitting it here
+        # into "3 a." + "m." erased the wrong fragments from the stored text); any other guard that splits plainly never produces a dotted-time unit
+        b_parts, a_parts = _split_sentences_keep_dotted_times(before), _split_sentences_keep_dotted_times(after)
+    else:
+        b_parts = re.split(split_pattern, before)
+        a_parts = re.split(split_pattern, after)
     ai = 0
     for bp in b_parts:
         if ai < len(a_parts) and a_parts[ai] == bp:

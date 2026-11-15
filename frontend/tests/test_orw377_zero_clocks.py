@@ -158,7 +158,27 @@ def test_orw437_a_dotted_time_and_a_semicolon_clause_are_handled_per_sentence(se
     out = _guard("The kettle clicks off. The hall is dark at 3 a.m. The player stays put.")
     assert "3 a.m" not in out and "The kettle clicks off." in out and "The player stays put." in out
     out = _guard("The kettle clicks off; it is 9 p.m. by the light; the player stays put.")
-    assert "p.m" not in out and "the player stays put." in out and "The kettle clicks off;" in out
+    assert "p.m" not in out and "by the light" not in out  # the WHOLE sentence goes (the dotted time does not end it): a clause cut left dangling "; and ..." text and the stored-text mirror could not follow it
+
+
+def _stream(chunk, stored_before):
+    """Run a chunk through the REAL `_guard_stream_chunk` + `_apply_mirror_ops`: (shown text, stored text)."""
+    from src import agent_loop as al
+    g, _ = asyncio.get_event_loop().run_until_complete(al._guard_stream_chunk(chunk, "u", ooc_open="", scene_broken=False, emitted_visible=True, cutaway_emitted=False))
+    return g.text, al._apply_mirror_ops(stored_before + chunk, g.mirror_ops)
+
+
+@pytest.mark.parametrize("chunk,shown,stored_tail", [
+    ("The house settles. It was 3 a.m. Then he left with them. ", "The house settles. Then he left with them. ", "The house settles. Then he left with them. "),
+    ("She waited in the kitchen; it was 9 p.m. and Sam yawned. Then everyone left. ", " Then everyone left. ", " Then everyone left. "),
+    ("The house settles. Then he left with them. ", "The house settles. Then he left with them. ", "The house settles. Then he left with them. "),
+])
+def test_orw437_shown_and_stored_text_agree_for_dotted_times_compounds_and_plain_sentences(setting, chunk, shown, stored_tail):
+    """review of #2754: the stored text used to be corrupted ("settles.m. Then he left with the ") because the mirror re-split "3 a." / "m."."""
+    before = "You push the door open. "
+    out_shown, stored = _stream(chunk, before)
+    assert out_shown == shown
+    assert stored == before + stored_tail
 
 
 @pytest.mark.parametrize("clocky", ["Ten to eight, by the light.", "It is twenty to nine.", "The clock says 9.15am.", "At 4.30pm the doors open."])
