@@ -93,6 +93,18 @@ def test_format_tool_result_scrubs_stdout_content_and_results_shapes_too(setting
     assert "9:40am, Day 1" in format_tool_result("status", {"stdout": raw, "stderr": "", "exit_code": 0})
 
 
+def test_orw437_format_tool_result_scrubs_the_response_branch_and_the_extra_payload(setting):
+    """review of #2751: `response` text and the serialized `extra` payload (clockLabel, minutesUntil) still reached the model."""
+    from src.tool_execution import format_tool_result
+    raw = json.dumps({"clockLabel": "9:40am, Day 1"})
+    for res in ({"response": raw}, {"response": raw, "model": "m"}, {"response": "ok", "daySchedule": {"clockLabel": "9:40am, Day 1", "minutesUntil": 25, "next": "nominations"}}):
+        out = format_tool_result("status", res)
+        assert "9:40" not in out and "minutesUntil" not in out and "morning, Day 1" in out, (res, out)
+    setting["v"] = False
+    assert "9:40am, Day 1" in format_tool_result("status", {"response": raw})
+    assert "minutesUntil" in format_tool_result("status", {"response": "ok", "daySchedule": {"minutesUntil": 25}})
+
+
 @pytest.mark.parametrize("label,band", [("4:15am, Day 4", "early morning"), ("1:00am, Day 2", "late night"), ("1:59am, Day 2", "late night"), ("2:00am, Day 2", "early morning"), ("6:30am, Day 2", "early morning"), ("7:59am, Day 2", "early morning"), ("8:00am, Day 2", "morning"), ("3:20pm, Day 3", "afternoon"),
                                         ("9:10pm, Day 3", "night"), ("5:00pm, Day 1", "evening"), ("12:15pm, Day 1", "midday"), ("9:40am, Day 1", "morning")])
 def test_band_label_mirrors_the_engine_bands(label, band):
