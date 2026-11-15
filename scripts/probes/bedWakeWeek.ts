@@ -9,7 +9,7 @@ import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
 import { wakeHourAfterBed } from "../../src/engine/timeOfDay";
 
-const MESSAGES = Number(process.argv[2] ?? 1300), SEEDS = Number(process.argv[3] ?? 12);
+const MESSAGES = Number(process.argv[2] ?? 1300), SEEDS = Number(process.argv[3] ?? 12), FIRST = Number(process.argv[4] ?? 1); // argv[4]: the first seed (to split a sweep over processes)
 const BED_HOURS = [21, 22.5, 24, 25.5, 26.5]; // 9pm, 10:30pm, midnight, 1:30am, 2:30am (clock hours past midnight run 24..32)
 type Res = { pass: number; fail: string[] };
 const R = new Map<string, Res>();
@@ -28,7 +28,7 @@ function depthOf(label?: string): { h: number; day: number } | null {
 }
 
 async function main() {
-  for (let seed = 1; seed <= SEEDS; seed++) {
+  for (let seed = FIRST; seed < FIRST + SEEDS; seed++) {
     const user = `bww-${seed}`;
     const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
     const mcp = reg.resolver()("player", user);
