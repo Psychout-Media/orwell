@@ -2090,13 +2090,19 @@ export class GameSessionAdapter implements GameSession {
     // ORW-439 - DIAGNOSTIC ONLY: name the tool whose call caused this bump (tool name, counter value, timestamp - nothing else).
     // In memory, never persisted, never read by game logic; it cannot change the counter, the snapshot or any result.
     this.beatLogRing.push({ seq: this.beatSeq, tool: currentBeatCause(), at: Date.now() });
-    if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP);
+    if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) {
+      // Review of #2757: remember the few just-evicted entries so a restore that rolls this very bump back can still give them back.
+      this.beatLogEvicted.push(...this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP));
+      if (this.beatLogEvicted.length > GameSessionAdapter.BEAT_LOG_SPILL) this.beatLogEvicted.splice(0, this.beatLogEvicted.length - GameSessionAdapter.BEAT_LOG_SPILL);
+    }
     this.captureBeatCheckpoint();
   }
 
   /** ORW-439 - the last BEAT_LOG_CAP bumps, oldest first. In-memory diagnostic; copies, so a caller cannot edit the ring. */
   private static readonly BEAT_LOG_CAP = 64;
   private beatLogRing: BeatBumpEntry[] = [];
+  private static readonly BEAT_LOG_SPILL = 16;
+  private beatLogEvicted: BeatBumpEntry[] = [];
 
   /**
    * ORW-439 - which tool caused each beat bump after `sinceBeatSeq`. A pure read: no commit, no bump, no save, no read-cache change.
@@ -2112,7 +2118,7 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-439 - the ring's entries (the registry carries them across a restore). */
   beatLogEntries(): readonly BeatBumpEntry[] {
-    return this.beatLogRing.map((b) => ({ ...b }));
+    return [...this.beatLogEvicted, ...this.beatLogRing].map((b) => ({ ...b }));
   }
 
   /**
@@ -2121,6 +2127,7 @@ export class GameSessionAdapter implements GameSession {
    */
   adoptBeatLog(entries: readonly BeatBumpEntry[]): void {
     this.beatLogRing = entries.filter((b) => b.seq <= this.beatSeq).map((b) => ({ ...b }));
+    this.beatLogEvicted = [];
     if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP);
   }
 
