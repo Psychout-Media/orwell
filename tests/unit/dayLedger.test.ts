@@ -67,12 +67,20 @@ describe("ORW-271 - the floor ledger entry at turnIn", () => {
 });
 
 describe("ORW-271 - recordDaySummary", () => {
+  it("ORW-402: a whole-day summary (about 400 words plus key list) is stored whole, not cut at 900", () => {
+    const { session } = rig(5);
+    closeNight(session);
+    const long = "word ".repeat(450).trim() + " Key list: tail-marker";
+    expect(session.recordDaySummary({ day: 1, text: long }).accepted).toBe(true);
+    expect(session.dayLedger()[0]!.text).toBe(long);
+  });
+
   it("is idempotent per (day,tier), caps and strips text", () => {
     const { session } = rig(5);
     closeNight(session);
-    expect(session.recordDaySummary({ day: 1, text: "first\u0007\n  text " + "x".repeat(2000) }).accepted).toBe(true);
+    expect(session.recordDaySummary({ day: 1, text: "first\u0007\n  text " + "x".repeat(5000) }).accepted).toBe(true);
     const t = session.dayLedger()[0]!.text!;
-    expect(t.length).toBeLessThanOrEqual(900);
+    expect(t.length).toBeLessThanOrEqual(3200);
     expect(t).not.toMatch(/[\u0000-\u001f]/);
     session.recordDaySummary({ day: 1, text: "second" });
     expect(session.dayLedger()).toHaveLength(1);
