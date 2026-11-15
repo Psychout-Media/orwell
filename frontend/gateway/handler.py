@@ -237,8 +237,8 @@ async def _narrate_gateway_turn(
     # pair (the resolver hands the whole list to the completion).
     llm_fn = None
     try:
-        from src.orwell_cast_authoring import _resolve_llm_fn  # type: ignore[attr-defined]
-        llm_fn = await _resolve_llm_fn(user)
+        from src.orwell_cast_authoring import _resolve_llm_fn, resolve_prose_llm_fn  # type: ignore[attr-defined]
+        llm_fn = await resolve_prose_llm_fn(_resolve_llm_fn, user)  # ORW-387: a prose prompt; json_object makes a strict provider answer 400
     except Exception as exc:
         logger.warning("gateway _narrate_gateway_turn: model resolve failed: %s", exc)
         llm_fn = None

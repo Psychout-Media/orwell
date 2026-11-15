@@ -116,6 +116,33 @@ describe("hangOut lever", () => {
     const r3 = e.hangOut();
     expect(r3.beats > 0 || r3.stopReason === "event-due").toBe(true); // never an up-front "bedtime" at 8:30pm
   });
+  it("ORW-392: week-1 premiere night at 22h never yields event-due (the HOH event is tomorrow); a state just before a genuinely due event still does", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const night = new GameSessionRegistry().sandboxFor("ho-premiere-night").session as unknown as S & { setPremiereEntrancesEnabled(b: boolean): void; gameStatus(): { timeOfDay?: string }; noteMessage(a: { messageId: string }): unknown };
+    night.setPremiereEntrancesEnabled(true);
+    night.createCharacter({ playerName: "P", seed: 5 });
+    night.setPerConversationClockEnabled(true); night.setHangOutEnabled(true);
+    for (let i = 0; i < 40 && (night.getGameState() as { phase: string }).phase === "premiere"; i++) { if (night.advanceGame().pending) break; }
+    for (let i = 0; i < 400 && !["night", "late-night"].includes(night.gameStatus().timeOfDay ?? ""); i++) night.noteMessage({ messageId: `m${i}` });
+    (night.snapshot() as unknown as { live: Live }).live.nightDepth = 22;
+    expect((night.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(false);
+    for (let i = 0; i < 6; i++) {
+      const r = night.hangOut();
+      expect(r.stopReason, "the premiere-night event is tomorrow, never due tonight").not.toBe("event-due");
+      if (r.stopReason === "bedtime") break;
+    }
+    // A genuinely due event still stops the hang-out: park a day game a few seconds short of the milestone's hour.
+    const s = parked(5, "ho-due")!;
+    const snap = JSON.parse(JSON.stringify(s.snapshot())) as { live: Live & { beat?: string } };
+    const target = (s.getGameState() as { daySchedule?: { minutesUntil: number } }).daySchedule!.minutesUntil;
+    snap.live.nightDepth = snap.live.nightDepth! + target / 60 - 0.001; // sub-minute shy of the hour
+    const d = new GameSessionRegistry().sandboxFor("ho-due2").session as S; d.setHangOutEnabled(true); d.setPerConversationClockEnabled(true);
+    d.setDesireClockEnabled(false); d.setWantMovementEnabled(false); d.setMorningApproachEnabled(false); d.setMoodApproachEnabled(false); d.setApproachMemoryEnabled(false); d.setNpcTellsEnabled(false);
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    d.restore(snap as unknown as Parameters<S["restore"]>[0]);
+    expect(d.hangOut().stopReason).toBe("event-due");
+    expect((d.getGameState() as { daySchedule?: { due: boolean } }).daySchedule?.due).toBe(true);
+  });
   it("pulled fires at most once per in-game day", () => {
     for (let seed = 1; seed <= 30; seed++) {
       const s = parked(seed, `ho${seed}y`, true); if (!s) continue;

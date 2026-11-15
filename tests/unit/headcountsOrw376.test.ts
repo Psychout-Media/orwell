@@ -57,9 +57,9 @@ describe("whereabouts.counts (engine)", () => {
     expect(JSON.stringify(s.getGameState())).toBe(a);
   });
 
-  it("carries no Vault field: counts holds exactly the four numeric keys", () => {
+  it("carries no Vault field: counts holds only the numeric keys (ORW-386 adds asleep)", () => {
     const s = driveTo((ss) => ss.getGameState().phase === "nominations");
-    expect(Object.keys(s.whereabouts()!.counts!).sort().every((k) => ["room", "others", "house", "voters"].includes(k))).toBe(true);
+    expect(Object.keys(s.whereabouts()!.counts!).sort().every((k) => ["room", "others", "house", "voters", "asleep"].includes(k))).toBe(true);
   });
 });
 

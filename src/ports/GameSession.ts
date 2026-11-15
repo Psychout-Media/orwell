@@ -442,6 +442,8 @@ export interface GameStateView {
    * Drives the time-of-day HUD and grounds narration in the real hour. Absent pre-game.
    */
   timeOfDay?: string;
+  /** ORW-392: see `GameStatusView.earlyMorning`. */
+  earlyMorning?: true;
   /**
    * P0 clock grounding - the engine's exact in-game clock as a plain label ("9:40am, Day 1"), present only while the clock is running (same gate as `timeOfDay`). Public, Vault-free; the narrator is
    * told to name no other time. Absent pre-game / clock dormant => byte-identical.
@@ -1123,12 +1125,18 @@ export interface RecordLookExtrasReq {
   houseguestId: string;
   wardrobe?: string[];
   onCamera?: string;
+  /** ORW-380: shoot-day hair, at most 90 chars. */
+  photoHair?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
+  clear?: string[];
 }
 
 export interface RecordLookExtrasResult {
   accepted: boolean;
-  /** Field names actually stored (`wardrobe`, `onCamera`); never a value. */
+  /** Field names actually stored (`wardrobe`, `onCamera`, `photoHair`); never a value. */
   fields: string[];
+  /** ORW-380: field names removed through `clear`. */
+  cleared?: string[];
   /** Present when `accepted` is false: a code, never an echo of the text. */
   reason?: string;
 }
@@ -1239,6 +1247,8 @@ export interface PublicGameStatus {
    * the time-of-day HUD renders; Vault-free; absent pre-game / when the clock isn't running.
    */
   timeOfDay?: string;
+  /** ORW-392: present (true) while `timeOfDay` is "late-night" but the clock is past 2am, before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
+  earlyMorning?: true;
   /** ORW-115 (Ryne: "Time of day only"): the in-game DAY number the HUD shows beside the time of day ("Morning, Day 1") - the same day as `GameStateView.clockLabel`. Public; present only while the clock runs. */
   dayNumber?: number;
   /**
@@ -1815,6 +1825,27 @@ export interface MarkHouseguestMetOpts {
   via?: "player" | "belt";
 }
 
+/** ORW-386 - one houseguest's place in the house as a search would find it. Vault-free: a room, an access word and a ready sentence. */
+export interface HouseSearchEntry {
+  id: EntityId;
+  name: string;
+  status: "here" | "awake" | "asleep" | "arriving";
+  /** The room id (absent for a sleeper whose bed is not a known bedroom, and for one who has not walked in yet at the premiere entrances). */
+  room?: string;
+  /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Absent for a sleeper. */
+  access?: "open" | "closed";
+  /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
+  fact: string;
+}
+/** ORW-386 - the house search: every living houseguest once, plus the asleep headcount and each room's roster. */
+export interface HouseSearchView {
+  houseguests: HouseSearchEntry[];
+  /** How many NPC houseguests are asleep (the HUD's `asleep` list length); absent when the clock is off. */
+  asleepCount?: number;
+  /** Each room that holds at least one awake houseguest (the player excluded), with its names. Empty rooms are not listed. */
+  rooms: Array<{ room: string; access: "open" | "closed"; present: NamedRef[] }>;
+}
+
 /**
  * Where the player stands in the house RIGHT NOW (0049) — the Vault-free presence read. Who is in
  * the player's room and who is one room over: facts a houseguest could see or hear themselves.
@@ -1854,7 +1885,14 @@ export interface WhereaboutsView {
    * eviction night, who casts a ballot (the house minus the HOH and the nominees). Counts of people the player can already
    * see - Vault-free; a read-side projection only (no rng, no fold).
    */
-  counts?: { room: number; others: number; house: number; voters?: number };
+  counts?: { room: number; others: number; house: number; voters?: number; asleep?: number };
+  /**
+   * ORW-386 - the HOUSE SEARCH: present ONLY when the caller asks (`whereabouts({search:true})`, the FE does on a turn where the player asks where someone is or
+   * searches the house). Walking the whole house is something the player can do, so a search gives each living houseguest's ROOM (and whether the player can walk
+   * in: `open`, or `closed` for the HOH room while someone else holds it), or that they are asleep. A room and an access word only - never what anyone is doing there
+   * or with whom, never a number about them. Everyone is somewhere: `houseguests` has one entry per living houseguest who is in the house (the player excluded).
+   */
+  search?: HouseSearchView;
   /**
    * TRACKED OCCUPANCY (0077 Phase 2 — the privacy payoff): who the player BELIEVES is behind a closed
    * door, learned by WATCHING them head in (never the live map). Each carries the believed room (+ zone),
@@ -2185,7 +2223,7 @@ export interface RecordDaySummaryReq {
 export interface RecordDaySummaryResult {
   accepted: boolean;
   /** Why not accepted (absent when accepted). */
-  reason?: "absent" | "unknown-day" | "empty";
+  reason?: "absent" | "unknown-day" | "empty" | "error-text";
 }
 
 export interface DailyRecapView {
@@ -3043,7 +3081,7 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(): WhereaboutsView | null;
+  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;
@@ -3184,7 +3222,7 @@ export interface GameSession {
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
 
   /**
-   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe` and `onCamera` look fields
+   * ORW-369 (the running-season portrait upgrade): store a houseguest's `wardrobe`, `onCamera` and `photoHair` look fields
    * WITHOUT touching anything else. Unlike `recordCastProfile` (which replaces the whole physical block and runs
    * the whole authoring pipeline) this merges only those two cleaned fields into the existing public facet, runs
    * the closed-facet (ink) guard, leaves the narrator's `appearance` string and every other field byte-identical,

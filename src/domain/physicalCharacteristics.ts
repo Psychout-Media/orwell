@@ -36,11 +36,17 @@ export interface PhysicalCharacteristics {
    * detail, one spot in the house), at most `ON_CAMERA_MAX` chars. Optional, as `wardrobe`.
    */
   onCamera?: string;
+  /**
+   * ORW-380: shoot-day hair (the same cut, length and colour as `hair`, styled neat for a photo shoot), at
+   * most `PHOTO_HAIR_MAX` chars. Optional, as `wardrobe`.
+   */
+  photoHair?: string;
 }
 
 export const WARDROBE_ITEM_MAX = 60;
 export const WARDROBE_MAX_ITEMS = 3;
 export const ON_CAMERA_MAX = 240;
+export const PHOTO_HAIR_MAX = 90;
 
 /** Strip control characters and collapse whitespace. */
 function cleanText(v: unknown): string {
@@ -59,5 +65,11 @@ export function cleanWardrobe(v: unknown): string[] | undefined {
 /** Clean + clamp the authored `onCamera` line. */
 export function cleanOnCamera(v: unknown): string | undefined {
   const t = cleanText(v).slice(0, ON_CAMERA_MAX).trim();
+  return t.length > 0 ? t : undefined;
+}
+
+/** ORW-380: clean + clamp the authored `photoHair` line. */
+export function cleanPhotoHair(v: unknown): string | undefined {
+  const t = cleanText(v).slice(0, PHOTO_HAIR_MAX).trim();
   return t.length > 0 ? t : undefined;
 }
