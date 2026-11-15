@@ -31,6 +31,11 @@ def season(tmp_path, monkeypatch):
     monkeypatch.setattr(P, "image_gen_disabled", lambda: False)
     U._STATE.clear()
     U._BUSY.clear()
+
+    async def _live():  # ORW-378: these tests are the live-game (one at a time) path
+        return True
+
+    monkeypatch.setattr(U, "game_is_live", _live)
     P._INFLIGHT.clear()
     P._GEN_PROGRESS.clear()
     state = {"started": True, "player": {"id": "player", "name": "Me"},
