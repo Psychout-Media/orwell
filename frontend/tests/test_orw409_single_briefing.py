@@ -137,3 +137,15 @@ def test_orw437_the_engines_own_event_due_stop_line_is_reconciled_when_not_due()
     due = {**board, "daySchedule": {**board["daySchedule"], "due": True}}
     raw = ch._hang_out_steer(res)
     assert ch._reconcile_hang_out_steer(raw, due) == raw
+
+
+def test_orw437_game_context_schedule_lines_are_audited_too():
+    """review of #2688: the engine's own daySchedule lines ('- IT IS TIME: ... starting NOW', '- COMING UP: ...') contradict a not-yet steer."""
+    due = "\n- IT IS TIME: the nominations is starting NOW — production calls the whole house to the living room.\n"
+    coming = "\n- COMING UP: the nominations is set for this evening — the house knows it's coming.\n"
+    steer_not_yet = "PRODUCTION HASN'T CALLED IT YET - the nominations is scheduled for later today."
+    steer_on_now = "PRODUCTION CALLS EVERYONE - it is time for the nominations."
+    assert [f["fact"] for f in audit_briefing([{"role": "system", "content": due + steer_not_yet}])] == ["event-due"]
+    assert [f["fact"] for f in audit_briefing([{"role": "system", "content": coming + steer_on_now}])] == ["event-due"]
+    assert audit_briefing([{"role": "system", "content": coming + steer_not_yet}]) == []
+    assert audit_briefing([{"role": "system", "content": due + steer_on_now}]) == []
