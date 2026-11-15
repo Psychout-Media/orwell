@@ -22,7 +22,7 @@ describe("ORW-404 stall timing", () => {
     try {
       const lines: string[] = [];
       setStallTimerForTests(steppedTimer(300, lines));
-      new FileSaveStore(dir).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
+      new FileSaveStore(dir, { fsyncMode: "sync" }).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
       expect(lines).toHaveLength(1);
       expect(lines[0]).toMatch(/step=save\.persist ms=\d+ serializeMs=300 writeMs=300 fsyncMs=300 renameMs=300 chars=\d+/);
       expect(stallTimer.snapshot()["save.persist"]).toMatchObject({ count: 1, slow: 1 });
@@ -34,7 +34,7 @@ describe("ORW-404 stall timing", () => {
     try {
       const lines: string[] = [];
       setStallTimerForTests(steppedTimer(1, lines));
-      new FileSaveStore(dir).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
+      new FileSaveStore(dir, { fsyncMode: "sync" }).saveFor("u", { a: 1 } as unknown as SessionSnapshot);
       expect(lines).toEqual([]);
       expect(stallTimer.snapshot()["save.persist"]).toMatchObject({ count: 1, slow: 0 });
     } finally { rmSync(dir, { recursive: true, force: true }); }

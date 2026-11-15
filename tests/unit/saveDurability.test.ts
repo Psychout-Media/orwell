@@ -57,7 +57,7 @@ const snap = (phase: string): SessionSnapshot =>
 describe("E8 — saves are fsynced, in the durable order", () => {
   it("fsyncs the temp file's CONTENT before the rename (the torn-file guarantee) on every save", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = new FileSaveStore(dir, { fsyncMode: "sync" });
     calls.length = 0;
 
     store.saveFor("u", snap("a")); // a per-turn (non-checkpoint) save
@@ -70,7 +70,7 @@ describe("E8 — saves are fsynced, in the durable order", () => {
 
   it("does NOT pay a second (directory) fsync on an ordinary per-turn save (F-EN-1 #1562)", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = new FileSaveStore(dir, { fsyncMode: "sync" });
     calls.length = 0;
 
     store.saveFor("u", snap("a")); // v1 — not a checkpoint boundary
@@ -85,7 +85,7 @@ describe("E8 — saves are fsynced, in the durable order", () => {
 
   it("STILL fsyncs the directory after the rename on a periodic checkpoint save (bounded power-loss window)", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = new FileSaveStore(dir, { fsyncMode: "sync" });
     // Drive up to the checkpoint boundary; instrument only the checkpoint save itself.
     for (let v = 1; v < CHECKPOINT_EVERY; v++) store.saveFor("u", snap(`v${v}`));
     calls.length = 0;
@@ -100,7 +100,7 @@ describe("E8 — saves are fsynced, in the durable order", () => {
 
   it("the durable write still round-trips and leaves no temp file (B35 intact)", () => {
     const dir = mkdtempSync(join(tmpdir(), "orwell-e8-"));
-    const store = new FileSaveStore(dir);
+    const store = new FileSaveStore(dir, { fsyncMode: "sync" });
     store.saveFor("u", snap("a"));
     store.saveFor("u", snap("b"));
     expect(store.loadLatest("u")!.phase).toBe("b");
