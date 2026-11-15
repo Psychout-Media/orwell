@@ -81,16 +81,15 @@ def test_a_failed_durable_write_restores_the_fe_writes(_tmp_ledger, monkeypatch)
 
 
 def test_note_message_reports_an_fe_write_only_when_accepted(_tmp_ledger, monkeypatch):
-    async def accepted(mid, user=None):
-        return {"accepted": True, "beatSeq": 5}
+    """ORW-435: the write is counted at the engine dispatch seam (`_call`), so drive the real seam with a stubbed transport."""
+    answers = iter([{"accepted": False, "beatSeq": 5}, {"accepted": True, "beatSeq": 6}])
 
-    async def duplicate(mid, user=None):
-        return {"accepted": False, "beatSeq": 5}
+    async def transport(name, args=None, user=None, timeout=None):
+        return next(answers)
 
-    monkeypatch.setattr(orwell_engine, "note_message", duplicate)
+    monkeypatch.setattr(orwell_engine, "_call_inner", transport)
     _run(ch.note_player_message("m1", "player"))
     assert ledger._PENDING_FE_WRITES.get("player", 0) == 0
-    monkeypatch.setattr(orwell_engine, "note_message", accepted)
     _run(ch.note_player_message("m2", "player"))
     assert ledger._PENDING_FE_WRITES.get("player") == 1
 

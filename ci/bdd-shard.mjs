@@ -42,6 +42,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (arg) {
     const m = /^(\d+)\/(\d+)$/.exec(arg);
     if (!m || +m[1] < 1 || +m[1] > +m[2]) throw new Error(`usage: bdd-shard.mjs <i>/<n>, got ${arg}`);
+    // An empty leg would set ORWELL_BDD_FEATURES to "", which cucumber.cjs reads as "unset" and runs the WHOLE suite again: refuse more legs than features.
+    if (+m[2] > files.length) throw new Error(`bdd-shard: ${m[2]} legs for only ${files.length} features; an empty leg would run every feature`);
     files = assignBddShards(files, loadDurations(), +m[2])[+m[1] - 1];
     console.log(`[bdd-shard] leg ${arg}: ${files.length} of ${featurePaths().length} features`);
   }

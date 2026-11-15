@@ -77,7 +77,7 @@ def test_deferred_run_still_runs_when_nothing_else_went_ahead(tmp_path):
 def test_updater_exits_zero_when_superseded_and_when_already_at_ref():
     # ORW-406: a superseded run no longer exits blindly; the under-lock check decides (see test_orw406_review_followups)
     assert re.search(r'if \[\[ \$__ud_rc -eq 10 \]\]; then(?:(?!\n  fi).)*\n  fi', UPDATE, re.S)
-    m = re.search(r'if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\n(.*?)\nfi\n', UPDATE, re.S)
+    m = re.search(r'^if \[\[ "\$\{__UD_WAITED:-0\}" == 1.*?\n(.*?)\nfi\n', UPDATE, re.S | re.M)
     assert m and "fetch_target" in m.group(1) and "exit 0" in m.group(1)
     # the already-at-ref check sits before the update is armed / anything is touched
     assert UPDATE.index("__UD_WAITED:-0") < UPDATE.index("snapshot_running_dist\nUPDATE_ARMED=1")
@@ -126,3 +126,57 @@ def test_journald_restarted_only_when_dropin_changed():
         (t / "calls").unlink()
         assert run(t, (t / "j" / "orwell.conf").read_text()) == ""      # unchanged -> no restart
         assert "restart systemd-journald" in run(t, "stale\n")          # changed -> restart
+
+
+# ── review of #2702: a superseded deferred run waits for the lock instead of exiting 75 ──
+
+def _lock_fn_script(tmp_path, waited, wait_s):
+    body = re.search(r"^acquire_update_lock\(\) \{.*?^\}\n", UPDATE, re.S | re.M).group(0)
+    return textwrap.dedent(f"""
+        set -u
+        APP_DIR='{tmp_path}'
+        UPDATE_LOCK='{tmp_path}/u.lock'
+        __UD_WAITED={waited}
+        export ORWELL_UPDATE_LOCK_WAIT={wait_s}
+        unset ORWELL_UPDATE_LOCK_FD
+        {body}
+        acquire_update_lock
+        echo ACQUIRED
+    """)
+
+
+def _hold_lock(tmp_path, secs):
+    p = subprocess.Popen(["bash", "-c", f"exec 9>>'{tmp_path}/u.lock'; flock -n 9 && echo held && sleep {secs}"],
+                         stdout=subprocess.PIPE, text=True)
+    assert p.stdout.readline().strip() == "held"
+    return p
+
+
+@needs_bash
+def test_a_normal_run_refuses_a_held_lock_with_75(tmp_path):
+    holder = _hold_lock(tmp_path, 5)
+    try:
+        r = subprocess.run(["bash", "-c", _lock_fn_script(tmp_path, 0, 20)], capture_output=True, text=True, timeout=30)
+        assert r.returncode == 75 and "ACQUIRED" not in r.stdout
+    finally:
+        holder.kill()
+
+
+@needs_bash
+def test_a_superseded_deferred_run_waits_for_the_lock_then_runs(tmp_path):
+    holder = _hold_lock(tmp_path, 2)
+    try:
+        r = subprocess.run(["bash", "-c", _lock_fn_script(tmp_path, 1, 20)], capture_output=True, text=True, timeout=30)
+        assert r.returncode == 0 and "ACQUIRED" in r.stdout, (r.stdout, r.stderr)
+    finally:
+        holder.kill()
+
+
+@needs_bash
+def test_a_superseded_deferred_run_gives_up_after_the_bounded_wait(tmp_path):
+    holder = _hold_lock(tmp_path, 10)
+    try:
+        r = subprocess.run(["bash", "-c", _lock_fn_script(tmp_path, 1, 1)], capture_output=True, text=True, timeout=30)
+        assert r.returncode == 75
+    finally:
+        holder.kill()
