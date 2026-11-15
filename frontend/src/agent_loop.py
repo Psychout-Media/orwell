@@ -5569,7 +5569,7 @@ _GAME_LEAK_SENTENCE_RE = re.compile(
     # alternation (no bare "front"/"app"/"site") so ordinary scene prose is untouched.
     r"|\bfront[\s-]?end\b|\bthe app\b|\bthis (?:app|website|site)\b"
     r"|\bcomp-intent\b|\bpending (?:decision|binding)\b|\bbinding (?:choice|decision)\b"
-    r"|\b(?:decision|choice) (?:card|cards|button|buttons)\b|\btool (?:call|results?)\b|\bjumped ahead\b|\bnarratively\b"
+    r"|\b(?:decision|choice) (?:card|cards|button|buttons)\b|\btool call\b|\bjumped ahead\b|\bnarratively\b"
     # first-person operator asides (process talk). #989 (+ #1369 review) — the AMBIGUOUS
     # operator verbs over-fired on legitimate narration: bare "log/note" ate "Let me log that.",
     # bare "check" ate "Let me check on the others.", bare "run" ate "Let me run to the door.".

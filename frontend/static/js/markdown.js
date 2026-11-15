@@ -454,7 +454,7 @@ const _MACHINERY_ASIDE_RE = new RegExp(
   // wall). No first-person subject is required for any of these — closed-set UI/board-machinery
   // nouns never occur in in-character BB narration no matter who the "speaker" is.
   + '|\\bcomp-intent\\b|\\bpending (?:decision|binding)\\b|\\bbinding (?:choice|decision)\\b'
-  + '|\\b(?:decision|choice) (?:card|cards|button|buttons)\\b|\\btool (?:call|results?)\\b|\\bjumped ahead\\b|\\bnarratively\\b'
+  + '|\\b(?:decision|choice) (?:card|cards|button|buttons)\\b|\\btool call\\b|\\bjumped ahead\\b|\\bnarratively\\b'
   + '|\\brecord (?:this|the|that) (?:interaction|scene)\\b'
   // third-person player reference — momentPrompts requires "you", never "the player"/"the user"
   // (parity with the Python pattern's own trailing alternation).
