@@ -11839,6 +11839,13 @@ export class GameSessionAdapter implements GameSession {
       };
       const started = firstCeremonyBeatResolved(live);
       const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
+      // ORW-445: the player's own stated wait (FE-parsed from their words) => a minutes target; "the rest of the <band>" => the next part-of-day edge. The smaller wins; none => unchanged.
+      let statedMinutes: number | null = typeof req.maxMinutes === "number" && Number.isFinite(req.maxMinutes) && req.maxMinutes > 0 ? req.maxMinutes : null;
+      if (req.untilBandEnd === true) {
+        const nowH = live.nightDepth ?? WAKE_HOUR;
+        const edge = [CLOCK.phaseStartsHour.afternoon, CLOCK.phaseStartsHour.evening, CLOCK.phaseStartsHour.night, CLOCK.phaseStartsHour.lateNight].find((e) => e > nowH + 1e-6);
+        if (edge !== undefined) { const m = Math.max(5, Math.round((edge - nowH) * 60)); statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
+      }
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
@@ -11889,7 +11896,10 @@ export class GameSessionAdapter implements GameSession {
           this.onPlayerEvent?.(what, [PLAYER, ...uniq], kind === "someone-moved" ? "house-event" : "conversation");
           return { kind, who: uniq.map((id) => this.nameOf(id)) };
         },
-      }, rng, req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {});
+      }, rng, {
+        ...(req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {}),
+        ...(statedMinutes !== null ? { maxMinutes: statedMinutes } : {}),
+      });
       const hour = live.nightDepth ?? WAKE_HOUR;
       const stopLine = hangOutStopLine(result);
       // ORW-22: the stops that had no witnessed record (approach / pulled / bedtime) get one - public and content-free, so the player-visible record shows EVERY stop (observed records itself in its probe; event-due is the ceremony's own record).
