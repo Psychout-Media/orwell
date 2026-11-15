@@ -11436,9 +11436,10 @@ export class GameSessionAdapter implements GameSession {
       const approachOpen = started || (this.morningApproachEnabled && this.premiereSocialOpen()); // A22 (flag-off => `started`)
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
+        // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
         hoursUntilEvent: () => {
-          const m = nextMilestone(live);
-          return m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
+          const mins = minutesUntilDue(live);
+          return mins === null ? null : mins / 60;
         },
         eventDue: () => milestoneDueOf(live),
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
