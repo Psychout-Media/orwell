@@ -227,21 +227,31 @@ _monotonic = time.monotonic  # indirection so tests can drive a virtual clock
 # - A short-budget call giving up (the 3 s framing read, the 8 s status poll) says nothing by itself: a 3 s read
 #   that fails during a 6 s restart must not make the rest of the turn fail fast. Only the elapsed time counts.
 # - A call that is ALREADY in its long wait when the outage becomes established finishes its own budget.
+# - The evidence goes stale. If nothing tried the engine for `_ENGINE_UNREACHABLE_STALE_S` after the last refusal
+#   (the player left, the page closed), nobody knows it stayed down, so the next refusal restarts the clock: a
+#   refusal from hours ago must not make the first call of a new session fail fast inside a restart.
 _ENGINE_DOWN_AFTER_S = float(os.environ.get("ORWELL_ENGINE_DOWN_AFTER_S") or "20")
+_ENGINE_UNREACHABLE_STALE_S = 300.0
 _ENGINE_UNREACHABLE_SINCE: float | None = None  # _monotonic() of the first never-sent failure since the last answer
+_ENGINE_UNREACHABLE_LAST: float | None = None   # _monotonic() of the most recent never-sent failure
 
 
 def _note_engine_unreachable() -> None:
-    """A connection was never established. Keeps the FIRST such moment since the engine last answered."""
-    global _ENGINE_UNREACHABLE_SINCE
-    if _ENGINE_UNREACHABLE_SINCE is None:
-        _ENGINE_UNREACHABLE_SINCE = _monotonic()
+    """A connection was never established. Keeps the FIRST such moment since the engine last answered, unless the
+    previous refusal is so old that the unbroken outage is no longer known (then the clock restarts now)."""
+    global _ENGINE_UNREACHABLE_SINCE, _ENGINE_UNREACHABLE_LAST
+    now = _monotonic()
+    stale = _ENGINE_UNREACHABLE_LAST is not None and now - _ENGINE_UNREACHABLE_LAST > _ENGINE_UNREACHABLE_STALE_S
+    if _ENGINE_UNREACHABLE_SINCE is None or stale:
+        _ENGINE_UNREACHABLE_SINCE = now
+    _ENGINE_UNREACHABLE_LAST = now
 
 
 def _clear_engine_down() -> None:
     """The engine answered something: it is listening, whatever it said."""
-    global _ENGINE_UNREACHABLE_SINCE
+    global _ENGINE_UNREACHABLE_SINCE, _ENGINE_UNREACHABLE_LAST
     _ENGINE_UNREACHABLE_SINCE = None
+    _ENGINE_UNREACHABLE_LAST = None
 
 
 def _engine_down() -> bool:

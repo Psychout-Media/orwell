@@ -533,9 +533,39 @@ def test_an_established_outage_stays_fast_however_long_it_lasts(monkeypatch):
     clock = _Clock(monkeypatch)
     _patch_engine(monkeypatch, _RefusingEngine(lambda: True))
     _outage_call(clock)
-    for later in (15.0, 60.0, 600.0):
+    for later in (15.0, 60.0, 240.0):
         clock.now += later
         assert _outage_call(clock)[1] == [0.25, 0.5]
+
+
+def test_a_refusal_from_long_ago_is_stale_evidence_and_the_clock_restarts(monkeypatch):
+    # The player left during an outage and nothing called the engine for hours. Nobody knows it stayed down, so the
+    # first call of the new session, landing inside a 6 s restart, must still ride it out.
+    clock = _Clock(monkeypatch)
+    eng = _RefusingEngine(lambda: True)
+    _patch_engine(monkeypatch, eng)
+    _outage_call(clock)
+    assert orwell_engine._engine_down()
+    clock.now += 3 * 3600.0
+    back_at = clock.now + 6.0
+    eng.clock, eng.fn = clock, (lambda t: "refuse" if t < back_at else "ok")
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}
+    assert clock.now >= back_at
+
+
+def test_a_restarting_503_seen_by_one_call_re_opens_the_long_wait_for_the_next(monkeypatch):
+    # The 503 is an ANSWER: it ends the outage even when the call that saw it does not succeed.
+    clock = _Clock(monkeypatch)
+    monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_SINCE", 0.0)
+    monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_LAST", 24.0)   # an established outage with fresh evidence
+    clock.now = 25.0
+    assert orwell_engine._engine_down()
+    _patch_engine(monkeypatch, _RefusingEngine(lambda t: "503" if t < 28.0 else ("refuse" if t < 33.0 else "ok"), clock))
+    with pytest.raises((httpx.HTTPStatusError, httpx.ConnectError)):
+        _run(orwell_engine.get_game_state(user="x"))            # a 3 s read: sees the 503, gives up at its own timeout
+    assert clock.now < 33.0
+    assert _run(orwell_engine._call("advanceGame", {}, user="x")) == {"ok": True}   # the next call, refused at first, rides it out
+    assert clock.now >= 33.0
 
 
 def test_a_short_read_giving_up_mid_restart_does_not_make_the_next_call_fail_fast(monkeypatch):

@@ -217,6 +217,7 @@ def _engine_client_no_retry_backoff(request, monkeypatch) -> None:
     try:
         from src import orwell_engine
         monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_SINCE", None)  # ORW-404: the "unreachable since" stamp never leaks between tests
+        monkeypatch.setattr(orwell_engine, "_ENGINE_UNREACHABLE_LAST", None)
     except Exception:
         pass
     if request.node.get_closest_marker("engine_retry"):
