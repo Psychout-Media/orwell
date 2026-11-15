@@ -415,6 +415,8 @@ _update_probe() { curl -fsS --noproxy '*' --max-time "${2:-3}" "$1" 2>/dev/null 
 # engine reports `"warmed":true` (an engine predating the field, answering ok, counts as warm) and the front
 # end reports `"engine":true`. Logs how long the engine took to warm. ALWAYS returns 0: a timeout is logged
 # and the update carries on (the first request just pays the old lazy cost).
+# Append to the ops log unless stdout already IS that file (the ops unit redirects stdout there; a second append duplicated every line, review of #2720).
+_warm_log() { [[ -n "$1" ]] || return 0; [[ "$(readlink -f /proc/self/fd/1 2>/dev/null)" == "$(readlink -f "$1" 2>/dev/null)" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
   local eng="${1:-}" fe="${2:-}" log="${3:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
   [[ "$max" =~ ^[0-9]+$ ]] || max=60
@@ -440,12 +442,12 @@ update_wait_for_warm() {
     now="$(_update_defer_now)"
     if (( eng_done && fe_done )); then
       msg="==> warm-up complete after $((now - start))s${warm_ms:+ (engine reported ${warm_ms}ms)}; the new build is ready for traffic."
-      echo "$msg"   # stdout already lands in the ops update log (the unit's redirect); a second explicit append duplicated the line
+      echo "$msg"; _warm_log "$log" "$msg"
       return 0
     fi
     if (( now - start >= max )); then
       msg="==> warm-up not confirmed after ${max}s (engine_ready=${eng_done} frontend_ready=${fe_done}) - continuing; the first turn may be slow."
-      echo "$msg"
+      echo "$msg"; _warm_log "$log" "$msg"
       return 0
     fi
     _update_defer_sleep 2

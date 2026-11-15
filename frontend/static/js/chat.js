@@ -1757,7 +1757,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
             // err.detail.beatSeq was already adopted by orwellWs.js _adoptBeat, so
             // our next sendTurn will get the fresh expectedBeatSeq from lastBeatSeq().
             try {
-              // review of #2719: the same reconnect-aware wrapper as the first send, so a socket drop after the stale-beat answer waits for the socket instead of failing a turn that was never resent.
+              // review of #2719: the same reconnect-aware wrapper as the first send, so a socket drop after the stale-beat answer is ridden out, not a failed turn that was never resent.
               await (window.OrwellWs.sendTurnWhenLive || window.OrwellWs.sendTurn)({
                 message: _finalMsgWithInject,
                 clientMsgId: _clientMsgId,
