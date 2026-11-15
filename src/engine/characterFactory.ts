@@ -842,7 +842,7 @@ export function generateHouse(
     // CLUSTERS at premiere (F10/#1021 — "3 marketing, 2 firefighters"). The DRAW stays (byte-stability);
     // the surfaced `background` string is RECOMPOSED below in the L28 second pass from the capped,
     // cast-wide `vocation` (≤MAX_PER_VOCATION), so the clustered legacy job never reaches the roster.
-    const background = `a ${rng.pick(OCCUPATIONS)} who plays as a ${spec.archetype}`;
+    const background = `a ${rng.pick(OCCUPATIONS)}`; // ORW-458: no "who plays as a <archetype>": the mechanic label is never player-visible text (the draw stays, byte-stable)
     const volatility = rng.next();
     return {
       id: npc(i + 1),
@@ -907,7 +907,7 @@ export function generateHouse(
     // F10/#1021: recompose the surfaced background from the CAPPED vocation, replacing the clustered
     // legacy OCCUPATIONS job. The OCCUPATIONS draw above is untouched (byte-stability of the main
     // stream); only WHICH job appears in the prose changes — to the diverse, ≤MAX_PER_VOCATION one.
-    n.character.background = `a ${facets[i]!.vocation} who plays as a ${n.character.archetype}`;
+    n.character.background = `a ${facets[i]!.vocation}`; // ORW-458: the archetype stays internal (n.character.archetype), never in the public background
     n.character.demeanor = demeanors[i]!;
     n.character.appearance = withBuild(n.character.appearance, builds[i]!);
     n.character.presentation = presentations[i]!;
