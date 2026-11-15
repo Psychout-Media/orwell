@@ -1294,7 +1294,7 @@ export interface PublicGameStatus {
    * the time-of-day HUD renders; Vault-free; absent pre-game / when the clock isn't running.
    */
   timeOfDay?: string;
-  /** ORW-392: present (true) while `timeOfDay` is "late-night" but the clock is past 2am, before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
+  /** ORW-392: present (true) while `timeOfDay` is "late-night" or "morning" but the clock is between 2am and the 8am wake-up call (a late-night player, or one woken early after an early bed), before the house's wake-up call: the HUD says "Early morning" (the mirror of "Late night"). Public. */
   earlyMorning?: true;
   /** ORW-115 (Ryne: "Time of day only"): the in-game DAY number the HUD shows beside the time of day ("Morning, Day 1") - the same day as `GameStateView.clockLabel`. Public; present only while the clock runs. */
   dayNumber?: number;
@@ -1392,6 +1392,11 @@ export interface DeltaEventView {
  *  - an EMPTY delta (`events: []`, `changes` absent, `finishedChanged` false) — `sinceBeatSeq` equals
  *    the current `beatSeq`: nothing has committed since ("since last turn: nothing committed").
  */
+/** ORW-439 - one beat-counter bump and the tool that caused it ("outside-a-tool-call" when no tool call was running). */
+export interface BeatBumpEntry { seq: number; tool: string; at: number }
+/** ORW-439 - the `beatLog` read: the current counter, the bumps after the caller's token, and whether the ring still reaches back that far. */
+export interface BeatLogView { beatSeq: number; bumps: BeatBumpEntry[]; truncated: boolean }
+
 export interface StateDeltaView {
   /** The current committed beat counter (what the caller should re-ground its last-seen token to). */
   beatSeq: number;
@@ -2951,6 +2956,11 @@ export interface GameSession {
    * delta. A pure READ (never mutates / commits); safe to poll.
    */
   stateDelta(sinceBeatSeq: number): StateDeltaView;
+  /**
+   * ORW-439 - which tool caused each beat-counter bump after `sinceBeatSeq` (diagnostic; in memory only, never saved). A pure READ:
+   * it never commits, bumps or saves. Carries tool names, counter values and timestamps only - no arguments, no game state.
+   */
+  beatLog(sinceBeatSeq: number): BeatLogView;
   /** The managed system prompt to inject for the current (or requested) moment. */
   getMomentPrompt(req: MomentPromptReq): MomentPromptView;
   /**

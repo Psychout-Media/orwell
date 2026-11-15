@@ -19,6 +19,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "gameStatus", coveredBy: "read", note: "public board status" },
   { method: "getGameState", coveredBy: "read", note: "roster + player card + daySchedule + weekDigests + juryHouse" },
   { method: "stateDelta", coveredBy: "read", note: "player-visible events since beatSeq" },
+  { method: "beatLog", coveredBy: "read", note: "ORW-439 diagnostic: tool NAMES + counter values + timestamps of beat bumps; carries no Vault or game state (no args, no names)" },
   { method: "getMomentPrompt", coveredBy: "read", note: "the narrator prompt (systemPrompt + hardConstraints), incl. RETURNING CAST legend (0136), producer read (0137), Show Brief / room canon / open threads (ORW-223)" },
   { method: "recallSceneMemories", coveredBy: "read", note: "journal / scene recall" },
   { method: "whereabouts", coveredBy: "read", note: "who is where (eyeshot-scoped)" },

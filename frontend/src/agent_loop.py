@@ -1956,7 +1956,15 @@ async def _refresh_context_after_turn_in(messages, owner, turn_in_output) -> boo
         new_vol = txt[i:].rstrip("\n") + _post_turn_in_asleep_block(turn_in_output, briefing, txt[i:])
         for m in messages:
             if isinstance(m, dict) and m.get("role") == "system" and isinstance(m.get("content"), str) and old_vol in m["content"]:
-                m["content"] = m["content"].replace(old_vol, new_vol, 1)
+                # ORW-409: compute the whole new content first (nothing is written yet), then swap the content and the cached briefing together: a failure above leaves both as they were.
+                from routes.briefing import drop_movement_cue
+                new_content = m["content"].replace(old_vol, new_vol, 1)
+                new_content = drop_movement_cue(new_content)  # the movement cue is a pre-sleep difference: stale by construction in the morning (the morning block says who is there)
+                if briefing is not None:  # the notice / call armed before the turnIn is reconciled against the MORNING schedule (an event that is resolved or due now is kept; a stale one is dropped)
+                    new_content = _ch._reconcile_schedule_steer(new_content, briefing, _ch.turn_schedule_arm(owner), after_turn_in=True)
+                m["content"] = new_content
+                if briefing is not None:
+                    _ch.set_turn_briefing(owner, briefing)
                 _ch._LAST_FRAMED_MOMENT_VOLATILE[key] = txt[i:]
                 return True
         return False
@@ -6515,8 +6523,35 @@ async def _guard_stream_chunk(clean: str, owner, *, ooc_open, scene_broken: bool
     return _GuardedChunk("".join(out), scene_broken, ce, "".join(consumed), tuple(ops)), held
 
 
+async def _explain_ledger_gap(owner, *, beat_seq_before, stale_before):
+    """ORW-439 - when the sync ledger is about to read this turn's beatSeq gap as a dropped fold, ask the engine which tool caused
+    each bump (`beatLog`) and classify it. Returns the explanation for `record_turn` (a counting miss is not a red alarm; an
+    unexplained gap stays red with the causes appended), or None to leave the alarm exactly as it was: no gap, an older engine that
+    lacks the tool, a timeout, an odd answer. The ledger is synchronous, so the network call is made HERE, never inside it."""
+    if not owner:
+        return None
+    try:
+        from routes import chat_helpers as _ch
+        from src import orwell_sync_ledger as _led
+        stale_this_turn = max(0, _ch.stale_beat_rejections() - (stale_before or 0))  # same reads `_record_sync_ledger_turn` makes (read-only here)
+        info = _led.peek_unexplained_gap(owner, beat_seq_before=beat_seq_before if beat_seq_before is not None else 0,
+                                         stale_rejections=stale_this_turn, desync_detected=owner in _ch._DESYNC_REGROUND)
+        if info is None:
+            return None
+        from src import orwell_engine as _oe
+        try:
+            log = await _oe.beat_log(info["since"], user=owner, timeout=2.0)
+        except Exception as _bl_err:  # failsoft-ok: the red dropped-fold alarm still fires unchanged (an older engine without beatLog, a timeout); this only adds causes when it can
+            logger.debug(f"[orwell] beatLog unavailable; dropped-fold alarm unchanged: {_bl_err}")
+            return None
+        return _led.classify_gap(info, log)
+    except Exception as _ex_err:  # failsoft-ok: observability-only; the ledger records the turn and its alarm exactly as before
+        logger.debug(f"[orwell] ledger gap explanation skipped: {_ex_err}")
+        return None
+
+
 def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before, stale_before,
-                             nudges_fired, auto_backfills, turn_token=None) -> None:
+                             nudges_fired, auto_backfills, turn_token=None, gap_explanation=None) -> None:
     """0065 Part D — emit ONE Vault-free sync-ledger entry for a finished live-game turn.
 
     Captures the closed-set sync activity of the turn and hands it to `orwell_sync_ledger.record_turn`
@@ -6562,6 +6597,7 @@ def _record_sync_ledger_turn(owner, *, session_id, tool_events, beat_seq_before,
             stale_rejections=stale_this_turn,
             idempotency_hits=0,
             turn_token=turn_token,
+            gap_explanation=gap_explanation,
         )
     except Exception as _led_err:
         try:
@@ -11978,6 +12014,8 @@ async def _stream_agent_loop_impl(
         # it called (NAMES only), how many nudges fired / back-fills the FE made, whether a desync was
         # detected, and how many stale-beat 409s were reconciled. Fail-open — observability must never
         # hurt a turn. Counters that aren't cheaply available (idempotencyHits) pass 0 by design.
+        _ledger_gap_explanation = await _explain_ledger_gap(  # ORW-439: only does anything when the ledger would raise the dropped-fold alarm
+            owner, beat_seq_before=_ledger_beat_seq_before, stale_before=_ledger_stale_before)
         _record_sync_ledger_turn(
             owner,
             session_id=session_id,
@@ -11985,6 +12023,7 @@ async def _stream_agent_loop_impl(
             beat_seq_before=_ledger_beat_seq_before,
             stale_before=_ledger_stale_before,
             turn_token=_ledger_turn_token,
+            gap_explanation=_ledger_gap_explanation,
             nudges_fired=(_turn_advance_nudges + _turn_approach_nudges
                           + _turn_narrate_nudges + _turn_reapproach_nudges + _intent_nudge_count),
             auto_backfills=(_turn_record_nudges + _turn_deal_nudges + _turn_move_nudges

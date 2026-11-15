@@ -18,13 +18,14 @@ import type {
   WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
-  StateDeltaView, DeltaEventView,
+  StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
   BehavioralFlags,
   BeatAnnouncementView,
   NotorietyLegendView,
 } from "../../ports/GameSession";
 import type { ShowBriefView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
+import { currentBeatCause } from "../../ports/BeatCause";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
 import { humanizeIds, humanizeForRetrospective, tidyPathwaySlugs } from "./humanize";
 import { singlePickId } from "./decisionFields";
@@ -2085,7 +2086,41 @@ export class GameSessionAdapter implements GameSession {
    */
   bumpBeatSeq(): void {
     this.beatSeq++;
+    // ORW-439 - DIAGNOSTIC ONLY: name the tool whose call caused this bump (tool name, counter value, timestamp - nothing else).
+    // In memory, never persisted, never read by game logic; it cannot change the counter, the snapshot or any result.
+    this.beatLogRing.push({ seq: this.beatSeq, tool: currentBeatCause(), at: Date.now() });
+    if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP);
     this.captureBeatCheckpoint();
+  }
+
+  /** ORW-439 - the last BEAT_LOG_CAP bumps, oldest first. In-memory diagnostic; copies, so a caller cannot edit the ring. */
+  private static readonly BEAT_LOG_CAP = 64;
+  private beatLogRing: BeatBumpEntry[] = [];
+
+  /**
+   * ORW-439 - which tool caused each beat bump after `sinceBeatSeq`. A pure read: no commit, no bump, no save, no read-cache change.
+   * `truncated` is true when the ring cannot account for every bump in (since, current] (it holds only the last 64, and a resumed
+   * session starts with an empty ring), so a caller never mistakes a partial list for a complete one.
+   */
+  beatLog(sinceBeatSeq: number): BeatLogView {
+    const since = Number.isFinite(sinceBeatSeq) ? Math.max(0, Math.floor(sinceBeatSeq)) : 0;
+    const bumps = this.beatLogRing.filter((b) => b.seq > since).map((b) => ({ seq: b.seq, tool: b.tool, at: b.at }));
+    const expected = Math.max(0, this.beatSeq - since);
+    return { beatSeq: this.beatSeq, bumps, truncated: bumps.length < expected };
+  }
+
+  /** ORW-439 - the ring's entries (the registry carries them across a restore). */
+  beatLogEntries(): readonly BeatBumpEntry[] {
+    return this.beatLogRing.map((b) => ({ ...b }));
+  }
+
+  /**
+   * ORW-439 - carry the pre-restore ring onto the rebuilt session, keeping only bumps at or below the restored counter: a
+   * refused commit's bump was rolled back with the counter, so the log must not still claim it.
+   */
+  adoptBeatLog(entries: readonly BeatBumpEntry[]): void {
+    this.beatLogRing = entries.filter((b) => b.seq <= this.beatSeq).map((b) => ({ ...b }));
+    if (this.beatLogRing.length > GameSessionAdapter.BEAT_LOG_CAP) this.beatLogRing.splice(0, this.beatLogRing.length - GameSessionAdapter.BEAT_LOG_CAP);
   }
 
   /**
@@ -4875,7 +4910,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -15465,7 +15500,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.playerMove ? { playerMove: { ...this.playerMove } as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && this.live?.timeOfDay === "late-night" && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
+      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
       ...(this.timeOfDayEnabled && this.live?.timeOfDay && typeof this.live.nightDepth === "number" ? { clockLabel: formatClockLabel(this.live.nightDepth, this.live.dayNumber ?? 1), dayNumber: this.live.dayNumber ?? 1 } : {}), // P0: the exact clock the narrator must use; ORW-345: + the day number the FE stamps on each saved row
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
