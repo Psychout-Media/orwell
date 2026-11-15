@@ -283,7 +283,7 @@ def test_loop_never_forces_on_talk_about_bed(monkeypatch, text):
 @pytest.mark.parametrize("tod", ["morning", "afternoon", "evening"])
 def test_loop_never_forces_where_the_engine_would_hold(monkeypatch, tod):
     rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", status={**_NIGHT, "timeOfDay": tod})
-    assert rounds[0]["tool_choice"] is None and not belts
+    assert rounds[0]["tool_choice"] is None and set(belts) <= {"bedtime-held-note"}  # ORW-421: only the held note may fire
 
 
 def test_loop_never_forces_with_a_pending_decision(monkeypatch):
@@ -328,7 +328,7 @@ def test_rejecter_never_runs_turn_in_for_talk_about_bed(monkeypatch, text):
 @pytest.mark.parametrize("tod", ["morning", "afternoon", "evening"])
 def test_rejecter_never_runs_turn_in_where_the_engine_would_hold(monkeypatch, tod):
     rounds, belts, _, executed = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, status={**_NIGHT, "timeOfDay": tod}, turn_in_result=_res("morning"))
-    assert executed == [] and not belts
+    assert executed == [] and set(belts) <= {"bedtime-held-note"}
 
 
 def test_rejecter_never_runs_turn_in_with_a_pending_decision(monkeypatch):
@@ -495,3 +495,56 @@ def test_undecodable_chunk_passthrough_follows_the_first_stream_round():
     src = inspect.getsource(al)
     i = src.index("except json.JSONDecodeError:\n                    if round_num")
     assert "round_num == _first_stream_round" in src[i:i + 120]
+
+
+# ── ORW-421: the HELD band (morning/afternoon/evening) gets a "too early to sleep" note ────────────────
+import re as _re
+
+
+def _held(text="Goodnight everyone. I'm going to bed.", fired=(), status=None):
+    from src.agent_loop import _bedtime_held_note
+    st = {**_NIGHT, "timeOfDay": "evening"} if status is None else status
+    return _bedtime_held_note(set(fired), player_text=text, status=st)
+
+
+@pytest.mark.parametrize("tod", ["evening", "afternoon", "morning"])
+def test_held_note_in_the_held_band(tod):
+    note = _held(status={**_NIGHT, "timeOfDay": tod})
+    assert note and f"still the {tod}" in note and "do not call turnIn" in note
+
+
+@pytest.mark.parametrize("tod", ["night", "late-night", ""])
+def test_held_note_never_at_night(tod):
+    assert _held(status={**_NIGHT, "timeOfDay": tod}) is None
+
+
+def test_held_note_stands_down():
+    assert _held(status={"timeOfDay": "evening", "started": True, "pending": {"kind": "veto-use"}}) is None
+    assert _held(status={"timeOfDay": "evening", "started": False}) is None
+    assert _held(fired={"turnIn"}) is None
+    assert _held(text="I can't sleep.") is None
+    assert _held(text="Goodnight everyone.") is None
+
+
+def test_held_note_has_no_clock_time():
+    note = _held()
+    assert not _re.search(r"\d{1,2}\s*:\s*\d{2}|\b\d{1,2}\s*(?:am|pm)\b|\bminutes?\b|\bhours?\b", note, _re.I), note
+
+
+def test_board_gate_unchanged_for_the_evening():
+    from src.agent_loop import _bedtime_board_allows
+    assert _bedtime_board_allows({**_NIGHT, "timeOfDay": "evening"}) is False
+
+
+def test_loop_adds_the_held_note_once_for_an_evening_goodnight(monkeypatch):
+    rounds, belts, _, executed = _drive(
+        monkeypatch, text="Goodnight everyone. I'm going to bed.", status={**_NIGHT, "timeOfDay": "evening"},
+        scripts=[{"deltas": ["Too wired to sleep."]}])
+    assert rounds[0]["tool_choice"] is None and executed == []
+    assert rounds[0]["n_system"] == 2  # narrator + the ORW-421 note
+    assert belts == {"bedtime-held-note": 1}
+
+
+def test_loop_no_held_note_at_night(monkeypatch):
+    rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", scripts=[{"deltas": ["ok"]}])
+    assert "bedtime-held-note" not in belts
