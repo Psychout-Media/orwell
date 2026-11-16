@@ -61,3 +61,10 @@ def test_c_a_halted_round_persists_balanced_text():
     # idempotent: a live-closed round persists unchanged
     closed = emitted + '"**'
     assert agent_loop._persisted_round_text("x", scene_broken=True, scrub_active=True, round_emitted=closed) == closed
+
+
+def test_orw481_a_second_comma_clause_still_binds_you_to_the_player():
+    """ORW-481 (review 4576008744): 'Name, the HOH, says you won' is not a vocative - 'you' is the player."""
+    spans = rc.name_spans("Nom Alpha, the HOH, says you won.", ROSTER, "Player Epsilon")
+    assert any(c == "Player Epsilon" for c, _a, _b in spans)
+    assert not any(c == "Player Epsilon" for c, _a, _b in rc.name_spans("Nom Alpha, you are evicted.", ROSTER, "Player Epsilon"))

@@ -58,6 +58,10 @@ def last_scene_tail(history: Any) -> Optional[str]:
         role = getattr(msg, "role", None) if not isinstance(msg, dict) else msg.get("role")
         if role != "assistant":
             continue
+        # ORW-481 (review 4532868183): a casting-interview reply is stamped `phase=casting` and is never in-game scene text.
+        meta = getattr(msg, "metadata", None) if not isinstance(msg, dict) else msg.get("metadata")
+        if isinstance(meta, dict) and meta.get("phase") == "casting":
+            continue
         content = getattr(msg, "content", None) if not isinstance(msg, dict) else msg.get("content")
         if not isinstance(content, str):
             return None

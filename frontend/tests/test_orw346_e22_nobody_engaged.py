@@ -86,3 +86,17 @@ def test_the_belt_notes_nobody_only_for_an_explicit_empty_answer():
     import inspect
     src = inspect.getsource(importlib.import_module("src.agent_loop")._auto_record_scene)
     assert "note_scene_nobody" in src and "if not _rejected_with_ids" in src
+
+
+def test_orw481_an_old_requeued_fold_does_not_stand_the_guard_down(monkeypatch):
+    """ORW-481 (review 4535233845): only a fold staged THIS turn stands the guard down; an older queued entry does not."""
+    calls = _spy_record(monkeypatch)
+
+    async def rich(*a, **k):
+        return False
+    monkeypatch.setattr(chat_helpers, "_e22_rich_extract", rich)
+    fold_ledger.stage_pending_fold("u", "s", content="old", with_ids=["npc:3"], kind="bonding", consequence=None, felt_minutes=None, idempotency_key="k1")
+    fold_ledger.consume_staged_this_turn("u", "s")  # that turn is over; the entry stays queued (a re-queue)
+    _run(chat_helpers.ensure_turn_recorded("u", "hello", NARRATION, [], session_id="s"))
+    assert calls, "the floor fold must run for a turn that staged nothing"
+    fold_ledger.clear_all()

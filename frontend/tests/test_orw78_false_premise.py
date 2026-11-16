@@ -61,3 +61,14 @@ def test_no_baseline_is_a_safe_noop():
 def test_the_agent_loop_calls_the_check_after_the_roster_check():
     src = open(__import__("os").path.join(__import__("os").path.dirname(ch.__file__), "..", "src", "agent_loop.py"), encoding="utf-8").read()
     assert src.index("record_post_turn_roster_check(owner") < src.index("record_post_turn_false_premise_check(owner")
+
+
+def test_orw481_a_turn_that_committed_nominations_queues_no_correction(monkeypatch):
+    """ORW-481 (review 4535275168): the turn-start board had no nominees, but this turn committed them; no 'no nominees yet' correction."""
+    key = _setup(phase="nominations")
+
+    async def now(user):
+        return {"noms": ["x", "y"], "nomNames": ["A", "B"], "phase": "nominations"}
+    monkeypatch.setattr(ch, "_capture_beat_signature", now)
+    _run(ch.record_post_turn_false_premise_check("u78", "The nominee sits quietly at the end of the couch."))
+    assert not _pending(key)

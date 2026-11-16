@@ -434,3 +434,13 @@ def test_snapshot_does_not_rescue_someone_absent_on_both_boards(monkeypatch):
     text = 'A Schemer leans on the door and mutters, "nobody suspects us." You nod.'
     out = _run(chat_helpers.screen_presence_wall(_USER, text, alt_state=evening))
     assert "nobody suspects" not in out
+
+
+def test_orw481_a_dropped_multi_sentence_quote_is_dropped_whole(monkeypatch):
+    """ORW-481 (review 4534334471): later sentences of the same quoted line do not survive untagged."""
+    from src import orwell_engine
+    state = _state("backyard", present=["An Ally"], house=_house(active=["An Ally", "A Schemer"]))
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(state))
+    transcript = 'A Schemer leans in and says, "Hello. I saved you a seat." An Ally rolls her eyes.'
+    out = _run(chat_helpers.screen_presence_wall(_USER, transcript))
+    assert "saved you a seat" not in out and "An Ally rolls her eyes" in out

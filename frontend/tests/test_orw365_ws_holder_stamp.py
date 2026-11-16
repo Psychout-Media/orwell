@@ -23,7 +23,7 @@ const moments = JSON.parse(process.argv[2]);
 let html = '';
 const holder = { className: '', dataset: {}, set innerHTML(v) { html = v; }, isConnected: true };
 const document = {
-  querySelectorAll: () => moments.map(t => ({ textContent: t })),
+  querySelectorAll: (sel) => (sel === '#chat-history .role-timestamp-moment' ? moments.map(t => ({ textContent: t })) : [{ textContent: 'WRONG SCOPE' }]),
   getElementById: () => ({ appendChild() {} }),
   createElement: () => holder,
 };
@@ -59,6 +59,8 @@ def test_in_a_game_the_mirror_holder_shows_the_last_in_world_moment_not_the_wall
     html = _html(["Week 1 · Nominations · Morning", MOMENT])
     assert _ts_text(html) == MOMENT, html
     assert "role-timestamp-moment" in html
+    # ORW-481 (review 4576639860): the wall clock is kept on data-wall-clock, never replaced by the moment text
+    assert WALL.match(re.search(r'data-wall-clock="([^"]*)"', html).group(1).strip()), html
 
 
 def test_a_non_game_chat_mirror_holder_keeps_the_wall_clock_time():

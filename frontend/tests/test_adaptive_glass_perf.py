@@ -209,6 +209,14 @@ console.log(JSON.stringify({ during, total: passes, marks }));
     out = subprocess.run([node, "-e", harness], capture_output=True, text=True, timeout=30)
     assert out.returncode == 0, out.stderr
     r = json.loads(out.stdout.strip())
-    assert r["marks"] == 100, "every scroll still marks all dirty (correctness: a later pass re-samples everything)"
+    assert r["marks"] == r["total"] >= 1, "ORW-481: the full flag is raised when the scroll timer fires, right before each scheduled pass"
     assert r["during"] <= 3, f"3s of continuous scroll must not run a pass per 120ms: {r}"
     assert r["total"] == r["during"] + 1, f"exactly one trailing pass after the burst goes idle: {r}"
+
+
+def test_orw481_scroll_does_not_mark_all_dirty_until_its_timer_fires():
+    """ORW-481 (review 4539202348): scrollSchedule keeps its own pending flag; _allDirty is set only when the idle timer fires."""
+    body = JS[JS.index("function scrollSchedule("):JS.index("function init(")]
+    head, _, timer = body.partition("setTimeout(")
+    assert "_markAllDirty" not in head and "_scrollPending = true" in head
+    assert "_markAllDirty();" in timer

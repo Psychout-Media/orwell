@@ -2907,8 +2907,8 @@ _CLAIM_NOMINATED_RE = re.compile(
     # ORW-248 (prod 2026-11-07): the nominations RITUAL narrated without ever saying "nominate" - the key walk ("turns a key for each safe houseguest", "the two without a key"), "up for eviction", and a
     # ceremony narrated as begun ("the nomination ceremony begins"). The nominations moment prompt itself prescribes the key ritual, so a narrator told to stay social still reached the player with it.
     r"(?:are|is|were|been|now|both)\s+up\s+for\s+eviction|up\s+for\s+eviction\s+(?:this\s+week|tonight)|"
-    r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b|"
-    r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
+    r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b(?!\s+(?:in|into|to|of|from|on)\s+(?:\w+\s+){0,3}?(?:doors?|locks?|ignition|rooms?|cars?|drawers?|cabinets?|padlocks?|chests?|gates?)\b)|"
+    r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without(?=\s*[.,;!?]|\s+(?:a\s+)?(?:key|safe))|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
     r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
     r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
     re.IGNORECASE,
@@ -4139,7 +4139,11 @@ def _sentence_frames_elsewhere(sentence: str, facts: dict) -> bool:
     if _ELSEWHERE_CUE_RE.search(sentence or ""):
         return True
     low = (sentence or "").lower()
-    return any(r and re.search(rf"\b{re.escape(r)}\b", low) for r in (facts.get("adjacent_rooms") or ()))
+    adj = [r for r in (facts.get("adjacent_rooms") or ()) if r]
+    if any(re.search(rf"\b{re.escape(r)}\b", low) for r in adj):
+        return True
+    # ORW-481 (review 4502876781): the narration may use an alias of the label ("the yard" for the backyard); compare canonical room keys too.
+    return bool(_room_keys(sentence) & set().union(*(_room_keys(r) for r in adj))) if adj else False
 
 
 def _mentioned_anywhere(text: str, full_name: str, first_counts: dict) -> bool:
@@ -4274,13 +4278,23 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
+    open_quote = False  # ORW-481 (review 4534334471): a dropped line that opens a quote drops the rest of that quote too
     for part in parts:
+        if open_quote:
+            close = re.search(r'["\u201d]', part)
+            if not close:
+                continue  # still inside the dropped speaker's quote
+            open_quote = False
+            part = part[close.end():]  # the closing mark ends the quote; the rest is judged on its own
+            if not part.strip():
+                continue
         try:
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
             if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
                 hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
                 dropped.add(hit)
+                open_quote = bool((part.count('"') % 2) or part.count("\u201c") > part.count("\u201d"))
                 continue  # DROP — a non-present houseguest is never staged as present
         except Exception:
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
@@ -4439,6 +4453,10 @@ async def record_post_turn_false_premise_check(user, narration: str) -> None:
             return
         hits = _false_nominee_premise_sentences(narration)
         if not hits:
+            return
+        # ORW-481 (review 4535275168): the signature above is the TURN-START board; a turn that committed nominations moved it. Re-read the board now (fail-open: no read, keep the baseline verdict).
+        _now = await _capture_beat_signature(user)
+        if _now and (_now.get("noms") or _now.get("nomNames")):
             return
         directive = (
             "RE-GROUND ON THE BOARD - last turn you spoke of 'the nominee' as if someone were already nominated, but the engine has NO nominees yet: the Head of Household "
@@ -5901,7 +5919,10 @@ async def guard_emptied_cutaway(user) -> str:
         if streak < _CUT_STREAK_NEUTRAL_AT:
             return ""
         directive = _neutral_board_directive(live)
-        if production_is_holding(user):
+        if event_pause_holds(user):
+            # ORW-481 (review 4528677540): a PAUSED event was called and is mid-way; "not called yet" would be false.
+            directive += " The event is PAUSED mid-way, not uncalled: do not announce a result or the rounds still to run; say so in a line and play the moment you are in."
+        elif production_is_holding(user):
             label = _MOMENT_PHASE_LABELS.get(str(live.get("phase") or "")) or str(live.get("phase") or "the event").replace("-", " ")
             directive += (f" Production has NOT called the {label} yet: it is later today. Do not announce positions, a start or a result; "
                           "if your earlier replies said it was starting, that was wrong - say so in a line and play a normal social scene.")
@@ -8235,7 +8256,7 @@ def _veto_draw_steer(content: str) -> str:
     return (
         "THE VETO DRAW JUST HAPPENED (engine truth, already decided - you voice it, you never change it): " + str(content).strip() + ". Voice it as its OWN short ceremony in the room THIS morning, before the "
         "competition: the Head of Household and the nominees gather, the chips come out of the bag and each draw is read aloud, one houseguest at a time, in the order the game gives, with the reactions; if the game "
-        "names a Houseguest's Choice, voice who drew it and who they picked to play the sixth seat, exactly as given. Exactly these six play - never add, drop or swap a player. END there: the competition itself is "
+        "names a Houseguest's Choice, voice who drew it and who they picked to play the sixth seat, exactly as given (if the choice is still the player's to make, stop there and do not pick for them). Exactly these six play when the game names six; if it names fewer (a small final field), exactly those play - never add, drop or swap a player. END there: the competition itself is "
         "later today, so do not narrate it, its rounds or a winner in this reply."
     )
 
@@ -8257,6 +8278,8 @@ def _competition_scene_steer(log, continuing: bool = False, paused: bool = False
     if paused:
         tail = ("; then STOP. PAUSE: this reply ENDS here, mid-competition. The game has not run the remaining rounds or the winner, so do NOT narrate them, name a winner, or say who is left in. End on a moment "
                 "the player can answer in character (a houseguest speaks to them, a look, a question). Whatever the player says changes nothing about the result - the next message continues the competition.")
+    elif crown is None:
+        tail = ("; then STOP at the last round given. The game has recorded no winner yet, so name none and do not say who is left in or walk back inside. End on a moment the player can answer in character.")
     else:
         tail = ("; then (3) the winner, by name, exactly as the game gives it" + (f" ({crown})" if crown else "") + "; (4) the walk back inside. Keep each round to two or three sentences so EVERYTHING below, up to and "
                 "including the winner, lands in THIS reply - the game has already run it, so do not carry any round or the winner over to the next reply.")
@@ -9446,10 +9469,12 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     text = (narration or "").strip()
     # ORW-26: consume the belt's "nobody present" verdict up front so it can never leak into a later turn.
     belt_declined = False
+    staged_this_turn = False
     if session_id is not None:
         try:
             from src import fold_ledger as _fl_d
             belt_declined = _fl_d.consume_belt_declined(user, session_id)
+            staged_this_turn = _fl_d.consume_staged_this_turn(user, session_id)
         except Exception:
             belt_declined = False
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
@@ -9466,8 +9491,7 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         return False
     if session_id is not None:
         try:
-            from src import fold_ledger as _fl
-            if _fl.has_pending_fold(user, session_id):
+            if staged_this_turn:
                 logger.info("[orwell] E22 guard: stood down — the 0055 belt already staged this turn's scene fold (ORW-185) user=%s", user)
                 return False
         except Exception:  # fail-open: the guard's floor must still run

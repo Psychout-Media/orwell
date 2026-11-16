@@ -229,3 +229,10 @@ def test_the_game_turn_trim_keeps_the_brief_intact_and_terminal():
     assert len(out) < len(msgs), "the budget must actually force a trim"
     assert [m["content"] for m in out[-2:]] == ["SHOW BRIEF. test", "HARD CONSTRAINTS — test"]
     assert out[-3]["content"] == "now"
+
+
+def test_orw481_last_scene_tail_skips_casting_replies():
+    """ORW-481 (review 4532868183): a casting-phase reply must not seed the first live turn's tail."""
+    casting = _Msg("assistant", "a casting reply")
+    casting.metadata = {"phase": "casting"}
+    assert sb.last_scene_tail([casting, _Msg("user", "ready")]) is None

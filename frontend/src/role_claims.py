@@ -183,8 +183,8 @@ def name_spans(s: str, names: Iterable[str], player: Optional[str] = None) -> "l
     named = [(canon, m.start(), m.end()) for canon, pat in _name_patterns(names) for m in pat.finditer(s)]
     if player:
         for m in _SECOND_PERSON_RE.finditer(s):
-            # ORW-354: "Name, you are evicted" / "Name - you ..." - a name opening the clause as a vocative ("Name, ... you") is who "you" addresses, not the player.
-            if any(e <= m.start() and re.fullmatch(r"\s*[,:\u2014\u2013-]+[^.!?]*", s[e:m.start()]) for _c, _a, e in named):
+            # ORW-354: "Name, you are evicted" / "Name - you ..." - a name opening the clause as a vocative ("Name, ... you") is who "you" addresses, not the player. ORW-481 (review 4576008744): the gap holds no further comma, so "Name, the HOH, says you won" still binds "you" to the player.
+            if any(e <= m.start() and re.fullmatch(r"\s*[,:\u2014\u2013-]+[^.!?,;]*", s[e:m.start()]) for _c, _a, e in named):
                 continue
             out.append((player, m.start(), m.end()))
             taken.append((m.start(), m.end()))
