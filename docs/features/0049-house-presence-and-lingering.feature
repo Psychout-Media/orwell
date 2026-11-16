@@ -191,3 +191,18 @@ Feature: House presence and lingering play
     And the houseguest in the kitchen is guarded and cold to the player
     When the player asks around for the other houseguest on every day of a long season
     Then the guarded houseguest sometimes gives no straight answer and names no room
+  # ORW-473 (Kevin with Ryne, 2026-11-15: "That should be dynamic based on character sheets involved"): walking in on a private strategy talk. Each houseguest's reaction comes from their own sheet, not one rule for everyone.
+  Scenario Outline: Walking in on a private talk: the reaction comes from the houseguests' own sheets
+    Given a played game where two houseguests are in the kitchen in a private strategy talk and the player is in the backyard
+    And both houseguests have the sheet of one who <sheet>
+    When the player walks into the kitchen
+    Then each of them <sheet>
+    And the narrator is told the manner of each reaction and nothing about what the talk was
+    And both of them remember that the player walked in
+
+    Examples:
+      | sheet                |
+      | pulls the player in  |
+      | carries on guarded   |
+      | moves the talk       |
+      | goes quiet           |

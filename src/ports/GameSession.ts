@@ -525,6 +525,8 @@ export interface GameStateView {
    * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
+  /** ORW-473: the player walked in on a private talk this turn (only on the message it happened on). */
+  walkedIn?: WalkedInView;
   player: PlayerCard | null;
   house: HouseguestCard[];
   /** Deals the player is party to (0039) — fact + status only, never the hidden opinion numbers. */
@@ -1927,6 +1929,14 @@ export interface HouseSearchView {
  * through walls — fog of war is gameplay).
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
+/** ORW-473: the player walked in on a private talk between two houseguests this turn: who, and each one's reaction (chosen from their own sheet) as a manner to voice; never what the talk was about. */
+export interface WalkedInView {
+  room: string;
+  with: NamedRef[];
+  /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
+  reactions: Array<{ id: EntityId; name: string; line: string }>;
+}
+
 export type PlayerMoveView =
   | { from: string; to: string; refused?: undefined; msg?: string }
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
