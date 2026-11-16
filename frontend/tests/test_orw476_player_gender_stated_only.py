@@ -168,7 +168,7 @@ def test_heal_clears_only_when_no_line_states_any_gender(monkeypatch):
     monkeypatch.setattr(oe, "update_casting", _uc)
 
     def heal(user, words):
-        al._GENDER_HEAL_DONE.discard(user)
+        al._GENDER_HEAL_DONE.discard(al._belt_key(user))
         return _run(al._heal_unstated_player_gender(user, words))
     assert heal("u1", "I'm Brianna and I love this") is True
     assert sent == [{"genderPresentation": "unset"}]

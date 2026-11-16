@@ -720,14 +720,14 @@ async def _heal_unstated_player_gender(owner, own_words: str) -> bool:
     """ORW-476: once per owner per process, when the saved player card holds a gender and NONE of the player's own typed words
     state it, clear it (the engine's updateCasting `unset`). A conversation with no player words at all (history not loaded) heals
     nothing: silence is not evidence. Returns True when it cleared one."""
-    if owner is None or owner in _GENDER_HEAL_DONE or not (own_words or "").strip():
+    if owner is None or _belt_key(owner) in _GENDER_HEAL_DONE or not (own_words or "").strip():
         return False
     from src import orwell_engine as _oe
     from src.orwell_player_gender import any_gender_stated
     st = await _oe.get_game_state(user=owner)
     if not isinstance(st, dict) or not st.get("started"):
         return False
-    _GENDER_HEAL_DONE.add(owner)
+    _GENDER_HEAL_DONE.add(_belt_key(owner))
     g = ((st.get("player") or {}).get("genderPresentation"))
     if not g or any_gender_stated(own_words):  # a disagreement with the latest reading never clears; only "no line states any gender" does
         return False
@@ -7349,7 +7349,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE,
 )
 
 
