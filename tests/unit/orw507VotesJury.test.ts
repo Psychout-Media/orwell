@@ -7,7 +7,7 @@ import { deduceEvictionVoters } from "../../src/engine/voteDeduction";
 import type { RandomnessSource } from "../../src/ports/RandomnessSource";
 
 /**
- * ORW-507 (http://10.0.1.10/orwell/browse/ORW-507/): review findings on the vote questions (#2614) and the voice `knows` / jury prompt scope (#2617, #2625). Roles only.
+ * ORW-507 (ORW-507): review findings on the vote questions (#2614) and the voice `knows` / jury prompt scope (#2617, #2625). Roles only.
  */
 
 describe("#2614 the deduction confidence reads the margin from base scores sorted descending", () => {
