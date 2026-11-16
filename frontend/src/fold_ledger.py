@@ -168,6 +168,17 @@ _PENDING: dict[tuple, list] = {}
 _MAX_QUEUE_LEN = 8
 
 
+# ORW-481 (review 4535233845): keys that STAGED a fold this turn. The E22 guard stands down on THIS, not on "anything is queued" - an older re-queued entry must not hide a turn that staged nothing.
+_STAGED_THIS_TURN: set = set()
+
+
+def consume_staged_this_turn(owner: Optional[str], session_id: Optional[str]) -> bool:
+    k = _key(owner, session_id)
+    hit = k in _STAGED_THIS_TURN
+    _STAGED_THIS_TURN.discard(k)
+    return hit
+
+
 def _key(owner: Optional[str], session_id: Optional[str]) -> tuple:
     return (owner, session_id)
 
@@ -205,6 +216,7 @@ def stage_pending_fold(owner: Optional[str], session_id: Optional[str], *, conte
     earlier turn stays intact and simply settles before this new one (FIFO order). Call
     `attach_row_anchor` once the row is actually persisted."""
     key = _key(owner, session_id)
+    _STAGED_THIS_TURN.add(key)
     q = _PENDING.setdefault(key, [])
     q.append(_make_entry(content=content, with_ids=with_ids, kind=kind, consequence=consequence,
                          felt_minutes=felt_minutes, idempotency_key=idempotency_key,
@@ -450,4 +462,5 @@ def clear_all() -> None:
     _PENDING.clear()
     _BELT_DECLINED.clear()
     _SCENE_NOBODY.clear()
+    _STAGED_THIS_TURN.clear()
     _WALKED_OUT.clear()

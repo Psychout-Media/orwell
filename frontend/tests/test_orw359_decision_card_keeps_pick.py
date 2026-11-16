@@ -78,6 +78,19 @@ async () => {
   send(mk(['npc:4', 'npc:5'], 'Cast your vote to evict one of the two nominees.')); await wait(300); // a DIFFERENT decision
   out.afterDifferent = state();
   send(null); await wait(200); out.afterNone = state();
+  // ORW-507: a FINISHED card (odec-done) is not kept by the guard: the same decision dispatched again rebuilds it, nothing picked.
+  const b = mk(['npc:6', 'npc:7'], 'Cast your vote to evict one of the two nominees.');
+  send(b); await wait(700);
+  document.querySelectorAll('#orwell-decision-card .odec-opt')[0].click(); await wait(150);
+  const doneNode = document.getElementById('orwell-decision-card');
+  doneNode.classList.add('odec-done');
+  send(mk(['npc:6', 'npc:7'], 'Cast your vote to evict one of the two nominees.')); await wait(400);
+  out.doneRebuilt = document.getElementById('orwell-decision-card') !== doneNode; out.afterDone = state();
+  send(null); await wait(200);
+  // ORW-507: a DISMISSED card stays gone (the x removes it; the guard has nothing mounted to keep and must not bring it back on its own).
+  send(mk(['npc:8', 'npc:9'], 'Cast your vote to evict one of the two nominees.')); await wait(700);
+  document.querySelector('#orwell-decision-card .odec-x').click(); await wait(300);
+  out.afterDismiss = state();
   return out;
 }
 """
@@ -96,7 +109,7 @@ def test_a_repeat_of_the_same_decision_keeps_the_pick_and_a_different_one_replac
             app_ready(page)
             r = page.evaluate(_HARNESS)
         finally:
-            browser.close()  # a setup or evaluation failure never leaves Chromium behind for the next browser test
+            browser.close()  # ORW-507: never leave Chromium behind on a setup/evaluate error
     assert r["first"] and r["first"]["confirmDisabled"] is True, f"Confirm is grey until a name is picked: {r}"
     assert r["picked"]["confirmDisabled"] is False and r["picked"]["pressed"] == ["true", "false"], r
     assert r["afterSame"]["pressed"] == ["true", "false"], f"the SAME decision dispatched again must leave the pick alone: {r}"
@@ -104,3 +117,5 @@ def test_a_repeat_of_the_same_decision_keeps_the_pick_and_a_different_one_replac
     assert r["sameNode"] is True, "the card is not rebuilt for a repeat of the same decision"
     assert [n.replace("HN", "", 1) for n in r["afterDifferent"]["names"]] == ["Houseguest npc:4", "Houseguest npc:5"] and r["afterDifferent"]["pressed"] == ["false", "false"], f"a different decision replaces the card, nothing picked: {r}"
     assert r["afterNone"] is None, "no pending removes the card"
+    assert r["doneRebuilt"] is True and r["afterDone"]["pressed"] == ["false", "false"], f"a finished card is rebuilt, not kept: {r}"
+    assert r["afterDismiss"] is None, f"a dismissed card is gone: {r}"

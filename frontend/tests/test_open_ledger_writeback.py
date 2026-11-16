@@ -301,7 +301,7 @@ def test_other_refusals_and_acceptances_do_not_record_full(monkeypatch):
     assert seen == []
 
 
-def test_prompt_is_behind_the_untrusted_fence_and_leaves_deals_out():
+def test_prompt_is_behind_the_untrusted_fence_and_takes_spoken_deals_as_kind_deal():
     from src.agent_loop import _EXTRACTION_UNTRUSTED_FENCE
     prompts = []
 
@@ -314,7 +314,8 @@ def test_prompt_is_behind_the_untrusted_fence_and_leaves_deals_out():
 
     run(ol.capture_open_ledger(NARR, PRESENT, llm, write))
     assert prompts[0].startswith(_EXTRACTION_UNTRUSTED_FENCE)
-    assert "recorded elsewhere as a deal" in prompts[0]
+    # ORW-456 (Kevin: formal deals are also in the ledger, linked): a spoken deal is extracted with kind "deal"; it is no longer left out.
+    assert 'kind "deal"' in prompts[0] and "leave it out" not in prompts[0]
 
 
 def test_after_turn_stands_down_when_the_engine_has_the_ledger_off(monkeypatch):
@@ -342,3 +343,10 @@ def test_after_turn_stands_down_when_the_engine_has_the_ledger_off(monkeypatch):
     monkeypatch.delitem(oe._ENGINE_FLAGS, "openLedger")
     run(ol.after_turn(NARR, "u", "http://x", "m", {}))
     assert called == [1, 1]  # flag unknown: fail open
+
+
+def test_a_spoken_deal_is_kept_with_kind_deal_not_dropped():
+    """ORW-456: a formal deal between the player and one houseguest, voiced in the scene, goes to the engine as kind "deal"."""
+    raw = {"entries": [{"text": "We go to the end together", "speaker": "player", "addressedTo": ["npc:1"], "kind": "Deal"}]}
+    out = ol.clean_entries(raw, {"npc:1"})
+    assert out == [{"text": "We go to the end together", "speaker": "player", "addressedTo": ["npc:1"], "kind": "Deal"}]

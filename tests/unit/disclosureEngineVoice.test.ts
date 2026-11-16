@@ -81,7 +81,7 @@ describe("the narrator is handed only what the engine has put on the table (A52)
       const mcp = rt.registry.resolver()("player", user);
       await mcp.callTool("createCharacter", { playerName: "The Player", seed: 13, archetype: "floater" });
       (rt.registry.sandboxFor(user).session as unknown as S).setDisclosureEngineEnabled(on);
-      for (let i = 0; i < 30; i++) { await mcp.callTool("noteMessage", { messageId: `m${i}` }); await mcp.callTool("getMomentPrompt", {}).catch(() => undefined); }
+      for (let i = 0; i < 30; i++) { await mcp.callTool("noteMessage", { messageId: `m${i}` }); await mcp.callTool("getMomentPrompt", {}); }
       return JSON.stringify(rt.registry.snapshot(user));
     };
     expect(await run(true)).toBe(await run(false));

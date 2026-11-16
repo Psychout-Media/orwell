@@ -475,6 +475,8 @@ export function createHttpMcpServer(deps: HttpMcpDeps | HttpMcpResolver, options
               try {
                 const result = await server.callTool(name, (args as Record<string, unknown>) ?? {});
                 metrics.recordSuccess(name, Date.now() - dispatchStart);
+                const refused = name === "noteMessage" && result !== null && typeof result === "object" ? (result as { accepted?: unknown; reason?: unknown }) : null;
+                if (refused && refused.accepted === false && typeof refused.reason === "string") metrics.recordRefusal(`noteMessage:${refused.reason}`); // counted on /health: pre-game chat announced to the in-game clock
                 send(200, { result });
               } catch (e) {
                 // G1: the ring records the sanitized class only — never e.message (it can quote

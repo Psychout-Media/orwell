@@ -4832,7 +4832,7 @@ async def do_create_character(
             motivation=args.get("motivation"),
             private_strategy=args.get("privateStrategy"),
             interview_notes=args.get("interviewNotes"),
-            gender_presentation=args.get("genderPresentation"),
+            gender_presentation=gate_player_gender(args).get("genderPresentation"),
             seed=args.get("seed"),
             # The ONE sanctioned player-channel restart door (D1/R1): a confirmed play-again over a
             # finished/abandoned season delegates through the engine's registry.resetUser hinge.
@@ -5241,7 +5241,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
-        res = await orwell_engine.update_casting(args, user=owner)
+        res = await orwell_engine.update_casting(gate_player_gender(args), user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
@@ -5826,6 +5826,30 @@ import contextvars as _cv
 
 PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_text", default="")
 
+# ORW-476: ALL of the player's own typed words this conversation (not production cues), so a gender the model
+# files with updateCasting / createCharacter can be checked against what the player actually said.
+PLAYER_OWN_WORDS: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_own_words", default="")
+
+_GENDER_KEYS = ("genderpresentation", "gender_presentation", "gender", "pronouns")
+
+
+def gate_player_gender(args: dict) -> dict:
+    """ORW-476: a model-filed player gender (genderPresentation, or its aliases gender / pronouns) is kept ONLY when the
+    player's own words state that gender. Anything else (a guess from the name, a default) is dropped here, before it
+    reaches the engine, so the player stays unset and the narrator keeps ORW-444's "unstated" line. Returns a new dict."""
+    out = dict(args or {})
+    from src.orwell_player_gender import player_stated_genders
+    stated = player_stated_genders(PLAYER_OWN_WORDS.get() or PLAYER_TURN_TEXT.get())
+    for k in list(out):
+        if str(k).lower() not in _GENDER_KEYS:
+            continue
+        v = str(out[k] or "").strip().lower().replace(" ", "")
+        v = {"nonbinary": "nonbinary", "non-binary": "nonbinary"}.get(v, v)
+        if v != "unset" and v not in stated:  # "unset" clears (the heal); it never sets a gender
+            logger.info("[orwell] ORW-476: dropped a player genderPresentation the player never stated")
+            del out[k]
+    return out
+
 _DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"
 _DEAL_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
                    "nine": 9, "ten": 10, "a": 1, "another": 1, "the next": 1, "next": 1}
@@ -5942,12 +5966,18 @@ def is_deal_refusal(res) -> bool:
 def deal_refusal_for_narrator(res: dict) -> dict:
     """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
     why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
-    return {"output": json.dumps({
+    out = {
         "declined": True,
         "reason": res.get("reason"),
         "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
                     "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
-    }, indent=2), "exit_code": 0}
+    }
+    # ORW-481 (review 4539129295): the engine may attach a counteroffer; hand it over so the refusal is voiced WITH its terms (still no deal until the player accepts).
+    counter = res.get("counteroffer")
+    if isinstance(counter, dict) and (counter.get("terms") or counter.get("kind")):
+        out["counteroffer"] = {"kind": counter.get("kind"), "terms": counter.get("terms")}
+        out["message"] += (" The engine attached a COUNTEROFFER: voice its terms exactly as given as what they would accept instead; it is an offer only, no deal exists until the player takes it.")
+    return {"output": json.dumps(out, indent=2), "exit_code": 0}
 
 
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:

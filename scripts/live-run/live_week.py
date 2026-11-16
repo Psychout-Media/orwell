@@ -114,6 +114,12 @@ class Week(Chat):
         r = self.wait_new(before, t0); r["label_extra"] = label; return r
 
 
+def first_name_evicted(player_name, evicted_names):
+    """Is the player's first name the first name of someone evicted? Whole tokens, so 'Al' never matches 'Alan' (review of #2839)."""
+    me_ = (player_name or "").split()[:1]
+    return bool(me_) and any(me_[0].lower() == (n_ or "").split()[:1][0].lower() for n_ in (evicted_names or []) if (n_ or "").split())
+
+
 def names(lst): return [x.get("name") for x in (lst or []) if isinstance(x, dict)]
 
 
@@ -141,6 +147,7 @@ def main():
              "settled": r["settled"], "timed_out": r["timed_out"], **{k: v for k, v in r.items() if k.startswith("late_")}, "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
              "nominees": names(cer.get("nominees") or st.get("nominees")), "veto_holder": ((cer.get("veto") or {}).get("holder") or {}).get("name") if isinstance((cer.get("veto") or {}).get("holder"), dict) else None,
              "hoh": (cer.get("hoh") or {}).get("name") if isinstance(cer.get("hoh"), dict) else None}
+        t["clock_pre_send"] = facts.pop("_pre_clock", None)
         t["harness_jump"] = eng.jumps; eng.jumps = 0; t["phase_before"] = facts.get("_last_phase"); facts["_last_phase"] = st.get("phase")
         turns.append(t)
         try: open(f"{a.run_dir}/turns.jsonl", "a").write(json.dumps(t, default=str) + "\n")
@@ -177,6 +184,7 @@ def main():
                 if bed_n >= 3: eng.call("turnIn"); eng.jumps += 1; facts.setdefault("bed_not_honoured", []).append({"clock": st.get("clockLabel"), "turn": len(turns)}); bed_n = 0  # the model never turned them in after 3 asks: report it and move on
             else:
                 text = GO[n % len(GO)] if ds.get("due") else SOCIAL[n % len(SOCIAL)]
+            facts["_pre_clock"] = (eng.call("getGameState") or {}).get("clockLabel")  # review of #2839: the clock just before THIS message, so the runner's own moves are excused only up to here
             t0 = time.time(); before = len(week.page.evaluate(BUB))
             week.page.fill("#message", text); week.page.wait_for_timeout(300)
             if week.page.evaluate("document.querySelector('.send-btn')?.getAttribute('data-mode')") == "send": week.page.click(".send-btn")
@@ -241,11 +249,15 @@ def main():
                 check("W3d-no-wrong-winner", not bad, f"replies crown someone other than the engine's winner: {bad}" if bad else "no conflicting winner")
             ok = play_until(lambda s: s.get("phase") == "eviction", "cer", cap)
             check("W4-veto-ceremony-done", ok, f"reached eviction within {cap} turns")
-            ok = play_until(lambda s: s.get("week", 1) >= 2 and s.get("phase") in ("hoh-competition", "premiere"), "evict", cap + 10)
-            check("W5-eviction-night-done", ok, f"reached Week 2 within {cap + 10} turns")
+            def player_out(s):  # ORW-503: the player voted out in Week 1 is a healthy outcome that ends the Week 1 checks (the run then skips to the finale), not a failed run
+                return first_name_evicted((s.get("player") or {}).get("name"), names((eng.call("seasonRecap") or {}).get("evicted")))
+            ok = play_until(lambda s: (s.get("week", 1) >= 2 and s.get("phase") in ("hoh-competition", "premiere")) or player_out(s), "evict", cap + 10)
+            check("W5-eviction-night-done", ok, f"reached Week 2 (or the player was voted out) within {cap + 10} turns")
             rec = eng.call("seasonRecap") or {}; ev = names(rec.get("evicted")); facts["evicted"] = ev
-            check("W5b-one-evicted", len(ev) == 1, f"engine evicted: {ev}")
-            if ev:
+            _out = player_out(eng.call("getGameState") or {})
+            if _out: check("W5b-player-evicted-early", True, f"the player was voted out in Week 1 (engine evicted: {ev}); the remaining Week 1 checks do not apply", "note")
+            else: check("W5b-one-evicted", len(ev) == 1, f"engine evicted: {ev}")
+            if ev and not _out:
                 ev_text = "\n".join(t["text"] for t in turns if t["label"].startswith("evict-"))
                 check("W5c-evictee-voiced", ev[0].split()[0] in ev_text, f"the engine's evictee ({ev[0]}) is named in the eviction-night replies")
             if a.season: season_loop()
