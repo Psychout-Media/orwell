@@ -8579,7 +8579,7 @@ export class GameSessionAdapter implements GameSession {
     // party brings it). Either way it is the unchanged anchored organ; the drip only CHOSE and PACED it.
     // It counts against 0060's season cap inside surfaceThread (surfacedThreadCount++), so the pace can
     // never add payoff past the season ceiling.
-    this.surfaceThread(thread, pos, rng, channel);
+    if (!this.surfaceThread(thread, pos, rng, channel)) return []; // held / nobody awake to relay it: nothing was spent, nothing is charged
     // Charge the weekly budget + record the per-thread last-dripped week (the anti-spam state). Persistence
     // is the orchestrator's batched commit (this rides its bounded tick) — no `persist()` here (R3).
     this.pacingDripCount += 1;
@@ -8721,7 +8721,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private surfaceThread(
     thread: StoryThread, pos: SeasonPosition, rng: RandomnessSource, force?: "player" | "gossip",
-  ): void {
+  ): boolean {
     const name = this.nameOf(thread.sourceId);
     const rumor = threadRumor(thread, name);
     // Choose an NPC ORIGIN for the rumor: a living NPC other than the source (someone who'd whisper it).
@@ -8747,7 +8747,7 @@ export class GameSessionAdapter implements GameSession {
         signals: this.confidenceSignalsFor(src), style: src.character.strategyStyle, volatility: this.soulObj(src.id)?.volatility,
         audience: 0, pressure: 0.5, risk: 0.2,
         roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dripRoute:${thread.id}:${this.week}:${this.phase}`)).next(),
-      }) === "hold") return;
+      }) === "hold") return false;
     }
     if (toPlayer && this.onThreadSurfaceToPlayer) {
       // Rare: a modeled pathway already reaches the player — surface a content-lineage-anchored belief
@@ -8759,7 +8759,7 @@ export class GameSessionAdapter implements GameSession {
         : rumor;
       const told = this.onThreadSurfaceToPlayer(thread.sourceId, belief);
       // #1913 — nobody awake to relay it tonight: the story is not spent (clock off ⇒ unchanged).
-      if (!told && awake) return;
+      if (!told && awake) return false;
     } else if (livingNpcs.length > 0 && this.onThreadGossip) {
       // The common case: hand the paraphrase to the 0038 gossip engine to diffuse NPC↔NPC.
       const origin = livingNpcs[rng.int(livingNpcs.length)]!;
@@ -8782,11 +8782,12 @@ export class GameSessionAdapter implements GameSession {
     } else if (this.onThreadGossip && awake) {
       // Nobody is awake to whisper it tonight: the story is NOT spent — it stays eligible (and off the season
       // cap) for a later surface (cubic #1914).
-      return;
+      return false;
     }
     thread.status = "surfaced";
     thread.lifecycleWeek = this.week;
     this.surfacedThreadCount++;
+    return true; // review of 0092: the caller charges the weekly drip budget only for a thread that actually surfaced
   }
 
   /** 0101/#1401 — does the CURRENT showrunner note emphasize this thread (above the baseline multiplier)?
