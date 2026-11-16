@@ -440,14 +440,17 @@ const STATUSES: readonly string[] = ["open", ...OPEN_LEDGER_RESOLUTIONS, "lapsed
  * are required (every slice-1 entry carried them). Fields a slice-1 save never had (parties, about, note,
  * resolvedTurn, and a missing status) stay optional, so an old save loads.
  */
+const isDay = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+
 function validEntry(e: unknown): e is OpenLedgerEntry {
   if (!e || typeof e !== "object" || Array.isArray(e)) return false;
   const x = e as Record<string, unknown>;
   const opt = (k: string, t: "string" | "number"): boolean => x[k] === undefined || typeof x[k] === t;
+  const optDay = (k: string): boolean => x[k] === undefined || isDay(x[k]); // ORW-494: a day is a whole number from 0, never negative or fractional
   return typeof x.id === "string" && typeof x.text === "string" && typeof x.speaker === "string" && isStrings(x.addressedTo)
     && typeof x.quoteHash === "string" && isStrings(x.witnesses)
     && (x.parties === undefined || isStrings(x.parties))
-    && opt("about", "string") && opt("note", "string") && opt("resolvedTurn", "number") && opt("day", "number") && opt("dealId", "string")
+    && opt("about", "string") && opt("note", "string") && opt("resolvedTurn", "number") && optDay("day") && opt("dealId", "string")
     && typeof x.kind === "string" && typeof x.room === "string" && typeof x.turn === "number" && typeof x.beatSeq === "number"
     && (x.status === undefined || (typeof x.status === "string" && STATUSES.includes(x.status)));
 }
@@ -466,7 +469,6 @@ export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems:
     else problems++;
   }
   // ORW-448: the side maps. A malformed one counts as a problem (the caller then keeps the raw copy and locks writes).
-  const isDay = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
   let touched: Record<string, number> | undefined;
   if (o.touched !== undefined) {
     const t = o.touched as Record<string, unknown> | null;
@@ -478,7 +480,12 @@ export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems:
     const d = o.due as Record<string, unknown> | null;
     const okDue = (v: unknown): v is OpenLedgerDue => !!v && typeof v === "object" && typeof (v as OpenLedgerDue).line === "string" && isDay((v as OpenLedgerDue).offers);
     if (!d || typeof d !== "object" || Array.isArray(d) || Object.values(d).some((v) => !okDue(v))) problems++;
-    else due = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, { line: (v as OpenLedgerDue).line, offers: (v as OpenLedgerDue).offers }]));
+    else {
+      // ORW-494: a due flag must name an existing OPEN entry and stay within the offer bound (sideMapsOk refuses both on the next write); a damaged flag is dropped, not restored.
+      const open = new Set(entries.filter((e) => e.status === "open").map((e) => e.id));
+      due = Object.fromEntries(Object.entries(d).filter(([k, v]) => open.has(k) && (v as OpenLedgerDue).offers <= OPEN_LEDGER_DUE_OFFERS_MAX)
+        .map(([k, v]) => [k, { line: (v as OpenLedgerDue).line, offers: (v as OpenLedgerDue).offers }]));
+    }
   }
   return { ledger: { nextId: o.nextId, entries, ...(touched ? { touched } : {}), ...(due ? { due } : {}) }, problems };
 }
