@@ -190,6 +190,39 @@ describe("ORW-232 slice 3 / ORW-256 — nobody schemes in private while a compet
   });
 });
 
+describe("ORW-481 (review of ORW-232/256) — the REAL loop with a person playing: no private scenes during a competition", () => {
+  it("with messages announced (noteMessage), the commits inside a competition add no hidden NPC scene; the house still schemes outside one", () => {
+    const { sb } = harness({ clockOn: true, seed: 7, user: "u-comp-played" });
+    toLiveHouse(sb);
+    const other = aliveNpc(sb);
+    let during = 0, inCompCommits = 0, outside = 0, ran = 0;
+    for (let i = 0; i < 400 && ran < 2; i++) {
+      const inComp = !!(sb.session.snapshot().live as { competition?: unknown } | undefined)?.competition;
+      const before = new Set(offscreenScenes(sb));
+      sb.session.noteMessage({ messageId: `m-${i}` }); // a person is playing: the played-game gate (`playedGame`) turns on (the announcement's own commit is part of this step)
+      let a: AdvanceView;
+      const openStep = (sb.session.snapshot().live as { pending?: { kind: string } } | undefined)?.pending?.kind === "ceremony-step";
+      if (openStep || (sb.session as GameSessionAdapter).milestoneDue()) {
+        a = sb.session.advanceGame();
+        if (a.pending && a.pending.kind !== "ceremony-step") resolveLegally(sb.session, a.pending);
+      } else {
+        const tod = sb.session.snapshot().live?.timeOfDay;
+        if (tod === "evening" || tod === "late-night") sb.session.turnIn(); else socialTurn(sb, `chat ${i}`);
+        a = { finished: false } as AdvanceView;
+      }
+      const after = !!(sb.session.snapshot().live as { competition?: unknown } | undefined)?.competition;
+      const added = offscreenScenes(sb).filter((id) => !before.has(id)).length;
+      if (inComp || after) { during += added; inCompCommits++; } else outside += added;
+      if (inComp && !after) ran++;
+      if (a.finished) break;
+    }
+    expect(inCompCommits, "the run really went through a competition").toBeGreaterThan(0);
+    expect(during, "no private scene while a competition is in session").toBe(0);
+    expect(outside, "outside a competition the played house still schemes (the suppression is not 'always')").toBeGreaterThan(0);
+    void other;
+  });
+});
+
 describe("ORW-281 slice 3 — the private-scene suppression keys on ANY house event in session, from one derivation", () => {
   const base = { active: ["a", "b", "c", "d"], outgoingHoh: "a" };
   const k = (live: object, o?: { includeDraw?: boolean }) => liveHouseEvent({ ...base, ...live } as never, o)?.kind;

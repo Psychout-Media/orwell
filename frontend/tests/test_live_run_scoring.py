@@ -211,3 +211,9 @@ def test_review_k2_boundary_and_k3_eviction_allowance():
     assert not [k for k in _score(eight) if k.startswith("K3-")], "an eviction night gets 8 replies"
     nine = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 10)]
     assert [k for k in _score(nine) if k.startswith("K3-")], "the 9th reply of an unfired eviction night fails"
+
+
+def test_review_2334_a_resumed_run_starts_from_the_last_saved_phase():
+    lw = _load("live_week")
+    assert lw.resume_last_phase([_turn("a", "x", phase="hoh-competition"), _turn("b", "x", phase="veto-competition")]) == "veto-competition"
+    assert lw.resume_last_phase([]) is None
