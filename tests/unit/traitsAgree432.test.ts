@@ -152,7 +152,7 @@ describe("ORW-432 card check on seven live-shaped cards (role labels)", () => {
     { n: "mastermind, life of the party", archetype: "mastermind", strategyStyle: "strategic", demeanor: "cool, clipped, and quietly watchful", castingType: { label: "the life of the party" }, want: ["trait-casting-type"] },
     { n: "mastermind, jock", archetype: "mastermind", strategyStyle: "strategic", demeanor: "unhurried and unbothered, with a slow blink that reads as serene", castingType: { label: "the jock" }, want: ["trait-casting-type"] },
     { n: "peacemaker, gentle giant", archetype: "peacemaker", strategyStyle: "loyal", demeanor: "bouncy, loud, and instantly in your space", castingType: { label: "the gentle giant" }, want: ["trait-casting-type"] },
-    { n: "floater, diva", archetype: "floater", strategyStyle: "under-the-radar", demeanor: "wired and blunt, laughs loudest and cracks first", castingType: { label: "the showstopper" }, want: ["trait-casting-type"] },
+    { n: "floater, diva", archetype: "floater", strategyStyle: "under-the-radar", demeanor: "wired and blunt, laughs loudest and cracks first", castingType: { label: "the diva" }, want: ["trait-casting-type"] },
   ];
   for (const c of live) {
     it(`${c.n} card trips ${c.want.join(", ")}`, () => {
@@ -180,7 +180,7 @@ describe("ORW-432 card check on seven live-shaped cards (role labels)", () => {
 
 describe("ORW-432 what moved and what did not", () => {
   const SEEDS6 = [1, 2, 3, 77, 2026, 4242];
-  it("stats, names, ages, hidden profiles, threads, biographies and every look field except the changed ones are byte-identical to main", () => {
+  it("stats, names, ages, hidden profiles, threads and every look field are byte-identical to main for the blanked draws (the background text and the biographies built from it are re-pinned by ORW-458)", () => {
     // `blankText` also blanks what ORW-458 changed (the public background line and the floor biography built from it),
     // so the first hash proves NO DRAW MOVED: it equals main's hash with the same blanking. The second pins the full text.
     const run = (blankText: boolean) => {
