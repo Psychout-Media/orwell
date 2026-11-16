@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { buildPortraitPrompt } from "../../src/engine/portraitPrompts";
+import { buildPortraitPrompt, pluralVerb } from "../../src/engine/portraitPrompts";
 
 // Review of #2781: the new on-camera openings (spot, hands, gaze, expression) must reach the image prompt as a sentence with a
 // subject, and the card's own first name must never reach the image provider. Lines are the 28 live ones (names tokenised).
@@ -21,8 +21,16 @@ describe("ORW-441 momentSentence", () => {
       expect(m, l.onCamera).not.toMatch(/Namea/);
       // the moment sentence is the last one before the Setting line
       const sentence = m.split(/\.\s+/).filter((x) => x !== "").pop()!;
-      expect(sentence, l.onCamera).toMatch(/^(?:He|She|They|His|Her|Their) |[,;.\u2014] (?:he|she|they|his|her|their) [a-z]+/i);
+      expect(sentence, l.onCamera).toMatch(/^(?:He|She|They|His|Her|Their) |[,;.\u2014] (?:he|she|they) [a-z]+|[,;.\u2014] (?:his|her|their) [a-z]+ (?:[a-z]+s|is|are|was|were|has|have|stay|rest|stand)\b/i);
+      // review of #2781: the authored details themselves reach the prompt (a generic subject-bearing sentence would not pass this)
+      const norm = (x: string): string => x.toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+      const tail = norm(l.onCamera).split(" ").slice(-4).join(" ");
+      expect(norm(m), l.onCamera).toContain(tail);
     }
+  });
+  it("review of #2781: a possessive noun phrase is not a subject: 'hands loose in his pockets' still gets 'He is photographed with'", () => {
+    const m = moment("man", "Gaze level and unhurried from the backyard, hands loose in his pockets, a small private smile.");
+    expect(m).toContain("He is photographed with gaze level");
   });
   it("fragments get a subject, names become pronouns", () => {
     expect(moment("woman", "Gaze straight into the lens from the living room sofa, the one who keeps score.")).toContain("She is photographed with gaze straight into the lens");
@@ -71,5 +79,29 @@ describe("ORW-441 they/them guard: -s adverbs and a comma after the name (follow
   it("a comma straight after the name uses 'The houseguest' (the verb is not next)", () => {
     expect(nb("Namea, arms folded, stands in the lounge.")).toContain("The houseguest, arms folded, stands in the lounge");
     expect(nb("Hands loose, Namea, arms folded, stands in the lounge.")).toContain("the houseguest, arms folded, stands");
+  });
+});
+
+describe("review of #2781: name scrub and conjugation edge cases", () => {
+  const nb = (cam: string): string => moment("nonbinary", cam);
+  it("a case-variant of the card's own name never reaches the prompt", () => {
+    expect(moment("woman", "namea stands in the kitchen, chin lifted.")).not.toMatch(/namea/i);
+    expect(moment("woman", "NAMEA stands in the kitchen, chin lifted.")).not.toMatch(/namea/i);
+  });
+  it("an everyday-word given name keeps its case rule: 'may' the verb is untouched", () => {
+    expect(moment("woman", "She may lean on the counter while May stands by the door.", "May Surnamea")).toContain("She may lean on the counter while she stands by the door");
+  });
+  it("the name after a verb or preposition becomes 'the houseguest', never a subject pronoun", () => {
+    const m = moment("woman", "In the kitchen, the camera catches Namea by the counter, chin lifted.");
+    expect(m).toContain("catches the houseguest by the counter");
+    expect(m).not.toContain("catches she");
+    expect(nb("In the kitchen, the camera catches Namea by the counter, chin lifted.")).toContain("catches the houseguest");
+  });
+  it("lies, ties, dies, vies conjugate to lie, tie, die, vie; -uses verbs fall back to 'the houseguest'", () => {
+    expect(pluralVerb("lies")).toBe("lie"); expect(pluralVerb("ties")).toBe("tie"); expect(pluralVerb("dies")).toBe("die"); expect(pluralVerb("vies")).toBe("vie");
+    expect(pluralVerb("tries")).toBe("try");
+    expect(nb("Namea lies back on the sofa, hands folded.")).toContain("They lie back");
+    expect(nb("Namea focuses on the lens from the kitchen, chin lifted.")).toContain("The houseguest focuses");
+    expect(nb("Namea focuses on the lens from the kitchen, chin lifted.")).not.toMatch(/focuse\b/);
   });
 });

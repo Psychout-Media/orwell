@@ -6025,7 +6025,7 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
-  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null {
+  whereabouts(opts?: { search?: boolean; lookingFor?: undefined } | { search: true; lookingFor?: string }): WhereaboutsView | null {
     const v = this.whereaboutsBase();
     if (!v || !opts?.search || !this.house) return v;
     return { ...v, search: this.houseSearchView(this.house.player.id, v.room as Room, !!v.houseEvent, opts.lookingFor) };
@@ -12116,7 +12116,7 @@ export class GameSessionAdapter implements GameSession {
       if (req.untilBandEnd === true) {
         const nowH = live.nightDepth ?? WAKE_HOUR;
         const edge = [CLOCK.phaseStartsHour.afternoon, CLOCK.phaseStartsHour.evening, CLOCK.phaseStartsHour.night, CLOCK.phaseStartsHour.lateNight].find((e) => e > nowH + 1e-6);
-        if (edge !== undefined) { const m = (edge - nowH) * 60; /* exact, positive: a five-minute floor would cross the band edge (review of #2772) */ statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
+        if (edge !== undefined) { const m = (edge - nowH) * 60; /* exact: a floor or rounding could carry the clock past the edge (review of #2772) */ statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
       }
       const result = runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },

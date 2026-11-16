@@ -233,7 +233,11 @@ export function voiceFingerprint(voice: VoiceProfile): string {
   let h = 0;
   for (const ch of `${voice.register}|${voice.rhythm}|${voice.energy}|${voice.directness}|${voice.humor}|${voice.stressTell}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const template = VOICE_LINE_TEMPLATES[h % VOICE_LINE_TEMPLATES.length]!;
-  return template.replace(/\{(\w+)\}/g, (_m, key: string) => slots[key] ?? "");
+  // `{a:slot}` is an article plus the word: "a folksy", "an evasive", "an even" (ORW-464).
+  return template.replace(/\{(a:)?(\w+)\}/g, (_m, art: string | undefined, key: string) => {
+    const v = slots[key] ?? "";
+    return art ? `${/^[aeiou]/i.test(v) ? "an" : "a"} ${v}` : v;
+  });
 }
 
 const mean = (xs: readonly number[]): number => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0.5);
