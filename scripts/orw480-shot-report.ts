@@ -107,10 +107,10 @@ const placesAll = [...plans.values()].map((p) => p.shot.placeId), lightsAll = [.
 const rows: string[] = [];
 const placeKindsAll = [...plans.values()].map((p) => p.shot.placeKind);
 const CHECK = [
-  "R1 an official production cast photo, real and unretouched: an ordinary member of the public, not a model or an actor; no beautifying or gloss words (best, flattering, groomed, polished, hair and makeup done, well-kept, sharp)",
+  "R1 the documentary wording (Kevin's pick): a plain, honest portrait of a local resident, nothing retouched, an ordinary person not a model; no beautifying or gloss words (best, flattering, groomed, polished, hair and makeup done, well-kept, sharp)",
   "R2 ONE portrait format for the whole cast: the identical framing, lens and angle on every card; nothing about framing is dealt (a sheet of 15 reads as one photographer's series)",
   "R3 personality at a glance: one trait word from the sheet; a full-strength expression, a posture and the hands from the sheet; closed half-smile on <= 3, >= 4 not smiling, no expression or posture on more than 2",
-  "R4 a real photograph: natural skin, ordinary teeth, flyaway hairs, worn-and-washed clothes, the place in normal focus with its clutter, ordinary available light, a little grain",
+  "R4 a real photograph: real skin and hair, worn everyday clothes, the real place in normal focus, available light, nothing retouched",
   "R5 differs from the others in place, light and pose: place (<=3), light (<=4), a performance nobody else has",
   "R6 a distinct face: differs from every other card on >= 4 of 8 face axes",
   "R7 no repeated props, no work props, nothing held unless the sheet gives a reason",
@@ -134,15 +134,15 @@ for (const c of cards) {
   if (defect) cardDefects.push(`${c.id} ${c.name} (${c.vocation}): card style/wardrobe "${clothes.slice(0, 120)}" does not fit the life`);
   const gapInCard = /gap-?toothed|gap between|tooth gap/i.test(`${pcAny?.distinguishingMark ?? ""} ${pcAny?.facialFeatures ?? ""}`);
   const r = [
-    /^An unretouched photograph from a reality show's press kit/.test(pr) && /not a model or an actor/.test(pr) && !/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|glossy|sleek|designer|airbrushed|presented well/i.test(pr),
+    /^A plain, honest portrait of a local resident by a newspaper documentary photographer/.test(pr) && /nothing retouched/.test(pr) && /not a model/.test(pr) && !/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|glossy|sleek|designer|airbrushed|presented well/i.test(pr),
     sh.framingId === PORTRAIT_FORMAT.id && sh.framing === PORTRAIT_FORMAT.phrase && sh.lens === PORTRAIT_FORMAT.lens && sh.angle === PORTRAIT_FORMAT.angle && pr.includes(PORTRAIT_FORMAT.phrase) && pr.includes(PORTRAIT_FORMAT.lens),
     /^trait \w+ from (?:type|read|demeanor|voice)/.test(sh.why) && sh.expression !== "" && sh.posture !== "" && (sh.hands !== "" || po.fixedHands),
-    /visible pores/.test(pr) && /ordinary teeth/.test(pr) && /normal focus/.test(pr) && /available light/.test(pr) && !/fine lines|no retouching|flash|tilted, caught|tilted angle/.test(pr),
+    /real skin and hair/.test(pr) && /worn everyday clothes/.test(pr) && /normal focus/.test(pr) && /available light/.test(pr) && !/fine lines|no retouching|flash|tilted, caught|tilted angle/.test(pr),
     cnt(placesAll, sh.placeId) <= caps.place && cnt(lightsAll, sh.lightId) <= caps.light && cnt([...plans.values()].map((p) => p.shot.momentId), sh.momentId) === 1,
     dist >= 4,
     (sh.prop === undefined || /paperback|coffee cup|guitar|camera/.test(sh.prop)) && !/clipboard|glove|keys|dish towel|pencil|mug/.test(pr),
     !(sh.prop !== undefined && po.fixedHands),
-    /place \S+ \(/.test(sh.why) && /hometown/.test(sh.why) && /on location/.test(pr) && (c.hometown ? pr.includes(c.hometown.trim()) : true),
+    /place \S+ \(/.test(sh.why) && /hometown/.test(sh.why) && /where they live/.test(pr) && (c.hometown ? pr.includes(c.hometown.trim()) : true),
     placeKindsAll.filter((x) => x === "work-adjacent").length <= 3 && !/\b(?:scrubs|turnout gear|apron|badge|lanyard|uniform|hard hat|stethoscope)\b/i.test(pr.replace("never a uniform, scrubs, apron, badge or work gear", "")),
     /An ordinary person, not a model/.test(pr) && (!c.vocation || pr.includes(`a ${c.age}-year-old ${c.vocation}`)),
     !/gap/i.test(pr) && !/\.\s+(?:A |An )?(?:light )?(?:freckles|tattoo|dimples|nose stud|stud earring|glasses|beauty mark)/i.test(pr),

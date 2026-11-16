@@ -5,7 +5,7 @@
  *
  *   npx tsx scripts/orw480-three.ts <cards.json> npc:6 npc:3 npc:15
  *   npx tsx scripts/orw480-three.ts <cards.json> --ab npc:3        # realism A/B on ONE person: keys npc_3_a (press kit), npc_3_b (documentary), npc_3_c (minimal)
- *   npx tsx scripts/orw480-three.ts <cards.json> --realism documentary npc:3 npc:6 npc:8   # the whole three with one wording
+ *   npx tsx scripts/orw480-three.ts <cards.json> --realism press npc:3 npc:6 npc:8   # the whole three with one wording (the default is documentary)
  *
  * Output: for each prompt a header `--- <key> (<name>)` then the prompt on the next line.
  */
@@ -16,8 +16,8 @@ const args = process.argv.slice(2);
 const cardsPath = args.shift();
 const ab = args.includes("--ab");
 const ri = args.indexOf("--realism");
-const realism = (ri >= 0 ? args[ri + 1] : "press") as RealismVariant;
-const ids = args.filter((a, i) => !a.startsWith("--") && i !== ri + 1);
+const realism = (ri >= 0 ? args[ri + 1] : "documentary") as RealismVariant;
+const ids = args.filter((a, i) => !a.startsWith("--") && (ri < 0 || i !== ri + 1));
 if (!cardsPath || ids.length === 0 || !["press", "documentary", "minimal"].includes(realism)) { console.error("usage: orw480-three.ts <cards.json> [--ab | --realism press|documentary|minimal] <id> [<id> ...]"); process.exit(2); }
 const cards = JSON.parse(readFileSync(cardsPath, "utf8")) as Array<Record<string, any>>;
 const cast = cards.map((c) => ({

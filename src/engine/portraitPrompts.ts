@@ -163,7 +163,7 @@ export function signatureMarkClause(mark: string | undefined): string {
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }
 
-/** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident, (C) a minimal candid photograph. */
+/** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident (the default, picked by Kevin), (C) a minimal candid photograph. */
 export type RealismVariant = "press" | "documentary" | "minimal";
 
 const OPENER: Record<RealismVariant, string> = {
@@ -194,7 +194,7 @@ export function stripGlossWords(t: string): string {
  * the performance (expression, posture, hands, from their casting read, demeanor, voice energy) from the shot card; the face structure from
  * the face card; a line saying the person is ordinary and their grooming, hands, build and clothes fit their life; a minor mark inside the
  * face sentence (never a tooth gap, never twice). No name, no season anchor (still stored by the adapter, ignored here).
- * `variant` is the realism wording (press kit by default). `plan` is the cast's deal; without it the person is dealt alone.
+ * `variant` is the realism wording (documentary by default: Kevin picked it in the A/B of 2026-11-16). `plan` is the cast's deal; without it the person is dealt alone.
  */
 export function buildPortraitPrompt(
   houseguestId: string,
@@ -202,7 +202,7 @@ export function buildPortraitPrompt(
   facets: PublicAppearanceFacets,
   _styleAnchor: string,
   plan?: PortraitPlan,
-  variant: RealismVariant = "press",
+  variant: RealismVariant = "documentary",
 ): PortraitPromptResult {
   const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, vocation, hometown } = facets;
   const look = physicalCharacteristics as PortraitLook | undefined;
@@ -329,7 +329,7 @@ export function buildCastPortraitPrompts(
     biography?: string;
   }>,
   styleAnchor: string,
-  variant: RealismVariant = "press",
+  variant: RealismVariant = "documentary",
 ): PortraitPromptResult[] {
   const complete = houseguests.filter((hg) => hg.appearance && hg.age !== undefined && hg.presentation);
   // ORW-480: the shot and face cards are dealt ACROSS the whole cast (caps per value), then each prompt is built from its own.
