@@ -280,7 +280,8 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
-import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, type EdgeDelta } from "../../engine/beliefStore";
+import { beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -11478,8 +11479,10 @@ export class GameSessionAdapter implements GameSession {
     const character2: AgendaCharacter = tie
       ? { ...character, preShowTie: { with: tie.a === owner ? tie.b : tie.a, hidden: (tie.visibility ?? "secret") === "secret", friendly: tie.nature !== "rival" && tie.nature !== "ex", nature: tie.nature } }
       : character;
+    // 0150 / ORW-330 slice 2: grievances the holder BELIEVES (they can be wrong) are reasons too; absent without the belief layer.
+    const believed = this.npcBeliefsEnabled ? believedGrievances(s.beliefs, owner, others, s.week) : [];
     return {
-      owner, character: character2, threats, affinity, grudges, emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
+      owner, character: character2, threats, affinity, grudges, ...(believed.length ? { believedGrievances: believed } : {}), emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
       allianceMates: [...mates].sort(), secretExposed, ...this.voteQuestionsFor(owner), powerWins: s.resume?.[owner] ?? 0,
     };
   }
@@ -13307,7 +13310,7 @@ export class GameSessionAdapter implements GameSession {
       trust: e.trust, affinity: e.affinity, threat: e.threat,
       grudge: memoryGrudge(entries, live.week, decay, carry),
       favor: memoryFavor(entries, live.week, decay, carry),
-      targetsMe: this.npcBeliefsEnabled ? targetsMeTilt(live.beliefs, npcId, PLAYER, live.week) : 0,
+      targetsMe: this.npcBeliefsEnabled ? beliefPull(live.beliefs, npcId, PLAYER, live.week) : 0, // 0150: every believed grievance against the player
       jitter,
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
@@ -14808,7 +14811,7 @@ export class GameSessionAdapter implements GameSession {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
-    return targetsMeTilt(store, holder, subject, week);
+    return beliefPull(store, holder, subject, week); // 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
   }
 
   /** The residual edge carry for the memory floor: what the relationship edge still holds, so nothing is counted twice. */
