@@ -5391,14 +5391,14 @@ export class GameSessionAdapter implements GameSession {
       if (hadMove) this.persist();
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
-      this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest };
+      this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest, ...this.moveStamp() };
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {
       const w = this.movePlayer(dest);
       const now = this.presence.get(me) ?? null;
       if (now === dest) {
-        this.playerMove = { from: here, to: dest };
+        this.playerMove = { from: here, to: dest, ...this.moveStamp() };
         this.persist();
         result = { playerMove: { ...this.playerMove }, whereabouts: w };
       } else {
@@ -5407,6 +5407,19 @@ export class GameSessionAdapter implements GameSession {
     }
     result.beatSeq = this.beatSeqNow();
     return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
+  }
+
+  /** ORW-478: the id of the most recent player message the engine was told about (the turn the next `resolvePlayerMove` belongs to). */
+  private moveStamp(): { msg?: string } { const m = this.lastNotedMessageId(); return m === undefined ? {} : { msg: m }; }
+  private lastNotedMessageId(): string | undefined { return this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; }
+  /**
+   * ORW-478: the recorded move, but only while it belongs to the CURRENT turn: it is stamped with the message it was made on, and a later message (whose own `resolvePlayerMove` call may have failed, which is fail-soft) must
+   * not be handed last turn's move. A move made with no message noted (a headless or harness call) matches while none is noted. The persisted record itself is untouched.
+   */
+  private playerMoveThisTurn(): PlayerMoveView | null {
+    const m = this.playerMove;
+    if (!m) return null;
+    return m.msg === this.lastNotedMessageId() ? ({ ...m } as PlayerMoveView) : null;
   }
 
   /**
@@ -15952,7 +15965,7 @@ export class GameSessionAdapter implements GameSession {
       // L21/L24: the player's live whereabouts (room, who's with them + tenure, adjacent rooms) so the
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
       whereabouts: this.whereabouts(),
-      ...(this.playerMove ? { playerMove: { ...this.playerMove } as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn
+      ...(this.playerMoveThisTurn() ? { playerMove: this.playerMoveThisTurn() as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn (ORW-478: only on the message it was made for)
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
