@@ -1465,14 +1465,36 @@ export class GameSessionAdapter implements GameSession {
    * own records (`truthOf`); its intent is "inform" (the narrator's speaker's real reason is unknown). A kind the claim set does not have, or ids
    * not in the house, make no claim (`tellClaim` refuses). Returns the claims told.
    */
-  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, heardBy: readonly string[]): SpokenClaim[] {
+  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[]): SpokenClaim[] {
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return [];
     const kind = c.kind as SpokenClaimKind;
+    const live = this.live;
     const facts = this.truthFacts();
+    // Review (ORW-330, against ORW-407/408): a "you" kind is about the ADDRESSEE. A bystander hears it as said about them (third-party form), never about themself.
+    const ABOUT_YOU: Partial<Record<SpokenClaimKind, SpokenClaimKind>> = { "targets-you": "going-after", "voted-to-evict-you": "voted-against" };
+    const addressed = [...new Set(addressees)].filter((id) => id !== speaker);
+    const heard = [...new Set([...addressed, ...present, PLAYER])].filter((id) => id !== speaker);
     const told: SpokenClaim[] = [];
-    for (const listener of [...new Set(heardBy)].filter((id) => id !== speaker)) {
-      const base = { speaker, listener, kind, subject: c.subject, ...(c.object !== undefined ? { object: c.object } : {}) };
-      const t = this.tellClaim({ ...base, isTrue: truthOf(base, facts), intent: "inform", origin: "narrated" });
+    type Base = { speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId };
+    const said: Base[] = [];
+    for (const listener of heard) {
+      const third = ABOUT_YOU[kind];
+      if (third && !addressed.includes(listener)) {
+        // a bystander hears it as said about each person it was told to (the player included), never about themself
+        for (const to of addressed.filter((a) => a !== c.subject && a !== listener)) said.push({ speaker, listener, kind: third, subject: c.subject, object: to });
+      } else {
+        said.push({ speaker, listener, kind, subject: c.subject, ...(c.object !== undefined ? { object: c.object } : {}) });
+      }
+    }
+    for (const base of said) {
+      // The narrator voicing a claim the ENGINE already told (tellsYou, a plant) is that claim, not a second one with its own truth.
+      const already = (live?.claims?.items ?? []).some((x) => x.origin === "engine" && x.speaker === base.speaker && x.listener === base.listener && x.kind === base.kind
+        && x.subject === base.subject && (x.object ?? null) === (base.object ?? null) && x.week === live?.week && x.day === live?.dayNumber);
+      if (already) continue;
+      const isTrue = truthOf(base, facts);
+      // What the speaker meant: passing on what they believe (or what is true) is "inform"; a false claim they do not hold is a lie ("mislead"; the retrospective reads it).
+      const holds = claimsOf(live?.beliefs, speaker).some((b) => b.value && !b.refuted && b.subject === base.subject && (base.object === undefined || b.object === undefined || b.object === base.object));
+      const t = this.tellClaim({ ...base, isTrue, intent: isTrue || holds ? "inform" : "mislead", origin: "narrated" });
       if (t) told.push(t);
     }
     return told;
@@ -16221,7 +16243,7 @@ export class GameSessionAdapter implements GameSession {
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     // 0155 / ORW-330 slice 6: a claim the narrator wrote on its own becomes an engine claim (a re-statement above never re-tells it).
-    if (claim) this.tellNarratedClaim(claim, p.speaker, [...p.addressedTo, ...wa.present.map((x) => x.id as string), PLAYER]);
+    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string));
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }

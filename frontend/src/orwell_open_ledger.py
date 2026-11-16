@@ -53,7 +53,8 @@ _SYSTEM = (
     "parties and about are optional: leave them out when they do not apply. A CLAIM about houseguests may also carry "
     '"claim":{"kind":"<one of: targets-you, voted-to-evict-you, final-two-with, going-after, talking-about, lying-about, voted-against, '
     'voted-to-keep>","subject":"<id>","object":"<id, only when the kind names a second person>"} when it says exactly one of those '
-    '(targets-you and voted-to-evict-you mean the LISTENER); leave claim out otherwise. '
+    '(targets-you and voted-to-evict-you mean the LISTENER), and ONLY when it is stated as fact: never for a hunch, a question, a joke or sarcasm; '
+    'leave claim out otherwise. '
     "Only people from the PRESENT list may speak, be "
     "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
     "(use parties for a larger group pact). "

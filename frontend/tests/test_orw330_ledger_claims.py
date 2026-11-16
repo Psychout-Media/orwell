@@ -46,3 +46,8 @@ def test_the_claim_set_matches_the_engine():
     src = open("../src/engine/spokenClaims.ts", encoding="utf-8").read()
     for k in ol.CLAIM_KINDS:
         assert f'"{k}",' in src, k
+
+
+def test_the_extraction_attaches_a_claim_only_when_stated_as_fact():
+    # review (ORW-330 vs ORW-407/408): a hunch, question, joke or sarcasm stays the narrator's; only a stated fact becomes an engine claim
+    assert "ONLY when it is stated as fact: never for a hunch, a question, a joke or sarcasm" in ol._SYSTEM
