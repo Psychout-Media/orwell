@@ -1343,6 +1343,8 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
         "VOICE THIS: the player is not omniscient and the game never confirms where someone is if the player does not know. Report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one. "
         "A houseguest listed 'not in view' is somewhere behind a door in the house: name no room for them, never say they are nowhere or hidden, and let the player know they can open doors and look. "
         "A houseguest the game gives as a LEAD ('last seen ...'): say it as a lead, what the player last saw, never as where they are now; the player can go and look or ask around. "
+        "A houseguest the game gives as TOLD (a houseguest in view says where they went): have THAT houseguest say it in their own voice, as something said that may be out of date, never as the narrator's knowledge; the player can go and look. "
+        "Where the game says a houseguest does not give a straight answer, voice a dodge or a change of subject and give nothing away. "
         "A houseguest the game says nobody here knows about: say that nobody here knows where they are, and offer to look around the house or ask around; never guess a room, and never name the diary room or the HOH room as an answer. "
         "A houseguest the game says has not walked into the house yet is outside it (the premiere entrances): never place them in a room or behind a door. A houseguest in view can be walked to (the player chooses whether to go; do not march them there). Say nothing about what anyone is doing in there or "
         "who they are with - you are not told, so never invent it. Count only with the numbers above.")
