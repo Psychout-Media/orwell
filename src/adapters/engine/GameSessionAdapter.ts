@@ -333,7 +333,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
-import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
@@ -1208,7 +1208,7 @@ export class GameSessionAdapter implements GameSession {
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
     const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
     if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
-    // ORW-551 / spec 0159: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
+    // ORW-551 / spec 0168: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
     if (this.live && firstPlayedMessage && this.houseCultureEnabled && !this.live.houseLeans) this.live.houseLeans = drawHouseLeans(`${this.gameSeed ?? 0}`);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
@@ -1505,6 +1505,46 @@ export class GameSessionAdapter implements GameSession {
     return said ? this.tellClaim(said) : undefined;
   }
   /**
+   * 0155 / ORW-330 slice 6 - THE LEDGER NET. A claim the narrator wrote (caught by the open ledger) is told, as `origin: "narrated"`, to everyone
+   * who heard it: the addressees, the houseguests present, and the player (the narration is the player's). The engine gives it its truth from its
+   * own records (`truthOf`); its intent is "inform" (the narrator's speaker's real reason is unknown). A kind the claim set does not have, or ids
+   * not in the house, make no claim (`tellClaim` refuses). Returns the claims told.
+   */
+  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[]): SpokenClaim[] {
+    if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return [];
+    const kind = c.kind as SpokenClaimKind;
+    const live = this.live;
+    const facts = this.truthFacts();
+    // Review (ORW-330, against ORW-407/408): a "you" kind is about the ADDRESSEE. A bystander hears it as said about them (third-party form), never about themself.
+    const ABOUT_YOU: Partial<Record<SpokenClaimKind, SpokenClaimKind>> = { "targets-you": "going-after", "voted-to-evict-you": "voted-against" };
+    const addressed = [...new Set(addressees)].filter((id) => id !== speaker);
+    const heard = [...new Set([...addressed, ...present, PLAYER])].filter((id) => id !== speaker);
+    const told: SpokenClaim[] = [];
+    type Base = { speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId };
+    const said: Base[] = [];
+    for (const listener of heard) {
+      const third = ABOUT_YOU[kind];
+      if (third && !addressed.includes(listener)) {
+        // a bystander hears it as said about each person it was told to (the player included), never about themself
+        for (const to of addressed.filter((a) => a !== c.subject && a !== listener)) said.push({ speaker, listener, kind: third, subject: c.subject, object: to });
+      } else {
+        said.push({ speaker, listener, kind, subject: c.subject, ...(c.object !== undefined ? { object: c.object } : {}) });
+      }
+    }
+    for (const base of said) {
+      // The narrator voicing a claim the ENGINE already told (tellsYou, a plant) is that claim, not a second one with its own truth.
+      const already = (live?.claims?.items ?? []).some((x) => x.origin === "engine" && x.speaker === base.speaker && x.listener === base.listener && x.kind === base.kind
+        && x.subject === base.subject && (x.object ?? null) === (base.object ?? null) && x.week === live?.week && x.day === live?.dayNumber);
+      if (already) continue;
+      const isTrue = truthOf(base, facts);
+      // What the speaker meant: passing on what they believe (or what is true) is "inform"; a false claim they do not hold is a lie ("mislead"; the retrospective reads it).
+      const holds = claimsOf(live?.beliefs, speaker).some((b) => b.value && !b.refuted && b.subject === base.subject && (base.object === undefined || b.object === undefined || b.object === base.object));
+      const t = this.tellClaim({ ...base, isTrue, intent: isTrue || holds ? "inform" : "mislead", origin: "narrated" });
+      if (t) told.push(t);
+    }
+    return told;
+  }
+  /**
    * 0154 / ORW-330 slice 5b - LYING ABOUT YOUR VOTE. Once an eviction is over (the count is public, the ballots are not) each NPC voter may tell ONE other NPC how they voted: true or not, decided by the engine
    * from the speaker's real ballot (read here, never handed out), cunning/candor and need, on its own `${seed}:vote-talk` side stream. Told as a claim (`tellClaim`, the listener's belief is the speaker's word).
    * At most one per speaker per eviction (`votesTalked`). `ORWELL_VOTE_TALK`; OFF => byte-identical (no draws, no claims).
@@ -1597,10 +1637,10 @@ export class GameSessionAdapter implements GameSession {
    * Draws come from the `${seed}:house-meeting` side stream. ON unless `ORWELL_HOUSE_MEETINGS=0`; needs the belief layer and a played game.
    */
   private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
-  /** ORW-551 / spec 0159 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
+  /** ORW-551 / spec 0168 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
   private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
   setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
-  /** ORW-551 (spec 0159 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
+  /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
   private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
@@ -4375,7 +4415,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
-    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0159): texture words only, same crown gate; absent when no culture was drawn
+    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
     return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
@@ -11569,7 +11609,7 @@ export class GameSessionAdapter implements GameSession {
     const plans: PlannedAction[] = [];
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
-    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0159 slice 2): the culture's baseline multipliers; undefined = byte-identical
+    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0168 slice 2): the culture's baseline multipliers; undefined = byte-identical
     const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
@@ -16349,7 +16389,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
     if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
     const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
-    const p = openLedgerProposal(req, known);
+    const { claim, ...entry } = (req ?? {}) as RecordOpenLedgerReq; // 0155: the structured claim is the engine's to handle; the ledger entry itself is unchanged
+    const p = openLedgerProposal(entry, known);
     if (typeof p === "string") return { accepted: false, reason: p };
     const wa = this.whereabouts();
     if (!wa) return { accepted: false, reason: "no-game" };
@@ -16376,6 +16417,8 @@ export class GameSessionAdapter implements GameSession {
     }
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
+    // 0155 / ORW-330 slice 6: a claim the narrator wrote on its own becomes an engine claim (a re-statement above never re-tells it).
+    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string));
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }

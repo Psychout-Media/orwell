@@ -50,7 +50,12 @@ _SYSTEM = (
     '"addressedTo":["<id or player>"],"kind":"<a short free phrase, any words>",'
     '"parties":["<every id party to a group pact>"],"about":"<who or what a claim concerns: an id from the list, else a few words>"}],'
     '"resolutions":[{"entryId":"<id from the OPEN list>","status":"kept|broken|withdrawn","note":"<why, one short sentence>"}]} . '
-    "parties and about are optional: leave them out when they do not apply. Only people from the PRESENT list may speak, be "
+    "parties and about are optional: leave them out when they do not apply. A CLAIM about houseguests may also carry "
+    '"claim":{"kind":"<one of: targets-you, voted-to-evict-you, final-two-with, going-after, talking-about, lying-about, voted-against, '
+    'voted-to-keep>","subject":"<id>","object":"<id, only when the kind names a second person>"} when it says exactly one of those '
+    '(targets-you and voted-to-evict-you mean the LISTENER), and ONLY when it is stated as fact: never for a hunch, a question, a joke or sarcasm; '
+    'leave claim out otherwise. '
+    "Only people from the PRESENT list may speak, be "
     "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
     "(use parties for a larger group pact). "
     "Copy what was said; invent nothing. Skip small talk and anything already finished in the scene. "
@@ -151,6 +156,33 @@ def _norm(v: str, limit: int) -> str:
     return re.sub(r"\s+", " ", v).strip()[:limit].strip()
 
 
+# 0155 / ORW-330 slice 6: the engine's fixed claim set (src/engine/spokenClaims.ts SPOKEN_CLAIM_KINDS) and which kinds name a second person.
+CLAIM_KINDS = ("targets-you", "voted-to-evict-you", "final-two-with", "going-after", "talking-about", "lying-about", "voted-against", "voted-to-keep")
+_CLAIM_NEEDS_OBJECT = {"final-two-with", "going-after", "talking-about", "voted-against", "voted-to-keep"}
+
+
+def _clean_claim(raw: object, known: dict, by_name: dict) -> Optional[dict]:
+    """0155: the structured claim of an entry, or None. Kind from the fixed set; subject (and object when the kind needs one) a houseguest id,
+    or a name that resolves to one; anything else is dropped (the entry is kept without it). The engine re-validates."""
+    if not isinstance(raw, dict) or raw.get("kind") not in CLAIM_KINDS:
+        return None
+    def _id(v: object) -> Optional[str]:
+        if not isinstance(v, str) or not v.strip():
+            return None
+        v = v.strip()
+        return v if v in known or v == "player" else by_name.get(v.lower())
+    subject = _id(raw.get("subject"))
+    if not subject:
+        return None
+    out = {"kind": raw["kind"], "subject": subject}
+    if raw["kind"] in _CLAIM_NEEDS_OBJECT:
+        obj = _id(raw.get("object"))
+        if not obj or obj == subject:
+            return None
+        out["object"] = obj
+    return out
+
+
 def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = None) -> list[dict]:
     """Entries from an extraction reply, bounded: well-formed, known ids only, text <= 240 chars (longer ones dropped, not
     truncated), one line, no duplicates, at most ``MAX_ENTRIES_PER_TURN``. ``known`` maps every houseguest the player can
@@ -188,6 +220,9 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         ab = _norm(about, ABOUT_MAX_CHARS) if isinstance(about, str) else ""
         if ab:
             entry["about"] = ab if ab in (known or {}) else by_name.get(ab.lower(), ab)
+        cl = _clean_claim(it.get("claim"), known or {}, by_name)
+        if cl:
+            entry["claim"] = cl
         seen.add((speaker, t.lower()))
         out.append(entry)
         if len(out) >= MAX_ENTRIES_PER_TURN:

@@ -157,3 +157,14 @@ def test_the_clock_moves_in_big_hang_out_steps_and_falls_back_to_ticks_when_it_i
     assert e.hangs >= 6 and e.ticks <= 6 and 0 < e.mu <= 30      # ~3 hours a call, never 258 five-minute saves
     r = _ClockEng(120)                                           # hangOut refused: ticks still get there
     assert ev.advance_to_due(r) is True and r.ticks > 0
+
+
+def test_the_turn_inside_which_the_eviction_resolved_is_recorded_for_the_k1_clock_check():
+    """Live run 6: the +2.1h inside the resolving reply is the engine's staged ceremony, not skipped time; the harness records WHICH turn resolved it from the engine's own record."""
+    ev.RESOLVED_TURNS.clear()
+    eng = _Eng(["eviction"])
+    checks = []
+    def play(label, text):
+        if label == "eviction-2": eng.recap = ["A"]      # the engine records the evictee during this reply
+    ev.run(eng, play, lambda cid, ok, d, sev="fail": checks.append((cid, ok)), _Chat(), 4)
+    assert ev.RESOLVED_TURNS == {"eviction-2"}

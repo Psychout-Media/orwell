@@ -60,7 +60,7 @@ export const HOUSE_LIFE = {
 } as const;
 
 /**
- * ORW-551 / spec 0159 slice 2: the season's house culture as plain multipliers on the house BASELINE of four dials (the caller reads them from `dialMult`; this module stays pure).
+ * ORW-551 / spec 0168 slice 2: the season's house culture as plain multipliers on the house BASELINE of four dials (the caller reads them from `dialMult`; this module stays pure).
  * Absent (a headless game, the flag off, a load with no culture) = every multiplier exactly 1 = byte-identical house life. `conflict` is a THRESHOLD multiplier
  * (below 1 = a lower threshold = MORE conflict), so the chance is divided by it. The culture scales the baseline BEFORE the per-person terms (temper, mood, candor), so an individual still pushes against it.
  */

@@ -1198,6 +1198,12 @@ export interface RecordOpenLedgerReq {
   parties?: string[];
   /** Slice 2: who or what a claim concerns, free text (at most 80 characters; a houseguest id when it is one). */
   about?: string;
+  /**
+   * 0155 / ORW-330 slice 6: when the entry is a claim about houseguests that fits the engine's claim set, its structured form (the front end's
+   * extraction proposes it). The engine re-validates it, gives it its truth from its own records, and every listener holds it as a belief.
+   * Absent (or not understood) => the entry is kept exactly as before and no claim is made.
+   */
+  claim?: { kind: string; subject: string; object?: string };
 }
 
 /** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
@@ -2471,7 +2477,7 @@ export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose
 export interface RetrospectiveView {
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
   rumorMill?: RumorMill;
-  /** ORW-551 (spec 0159): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */
+  /** ORW-551 (spec 0168): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */
   houseCulture?: { leans: string[] };
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they

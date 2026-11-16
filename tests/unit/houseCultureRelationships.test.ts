@@ -7,7 +7,7 @@ import { RelationshipModel } from "../../src/engine/relationships";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 
-/** ORW-551 / spec 0159 slice 3: the culture leans paranoia, loyalty, bonding, alliance size and meetings. Roles only. */
+/** ORW-551 / spec 0168 slice 3: the culture leans paranoia, loyalty, bonding, alliance size and meetings. Roles only. */
 const one = (id: (typeof LEAN_IDS)[number]): HouseLeans => ({ leans: [{ id, w: 1 }] });
 const F = HOUSE_LEAN_TUNING.MAX_FACTOR;
 const SLICE3: DialId[] = ["paranoia", "loyalty", "bonding", "allianceSize", "meetings"];
