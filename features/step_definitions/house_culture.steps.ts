@@ -102,3 +102,21 @@ Then("the paranoia, loyalty, alliance-size, meeting and bonding dials each rise 
     assert.equal(dialMult(undefined, dial), 1);
   }
 });
+
+Given("a gossip-mill culture and a liars-season culture", function () { /* built in the Then */ });
+Then("a listener's credulity rises in the first and falls in the second over no culture, stays within {int} to {int}, and no culture changes nothing", function (lo: number, hi: number) {
+  const credOf = (s: GameSessionAdapter, id: string): number => (s as unknown as { credulityOf(id: string): number }).credulityOf(id);
+  const withLeans = (leans: HouseLeans | undefined): number => {
+    const { s } = start(true, true, 3);
+    if (leans) live(s).houseLeans = leans;
+    const v = credOf(s, "npc:1");
+    assert.ok(v >= lo && v <= hi, `credulity ${v} outside ${lo}..${hi}`);
+    return v;
+  };
+  const none = withLeans(undefined);
+  const gossipy = withLeans({ leans: [{ id: "gossip-mill", w: 1 }] });
+  const liars = withLeans({ leans: [{ id: "liars-season", w: 1 }] });
+  assert.ok(gossipy > none, "a gossip-mill house raises credulity");
+  assert.ok(liars < none, "a liars-season house lowers credulity");
+  assert.equal(withLeans({ leans: [] }), none, "an empty culture changes nothing");
+});
