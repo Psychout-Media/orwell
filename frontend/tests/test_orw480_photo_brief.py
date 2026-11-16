@@ -774,3 +774,22 @@ def test_s4_a_missing_object_list_is_built_from_the_place_and_a_missing_quote_fr
     gone = lambda b: {k: v for k, v in {**b, "why": "no quote here"}.items() if k != "inFrame"}      # noqa: E731
     res = run(B.author_briefs(cs, writer(bad={"npc:2": gone, "npc:8": gone}, editor=lambda c2, n: gone(good_brief(c2, n))), seed=1))
     assert res["floor"] == [] and len(res["briefs"]["npc:2"]["inFrame"]) >= 1 and B._why_ok(cs[7], res["briefs"]["npc:8"]["why"])
+
+
+def test_round16_wear_alias_list_and_wardrobe_fallback():
+    from src import orwell_photo_brief as B
+    card = {"name": "Dana Cole", "genderPresentation": "woman", "physicalCharacteristics": {"wardrobe": ["faded denim jacket", "plain tee"]}}
+    got = B.clean_brief({"where": "a porch", "doing": "snapping beans", "inFrame": ["bowl"], "clothing": ["grey tee", "jeans"], "timeLight": "dusk", "why": "x", "tie": "y"})
+    assert got["wear"] == "grey tee, jeans"
+    rep = B.repair_brief(card, {"where": "a porch", "doing": "snapping beans", "inFrame": ["bowl"], "timeLight": "dusk", "why": "x", "tie": "y"}, {})
+    assert rep["wear"]
+
+
+def test_round16_body_anchor_is_a_camera_sentence_early_and_in_the_floor():
+    from src import orwell_photo_brief as B
+    card = {"genderPresentation": "man"}
+    s = B.body_sentence("stands side-on to the camera", card)
+    assert s.startswith("Camera position:") and "his shoulder toward the camera" in s
+    floor = "A candid photo. The subject is a man. The moment: calm; standing square, hands clasped. Light: noon, clear."
+    out = B.floor_with_anchors(floor, {"body": "side-on", "time": "dusk", "weather": "rain"}, card)
+    assert "Camera position:" in out and "hands clasped" not in out and out.index("Camera position:") < out.index("The subject is")

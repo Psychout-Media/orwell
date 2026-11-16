@@ -126,7 +126,7 @@ SYSTEM = (
     "a hobby or a family object is welcome. Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
     "nothing is acted. Never change their hair or its styling, whatever the activity. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
     "background (animals, vehicles, a view) is welcome and wanted but out of focus; no other person appears anywhere in the frame, and an object is always a thing, never a person or a pet with its owner. "
-    "Clothes are what they would wear on an ordinary day, done up as they usually would, nothing styled or revealing. No readable brand names, signs or text. Do not write the person's name: say "
+    "Clothes are worn the way that person would on an ordinary day. No readable brand names, signs or text. Do not write the person's name: say "
     "'the person'. Do not describe framing, lens or camera. Invent from the sheet; do not reuse wording between people. Every object, signature item and place is used by ONE "
     "person only: when 'alreadyUsed' lists things, choose different ones."
 )
@@ -347,13 +347,36 @@ def _tokens(t: str) -> set:
     return {w for w in _norm(t).split() if len(w) >= 5}
 
 
+FIELD_ALIASES = {
+    "where": ("place", "location", "setting"), "doing": ("action", "activity", "moment"), "inFrame": ("in_frame", "objects", "frame", "objectsInFrame"),
+    "wear": ("wearing", "clothes", "clothing", "outfit", "wardrobe", "wears", "attire"), "signature": ("signatureItem", "signature_item"),
+    "timeLight": ("time_light", "light", "timeAndLight", "time"), "expressionBody": ("expression", "face", "expression_body"), "why": ("trace", "reason"),
+    "tie": ("placeTie", "place_tie"), "jobHints": ("job_hints", "jobObjects"),
+}
+
+
+def _field_value(raw: dict, k: str):
+    """The value of field `k` in a reply, whatever the writer called it (an alias) and whatever shape it gave (a list or a dict of strings is joined)."""
+    for key in (k, *FIELD_ALIASES.get(k, ())):
+        v = raw.get(key)
+        if v not in (None, "", [], {}):
+            if k not in ("inFrame", "jobHints"):
+                if isinstance(v, list):
+                    v = ", ".join(str(x).strip() for x in v if isinstance(x, (str, int, float)) and str(x).strip())
+                elif isinstance(v, dict):
+                    v = ", ".join(str(x).strip() for x in v.values() if isinstance(x, (str, int, float)) and str(x).strip())
+            return v
+    return None
+
+
 def clean_brief(raw) -> Optional[dict]:
-    """The brief with every field a clean string (inFrame a list of two), or None when it is not a usable object."""
+    """The brief with every field a clean string (inFrame a list of strings), or None when it is not a usable object. A field the writer named another way, or gave as a
+    list, is still read."""
     if not isinstance(raw, dict):
         return None
     out: dict = {}
     for k in FIELDS:
-        v = raw.get(k)
+        v = _field_value(raw, k)
         if k == "inFrame":
             if isinstance(v, str):
                 v = [x.strip() for x in re.split(r"[;\n]|,\s+and\s+|\s+and\s+", v) if x.strip()]
@@ -497,6 +520,10 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         else:
             out.pop("expressionBody", None)
     wear = str(out.get("wear") or "")
+    if not wear.strip():
+        # no clothes line at all: the person's own wardrobe from the sheet (never work gear), so a brief is never lost for it
+        items = [w.strip().rstrip(".") for w in ((card.get("physicalCharacteristics") or {}).get("wardrobe") or []) if isinstance(w, str) and w.strip() and not WORK_GEAR_RE.search(w)]
+        wear = ", ".join(items[:3])
     wear_words = _cw(wear)
     # the signature: gone (not refilled by guessing) when it only repeats what is worn
     sig = str(out.get("signature") or "")
@@ -1075,16 +1102,60 @@ def brief_sentences(brief: dict, proper: Optional[set] = None) -> str:
     ) if s)
 
 
+def body_sentence(body: Optional[str], card: Optional[dict] = None) -> str:
+    """The body anchor as WHERE THE CAMERA IS, in its own short sentence early in the prompt (an image model follows a camera position, not a pose buried in the moment)."""
+    g = str((card or {}).get("genderPresentation") or "")
+    poss = "his" if g == "man" else "her" if g == "woman" else "their"
+    b = str(body or "")
+    table = (
+        ("three-quarter", f"Camera position: photographed from three-quarters on, {poss} near shoulder toward the camera and {poss} face turned to the lens."),
+        ("off-centre", f"Camera position: photographed square-on, but {poss} figure stands to one side of the frame, clearly off-centre."),
+        ("turned a little away", f"Camera position: photographed from slightly behind {poss} shoulder, {poss} back partly to the camera and {poss} head turned back to the lens."),
+        ("leaning", f"Camera position: photographed from one side while {poss} weight rests on something beside {poss}, {poss} face turned to the lens."),
+        ("seated", f"Camera position: photographed seated, the camera at {poss} own eye level, {poss} body angled a little off the lens."),
+        ("side-on", f"Camera position: photographed from the side, {poss} shoulder toward the camera and {poss} face turned to the lens."),
+    )
+    for key, sent in table:
+        if key in b:
+            return sent
+    return ""
+
+
+def _insert_body(prompt: str, sentence: str) -> str:
+    """The camera-position sentence goes right after the opener, before the subject sentence."""
+    if not sentence or "Camera position:" in prompt:
+        return prompt
+    if " The subject is " in prompt:
+        return prompt.replace(" The subject is ", f" {sentence} The subject is ", 1)
+    return prompt
+
+
 _LIGHT_RE = re.compile(r"Light: [^.]*\.")
 
 
-def floor_with_anchors(floor_prompt: str, anchors: Optional[dict]) -> str:
-    """The engine's own prompt (the floor) with its Light sentence taken from this person's random anchors (time, weather), so fallbacks do not converge on the
-    same few lights. The engine's setting, performance and clothes stay."""
-    if not anchors or not isinstance(floor_prompt, str) or not _LIGHT_RE.search(floor_prompt):
+def floor_with_anchors(floor_prompt: str, anchors: Optional[dict], card: Optional[dict] = None) -> str:
+    """The engine's own prompt (the floor) with this person's random anchors applied, so fallbacks do not converge: the Light sentence from the time and weather; the
+    camera position from the body anchor, with the floor's own frontal pose dropped (only its expression stays); a layer from the person's wardrobe when the day is cold or
+    wet and the clothes have none. The engine's setting and the rest of the clothes stay."""
+    if not anchors or not isinstance(floor_prompt, str):
         return floor_prompt
-    light = _sentence(f"Light: {_lc(anchors.get('time', ''))}, {anchors.get('weather', '')}")
-    return _LIGHT_RE.sub(lambda m: light, floor_prompt, count=1)
+    out = floor_prompt
+    if _LIGHT_RE.search(out):
+        light = _sentence(f"Light: {_lc(anchors.get('time', ''))}, {anchors.get('weather', '')}")
+        out = _LIGHT_RE.sub(lambda m: light, out, count=1)
+    bs = body_sentence(anchors.get("body"), card)
+    if bs:
+        face = floor_expression(out)
+        if face:
+            out = _FLOOR_MOMENT_RE.sub(lambda m: f"The moment: {face}.", out, count=1)      # the floor's pose is replaced by the camera position: only its expression stays
+        out = _insert_body(out, bs)
+    if _needs_layer(anchors):
+        m = re.search(r"(Wearing )(.*?)(, in their own everyday clothes)", out, re.S)
+        if m and not LAYER_RE.search(m.group(2)):
+            wardrobe = [w for w in (((card or {}).get("physicalCharacteristics") or {}).get("wardrobe") or []) if isinstance(w, str) and LAYER_RE.search(w)]
+            layer = f"with {wardrobe[0].strip().rstrip('.')} over it" if wardrobe else "with a plain overshirt over it"
+            out = out[:m.end(2)] + f", {layer}" + out[m.end(2):]
+    return out
 
 
 _FLOOR_MOMENT_RE = re.compile(r"The moment: ([^.]*)\.")
@@ -1112,7 +1183,9 @@ def compose_prompt(floor_prompt: str, brief: Optional[dict], proper: Optional[se
 
 def final_prompt(floor_prompt: str, brief: Optional[dict], anchors: Optional[dict], card: Optional[dict] = None) -> str:
     """The brief when there is one, else the floor with this person's anchored light."""
-    return compose_prompt(floor_prompt, brief, proper_words(card)) if brief else floor_with_anchors(floor_prompt, anchors)
+    if brief:
+        return _insert_body(compose_prompt(floor_prompt, brief, proper_words(card)), body_sentence((anchors or {}).get("body"), card))
+    return floor_with_anchors(floor_prompt, anchors, card)
 
 
 # ---------------------------------------------------------------------------------------------------- the production seam

@@ -277,7 +277,7 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     expect(full).toMatch(/never a uniform, scrubs, apron, badge or work gear/);
     expect(full).not.toMatch(/laugh lines|distinguished|forties ease|crisp and youthful/);
     expect(full).toMatch(/The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim\./);   // ORW-480: no frame or border
-    expect(full).toMatch(/Clothes are worn the way this person would on an ordinary day, done up as usual, nothing styled or revealing beyond their own look\./);
+    expect(full).toMatch(/Clothes are worn the way this person would on an ordinary day\./);
     expect(full).toMatch(/real skin and hair, worn everyday clothes/);   // documentary is the default realism wording (Kevin's pick, 2026-11-16)
     // no beautifying or quality word, no hair-and-makeup line
     expect(full).not.toMatch(/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|airbrushed|no retouching/i);
