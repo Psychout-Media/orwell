@@ -1928,6 +1928,8 @@ export class GameSessionAdapter implements GameSession {
    * introduction event); reset to empty at every season start alongside it. PUBLIC ids only.
    */
   private introducedNames: Set<EntityId> = new Set();
+  /** ORW-463 (memory only, never saved): the full names a houseguest carried BEFORE a rename, kept until the writer's first biography lands, so a profile written around an old given name that arrives in a LATER call still follows the rename. */
+  private priorNames: Map<EntityId, string[]> = new Map();
   /**
    * #1318 — the PLAYER-FORMED HOT-READ set: the subset of `premiereMet` reached through GENUINE
    * engagement (a model-driven `markHouseguestMet` the player was part of, or a recorded player↔NPC
@@ -3493,20 +3495,16 @@ export class GameSessionAdapter implements GameSession {
     // the player about the game's own prior words. This is enforced HERE, structurally, not by timing
     // the FE's background call — the smaller, surgical fix over trying to serialize an inherently
     // best-effort background task ahead of narration.
-    let renamedFrom: string | undefined; // set only when this call really renames (the incoming story is written around the old name)
     if (req.name !== undefined && this.introducedNames.has(target.id)) {
       // Silently drop — mirrors the cross-character guard's per-field drop above: the rest of the
       // authored profile still applies, only the name is refused so the seeded/already-shown name stands.
     } else if (req.name !== undefined) {
       const name = req.name.trim();
-      renamedFrom = target.name;
       const collides = name.toLowerCase() === ctx.playerName.toLowerCase()
         || ctx.npcs.some((n) => n.id !== target.id && (n.name ?? "").trim().toLowerCase() === name.toLowerCase());
       if (isReasonableName(name) && !collides) {
         this.renameHouseguest(target, name); // ORW-437: the public prose written around the old given name follows the new one
         publicFields.push("name");
-      } else {
-        renamedFrom = undefined;
       }
     }
 
@@ -3543,7 +3541,7 @@ export class GameSessionAdapter implements GameSession {
     );
     if (req.biography !== undefined && !facetGuard.dropBiography) {
       // the incoming biography overwrites the prose the rename just carried, so it follows the rename too
-      target.character.biography = renamedFrom !== undefined ? renameGivenNameInProse(req.biography, renamedFrom, target.name) : req.biography;
+      target.character.biography = this.carryRenames(target, req.biography); // ORW-463: also a rename an EARLIER call made
       delete target.character.biographyDraft; // ORW-438: the writer's biography replaces genesis's draft
       publicFields.push("biography");
     }
@@ -3555,10 +3553,11 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.identityConcept === "string") {
       const repaired = clipCodePoints(req.identityConcept.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim(), 300);
       if (repaired.length > 0) {
-        target.character.identityConcept = renamedFrom !== undefined ? clipCodePoints(renameGivenNameInProse(repaired, renamedFrom, target.name), 300) : repaired; // the rename can lengthen it: clip again (review of #2775)
+        target.character.identityConcept = clipCodePoints(this.carryRenames(target, repaired), 300); // the rename can lengthen it: clip again (review of #2775)
         publicFields.push("identityConcept");
       }
     }
+    if (req.biography !== undefined && !facetGuard.dropBiography) this.priorNames.delete(target.id); // ORW-463: the writer's biography has landed: the old names are no longer needed
     if (req.physicalCharacteristics !== undefined) {
       target.character.physicalCharacteristics = facetGuard.physicalCharacteristics as typeof req.physicalCharacteristics;
       // 0063 RE-GROUND (the "olive-skin collapse" fix, 2026-06-23): the FE authoring LLM re-authors the
@@ -7732,9 +7731,21 @@ export class GameSessionAdapter implements GameSession {
    * re-pick must not leave a biography about "Nia" on Samir's card). Public text only; a no-op when the given name
    * did not change or the prose never used it.
    */
-  private renameHouseguest(n: { name: string; character: Character }, next: string): void {
+  /** ORW-463: incoming public prose, written around any name this houseguest carried before a rename (this call's or an earlier one's), follows the current name. Pure over the stored list. */
+  private carryRenames(n: { id: EntityId; name: string }, text: string): string {
+    let out = text;
+    for (const prior of this.priorNames.get(n.id) ?? []) out = renameGivenNameInProse(out, prior, n.name);
+    return out;
+  }
+
+  private renameHouseguest(n: { id?: EntityId; name: string; character: Character }, next: string): void {
     const prior = n.name;
     n.name = next;
+    if (n.id !== undefined && prior.trim().split(/\s+/)[0] !== next.trim().split(/\s+/)[0]) {
+      const l = this.priorNames.get(n.id) ?? [];
+      if (!l.includes(prior)) l.push(prior);
+      this.priorNames.set(n.id, l.slice(-5));
+    }
     const c = n.character;
     for (const k of ["biography", "identityConcept", "background", "appearance", "presentation", "demeanor"] as const) {
       const v = c[k];

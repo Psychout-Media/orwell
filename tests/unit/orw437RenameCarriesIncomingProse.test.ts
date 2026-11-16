@@ -68,3 +68,55 @@ describe("ORW-437 recordCastIdentity: an introduced houseguest keeps name and pr
     expect(changed.length).toBeGreaterThan(0);
   });
 });
+
+// ORW-463: the three known limits of the rename (review of #2775)
+import { renameGivenNameInProse } from "../../src/engine/diversity";
+
+describe("ORW-463 renameGivenNameInProse: a sentence word after the given name is not a surname", () => {
+  it.each([
+    ["Lola Monday mornings are slow.", "Zorvan Monday mornings are slow."],
+    ["She waits. Lola Now sings softly.", "She waits. Zorvan Now sings softly."],
+    ["Lola She says nothing.", "Zorvan She says nothing."],
+    ["Lola Texas born and raised.", "Zorvan Texas born and raised."],
+  ])("%s", (text, want) => {
+    expect(renameGivenNameInProse(text, "Lola Lawrence", "Zorvan Lawrence")).toBe(want);
+  });
+  it("another person's full name is still left alone, at a sentence start or not", () => {
+    expect(renameGivenNameInProse("Her rival Lola Other never lets up.", "Lola Lawrence", "Zorvan Lawrence")).toBe("Her rival Lola Other never lets up.");
+    expect(renameGivenNameInProse("Lola Other never lets up.", "Lola Lawrence", "Zorvan Lawrence")).toBe("Lola Other never lets up.");
+    expect(renameGivenNameInProse("Lola Monday, the neighbour, waves.", "Lola Lawrence", "Zorvan Lawrence")).toBe("Lola Monday, the neighbour, waves.");   // a capitalised word that does not continue into lower-case text stays a name
+    expect(renameGivenNameInProse("Her rival Lola Monday mornings.", "Lola Lawrence", "Zorvan Lawrence")).toBe("Her rival Lola Monday mornings.");           // not at a sentence start: unchanged behaviour
+  });
+});
+
+describe("ORW-463 recordCastProfile: a rename an EARLIER call made still reaches the biography that arrives later", () => {
+  it("the name-only call renames; the later biography written around the old given name follows it, and the memory ends with the biography", () => {
+    const s = new GameSessionAdapter();
+    s.preSeedCast({ seed: 7 });
+    const warm = () => s.snapshot().prewarm!.npcs[0]!;
+    const npc = warm();
+    const oldGiven = npc.name.split(" ")[0]!;
+    const surname = npc.name.split(" ").slice(1).join(" ");
+    expect(s.recordCastProfile({ houseguestId: npc.id, name: `Namex ${surname}` }).accepted).toBe(true);
+    const res = s.recordCastProfile({ houseguestId: npc.id, biography: `${oldGiven} grew up in Converse. ${oldGiven} fixes boats.`, identityConcept: `${oldGiven} hums through every silence.` });
+    expect(res.accepted).toBe(true);
+    expect(warm().character.biography).toBe("Namex grew up in Converse. Namex fixes boats.");
+    expect(warm().character.identityConcept).toBe("Namex hums through every silence.");
+    // the biography has landed: a LATER re-authoring around the old name is left as the writer wrote it (the memory is gone)
+    expect(s.recordCastProfile({ houseguestId: npc.id, biography: `${oldGiven} again.` }).accepted).toBe(true);
+    expect(warm().character.biography).toBe(`${oldGiven} again.`);
+  });
+  it("a second houseguest who really has the old given name keeps it when the profile of the renamed one is written in the same call", () => {
+    const s = new GameSessionAdapter();
+    s.preSeedCast({ seed: 7 });
+    const [a, b] = s.snapshot().prewarm!.npcs;
+    const oldGiven = a!.name.split(" ")[0]!;
+    const surnameA = a!.name.split(" ").slice(1).join(" ");
+    const rivalSurname = "Zzother";
+    // B really is "<oldGiven> Zzother": A's biography mentions that full name
+    const res = s.recordCastProfile({ houseguestId: a!.id, name: `Namex ${surnameA}`, biography: `${oldGiven} fixes boats. Her rival ${oldGiven} ${rivalSurname} never lets up.` });
+    expect(res.accepted).toBe(true);
+    expect(s.snapshot().prewarm!.npcs[0]!.character.biography).toBe(`Namex fixes boats. Her rival ${oldGiven} ${rivalSurname} never lets up.`);
+    expect(b).toBeDefined();
+  });
+});
