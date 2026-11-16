@@ -146,6 +146,7 @@ module.exports = {
       "docs/features/0159-a-lie-planted-on-the-player.feature",
       "docs/features/0162-house-culture.feature",
       "docs/features/0160-belief-conviction.feature",
+      "docs/features/0169-gossip-feeds-beliefs.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

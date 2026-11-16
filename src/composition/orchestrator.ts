@@ -7,6 +7,7 @@ import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
 import { spreadForScenes } from "../engine/copresenceSpread";
+import { natureFromContent } from "../engine/gossipBeliefs";
 import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
@@ -995,7 +996,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.
         ...(sandbox.session.credibilityEnabledNow() ? { credibilityOf: (h: EntityId, l: EntityId, n: number) => sandbox.session.credibilityOf(l, h, n) } : {}),
         // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
-        ...(beliefObs ? { onTold: (r: { listener: EntityId; subject: EntityId; confidence: number }) => beliefObs({ listener: r.listener, subject: r.subject, type: "gossip", confidence: r.confidence, delta: {} }) } : {}),
+        ...(beliefObs ? { onTold: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; content: string }) => beliefObs({ listener: r.listener, subject: r.subject, type: natureFromContent(r.content) ?? "gossip", confidence: r.confidence, delta: {}, source: r.holder, factId: r.factId, unfolded: true }) } : {}),
       },
     );
   } else if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {

@@ -282,7 +282,8 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
-import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
+import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
@@ -383,7 +384,7 @@ import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/s
 import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
 import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
-import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, legendFrom, legendSeedProbability } from "../../engine/gossip";
+import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, GOSSIP_HEARD, legendFrom, legendSeedProbability } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
@@ -11538,11 +11539,30 @@ export class GameSessionAdapter implements GameSession {
    * `undefined` when `ORWELL_NPC_BELIEFS` is off or no season is live ⇒ NO observer ⇒ the gossip call is byte-identical to today. The observer is read-only (the fold,
    * its rng draws and its edge moves are unchanged — proven in beliefProvenance.test.ts); it only appends to the engine-only `live.beliefs` store, which nothing reads yet.
    */
-  beliefReceiptObserver(): ((r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }) => void) | undefined {
+  beliefReceiptObserver(): ((r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta; source?: EntityId; factId?: string; unfolded?: boolean }) => void) | undefined {
     if (!this.npcBeliefsEnabled || !this.live) return undefined;
     const live = this.live;
-    return (r) => { recordRumorClaim((live.beliefs ??= {}), r, live.week); };
+    if (!this.gossipBeliefsEnabled || BELIEF_RULES.strength !== "full") return (r) => { recordRumorClaim((live.beliefs ??= {}), { listener: r.listener, subject: r.subject, type: r.type, confidence: r.confidence, delta: r.delta }, live.week); };
+    // ORW-546 (0169, ORWELL_GOSSIP_BELIEFS): the rumor carries its teller and a CONVICTION (trust in the teller x the listener's credulity); a receipt that folded nothing (co-presence)
+    // gets the same E44 fold scaled by that conviction, on a stream of its own (never the shared society rng), and the delta is recorded so a refutation can take half of it back.
+    return (r) => {
+      if (r.listener === PLAYER) return;
+      const from = r.source;
+      const conviction = from === undefined ? r.confidence : gossipConviction(this.rel.edge(r.listener, from).trust, this.reliabilityReader?.(r.listener).has(from) ?? false, this.credulityOf(r.listener));
+      let delta = r.delta;
+      const heard = GOSSIP_HEARD[r.type];
+      if (r.unfolded && heard && r.subject !== r.listener) {
+        const e = this.rel.edge(r.listener, r.subject);
+        const before = { trust: e.trust, affinity: e.affinity, threat: e.threat };
+        this.rel.applyImpactDirected(r.listener, r.subject, scaleImpact(heard, conviction), new SeededRandom(hashSeed(gossipBeliefStream(this.gameSeed ?? 0, r.listener, r.factId ?? r.subject))));
+        delta = edgeDelta(before, this.rel.edge(r.listener, r.subject));
+      }
+      recordRumorClaim((live.beliefs ??= {}), { ...r, confidence: conviction, delta }, live.week);
+    };
   }
+  /** ORW-546 (0169): off-screen gossip feeds beliefs - the rumor carries its teller and a conviction, counts as a soft grievance, and (co-presence) moves feelings in proportion. ON unless `ORWELL_GOSSIP_BELIEFS=0` (needs ORWELL_NPC_BELIEFS and full belief strength); OFF => byte-identical. */
+  private gossipBeliefsEnabled = flagDefaultOn("ORWELL_GOSSIP_BELIEFS");
+  setGossipBeliefsEnabled(on: boolean): void { this.gossipBeliefsEnabled = on; }
 
   /**
    * ORW-37 / B40 - lasting GAME PHILOSOPHIES: each NPC plays one philosophy for the whole game (shark / chaos agent / loyal soldier / protector / social climber), a seeded draw conditioned on their archetype

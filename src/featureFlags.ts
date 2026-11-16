@@ -168,6 +168,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_MORNING_APPROACH', key: 'morningApproach', parser: 'defaultOn' },
   // B10 / B11 / #2017: information spreads only by co-presence, by the holder's choice (share / slip / hold) instead of automatic graph diffusion. OFF unless exactly '1'; never-flipped.
   { envKey: 'ORWELL_GOSSIP_COPRESENCE', key: 'gossipCopresence', parser: 'defaultOn' },
+  // ORW-546 (0169): off-screen gossip feeds beliefs - a heard rumor carries its teller and a conviction, counts as a soft grievance in decisions, and moves feelings in proportion. ON by default (PO: "if it's built, turn it on"); `=0` restores the record-only rumor.
+  { envKey: 'ORWELL_GOSSIP_BELIEFS', key: 'gossipBeliefs', parser: 'defaultOn' },
   // Anti-sycophancy: the ENGINE decides whether an NPC agrees to a player's proposed deal (from the NPC's own read of the player); a refusal records nothing. Default-ON; `=0` restores today's record-every-deal behaviour.
   { envKey: 'ORWELL_NPC_DEAL_CONSENT', key: 'npcDealConsent', parser: 'defaultOn' },
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
