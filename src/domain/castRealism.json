@@ -1133,10 +1133,10 @@
    "field": "wardrobe",
    "multi": false,
    "cap": {
-    "share": 0.4,
+    "share": 0.2,
     "min": 3
    },
-   "note": "the first colour word of the main piece: no one colour family on more than 40 percent of the cast",
+   "note": "the first colour word of the main piece: no one colour family on more than 3 of 15 (a fifth of the cast)",
    "values": {
     "black-charcoal": {
      "words": [
@@ -1284,6 +1284,252 @@
      "cap": {
       "share": 0.0,
       "min": 1
+     }
+    }
+   }
+  },
+  "pattern": {
+   "field": "wardrobe",
+   "multi": false,
+   "cap": {
+    "share": 0.66,
+    "min": 3
+   },
+   "fallback": "plain",
+   "note": "at least a third of the cast (5 of 15) wears something with a pattern, a plain graphic, or visible wear; 'plain' is capped at two thirds. Team and place names are never a pattern (the no-visible-words rule stands).",
+   "values": {
+    "patterned": {
+     "words": [
+      "stripe*",
+      "plaid",
+      "check*",
+      "gingham",
+      "floral",
+      "flower*",
+      "polka",
+      "print*",
+      "graphic",
+      "tie-dye",
+      "paisley",
+      "camo*",
+      "herringbone",
+      "houndstooth",
+      "leopard",
+      "patterned",
+      "faded",
+      "worn-in",
+      "worn in",
+      "frayed",
+      "distressed",
+      "washed-out",
+      "speckled",
+      "marled",
+      "colour-block*",
+      "color-block*"
+     ]
+    }
+   }
+  },
+  "signature": {
+   "field": "lookSignature",
+   "multi": true,
+   "cap": {
+    "share": 0.0,
+    "min": 1
+   },
+   "fallback": "other",
+   "note": "the one memorable thing about how this person looks or dresses (authored, never dealt): no two cards share a category; a category matched by one signature is taken by that card alone",
+   "values": {
+    "hair": {
+     "words": [
+      "braid*",
+      "buzz*",
+      "bleached",
+      "dyed",
+      "curls",
+      "curly",
+      "afro",
+      "loc",
+      "locs",
+      "dreadlock*",
+      "bun",
+      "ponytail",
+      "mohawk",
+      "undercut",
+      "bangs",
+      "fringe",
+      "pixie",
+      "bob",
+      "crop",
+      "cropped",
+      "shaved",
+      "pompadour",
+      "mullet",
+      "topknot",
+      "waves",
+      "fade",
+      "twist*",
+      "cornrow*"
+     ]
+    },
+    "jewellery": {
+     "words": [
+      "earring*",
+      "hoop*",
+      "necklace*",
+      "chain",
+      "pendant",
+      "bracelet*",
+      "ring",
+      "rings",
+      "shell",
+      "bead*",
+      "cuff*",
+      "stud*",
+      "anklet*",
+      "watch",
+      "pearl*",
+      "choker",
+      "locket",
+      "charm*"
+     ]
+    },
+    "glasses": {
+     "words": [
+      "glasses",
+      "spectacles",
+      "frames",
+      "sunglasses",
+      "shades"
+     ]
+    },
+    "facial-hair": {
+     "words": [
+      "beard*",
+      "mustache*",
+      "moustache*",
+      "stubble",
+      "goatee",
+      "sideburns",
+      "soul patch"
+     ]
+    },
+    "headwear": {
+     "words": [
+      "hat",
+      "cap",
+      "beanie",
+      "bandana",
+      "headscarf",
+      "turban",
+      "visor",
+      "headband",
+      "hijab",
+      "durag",
+      "bonnet"
+     ]
+    },
+    "outerwear": {
+     "words": [
+      "jacket",
+      "coat",
+      "parka",
+      "windbreaker",
+      "vest",
+      "cardigan",
+      "hoodie",
+      "bomber",
+      "poncho",
+      "blazer",
+      "fleece"
+     ]
+    },
+    "footwear": {
+     "words": [
+      "boots",
+      "sneakers",
+      "clogs",
+      "sandals",
+      "heels",
+      "loafers",
+      "shoes",
+      "trainers",
+      "slippers"
+     ]
+    },
+    "top": {
+     "words": [
+      "shirt",
+      "tee",
+      "t-shirt",
+      "sweater",
+      "polo",
+      "blouse",
+      "flannel",
+      "sweatshirt",
+      "jersey",
+      "tank",
+      "henley",
+      "sweater vest"
+     ]
+    },
+    "bottom": {
+     "words": [
+      "jeans",
+      "overalls",
+      "skirt",
+      "shorts",
+      "trousers",
+      "pants",
+      "leggings",
+      "kilt",
+      "cargo",
+      "slacks",
+      "dress"
+     ]
+    },
+    "bag": {
+     "words": [
+      "bag",
+      "backpack",
+      "tote",
+      "satchel",
+      "messenger",
+      "lunchbox",
+      "fanny pack",
+      "purse"
+     ]
+    },
+    "nails-makeup": {
+     "words": [
+      "nails",
+      "lipstick",
+      "eyeliner",
+      "makeup",
+      "manicure",
+      "lip colour",
+      "lip color",
+      "eyeshadow"
+     ]
+    },
+    "scarf-tie": {
+     "words": [
+      "scarf",
+      "shawl",
+      "wrap",
+      "tie",
+      "bowtie",
+      "bow tie",
+      "suspenders",
+      "bolo",
+      "lanyard"
+     ]
+    },
+    "other": {
+     "words": [],
+     "cap": {
+      "share": 0.0,
+      "min": 15
      }
     }
    }

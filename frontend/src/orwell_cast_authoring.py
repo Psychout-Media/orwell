@@ -86,6 +86,13 @@ PHOTO_SHEET_RULES = (
     "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
     "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
     "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "
+    "(4) lookSignature: at most 90 characters: exactly ONE thing about how this person looks or dresses that someone would use to describe "
+    "them to a friend. It comes from their own life as the biography tells it (their job, hometown, family, hobby or a habit), is something "
+    "they could really buy or do where they live on their own money, and is something nobody else in the cast has: a different kind of thing "
+    "from every signature in taken.signatures. It is a real, ordinary choice (a hairstyle, jewellery, glasses, a garment worn a certain way, "
+    "facial hair, nails), never a costume, a uniform, a prop, a tattoo or anything with words on it, and the wardrobe carries it (the pieces and "
+    "this line agree). Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
+    "and about a third of the cast wears a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear (faded, worn-in). "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
 )
@@ -121,7 +128,7 @@ _SYSTEM = (
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
-    '"distinguishingMark", "ageLook", "style", "wardrobe", "photoHair", "onCamera" } — short phrases '
+    '"distinguishingMark", "ageLook", "style", "wardrobe", "lookSignature", "photoHair", "onCamera" } — short phrases '
     "(wardrobe is an array, photoHair and onCamera short lines, see PHOTO SHEET below); this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
@@ -1252,6 +1259,11 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             out.append("wardrobe-not-garment")
         elif any(_R.is_multi_garment(x) for x in items):
             out.append("wardrobe-multi")
+    if "lookSignature" in pc:
+        sg = pc.get("lookSignature")
+        if (not isinstance(sg, str) or not sg.strip() or len(sg) > 90 or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
+                or _INK_RE.search(sg)):
+            out.append("signature-shape")
     if "onCamera" in pc:
         oc = str(pc.get("onCamera") or "")
         if oncamera_is_scene(oc):
@@ -1302,6 +1314,8 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             # writer's pieces (real garments are checked on their own) instead of blanking the wardrobe
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
+        elif code == "signature-shape":
+            pc.pop("lookSignature", None)
         elif code == "wardrobe-multi":
             # ORW-480: split each two-things piece at its joiner ("a vest over a polo" -> "a vest", "a polo") rather than lose the clothes
             from src import orwell_cast_realism as _R
@@ -2011,7 +2025,9 @@ def compact_rewrite_messages(npc: dict, ask: str) -> list[dict]:
     regeneration, so it adds seconds, not tens of seconds."""
     pc = npc.get("physicalCharacteristics") if isinstance(npc.get("physicalCharacteristics"), dict) else {}
     facts = {k: npc.get(k) for k in ("genderPresentation", "age", "vocation", "hometown", "demeanor", "identityConcept", "presentation") if npc.get(k)}
-    facts["look"] = {k: pc.get(k) for k in ("hair", "heightBuild", "facialFeatures", "distinguishingMark", "style", "wardrobe", "onCamera") if pc.get(k)}
+    facts["look"] = {k: pc.get(k) for k in ("hair", "heightBuild", "facialFeatures", "distinguishingMark", "style", "wardrobe", "lookSignature", "onCamera") if pc.get(k)}
+    if npc.get("biography"):
+        facts["biography"] = " ".join(str(npc["biography"]).split())[:420]  # the signature is drawn from their life
     system = ("You fix one or two PUBLIC text fields of a reality-show houseguest card. Output STRICT JSON only. "
               + PHOTO_SHEET_RULES)
     user = f"The card (public facts): {json.dumps(facts, ensure_ascii=False)}\n{ask}"
@@ -2109,6 +2125,10 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             parts.append("onCamera lines already open: " + " | ".join(ph["oncamera_openings"]))
         if ph.get("marks"):
             parts.append("distinguishing marks already used (every mark is unique in the cast): " + " | ".join(ph["marks"]))
+        if ph.get("signatures"):
+            parts.append("lookSignature categories already taken (pick a different kind of thing): " + ", ".join(ph["signatures"]))
+        if ph.get("colours"):
+            parts.append("main-piece colour families already worn (spread the colours; no family on more than a fifth of the cast): " + ", ".join(ph["colours"]))
         op = taken.get("openings") if isinstance(taken.get("openings"), dict) else {}
         if op:
             # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
@@ -2263,6 +2283,9 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
             ph = phys.get("photoHair")
             if isinstance(ph, str) and ph.strip():
                 facet["photoHair"] = " ".join(ph.split())
+            ls = phys.get("lookSignature")
+            if isinstance(ls, str) and ls.strip():
+                facet["lookSignature"] = " ".join(ls.split())[:90]
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -2506,6 +2529,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     from src import orwell_cast_gate as _gate  # ORW-431: the one gate at the end
     _gate_on = _gate.gate_enabled()
     season_gate = _gate.SeasonGate(user)
+    season_gate.want_signature = True
     gate_lock = asyncio.Lock()  # the cross-cast registry is checked and filled one card at a time
 
     async def _call_with_retries(npc: dict, hid: str):

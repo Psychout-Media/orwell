@@ -1150,8 +1150,10 @@ export interface RecordLookExtrasReq {
   onCamera?: string;
   /** ORW-380: shoot-day hair, at most 90 chars. */
   photoHair?: string;
-  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
-  clear?: Array<"wardrobe" | "onCamera" | "photoHair">;
+  /** ORW-480: the one memorable thing about how this person looks or dresses (authored), at most 90 chars. */
+  lookSignature?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`, `lookSignature`) when the writer left them out. */
+  clear?: Array<"wardrobe" | "onCamera" | "photoHair" | "lookSignature">;
 }
 
 export interface RecordLookExtrasResult {

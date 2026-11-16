@@ -45,6 +45,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -52,7 +55,7 @@
 "card": {
 "vocation": "tree trimmer",
 "physicalCharacteristics": {
-"onCamera": "Gaze fixed straight into the lens from a lounge chair, one hand resting flat on a knee, mouth closed in a small, knowing smile — the one who misses nothing.",
+"onCamera": "Gaze fixed straight into the lens from a lounge chair, one hand resting flat on a knee, mouth closed in a small, knowing smile \u2014 the one who misses nothing.",
 "wardrobe": [
 "fitted charcoal blazer over a bare neckline",
 "slim high-waisted trousers with a clean crease",
@@ -92,6 +95,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -139,6 +145,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -188,6 +197,9 @@
 ],
 "colour": [
 "bright"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -230,6 +242,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -274,6 +289,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -281,7 +299,7 @@
 "card": {
 "vocation": "dental office manager",
 "physicalCharacteristics": {
-"onCamera": "Gaze fixed on the camera from the living room sofa, one elbow propped on the armrest and chin resting on her knuckles, a closed-lip smile that reads as a challenge — the one who runs the room.",
+"onCamera": "Gaze fixed on the camera from the living room sofa, one elbow propped on the armrest and chin resting on her knuckles, a closed-lip smile that reads as a challenge \u2014 the one who runs the room.",
 "wardrobe": [
 "navy blazer over a crisp white button-down",
 "slim gray slacks",
@@ -321,6 +339,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -328,7 +349,7 @@
 "card": {
 "vocation": "office manager at a rural school district",
 "physicalCharacteristics": {
-"onCamera": "Shoulders loose and forward on the living room couch, hands folded around a mug, eyes on the camera with a wide, warm grin — the one who remembers your birthday.",
+"onCamera": "Shoulders loose and forward on the living room couch, hands folded around a mug, eyes on the camera with a wide, warm grin \u2014 the one who remembers your birthday.",
 "wardrobe": [
 "faded gray zip-up hoodie",
 "baggy dark-wash jeans",
@@ -371,6 +392,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -417,6 +441,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -464,6 +491,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -514,6 +544,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -555,6 +588,9 @@
 "jacket",
 "button-down",
 "jeans"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -603,6 +639,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -610,7 +649,7 @@
 "card": {
 "vocation": "strength and conditioning coach",
 "physicalCharacteristics": {
-"onCamera": "Shoulders loose and settled back on the living room couch, one hand on a knee, dark eyes straight on the camera with a slow knowing smile — the one who believes in you early.",
+"onCamera": "Shoulders loose and settled back on the living room couch, one hand on a knee, dark eyes straight on the camera with a slow knowing smile \u2014 the one who believes in you early.",
 "wardrobe": [
 "waxed canvas chore jacket in dark olive",
 "cream waffle-knit henley",
@@ -650,6 +689,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -696,6 +738,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -744,6 +789,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -789,6 +837,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -796,7 +847,7 @@
 "card": {
 "vocation": "line cook",
 "physicalCharacteristics": {
-"onCamera": "He leans on the backyard fence rail, shell necklace swinging, eyes on the camera with a slow half-smile — the one who counts every card.",
+"onCamera": "He leans on the backyard fence rail, shell necklace swinging, eyes on the camera with a slow half-smile \u2014 the one who counts every card.",
 "wardrobe": [
 "faded coral cotton tee",
 "navy board shorts",
@@ -835,6 +886,9 @@
 ],
 "colour": [
 "red-pink"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -842,7 +896,7 @@
 "card": {
 "vocation": "barbecue pit manager",
 "physicalCharacteristics": {
-"onCamera": "He stands in the backyard with his arms loosely folded, eyes on the lens, half-smiling like he already knows the score — the one who keeps the tally.",
+"onCamera": "He stands in the backyard with his arms loosely folded, eyes on the lens, half-smiling like he already knows the score \u2014 the one who keeps the tally.",
 "wardrobe": [
 "a fitted navy quarter-zip pullover",
 "light gray flat-front trousers",
@@ -878,6 +932,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -926,6 +983,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -967,6 +1027,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -974,7 +1037,7 @@
 "card": {
 "vocation": "corporate mediator",
 "physicalCharacteristics": {
-"onCamera": "She stands in the lounge doorway, thumbs hooked in her pockets, weight on one hip, chin lifted, eyes straight into the lens, a closed confident smile — the one who studies the room before entering it.",
+"onCamera": "She stands in the lounge doorway, thumbs hooked in her pockets, weight on one hip, chin lifted, eyes straight into the lens, a closed confident smile \u2014 the one who studies the room before entering it.",
 "wardrobe": [
 "fitted olive camo-print button-up",
 "dark straight-leg jeans",
@@ -1011,6 +1074,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -1018,7 +1084,7 @@
 "card": {
 "vocation": "funeral director apprentice and embalmer",
 "physicalCharacteristics": {
-"onCamera": "He stands in the living room with arms folded, loafers planted, eyes on the camera and a warm crinkle-eyed smile — the one who makes grief honest.",
+"onCamera": "He stands in the living room with arms folded, loafers planted, eyes on the camera and a warm crinkle-eyed smile \u2014 the one who makes grief honest.",
 "wardrobe": [
 "crisp light-blue linen button-down",
 "pressed seersucker blazer",
@@ -1058,6 +1124,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1102,6 +1171,9 @@
 "button-down",
 "jeans",
 "boots"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1152,6 +1224,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1159,7 +1234,7 @@
 "card": {
 "vocation": "used-car salesperson",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room with her hands in her jacket pockets, weight on one boot, eyes straight to the lens and a wide closed-mouth grin — the one who has already read the room.",
+"onCamera": "She stands in the living room with her hands in her jacket pockets, weight on one boot, eyes straight to the lens and a wide closed-mouth grin \u2014 the one who has already read the room.",
 "wardrobe": [
 "fitted dark canvas chore jacket over a plain white tee",
 "worn-in carpenter pants with a clean press",
@@ -1200,6 +1275,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -1244,6 +1322,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1291,6 +1372,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1340,6 +1424,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1387,6 +1474,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1437,6 +1527,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1444,7 +1537,7 @@
 "card": {
 "vocation": "police dispatcher",
 "physicalCharacteristics": {
-"onCamera": "He stands in the living room with his arms folded cross his chest, visor pushed back, looking square into the lens, mouth set in a flat daring smile — the one who never backs down.",
+"onCamera": "He stands in the living room with his arms folded cross his chest, visor pushed back, looking square into the lens, mouth set in a flat daring smile \u2014 the one who never backs down.",
 "wardrobe": [
 "fitted teal performance polo",
 "light gray quarter-zip pullover",
@@ -1481,6 +1574,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1531,6 +1627,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1538,7 +1637,7 @@
 "card": {
 "vocation": "youth gymnastics coach",
 "physicalCharacteristics": {
-"onCamera": "They sit on the living room couch with a knee drawn up, chin on their fist and eyes on the lens, mouth closed and faintly amused — the one who is already keeping score.",
+"onCamera": "They sit on the living room couch with a knee drawn up, chin on their fist and eyes on the lens, mouth closed and faintly amused \u2014 the one who is already keeping score.",
 "wardrobe": [
 "fitted white crew-neck tee, crisply tucked",
 "olive fitted cargo pants with clean pressed seams",
@@ -1572,6 +1671,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1579,7 +1681,7 @@
 "card": {
 "vocation": "accounts-payable clerk",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room, weight on one hip, arms loosely folded, eyes on the camera with a lazy half-smile—the one who is already keeping score.",
+"onCamera": "She stands in the living room, weight on one hip, arms loosely folded, eyes on the camera with a lazy half-smile\u2014the one who is already keeping score.",
 "wardrobe": [
 "faded low-rise jeans with a slim belt",
 "cropped graphic tee with a retro sunburst print",
@@ -1615,6 +1717,9 @@
 "garment": [
 "tee",
 "jeans"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -1658,6 +1763,9 @@
 "garment": [
 "tee",
 "jeans"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1665,7 +1773,7 @@
 "card": {
 "vocation": "livestock auctioneer",
 "physicalCharacteristics": {
-"onCamera": "She leans against the kitchen counter, hands in her hoodie pocket, eyes on the camera with a small, knowing smile—the one who reads the room.",
+"onCamera": "She leans against the kitchen counter, hands in her hoodie pocket, eyes on the camera with a small, knowing smile\u2014the one who reads the room.",
 "wardrobe": [
 "oversized cream hoodie",
 "dark straight-leg jeans",
@@ -1705,6 +1813,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1712,7 +1823,7 @@
 "card": {
 "vocation": "demolition crew foreman",
 "physicalCharacteristics": {
-"onCamera": "He stands in the backyard with his arms folded on his chest, feet set wide, eyes straight down the lens and one corner of his grin just breaking loose—the one who already knows the score.",
+"onCamera": "He stands in the backyard with his arms folded on his chest, feet set wide, eyes straight down the lens and one corner of his grin just breaking loose\u2014the one who already knows the score.",
 "wardrobe": [
 "grey zip-front designer track jacket",
 "matching tapered track pants",
@@ -1752,6 +1863,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1800,6 +1914,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1807,7 +1924,7 @@
 "card": {
 "vocation": "dairy herd records coordinator",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room, hands clasped loosely in front of her, looking straight into the camera with a bright, knowing smile — the one who has already run the numbers.",
+"onCamera": "She stands in the living room, hands clasped loosely in front of her, looking straight into the camera with a bright, knowing smile \u2014 the one who has already run the numbers.",
 "wardrobe": [
 "charcoal fine-knit crewneck top",
 "straight-leg black trousers",
@@ -1847,6 +1964,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1894,6 +2014,9 @@
 ],
 "colour": [
 "red-pink"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -1938,6 +2061,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -1945,7 +2071,7 @@
 "card": {
 "vocation": "children's pageant coach and fair-circuit emcee",
 "physicalCharacteristics": {
-"onCamera": "Gaze straight into the lens from the living room sofa, elbow propped on the armrest, chin resting on two fingers, a small closed-lip smile — the one who is already keeping score.",
+"onCamera": "Gaze straight into the lens from the living room sofa, elbow propped on the armrest, chin resting on two fingers, a small closed-lip smile \u2014 the one who is already keeping score.",
 "wardrobe": [
 "fitted navy quarter-zip pullover over a white collared polo",
 "cream pleated athletic skirt",
@@ -1986,6 +2112,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2026,6 +2155,9 @@
 "garment": [
 "tee",
 "jeans"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -2033,7 +2165,7 @@
 "card": {
 "vocation": "medical device sales rep",
 "physicalCharacteristics": {
-"onCamera": "With a knowing half-smile, Namea stands in the backyard, hands in her vest pockets, looking straight into the lens — the one who is always three steps ahead.",
+"onCamera": "With a knowing half-smile, Namea stands in the backyard, hands in her vest pockets, looking straight into the lens \u2014 the one who is always three steps ahead.",
 "wardrobe": [
 "dark fleece pullover",
 "olive puffer vest",
@@ -2071,6 +2203,9 @@
 "vest",
 "hoodie",
 "boots"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2117,6 +2252,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2157,6 +2295,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2164,7 +2305,7 @@
 "card": {
 "vocation": "stunt coordinator",
 "physicalCharacteristics": {
-"onCamera": "Gaze direct over round glasses from the kitchen island, one hand flat on the countertop, grin spreading slow and broad — the one who already ran the numbers.",
+"onCamera": "Gaze direct over round glasses from the kitchen island, one hand flat on the countertop, grin spreading slow and broad \u2014 the one who already ran the numbers.",
 "wardrobe": [
 "loose-fit dark tweed blazer",
 "cream knit sweater vest over a plain collared shirt",
@@ -2199,6 +2340,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2248,6 +2392,9 @@
 ],
 "colour": [
 "bright"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -2293,6 +2440,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2341,6 +2491,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2348,7 +2501,7 @@
 "card": {
 "vocation": "drive-time radio host",
 "physicalCharacteristics": {
-"onCamera": "Hands loose at his sides in the backyard, one hip dropped easy, eyes straight to camera with a half-smile that's still deciding — the one who makes you feel already known.",
+"onCamera": "Hands loose at his sides in the backyard, one hip dropped easy, eyes straight to camera with a half-smile that's still deciding \u2014 the one who makes you feel already known.",
 "wardrobe": [
 "a fitted charcoal quarter-zip pullover",
 "navy joggers with a tapered leg",
@@ -2384,6 +2537,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2391,7 +2547,7 @@
 "card": {
 "vocation": "fire captain",
 "physicalCharacteristics": {
-"onCamera": "Gaze level and unblinking from the lounge doorway, one hand resting flat on the frame, mouth set in a flat half-smile — the one who already logged your odds.",
+"onCamera": "Gaze level and unblinking from the lounge doorway, one hand resting flat on the frame, mouth set in a flat half-smile \u2014 the one who already logged your odds.",
 "wardrobe": [
 "olive camo jacket with a structured collar",
 "grey flannel shirt, sleeves rolled once",
@@ -2429,6 +2585,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -2436,7 +2595,7 @@
 "card": {
 "vocation": "former college athlete",
 "physicalCharacteristics": {
-"onCamera": "Shoulders angled loose toward the backyard door, hands resting easy at his hips, eyes straight on the camera with a slow half-smile — the one who flirts with the whole room.",
+"onCamera": "Shoulders angled loose toward the backyard door, hands resting easy at his hips, eyes straight on the camera with a slow half-smile \u2014 the one who flirts with the whole room.",
 "wardrobe": [
 "a crisp white oxford buttoned to the collar",
 "slim olive chinos with a clean crease",
@@ -2472,6 +2631,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2479,7 +2641,7 @@
 "card": {
 "vocation": "union masonry foreman",
 "physicalCharacteristics": {
-"onCamera": "A broad grin breaks wide from the kitchen doorway, one shoulder braced on the frame and a coffee mug resting in both hands, eyes full on the lens — the one who feeds you first.",
+"onCamera": "A broad grin breaks wide from the kitchen doorway, one shoulder braced on the frame and a coffee mug resting in both hands, eyes full on the lens \u2014 the one who feeds you first.",
 "wardrobe": [
 "a pressed sage-green pearl-snap shirt with a rodeo collar",
 "dark indigo bootcut jeans worn clean",
@@ -2521,6 +2683,9 @@
 ],
 "colour": [
 "green"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2562,6 +2727,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2604,6 +2772,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2611,7 +2782,7 @@
 "card": {
 "vocation": "demolition foreman",
 "physicalCharacteristics": {
-"onCamera": "Grinning wide from the lounge doorway, one boot propped on the frame and hands loose at her sides, she looks straight into the lens, gap-toothed and bright — the one who is waiting for a good reason.",
+"onCamera": "Grinning wide from the lounge doorway, one boot propped on the frame and hands loose at her sides, she looks straight into the lens, gap-toothed and bright \u2014 the one who is waiting for a good reason.",
 "wardrobe": [
 "a fitted charcoal fleece pullover",
 "a quilted olive puffer vest",
@@ -2652,6 +2823,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2697,6 +2871,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2741,6 +2918,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2785,6 +2965,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2792,7 +2975,7 @@
 "card": {
 "vocation": "general contractor",
 "physicalCharacteristics": {
-"onCamera": "Gaze direct across the kitchen island, one hand wrapped around a chipped mug, mouth curled in a wry half-smile — the one who misses nothing.",
+"onCamera": "Gaze direct across the kitchen island, one hand wrapped around a chipped mug, mouth curled in a wry half-smile \u2014 the one who misses nothing.",
 "wardrobe": [
 "rust corduroy jacket over a cream knit top",
 "dark straight-leg trousers with a leather belt",
@@ -2830,6 +3013,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2837,7 +3023,7 @@
 "card": {
 "vocation": "country radio program director",
 "physicalCharacteristics": {
-"onCamera": "With shoulders squared and a warm, easy lean against the kitchen counter, Namea's gaze stays level on the camera, one hand resting on a coffee mug, her expression a closed, knowing smile — the one who reads the room first.",
+"onCamera": "With shoulders squared and a warm, easy lean against the kitchen counter, Namea's gaze stays level on the camera, one hand resting on a coffee mug, her expression a closed, knowing smile \u2014 the one who reads the room first.",
 "wardrobe": [
 "crisp white button-down shirt",
 "navy tailored chinos",
@@ -2880,6 +3066,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2923,6 +3112,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -2930,7 +3122,7 @@
 "card": {
 "vocation": "wedding and lounge singer",
 "physicalCharacteristics": {
-"onCamera": "A black tambourine resting on one knee in the lounge, one hand loose beside it, chin lifted with a slow closed-mouth smile aimed straight at the camera — the one who plays the long set.",
+"onCamera": "A black tambourine resting on one knee in the lounge, one hand loose beside it, chin lifted with a slow closed-mouth smile aimed straight at the camera \u2014 the one who plays the long set.",
 "wardrobe": [
 "black patched denim vest with plaid flannel lining",
 "sleeveless band-tee in plain charcoal",
@@ -2971,6 +3163,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -2978,7 +3173,7 @@
 "card": {
 "vocation": "strength and conditioning coach",
 "physicalCharacteristics": {
-"onCamera": "Backyard, perched on the arm of a patio chair, chin propped on one fist, eyes on the lens with a small knowing smile — the one who reads the room before the room reads itself.",
+"onCamera": "Backyard, perched on the arm of a patio chair, chin propped on one fist, eyes on the lens with a small knowing smile \u2014 the one who reads the room before the room reads itself.",
 "wardrobe": [
 "crisp ivory blazer with structured shoulders",
 "slim black trousers",
@@ -3018,6 +3213,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3025,7 +3223,7 @@
 "card": {
 "vocation": "school cafeteria manager",
 "physicalCharacteristics": {
-"onCamera": "Gaze steady across the dining room table, hands folded on the wood, mouth closed in a mild almost-smile — the one who has read the whole room.",
+"onCamera": "Gaze steady across the dining room table, hands folded on the wood, mouth closed in a mild almost-smile \u2014 the one who has read the whole room.",
 "wardrobe": [
 "oversized washed-black hoodie",
 "wide-leg light denim jeans",
@@ -3056,6 +3254,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3099,6 +3300,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3145,6 +3349,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -3152,7 +3359,7 @@
 "card": {
 "vocation": "line cook at a soul-food kitchen",
 "physicalCharacteristics": {
-"onCamera": "He leans against the backyard fence rail, cap tipped up, hands loose in his jacket pockets, looking straight into the lens with a slow gap-toothed grin — the one who never seems in a rush.",
+"onCamera": "He leans against the backyard fence rail, cap tipped up, hands loose in his jacket pockets, looking straight into the lens with a slow gap-toothed grin \u2014 the one who never seems in a rush.",
 "wardrobe": [
 "faded green camo jacket, broken-in",
 "plain heather-gray flannel shirt",
@@ -3189,6 +3396,9 @@
 ],
 "colour": [
 "green"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -3196,7 +3406,7 @@
 "card": {
 "vocation": "hospital case manager",
 "physicalCharacteristics": {
-"onCamera": "She stands at the kitchen island with a mug held in both hands, shoulders square, eyes on the camera, mouth in a small closed smile — the one who plans three moves ahead.",
+"onCamera": "She stands at the kitchen island with a mug held in both hands, shoulders square, eyes on the camera, mouth in a small closed smile \u2014 the one who plans three moves ahead.",
 "wardrobe": [
 "oatmeal cashmere crewneck",
 "cream tailored wide-leg trousers",
@@ -3239,6 +3449,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3279,6 +3492,9 @@
 "garment": [
 "tee",
 "jeans"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -3323,6 +3539,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3330,7 +3549,7 @@
 "card": {
 "vocation": "insurance claims adjuster",
 "physicalCharacteristics": {
-"onCamera": "He stands at the living room mantel with one hand in his trouser pocket, straw hat in the other, eyes on the camera, mouth closed in a faintly amused line — the one who is quietly taking notes.",
+"onCamera": "He stands at the living room mantel with one hand in his trouser pocket, straw hat in the other, eyes on the camera, mouth closed in a faintly amused line \u2014 the one who is quietly taking notes.",
 "wardrobe": [
 "cream smocked linen shirt",
 "oatmeal chunky knit sweater over his shoulders",
@@ -3362,6 +3581,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3369,7 +3591,7 @@
 "card": {
 "vocation": "hotel banquet captain",
 "physicalCharacteristics": {
-"onCamera": "She stands in the dining room with her arms folded loose, chin level, eyes on the camera, one corner of her mouth already halfway to a laugh — the one who runs the room.",
+"onCamera": "She stands in the dining room with her arms folded loose, chin level, eyes on the camera, one corner of her mouth already halfway to a laugh \u2014 the one who runs the room.",
 "wardrobe": [
 "crisp white tucked tee with a sharp shoulder seam",
 "fitted olive cargo pants with clean pressing",
@@ -3408,6 +3630,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3415,7 +3640,7 @@
 "card": {
 "vocation": "community outreach coordinator",
 "physicalCharacteristics": {
-"onCamera": "He leans against the kitchen counter with a mug, one sneaker crossed over the other, chin lifted and eyes on the lens, mouth closed in a slow crooked grin — the one who remembers your name.",
+"onCamera": "He leans against the kitchen counter with a mug, one sneaker crossed over the other, chin lifted and eyes on the lens, mouth closed in a slow crooked grin \u2014 the one who remembers your name.",
 "wardrobe": [
 "oversized cream cable-knit cardigan over a plain tee",
 "baggy dark-wash jeans cuffed at the ankle",
@@ -3455,6 +3680,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3499,6 +3727,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3506,7 +3737,7 @@
 "card": {
 "vocation": "medical-billing account manager",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room half-turned toward the hallway, weight on one long leg, one hand on her hip, chin lifted, eyes straight down the lens with a slow closed-mouth smirk — the one who flirts with the exit.",
+"onCamera": "She stands in the living room half-turned toward the hallway, weight on one long leg, one hand on her hip, chin lifted, eyes straight down the lens with a slow closed-mouth smirk \u2014 the one who flirts with the exit.",
 "wardrobe": [
 "fitted black blazer with a satin lapel",
 "slim cream trousers with a sharp crease",
@@ -3545,6 +3776,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3589,6 +3823,9 @@
 "jacket",
 "trousers",
 "boots"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -3636,6 +3873,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -3680,6 +3920,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3687,7 +3930,7 @@
 "card": {
 "vocation": "high school strength and conditioning coach",
 "physicalCharacteristics": {
-"onCamera": "She stands at the kitchen island, weight on one hip, one hand wrapped around a water bottle, eyes straight to the camera with a closed, easy grin — the one who is always keeping score.",
+"onCamera": "She stands at the kitchen island, weight on one hip, one hand wrapped around a water bottle, eyes straight to the camera with a closed, easy grin \u2014 the one who is always keeping score.",
 "wardrobe": [
 "navy short-sleeve golf polo",
 "white pleated tennis skirt",
@@ -3729,6 +3972,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3777,6 +4023,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3820,6 +4069,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3827,7 +4079,7 @@
 "card": {
 "vocation": "dental office manager",
 "physicalCharacteristics": {
-"onCamera": "She stands in the backyard with her boots planted, hands hooked in her pockets, chin lifted and eyes on the camera, a slow crooked grin breaking loose — the one who makes a room hers.",
+"onCamera": "She stands in the backyard with her boots planted, hands hooked in her pockets, chin lifted and eyes on the camera, a slow crooked grin breaking loose \u2014 the one who makes a room hers.",
 "wardrobe": [
 "faded canvas work jacket with rolled cuffs",
 "plain crew-neck tee in a deep green",
@@ -3861,6 +4113,9 @@
 "jacket",
 "tee",
 "trousers"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -3868,7 +4123,7 @@
 "card": {
 "vocation": "banquet captain at a boutique hotel",
 "physicalCharacteristics": {
-"onCamera": "Standing in the backyard with hands in pockets, chin lifted, eyes on the camera, one corner of the mouth pulling into a knowing half-smile — the one who has seen every seating chart.",
+"onCamera": "Standing in the backyard with hands in pockets, chin lifted, eyes on the camera, one corner of the mouth pulling into a knowing half-smile \u2014 the one who has seen every seating chart.",
 "wardrobe": [
 "olive technical fleece zip-up",
 "navy quilted puffer vest",
@@ -3909,6 +4164,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3956,6 +4214,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -3963,7 +4224,7 @@
 "card": {
 "vocation": "kettlebell and mobility coach",
 "physicalCharacteristics": {
-"onCamera": "He sits cross-legged on the lounge floor, hands resting loose on his knees, chin tipped up and eyes on the camera with a drowsy half-smile — the one who looks half asleep and hears everything.",
+"onCamera": "He sits cross-legged on the lounge floor, hands resting loose on his knees, chin tipped up and eyes on the camera with a drowsy half-smile \u2014 the one who looks half asleep and hears everything.",
 "wardrobe": [
 "black long-sleeve top with lace trim at the collar",
 "fitted black trousers",
@@ -4001,6 +4262,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4008,7 +4272,7 @@
 "card": {
 "vocation": "data analyst",
 "physicalCharacteristics": {
-"onCamera": "He leans against the backyard fence, hands loose in his pockets, eyes on the camera and a half-smile he won't finish — the one who keeps a tally.",
+"onCamera": "He leans against the backyard fence, hands loose in his pockets, eyes on the camera and a half-smile he won't finish \u2014 the one who keeps a tally.",
 "wardrobe": [
 "faded coral cotton tee",
 "sand-colored board shorts",
@@ -4047,6 +4311,9 @@
 ],
 "colour": [
 "red-pink"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -4091,6 +4358,9 @@
 ],
 "colour": [
 "bright"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4098,7 +4368,7 @@
 "card": {
 "vocation": "stunt performer",
 "physicalCharacteristics": {
-"onCamera": "She stands in the backyard with her weight on one hip, cord bracelet catching the light, hands loose at her sides, and looks straight into the camera with a calm half-smile — the one who has landed harder falls.",
+"onCamera": "She stands in the backyard with her weight on one hip, cord bracelet catching the light, hands loose at her sides, and looks straight into the camera with a calm half-smile \u2014 the one who has landed harder falls.",
 "wardrobe": [
 "a rust-colored corduroy jacket with wooden buttons",
 "a cream retro knit cardigan",
@@ -4138,6 +4408,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4185,6 +4458,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4232,6 +4508,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4239,7 +4518,7 @@
 "card": {
 "vocation": "youth soccer and fitness coach",
 "physicalCharacteristics": {
-"onCamera": "She stands in the backyard with arms folded, feet planted like she is waiting for a whistle, looking straight into the lens with a bright open smile — the one who keeps the whole team onside.",
+"onCamera": "She stands in the backyard with arms folded, feet planted like she is waiting for a whistle, looking straight into the lens with a bright open smile \u2014 the one who keeps the whole team onside.",
 "wardrobe": [
 "crisp navy cardigan buttoned over a white collared shirt",
 "slim tan chinos",
@@ -4279,6 +4558,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4326,6 +4608,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4333,7 +4618,7 @@
 "card": {
 "vocation": "actuarial analyst",
 "physicalCharacteristics": {
-"onCamera": "He stands in the kitchen with his back to the counter, hands loose in his pockets, chin lifted and eyes straight into the lens, mouth open in a broad laugh at his own expense — the one who prices the worst case.",
+"onCamera": "He stands in the kitchen with his back to the counter, hands loose in his pockets, chin lifted and eyes straight into the lens, mouth open in a broad laugh at his own expense \u2014 the one who prices the worst case.",
 "wardrobe": [
 "navy soft-shoulder blazer",
 "light blue button-down shirt",
@@ -4373,6 +4658,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4420,6 +4708,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4427,7 +4718,7 @@
 "card": {
 "vocation": "tree service climber",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room with her hands laced behind her back, chin lifted, eyes straight to the camera and a small sharp smile — the one who dares you to finish the thought.",
+"onCamera": "She stands in the living room with her hands laced behind her back, chin lifted, eyes straight to the camera and a small sharp smile \u2014 the one who dares you to finish the thought.",
 "wardrobe": [
 "charcoal tweed blazer with elbow patches",
 "cream cable-knit sweater vest over a collared shirt",
@@ -4466,6 +4757,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4473,7 +4767,7 @@
 "card": {
 "vocation": "strength and conditioning coach",
 "physicalCharacteristics": {
-"onCamera": "He leans against the lounge doorway with his hands in his hoodie pockets, chin tipped down and eyes up at the camera, wearing a wide, easy grin — the one who can go from calm to chaos.",
+"onCamera": "He leans against the lounge doorway with his hands in his hoodie pockets, chin tipped down and eyes up at the camera, wearing a wide, easy grin \u2014 the one who can go from calm to chaos.",
 "wardrobe": [
 "an oversized cobalt hoodie over a white tee",
 "slim charcoal joggers",
@@ -4513,6 +4807,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4520,7 +4817,7 @@
 "card": {
 "vocation": "farm equipment parts manager",
 "physicalCharacteristics": {
-"onCamera": "He leans against the kitchen counter, hands in his pockets, looking straight at the camera with a wry half-smile—the one who calculates every move.",
+"onCamera": "He leans against the kitchen counter, hands in his pockets, looking straight at the camera with a wry half-smile\u2014the one who calculates every move.",
 "wardrobe": [
 "fitted black henley shirt",
 "dark gray slim-fit jeans",
@@ -4559,6 +4856,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4606,6 +4906,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4654,12 +4957,15 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
 {
 "card": {
-"vocation": "乡村急救医疗技术员",
+"vocation": "\u4e61\u6751\u6025\u6551\u533b\u7597\u6280\u672f\u5458",
 "physicalCharacteristics": {
 "onCamera": "She stands in the dining room with one hand planted on the table edge, rings catching light, chin level and eyes straight into the lens, mouth flat but not cold. The one who stays calm when it matters.",
 "wardrobe": [
@@ -4687,6 +4993,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4694,7 +5003,7 @@
 "card": {
 "vocation": "car dealership sales manager",
 "physicalCharacteristics": {
-"onCamera": "She stands in the backyard with her arms folded, weight on one hip, eyes straight into the lens and a wide gap-toothed grin — the one who sells you before you notice.",
+"onCamera": "She stands in the backyard with her arms folded, weight on one hip, eyes straight into the lens and a wide gap-toothed grin \u2014 the one who sells you before you notice.",
 "wardrobe": [
 "fitted black quarter-zip pullover",
 "charcoal tapered joggers",
@@ -4733,6 +5042,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4780,6 +5092,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4827,6 +5142,9 @@
 ],
 "colour": [
 "green"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4873,6 +5191,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -4880,7 +5201,7 @@
 "card": {
 "vocation": "spin class instructor",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room with one hand on her hip and the other holding a folded resistance band, chin lifted, eyes on the camera, mouth closed in a knowing half-smile — the one who never stops moving.",
+"onCamera": "She stands in the living room with one hand on her hip and the other holding a folded resistance band, chin lifted, eyes on the camera, mouth closed in a knowing half-smile \u2014 the one who never stops moving.",
 "wardrobe": [
 "a fitted navy cardigan buttoned to the top",
 "crisp white oxford shirt with sleeves rolled once",
@@ -4920,6 +5241,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -4927,7 +5251,7 @@
 "card": {
 "vocation": "fence installer",
 "physicalCharacteristics": {
-"onCamera": "He stands easy in the backyard with his hands in his pockets, chin lifted, eyes on the camera and a slow closed-lip smile — the one who works a room without trying.",
+"onCamera": "He stands easy in the backyard with his hands in his pockets, chin lifted, eyes on the camera and a slow closed-lip smile \u2014 the one who works a room without trying.",
 "wardrobe": [
 "slim navy tailored blazer",
 "crisp white crew-neck tee",
@@ -4967,6 +5291,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5010,6 +5337,9 @@
 "garment": [
 "tee",
 "shorts"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5017,7 +5347,7 @@
 "card": {
 "vocation": "craft cocktail bartender",
 "physicalCharacteristics": {
-"onCamera": "They stand behind the kitchen island with a rocks glass in one hand, shoulders squared and chin lifted, looking straight into the camera with a knowing half-smile — the one who has heard every secret already.",
+"onCamera": "They stand behind the kitchen island with a rocks glass in one hand, shoulders squared and chin lifted, looking straight into the camera with a knowing half-smile \u2014 the one who has heard every secret already.",
 "wardrobe": [
 "olive-and-brown camo zip-up jacket over a plain tee",
 "dark indigo jeans with a leather belt",
@@ -5056,6 +5386,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5103,6 +5436,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5110,7 +5446,7 @@
 "card": {
 "vocation": "community center director",
 "physicalCharacteristics": {
-"onCamera": "Standing at the kitchen counter with a chipped enamel mug, shoulders square, eyes on the camera and a small knowing grin — the one who mothers the whole room.",
+"onCamera": "Standing at the kitchen counter with a chipped enamel mug, shoulders square, eyes on the camera and a small knowing grin \u2014 the one who mothers the whole room.",
 "wardrobe": [
 "retro cream knit cardigan with wooden buttons",
 "high-waisted corduroy trousers",
@@ -5153,6 +5489,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5160,7 +5499,7 @@
 "card": {
 "vocation": "firefighter-paramedic",
 "physicalCharacteristics": {
-"onCamera": "He stands at the backyard fence line, shoulders square and hands loose at his sides, eyes straight down the lens with one brow lifted in a half-smile — the one who already knows the score.",
+"onCamera": "He stands at the backyard fence line, shoulders square and hands loose at his sides, eyes straight down the lens with one brow lifted in a half-smile \u2014 the one who already knows the score.",
 "wardrobe": [
 "teal-and-black printed silk button-up, sleeves rolled",
 "slim black trousers with a clean hem",
@@ -5200,6 +5539,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5243,6 +5585,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5290,6 +5635,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5297,7 +5645,7 @@
 "card": {
 "vocation": "RV and boat dealership sales manager",
 "physicalCharacteristics": {
-"onCamera": "He stands in the lounge, hands in his hoodie pocket, eyes on the camera, with a gentle crinkle-eyed smile — the one who never rushes a deal.",
+"onCamera": "He stands in the lounge, hands in his hoodie pocket, eyes on the camera, with a gentle crinkle-eyed smile \u2014 the one who never rushes a deal.",
 "wardrobe": [
 "oversized pastel hoodie with a small enamel pin",
 "dark straight-leg jeans",
@@ -5334,6 +5682,9 @@
 "hoodie",
 "jeans",
 "sneakers"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5341,7 +5692,7 @@
 "card": {
 "vocation": "emergency room nurse",
 "physicalCharacteristics": {
-"onCamera": "She leans a hip against the kitchen counter, arms loosely folded, mug at one elbow and eyes straight at the camera, mouth closed in a slow knowing smile — the one who reads the room first.",
+"onCamera": "She leans a hip against the kitchen counter, arms loosely folded, mug at one elbow and eyes straight at the camera, mouth closed in a slow knowing smile \u2014 the one who reads the room first.",
 "wardrobe": [
 "fitted black ringer tee",
 "team-color athletic shorts",
@@ -5384,6 +5735,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5431,6 +5785,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5477,6 +5834,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5484,7 +5844,7 @@
 "card": {
 "vocation": "line cook",
 "physicalCharacteristics": {
-"onCamera": "She leans against the lounge doorway, arms folded, chin tipped down but eyes up on the lens, one eyebrow arched in a small closed-mouth smile — the one who plans three moves ahead.",
+"onCamera": "She leans against the lounge doorway, arms folded, chin tipped down but eyes up on the lens, one eyebrow arched in a small closed-mouth smile \u2014 the one who plans three moves ahead.",
 "wardrobe": [
 "a dark plaid flannel buttoned over a plain black tee",
 "fitted black straight-leg jeans",
@@ -5524,6 +5884,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5531,7 +5894,7 @@
 "card": {
 "vocation": "community college grants director",
 "physicalCharacteristics": {
-"onCamera": "She leans against the lounge doorway with her hands in her pockets, eyes straight into the lens, one easy smile — the one who has already filed it away.",
+"onCamera": "She leans against the lounge doorway with her hands in her pockets, eyes straight into the lens, one easy smile \u2014 the one who has already filed it away.",
 "wardrobe": [
 "a cream tailored track jacket with zip pockets",
 "high-waisted navy track trousers",
@@ -5571,6 +5934,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5616,6 +5982,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5623,7 +5992,7 @@
 "card": {
 "vocation": "youth track and field coach",
 "physicalCharacteristics": {
-"onCamera": "She stands in the backyard in her smocked linen blouse, one hand loose at her side, chin lifted toward the lens with a closed, steady smile — the one who has already decided.",
+"onCamera": "She stands in the backyard in her smocked linen blouse, one hand loose at her side, chin lifted toward the lens with a closed, steady smile \u2014 the one who has already decided.",
 "wardrobe": [
 "cream smocked linen blouse",
 "chunky oatmeal knit cardigan",
@@ -5660,6 +6029,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5707,6 +6079,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5714,7 +6089,7 @@
 "card": {
 "vocation": "local cable-access talk show host",
 "physicalCharacteristics": {
-"onCamera": "He stands in the living room with hands in his jogger pockets, shoulders loose, eyes straight down the lens and one open laugh breaking through — the one who treats every room like a broadcast.",
+"onCamera": "He stands in the living room with hands in his jogger pockets, shoulders loose, eyes straight down the lens and one open laugh breaking through \u2014 the one who treats every room like a broadcast.",
 "wardrobe": [
 "fitted charcoal quarter-zip pullover",
 "slim black joggers with tapered cuffs",
@@ -5750,6 +6125,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5757,7 +6135,7 @@
 "card": {
 "vocation": "corporate recruiter",
 "physicalCharacteristics": {
-"onCamera": "He stands in the living room with one hand in his blazer pocket, chin slightly lifted, eyes on the camera, mouth in a small closed smile — the one who has already read the room.",
+"onCamera": "He stands in the living room with one hand in his blazer pocket, chin slightly lifted, eyes on the camera, mouth in a small closed smile \u2014 the one who has already read the room.",
 "wardrobe": [
 "crisp light-blue button-down shirt",
 "cream seersucker blazer",
@@ -5797,6 +6175,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5804,7 +6185,7 @@
 "card": {
 "vocation": "commercial crab fisherman",
 "physicalCharacteristics": {
-"onCamera": "He stands in the backyard with his hands in his pockets, chin lifted, eyes on the camera and a wide easy smile — the one who's already read the room.",
+"onCamera": "He stands in the backyard with his hands in his pockets, chin lifted, eyes on the camera and a wide easy smile \u2014 the one who's already read the room.",
 "wardrobe": [
 "cream smocked linen shirt",
 "chunky oatmeal knit sweater",
@@ -5843,6 +6224,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5850,7 +6234,7 @@
 "card": {
 "vocation": "food-safety data analyst",
 "physicalCharacteristics": {
-"onCamera": "He stands in the dining room with one hand resting on a chair back, pocket square tucked, eyes level on the camera and his mouth in a slow, knowing half-smile — the one who measures you before the greeting.",
+"onCamera": "He stands in the dining room with one hand resting on a chair back, pocket square tucked, eyes level on the camera and his mouth in a slow, knowing half-smile \u2014 the one who measures you before the greeting.",
 "wardrobe": [
 "pressured seersucker blazer in pale blue",
 "crisp white spread-collar shirt",
@@ -5889,6 +6273,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5896,7 +6283,7 @@
 "card": {
 "vocation": "catering company owner and lead line cook",
 "physicalCharacteristics": {
-"onCamera": "She leans against the kitchen counter with a mug in one hand, glasses catching the light, chin lifted and eyes straight on the camera with a small knowing grin — the one who tastes everything first.",
+"onCamera": "She leans against the kitchen counter with a mug in one hand, glasses catching the light, chin lifted and eyes straight on the camera with a small knowing grin \u2014 the one who tastes everything first.",
 "wardrobe": [
 "faded graphic cropped tee under an unbuttoned denim jacket",
 "low-rise dark bootcut jeans with a studded belt",
@@ -5936,6 +6323,9 @@
 "jacket",
 "tee",
 "jeans"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -5943,7 +6333,7 @@
 "card": {
 "vocation": "touring production stage manager",
 "physicalCharacteristics": {
-"onCamera": "She stands easy in the backyard against the fence line, hands in her cardigan pockets, chin lifted and eyes straight to the camera with a slow, knowing half-smile — the one who counts everything.",
+"onCamera": "She stands easy in the backyard against the fence line, hands in her cardigan pockets, chin lifted and eyes straight to the camera with a slow, knowing half-smile \u2014 the one who counts everything.",
 "wardrobe": [
 "long fringe-trimmed cardigan over a plain cotton top",
 "stacked silver rings and a beaded pendant",
@@ -5980,6 +6370,9 @@
 "sweater",
 "trousers",
 "boots"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -5987,7 +6380,7 @@
 "card": {
 "vocation": "home-health aide",
 "physicalCharacteristics": {
-"onCamera": "He leans against the kitchen counter, hands in his hoodie pocket, eyes on the camera with a lopsided grin — the one who remembers everything.",
+"onCamera": "He leans against the kitchen counter, hands in his hoodie pocket, eyes on the camera with a lopsided grin \u2014 the one who remembers everything.",
 "wardrobe": [
 "oversized grey hoodie",
 "straight-leg dark denim jeans",
@@ -6024,6 +6417,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6071,6 +6467,9 @@
 "sweater",
 "button-down",
 "trousers"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -6078,7 +6477,7 @@
 "card": {
 "vocation": "soul-food line cook",
 "physicalCharacteristics": {
-"onCamera": "He stands in the kitchen, one hand resting on the counter, eyes on the camera with a sly half-smile—the one who stirs the pot.",
+"onCamera": "He stands in the kitchen, one hand resting on the counter, eyes on the camera with a sly half-smile\u2014the one who stirs the pot.",
 "wardrobe": [
 "loose linen shirt in oatmeal",
 "wide-leg cotton trousers",
@@ -6117,6 +6516,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6164,6 +6566,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6171,7 +6576,7 @@
 "card": {
 "vocation": "car dealership finance manager",
 "physicalCharacteristics": {
-"onCamera": "She stands in the dining room doorway, weight on one hip, dark nails resting on a black mug, chin lifted and eyes straight to the camera with a sharp half-smile — the one who clocks you first.",
+"onCamera": "She stands in the dining room doorway, weight on one hip, dark nails resting on a black mug, chin lifted and eyes straight to the camera with a sharp half-smile \u2014 the one who clocks you first.",
 "wardrobe": [
 "black lace-trimmed blouse",
 "slim black trousers",
@@ -6214,6 +6619,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6260,6 +6668,9 @@
 ],
 "colour": [
 "grey"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -6267,7 +6678,7 @@
 "card": {
 "vocation": "corporate events coordinator",
 "physicalCharacteristics": {
-"onCamera": "They stand in the living room near the window, hands in their pockets, shoulders square to the lens, a small closed-mouth smile and bright eyes on the camera — the one who is always selling something.",
+"onCamera": "They stand in the living room near the window, hands in their pockets, shoulders square to the lens, a small closed-mouth smile and bright eyes on the camera \u2014 the one who is always selling something.",
 "wardrobe": [
 "a crisp white crew-neck tee under an unbuttoned oxford",
 "baggy dark-wash jeans with a clean break",
@@ -6305,6 +6716,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6312,7 +6726,7 @@
 "card": {
 "vocation": "paramedic",
 "physicalCharacteristics": {
-"onCamera": "He leans back against the dining room wall, gold chain catching light, one hand tucked in a pocket, chin lifted with a closed-mouth smirk for the lens — the one who performs calm.",
+"onCamera": "He leans back against the dining room wall, gold chain catching light, one hand tucked in a pocket, chin lifted with a closed-mouth smirk for the lens \u2014 the one who performs calm.",
 "wardrobe": [
 "black silk shirt with a bold palm-leaf print",
 "slim black trousers",
@@ -6351,6 +6765,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -6392,6 +6809,9 @@
 "button-down",
 "jeans",
 "boots"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6399,7 +6819,7 @@
 "card": {
 "vocation": "insurance claims adjuster",
 "physicalCharacteristics": {
-"onCamera": "She stands in the dining room with her hands folded loose at her waist, chin level, eyes on the camera and one eyebrow a half-beat raised — the one who lets the silence do the talking.",
+"onCamera": "She stands in the dining room with her hands folded loose at her waist, chin level, eyes on the camera and one eyebrow a half-beat raised \u2014 the one who lets the silence do the talking.",
 "wardrobe": [
 "crisp ivory tailored blazer over a fitted black top",
 "slim black trousers with a clean straight crease",
@@ -6432,6 +6852,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6481,6 +6904,9 @@
 ],
 "colour": [
 "bright"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6526,6 +6952,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6574,6 +7003,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6581,7 +7013,7 @@
 "card": {
 "vocation": "wildland firefighter sawyer",
 "physicalCharacteristics": {
-"onCamera": "She stands in the kitchen doorway, lanyard flat against her blazer, one hand resting on the counter edge, eyes straight into the lens with a wide open smile — the one who reads the room first.",
+"onCamera": "She stands in the kitchen doorway, lanyard flat against her blazer, one hand resting on the counter edge, eyes straight into the lens with a wide open smile \u2014 the one who reads the room first.",
 "wardrobe": [
 "charcoal knit blazer over a white button-down",
 "straight navy slacks with a plain belt",
@@ -6626,6 +7058,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6673,6 +7108,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6716,6 +7154,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6723,7 +7164,7 @@
 "card": {
 "vocation": "hotel front-desk supervisor",
 "physicalCharacteristics": {
-"onCamera": "She stands in the living room with one hand on the back of a chair, glasses catching the light, chin lifted toward the camera with a broad closed-mouth grin — the one who keeps the score.",
+"onCamera": "She stands in the living room with one hand on the back of a chair, glasses catching the light, chin lifted toward the camera with a broad closed-mouth grin \u2014 the one who keeps the score.",
 "wardrobe": [
 "faded navy crew-neck tee",
 "sand-colored board shorts",
@@ -6762,6 +7203,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -6769,7 +7213,7 @@
 "card": {
 "vocation": "licensed master electrician",
 "physicalCharacteristics": {
-"onCamera": "He stands in the backyard with his arms folded and his chin tipped down, eyes straight into the camera, a slow closed-mouth grin spreading — the one who already knows the ending.",
+"onCamera": "He stands in the backyard with his arms folded and his chin tipped down, eyes straight into the camera, a slow closed-mouth grin spreading \u2014 the one who already knows the ending.",
 "wardrobe": [
 "fitted black leather jacket",
 "plain black crew-neck tee",
@@ -6810,6 +7254,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6817,7 +7264,7 @@
 "card": {
 "vocation": "group fitness instructor",
 "physicalCharacteristics": {
-"onCamera": "She stands at the edge of a bedroom, weight on one hip, hands folded at rest, eyes on the camera with a small closed-mouth smile — the one who reads the whole room.",
+"onCamera": "She stands at the edge of a bedroom, weight on one hip, hands folded at rest, eyes on the camera with a small closed-mouth smile \u2014 the one who reads the whole room.",
 "wardrobe": [
 "sage linen button-up shirt, sleeves rolled",
 "wide-leg natural cotton trousers",
@@ -6857,6 +7304,9 @@
 ],
 "colour": [
 "green"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6864,7 +7314,7 @@
 "card": {
 "vocation": "marina boat-rental and jet-ski concession owner",
 "physicalCharacteristics": {
-"onCamera": "He leans against the kitchen island with his visor tipped up and his arms folded, eyes straight on the camera, mouth in an easy half-smile — the one who works the room before it knows it.",
+"onCamera": "He leans against the kitchen island with his visor tipped up and his arms folded, eyes straight on the camera, mouth in an easy half-smile \u2014 the one who works the room before it knows it.",
 "wardrobe": [
 "faded navy short-sleeve polo",
 "light gray quarter-zip pullover draped over the shoulders",
@@ -6903,6 +7353,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"patterned"
 ]
 }
 },
@@ -6951,6 +7404,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -6958,7 +7414,7 @@
 "card": {
 "vocation": "swim coach",
 "physicalCharacteristics": {
-"onCamera": "She stands at the kitchen island with a mug in one hand, weight on one hip, chin lifted, eyes straight to the camera with a closed, knowing smile — the one who has already named you.",
+"onCamera": "She stands at the kitchen island with a mug in one hand, weight on one hip, chin lifted, eyes straight to the camera with a closed, knowing smile \u2014 the one who has already named you.",
 "wardrobe": [
 "fitted designer track jacket zipped to the chest",
 "cropped track trousers with a clean taper",
@@ -6998,6 +7454,9 @@
 "jacket",
 "trousers",
 "sneakers"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7005,7 +7464,7 @@
 "card": {
 "vocation": "youth center program coordinator",
 "physicalCharacteristics": {
-"onCamera": "She leans against the lounge doorway with her arms folded, chin tilted down, dark eyes straight into the lens, mouth caught in one wide closed grin — the one who dares the camera to blink.",
+"onCamera": "She leans against the lounge doorway with her arms folded, chin tilted down, dark eyes straight into the lens, mouth caught in one wide closed grin \u2014 the one who dares the camera to blink.",
 "wardrobe": [
 "black lace-trimmed button-up blouse",
 "black high-waisted trousers",
@@ -7044,6 +7503,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7092,6 +7554,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7138,6 +7603,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7145,7 +7613,7 @@
 "card": {
 "vocation": "aerospace systems analyst",
 "physicalCharacteristics": {
-"onCamera": "He stands at the kitchen island with his hands in his hoodie pockets, shoulders loose, eyes on the camera and a lopsided grin just forming — the one who is already running the numbers.",
+"onCamera": "He stands at the kitchen island with his hands in his hoodie pockets, shoulders loose, eyes on the camera and a lopsided grin just forming \u2014 the one who is already running the numbers.",
 "wardrobe": [
 "navy compression tee under an unzipped gray hoodie",
 "khaki shorts with a relaxed fit",
@@ -7183,6 +7651,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7230,6 +7701,9 @@
 ],
 "colour": [
 "black-charcoal"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7237,7 +7711,7 @@
 "card": {
 "vocation": "ICU nurse",
 "physicalCharacteristics": {
-"onCamera": "She stands in the kitchen with one hand wrapped around a chipped mug, chin level, eyes straight to camera and mouth in a flat half-smile — the one who never flinches.",
+"onCamera": "She stands in the kitchen with one hand wrapped around a chipped mug, chin level, eyes straight to camera and mouth in a flat half-smile \u2014 the one who never flinches.",
 "wardrobe": [
 "cream ribbed-knit zip-front jacket",
 "charcoal straight-leg joggers",
@@ -7281,6 +7755,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7288,7 +7765,7 @@
 "card": {
 "vocation": "touring spoken-word artist and stagehand",
 "physicalCharacteristics": {
-"onCamera": "He stands in the kitchen doorway, hands in his pockets, hat tipped back, eyes on the lens, mouth closed in a slow knowing half-smile — the one who feels a room before it speaks.",
+"onCamera": "He stands in the kitchen doorway, hands in his pockets, hat tipped back, eyes on the lens, mouth closed in a slow knowing half-smile \u2014 the one who feels a room before it speaks.",
 "wardrobe": [
 "cream smocked linen shirt",
 "moss-green chunky knit sweater",
@@ -7326,6 +7803,9 @@
 ],
 "colour": [
 "white-cream"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7359,6 +7839,9 @@
 "garment": [
 "button-down",
 "boots"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7384,6 +7867,9 @@
 ],
 "colour": [
 "brown-tan"
+],
+"pattern": [
+"plain"
 ]
 }
 },
@@ -7650,6 +8136,9 @@
 ],
 "colour": [
 "navy-blue"
+],
+"pattern": [
+"plain"
 ]
 }
 }

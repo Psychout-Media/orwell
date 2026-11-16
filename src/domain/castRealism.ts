@@ -49,6 +49,7 @@ function fieldText(card: RealismCard, field: string, firstItem: boolean): string
   if (field === "vocation") return String(card.vocation ?? "");
   if (field === "distinguishingMark") return String(card.distinguishingMark ?? phys.distinguishingMark ?? "");
   if (field === "onCamera") return String(phys.onCamera ?? "");
+  if (field === "lookSignature") return String((phys as { lookSignature?: unknown }).lookSignature ?? "");
   if (field === "wardrobe") {
     const items = Array.isArray(phys.wardrobe) ? phys.wardrobe.map(String) : [];
     return firstItem ? (items[0] ?? "") : items.join(" | ");

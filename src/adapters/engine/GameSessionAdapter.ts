@@ -220,7 +220,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, clipCodePoints } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -3399,22 +3399,25 @@ export class GameSessionAdapter implements GameSession {
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
     if (req.physicalCharacteristics !== undefined) {
-      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, ...rest } = req.physicalCharacteristics as
-        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown };
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, lookSignature: rawLookSignature, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown; lookSignature?: unknown };
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
       const photoHair = cleanPhotoHair(rawPhotoHair);
+      const lookSignature = cleanLookSignature(rawLookSignature);
       // ORW-437: a write-back that omits an optional look field keeps the one already stored (the whole facet is replaced
       // below, so without this a later profile would silently erase it); removal goes through recordLookExtras `clear`.
-      const prior = target.character.physicalCharacteristics as (PhysicalCharacteristics & { wardrobe?: string[]; onCamera?: string; photoHair?: string }) | undefined;
+      const prior = target.character.physicalCharacteristics as (PhysicalCharacteristics & { wardrobe?: string[]; onCamera?: string; photoHair?: string; lookSignature?: string }) | undefined;
       const keepWardrobe = wardrobe === undefined && prior?.wardrobe !== undefined ? prior.wardrobe : wardrobe;
       const keepOnCamera = onCamera === undefined && prior?.onCamera !== undefined ? prior.onCamera : onCamera;
       const keepPhotoHair = photoHair === undefined && prior?.photoHair !== undefined ? prior.photoHair : photoHair;
+      const keepLookSignature = lookSignature === undefined && prior?.lookSignature !== undefined ? prior.lookSignature : lookSignature;
       req = {
         ...req,
         physicalCharacteristics: {
           ...rest, ...(keepWardrobe !== undefined ? { wardrobe: keepWardrobe } : {}), ...(keepOnCamera !== undefined ? { onCamera: keepOnCamera } : {}),
           ...(keepPhotoHair !== undefined ? { photoHair: keepPhotoHair } : {}),
+          ...(keepLookSignature !== undefined ? { lookSignature: keepLookSignature } : {}),
         },
       };
     }
@@ -15328,20 +15331,22 @@ export class GameSessionAdapter implements GameSession {
     const wardrobe = cleanWardrobe(req.wardrobe);
     const onCamera = cleanOnCamera(req.onCamera);
     const photoHair = cleanPhotoHair(req.photoHair);
-    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair"] as const;
+    const lookSignature = cleanLookSignature(req.lookSignature);
+    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair", "lookSignature"] as const;
     const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
-    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
+    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && lookSignature === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
     const playerName = (this.house.player.name ?? "").trim();
-    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""}`.toLowerCase();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""} ${lookSignature ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
-    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}) };
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}), ...(lookSignature !== undefined ? { lookSignature } : {}) };
     const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
     const fields: string[] = [];
     const next = { ...prior };
     if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
     if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
     if (photoHair !== undefined && guarded.photoHair === photoHair) { next.photoHair = photoHair; fields.push("photoHair"); }
+    if (lookSignature !== undefined && guarded.lookSignature === lookSignature) { next.lookSignature = lookSignature; fields.push("lookSignature"); }
     // ORW-380: `clear` removes an old field the new writer left out (a stale scene-like line must not ship in the v3 prompt).
     const cleared: string[] = [];
     for (const c of clear) {

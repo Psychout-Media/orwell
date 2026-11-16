@@ -168,4 +168,15 @@ describe("ORW-437 recordCastProfile keeps what it omits, and renames the prose w
     expect(n.character.biography).toBe("Zephyra grew up near the water. Zephyra fixes boats.");
     expect(n.character.demeanor).toBe("Zephyra stays calm");
   });
+
+  it("ORW-480: lookSignature is stored with the other look fields, kept by a later profile write, and cleared on request", () => {
+    const { sb, id, npc } = setup();
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], lookSignature: "  a long single braid  " }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "lookSignature"] });
+    expect((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature).toBe("a long single braid");
+    expect(sb.session.recordLookExtras({ houseguestId: id, lookSignature: "x".repeat(300) }).accepted).toBe(true);
+    expect(((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature ?? "").length).toBeLessThanOrEqual(90);
+    expect(sb.session.recordLookExtras({ houseguestId: id, clear: ["lookSignature"] })).toEqual({ accepted: true, fields: [], cleared: ["lookSignature"] });
+    expect((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature).toBeUndefined();
+  });
 });

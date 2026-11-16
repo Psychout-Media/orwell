@@ -17,8 +17,8 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
-REALISM_LOWPRIO_BUDGET = 4  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
-REALISM_REWRITE_BUDGET = 10  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
+REALISM_LOWPRIO_BUDGET = 8  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
+REALISM_REWRITE_BUDGET = 12  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
 _SENT_END = re.compile(r"[.!?][\"'”’)\]]*(?=\s|$)")
@@ -292,7 +292,7 @@ def rewrite_message(codes: list) -> str:
 
 
 _REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "closing-read")  # the room is no longer asked of the writer
-_REALISM_WARDROBE_KINDS = ("garment", "colour", "look-fit")
+_REALISM_WARDROBE_KINDS = ("garment", "colour", "pattern", "signature", "look-fit")
 
 
 def _realism_tags(card: dict) -> dict:
@@ -324,6 +324,10 @@ _REALISM_ASK = {
     "closing-read": lambda v: 'no closing "the one who ..." read',
     "garment": lambda v: f"no {v.replace('-', ' ')} among the pieces",
     "colour": lambda v: f"a main piece that is not in {v.replace('-', ' ')} tones",
+    "pattern": lambda v: ("at least one piece with a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear "
+                          "(faded, worn-in), the way people really dress"),
+    "signature": lambda v: ("a lookSignature (ONE memorable thing about how they look or dress, drawn from their life, that nobody else in the "
+                            "cast has)" if v == "missing" else f"a lookSignature that is not about {v.replace('-', ' ')}: another card already has that"),
 }
 
 
@@ -339,6 +343,7 @@ class SeasonGate:
         self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
         self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
         self.realism_rewrites = 0  # casting-director rewrites asked this run (bounded by REALISM_REWRITE_BUDGET)
+        self.want_signature = False  # a real cast run asks for the memorable look signature (set by the authoring pass)
         self.wardrobe_asked: set = set()  # cards whose wardrobe has been sent for a casting-director rewrite
         self.realism_demand = 0  # cards that WANTED a casting-director rewrite (offenders found), budget or not
         self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
@@ -366,6 +371,8 @@ class SeasonGate:
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
             if rec[key] and any(r.get(key) == rec[key] for o, r in self.registry.items() if o != hid):
                 self.count([code])
+        if self.want_signature and not str(phys.get("lookSignature") or "").strip():
+            self.count(["realism-signature:none"])
         for x in _look_fit_failures(card):
             self.count([f"realism-look-fit:{x}"])  # family (a poor-fit dealt family), family-worn, upscale, climate, missing
         for kind, vals in self.realism_offenders(hid, card).items():
@@ -402,6 +409,8 @@ class SeasonGate:
         # is not held against the rewrite afterwards)
         want = ("family-worn", "upscale", "climate", "missing") + (() if hid in self.wardrobe_asked else ("family",))
         lf = [x for x in _look_fit_failures(card) if x in want]
+        if self.want_signature and not str(phys.get("lookSignature") or "").strip():
+            wd.setdefault("signature", []).append("missing")  # the writer's own memorable thing (low priority: asked after the fit asks)
         if lf:  # ORW-480: clothes that do not fit this life (a poor-fit family worn, expensive looks, the wrong weather, none at all): rewritten from the person
             wd["look-fit"] = lf
         if cam:
@@ -423,6 +432,12 @@ class SeasonGate:
             for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("photohair_openings", "hair_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
                 if r.get(key) and r[key] not in out[k]:
                     out[k].append(r[key])
+        sigs = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("signature", []) if v != "other"})
+        if sigs:
+            out["signatures"] = sigs  # signature categories already taken (hair, jewellery, glasses ...)
+        cols = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("colour", [])})
+        if cols:
+            out["colours"] = cols
         return {k: v for k, v in out.items() if v}
 
     def marks_dealt(self) -> str:
@@ -464,9 +479,12 @@ def repetition_message(repeats: dict, taken: dict) -> str:
                      + "); keep exactly one house spot, a still moment, the person's own pronoun and nothing that is not in their look")
     if "realism-wardrobe" in repeats:
         parts.append("the wardrobe repeats what other cards already wear (" + _realism_ask(repeats["realism-wardrobe"])
-                     + "); two or three real garments a shop sells, chosen from this person's job, hometown, age and money")
+                     + "); two or three real garments a shop sells, chosen from this person's job, hometown, age and money; the "
+                     "lookSignature is one thing someone would use to describe them to a friend, bought or done where they live"
+                     + (f" (signature kinds taken: {', '.join(taken['signatures'])})" if taken.get("signatures") else "")
+                     + (f" (colours worn: {', '.join(taken['colours'])})" if taken.get("colours") else ""))
     return ("Only this needs fixing: " + " and ".join(parts) + ". Reply with ONLY a JSON object holding just the field or fields "
-            "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe), for the same person: same "
+            "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe and lookSignature), for the same person: same "
             "pronouns, age and look; change nothing except the wording named above.")
 
 
@@ -533,6 +551,7 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     new_phys = fresh.get("physicalCharacteristics")
     new_cam = new_phys.get("onCamera") if isinstance(new_phys, dict) else None
     new_wd = new_phys.get("wardrobe") if isinstance(new_phys, dict) else None
+    new_sig = new_phys.get("lookSignature") if isinstance(new_phys, dict) else None
     has_cam = isinstance(new_cam, str) and new_cam.strip()
     has_wd = isinstance(new_wd, list) and 2 <= len(new_wd) <= 3 and all(isinstance(x, str) and x.strip() for x in new_wd)
     if "realism-oncamera" in rep and "oncamera" not in rep:
@@ -555,6 +574,8 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
                 base["onCamera"] = new_cam
             else:
                 base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
+                if isinstance(new_sig, str) and new_sig.strip():
+                    base["lookSignature"] = " ".join(new_sig.split())[:90]  # the signature travels with the wardrobe it is carried by
                 new_style = new_phys.get("style") if isinstance(new_phys, dict) else None
                 if "look-fit" in (rep.get("realism-wardrobe") or {}) and isinstance(new_style, str) and new_style.strip():
                     base["style"] = " ".join(new_style.split())  # the style line travels with the clothes it describes
@@ -569,6 +590,13 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         if key == "realism-wardrobe" and not _wardrobe_ok(cand, npc):
             continue
         still = gate.repeats(hid, cand, npc, cast)
+        if key == "realism-wardrobe" and "realism-wardrobe" in still:  # a writer that left the signature out still ships the clothes it fixed
+            sw = {k: ([x for x in v if x != "missing"] if k == "signature" else v) for k, v in still["realism-wardrobe"].items()}
+            sw = {k: v for k, v in sw.items() if v}
+            if sw:
+                still["realism-wardrobe"] = sw
+            else:
+                del still["realism-wardrobe"]
         if key.startswith("identity"):
             asked = [k for k in rep if k.startswith("identity")]
         elif key == "oncamera":
