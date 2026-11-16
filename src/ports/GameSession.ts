@@ -1919,8 +1919,8 @@ export interface HouseSearchView {
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
 export type PlayerMoveView =
-  | { from: string; to: string; refused?: undefined }
-  | { refused: true; reason: string; from?: string; to?: string };
+  | { from: string; to: string; refused?: undefined; msg?: string }
+  | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
 export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
