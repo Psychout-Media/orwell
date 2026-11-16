@@ -323,6 +323,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
+import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1406,6 +1407,29 @@ export class GameSessionAdapter implements GameSession {
    */
   private heardAboutMeEnabled = flagDefaultOn("ORWELL_HEARD_ABOUT_ME");
   setHeardAboutMeEnabled(on: boolean): void { this.heardAboutMeEnabled = on; }
+  /**
+   * 0149 / ORW-330 (theme 2, slice 1) - tell a CLAIM the engine decided (speaker, listener, what it says, whether it is true, what the speaker
+   * meant). ENGINE-SIDE ONLY: not a tool, not on any channel; slice 3 (house life) and slice 4 (what you hear) are its callers. Writes the
+   * NPC listener's belief when the belief layer is on; the claim itself is kept engine-only on `live.claims`. Undefined when refused.
+   */
+  tellClaim(input: ClaimInput): SpokenClaim | undefined {
+    if (!this.live) return undefined;
+    const live = this.live;
+    const living = this.livingIds();
+    if (claimProblem(input, living) !== undefined) return undefined; // review of #2858: a refused claim allocates and persists nothing (no claim log, no belief store)
+    const log = (live.claims ??= { seq: 0, items: [] });
+    const beliefs = this.npcBeliefsEnabled ? (live.beliefs ??= {}) : undefined;
+    const told = tellClaim(log, beliefs, input, {
+      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
+      trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
+      credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
+    });
+    return told;
+  }
+  /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
+  claimsThePlayerHeard(): HeardClaim[] {
+    return claimsHeardBy(this.live?.claims, PLAYER);
+  }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
     const living = this.livingIds();
