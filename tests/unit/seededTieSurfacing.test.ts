@@ -118,6 +118,21 @@ describe("0059 §5 surfaceSeededTies — organic surfacing, never the sealed rea
     }
   });
 
+  it("ORW-132: a tie PUBLIC from Day 1 is never 'discovered' - no rumor, no discovery fold, even warmed past the floor", () => {
+    let folds = 0;
+    for (let seed = 0; seed < 200; seed++) {
+      const knowledge = freshKnowledge();
+      expect(surfaceSeededTies({
+        ties: [{ ...tie, visibility: "public" }], npcs: NPCS, player: PLAYER, affinity: warm, nameOf: (id) => `HG-${id}`,
+        knowledge, occupancy,
+        surfaceToPlayer: () => true, foldDiscovery: () => { folds++; }, alreadySurfacedToPlayer: () => false,
+        playerSurfaceCount: 0, rng: new SeededRandom(seed),
+      })).toEqual([]);
+      for (const id of [PLAYER, ...NPCS]) expect(knowledge.knownTo(id), "nobody learned a rumor").toHaveLength(0);
+    }
+    expect(folds).toBe(0);
+  });
+
   it("the player-surface CAP is honored — over the budget, nothing more crosses to the player", () => {
     let attemptedOverCap = 0;
     for (let seed = 0; seed < 200; seed++) {

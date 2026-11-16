@@ -20,3 +20,9 @@ def test_it_hides_only_the_body_never_the_whole_panel_and_never_a_docked_one():
     blk = _narrow_block()
     assert "#orwell-finale:not(.ow-docked) { display: none" not in blk, "the panel must keep its header (the finalists/votes the player needs)"
     assert ":not(.ow-docked)" in blk
+
+
+def test_orw481_the_collapsed_panel_shrinks_to_its_header():
+    """ORW-481 (review 4535347447): the sheet's detent height is overridden too, or an empty tall panel still covers the card."""
+    blk = _narrow_block()
+    assert re.search(r"body:has\(#orwell-decision-card\)\s+#orwell-finale:not\(\.ow-docked\)\s*\{\s*height:\s*auto\s*!important;\s*min-height:\s*0\s*!important", blk)

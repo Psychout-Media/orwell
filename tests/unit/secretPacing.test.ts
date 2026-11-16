@@ -308,6 +308,28 @@ describe("0092 — a drip only commits when its pathway can actually DELIVER (no
       GameSessionAdapter.setSecretPacingEnabled(null);
     }
   });
+  it("a drip nobody awake can relay is not charged against the weekly budget (review of 0092)", () => {
+    const session = new GameSessionAdapter();
+    session.createCharacter({ playerName: "The Player", seed: 7 });
+    GameSessionAdapter.setSecretPacingEnabled(true);
+    try {
+      const internals = session as unknown as Internals & { onThreadSurfaceToPlayer?: unknown; awakeNow: () => Set<string> | null; pacingDripCount: number };
+      const thread = internals.storyThreads[0]!;
+      thread.status = "active"; thread.lifecycleWeek = internals.week;
+      const fwd = internals.rel.edge(PLAYER, thread.sourceId);
+      const rev = internals.rel.edge(thread.sourceId, PLAYER);
+      fwd.trust = 0.9; fwd.affinity = 0.9; fwd.threat = 0.0; rev.trust = 0.9; rev.affinity = 0.9; rev.threat = 0.0;
+      internals.onThreadSurfaceToPlayer = () => false; // wired, but the relay fails (everyone is asleep)
+      internals.awakeNow = () => new Set<string>();
+      for (let i = 0; i < 30; i++) session.pacingDrip();
+      expect(thread.status).toBe("active");
+      expect(internals.pacingDripCount).toBe(0);
+      expect(internals.pacingLastDrippedWeek[thread.id]).toBeUndefined(); // the anti-spam state is untouched too
+      expect(internals.surfacedThreadCount).toBe(0); // and the season cap
+    } finally {
+      GameSessionAdapter.setSecretPacingEnabled(null);
+    }
+  });
 });
 
 describe("0092 — already-told refinements (a lie does not bury the truth; one secret ≠ all a source's secrets)", () => {
