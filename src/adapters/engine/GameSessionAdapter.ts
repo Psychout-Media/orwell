@@ -1,7 +1,7 @@
 import { liveHouseEvent } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
-  GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
+  GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
@@ -326,6 +326,7 @@ import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
+import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
@@ -5588,6 +5589,7 @@ export class GameSessionAdapter implements GameSession {
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
+    if (this.resolvePlayerMeetingCall(String(req.text ?? ""))) this.persist(); // 0156 slice 7b: the player calls a house meeting in their own words, before the narrator writes (same seam)
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
@@ -5968,6 +5970,45 @@ export class GameSessionAdapter implements GameSession {
     }
     return false;
   }
+
+  /**
+   * 0156 slice 7b: the player calls a house meeting in their OWN words, resolved here before the narrator writes (the ORW-419 seam, called from `resolvePlayerMove`). A pure parse
+   * (`parsePlayerMeetingCall`); the ONE seam `canCallMeeting` decides whether the player may; the engine (`holdHouseMeeting`) decides the answer and each listener's belief. Needs a named
+   * claim (a bare "I call a house meeting" accuses nobody, so nothing is held). The narrator hears the result through `houseMeetingForNarrator`, never from here. Returns true when a meeting was held.
+   */
+  private resolvePlayerMeetingCall(text: string): boolean {
+    if (!this.house || this.live?.finished || this.live?.playedGame !== true || this.napAsleep) return false;
+    const living = new Set(this.livingIds());
+    const people = this.house.npcs.filter((n) => living.has(n.id)).map((n) => ({ id: n.id, names: [n.name, n.name.split(/\s+/)[0]!].filter((x) => x.length >= 2) }));
+    const call = parsePlayerMeetingCall(text, people);
+    if (!call?.claim || !call.accused) return false;
+    if (!canCallMeeting("player")) return false;
+    return this.holdHouseMeeting({ caller: PLAYER, accused: call.accused, claim: call.claim }) !== undefined;
+  }
+
+  /** One-shot memory for the narrator's HOUSE MEETING line: the last meeting shown (by content) and the player message it was shown on, so a retry of the same turn still carries it and the next turn does not. */
+  private meetingShown: { key: string; msg: string | undefined } | null = null;
+
+  /**
+   * 0156 slice 7b: the meeting the player heard, for the narrator: only when the player is awake and still in the game (a meeting held while they slept or were out is never handed over; the
+   * read itself only returns meetings the player was present for), and only on the turn it is new. Names, the claim kind, the answer: never `isTrue`, intent, ids or any listener outcome.
+   */
+  private houseMeetingForNarrator(): HouseMeetingView | undefined {
+    if (!this.house || this.napAsleep || (this.live?.evictionOrder ?? []).includes(this.house.player.id)) return undefined;
+    const heard = this.houseMeetingThePlayerHeard();
+    if (!heard) return undefined;
+    const view: HouseMeetingView = {
+      caller: heard.caller, accused: heard.accused,
+      claim: { kind: heard.claim.kind, subject: heard.claim.subject, ...(heard.claim.object !== undefined ? { object: heard.claim.object } : {}) },
+      answer: heard.answer, ...(heard.redirectTo !== undefined ? { redirectTo: heard.redirectTo } : {}),
+    };
+    const key = JSON.stringify(view);
+    const msg = this.lastNotedMessageId();
+    if (this.meetingShown && this.meetingShown.key === key && this.meetingShown.msg !== msg) return undefined;
+    this.meetingShown = { key, msg };
+    return view;
+  }
+
 
   /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
   private playerBedNote: string | null = null;
@@ -15512,7 +15553,9 @@ export class GameSessionAdapter implements GameSession {
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
     const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
-    const view = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
+    const view4 = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
+    const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
+    const view = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
