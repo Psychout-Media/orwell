@@ -55,10 +55,18 @@ _current_db_url = os.environ.get("DATABASE_URL", "")
 import atexit as _atexit
 import shutil as _shutil
 
+import _run_tmp  # test temp footprint
+
+_REAL_TMP = tempfile.gettempdir()
 _RUN_TMP = tempfile.mkdtemp(prefix="orwell-run-")
 os.environ["TMPDIR"] = _RUN_TMP
 tempfile.tempdir = _RUN_TMP
-_atexit.register(_shutil.rmtree, _RUN_TMP, ignore_errors=True)
+# Every process (the controller and each xdist worker) removes ITS OWN folder when it ends, on a normal exit and on SIGTERM (a killed run skipped atexit and stranded 2-5 GB); ORWELL_KEEP_TEST_TMP=1 keeps it.
+_atexit.register(_run_tmp.remove_run_folder, _RUN_TMP)
+_run_tmp.install_sigterm_cleanup(_RUN_TMP)
+_run_tmp.start_heartbeat(_RUN_TMP)
+if not os.environ.get("PYTEST_XDIST_WORKER"):  # the controller sweeps folders an earlier killed run left behind (same owner, older than 20 minutes, not in use); workers never do
+    _run_tmp.sweep_stale(_REAL_TMP, keep=_RUN_TMP)
 
 if not _current_db_url or _AUTO_TEST_DB_MARKER in _current_db_url:
     os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(
