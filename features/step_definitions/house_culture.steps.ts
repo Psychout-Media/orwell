@@ -90,3 +90,15 @@ Then("the gossip rate and the friction rate rise over no culture, and no baselin
   for (const id of ["gossip-mill", "powder-keg"] as const) for (const v of Object.values(cult(id))) assert.ok(v <= F && v >= 1 / F);
   assert.ok(HOUSE_LIFE.gossipChance * F < 1);
 });
+Given("a paranoid culture, a ride-or-die culture, a majority-bloc culture, a powder-keg culture and a one-big-family culture", function () { /* built in the Then */ });
+Then("the paranoia, loyalty, alliance-size, meeting and bonding dials each rise over no culture, and none moves by more than a factor of 1.35", function () {
+  const F = HOUSE_LEAN_TUNING.MAX_FACTOR;
+  const one = (id: (typeof LEAN_IDS)[number]): HouseLeans => ({ leans: [{ id, w: 1 }] });
+  const pairs = [["paranoid", "paranoia"], ["ride-or-die", "loyalty"], ["majority-bloc", "allianceSize"], ["powder-keg", "meetings"], ["one-big-family", "bonding"]] as const;
+  for (const [lean, dial] of pairs) {
+    const v = dialMult(one(lean), dial);
+    assert.ok(v > 1, `${lean} should raise ${dial}`);
+    assert.ok(v <= F && v >= 1 / F);
+    assert.equal(dialMult(undefined, dial), 1);
+  }
+});

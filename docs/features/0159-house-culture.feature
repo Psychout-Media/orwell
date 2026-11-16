@@ -34,3 +34,7 @@ Feature: A played season carries a hidden house culture
     Given a season where a person has started playing
     When the season is played through to its crown
     Then the retrospective describes the house in plain words, one phrase per lean, with no name, weight or number
+
+  Scenario: The relationship dials lean the right way and stay bounded
+    Given a paranoid culture, a ride-or-die culture, a majority-bloc culture, a powder-keg culture and a one-big-family culture
+    Then the paranoia, loyalty, alliance-size, meeting and bonding dials each rise over no culture, and none moves by more than a factor of 1.35
