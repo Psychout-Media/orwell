@@ -10,7 +10,8 @@ export interface MixScene { type: string; action: string; msg: number; week: num
 
 export interface MixGame { scenes: MixScene[]; /** alliance betrayals recorded (events of type betrayal) */ betrayals: number; /** of those, the ones a goal clash caused (an NPC turning on a fellow member) */ goalClashBreaks: number; /** alliance betrayals by game week (the week the event happened in) */ betrayalsByWeek: Record<number, number> }
 
-export async function playMixGame(seed: number, messages: number): Promise<MixGame> {
+export async function playMixGame(seed: number, messages: number, opts: { advanceEvery?: number } = {}): Promise<MixGame> {
+  const every = opts.advanceEvery ?? 12; // ORW-518: the late-game guard advances faster so EVERY seed reaches the late weeks (at 12 a played week is ~400 messages)
   const user = `mixdrv-${seed}`;
   const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
   const mcp = reg.resolver()("player", user);
@@ -20,7 +21,7 @@ export async function playMixGame(seed: number, messages: number): Promise<MixGa
   let seen = 0, week = 1;
   for (let i = 0; i < messages; i++) {
     await mcp.callTool("noteMessage", { messageId: `${user}-${i}` });
-    if (i % 12 === 11) {
+    if (i % every === every - 1) {
       const adv = (await mcp.callTool("advanceGame", {})) as { pending?: { kind: string; options?: Array<{ id: string }> }; held?: unknown };
       if (adv.held) await endHeldNight((n, a) => mcp.callTool(n, a), `md${seed}`, undefined, { stopWhenDue: true }); // ORW-445: a due 4pm event must fire, not be slept through (the phase now agrees with milestoneDue at the edge)
       if (adv.pending) {
