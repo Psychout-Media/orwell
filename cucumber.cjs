@@ -134,6 +134,7 @@ module.exports = {
       "docs/features/0149-claims-core.feature",
       "docs/features/0150-beliefs-drive-decisions.feature",
       "docs/features/0153-npcs-spread-and-lie.feature",
+      "docs/features/0155-ledger-claims-net.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

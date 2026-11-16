@@ -324,8 +324,8 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { planSpeech, speechActionOf, type TruthFacts } from "../../engine/houseSpeech";
-import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1440,6 +1440,24 @@ export class GameSessionAdapter implements GameSession {
       roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
     });
     return said ? this.tellClaim(said) : undefined;
+  }
+  /**
+   * 0155 / ORW-330 slice 6 - THE LEDGER NET. A claim the narrator wrote (caught by the open ledger) is told, as `origin: "narrated"`, to everyone
+   * who heard it: the addressees, the houseguests present, and the player (the narration is the player's). The engine gives it its truth from its
+   * own records (`truthOf`); its intent is "inform" (the narrator's speaker's real reason is unknown). A kind the claim set does not have, or ids
+   * not in the house, make no claim (`tellClaim` refuses). Returns the claims told.
+   */
+  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, heardBy: readonly string[]): SpokenClaim[] {
+    if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return [];
+    const kind = c.kind as SpokenClaimKind;
+    const facts = this.truthFacts();
+    const told: SpokenClaim[] = [];
+    for (const listener of [...new Set(heardBy)].filter((id) => id !== speaker)) {
+      const base = { speaker, listener, kind, subject: c.subject, ...(c.object !== undefined ? { object: c.object } : {}) };
+      const t = this.tellClaim({ ...base, isTrue: truthOf(base, facts), intent: "inform", origin: "narrated" });
+      if (t) told.push(t);
+    }
+    return told;
   }
   /** 0153 / ORW-330 slice 3: the engine's truth for checking a claim - goals, recorded ballots, open final-two deals, the claim log. Engine-only reads. */
   private truthFacts(): TruthFacts {
@@ -15737,7 +15755,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
     if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
     const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
-    const p = openLedgerProposal(req, known);
+    const { claim, ...entry } = (req ?? {}) as RecordOpenLedgerReq; // 0155: the structured claim is the engine's to handle; the ledger entry itself is unchanged
+    const p = openLedgerProposal(entry, known);
     if (typeof p === "string") return { accepted: false, reason: p };
     const wa = this.whereabouts();
     if (!wa) return { accepted: false, reason: "no-game" };
@@ -15764,6 +15783,8 @@ export class GameSessionAdapter implements GameSession {
     }
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
+    // 0155 / ORW-330 slice 6: a claim the narrator wrote on its own becomes an engine claim (a re-statement above never re-tells it).
+    if (claim) this.tellNarratedClaim(claim, p.speaker, [...p.addressedTo, ...wa.present.map((x) => x.id as string), PLAYER]);
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
