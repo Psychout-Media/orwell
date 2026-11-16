@@ -2935,9 +2935,9 @@ export class GameSessionAdapter implements GameSession {
   setDisclosureEngineEnabled(on: boolean): void { this.disclosureEngineEnabled = on; }
   private disclosureEngineOn(): boolean { return this.disclosureEngineEnabled && this.live?.playedGame === true; }
   /** The facts `holder` knows, cut to what the player also holds when the disclosure engine is on (a match by lineage when both copies carry a `factId`, OR by identical content). */
-  private voiceKnownFacts(holder: EntityId, forceCut = false): ReadonlyArray<{ content: string; factId?: string }> {
+  private voiceKnownFacts(holder: EntityId): ReadonlyArray<{ content: string; factId?: string }> {
     const mine = this.npcKnowledge?.known(holder) ?? [];
-    if (!this.disclosureEngineOn() && !forceCut) return mine;
+    if (!this.disclosureEngineOn()) return mine;
     const theirs = this.npcKnowledge?.known(this.house!.player.id) ?? [];
     const lineages = new Set(theirs.flatMap((f) => (f.factId !== undefined ? [f.factId] : [])));
     const contents = new Set(theirs.map((f) => f.content));
@@ -15104,7 +15104,7 @@ export class GameSessionAdapter implements GameSession {
         // under-called tool. Each only when set (absent ⇒ the entry is byte-identical to before).
         // 0129: in the jury house a juror's block omits the engine-seeded vote-deduction beliefs (sealed ballot, E12).
         const knows = juryMode
-          ? dedupeKeepNewest(this.voiceKnownFacts(p.id, true) // ORW-514 (owner ruling): a juror tells a juror-player only what the player also holds (the exit-package filter)
+          ? dedupeKeepNewest((this.npcKnowledge?.known(p.id) ?? [])
               .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
               .map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
           : v.knows;
