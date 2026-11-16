@@ -129,14 +129,17 @@ describe("ORW-381 no main-stream draw moved", () => {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: 0 }]));
-        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0 } })) : npcs;
-        all += JSON.stringify([cast, pub, l.hidden, l.threads]);
+        // ORW-508 also blanks what its acceptance re-deal and world hometown change: vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on the vocation.
+        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0, vocation: 0, hometown: 0 } })) : npcs;
+        const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
+        const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
+        all += JSON.stringify([cast, pub, hid, thr]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("2d2b169fab03fcb30110d4031c4f9f544809700b1c3ca4b05c1b5c0bc85b5eec"); // identical on main and on the ORW-458 branch
+    expect(run(true)).toBe("6b4c9bc4457352234f04f04c779d7dec1444f587838e748c9ec12bb5fe076ea3"); // identical on main and on the ORW-508 branch with vocation, hometown, background and their derived text blanked
     // ORW-458 (on purpose): only the background text and the biography built from it moved. Before that, ORW-432: only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
-    expect(run(false)).toBe("47784456afb1c29f278da1f706f55715ca95bd7d3984cc330aecffad4d846b2b");
+    expect(run(false)).toBe("5f43191e772c283668587a1b7449db0ed2489270e4e827f1dbc8183c1e2de188"); // re-pinned on purpose by ORW-508: hometown from the world table, a job the age rules out re-dealt on its own stream, and the text built from the job; the blanked hash above proves no other draw moved
   });
 });
 

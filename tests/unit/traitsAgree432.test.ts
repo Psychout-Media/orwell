@@ -189,14 +189,17 @@ describe("ORW-432 what moved and what did not", () => {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0 } : {}) } }));
+        // ORW-508 also blanks what its acceptance re-deal and world hometown change: vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on the vocation.
+        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, vocation: 0, hometown: 0 } : {}) } }));
+        const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
+        const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
         const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: v.physicalCharacteristics, castingType: 0 }]));
-        all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
+        all += JSON.stringify([blanked, pub, hid, thr]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("4bc2ae4cea0bab8b66643aae34ead42a5b064cc8502166a9d3f29654d3a42c7e"); // identical on main and on the ORW-458 branch: no random draw moved
-    expect(run(false)).toBe("4c4140a2b47d56162e5df2a5201306dad3ceeb33dd01acf695ffd771c3798c53"); // re-pinned on purpose by ORW-458: only the background text and the biography built from it
+    expect(run(true)).toBe("654f5b8859d93923260d80f075c916fe4dee4dc9ffc50279e096e2c3dc99d845"); // identical on main and on the ORW-508 branch with vocation, hometown, background and their derived text blanked: no random draw moved
+    expect(run(false)).toBe("6a0d248eb8565506ea7cc0d3cbf7261b4346f7ca8bf0382e7ca5ba81224d50e4"); // re-pinned on purpose by ORW-508: hometown from the world table, and a job the age rules out re-dealt on its own stream (with the background, biography, secrets, goals, weakness and thread premises built from the job); earlier: ORW-458 background text
   });
 });
 
