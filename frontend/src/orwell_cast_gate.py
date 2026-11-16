@@ -250,7 +250,7 @@ def rewrite_message(codes: list) -> str:
             "look lacks, never \"Big Brother\"; include voice, physicalCharacteristics with wardrobe and an identityConcept.")
 
 
-_REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "room", "closing-read")
+_REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "closing-read")  # the room is no longer asked of the writer
 _REALISM_WARDROBE_KINDS = ("garment", "colour")
 
 
@@ -287,6 +287,7 @@ class SeasonGate:
         self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
         self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
         self.realism_rewrites = 0  # casting-director rewrites asked this run (bounded by REALISM_REWRITE_BUDGET)
+        self.realism_demand = 0  # cards that WANTED a casting-director rewrite (offenders found), budget or not
         self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
         self.n = 0  # the cast size, from the first card gated
         self.codes: dict = {}
@@ -367,7 +368,8 @@ class SeasonGate:
         per = ",".join(f"{k}={v}" for k, v in sorted(self.codes.items())) or "none"
         return (f"[cast-gate] season line: checked={self.checked} repaired={self.repaired} "
                 f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
-                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-fixed={self.realism_fixed}")
+                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-demand={self.realism_demand} "
+                f"realism-asked={self.realism_rewrites}/{REALISM_REWRITE_BUDGET} realism-fixed={self.realism_fixed}")
 
     def log_summary(self) -> None:
         if self.checked:
@@ -397,8 +399,9 @@ def repetition_message(repeats: dict, taken: dict) -> str:
     if "realism-wardrobe" in repeats:
         parts.append("the wardrobe repeats what other cards already wear (" + _realism_ask(repeats["realism-wardrobe"])
                      + "); two or three real garments a shop sells, chosen from this person's job, hometown, age and money")
-    return ("Only this needs fixing: " + " and ".join(parts) + ". Write the COMPLETE JSON object again with the same "
-            "person: same name, pronouns, age, voice, biography and look; change nothing except the wording named above.")
+    return ("Only this needs fixing: " + " and ".join(parts) + ". Reply with ONLY a JSON object holding just the field or fields "
+            "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe), for the same person: same "
+            "pronouns, age and look; change nothing except the wording named above.")
 
 
 _ACCESSORY_RE = re.compile(r"\b(?:nose (?:ring|stud|piercing)|lip (?:ring|stud)|septum|eyebrow (?:ring|piercing)|piercings?|ear ?rings?|hoops?)\b", re.I)
@@ -442,6 +445,8 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     gate's budget. Only identityConcept and physicalCharacteristics.onCamera can change, and only when the new text passes
     the whole gate and no longer repeats; otherwise the card ships as it is, still carrying the non-blocking code."""
     rep = gate.repeats(hid, profile, npc, cast)
+    if any(k.startswith("realism-") for k in rep):
+        gate.realism_demand += 1
     if gate.realism_rewrites >= REALISM_REWRITE_BUDGET:
         rep = {k: v for k, v in rep.items() if not k.startswith("realism-")}  # the budget is spent: report only, the card ships as it is
     if not rep:

@@ -77,7 +77,7 @@ def test_a_repeated_oncamera_ending_is_rewritten_and_only_that_line_changes():
     pb = _profile("Nameb", "Keeps the lights on for a living.", cam)
 
     async def rw(npc, codes, message=None):
-        assert "onCamera" in message and "identityConcept" not in message
+        assert "onCamera line ends" in message and "identityConcept opens" not in message
         return fix(copy.deepcopy(pb))
     got, _ = _go(gate.run_gate(g, pb, b, cast, rw))
     assert got["physicalCharacteristics"]["onCamera"].startswith("He leans")
@@ -165,7 +165,6 @@ def _woman_pair(cam_fix=None, ident_fix=None):
     "He stands in the doorway, his arms folded, the one who reads the room first.",
     "She stands in the kitchen in round gold glasses and a nose ring, the one who reads the room first.",
     "She stands in the kitchen with bright pink hair, the one who reads the room first.",
-    "She stands in the doorway, the one who reads the room first.",
 ])
 def test_a_rewritten_oncamera_line_that_fails_the_look_checks_is_not_stored(bad):
     got, before, g = _woman_pair(cam_fix=bad)

@@ -190,13 +190,13 @@ describe("ORW-432 what moved and what did not", () => {
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
         const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0 } : {}) } }));
-        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: v.physicalCharacteristics, castingType: 0 }]));
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0 } : v.physicalCharacteristics, castingType: 0 }]));
         all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("4bc2ae4cea0bab8b66643aae34ead42a5b064cc8502166a9d3f29654d3a42c7e"); // identical on main and on the ORW-458 branch: no random draw moved
-    expect(run(false)).toBe("4c4140a2b47d56162e5df2a5201306dad3ceeb33dd01acf695ffd771c3798c53"); // re-pinned on purpose by ORW-458: only the background text and the biography built from it
+    expect(run(true)).toBe("8a61f606ec7a35bc281611bf2721572f36f19daf86a45af19340bc9d97af686f"); // identical on main and on this branch with the background, the biographies and the style line blanked: no random draw moved
+    expect(run(false)).toBe("a4b37006d0609bbb00d5df20a4414646b80e25b53287d0a608e3224bdf48a566"); // re-pinned on purpose: ORW-458 (the background text and the biography built from it) and ORW-480 (the corporate style family sample lost "a lanyard on show": 35 of 900 seeded cards, only physicalCharacteristics.style)
   });
 });
 

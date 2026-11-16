@@ -133,11 +133,13 @@ _SYSTEM = (
     "the casting office already decided who. A distinguishingMark is usually minor or absent: freckles, "
     "glasses, jewelry, dimples (no scars, birthmarks or tooth gaps: the portrait cannot hold them) — or plain \"none notable\"; never "
     "default to a tattoo, "
-    "STYLE: the skeleton's presentation is a LEAN, not a costume: let it colour a piece or two, and write \"style\" as the "
-    "clothes THIS person would really own and wear, given their age, job, hometown, money and personality; never blend in another "
-    "family (no rocker edge layered over bohemian). Every piece is a garment or accessory a shop sells (a shirt, a jacket, jeans, "
-    "boots, a watch): no uniform worn as a style (never \"worn like a uniform\"), no costume, no work badge, name tag or lanyard, no "
-    "bare skin under a blazer, no hand-sewn or DIY decoration. "
+    "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
+    "personality, would really own and wear to be photographed for TV, and write that. The skeleton's presentation is only a "
+    "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
+    "with another family (no rocker edge layered over bohemian). Write \"style\" as those real clothes in a phrase. Every piece is ONE "
+    "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
+    "over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never \"worn like a uniform\"), no "
+    "costume, no work badge, name tag or lanyard, no bare skin under a blazer, no hand-sewn or DIY decoration. "
     + PHOTO_SHEET_RULES + " "
     "STORY MATCHES THE CARD (HARD): the biography is read beside the card, so it must agree with it. "
     "Use ONLY the houseguest's pinned pronouns for the houseguest (other people keep their own, named by role); "
@@ -1183,6 +1185,7 @@ _LOOK_PROBLEM_TEXT = {
     "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
     "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
     "wardrobe-unreal": "a wardrobe piece or the style line is not a real garment (a work badge, lanyard or name tag, a costume, a uniform worn as a style, bare skin under a blazer, hand-sewn decoration); use ordinary pieces a shop sells",
+    "wardrobe-multi": "a wardrobe piece is two things in one (a vest over a polo, sneakers with a gold chain): write each garment as its own piece",
     "wardrobe-not-garment": "a wardrobe piece names no garment or accessory a shop sells (it is hair, a person or a vibe); every piece must be a real garment",
     "wardrobe-taken": "the MAIN (first) wardrobe piece repeats one already taken in this cast; choose a different garment",
 }
@@ -1245,6 +1248,8 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             out.append("wardrobe-unreal")
         elif any(not _R.is_garment(x) for x in items):
             out.append("wardrobe-not-garment")
+        elif any(_R.is_multi_garment(x) for x in items):
+            out.append("wardrobe-multi")
     if "onCamera" in pc:
         oc = str(pc.get("onCamera") or "")
         if oncamera_is_scene(oc):
@@ -1291,9 +1296,28 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             fam = family_for_label(str((npc or {}).get("presentation") or ""))
             if fam is not None:
                 pc["style"] = fam["sample"]
-            pc.pop("wardrobe", None)
+            # ORW-480: the clothes stay: the style family is only a lean now, so a retry that still blends another family keeps the
+            # writer's pieces (real garments are checked on their own) instead of blanking the wardrobe
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
+        elif code == "wardrobe-multi":
+            # ORW-480: split each two-things piece at its joiner ("a vest over a polo" -> "a vest", "a polo") rather than lose the clothes
+            from src import orwell_cast_realism as _R
+            split: list = []
+            for x in [str(i) for i in (pc.get("wardrobe") or [])]:
+                if _R.is_multi_garment(x):
+                    parts = re.split(r"\s+(?:over|with|and|under|plus|paired with|layered over|tucked into|beneath|atop)\s+|,\s*", x, maxsplit=1, flags=re.I)
+                    split += [p_.strip() for p_ in parts if p_.strip()]
+                else:
+                    split.append(x)
+            seen: list = []
+            for x in split:
+                if x.lower() not in {y.lower() for y in seen}:
+                    seen.append(x)
+            if 2 <= len(seen) and all(_R.is_garment(x) for x in seen[:3]):
+                pc["wardrobe"] = seen[:3]
+            else:
+                pc.pop("wardrobe", None)
         elif code in ("wardrobe-unreal", "wardrobe-not-garment"):
             # ORW-480: clothes a shop does not sell never reach the photo: the wardrobe is omitted and an unreal style line falls back to the family sample
             pc.pop("wardrobe", None)
@@ -1969,6 +1993,19 @@ def opening_pattern(slot: int) -> dict:
             "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)],
             # ORW-480: about one card in three ends with a "the one who" read, so it is not on every line
             "closing read": "yes" if slot % 3 == 0 else "no"}
+
+
+def compact_rewrite_messages(npc: dict, ask: str) -> list[dict]:
+    """The short prompt for a field-only rewrite (a repeated opening, a name in the identity line, a casting-director offender): the
+    card's own facts, the on-camera and wardrobe rules, and the ask. About a third of the input and a tenth of the output of a full
+    regeneration, so it adds seconds, not tens of seconds."""
+    pc = npc.get("physicalCharacteristics") if isinstance(npc.get("physicalCharacteristics"), dict) else {}
+    facts = {k: npc.get(k) for k in ("genderPresentation", "age", "vocation", "hometown", "demeanor", "identityConcept", "presentation") if npc.get(k)}
+    facts["look"] = {k: pc.get(k) for k in ("hair", "heightBuild", "facialFeatures", "distinguishingMark", "style", "wardrobe", "onCamera") if pc.get(k)}
+    system = ("You fix one or two PUBLIC text fields of a reality-show houseguest card. Output STRICT JSON only. "
+              + PHOTO_SHEET_RULES)
+    user = f"The card (public facts): {json.dumps(facts, ensure_ascii=False)}\n{ask}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
@@ -2872,6 +2909,11 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     if _given_up(ukey, hid):
                         return None
                     _spend_attempt(ukey, hid)
+                    if message:
+                        # ORW-480: a repetition or casting-director ask regenerates ONLY the named field(s), from a short prompt
+                        _t = await llm_fn(compact_rewrite_messages(_npc, message))
+                        _obj = _extract_json(_t or "")
+                        return _obj if isinstance(_obj, dict) else None
                     _msgs = build_authoring_messages(_npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
                     _t = await llm_fn(_msgs + [{"role": "user", "content": message or _gate.rewrite_message(_codes)}])
                     return parse_authored_profile(_t or "", hid)

@@ -13,7 +13,7 @@ export interface KindDef {
   rules?: Array<{ sector: string; any: string[]; not?: string[] }>;
   generic?: string[]; "generic-cap"?: CapSpec;
 }
-export const CAST_REALISM = table as unknown as { kinds: Record<string, KindDef>; "unreal-clothes": { words: string[] }; "garment-nouns": string[] };
+export const CAST_REALISM = table as unknown as { kinds: Record<string, KindDef>; "unreal-clothes": { words: string[] }; "garment-nouns": string[]; "garment-groups": Record<string, string[]>; "garment-joiners": string[] };
 
 /** The public card text the kinds read (a subset of the house card). */
 export interface RealismCard {
@@ -134,4 +134,14 @@ export function unrealClothes(text: string): string[] {
 /** True when a wardrobe piece names a garment or accessory noun a shop sells. */
 export function isGarment(item: string): boolean {
   return CAST_REALISM["garment-nouns"].some((n) => new RegExp(`\\b${esc(n)}s?\\b`, "i").test(item));
+}
+
+/** The garment groups a single wardrobe piece names; two groups in one piece means it is two things. */
+export function garmentGroups(item: string): string[] {
+  return Object.entries(CAST_REALISM["garment-groups"]).filter(([, nouns]) => nouns.some((n) => new RegExp(`\\b${esc(n).replace(/ /g, "[ -]")}s?\\b`, "i").test(item))).map(([g]) => g);
+}
+export function isMultiGarment(item: string): boolean {
+  const groups = garmentGroups(item).filter((g) => g !== "belt-scarf");
+  if (groups.length < 2) return false;
+  return new RegExp(`\\b(?:${CAST_REALISM["garment-joiners"].map(esc).join("|")})\\b|,`, "i").test(item);
 }

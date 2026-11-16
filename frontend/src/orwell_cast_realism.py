@@ -166,3 +166,22 @@ def job_taken_hint(taken_jobs: list, n: int) -> str:
     if roles:
         parts.append("job words already used (do not end your job title with any of them): " + ", ".join(roles))
     return "; ".join(parts)
+
+
+def garment_groups(item: str) -> list:
+    """The garment groups a single wardrobe piece names (top, outer, bottom, shoes, jewelry ...). Two groups in one piece means the
+    piece is two things ("a vest over a polo", "sneakers with a gold chain")."""
+    found = []
+    for g, nouns in table()["garment-groups"].items():
+        if any(re.search(r"\b" + re.escape(n).replace("\\ ", "[ -]") + r"s?\b", item or "", re.I) for n in nouns):
+            found.append(g)
+    return found
+
+
+def is_multi_garment(item: str) -> bool:
+    """True when one wardrobe piece names garments from two different groups and joins them ("a vest over a polo", "sneakers with a gold
+    chain"). A belt or scarf beside one garment ("jeans with a plain belt") is allowed."""
+    groups = [g for g in garment_groups(item) if g != "belt-scarf"]
+    if len(groups) < 2:
+        return False
+    return bool(re.search(r"\b(?:" + "|".join(re.escape(j) for j in table()["garment-joiners"]) + r")\b|,", item or "", re.I))

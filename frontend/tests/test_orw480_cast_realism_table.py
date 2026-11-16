@@ -84,7 +84,8 @@ def test_the_fallback_drops_unreal_clothes_and_an_unreal_style_line():
 
 def test_the_prompt_makes_the_style_a_lean_and_asks_for_real_garments():
     from src import orwell_cast_authoring as ca
-    assert "a LEAN, not a costume" in ca._SYSTEM and "no work badge, name tag or lanyard" in ca._SYSTEM
+    assert "START FROM THE PERSON" in ca._SYSTEM and "never a theme to build the outfit from" in ca._SYSTEM and "no work badge, name tag or lanyard" in ca._SYSTEM
+    assert "ONE garment or accessory a shop sells" in ca._SYSTEM
     assert "each a real garment or accessory a shop sells" in ca.PHOTO_SHEET_RULES
 
 
