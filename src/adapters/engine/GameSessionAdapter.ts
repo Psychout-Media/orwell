@@ -3757,13 +3757,13 @@ export class GameSessionAdapter implements GameSession {
         && subject.character.physicalCharacteristics === undefined) {
         return null;
       }
-      return this.portraitPromptFor(subject, this.portraitStyleAnchor);
+      return this.portraitPromptFor(subject, this.portraitStyleAnchor, [this.house.player, ...this.house.npcs]);
     }
     // Pre-game: the warmed pre-seed roster (NPCs only — no player exists yet). Same builder, same
     // public facets, the warm's own anchor — Vault-free by the same construction as the live path.
     if (this.prewarm) {
       const warmed = this.prewarm.npcs.find((n) => n.id === id);
-      if (warmed) return this.portraitPromptFor(warmed, this.prewarm.portraitStyleAnchor);
+      if (warmed) return this.portraitPromptFor(warmed, this.prewarm.portraitStyleAnchor, this.prewarm.npcs);
     }
     return null;
   }
@@ -3772,31 +3772,14 @@ export class GameSessionAdapter implements GameSession {
   private portraitPromptFor(
     subject: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] },
     styleAnchor: string,
+    roster: ReadonlyArray<{ id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }>,
   ): { houseguestId: string; name: string; prompt: string } {
-    return buildPortraitPrompt(
-      subject.id,
-      subject.name,
-      {
-        appearance: subject.character.appearance,
-        age: subject.character.age,
-        presentation: subject.character.presentation,
-        ...(subject.character.physicalCharacteristics !== undefined
-          ? { physicalCharacteristics: subject.character.physicalCharacteristics } : {}),
-        // 0063: feed the PUBLIC diversity + personality facets so the shot is uniquely this person — the
-        // heritage (an authentic likeness), how they present, and their observable demeanor (vibe/energy).
-        // A PRIVATE orientation is NEVER read here (it lives in the engine-only map, not on the Character),
-        // so it can never enter a prompt — the §5 Vault rule holds by construction.
-        ...(subject.character.ethnicity !== undefined ? { ethnicity: subject.character.ethnicity } : {}),
-        ...(subject.character.genderPresentation !== undefined ? { genderPresentation: subject.character.genderPresentation } : {}),
-        ...(subject.character.demeanor !== undefined ? { demeanor: subject.character.demeanor } : {}),
-        // The AUTHORED storyline facets (2026-07-13) — both PUBLIC HouseguestCard fields: the 0116
-        // freeform identity + the L28/0058 vocation, so the shot's wardrobe/vibe match the person's
-        // actual storyline (owner report: portraits didn't match storylines/aesthetics).
-        ...(subject.character.identityConcept !== undefined ? { identityConcept: subject.character.identityConcept } : {}),
-        ...(subject.character.vocation !== undefined ? { vocation: subject.character.vocation } : {}),
-      },
-      styleAnchor,
-    );
+    // ORW-480: the shot and face cards are dealt across the WHOLE cast, so one person's prompt is the cast build's entry for them
+    // (the same text `castPortraitPrompts` serves). A subject the cast build skips (an incomplete facet) is dealt alone.
+    const own = buildCastPortraitPrompts(roster.map((h) => this.portraitFacetsOf(h)), styleAnchor).find((p) => p.houseguestId === subject.id);
+    if (own !== undefined) return own;
+    const f = this.portraitFacetsOf(subject);
+    return buildPortraitPrompt(subject.id, subject.name, f, styleAnchor);
   }
 
   /**
@@ -8065,18 +8048,9 @@ export class GameSessionAdapter implements GameSession {
     return out;
   }
 
-  /**
-   * Build the Vault-free cast portrait prompts (0051) from the PUBLIC house facets — the same
-   * fields the visible projection exports on the HouseguestCard. No stats, no soul, no hidden
-   * elements ever reach `buildCastPortraitPrompts`.
-   */
-  private castPortraitPrompts(roster?: GameHouse["npcs"], anchor?: string): PortraitPromptEntry[] {
-    // 0065: pre-warm passes the NPC-only roster + the warmed anchor (no player exists yet); the live
-    // path defaults to the whole house (player + NPCs). Same builder either way.
-    const styleAnchor = anchor ?? this.portraitStyleAnchor;
-    const everyone = roster ?? (this.house ? [this.house.player, ...this.house.npcs] : []);
-    if (!styleAnchor || everyone.length === 0) return [];
-    const publicCast = everyone.map((h) => ({
+  /** The PUBLIC facets of one houseguest the portrait builder reads (ORW-480: also the casting read and the voice energy the shot card's moment comes from). */
+  private portraitFacetsOf(h: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }) {
+    return {
       id: h.id,
       name: h.name,
       appearance: h.character.appearance,
@@ -8096,7 +8070,27 @@ export class GameSessionAdapter implements GameSession {
       // both already on the public HouseguestCard — so the face matches the person's storyline/aesthetic.
       ...(h.character.identityConcept !== undefined ? { identityConcept: h.character.identityConcept } : {}),
       ...(h.character.vocation !== undefined ? { vocation: h.character.vocation } : {}),
-    }));
+      // ORW-480: the public casting read and the voice's energy dial (both on the public card).
+      ...(h.character.castingType !== undefined ? { castingType: { label: h.character.castingType.label, read: h.character.castingType.read } } : {}),
+      ...(h.character.voice?.energy !== undefined ? { voiceEnergy: h.character.voice.energy } : {}),
+      // ORW-480: the public hometown and biography: the place is somewhere from the person's ordinary day.
+      ...(h.character.hometown !== undefined ? { hometown: h.character.hometown } : {}),
+      ...(h.character.biography !== undefined ? { biography: h.character.biography } : {}),
+    };
+  }
+
+  /**
+   * Build the Vault-free cast portrait prompts (0051) from the PUBLIC house facets — the same
+   * fields the visible projection exports on the HouseguestCard. No stats, no soul, no hidden
+   * elements ever reach `buildCastPortraitPrompts`.
+   */
+  private castPortraitPrompts(roster?: GameHouse["npcs"], anchor?: string): PortraitPromptEntry[] {
+    // 0065: pre-warm passes the NPC-only roster + the warmed anchor (no player exists yet); the live
+    // path defaults to the whole house (player + NPCs). Same builder either way.
+    const styleAnchor = anchor ?? this.portraitStyleAnchor;
+    const everyone = roster ?? (this.house ? [this.house.player, ...this.house.npcs] : []);
+    if (!styleAnchor || everyone.length === 0) return [];
+    const publicCast = everyone.map((h) => this.portraitFacetsOf(h));
     return buildCastPortraitPrompts(publicCast, styleAnchor);
   }
 

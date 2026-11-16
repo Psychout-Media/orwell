@@ -13,7 +13,7 @@
 import { COMMON_WORD_NAMES } from "./commonWordNames";
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import { genderPresentationPhrase } from "../domain/gender";
-import { fnv1a } from "../domain/num";
+import { dealPortraitPlans, faceSentence, type PortraitPlan, type ShotSheet } from "./shotCards";
 
 export { genderPresentationPhrase };
 
@@ -61,6 +61,12 @@ export interface PublicAppearanceFacets {
    */
   identityConcept?: string;
   vocation?: string;
+  /** ORW-480: the casting type (label and read) and the voice's energy line: the PUBLIC sheet reads the shot card's moment comes from. */
+  castingType?: { label?: string; read?: string };
+  voiceEnergy?: string;
+  /** ORW-480: the PUBLIC hometown ("City, State") and biography: the place is somewhere from the person's ordinary day, looking like where they live. */
+  hometown?: string;
+  biography?: string;
 }
 
 /**
@@ -92,29 +98,8 @@ export interface PortraitPromptResult {
 
 type Gender = "man" | "woman" | "nonbinary";
 
-/** The spots a moment can name, in the words the Setting line uses. Order is the order the text is searched. */
-const SPOTS: ReadonlyArray<{ name: string; re: RegExp }> = [
-  { name: "kitchen", re: /\bkitchen\b/i },
-  { name: "living room", re: /\bliving[- ]room\b/i },
-  { name: "dining room", re: /\bdining[- ]room\b/i },
-  { name: "backyard", re: /\b(?:backyard|back yard)\b/i },
-  { name: "lounge", re: /\blounge\b/i },
-  { name: "bedroom", re: /\bbedroom\b/i },
-];
-/** The fallback rooms, dealt by houseguest-id hash when the moment names none. */
-const FALLBACK_ROOMS = ["kitchen", "living room", "dining room", "backyard", "lounge", "bedroom"] as const;
-
-const LIGHT_BY_SPOT: Record<string, readonly [string, string]> = {
-  backyard: ["warm golden-hour light", "soft open shade in late afternoon"],
-  kitchen: ["bright soft window light from the side", "bright, airy morning light"],
-  "dining room": ["bright soft window light from the side", "bright, airy morning light"],
-  "living room": ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
-  lounge: ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
-  bedroom: ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"],
-};
-
-const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark|gap)\b/i;
-const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
+const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark)\b/i;
+const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped|gap-toothed|gap between|tooth gap|teeth gap|gapped)\b/i;
 const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
 const WORN_WORD_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/gi;
 const HAIR_WORD_RE = /\b(?:hair(?:cut|style|do)?|curls?|curly|waves?|wavy|braids?|braided|bun|ponytail|fade|crop|cropped|locs|afro|bob|buzz\w*|bald|mohawk|pixie|lob|bangs?|fringe)\b/i;
@@ -127,18 +112,13 @@ const PRONOUNS: Record<Gender | "none", { subj: string; obj: string; plural: boo
   none: { subj: "They", obj: "them", plural: true },
 };
 
-const BRIEF_TAIL =
-  "Hair and makeup done for the shoot, well groomed and camera-ready, but a real, believable person and not a model: "
-  + "keep the stated age and build exactly, with natural skin that is not airbrushed. Shot at eye level on a full-frame "
-  + "camera with an 85mm portrait lens, shallow depth of field, crisp focus on the eyes, soft flattering light, "
-  + "true-to-life colour. The only person in the frame; no text or logos.";
 
 const sentence = (t: string): string => {
   const x = t.trim().replace(/[\s.]+$/, "");
   return x === "" ? "" : `${x}.`;
 };
-const upperFirst = (t: string): string => (t === "" ? t : t[0]!.toUpperCase() + t.slice(1));
 const lowerFirst = (t: string): string => (t === "" ? t : t[0]!.toLowerCase() + t.slice(1));
+const upperFirst = (t: string): string => (t === "" ? t : t[0]!.toUpperCase() + t.slice(1));
 
 /** The written hair cut at the first "usually / that / by / until" clause, ready to take ", neatly styled". */
 export function trimWrittenHair(hair: string): string {
@@ -183,15 +163,6 @@ export function signatureMarkClause(mark: string | undefined): string {
   const split = parts.flatMap((p) => (NOT_SENT_MARK_RE.test(p) ? p.split(/\s+and\s+/i).map((x) => x.trim()).filter((x) => x !== "") : [p]));
   const kept = split.filter((p) => SIGNATURE_MARK_RE.test(p) && !NOT_SENT_MARK_RE.test(p));
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
-}
-
-function spotOf(onCamera: string): string | undefined {
-  let best: { name: string; at: number } | undefined;
-  for (const sp of SPOTS) {
-    const m = sp.re.exec(onCamera);
-    if (m && (best === undefined || m.index < best.at)) best = { name: sp.name, at: m.index };
-  }
-  return best?.name;
 }
 
 /** A word run that already carries its own grammatical subject: ", she stands", ". He grins", "; her gaze stays". */
@@ -280,86 +251,151 @@ function momentSentence(onCamera: string, subj: string, plural: boolean, ownName
   return sentence(`${subj} ${be} photographed with ${lowerFirst(t)}`);
 }
 
-function fallbackPose(demeanor: string | undefined, plural: boolean): string {
-  const d = (demeanor ?? "").toLowerCase();
-  if (/\b(?:warm|bubbly|loud|chatty)\b/.test(d)) return plural ? "lean in with a big open smile" : "leans in with a big open smile";
-  if (/\b(?:guarded|cold|quiet|watchful|steady)\b/.test(d)) {
-    return plural ? "sit back, composed, with a small closed-mouth smile" : "sits back, composed, with a small closed-mouth smile";
-  }
-  return plural ? "stand relaxed with an easy half-smile" : "stands relaxed with an easy half-smile";
+/** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident (the default, picked by the owner), (C) a minimal candid photograph. */
+export type RealismVariant = "press" | "documentary" | "minimal";
+
+const OPENER: Record<RealismVariant, string> = {
+  press: "An unretouched photograph from a reality show's press kit, shot on location by a staff photographer with a full-frame camera, on an ordinary day in the person's own life",
+  documentary: "A plain, honest portrait of a local resident by a newspaper documentary photographer, taken where they live on an ordinary day",
+  minimal: "A candid photograph",
+};
+const TAIL: Record<RealismVariant, string> = {
+  press: "An ordinary member of the public, not a model or an actor: natural asymmetry, visible pores and uneven skin tone with a little shine, ordinary teeth, flyaway hairs, "
+    + "clothes that have been worn and washed, with creases. The place is in normal focus with its real clutter, lit by the ordinary available light there, with its mixed colour, a little sensor grain. "
+    + "Keep the stated age exactly. The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim. Clothes are worn the way this person would on an ordinary day. The only person in the frame; no text or logos.",
+  documentary: "Taken the way a local paper would: available light, the real place in normal focus, nothing retouched, the person looking like themselves, real skin and hair, worn everyday clothes. "
+    + "Keep the stated age exactly. The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim. Clothes are worn the way this person would on an ordinary day. The only person in the frame; no text or logos.",
+  minimal: "The picture runs to all four edges: no frame or border. Clothes are worn the way this person would on an ordinary day. The only person in the frame; no text or logos.",
+};
+
+/** Words from the cards that push a glossy, catalogue look: never passed on (the person is ordinary, not polished). */
+/** A clothing item that is work gear or a badge is never passed on (a lanyard, scrubs, an apron: the job does not define the photo). */
+const WORK_GEAR_RE = /\b(?:lanyard|badge|name ?tag|scrubs|uniform|apron|stethoscope|hard hat|turnout|high-vis)\b/i;
+/** Accessories follow the place: never sunglasses (the eyes must show); hats, scarves, gloves and heavy outerwear only outdoors. */
+const ALWAYS_OUT_RE = /\b(?:sunglasses|shades|goggles)\b/i;
+const INDOOR_OUT_RE = /\b(?:hat|cap|beanie|fedora|visor|bonnet|scarf|gloves?|coat|parka|puffer|trench|anorak|poncho|windbreaker)\b/i;
+const GLOSS_WORD_RE = /\b(?:glossy|sleek|polished|immaculate|pristine|flawless|perfect|perfectly|stunning|gorgeous|glamorous|glam|camera-ready|airbrushed|designer|sharp|neat|neatly|crisp)\b/gi;
+export function stripGlossWords(t: string): string {
+  return stripWornWords(t.replace(GLOSS_WORD_RE, "").replace(/[\s,]+(?:and|or)\s*(?=[,;.]|$)/gi, "").replace(/^\s*(?:and|or)\s+/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").replace(/\s{2,}/g, " ").replace(/(?:\b(?:a|an|the|with|of|to|in|and|or)\s*)+(?=[,;.])/gi, "").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ").replace(/^[\s,;]+|[\s,;]+$/g, "").trim());
 }
 
 /**
- * Build the photo-brief v3 prompt (ORW-380): ONE paragraph, in a fixed order, from the public facets only.
- * No name, no job, no season anchor (still stored by the adapter, ignored here), no random expression,
- * framing, lighting or backdrop lines. The pose and the room come from the writer's `onCamera` moment, or
- * (absent) from the demeanor and a houseguest-id hash, so the same houseguest always gets the same shot.
- *
- * The name is accepted for the stable call signature and for the result record; it is not sent.
+ * Build the photo-brief v4 prompt (ORW-480): ONE paragraph from the public facets and the SHOT CARD and FACE CARD dealt
+ * across the cast (`dealPortraitPlans`). One portrait format for everyone; the place (somewhere from the person's ordinary day), the light,
+ * the performance (expression, posture, hands, from their casting read, demeanor, voice energy) from the shot card; the face structure from
+ * the face card; a line saying the person is ordinary and their grooming, hands, build and clothes fit their life; a minor mark inside the
+ * face sentence (never a tooth gap, never twice). No name, no season anchor (still stored by the adapter, ignored here).
+ * `variant` is the realism wording (documentary by default: the owner picked it in the A/B of 2026-11-16). `plan` is the cast's deal; without it the person is dealt alone.
  */
 export function buildPortraitPrompt(
   houseguestId: string,
   name: string,
   facets: PublicAppearanceFacets,
   _styleAnchor: string,
+  plan?: PortraitPlan,
+  variant: RealismVariant = "documentary",
 ): PortraitPromptResult {
-  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, demeanor, presentation } = facets;
+  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, vocation, hometown } = facets;
   const look = physicalCharacteristics as PortraitLook | undefined;
   const clean = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
   const pr = PRONOUNS[genderPresentation ?? "none"];
-  const idHash = fnv1a(houseguestId);
+  const sheet = sheetOf(houseguestId, name, facets);
+  const card = plan ?? dealPortraitPlans([sheet]).get(houseguestId)!;
+  const { shot, face } = card;
 
-  // 2. Who: age, heritage, gender, then the written face.
+  // Who: age, heritage, gender, build and skin; the face comes from the face card.
   const noun = genderPresentation === "man" ? "man" : genderPresentation === "woman" ? "woman"
     : genderPresentation === "nonbinary" ? "nonbinary person with a soft androgynous look" : "person";
   const article = age === 8 || age === 11 || age === 18 || (age >= 80 && age <= 89) ? "an" : "a";
-  const who = `Waist-up portrait of ${article} ${age}-year-old ${ethnicity ? `${ethnicity} ` : ""}${noun}`;
+  const who = `The subject is ${article} ${age}-year-old ${ethnicity ? `${ethnicity} ` : ""}${noun}`;
   let withClause: string;
   if (look) {
-    const ageLook = clean(look.ageLook);
-    const bits = [look.skinTone, look.heightBuild, look.facialFeatures].map((x) => stripWornWords(clean(x))).filter((x) => x !== "");
-    if (ageLook !== "" && !AGE_LOOK_BLOCK_RE.test(ageLook)) bits.push(ageLook);
+    const bits = [look.skinTone, look.heightBuild].map((x) => stripGlossWords(clean(x))).filter((x) => x !== "");
+    // the age is exact in the sentence; no ageing descriptor and no beautifying word reaches the image model
+    bits.push(`looks ${genderPresentation === "man" ? "his" : genderPresentation === "woman" ? "her" : "their"} age`);
     withClause = bits.length > 0 ? ` with ${bits.join(", ")}` : "";
   } else {
-    const prose = legacyAppearance(appearance);
+    const prose = stripGlossWords(legacyAppearance(appearance));
     withClause = prose !== "" ? ` with ${prose}` : "";
   }
+  // The person looks like their life: an ordinary person, not a model.
+  const job = clean(vocation), town = clean(hometown);
+  const lifeLine = sentence(`An ordinary person, not a model${job !== "" || town !== "" ? `: a ${age}-year-old ${job !== "" ? job : "resident"}${town !== "" ? ` from ${town}` : ""}` : ""}; `
+    + "their grooming, hands, build and clothes fit that life");
 
-  // 3. Hair: the shoot-day line, or the written cut trimmed and neatened.
-  const photoHair = stripWornWords(clean(look?.photoHair));
-  const writtenHair = look ? stripWornWords(trimWrittenHair(clean(look.hair))) : "";
-  const hairLine = photoHair !== "" ? sentence(`Hair: ${photoHair}`)
-    : writtenHair !== "" ? sentence(`Hair: ${writtenHair}, neatly styled`) : "";
+  // A minor mark goes inside the face sentence, once (a tooth gap is never sent).
+  const markPhrase = signatureMarkClause(look?.distinguishingMark).replace(/\.$/, "").toLowerCase();
+  const faceLine = faceSentence(face, markPhrase !== "" ? markPhrase : undefined);
 
-  // 4. Signature features only.
-  const markLine = signatureMarkClause(look?.distinguishingMark);
+  // Hair: the shoot-day line, or the written cut trimmed; the written length and volume stated plainly.
+  const photoHair = stripGlossWords(clean(look?.photoHair));
+  const writtenHair = look ? stripGlossWords(trimWrittenHair(clean(look.hair))) : "";
+  const hairLine = photoHair !== "" ? sentence(writtenHair !== "" && !photoHair.toLowerCase().includes(writtenHair.toLowerCase())
+      ? `Hair: ${photoHair} (the cut as written: ${writtenHair}; exactly that length and volume, no longer or bigger)` : `Hair: ${photoHair}`)
+    : writtenHair !== "" ? sentence(`Hair: ${writtenHair}`) : "";
 
-  // 5. Clothes.
+  // Clothes: what the card says they wear (as worn).
   const wardrobe = Array.isArray(look?.wardrobe)
-    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripWornWords(w.trim())).filter((w) => w !== "")
+    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripGlossWords(w.trim())).filter((w) => w !== "" && !WORK_GEAR_RE.test(w) && !ALWAYS_OUT_RE.test(w) && (shot.outdoor || !INDOOR_OUT_RE.test(w)))
     : [];
-  const styleText = stripWornWords(clean(look?.style) !== "" ? clean(look?.style) : presentation.trim());
-  const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}`)
-    : sentence(`Wearing clothes in this style: ${styleText}`);
+  const styleText = stripGlossWords(clean(look?.style) !== "" ? clean(look?.style) : facets.presentation.trim());
+  const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear`)
+    : sentence(`Wearing everyday clothes in this style: ${styleText}`);
 
-  // 6 + 7. The moment and the room.
-  const onCamera = clean(look?.onCamera);
-  const spot = (onCamera !== "" ? spotOf(onCamera) : undefined) ?? FALLBACK_ROOMS[idHash % FALLBACK_ROOMS.length]!;
-  const momentLine = onCamera !== "" ? momentSentence(onCamera, pr.subj, pr.plural, name)
-    : sentence(`${pr.subj} ${fallbackPose(demeanor, pr.plural)}, looking into the camera`);
-  const settingLine = `Setting: the house ${spot}, softly out of focus behind ${pr.obj}.`;
+  // The shot: place, light, the performance, any prop.
+  const settingLine = sentence(`Setting: ${shot.place}`);
+  const lightLine = variant === "minimal" ? "" : sentence(`Light: ${shot.light}`);
+  // ORW-441: a person dealt alone (no cast plan) whose card carries the cast writer's own onCamera moment keeps that moment, made a sentence with a subject and no name;
+  // inside a cast deal the dealt performance stands (one pose per person, spread across the cast)
+  const ownMoment = plan === undefined && clean(look?.onCamera) !== "" ? momentSentence(clean(look?.onCamera), pr.subj, pr.plural, name) : "";
+  // (only the dealt expression stays then, so the writer's pose and the dealt posture never double up)
+  const momentLine = sentence(`The moment: ${ownMoment !== "" ? (shot.moment.split(";")[0] ?? shot.moment).trim() : shot.moment}`);
+  const propLine = shot.prop !== undefined ? sentence(`${pr.subj} ${pr.plural ? "are" : "is"} ${shot.prop}`) : "";
+  const format = sentence(`Framing, the same for the whole series: ${shot.framing}, ${shot.angle}, on ${shot.lens}`);
 
-  // 8. Light, chosen for the spot (the two choices split by the id hash).
-  const lights = LIGHT_BY_SPOT[spot]!;
-  const lightLine = `Light: ${lights[idHash % 2]!}.`;
-
+  const opener = variant === "minimal" ? sentence(OPENER.minimal) : sentence(OPENER[variant]);
   const prompt = [
-    "Official cast portrait of a contestant on a reality TV show, photographed by the show's photographer inside the house where the show is filmed.",
-    sentence(`${who}${withClause}`),
-    hairLine, markLine, clothesLine, momentLine, settingLine, lightLine, BRIEF_TAIL,
+    opener, sentence(`${who}${withClause}`), lifeLine, faceLine, hairLine, clothesLine, ownMoment, settingLine, lightLine, momentLine, propLine, format, TAIL[variant],
   ].filter((x) => x !== "").join(" ");
 
   return { houseguestId, name, prompt };
+}
+
+/** The sheet the shot and face deals read: public facets only. */
+function sheetOf(id: string, name: string, f: PublicAppearanceFacets): ShotSheet {
+  const look = f.physicalCharacteristics;
+  return {
+    id, name, age: f.age,
+    ...(f.genderPresentation !== undefined ? { genderPresentation: f.genderPresentation } : {}),
+    ...(f.demeanor !== undefined ? { demeanor: f.demeanor } : {}),
+    ...(f.castingType?.read !== undefined ? { castingRead: f.castingType.read } : {}),
+    ...(f.castingType?.label !== undefined ? { castingLabel: f.castingType.label } : {}),
+    ...(f.voiceEnergy !== undefined ? { energy: f.voiceEnergy } : {}),
+    ...(f.vocation !== undefined ? { vocation: f.vocation } : {}),
+    ...(f.hometown !== undefined ? { hometown: f.hometown } : {}),
+    ...(f.biography !== undefined ? { biography: f.biography } : {}),
+    ...(f.identityConcept !== undefined ? { identityConcept: f.identityConcept } : {}),
+    ...(look?.facialFeatures !== undefined ? { facialFeatures: look.facialFeatures } : {}),
+    ...(look?.heightBuild !== undefined ? { heightBuild: look.heightBuild } : {}),
+    ...(look !== undefined ? { clothes: [...(Array.isArray((look as { wardrobe?: unknown }).wardrobe) ? (look as { wardrobe: string[] }).wardrobe : []), look.style ?? ""].join(" ; ") } : {}),
+  };
+}
+
+type CastEntry = Parameters<typeof buildCastPortraitPrompts>[0][number];
+/** The deal sheet of one cast entry (ORW-480). Exported so a report can deal exactly what the prompts were built from. */
+export function castSheetOf(hg: CastEntry): ShotSheet {
+  return sheetOf(hg.id, hg.name, {
+    appearance: hg.appearance ?? "", age: hg.age ?? 0, presentation: hg.presentation ?? "",
+    ...(hg.physicalCharacteristics !== undefined ? { physicalCharacteristics: hg.physicalCharacteristics } : {}),
+    ...(hg.genderPresentation !== undefined ? { genderPresentation: hg.genderPresentation } : {}),
+    ...(hg.demeanor !== undefined ? { demeanor: hg.demeanor } : {}),
+    ...(hg.identityConcept !== undefined ? { identityConcept: hg.identityConcept } : {}),
+    ...(hg.vocation !== undefined ? { vocation: hg.vocation } : {}),
+    ...(hg.castingType !== undefined ? { castingType: hg.castingType } : {}),
+    ...(hg.voiceEnergy !== undefined ? { voiceEnergy: hg.voiceEnergy } : {}),
+    ...(hg.hometown !== undefined ? { hometown: hg.hometown } : {}),
+    ...(hg.biography !== undefined ? { biography: hg.biography } : {}),
+  });
 }
 
 /**
@@ -382,11 +418,18 @@ export function buildCastPortraitPrompts(
     demeanor?: string;
     identityConcept?: string;
     vocation?: string;
+    castingType?: { label?: string; read?: string };
+    voiceEnergy?: string;
+    hometown?: string;
+    biography?: string;
   }>,
   styleAnchor: string,
+  variant: RealismVariant = "documentary",
 ): PortraitPromptResult[] {
-  return houseguests
-    .filter((hg) => hg.appearance && hg.age !== undefined && hg.presentation)
+  const complete = houseguests.filter((hg) => hg.appearance && hg.age !== undefined && hg.presentation);
+  // ORW-480: the shot and face cards are dealt ACROSS the whole cast (caps per value), then each prompt is built from its own.
+  const plans = dealPortraitPlans(complete.map((hg) => castSheetOf(hg)));
+  return complete
     .map((hg) =>
       buildPortraitPrompt(
         hg.id,
@@ -401,8 +444,14 @@ export function buildCastPortraitPrompts(
           ...(hg.demeanor !== undefined ? { demeanor: hg.demeanor } : {}),
           ...(hg.identityConcept !== undefined ? { identityConcept: hg.identityConcept } : {}),
           ...(hg.vocation !== undefined ? { vocation: hg.vocation } : {}),
+          ...(hg.castingType !== undefined ? { castingType: hg.castingType } : {}),
+          ...(hg.voiceEnergy !== undefined ? { voiceEnergy: hg.voiceEnergy } : {}),
+          ...(hg.hometown !== undefined ? { hometown: hg.hometown } : {}),
+          ...(hg.biography !== undefined ? { biography: hg.biography } : {}),
         },
         styleAnchor,
+        plans.get(hg.id),
+        variant,
       ),
     );
 }
