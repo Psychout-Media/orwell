@@ -11972,14 +11972,14 @@ export class GameSessionAdapter implements GameSession {
       if (d.vague || nearingExpiry) {
         candidates.push({
           thread: `deal:${d.id}`,
-          framing: `what you and ${this.nameOf(other)} agreed to feels like it's on borrowed time`,
+          framing: `what I agreed to with ${this.nameOf(other)} feels like it's on borrowed time`, // ORW-517: the player's own first person (Ryne, card 29)
         });
       }
     }
     if (surfacedToday.length > 0) {
       candidates.push({
         thread: `surfaced:${day}`,
-        framing: "what you heard today doesn't feel finished playing out",
+        framing: "what I heard today doesn't feel finished playing out",
       });
     }
     if (candidates.length === 0) return undefined;
