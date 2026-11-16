@@ -95,3 +95,22 @@ def test_drop_helper_is_sentence_level_and_pure():
     assert "Nine" not in out and "One." in out and "Two." in out
     assert ch.drop_wrong_tally_sentences("Eleven to two.", AFTER) == "Eleven to two."
     assert ch.drop_wrong_tally_sentences("Nine to four.", _sig(ballotCounts=[11, 2])) == "Nine to four."  # no committed evictee: unchanged
+
+
+def test_a_segment_that_is_only_the_wrong_tally_is_dropped_quietly_not_cut():
+    """ORW-504: a streamed segment that is ONLY the wrong-tally sentence is quietly rewritten to nothing; it must not cut the scene
+    (no cutaway, no scene_broken, no re-ground), so the goodbyes and reactions in later segments still stream."""
+    only = "Nine to four."
+    assert _run(ch.screen_streamed_scene_break(_USER, only)) is None
+    assert ch.take_scene_rewrite(_USER) == ""
+    assert not ch._DESYNC_REGROUND.get(_USER)
+    out = _run(agent_loop._emit_guarded_scene(only, _USER, scene_broken=False, emitted_visible=False, cutaway_emitted=False))
+    assert out.scene_broken is False and out.text == "" and not out.cutaway_emitted
+    nxt = _run(agent_loop._emit_guarded_scene("Nom Alpha says goodbye to Other One with a warm hug.", _USER, scene_broken=False,
+                                              emitted_visible=False, cutaway_emitted=False))
+    assert nxt.scene_broken is False and "warm hug" in nxt.text
+
+
+def test_an_only_tally_segment_with_a_wrong_evictee_is_still_cut():
+    d = _run(ch.screen_streamed_scene_break(_USER, "Other One is evicted by a vote of nine to four."))
+    assert d and ch.take_scene_rewrite(_USER) is None
