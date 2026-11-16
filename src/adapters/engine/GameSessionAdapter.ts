@@ -714,8 +714,8 @@ const _hoScale = Number(process.env.ORWELL_HANGOUT_P_SCALE);
 const HANGOUT_P_SCALE = process.env.ORWELL_HANGOUT_P_SCALE !== undefined && Number.isFinite(_hoScale) && _hoScale > 0 ? _hoScale : 1;
 const HANGOUT_PULL_P = Math.min(0.9, 0.03 * HANGOUT_P_SCALE), HANGOUT_APPROACH_P = Math.min(0.9, 0.08 * HANGOUT_P_SCALE), HANGOUT_OBSERVED_P = Math.min(0.9, 0.07 * HANGOUT_P_SCALE);
 /**
- * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
- * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
+ * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). ON by default;
+ * `ORWELL_DESIRE_CLOCK=0` turns it off. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
  */
 const DESIRE_CLOCK_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DESIRE_CLOCK");
 /**
@@ -10214,13 +10214,13 @@ export class GameSessionAdapter implements GameSession {
     return strategicDriveWeight(this.statsOf(id).mental, npc?.character.strategyStyle);
   }
 
-  // --- 0066 Phase-2 (#1125): the three sleep-economy extension flags (each default OFF) --------------
+  // --- 0066 Phase-2 (#1125): the three sleep-economy extension flags (each default ON; `=0` turns it off) --------------
 
-  /** Extension 1 — the per-conversation clock advance. Off by default — calibration leaves it off. */
+  /** Extension 1 — the per-conversation clock advance. On by default (`ORWELL_TIME_PER_CONVERSATION=0` turns it off). */
   setPerConversationClockEnabled(on: boolean): void { this.perConversationClockEnabled = on; }
-  /** Extension 2 — NPC next-day social fatigue (dampened sway + conflict-drained bedtime). Off by default. */
+  /** Extension 2 — NPC next-day social fatigue (dampened sway + conflict-drained bedtime). On by default (`ORWELL_SOCIAL_FATIGUE=0` turns it off). */
   setSocialFatigueEnabled(on: boolean): void { this.socialFatigueEnabled = on; }
-  /** Extension 3 — the compounding multi-night fatigue meter. Off by default. */
+  /** Extension 3 — the compounding multi-night fatigue meter. On by default (`ORWELL_MULTI_NIGHT_FATIGUE=0` turns it off). */
   setMultiNightFatigueEnabled(on: boolean): void { this.multiNightFatigueEnabled = on; }
 
   /** #1400 — generative competition design (the model dresses the fixed roll). Off by default (env-gated). */
