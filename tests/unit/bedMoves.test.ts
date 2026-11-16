@@ -74,9 +74,34 @@ describe("later bed moves (ORW-466 slice 3)", () => {
     const gone = evictOne(s, roomOfBed(beds.owner["player"]!));
     const spot = beds.owner[gone]!;
     for (const o of Object.keys(beds.owner)) if (o !== "player") relOf(s).edge(o, "player").affinity = 0; // nobody would say yes to a swap
-    s.resolvePlayerMove({ text: `I'll take ${nameOf(s, gone)}'s old bed in ${roomDisplayName(roomOfBed(spot))}.` });
+    s.resolvePlayerMove({ text: `I'll take the evicted houseguest's old bed in ${roomDisplayName(roomOfBed(spot))}.` });
     expect(roomOfBed(beds.owner["player"]!)).toBe(roomOfBed(spot));
     expect(beds.claims.at(-1)).toMatchObject({ who: "player", why: "move" });
+  });
+
+  it("review of #2844: a spot the player took before the house noticed it is never announced as empty", () => {
+    const { s, events } = played();
+    playerTakesLeftover(s);
+    const gone = evictOne(s, roomOfBed(liveOf(s).beds!.owner["player"]!));
+    const spot = liveOf(s).beds!.owner[gone]!;
+    for (const o of Object.keys(liveOf(s).beds!.owner)) if (o !== "player") relOf(s).edge(o, "player").affinity = 0;
+    s.resolvePlayerMove({ text: `I'll take the evicted houseguest's old bed in ${roomDisplayName(roomOfBed(spot))}.` });
+    s.bedsTick();
+    expect(events.queryAll().filter((e) => e.type === "bed-claim" && e.content.includes("sits empty")).length).toBe(0);
+  });
+
+  it("review of #2844: an accepted swap is felt like any move (the fold runs for both sides)", () => {
+    const { s } = played();
+    playerTakesLeftover(s);
+    const beds = liveOf(s).beds!;
+    const owner = Object.keys(beds.owner).find((o) => o !== "player" && roomOfBed(beds.owner[o]!) === roomOfBed(beds.owner["player"]!))!;
+    relOf(s).edge(owner, "player").affinity = 0.95;
+    const calls: string[] = [];
+    const orig = (s as any).foldBedMove.bind(s);
+    (s as any).foldBedMove = (m: string, ...r: unknown[]) => { calls.push(m); return orig(m, ...r); };
+    s.resolvePlayerMove({ text: `Can I swap beds with ${nameOf(s, owner)}?` });
+    expect(beds.claims.at(-1)?.why).toBe("swap");
+    expect(calls.sort()).toEqual([owner, "player"].sort());
   });
 
   it("the goal planner: an NPC moves toward an ally into a free spot, and away from a betrayer; no goal, no move", () => {

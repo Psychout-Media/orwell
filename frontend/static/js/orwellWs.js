@@ -683,14 +683,36 @@
   // (`ws-not-open` / `ws-send-failed`: the socket closed between ensure() and the send), reusing the SAME clientMsgId. A turn whose frame may have been transmitted (`ws-closed`
   // after send) is NOT re-sent here - the server turn path has no per-clientMsgId de-dup (only the engine's noteMessage clock step is idempotent), so the caller's existing
   // reconcile-from-history path decides. Rejects with the last error when the deadline passes.
-  function sendTurnWhenLive(payload, maxMs) {
+  // ORW-461: an update holds new turns for the few seconds of its restart. The server refuses a turn BEFORE anything starts (`update-holding`, retryable: nothing was written), so
+  // re-sending the same clientMsgId can never double it. The hold is waited out here: `opts.onHold()` fires once (the caller shows "one moment"), the send is retried every
+  // retryAfterMs, the socket drop of the restart itself is ridden out by ensure(), and the wait is bounded (150 s, or the server's own `untilMs` + 30 s, whichever is sooner).
+  var HOLD_MAX_WAIT_MS = 150000;
+  function sendTurnWhenLive(payload, maxMs, opts) {
     var deadline = _now() + (maxMs > 0 ? maxMs : 45000);
     var sendFailures = 0;
+    var held = false;
+    var holdEndAt = null;
     function attempt() {
       return ensure(Math.max(1, deadline - _now())).then(function (ok) {
         if (!ok) { var e = new Error("ws-unavailable"); e.code = "ws-unavailable"; throw e; }
         return sendTurn(payload).catch(function (err) {
           var neverSent = err && (err.code === "ws-not-open" || err.code === "ws-send-failed");
+          // The server refused the turn at admission because an update holds new turns: definitely not started, so waiting and re-sending is safe.
+          if (err && err.code === "update-holding") {
+            var d = err.detail || {};
+            // fixed at the FIRST refusal (recomputing it on every retry would slide the end forward for ever)
+            if (holdEndAt === null) {
+              holdEndAt = _now() + HOLD_MAX_WAIT_MS;
+              // the server's own end of the hold, plus 30 s of slack; never under 30 s from now, so a skewed clock cannot cut the wait short
+              if (typeof d.untilMs === "number") holdEndAt = Math.min(holdEndAt, _now() + Math.max(30000, d.untilMs - _now() + 30000));
+            }
+            var holdEnd = holdEndAt;
+            if (!held) { held = true; try { if (opts && opts.onHold) opts.onHold(); } catch (_) {} }
+            deadline = Math.max(deadline, holdEnd);
+            if (_now() >= holdEnd) throw err;
+            var wait = Math.min(5000, Math.max(500, typeof d.retryAfterMs === "number" ? d.retryAfterMs : 2000));
+            return new Promise(function (r) { setTimeout(r, wait); }).then(attempt);
+          }
           // A deterministic send failure (for example JSON.stringify throwing in _send) must not spin in microtasks: back off 100 ms, and give up on ws-send-failed after 3 tries (review of #2719).
           if (err && err.code === "ws-send-failed" && ++sendFailures > 3) throw err;
           if (neverSent && _now() < deadline) return new Promise(function (r) { setTimeout(r, 100); }).then(attempt);
@@ -698,7 +720,8 @@
         });
       });
     }
-    return attempt();
+    return attempt().then(function (v) { if (held) { try { if (opts && opts.onRelease) opts.onRelease(); } catch (_) {} } return v; },
+                          function (e) { if (held) { try { if (opts && opts.onRelease) opts.onRelease(); } catch (_) {} } throw e; });
   }
 
   function sendLayout(d) { return _send({ t: "layout", ch: "layout", d: d || {} }); }

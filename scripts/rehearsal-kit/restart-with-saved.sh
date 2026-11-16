@@ -11,11 +11,11 @@ import json
 p="$WT/frontend/data/settings.json"
 d=json.load(open(p)); d["image_gen_enabled"]=False; json.dump(d,open(p,"w"),indent=2)
 PY
-( cd $WT; set -a; . /home/ryne/.config/orwell/secrets.env; set +a; unset OPENROUTER_API_KEY
+( cd $WT; set -a; . "$RIG_HOME/.config/orwell/secrets.env"; set +a; unset OPENROUTER_API_KEY
   . deploy/orwell-env-defaults.sh
   eval "$(orwell_optin_env_defaults $RUN/engine-data | sed 's/^/export /')"
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
-  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE=/home/ryne/orwell/.orwell-data/models
+  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid
   cd frontend
   [ "$RIG_SLOT" = 1 ] || export PYTHONDONTWRITEBYTECODE=1

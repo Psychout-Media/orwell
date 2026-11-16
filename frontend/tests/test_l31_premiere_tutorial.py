@@ -186,3 +186,12 @@ def test_j2_18_controls_meet_the_tap_floor():
     assert "min-height: 44px" in js, "the premiere CTA should be >= 44px"
     kit = _read("static", "js", "orwellNotice.js")
     assert "min-width: 44px" in kit and "min-height: 44px" in kit, "the kit dismiss is >= 44px"
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_orw479_the_welcome_card_is_a_day_one_card_even_while_the_phase_still_reads_premiere():
+    # ORW-479: a player who went to bed before the first HOH wakes on Day 2 into a phase that still says "premiere"; the move-in welcome must not show again
+    assert _run_is_premiere_week({"started": True, "week": 1, "dayNumber": 1}, {"started": True, "moment": "premiere"}) is True
+    assert _run_is_premiere_week({"started": True, "week": 1, "dayNumber": 2}, {"started": True, "moment": "premiere"}) is False
+    assert _run_is_premiere_week({"started": True, "week": 1}, {"started": True, "moment": "premiere", "dayNumber": 3}) is False
+    assert _run_is_premiere_week({"started": True, "week": 1}, {"started": True, "moment": "premiere"}) is True, "no day in the projection: unchanged"

@@ -1699,12 +1699,16 @@ async def open_ledger_here(user: str | None = None) -> list:
     return out if isinstance(out, list) else []
 
 
-async def whereabouts(user: str | None = None, search: bool = False):
+async def whereabouts(user: str | None = None, search: bool = False, looking_for: str | None = None):
     """The Vault-free presence read (0049): the player's room, who is in it, and who is in each
     ADJACENT room — names only, never motives or non-adjacent rooms. ``None`` pre-game.
     ORW-386: ``search=True`` adds the house search (each houseguest's room + whether the player can walk in,
-    or that they are asleep); the argument is sent only when true, so every other caller is unchanged."""
-    return await _call("whereabouts", {"search": True} if search else {}, user=user)
+    or that they are asleep); the argument is sent only when true, so every other caller is unchanged.
+    ORW-462: the search names a room only where the player can see; ``looking_for`` (a houseguest's name) asks the engine to always resolve THAT houseguest (behind an unlocked door, or told by a houseguest for the diary/HOH room)."""
+    args: dict = {"search": True} if search else {}
+    if search and looking_for:
+        args["lookingFor"] = looking_for
+    return await _call("whereabouts", args, user=user)
 
 
 async def move_to(room: str, expected_beat_seq: int | None = None, user: str | None = None):

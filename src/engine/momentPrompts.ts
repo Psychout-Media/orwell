@@ -895,9 +895,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "CLOSE THE REVEAL IN THE SHOW'S OWN GRAMMAR — never a recited script, always the ACTUAL evictee the " +
     "game just handed you: once the `eviction-result` beat names the evictee, deliver it in the classic " +
     "host cadence, naming the evictee plainly — '<the evictee>, you are evicted from the Big Brother " +
-    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally, so do NOT " +
-    "reach for a 'by a vote of <count>' line here (the rules on the rare case where a count may be voiced " +
-    "are below); if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
+    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally of its own, so do NOT " +
+    "reach for a 'by a vote of <count>' line from your own arithmetic; when the moment lists a TALLY line (engine-counted; the engine lists it only once the result is committed), you may " +
+    "state exactly that count, and no other; if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
     "evictee their own beat to say goodbye to the room (some version of 'you have a few seconds to say " +
     "your goodbyes'), then the door, the hug line, and the house watching them go. " +
     "EXIT INTERVIEW (0130): when the game hands you an `exit-interview` beat, play the producers' " +
@@ -915,7 +915,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "and do NOT say the vote hasn't happened or that you're waiting to reach it: it HAS happened and the " +
     "result is being read out beat by beat. If it feels like nothing new is coming, call advanceGame — " +
     "the next ballot (or the eviction result) is waiting on the game, never on the player. " +
-    "STATE A TALLY OR NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you " +
+    "NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you, and state a count ONLY from the engine's own TALLY line " +
     "THIS turn — never from your own running count, and never as a prediction. Until that result beat " +
     "names who leaves, you do NOT know the evictee or the majority: do not say \"the majority votes to " +
     "evict <name>\", do not name who is going home, and never name a houseguest as evicted whom the game " +
@@ -1582,7 +1582,7 @@ export function renderGameContext(view: GameStateView): string {
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
               ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
-              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it; nobody is surprised when production calls them in.`,
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming; nobody is surprised when production calls them in.`,
         ]
       : []),
   ].join("\n");
@@ -1793,10 +1793,11 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
         byNominee.set(b.votedFor.id, cur);
       }
       const tally = [...byNominee.values()].sort((a, b) => b.n - a.n);
-      lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
+      // review of ORW-358: a staged reveal hands over a PARTIAL set of ballots, so a count is only a fact once the result is committed.
+      if (ev?.evictee) lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
-        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
+        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee and state no count or tally (the engine hands you none until the result is committed).");
     }
   }
   return lines;
@@ -2071,7 +2072,7 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
       if ((c?.veto?.players?.length ?? 0) === 0) {
         return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
       }
-      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due) {
+      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due && view.whereabouts?.houseEvent?.kind !== "veto-competition") { // review of ORW-252: a staged comp already running on the house event has started
         // ORW-252: the draw is done but the competition is NOT due - the house waits for its hour. The competition fragment (venue, rounds) must not ride along, or the narrator plays the comp ahead of the engine.
         return { replace: true, note: "MOMENT NOTE - the veto competition has NOT started: the game has drawn the six players, but the competition is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: the players, the nominees and everyone else talk, scheme and kill time; the competition begins only when the game runs it." };
       }
