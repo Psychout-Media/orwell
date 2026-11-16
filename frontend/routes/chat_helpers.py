@@ -6439,9 +6439,27 @@ _HOUSE_AWAKE_EXEMPT_RE = re.compile(
     r"\b(?:not|never|nobody|no\s+one|yet|asleep|sleeping|dark|silent|quiet)\b|n't|n\u2019t", re.IGNORECASE)
 
 
+# ORW-474 (Kevin with Ryne, "the clock wins"): a wake before the 8am house wake-up is the SMALL HOURS. Morning-light wording ("You wake to the first grey morning light, alone.") is a closed-set clock claim; only
+# those light claims are held, never other flavor. A bare colour-of-light ("grey light") needs a wake / dawn word beside it, so a hallway's pale light stays fine.
+_MORNING_LIGHT_RE = re.compile(
+    r"\bmorning\s+(?:light|sun|sunlight)\b|\bday\s?light\b|\bsunrise\b|\bsunup\b|\bdawn\b|\bfirst\s+light\b|\bthe\s+sun\b(?!\s+(?:has\s+not|hasn)\b)",
+    re.IGNORECASE,
+)
+_LIGHT_COLOUR_RE = re.compile(r"\b(?:grey|gray|pale|golden)\s+(?:morning\s+)?light\b", re.IGNORECASE)
+_LIGHT_WAKE_CTX_RE = re.compile(r"\bwak\w+|\bwoke\b|\bopen\w*\s+your\s+eyes\b|\bdawn\b|\bsunrise\b", re.IGNORECASE)
+# a light-specific negation / still-to-come assertion ("Dawn is still hours away", "no daylight", "the sun has not come up"): true and kept. Quiet / dark / asleep are NOT negations of the light.
+_LIGHT_NEGATION_RE = re.compile(
+    r"\b(?:not|never|no|nor|without|yet|hours?\s+away|still\s+(?:down|dark|hours|far|below))\b|n't|n\u2019t", re.IGNORECASE)
+
+
+def _sentence_has_morning_light_claim(text: str) -> bool:
+    return bool(text and (_MORNING_LIGHT_RE.search(text) or (_LIGHT_COLOUR_RE.search(text) and _LIGHT_WAKE_CTX_RE.search(text)))
+                and not _LIGHT_NEGATION_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+
+
 def _sentence_has_house_awake_claim(text: str) -> bool:
-    return bool(text and _HOUSE_AWAKE_RE.search(text) and not _HOUSE_AWAKE_EXEMPT_RE.search(text)
-                and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+    return bool(text and ((_HOUSE_AWAKE_RE.search(text) and not _HOUSE_AWAKE_EXEMPT_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+                          or _sentence_has_morning_light_claim(text)))
 
 
 async def screen_streamed_house_awake(user, sentence: str) -> bool:
@@ -6458,10 +6476,19 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
         lab = status.get("clockLabel")
         if not (_clock_is_before_house_wake(lab) or status.get("earlyMorning") is True):
             return True
-        if status.get("asleep") == []:
-            return True
-        if _greeted_by_an_awake_houseguest(sentence, status):
-            return True  # ORW-454: a named houseguest the engine says is awake may greet the player
+        light = _sentence_has_morning_light_claim(sentence)  # ORW-474: a light claim is a clock claim: held whoever is awake
+        if not light:
+            if status.get("asleep") == []:
+                return True
+            if _greeted_by_an_awake_houseguest(sentence, status):
+                return True  # ORW-454: a named houseguest the engine says is awake may greet the player
+        if light:
+            _stash_overclaim_reground(
+                user,
+                "RE-GROUND ON THE CLOCK - you narrated morning light / daylight, but the engine says it is still the small hours (" + (_zc_narrator_clock(lab) if lab else "early morning")
+                + "), before the house's 8am wake-up. It is dark and quiet and the houseguests are asleep; no morning light, dawn or sun until the wake-up call.")
+            logger.warning("[orwell] pre-emission guard HELD a morning-light claim for user=%s - engine clock is before the house wake", user)
+            return False
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the house awake / people greeting the player, but the engine says it is still the early-morning dark (" + (_zc_narrator_clock(lab) if lab else "early morning")
