@@ -244,7 +244,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { emptyNarrationUse, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
+import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
 import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
@@ -15136,7 +15136,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never)) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;

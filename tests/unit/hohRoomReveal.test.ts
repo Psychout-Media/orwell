@@ -37,7 +37,7 @@ function buildHouse(size: number, seed: number): { active: EntityId[]; ctx: Seas
 }
 
 describe("BB-14 — the HOH-room reveal is staged as narration, never a structural beat", () => {
-  it("the hoh-competition moment fragment carries the room-reveal framing (letter/photos, who-wants-to-see)", () => {
+  it("the hoh-competition moment fragment carries the room-reveal framing (crowd upstairs, letter/photos)", () => {
     const frag = MOMENT_PROMPTS["hoh-competition"]!;
     expect(frag).toMatch(/HOH-ROOM REVEAL/i);
     // ORW-510: the crowd-upstairs beat stays; the stock line it used to quote is a copied example, so it is no longer scripted.

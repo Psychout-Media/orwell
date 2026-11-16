@@ -24,11 +24,18 @@ export const NU_LINES_PER_GUEST = 4;
 export const NU_PHRASE_MAX = 40;
 /** The input text is cut here before any work (a turn is a few hundred words). */
 export const NU_TEXT_MAX = 6000;
-/** The brief section lists at most this many openings / closers, and this many items per houseguest. */
-export const NU_BRIEF_OPENERS = 12;
-export const NU_BRIEF_CLOSERS = 4;
-export const NU_BRIEF_PER_GUEST = 3;
-export const NU_BRIEF_GUESTS = 6;
+/** Season-long counted openings: the most repeated frames are kept longest (the lowest count, then the oldest, is dropped first). */
+export const NU_FREQ_MAX = 48;
+/** A count stops growing here (a frame this worn is as bad as it gets). */
+export const NU_FREQ_COUNT_MAX = 99;
+/** The brief section lists at most this many items per kind, and this many items per houseguest. */
+export const NU_BRIEF_REPEATED = 6;
+export const NU_BRIEF_RECENT = 4;
+export const NU_BRIEF_CLOSERS = 3;
+export const NU_BRIEF_PER_GUEST = 2;
+export const NU_BRIEF_GUESTS = 3;
+/** HARD cap on the whole "ALREADY USED" section: 800 characters is 196 tokens by the brief's own estimator (chars / 4.1). */
+export const NU_SECTION_MAX_CHARS = 800;
 
 export interface NarrationGuestUse { gestures: string[]; lines: string[] }
 export interface NarrationRepeats { opener: number; closer: number; gesture: number; line: number }
@@ -42,6 +49,8 @@ export interface NarrationUse {
   /** Turns whose opening frames shared one with the turn before (consecutive-turn frame sharing). */
   sharedFrameTurns: number;
   openers: string[];
+  /** Season-long use counts of opening frames (bounded to NU_FREQ_MAX entries; insertion order is recency). */
+  freq: Record<string, number>;
   closers: string[];
   guests: Record<string, NarrationGuestUse>;
 }
@@ -56,7 +65,7 @@ export interface NarrationCheck {
 }
 
 export function emptyNarrationUse(): NarrationUse {
-  return { v: 1, turns: 0, sentences: 0, repeats: { opener: 0, closer: 0, gesture: 0, line: 0 }, sharedFrameTurns: 0, openers: [], closers: [], guests: {} };
+  return { v: 1, turns: 0, sentences: 0, repeats: { opener: 0, closer: 0, gesture: 0, line: 0 }, sharedFrameTurns: 0, openers: [], freq: {}, closers: [], guests: {} };
 }
 
 const NAME_SLOT = "{n}";
@@ -197,7 +206,7 @@ export function recordNarration(rec: NarrationUse, text: string, roster: readonl
   const check: NarrationCheck = { sentences: x.sentences, repeated: { opener: 0, closer: 0, gesture: 0, line: 0 }, sharedWithPrevious: false };
   if (x.sentences === 0) return { record: rec, check };
 
-  const prevOpeners = new Set(rec.openers);
+  const prevOpeners = new Set([...rec.openers, ...Object.keys(rec.freq)]);
   const seenO = new Set<string>();
   for (const o of x.openers) if (!seenO.has(o)) { seenO.add(o); if (prevOpeners.has(o)) check.repeated.opener++; }
   if (x.closer && rec.closers.includes(x.closer)) check.repeated.closer++;
@@ -235,6 +244,16 @@ export function recordNarration(rec: NarrationUse, text: string, roster: readonl
   const kept: Record<string, NarrationGuestUse> = {};
   for (const id of order.slice(-NU_GUESTS_MAX)) kept[id] = guests[id]!;
 
+  const freq: Record<string, number> = { ...rec.freq };
+  for (const o of seenO) {
+    const n = Math.min(NU_FREQ_COUNT_MAX, (freq[o] ?? 0) + 1);
+    delete freq[o]; // re-inserted last: insertion order is recency
+    freq[o] = n;
+  }
+  const keptFreq: Record<string, number> = {};
+  const byKeep = Object.entries(freq).map(([k, n], i) => ({ k, n, i })).sort((a, b) => b.n - a.n || b.i - a.i).slice(0, NU_FREQ_MAX).sort((a, b) => a.i - b.i);
+  for (const e of byKeep) keptFreq[e.k] = e.n;
+
   const record: NarrationUse = {
     v: 1,
     turns: rec.turns + 1,
@@ -247,6 +266,7 @@ export function recordNarration(rec: NarrationUse, text: string, roster: readonl
     },
     sharedFrameTurns: rec.sharedFrameTurns + (check.sharedWithPrevious ? 1 : 0),
     openers: uniqueFront(x.openers, rec.openers, NU_OPENERS_MAX),
+    freq: keptFreq,
     closers: uniqueFront(x.closer ? [x.closer] : [], rec.closers, NU_CLOSERS_MAX),
     guests: kept,
   };
@@ -266,6 +286,17 @@ export function narrationSeasonLine(rec: NarrationUse): string {
   return `[narration-repetition] season line: turns=${rec.turns} sentences=${rec.sentences} repeated-openers=${r.opener} repeated-closers=${r.closer} repeated-gestures=${r.gesture} repeated-lines=${r.line} consecutive-turn-frame-shares=${rec.sharedFrameTurns} repeats-per-1000-sentences=${repeatsPer1000(rec)}`;
 }
 
+function restoreFreq(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (k.length === 0 || k.length > NU_PHRASE_MAX || typeof v !== "number" || !Number.isFinite(v) || v < 1) continue;
+    out[k] = Math.min(NU_FREQ_COUNT_MAX, Math.floor(v));
+    if (Object.keys(out).length >= NU_FREQ_MAX) break;
+  }
+  return out;
+}
+
 /** Defensive restore of a saved record: wrong shapes become empty, every list is cut to its bound, every phrase to its length. */
 export function restoreNarrationUse(raw: unknown): NarrationUse {
   if (typeof raw !== "object" || raw === null || (raw as { v?: unknown }).v !== 1) return emptyNarrationUse();
@@ -283,32 +314,69 @@ export function restoreNarrationUse(raw: unknown): NarrationUse {
     v: 1, turns: nat(o["turns"]), sentences: nat(o["sentences"]),
     repeats: { opener: nat(rp["opener"]), closer: nat(rp["closer"]), gesture: nat(rp["gesture"]), line: nat(rp["line"]) },
     sharedFrameTurns: nat(o["sharedFrameTurns"]),
-    openers: strs(o["openers"], NU_OPENERS_MAX), closers: strs(o["closers"], NU_CLOSERS_MAX), guests,
+    openers: strs(o["openers"], NU_OPENERS_MAX), freq: restoreFreq(o["freq"]), closers: strs(o["closers"], NU_CLOSERS_MAX), guests,
   };
 }
 
+/** Letters a sentence can open on without strain (no q, x, z, y, u, j). */
+const ANCHOR_LETTERS = "abcdefghiklmnoprstvw";
+
 /**
- * The Show Brief section: what the narration already used, as RULES to vary from (never a menu to copy). `hereIds` limits the
- * per-houseguest lines to the houseguests the player can see right now; `nameOf` resolves a roster id to a printable name.
- * Undefined while there is nothing to say, so a fresh game's brief is byte-identical to before.
+ * A seeded, deterministic anchor for one turn: three distinct starting letters the narrator is told to open its first sentences
+ * with, so the openings vary on purpose and not only by avoiding what was used. The same (seed, turn) always gives the same
+ * letters; a different turn gives different ones. Pure: an integer hash, no rng stream is touched.
  */
-export function narrationUsageSection(rec: NarrationUse, hereIds: readonly string[], nameOf: (id: string) => string): string | undefined {
+export function narrationAnchor(seed: number, turn: number): string[] {
+  let h = (Math.imul((seed | 0) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul((turn | 0) + 0x7f4a7c15, 0xc2b2ae35)) >>> 0;
+  const pool = ANCHOR_LETTERS.split("");
+  const out: string[] = [];
+  for (let i = 0; i < 3; i++) {
+    h = (Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) + 0x297a2d39) >>> 0;
+    out.push(pool.splice(h % pool.length, 1)[0]!.toUpperCase());
+  }
+  return out;
+}
+
+/**
+ * The Show Brief section: what the narration already used, as RULES to vary from (never a menu to copy), under a HARD cap of
+ * `NU_SECTION_MAX_CHARS` (under 200 tokens). `hereIds` limits the per-houseguest lines to the houseguests the player can see right now;
+ * `nameOf` resolves a roster id to a printable name; `anchor` (see `narrationAnchor`) is this turn's seeded starting letters.
+ * The most repeated openings come first (the record keeps them for the whole season), then the newest. Items are dropped from the
+ * tail (houseguests, then closers, then openings) until the section fits. Undefined while there is nothing to say, so a fresh
+ * game's brief is byte-identical to before.
+ */
+export function narrationUsageSection(rec: NarrationUse, hereIds: readonly string[], nameOf: (id: string) => string, anchor?: readonly string[]): string | undefined {
   if (rec.turns <= 0) return undefined;
-  const lines: string[] = [];
-  const op = rec.openers.slice(0, NU_BRIEF_OPENERS);
-  if (op.length) lines.push(`- Sentence openings your last turns already used (the {n} slot is a houseguest's name): ${op.map((o) => `"${o}"`).join(", ")}. Open sentences some other way; never start two sentences alike.`);
-  const cl = rec.closers.slice(0, NU_BRIEF_CLOSERS);
-  if (cl.length) lines.push(`- Your last scenes ended on: ${cl.map((o) => `"... ${o}"`).join(", ")}. End this one on a different kind of beat.`);
-  let shown = 0;
+  const worn = Object.entries(rec.freq).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, NU_BRIEF_REPEATED).map(([k]) => k);
+  const recent = rec.openers.filter((o) => !worn.includes(o)).slice(0, NU_BRIEF_RECENT);
+  let openers = [...worn, ...recent];
+  let closers = rec.closers.slice(0, NU_BRIEF_CLOSERS);
+  const guestLines: string[] = [];
   for (const id of hereIds) {
     const g = rec.guests[id];
     if (!g || (!g.gestures.length && !g.lines.length)) continue;
-    if (shown++ >= NU_BRIEF_GUESTS) break;
+    if (guestLines.length >= NU_BRIEF_GUESTS) break;
     const bits: string[] = [];
-    if (g.gestures.length) bits.push(`gestures already used: ${g.gestures.slice(0, NU_BRIEF_PER_GUEST).map((x) => `"${x}"`).join(", ")}`);
-    if (g.lines.length) bits.push(`lines already begun with: ${g.lines.slice(0, NU_BRIEF_PER_GUEST).map((x) => `"${x}"`).join(", ")}`);
-    lines.push(`- ${nameOf(id)}: ${bits.join("; ")}. Give them a different habit and a different way of speaking this time.`);
+    if (g.gestures.length) bits.push(`did ${g.gestures.slice(0, NU_BRIEF_PER_GUEST).map((x) => `"${x}"`).join(", ")}`);
+    if (g.lines.length) bits.push(`began lines ${g.lines.slice(0, 1).map((x) => `"${x}"`).join(", ")}`);
+    guestLines.push(`- ${nameOf(id)} ${bits.join("; ")}`);
   }
-  if (!lines.length) return undefined;
-  return ["7. ALREADY USED (your own recent narration, so vary it; a repeated frame reads as a tic, and each houseguest should keep inventing)", ...lines].join("\n");
+  const anchorLine = anchor && anchor.length ? `- This turn open your first sentences on words starting ${anchor.join(", ")}.` : undefined;
+  const build = (): string => {
+    const lines: string[] = ["7. ALREADY USED (vary it; a repeat reads as a tic; never reuse a habit for these people)"];
+    if (openers.length) lines.push(`- Openings used: ${openers.map((o) => `"${o}"`).join(", ")} ({n} is a name).`);
+    if (closers.length) lines.push(`- Scenes ended: ${closers.map((o) => `"${o}"`).join(", ")}.`);
+    if (anchorLine) lines.push(anchorLine);
+    lines.push(...guestLines);
+    return lines.join("\n");
+  };
+  let text = build();
+  while (text.length > NU_SECTION_MAX_CHARS) {
+    if (guestLines.length) guestLines.pop();
+    else if (closers.length) closers = closers.slice(0, -1);
+    else if (openers.length > 1) openers = openers.slice(0, -1);
+    else break;
+    text = build();
+  }
+  return openers.length || closers.length || guestLines.length || anchorLine ? text.slice(0, NU_SECTION_MAX_CHARS) : undefined;
 }
