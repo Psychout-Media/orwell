@@ -43,7 +43,7 @@ WriteFn = Callable[[dict], Awaitable[dict]]
 
 _SYSTEM = (
     "You extract what a Big Brother narration puts on the record in the player's hearing, as free text: a promise, threat, "
-    "offer or reveal between two people; a PACT or proposal among a GROUP (e.g. if one of us wins the rest are safe); a "
+    "offer or reveal between two people; a PACT or proposal among a GROUP (a conditional promise that binds several people at once); a "
     "CLAIM one houseguest makes ABOUT another; a stated PLAN or intention voiced in front of the player. Reply "
     "IMMEDIATELY with ONLY a JSON object, no prose, no code fence: "
     '{"entries":[{"text":"<their words, verbatim or nearly, one sentence>","speaker":"<id from the list, or player>",'

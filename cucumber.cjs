@@ -135,6 +135,7 @@ module.exports = {
       "docs/features/0150-beliefs-drive-decisions.feature",
       "docs/features/0151-what-you-hear.feature",
       "docs/features/0152-who-told-you-that.feature",
+      "docs/features/0156-house-meetings.feature",
       "docs/features/0157-rumor-mill-retrospective.feature",
       "docs/features/0153-npcs-spread-and-lie.feature",
       "docs/features/0155-ledger-claims-net.feature",

@@ -129,7 +129,7 @@ def _send_and_snapshot(stack, entries, text, hold=False):
             gate.set()
         assert live and live["n"] > base_n, f"the live turn never produced a NEW bubble (n={live and live['n']}, base_n={base_n}); the old bubble's footer must not count as 'settled'. attempts={attempts} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)}/{n_script} diag={diag[-6:]}"
         assert live and live["footer"], f"the live turn never settled (no footer): wsLog={page.evaluate('() => (window.__wsLog || []).slice(-14)')} ws={page.evaluate('() => window.OrwellWs ? [window.OrwellWs.mode(), window.OrwellWs.isChatSubscribed()] : null')} active={page.evaluate('() => window.chatModule && window.chatModule.hasActiveStream ? window.chatModule.hasActiveStream() : null')} last={json.dumps({k: (live or {}).get(k) for k in ('n', 'cls', 'body', 'footer')})[:300]} base_n={base_n} users={page.evaluate(_users)}/{users_before} stub_left={len(STUB.script)} attempts={attempts} diag={diag[-6:]}"
-        mid = mid or page.evaluate("window.__mid")
+        mid = page.evaluate("window.__mid") or mid  # ORW-507: the in-page rAF snapshot is the true first paint; the Python-side sample is only a fallback
         page.reload(wait_until="load")
         app_ready(page)
         # the reloaded history paints the assistant bubble from a fetch: wait for it (and for the page to go quiet), not a fixed 3.5 s

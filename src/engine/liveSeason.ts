@@ -689,6 +689,8 @@ export interface LiveSeasonState {
    * Append-only for the season. Absent until the first claim is told (absent => byte-identical season state).
    */
   claims?: import("./spokenClaims").ClaimLog;
+  /** 0156 / ORW-330 slice 7a: the season's house meetings (`houseMeeting.ts`), append-only, kept whole, ENGINE-ONLY and never projected whole (only `houseMeetingThePlayerHeard` as names). Absent until the first meeting. */
+  houseMeetings?: import("./houseMeeting").HouseMeeting[];
   /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
   assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**
