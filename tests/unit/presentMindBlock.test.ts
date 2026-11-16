@@ -85,7 +85,8 @@ describe("the present block carries the mood cause and the memories about others
     const withMind = s.getMomentPrompt({}).systemPrompt;
     expect(withMind).not.toBe(base);
     const header = "WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS";
-    const cut = withMind.indexOf(header) === -1 ? Math.min(base.length, withMind.length) : withMind.indexOf(header);
+    const cut = withMind.indexOf(header);
+    expect(cut, "the present block header must exist for the prefix comparison to mean anything").toBeGreaterThan(0);
     expect(withMind.slice(0, cut)).toBe(base.slice(0, cut));
   });
 });

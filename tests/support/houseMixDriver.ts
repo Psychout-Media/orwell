@@ -4,7 +4,7 @@ import { endHeldNight } from "./heldNight";
 
 /**
  * ORW-350: ONE chat-paced seeded game, played the way the house-life mix guard has always played it (a message per tick, an advance every 12th), long enough to reach the weeks after the first. Returns every house-life scene tagged with the
- * message it came from, the game week, and whether the PLAYER was already out of the game (a spectator's house is a different regime; the played mix is read without it). Shared by `houseMixLateGuard.test.ts` and `scripts/probes/houseMixByWeek.ts`.
+ * message it came from, the game week, and whether the PLAYER was already out of the game (a spectator's house is a different regime; the played mix is read without it). Used by `tests/property/houseMixLate.property.test.ts`; the probe `scripts/probes/houseMixByWeek.ts` plays the same loop inline (it is not shared).
  */
 export interface MixScene { type: string; action: string; msg: number; week: number; playerOut: boolean }
 
