@@ -34,8 +34,9 @@ def test_must_run_rule_fires_under_xdist(tmp_path):
     import subprocess
     import sys
     here = os.path.dirname(os.path.abspath(__file__))
+    marker = "sync_" + "playwright"  # split: the literal in THIS file would mark the whole module as a browser test and move it out of fe-unit (review of #2785)
     for name in ("test_syn_a.py", "test_syn_b.py"):
-        (tmp_path / name).write_text("import pytest\n# sync_playwright (this marks the file as a browser test)\ndef test_ok(): pass\ndef test_skips(): pytest.skip('chromium unavailable')\n")
+        (tmp_path / name).write_text(f"import pytest\n# {marker} (this marks the file as a browser test)\ndef test_ok(): pass\ndef test_skips(): pytest.skip('chromium unavailable')\n")
     env = {**os.environ, "ORWELL_SKIP_GUARD": "1", "ORWELL_SKIP_LANE": "browser", "PYTHONPATH": here}
     env.pop("ORWELL_CI_SHARD", None)
     r = subprocess.run([sys.executable, "-m", "pytest", str(tmp_path), "-p", "conftest", "-m", "browser", "-n", "2", "-q", "-rs", "--rootdir", str(tmp_path),
@@ -43,3 +44,8 @@ def test_must_run_rule_fires_under_xdist(tmp_path):
     out = r.stdout + r.stderr
     assert "MUST-RUN browser test skipped" in out, out[-1500:]
     assert r.returncode != 0
+
+
+def test_this_file_runs_in_the_unit_lane():
+    import conftest
+    assert not conftest._module_launches_browser(__file__), "the A41 evaluator tests belong to fe-unit, not the browser lane"

@@ -22,6 +22,17 @@ describe("0149 the claims core", () => {
     expect(held[0]!.confidence).toBeGreaterThan(beliefs[OTHER]![0]!.confidence);
   });
 
+  it("a listener who credits the speaker as a word-keeper holds the claim more surely (the 0121 bonus), pinned", () => {
+    const { log, beliefs } = fresh();
+    const credited = { ...ctx, credited: (l: string, sp: string) => l === LISTENER && sp === SPEAKER };
+    tellClaim(log, beliefs, { speaker: SPEAKER, listener: LISTENER, kind: "targets-you", subject: SUBJECT, isTrue: true, intent: "warn" }, credited);
+    tellClaim(log, beliefs, { speaker: SPEAKER, listener: OTHER, kind: "targets-you", subject: SUBJECT, isTrue: true, intent: "warn" }, credited);
+    expect(claimConfidence(0.5, false)).toBeCloseTo(0.5);   // 0.2 + 0.6 x 0.5
+    expect(claimConfidence(0.5, true)).toBeCloseTo(0.56);   // 0.2 + 0.6 x (0.5 + 0.1)
+    expect(beliefs[LISTENER]![0]!.confidence).toBeCloseTo(0.2 + 0.6 * 1.0);  // trust 0.9 + bonus 0.1, capped at 1
+    expect(beliefs[OTHER]![0]!.confidence).toBeCloseTo(0.2 + 0.6 * 0.1);     // not credited: trust 0.1 alone
+  });
+
   it("a false claim plants the same belief a true one would; only the log knows it was a lie, and why", () => {
     const t = fresh(), f = fresh();
     tellClaim(t.log, t.beliefs, { speaker: SPEAKER, listener: LISTENER, kind: "voted-to-evict-you", subject: SUBJECT, isTrue: true, intent: "inform" }, ctx);
@@ -74,5 +85,21 @@ describe("0149 the claims core", () => {
     expect(m("talking-about", OTHER)).toMatchObject({ kind: "heard-rumor", object: OTHER, nature: "talking-about" });
     expect(m("lying-about")).toEqual({ kind: "lied-to-me", subject: SUBJECT });
     expect(m("lying-about", OTHER)).toMatchObject({ kind: "heard-rumor", object: OTHER, nature: "lying" });
+  });
+});
+
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+
+describe("0149 through the adapter", () => {
+  it("a refused claim leaves the season untouched: no claim log, no belief store allocated (review of #2858)", () => {
+    const s = new GameSessionRegistry().sandboxFor(`sc-${Math.random()}`).session as GameSessionAdapter;
+    s.setNpcBeliefsEnabled(true);
+    s.createCharacter({ playerName: "P", seed: 3 });
+    const live = (s as unknown as { live: Record<string, unknown> }).live;
+    const before = JSON.stringify({ claims: live.claims, beliefs: live.beliefs });
+    const [a, b] = s.livingIds().filter((id) => id !== PLAYER);
+    expect(s.tellClaim({ speaker: a!, listener: b!, kind: "targets-you", subject: a!, isTrue: true, intent: "inform" })).toBeUndefined();
+    expect(JSON.stringify({ claims: live.claims, beliefs: live.beliefs })).toBe(before);
   });
 });

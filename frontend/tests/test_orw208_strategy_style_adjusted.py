@@ -27,12 +27,14 @@ def test_a_reported_substitution_records_a_health_note_and_tells_the_narrator(mo
     res = {"started": True, "house": [], "strategyStyleAdjusted": {"requested": "strategic", "applied": "emotional", "archetype": "wildcard"}}
     out = _create(monkeypatch, res, calls)
     assert any(a[1] == "casting-strategy-style" for a, _ in calls)
-    assert 'stored strategy style is "emotional"' in out["output"] and 'does not offer "strategic"' in out["output"]
-    assert json.loads(out["output"].split("\n\nNOTE")[0])["strategyStyleAdjusted"]["applied"] == "emotional"
+    # review of #2252: the line rides INSIDE the result, so the output stays valid JSON for the finalize checks and the producer-view redactor
+    view = json.loads(out["output"])
+    assert view["strategyStyleAdjusted"]["applied"] == "emotional" and view["started"] is True
+    assert 'stored strategy style is "emotional"' in view["strategyStyleNote"] and 'does not offer "strategic"' in view["strategyStyleNote"]
 
 
 def test_no_substitution_adds_nothing(monkeypatch):
     calls = []
     out = _create(monkeypatch, {"started": True, "house": []}, calls)
     assert not [c for c in calls if c[0][1] == "casting-strategy-style"]
-    assert "NOTE (engine truth)" not in out["output"]
+    assert "NOTE (engine truth)" not in out["output"] and "strategyStyleNote" not in json.loads(out["output"])

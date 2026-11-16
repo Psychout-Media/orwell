@@ -92,6 +92,15 @@ describe("a goal brings an NPC to the player (live)", () => {
     expect(s.live.goalApproaches?.[holder]).toBeUndefined();
   });
 
+  it("ORW-507: a suppressed approach (distrust) does not walk the NPC into the player's room either", async () => {
+    const { s, holder, stretch } = await setup(11);
+    s.rel.edge(holder, PLAYER).trust = DESIRE.goalMinTrust - 0.1;
+    s.presence.set(PLAYER, "bathroom"); // no ordinary house-life action happens in a bathroom: only a walk TO the player can put the holder there
+    const seen = new Set<string>();
+    for (let i = 0; i < 14; i++) { stretch(1); seen.add(s.presence.get(holder)!); }
+    expect(seen.has("bathroom"), `the holder was in the player's room: ${[...seen]}`).toBe(false);
+  });
+
   it("the guards hold: the cooldown blocks it, a sleeper never comes, and acting on it clears the reason", async () => {
     const { s, holder } = await setupRaising();
     expect(s.live.goalApproaches![holder]).toBeDefined();

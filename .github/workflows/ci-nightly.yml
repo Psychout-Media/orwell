@@ -101,11 +101,45 @@ jobs:
           # exit 5 = no test carried the marker after all (e.g. it is only mentioned in a comment): nothing to run is not a failure.
           [ "$rc" -eq 0 ] || [ "$rc" -eq 5 ]
 
+  # ORW-433 (Ryne: "deep testing on how the turn over going to bed/waking up goes. As well as crossovers from week to week"): the engine-level bed / wake / week-crossover
+  # probe (the BDD Auditor's N/W checklist lines), 12 seeds over 3 legs, no model. Nightly only - never on a PR (Ryne: PRs stay fast). A leg fails with the checklist line(s)
+  # that broke; "INFO" lines are information, never a failure. If a FAIL looks odd, check the probe's pacing first (notes in the probe and on the ORW-433 card).
+  bed-wake-probe:
+    if: github.event_name != 'pull_request'   # nightly / manual only: never on a PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        first_seed: [1, 5, 9]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: bed / wake / week-crossover probe (4 seeds from ${{ matrix.first_seed }})
+        run: |
+          set -uo pipefail
+          npx tsx scripts/probes/bedWakeWeek.ts 3000 4 ${{ matrix.first_seed }} 2>&1 | grep -v "SLOW step=save.fsync" > probe.txt
+          rc=${PIPESTATUS[0]}
+          cat probe.txt
+          { echo "### Bed / wake / week crossover, seeds ${{ matrix.first_seed }}+"; echo; echo '```'; grep -E "^(PASS|FAIL)" probe.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          [ "$rc" -eq 0 ] || { echo "::error::the probe itself exited $rc"; exit 1; }
+          if grep -E "^FAIL" probe.txt | grep -vqE "^FAIL +INFO"; then
+            grep -E "^FAIL" probe.txt | grep -vE "^FAIL +INFO" | while IFS= read -r l; do echo "::error::${l:0:300}"; done
+            exit 1
+          fi
+
   # Open or update the ONE tracking issue on a failing night. Plane is not reachable from GitHub-hosted runners, so the issue names each quarantine's
   # Plane card and the rule's card (ORW-229); whoever triages updates those cards.
   report:
-    needs: [quarantined]
-    if: always() && needs.quarantined.result != 'success' && github.event_name != 'pull_request'
+    needs: [quarantined, bed-wake-probe]
+    # A cancelled run (a manual dispatch stopped by hand) is not a failing night: file only on a real failure.
+    if: always() && (needs.quarantined.result == 'failure' || needs.bed-wake-probe.result == 'failure') && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -118,6 +152,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RESULT: ${{ needs.quarantined.result }}
+          PROBE: ${{ needs.bed-wake-probe.result }}
           CARDS: ${{ needs.quarantined.outputs.cards }}
         run: |
           set -euo pipefail
@@ -126,6 +161,7 @@ jobs:
           body="The nightly CI run failed: $RUN_URL
 
           - quarantined tests: \`$RESULT\` (Plane cards: ${CARDS:-none})
+          - bed / wake / week-crossover probe: \`$PROBE\` (Plane ORW-433; the failing checklist lines are in the run's summary)
 
           Rule and triage: docs/CI.md (Plane ORW-229). Fix the test and close its card, or delete it; a quarantine expires after 7 days."
           n="$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')"
