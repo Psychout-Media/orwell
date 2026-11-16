@@ -123,13 +123,13 @@ def facts_from_prompt(prompt: str) -> dict:
     m = re.search(r"Setting: (?:the house )?([^,.]+)", prompt)
     if m:
         facts["spot"] = m.group(1).strip()[:80]
-    if "unit photographer" in prompt and "The moment:" in prompt:
+    if "The moment:" in prompt and "Setting:" in prompt:
         # ORW-480: a candid brief. The moment may be a laugh, mid-word, looking away, with loose hairs: those are not faults.
         # Eyes on the lens only when the moment says so.
         facts["candid"] = True
         mm = re.search(r"The moment: ([^.]+)\.", prompt)
         facts["moment"] = mm.group(1).strip()[:200] if mm else ""
-        if re.search(r"\b(?:into|at|straight into|directly into) the lens\b", facts["moment"], re.I):
+        if re.search(r"\b(?:into|at|on) the lens\b", facts["moment"], re.I):
             facts["eyes_on_camera"] = True
         feats = visible_features(prompt)
         if feats:

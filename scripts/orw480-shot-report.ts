@@ -10,7 +10,8 @@
  */
 import { readFileSync } from "node:fs";
 import { buildCastPortraitPrompts, castSheetOf } from "../src/engine/portraitPrompts";
-import { dealPortraitPlans, dealFaceCards, MOMENTS, shotCaps } from "../src/engine/shotCards";
+import { dealPortraitPlans, dealFaceCards, shotCaps, PORTRAIT_FORMAT } from "../src/engine/shotCards";
+import { POSTURES } from "../src/engine/performance";
 
 interface Card {
   id: string; name: string; age: number; presentation: string; vocation?: string; demeanor?: string; identityConcept?: string;
@@ -67,19 +68,22 @@ log("framing OLD:", tally(oldFraming), "\n        NEW:", tally(sh.map((s) => s.f
 log("light   OLD:", tally(oldLight), "\n        NEW:", tally(sh.map((s) => s.lightId)));
 log("props   OLD:", tally(oldProp), "\n        NEW:", tally(sh.map((s) => s.prop ?? "none")));
 log("gaze    OLD:", tally(oldGaze), "\n        NEW:", tally(sh.map((s) => s.gaze)));
-log("moments NEW:", tally(sh.map((s) => s.momentId)));
+log("traits  NEW:", tally(sh.map((s) => s.trait)));
+log("expressions NEW:", tally(sh.map((s) => s.momentId.split("+")[0]!)), "| smiling:", sh.filter((s) => s.smiles).length, "not smiling:", sh.filter((s) => !s.smiles).length, "closed half-smile:", sh.filter((s) => s.closedHalf).length);
+log("postures NEW:", tally(sh.map((s) => s.momentId.split("+")[1]!)));
 for (const min of [5, 3]) {
   log(`sentences shared by >= ${min} prompts  OLD: ${shared(oldP, min).length}  NEW: ${shared(newP, min).length}`);
 }
 log("NEW shared (>=3):"); for (const x of shared(newP, 3)) log(`  x${x.n}  ${x.s}`);
 log("OLD shared (>=5):"); for (const x of shared(oldP, 5)) log(`  x${x.n}  ${x.s.slice(0, 110)}`);
 
-// ---- sheet lines -> moment (the trace Kevin asked for) -------------------------------------------------------------------------
-log("\n==== SHEET LINES -> MOMENT ====");
+// ---- sheet lines -> performance (the trace Kevin asked for) ------------------------------------------------------------------
+log("\n==== ONE WORD PER PERSON -> EXPRESSION + POSTURE + HANDS (match them blind) ====");
 for (const c of cards) {
   const sh = plans.get(c.id)!.shot;
-  log(`${c.id} ${c.name}: type "${c.castingType?.label ?? ""}" read "${c.castingType?.read ?? ""}"; demeanor "${c.demeanor ?? ""}"`
-    + `\n    -> ${sh.framingId} / ${sh.placeId} / ${sh.lightId} / gaze ${sh.gaze}: ${sh.moment}\n    from: ${sh.why}`);
+  log(`${c.id} ${c.name.padEnd(24)} ${sh.trait.toUpperCase().padEnd(8)} | ${sh.expression} | ${sh.posture}${sh.hands ? ` | hands: ${sh.hands}` : ""}`
+    + `\n    sheet: type "${c.castingType?.label ?? ""}" read "${c.castingType?.read ?? ""}"; demeanor "${c.demeanor ?? ""}"`
+    + `\n    place/light: ${sh.placeId} / ${sh.lightId}; from: ${sh.why}`);
 }
 
 // ---- near-identical hair lines (the text builder's cast-wide table owns these) -----------------------------------------------
@@ -103,41 +107,56 @@ const placesAll = [...plans.values()].map((p) => p.shot.placeId), lightsAll = [.
 const rows: string[] = [];
 const placeKindsAll = [...plans.values()].map((p) => p.shot.placeKind);
 const CHECK = [
-  "R1 official cast photo by the production's photographer: the person knows and is presented well (not paparazzi, not surveillance)",
-  "R2 the face is large and clear: close-up / half-length / three-quarter only, face size stated, clear in a square crop",
-  "R3 personality from the person's own sheet: pose, expression and energy traced to casting read, demeanor, voice",
-  "R4 a real photograph made for the show: natural skin (not plastic), reads as the stated age, groomed and at their best; readable place, real garments, level camera, no hard flash",
-  "R5 differs from the others: place (<=3), light (<=4), a moment nobody else has",
+  "R1 an official production cast photo, real and unretouched: an ordinary member of the public, not a model or an actor; no beautifying or gloss words (best, flattering, groomed, polished, hair and makeup done, well-kept, sharp)",
+  "R2 ONE portrait format for the whole cast: the identical framing, lens and angle on every card; nothing about framing is dealt (a sheet of 15 reads as one photographer's series)",
+  "R3 personality at a glance: one trait word from the sheet; a full-strength expression, a posture and the hands from the sheet; closed half-smile on <= 3, >= 4 not smiling, no expression or posture on more than 2",
+  "R4 a real photograph: natural skin, ordinary teeth, flyaway hairs, worn-and-washed clothes, the place in normal focus with its clutter, ordinary available light, a little grain",
+  "R5 differs from the others in place, light and pose: place (<=3), light (<=4), a performance nobody else has",
   "R6 a distinct face: differs from every other card on >= 4 of 8 face axes",
   "R7 no repeated props, no work props, nothing held unless the sheet gives a reason",
-  "R8 consistent set: framing, place and moment agree (no body pose in a close-up, nothing held with both hands busy)",
-  "R9 pre-season cast photo on location: the place is from the person's own ordinary day (home, town, a place they spend time), looks like their region, and the reason is traced to their sheet (hometown, biography, type)",
+  "R8 consistent set: the posture fits the place (seat, lean, perch), nothing held with both hands busy",
+  "R9 pre-season cast photo on location: the place is from the person's own ordinary day, looks like their region, the reason is traced to their sheet (hometown, biography, type)",
   "R10 the job does not define the photo: at most 3 of 15 near work, none in uniform or work gear, no work props",
+  "R11 the person looks like their life: the prompt says 'an ordinary person, not a model: a <age>-year-old <vocation> from <hometown>; grooming, hands, build and clothes fit that life'. A CARD whose own style contradicts the life (designer linen on a line cook) is reported as a card DEFECT, not photographed faithfully",
+  "R12 marks: no tooth gap ever; a mark is a minor detail inside the face sentence, once, never a sentence of its own",
 ];
+const LIFE_MISMATCH = /\b(?:minimalist monochrome|designer|couture|silk|cashmere|linen|glam|runway|tailored|high fashion|luxury)\b/i;
+const MANUAL_JOB = /\b(?:cook|chef|trimmer|nurse|paramedic|firefighter|mechanic|welder|electrician|plumber|carpenter|farmer|driver|trucker|cashier|server|waiter|janitor|laborer|coach|roofer|barista|aide|technician)\b/i;
+const cardDefects: string[] = [];
 let allOk = true;
 for (const c of cards) {
   const pr = fresh.find((x) => x.houseguestId === c.id)!.prompt, sh = plans.get(c.id)!.shot, f = faces.get(c.id)!;
-  const m = MOMENTS.find((x) => x.id === sh.momentId)!;
+  const po = POSTURES.find((x) => x.id === sh.momentId.split("+")[1])!;
   const dist = Math.min(...[...faces].filter(([id]) => id !== c.id).map(([, g]) => AX.filter((a) => g[a] !== f[a]).length));
+  const pcAny = (c as unknown as { physicalCharacteristics?: { wardrobe?: string[]; style?: string; distinguishingMark?: string; facialFeatures?: string } }).physicalCharacteristics;
+  const clothes = `${(pcAny?.wardrobe ?? []).join(" ; ")} ; ${pcAny?.style ?? ""}`;
+  const defect = MANUAL_JOB.test(c.vocation ?? "") && LIFE_MISMATCH.test(clothes);
+  if (defect) cardDefects.push(`${c.id} ${c.name} (${c.vocation}): card style/wardrobe "${clothes.slice(0, 120)}" does not fit the life`);
+  const gapInCard = /gap-?toothed|gap between|tooth gap/i.test(`${pcAny?.distinguishingMark ?? ""} ${pcAny?.facialFeatures ?? ""}`);
   const r = [
-    /official (?:pre-season )?cast photo/.test(pr) && /presented well/.test(pr) && !/hid|crouch|sneak|whisper|creep/.test(sh.moment),
-    ["close", "half", "three-quarter"].includes(sh.framingId) && /face/.test(sh.framing) && /square crop/.test(pr),
-    /type|read|demeanor/.test(sh.why) && !/^no line/.test(sh.why),
-    /Natural skin texture/.test(pr) && /groomed/.test(pr) && !/fine lines|creased|no retouching|flash|tilted, caught|tilted angle/.test(pr) && /ordinary real garments/.test(pr) && /readable/.test(pr),
-    cnt(placesAll, sh.placeId) <= caps.place && cnt(lightsAll, sh.lightId) <= caps.light && [...plans.values()].filter((p) => p.shot.momentId === sh.momentId).length === 1,
+    /^An unretouched photograph from a reality show's press kit/.test(pr) && /not a model or an actor/.test(pr) && !/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|glossy|sleek|designer|airbrushed|presented well/i.test(pr),
+    sh.framingId === PORTRAIT_FORMAT.id && sh.framing === PORTRAIT_FORMAT.phrase && sh.lens === PORTRAIT_FORMAT.lens && sh.angle === PORTRAIT_FORMAT.angle && pr.includes(PORTRAIT_FORMAT.phrase) && pr.includes(PORTRAIT_FORMAT.lens),
+    /^trait \w+ from (?:type|read|demeanor|voice)/.test(sh.why) && sh.expression !== "" && sh.posture !== "" && (sh.hands !== "" || po.fixedHands),
+    /visible pores/.test(pr) && /ordinary teeth/.test(pr) && /normal focus/.test(pr) && /available light/.test(pr) && !/fine lines|no retouching|flash|tilted, caught|tilted angle/.test(pr),
+    cnt(placesAll, sh.placeId) <= caps.place && cnt(lightsAll, sh.lightId) <= caps.light && cnt([...plans.values()].map((p) => p.shot.momentId), sh.momentId) === 1,
     dist >= 4,
     (sh.prop === undefined || /paperback|coffee cup|guitar|camera/.test(sh.prop)) && !/clipboard|glove|keys|dish towel|pencil|mug/.test(pr),
-    !(sh.framingId === "close" && m.body === true) && !(sh.prop !== undefined && m.hands === true),
-    /place \S+ \(/.test(sh.why) && /hometown/.test(sh.why) && /pre-season cast photo/.test(pr) && /where the person lives/.test(pr) && (c.hometown ? pr.includes(c.hometown.trim()) : true),
+    !(sh.prop !== undefined && po.fixedHands),
+    /place \S+ \(/.test(sh.why) && /hometown/.test(sh.why) && /on location/.test(pr) && (c.hometown ? pr.includes(c.hometown.trim()) : true),
     placeKindsAll.filter((x) => x === "work-adjacent").length <= 3 && !/\b(?:scrubs|turnout gear|apron|badge|lanyard|uniform|hard hat|stethoscope)\b/i.test(pr.replace("never a uniform, scrubs, apron, badge or work gear", "")),
+    /An ordinary person, not a model/.test(pr) && (!c.vocation || pr.includes(`a ${c.age}-year-old ${c.vocation}`)),
+    !/gap/i.test(pr) && !/\.\s+(?:A |An )?(?:light )?(?:freckles|tattoo|dimples|nose stud|stud earring|glasses|beauty mark)/i.test(pr),
   ];
+  if (gapInCard) cardDefects.push(`${c.id} ${c.name}: the CARD names a tooth gap (the prompt never passes it): ${pcAny?.distinguishingMark ?? ""} / ${pcAny?.facialFeatures ?? ""}`);
   if (r.includes(false)) allOk = false;
-  rows.push(`${c.id} ${c.name.padEnd(24)} ${r.map((x, i) => `R${i + 1}:${x ? "ok" : "NO"}`).join(" ")}  (${sh.framingId}, ${sh.placeId}, ${sh.lightId}, ${sh.momentId}, face distance ${dist})`);
+  rows.push(`${c.id} ${c.name.padEnd(24)} ${r.map((x, i) => `R${i + 1}:${x ? "ok" : "NO"}`).join(" ")}  (${sh.trait}, ${sh.momentId.split("+")[0]}, ${sh.momentId.split("+")[1]}, ${sh.placeId}, ${sh.lightId}, face distance ${dist})`);
 }
 console.log("==== CHECKLIST (Kevin 2026-11-15) ====");
 for (const x of CHECK) console.log(x);
 console.log("\nMarked per prompt (automatic checks on the built prompt and its cards; R3 and R1's tone still need Kevin's eye on the photo):");
 for (const x of rows) console.log(x);
+console.log("Card defects (R11 / R12 NO from the CARD itself: the text builder fixes these at the source):");
+for (const d of cardDefects) console.log("  " + d);
 console.log("Note: an R10 NO means the CARD's own wardrobe or style names a badge, lanyard or uniform (the text builder owns that: the photo builder only passes it through).");
 console.log(allOk ? "ALL 15 PASS R1-R8\n" : "SOME FAIL\n");
 console.log(out.join("\n"));

@@ -13,6 +13,8 @@
  */
 import { fnv1a } from "../domain/num";
 import table from "../domain/castRealism.json";
+import { dealPerformances, perfCaps, type Gaze, type TraitId, type PlaceFlags } from "./performance";
+export type { Gaze };
 
 interface CapSpec { share: number; min: number }
 /** The cap of a kind in a cast of `n`, read from the shared casting-director table (castRealism.json): floor(share * n), never below min. */
@@ -20,14 +22,12 @@ export function capOf(kind: string, n: number): number {
   const cap = (table.kinds as Record<string, { cap: CapSpec }>)[kind]!.cap;
   return Math.max(cap.min, Math.floor(cap.share * n + 1e-9));
 }
-/** The caps for a cast of `n` (15: place 3, framing 5, light 4, prop 2, eyes on the lens 9, face value 3). */
+/** The caps for a cast of `n` (15: place 3, light 4, prop 2, eyes on the lens 9, face value 3). */
 export const shotCaps = (n: number) => ({
-  place: capOf("place", n), framing: capOf("framing", n), light: capOf("light", n), prop: capOf("prop", n),
+  place: capOf("place", n), light: capOf("light", n), prop: capOf("prop", n),
   lensGaze: capOf("gaze", n), faceValue: capOf("face-value", n),
 });
 
-export type Gaze = "lens" | "off" | "aside" | "down";
-export type Bucket = "expressive" | "watchful" | "easy" | "driven";
 
 export interface ShotSheet {
   id: string;
@@ -66,12 +66,15 @@ export interface ShotCard {
   lightId: string;
   light: string;
   momentId: string;
-  /** The moment: what the person is doing and how they hold themselves (no subject; a participial phrase). */
+  /** The moment: the expression at full strength, the posture, what the hands do (no subject; phrases). */
   moment: string;
   gaze: Gaze;
+  /** One word for who the person is at a glance (loud, sly, shy, intense, warm, guarded, cocky, dreamy, playful, poised), derived from their sheet. */
+  trait: TraitId;
+  expression: string; posture: string; hands: string;
+  smiles: boolean; closedHalf: boolean;
   /** A held prop (something a person holds at home), only when the sheet gives a reason (vocation / identity), at most 2 per cast. */
   prop?: string;
-  bucket: Bucket;
   /** Which of the person's own sheet lines the moment was derived from, for the report: "type the jock (athletic ease, ...); demeanor ...". */
   why: string;
   /** The kind of place: home-interior, home-exterior, town, nature, work-adjacent. */
@@ -136,25 +139,25 @@ interface Place {
 }
 
 export const PLACES: readonly Place[] = [
-  { id: "home-kitchen", kind: "home-interior", outdoor: false, phrase: "the person's own kitchen in {town}, {home}, the counters and a window in plain view behind", perch: "the kitchen counter", lean: "the kitchen island", seat: "a kitchen stool" },
-  { id: "home-living-room", kind: "home-interior", outdoor: false, phrase: "the person's own living room in {town}, {home}, a sofa, shelves and family photos in view behind", perch: "the arm of the sofa", lean: "the bookshelf", seat: "the sofa" },
-  { id: "family-table", kind: "home-interior", outdoor: false, phrase: "a family dining table in {town}, {home}, a window and a sideboard behind", lean: "the sideboard", seat: "a dining chair" },
-  { id: "window-seat", kind: "home-interior", outdoor: false, phrase: "a bright window seat in the person's apartment in {town}, the street visible outside", lean: "the window frame", seat: "the window seat" },
-  { id: "front-porch", kind: "home-exterior", outdoor: true, phrase: "the front porch of the person's home in {town}, {out}", lean: "the porch post", seat: "the porch steps" },
-  { id: "back-yard", kind: "home-exterior", outdoor: true, phrase: "the back yard of the person's home in {town}, a fence and trees behind, {out}", lean: "the fence", seat: "a lawn chair", walk: true },
-  { id: "balcony", kind: "home-exterior", outdoor: true, phrase: "an apartment balcony in {town}, rooftops and open sky behind", lean: "the balcony railing", seat: "a balcony chair" },
-  { id: "stoop", kind: "home-exterior", outdoor: true, phrase: "the stoop of the person's building in {town}, a brick wall and the street behind", lean: "the stoop railing", seat: "the stoop" },
-  { id: "diner-booth", kind: "town", outdoor: false, phrase: "a corner booth in a local diner in {town}, a window and a counter behind", seat: "the booth" },
+  { id: "home-kitchen", kind: "home-interior", outdoor: false, phrase: "the person's own kitchen in {town}, {home}, the counters and a window in plain view behind", perch: "the kitchen counter", lean: "the kitchen island", seat: "on a kitchen stool" },
+  { id: "home-living-room", kind: "home-interior", outdoor: false, phrase: "the person's own living room in {town}, {home}, a sofa, shelves and family photos in view behind", perch: "the arm of the sofa", lean: "the bookshelf", seat: "on the sofa" },
+  { id: "family-table", kind: "home-interior", outdoor: false, phrase: "a family dining table in {town}, {home}, a window and a sideboard behind", lean: "the sideboard", seat: "in a dining chair" },
+  { id: "window-seat", kind: "home-interior", outdoor: false, phrase: "a bright window seat in the person's apartment in {town}, the street visible outside", lean: "the window frame", seat: "on the window seat" },
+  { id: "front-porch", kind: "home-exterior", outdoor: true, phrase: "the front porch of the person's home in {town}, {out}", lean: "the porch post", seat: "on the porch steps" },
+  { id: "back-yard", kind: "home-exterior", outdoor: true, phrase: "the back yard of the person's home in {town}, a fence and trees behind, {out}", lean: "the fence", seat: "in a lawn chair", walk: true },
+  { id: "balcony", kind: "home-exterior", outdoor: true, phrase: "an apartment balcony in {town}, rooftops and open sky behind", lean: "the balcony railing", seat: "in a balcony chair" },
+  { id: "stoop", kind: "home-exterior", outdoor: true, phrase: "the stoop of the person's building in {town}, a brick wall and the street behind", lean: "the stoop railing", seat: "on the stoop" },
+  { id: "diner-booth", kind: "town", outdoor: false, phrase: "a corner booth in a local diner in {town}, a window and a counter behind", seat: "in the booth" },
   { id: "main-street", kind: "town", outdoor: true, phrase: "the main street of {town}, shopfronts behind, {out}", lean: "a shopfront wall", walk: true },
-  { id: "park-bench", kind: "town", outdoor: true, phrase: "a park bench in {town}, trees and a path behind, {out}", seat: "the bench", walk: true },
-  { id: "ball-field", kind: "town", outdoor: true, phrase: "the fence of a local ball field in {town}, bleachers behind, {out}", lean: "the fence", seat: "the bleachers" },
+  { id: "park-bench", kind: "town", outdoor: true, phrase: "a park bench in {town}, trees and a path behind, {out}", seat: "on the bench", walk: true },
+  { id: "ball-field", kind: "town", outdoor: true, phrase: "the fence of a local ball field in {town}, bleachers behind, {out}", lean: "the fence", seat: "on the bleachers" },
   { id: "farmers-market", kind: "town", outdoor: true, phrase: "a farmers market in {town}, stalls and awnings behind, {out}", lean: "a stall table", walk: true },
-  { id: "coffee-shop", kind: "town", outdoor: false, phrase: "a neighborhood coffee shop in {town}, a window and the street behind", seat: "a window stool", lean: "the counter" },
-  { id: "lakeside", kind: "nature", outdoor: true, phrase: "a lakeside dock near {town}, still water and trees behind, {out}", seat: "the dock", perch: "the end of the dock", walk: true },
-  { id: "trail", kind: "nature", outdoor: true, phrase: "a trail near {town}, trees and open sky behind, {out}", lean: "a tree", seat: "a log", walk: true },
+  { id: "coffee-shop", kind: "town", outdoor: false, phrase: "a neighborhood coffee shop in {town}, a window and the street behind", seat: "on a window stool", lean: "the counter" },
+  { id: "lakeside", kind: "nature", outdoor: true, phrase: "a lakeside dock near {town}, still water and trees behind, {out}", seat: "on the dock", perch: "the end of the dock", walk: true },
+  { id: "trail", kind: "nature", outdoor: true, phrase: "a trail near {town}, trees and open sky behind, {out}", lean: "a tree", seat: "on a log", walk: true },
   { id: "open-field", kind: "nature", outdoor: true, phrase: "an open field near {town}, tall grass and a long horizon, {out}", lean: "a fence post", walk: true },
-  { id: "work-plaza", kind: "work-adjacent", outdoor: true, phrase: "a bench in a plaza near where the person works in {town}, in their own everyday clothes, {out}", seat: "the bench", walk: true },
-  { id: "work-cafe", kind: "work-adjacent", outdoor: false, phrase: "a café table across from where the person works in {town}, in their own everyday clothes, a window behind", seat: "a café chair" },
+  { id: "work-plaza", kind: "work-adjacent", outdoor: true, phrase: "a bench in a plaza near where the person works in {town}, in their own everyday clothes, {out}", seat: "on the bench", walk: true },
+  { id: "work-cafe", kind: "work-adjacent", outdoor: false, phrase: "a café table across from where the person works in {town}, in their own everyday clothes, a window behind", seat: "in a café chair" },
   { id: "work-street", kind: "work-adjacent", outdoor: true, phrase: "the sidewalk outside a shop near where the person works in {town}, in their own everyday clothes, {out}", lean: "the shop wall", walk: true },
 ];
 
@@ -204,142 +207,26 @@ export function placeText(place: Place, hometown: string | undefined): string {
 
 interface Light { id: string; phrase: string; where: "in" | "out" | "any" }
 export const LIGHTS: readonly Light[] = [
-  { id: "window", phrase: "soft side light from a big window, mid-morning, the room bright", where: "in" },
-  { id: "bright-room", phrase: "bright, even daylight filling the room from large windows", where: "in" },
-  { id: "overcast", phrase: "soft overcast daylight, even and flattering", where: "any" },
-  { id: "golden", phrase: "low golden-hour sun, warm and soft, late afternoon", where: "any" },
-  { id: "shade", phrase: "open shade, bright and even, a soft catchlight in the eyes", where: "out" },
-  { id: "lamps", phrase: "warm evening lamps with soft fill light, the room bright enough to read", where: "in" },
-  { id: "afternoon", phrase: "bright afternoon sun, warm with soft shadows", where: "out" },
+  { id: "window", phrase: "ordinary window light from the side, mid-morning", where: "in" },
+  { id: "bright-room", phrase: "ordinary daylight coming in through the windows", where: "in" },
+  { id: "overcast", phrase: "flat overcast daylight", where: "any" },
+  { id: "golden", phrase: "low late-afternoon sun, warm", where: "any" },
+  { id: "shade", phrase: "open shade, even daylight", where: "out" },
+  { id: "lamps", phrase: "the room's own warm evening lamps with a little window light", where: "in" },
+  { id: "afternoon", phrase: "afternoon sun with ordinary shadows", where: "out" },
 ];
-
-/** Cast photos are an avatar on the roster and a large image on the card: the face is always large. No full-body shot, no wide seated shot. */
-interface Framing { id: string; phrase: string; lens: string; cap?: number }
-export const FRAMINGS: readonly Framing[] = [
-  { id: "close", phrase: "a close-up, head and shoulders, the face filling about half the frame", lens: "an 85mm lens" },
-  { id: "half", phrase: "a half-length shot from the waist up, the face large in the frame", lens: "a 50mm lens" },
-  // a few only (per-cast cap 3 on top of the table's framing cap)
-  { id: "three-quarter", phrase: "a three-quarter-length shot to mid-thigh, the face still large and clear in the upper third of the frame", lens: "a 35mm lens", cap: 3 },
-];
-
-/** Level portraits only: at or slightly above eye level, the camera held level (no tilt, nothing from below the chin). */
-export const ANGLES: readonly string[] = [
-  "the camera level, at eye level",
-  "the camera level, slightly above eye level",
-  "the camera level, at eye level, the person turned slightly to one side",
-];
-
-// ---------------------------------------------------------------------------------------------------- moments
-
-type Needs = "any" | "perch" | "lean" | "seat" | "walk";
-/**
- * One pose a cast unit photographer gets. `for` lists the casting labels it fits (the casting read is the first source),
- * `words` are matched against the casting read (3 points), the demeanor (2) and the voice energy (1): so the moment can be
- * traced to the person's own lines. `body`: needs the body in frame (not for a close-up). `hands`: uses both hands (no held prop).
- */
-interface Moment { id: string; bucket: Bucket; needs: Needs; gaze: Gaze; text: string; for: readonly string[]; words: RegExp; body?: boolean; hands?: boolean }
-
-export const MOMENTS: readonly Moment[] = [
-  { id: "laugh-back", bucket: "expressive", needs: "any", gaze: "off", for: ["the class clown", "the life of the party", "the wildcard", "the charmer"], words: /\b(?:laugh\w*|grin|goofy|mischief|loud|big laugh)\b/i,
-    text: "caught mid-laugh, head tipped back, eyes crinkled, looking off to one side at the joke" },
-  { id: "arms-wide", bucket: "expressive", needs: "any", gaze: "lens", body: true, hands: true, for: ["the life of the party", "the showstopper", "the firecracker"], words: /\b(?:animated|hands|lit up|loud|warm|bubbly)\b/i,
-    text: "arms thrown wide mid-story, mouth open in the middle of a word, eyebrows high, talking straight into the lens" },
-  { id: "perched-grin", bucket: "expressive", needs: "perch", gaze: "lens", body: true, for: ["the class clown", "the jock", "the wildcard", "the charmer"], words: /\b(?:grin|mischief|easy|loose)\b/i,
-    text: "perched on {perch}, leaning toward the camera with a big lopsided grin, looking into the lens" },
-  { id: "over-shoulder", bucket: "expressive", needs: "any", gaze: "lens", for: ["the flirt", "the charmer", "the showstopper", "the rebel"], words: /\b(?:flirt\w*|playful|eye contact|confident|assured|cool)\b/i,
-    text: "looking back over {poss} shoulder at the camera with a bold half-smile" },
-  { id: "lean-chin-up", bucket: "driven", needs: "lean", gaze: "lens", body: true, for: ["the rebel", "the straight shooter", "the firecracker", "the competitor"], words: /\b(?:cool|stare|unbothered|level|argue|chin up|steady)\b/i,
-    text: "leaning back against {lean}, arms loose, chin up, a challenging half-smile into the lens" },
-  { id: "chin-up", bucket: "driven", needs: "any", gaze: "lens", for: ["the competitor", "the firecracker", "the jock", "the underdog"], words: /\b(?:chin up|set jaw|focused|ready|competitive|quick)\b/i,
-    text: "chin up, shoulders squared, a direct, challenging look into the lens, jaw set" },
-  { id: "comp-grin", bucket: "driven", needs: "any", gaze: "lens", for: ["the jock", "the competitor", "the wildcard"], words: /\b(?:competitive|grin|athletic|loose shoulders|lopsided|spark)\b/i,
-    text: "a competitive lopsided grin, one shoulder dropped, shoulders loose, looking into the lens" },
-  { id: "stride-grin", bucket: "driven", needs: "walk", gaze: "lens", body: true, for: ["the jock", "the wildcard", "the hustler"], words: /\b(?:athletic|restless|motion|forward|spark|energy)\b/i,
-    text: "mid-stride toward the camera with a lopsided grin, shoulders loose, clothes moving, eyes on the lens" },
-  { id: "hands-point", bucket: "expressive", needs: "any", gaze: "lens", body: true, hands: true, for: ["the hustler", "the life of the party", "the charmer", "the brain"], words: /\b(?:sharp|salesman|forward|animated|hands|talk\w*)\b/i,
-    text: "hands mid-gesture as if making a point, an animated face, eyes on the lens" },
-  { id: "think-aside", bucket: "watchful", needs: "any", gaze: "off", for: ["the brain", "the dreamer", "the mastermind in plain sight"], words: /\b(?:observant|thoughtful|composed|knowing|unreadable|dreamy)\b/i,
-    text: "head tilted, looking just off-camera with a thoughtful half-smile" },
-  { id: "listening", bucket: "watchful", needs: "any", gaze: "off", for: ["the brain", "the wise head", "the quiet storm", "the underdog"], words: /\b(?:calm|patient|watchful|listen\w*|quiet)\b/i,
-    text: "listening to someone out of frame, head slightly tilted, a small amused look just starting" },
-  { id: "still-direct", bucket: "watchful", needs: "any", gaze: "lens", for: ["the quiet storm", "the mastermind in plain sight", "the straight shooter", "the wise head"], words: /\b(?:still|private|level|unreadable|steady|composed)\b/i,
-    text: "still and level, a calm, direct look into the lens, a faint private smile" },
-  { id: "soft-smile", bucket: "easy", needs: "any", gaze: "lens", for: ["the sweetheart", "the natural", "the gentle giant", "the parent of the house"], words: /\b(?:warm|soft|open|kind|easy|unforced)\b/i,
-    text: "a warm, unforced smile, head tilted a little, eyes on the lens, shoulders relaxed" },
-  { id: "arms-crossed", bucket: "easy", needs: "any", gaze: "lens", body: true, hands: true, for: ["the parent of the house", "the wise head", "the gentle giant", "the distinguished one"], words: /\b(?:steady|kind|patient|solid|arms|crossed)\b/i,
-    text: "arms loosely crossed, kind and steady eyes, a patient smile into the lens" },
-  { id: "sofa-lounge", bucket: "easy", needs: "seat", gaze: "lens", body: true, for: ["the distinguished one", "the natural", "the charmer", "the free spirit"], words: /\b(?:amused|at ease|relaxed|easy|effortless\w*)\b/i,
-    text: "relaxed back on {seat}, one arm along the back, an amused look into the lens" },
-  { id: "drift", bucket: "easy", needs: "any", gaze: "off", for: ["the dreamer", "the free spirit", "the underdog"], words: /\b(?:dreamy|drifting|gaze|sunny|loose|hopeful)\b/i,
-    text: "gaze drifting past the lens toward a window, a soft half-smile, shoulders dropped" },
-  { id: "hair-back", bucket: "easy", needs: "any", gaze: "lens", for: ["the underdog", "the sweetheart", "the flirt"], words: /\b(?:shy|earnest|hopeful|soft|playful)\b/i,
-    text: "one hand running back through the hair, a shy half-smile, eyes on the lens" },
-  { id: "face-up", bucket: "easy", needs: "any", gaze: "off", for: ["the free spirit", "the dreamer", "the natural"], words: /\b(?:sunny|dreamy|loose|easy)\b/i,
-    text: "face tipped up toward the light, eyes half closed, a relaxed open smile" },
-  { id: "clap", bucket: "driven", needs: "any", gaze: "lens", body: true, hands: true, for: ["the competitor", "the jock", "the firecracker"], words: /\b(?:ready|focused|competitive|quick|bright-eyed)\b/i,
-    text: "mid-clap and grinning, caught in the middle of a pep talk, looking into the lens" },
-  { id: "head-tilt", bucket: "expressive", needs: "any", gaze: "lens", for: ["the flirt", "the charmer"], words: /\b(?:playful|eye contact|head tilt|flirt\w*|easy smile)\b/i,
-    text: "head tilted, playful eye contact, one eyebrow raised, a teasing half-smile" },
-  { id: "hip", bucket: "expressive", needs: "any", gaze: "lens", body: true, hands: true, for: ["the showstopper", "the hustler", "the charmer"], words: /\b(?:polished|posed|owns|sharp|salesman)\b/i,
-    text: "weight on one hip, one hand on the hip, poised, chin lifted, owning the frame" },
-  { id: "elbows-knees", bucket: "driven", needs: "seat", gaze: "lens", body: true, hands: true, for: ["the underdog", "the competitor", "the straight shooter"], words: /\b(?:earnest|hopeful|focused|level)\b/i,
-    text: "leaning forward on {seat}, elbows on knees, hands clasped, an earnest look into the lens" },
-  { id: "laugh-down", bucket: "expressive", needs: "any", gaze: "down", for: ["the class clown", "the life of the party", "the sweetheart"], words: /\b(?:laugh\w*|grin|giggl\w*|warm)\b/i,
-    text: "caught mid-laugh, looking down, shoulders shaking, eyes crinkled shut" },
-  { id: "squint-grin", bucket: "expressive", needs: "any", gaze: "lens", for: ["the wildcard", "the free spirit", "the class clown"], words: /\b(?:lopsided|spark|restless|sunny|mischief)\b/i,
-    text: "squinting a little with a crooked grin, caught mid-laugh, looking into the lens" },
-  { id: "eyebrow", bucket: "watchful", needs: "any", gaze: "lens", for: ["the straight shooter", "the brain", "the rebel"], words: /\b(?:dry|wry|knowing|brow|deadpan)\b/i,
-    text: "one eyebrow raised, a dry, wry half-smile, looking into the lens" },
-  { id: "look-away-cool", bucket: "watchful", needs: "any", gaze: "off", for: ["the rebel", "the competitor", "the jock", "the straight shooter", "the charmer"], words: /\b(?:cool|stare|unbothered|assured|confident|loose)\b/i,
-    text: "looking away from the camera, chin lifted, a cool, unbothered half-smile" },
-  { id: "laugh-friend", bucket: "easy", needs: "any", gaze: "off", for: ["the charmer", "the natural", "the flirt", "the free spirit", "the sweetheart"], words: /\b(?:easy|relaxed|assured|at home|plays|unforced)\b/i,
-    text: "turned a little toward a friend out of frame, laughing easily, relaxed and at home" },
-  { id: "focus-off", bucket: "driven", needs: "any", gaze: "off", for: ["the competitor", "the jock", "the firecracker", "the underdog", "the hustler"], words: /\b(?:focused|ready|set jaw|coiled|spring|stance|eyes)\b/i,
-    text: "eyes locked on something off to the side, jaw set, a faint confident smile, ready" },
-  { id: "neck-roll", bucket: "driven", needs: "any", gaze: "aside", for: ["the competitor", "the jock", "the wildcard"], words: /\b(?:athletic|loose|coiled|ready|restless)\b/i,
-    text: "rolling a shoulder and loosening the neck, eyes narrowed with a half-grin on someone off-camera" },
-  // only for a sheet that reads sly
-  { id: "sly-glance", bucket: "watchful", needs: "any", gaze: "aside", for: ["the mastermind in plain sight"], words: /\b(?:sly|scheming|calculat\w*|gives nothing away)\b/i,
-    text: "a knowing sideways glance with a closed-mouth smile" },
-];
-
-const BUCKET_WORDS: Record<Bucket, RegExp> = {
-  expressive: /\b(?:charmer|firecracker|class clown|life of the party|flirt|wildcard|showstopper|loud|bubbly|bright|chatty|animated|manic|goofy|big laugh|playful|mischief|grin|warm|lit up|talkative|exuberant|fan favorite)\b/gi,
-  watchful: /\b(?:brain|quiet storm|rebel|mastermind|straight shooter|guarded|wary|watchful|cold|dry|reserved|unreadable|flat|clipped|deadpan|stare|composed|observant|private|still|measured|surgical|enigma|sophisticate|sleeper)\b/gi,
-  easy: /\b(?:sweetheart|free spirit|dreamer|natural|gentle giant|parent of the house|wise head|distinguished one|easy|soft|relaxed|sunny|gentle|patient|steady|kind|dreamy|calm|easygoing|laid-back|loose|floater|baby of the house|elder statesperson)\b/gi,
-  driven: /\b(?:jock|competitor|hustler|underdog|sharp|focused|athletic|intense|blunt|forward|ready|driven|ambitious|scrappy|fierce|competitive|set jaw|earnest)\b/gi,
-};
-const BUCKETS: readonly Bucket[] = ["expressive", "watchful", "easy", "driven"];
-
-/** The sheet's own read of how this person carries themselves: casting read and label, demeanor, voice energy, vocation. */
-export function bucketOf(s: ShotSheet, rnd: () => number): Bucket {
-  const text = [s.castingLabel, s.castingRead, s.demeanor, s.energy, s.vocation].filter(Boolean).join(" ; ");
-  const score = (b: Bucket): number => (text.match(BUCKET_WORDS[b]) ?? []).length;
-  const best = Math.max(...BUCKETS.map(score));
-  const top = BUCKETS.filter((b) => score(b) === best);
-  return best === 0 ? pickFrom(rnd, BUCKETS) : top.length === 1 ? top[0]! : pickFrom(rnd, top);
-}
 
 /**
- * How well a moment fits a person, and which of their own lines say so. For a casting type the pose table knows (its label is in a
- * moment's `for` list): the label (6), words in the casting read (3 each), the demeanor (2 each), the voice energy (1 each). For a type
- * it does NOT know (an abstract one such as "the floater" or "the enigma": nothing to derive a pose from), the read carries little, so the
- * demeanor (3 each) and the voice energy (2 each) lead, and a moment of the person's overall bucket (expressive / watchful / easy / driven,
- * read from all their lines) gets a bonus of 2 either way.
+ * ONE PORTRAIT FORMAT for the whole cast, so a sheet of 15 reads as one photographer's series: half-length, mid-torso up, both shoulders and
+ * at least one hand in frame, the camera at the same distance and at eye level, one lens, the head the same size in every photo, the eyes on
+ * the same line, room above the head. Nothing about framing, lens or angle is dealt: all variety comes from place, light, pose, hands and expression.
  */
-export function momentFit(m: Moment, s: ShotSheet, bucket?: Bucket): { score: number; why: string[] } {
-  const why: string[] = [];
-  let score = 0;
-  const known = s.castingLabel !== undefined && MOMENTS.some((x) => x.for.includes(s.castingLabel!.toLowerCase()));
-  if (s.castingLabel !== undefined && m.for.includes(s.castingLabel.toLowerCase())) { score += 6; why.push(`type "${s.castingLabel}"`); }
-  const hits = (t: string | undefined): string[] => (t ? (t.match(new RegExp(m.words.source, "gi")) ?? []) : []);
-  const names = (xs: string[]): string => [...new Set(xs.map((x) => x.toLowerCase()))].join(", ");
-  const r = hits(s.castingRead); if (r.length > 0) { score += 3 * r.length; why.push(`read "${s.castingRead}" (${names(r)})`); }
-  const d = hits(s.demeanor); if (d.length > 0) { score += (known ? 2 : 3) * d.length; why.push(`demeanor (${names(d)})`); }
-  const e = hits(s.energy); if (e.length > 0) { score += (known ? 1 : 2) * e.length; why.push(`voice (${names(e)})`); }
-  if (bucket !== undefined && m.bucket === bucket) { score += 2; why.push(`${bucket} overall`); }
-  return { score, why };
-}
+export const PORTRAIT_FORMAT = {
+  id: "portrait",
+  phrase: "a half-length portrait from mid-torso up, both shoulders and at least one hand in frame, the head about a quarter of the frame height, the eyes on the upper-third line, room above the head",
+  angle: "the camera level, at eye level",
+  lens: "a 50mm lens",
+} as const;
 
 /** Props: only a thing a person would hold AT HOME, and only when the sheet gives a reason (the vocation or the identity line). No work props. */
 const PROP_RULES: ReadonlyArray<readonly [RegExp, string]> = [
@@ -409,21 +296,18 @@ function pickCapped<T>(rnd: () => number, cands: readonly T[], used: Map<string,
 
 const poss = (g: ShotSheet["genderPresentation"]): string => (g === "man" ? "his" : g === "woman" ? "her" : "their");
 
-/** Deal one shot card per sheet. Caps (cast of 15): no place on more than 3, no framing on more than 6 (three-quarter on 3), no light on more than 4, a prop on at most 2, eyes on the lens on at most 9; the moment is a consistent set with the place and the framing. */
+/** Deal one shot card per sheet. One portrait format for everyone; caps (cast of 15): no place on more than 3, no light on more than 4, a prop on at most 2, closed half-smile on at most 3, at least 4 not smiling, eyes on the lens within the table's cap. */
 export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCard> {
   const rnd = stream(castSeed(sheets, "shot-cards"));
   const caps = shotCaps(sheets.length);
-  const k = scale(sheets.length);
-  const placeUsed = new Map<string, number>(), kindUsed = new Map<string, number>(), placeWhy = new Map<string, string>(), framingUsed = new Map<string, number>(), lightUsed = new Map<string, number>();
+  const placeUsed = new Map<string, number>(), kindUsed = new Map<string, number>(), placeWhy = new Map<string, string>(), lightUsed = new Map<string, number>();
   const order = shuffled(rnd, byId(sheets));
-  const buckets = new Map(order.map((s) => [s.id, bucketOf(s, rnd)] as const));
   // the kinds: at most 5 of 15 in any one kind (the table's place-kind cap), at most 3 near work (place-work); a couple of people near work
   const kindCap = (kind: PlaceKind): number => (kind === "work-adjacent" ? capOf("place-work", sheets.length) : capOf("place-kind", sheets.length));
   const workIds = new Set(order.filter((s) => (s.vocation ?? "").trim() !== "").slice(0, Math.min(2, Math.max(0, Math.floor(sheets.length / 10)))).map((s) => s.id));
-  const base = new Map<string, { place: Place; light: Light; framing: Framing; angle: string; prop?: string }>();
+  const base = new Map<string, { place: Place; light: Light; prop?: string }>();
   let props = 0;
   for (const s of order) {
-
     // The place is somewhere from the person's ordinary day, scored against their own sheet (hometown, biography hobbies, type); the cap per
     // place and per KIND (home inside, home outside, town, nature, near work) spreads the cast. Only a couple of people are near work.
     const open = (p: Place): boolean => count(placeUsed, p.id) < caps.place && count(kindUsed, p.kind) < kindCap(p.kind) && placeFit(p, s) !== undefined;
@@ -440,54 +324,28 @@ export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCar
     const lights = LIGHTS.filter((l) => l.where === "any" || l.where === (place.outdoor ? "out" : "in"));
     const light = pickCapped(rnd, lights, lightUsed, (l) => l.id, caps.light);
     bump(lightUsed, light.id);
-    const framing = pickCapped(rnd, FRAMINGS, framingUsed, (f) => f.id, (f) => Math.min(caps.framing, (f.cap ?? caps.framing) * k));
-    bump(framingUsed, framing.id);
-    const angle = pickFrom(rnd, ANGLES);
     const prop = props < caps.prop ? propFor(s) : undefined;
     if (prop !== undefined) props++;
-    base.set(s.id, { place, light, framing, angle, ...(prop !== undefined ? { prop } : {}) });
+    base.set(s.id, { place, light, ...(prop !== undefined ? { prop } : {}) });
   }
-  // Moments: every (person, moment) pair that is consistent with that person's place, framing and prop is scored from their own
-  // sheet lines; the best pairs are taken first, so nobody is left with a pose their sheet does not support, and no moment repeats.
+  // The performance: expression at full strength, posture and hands, from the person's own sheet; the caps are kept across the cast.
+  const flags = new Map<string, PlaceFlags>([...base].map(([id, b]) => [id, { ...(b.place.perch ? { perch: b.place.perch } : {}), ...(b.place.lean ? { lean: b.place.lean } : {}), ...(b.place.seat ? { seat: b.place.seat } : {}) }] as const));
+  const perfSheets = order.map((s) => ({ id: s.id, ...(s.castingLabel ? { castingLabel: s.castingLabel } : {}), ...(s.castingRead ? { castingRead: s.castingRead } : {}),
+    ...(s.demeanor ? { demeanor: s.demeanor } : {}), ...(s.energy ? { energy: s.energy } : {}), ...(s.genderPresentation ? { genderPresentation: s.genderPresentation } : {}),
+    ...(base.get(s.id)!.prop ? { prop: base.get(s.id)!.prop } : {}) }));
+  const perf = dealPerformances(perfSheets, flags, rnd, perfCaps(sheets.length, caps.lensGaze));
   const sheetById = new Map(sheets.map((s) => [s.id, s] as const));
-  const pairs: { id: string; m: Moment; score: number; why: string[]; tie: number }[] = [];
-  for (const s of order) {
-    const b = base.get(s.id)!;
-    for (const m of MOMENTS) {
-      if (m.needs !== "any" && !(m.needs === "walk" ? b.place.walk === true : b.place[m.needs] !== undefined)) continue;
-      if (b.framing.id === "close" && m.body === true) continue;               // a close-up cannot show the body
-      if (b.prop !== undefined && m.hands === true) continue;                  // both hands busy: nothing held
-      const fit = momentFit(m, s, buckets.get(s.id));
-      pairs.push({ id: s.id, m, score: fit.score, why: fit.why, tie: rnd() });
-    }
-  }
-  pairs.sort((a, b) => b.score - a.score || a.tie - b.tie);
-  const chosen = new Map<string, typeof pairs[number]>();
-  const momentUsed = new Set<string>();
-  let lensGaze = 0;
-  for (const pr of pairs) {
-    if (chosen.has(pr.id) || momentUsed.has(pr.m.id)) continue;
-    if (pr.m.gaze === "lens" && lensGaze >= caps.lensGaze) continue;
-    chosen.set(pr.id, pr); momentUsed.add(pr.m.id); if (pr.m.gaze === "lens") lensGaze++;
-  }
-  // A person still without a moment (a pool this small cannot happen in a cast of 15): the best repeat that is consistent.
-  for (const s of order) {
-    if (chosen.has(s.id)) continue;
-    const cand = pairs.find((x) => x.id === s.id);
-    if (cand !== undefined) chosen.set(s.id, cand);
-  }
   const out = new Map<string, ShotCard>();
   for (const s of order) {
-    const b = base.get(s.id)!, pr = chosen.get(s.id)!, sheet = sheetById.get(s.id)!;
-    const text = pr.m.text.replace(/\{perch\}/g, b.place.perch ?? "").replace(/\{lean\}/g, b.place.lean ?? "")
-      .replace(/\{seat\}/g, b.place.seat ?? "").replace(/\{poss\}/g, poss(sheet.genderPresentation));
+    const b = base.get(s.id)!, pf = perf.get(s.id)!, sheet = sheetById.get(s.id)!;
     out.set(s.id, {
       placeId: b.place.id, place: placeText(b.place, sheet.hometown), outdoor: b.place.outdoor, placeKind: b.place.kind,
-      framingId: b.framing.id, framing: b.framing.phrase, angle: b.angle, lens: b.framing.lens,
+      framingId: PORTRAIT_FORMAT.id, framing: PORTRAIT_FORMAT.phrase, angle: PORTRAIT_FORMAT.angle, lens: PORTRAIT_FORMAT.lens,
       lightId: b.light.id, light: b.light.phrase,
-      momentId: pr.m.id, moment: text, gaze: pr.m.gaze,
-      ...(b.prop !== undefined ? { prop: b.prop } : {}), bucket: buckets.get(s.id)!,
-      why: `pose from ${pr.why.length > 0 ? pr.why.join("; ") : "no line of the sheet matched: dealt"} | ${placeWhy.get(s.id)!}`,
+      momentId: `${pf.expressionId}+${pf.postureId}`, moment: pf.moment, gaze: pf.gaze,
+      trait: pf.trait, expression: pf.expression, posture: pf.posture, hands: pf.hands, smiles: pf.smiles, closedHalf: pf.closedHalf,
+      ...(b.prop !== undefined ? { prop: b.prop } : {}),
+      why: `${pf.why} | ${placeWhy.get(s.id)!}`,
     });
   }
   return out;
@@ -521,8 +379,8 @@ const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw
     { v: J.wide }, { v: J.narrow }, { v: J.long },
   ],
   neck: [
-    { v: "a long, slender neck and narrow shoulders", pin: /\bslender neck\b/i, build: "slender" },
-    { v: "a slim neck and sloping shoulders", build: "slender" },
+    { v: "a long, slender neck", pin: /\bslender neck\b/i, build: "slender" },
+    { v: "a slim neck", build: "slender" },
     { v: "an average neck and even shoulders", build: "mid" },
     { v: "a strong neck and square shoulders", build: "mid" },
     { v: "a thick neck and broad, heavy shoulders", pin: /\bthick neck\b/i, build: "thick" },
@@ -586,9 +444,9 @@ const valuesOf = (axis: Axis): readonly FaceValue[] => (axis === "shape" ? SHAPE
 /** The build class the written height and build reads as, so the dealt neck and shoulders agree with it. */
 export function buildClassOf(build: string | undefined): BuildClass | undefined {
   if (!build) return undefined;
-  if (/\b(?:slight|slender|petite|lean|lanky|wiry|willowy|thin|light-boned|narrow)\b/i.test(build)) return "slender";
-  if (/\b(?:muscular|solid|solidly|sturdy|athletic|powerful|stocky|heavy|burly|barrel|thick|broad-shouldered|brawny|strong frame)\b/i.test(build)) return "thick";
-  return undefined;
+  const slender = /\b(?:slight|slender|petite|lean|lanky|wiry|willowy|thin|light-boned|narrow)\b/i.test(build);
+  const thick = /\b(?:muscular|solid|solidly|sturdy|athletic|powerful|stocky|heavy|burly|barrel|thick|broad-shouldered|broad shoulders|brawny|strong frame)\b/i.test(build);
+  return slender && thick ? undefined : slender ? "slender" : thick ? "thick" : undefined;   // a lanky frame with broad shoulders is neither: any neck that does not say otherwise
 }
 
 function pinsOf(text: string | undefined): Partial<Record<Axis, string>> {
@@ -658,8 +516,8 @@ export function dealFaceCards(sheets: readonly ShotSheet[]): Map<string, FaceCar
 }
 
 /** The face line of the prompt: the two plain facts that carry the likeness first (face shape and jaw, then brow weight and neck and shoulders), then the finer features. */
-export function faceSentence(f: FaceCard): string {
-  return `Face: ${f.shape} and ${f.jaw}, ${f.brows}, ${f.neck}; also ${f.nose}, ${f.eyes}, ${f.mouth}, and ${f.quirk}.`;
+export function faceSentence(f: FaceCard, mark?: string): string {
+  return `Face: ${f.shape} and ${f.jaw}, ${f.brows}, ${f.neck}; also ${f.nose}, ${f.eyes}, ${f.mouth}, and ${f.quirk}${mark ? `, with ${mark}` : ""}.`;
 }
 
 /** Shot card and face card for every sheet. */

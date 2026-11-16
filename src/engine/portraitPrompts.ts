@@ -97,8 +97,8 @@ export interface PortraitPromptResult {
 
 type Gender = "man" | "woman" | "nonbinary";
 
-const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark|gap)\b/i;
-const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped)\b/i;
+const SIGNATURE_MARK_RE = /\b(?:tattoo\w*|piercing\w*|nose ring|nose stud|stud|studs|hoop|hoops|earrings?|glasses|freckles?|dimples?|beauty mark)\b/i;
+const NOT_SENT_MARK_RE = /\b(?:scars?|scarred|birthmarks?|burns?|burned|chipped|gap-toothed|gap between|tooth gap|teeth gap|gapped)\b/i;
 const AGE_LOOK_BLOCK_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy|sun-creased|older than)\b/i;
 const WORN_WORD_RE = /\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/gi;
 const HAIR_WORD_RE = /\b(?:hair(?:cut|style|do)?|curls?|curly|waves?|wavy|braids?|braided|bun|ponytail|fade|crop|cropped|locs|afro|bob|buzz\w*|bald|mohawk|pixie|lob|bangs?|fringe)\b/i;
@@ -163,30 +163,38 @@ export function signatureMarkClause(mark: string | undefined): string {
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }
 
-const SHOT_OPENER = "An official pre-season cast photo for a reality show, made by the production's unit photographer on location, where the person "
-  + "lives, on an ordinary day of their own life: the person knows they are being photographed and is presented well, "
-  + "and it is a real photograph, not a stock headshot or a snapshot";
-/**
- * The shared closing asks (ORW-480). They replace the old studio recipe (shallow depth of field, "softly out of focus behind"):
- * a production's cast photo: the person reads as their stated age, groomed and at their best, natural (not plastic) skin, a readable
- * place; the hard protections stay (the only person in frame, no text or logos).
- */
-const REAL_PHOTO_TAIL =
-  "Keep the stated age and build exactly: the person reads as that age and looks their best on the day, groomed, with hair and makeup done for the shoot, "
-  + "flattering but real, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear. Natural skin texture, not plastic and not airbrushed. The face stays large, sharp and clear, also in a square crop. "
-  + "The place behind stays readable but is never the subject. Natural hands "
-  + "with five fingers, ordinary real garments with proper seams and fit, nothing held beyond what is stated. "
-  + "The only person in the frame; no text or logos.";
+/** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident, (C) a minimal candid photograph. */
+export type RealismVariant = "press" | "documentary" | "minimal";
+
+const OPENER: Record<RealismVariant, string> = {
+  press: "An unretouched photograph from a reality show's press kit, shot on location by a staff photographer with a full-frame camera, on an ordinary day in the person's own life",
+  documentary: "A plain, honest portrait of a local resident by a newspaper documentary photographer, taken where they live on an ordinary day",
+  minimal: "A candid photograph",
+};
+const TAIL: Record<RealismVariant, string> = {
+  press: "An ordinary member of the public, not a model or an actor: natural asymmetry, visible pores and uneven skin tone with a little shine, ordinary teeth, flyaway hairs, "
+    + "clothes that have been worn and washed, with creases. The place is in normal focus with its real clutter, lit by the ordinary available light there, with its mixed colour, a little sensor grain. "
+    + "Keep the stated age exactly. The only person in the frame; no text or logos.",
+  documentary: "Taken the way a local paper would: available light, the real place in normal focus, nothing retouched, the person looking like themselves, real skin and hair, worn everyday clothes. "
+    + "Keep the stated age exactly. The only person in the frame; no text or logos.",
+  minimal: "The only person in the frame; no text or logos.",
+};
+
+/** Words from the cards that push a glossy, catalogue look: never passed on (the person is ordinary, not polished). */
+/** A clothing item that is work gear or a badge is never passed on (a lanyard, scrubs, an apron: the job does not define the photo). */
+const WORK_GEAR_RE = /\b(?:lanyard|badge|name ?tag|scrubs|uniform|apron|stethoscope|hard hat|turnout|high-vis)\b/i;
+const GLOSS_WORD_RE = /\b(?:glossy|sleek|polished|immaculate|pristine|flawless|perfect|perfectly|stunning|gorgeous|glamorous|glam|camera-ready|airbrushed|designer|sharp|neat|neatly|crisp)\b/gi;
+export function stripGlossWords(t: string): string {
+  return stripWornWords(t.replace(GLOSS_WORD_RE, "").replace(/[\s,]+(?:and|or)\s*(?=[,;.]|$)/gi, "").replace(/^\s*(?:and|or)\s+/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ").replace(/^[\s,;]+|[\s,;]+$/g, "").trim());
+}
 
 /**
  * Build the photo-brief v4 prompt (ORW-480): ONE paragraph from the public facets and the SHOT CARD and FACE CARD dealt
- * across the cast (`dealPortraitPlans`). The place, time of day, framing, angle, light, the moment (what the person is
- * doing, derived from their casting read, demeanor, voice energy), the gaze and any held prop come from the shot card;
- * the face structure from the face card. No name, no job, no season anchor (still stored by the adapter, ignored here).
- * `plan` is the cast's deal for this person; without it the person is dealt alone (the same output for the same person
- * only when they are the whole cast), so a caller with the roster should always pass the cast's plan.
- *
- * The name is accepted for the stable call signature and for the result record; it is not sent.
+ * across the cast (`dealPortraitPlans`). One portrait format for everyone; the place (somewhere from the person's ordinary day), the light,
+ * the performance (expression, posture, hands, from their casting read, demeanor, voice energy) from the shot card; the face structure from
+ * the face card; a line saying the person is ordinary and their grooming, hands, build and clothes fit their life; a minor mark inside the
+ * face sentence (never a tooth gap, never twice). No name, no season anchor (still stored by the adapter, ignored here).
+ * `variant` is the realism wording (press kit by default). `plan` is the cast's deal; without it the person is dealt alone.
  */
 export function buildPortraitPrompt(
   houseguestId: string,
@@ -194,8 +202,9 @@ export function buildPortraitPrompt(
   facets: PublicAppearanceFacets,
   _styleAnchor: string,
   plan?: PortraitPlan,
+  variant: RealismVariant = "press",
 ): PortraitPromptResult {
-  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, presentation } = facets;
+  const { appearance, age, physicalCharacteristics, ethnicity, genderPresentation, vocation, hometown } = facets;
   const look = physicalCharacteristics as PortraitLook | undefined;
   const clean = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
   const pr = PRONOUNS[genderPresentation ?? "none"];
@@ -203,52 +212,55 @@ export function buildPortraitPrompt(
   const card = plan ?? dealPortraitPlans([sheet]).get(houseguestId)!;
   const { shot, face } = card;
 
-  // 2. Who: age, heritage, gender, then the build and skin; the face comes from the face card.
+  // Who: age, heritage, gender, build and skin; the face comes from the face card.
   const noun = genderPresentation === "man" ? "man" : genderPresentation === "woman" ? "woman"
     : genderPresentation === "nonbinary" ? "nonbinary person with a soft androgynous look" : "person";
   const article = age === 8 || age === 11 || age === 18 || (age >= 80 && age <= 89) ? "an" : "a";
   const who = `The subject is ${article} ${age}-year-old ${ethnicity ? `${ethnicity} ` : ""}${noun}`;
   let withClause: string;
-  let faceLine = "";
   if (look) {
-    const bits = [look.skinTone, look.heightBuild].map((x) => stripWornWords(clean(x))).filter((x) => x !== "");
-    // ORW-480: the age is exact in the sentence; no ageing descriptor (laugh lines, "distinguished", "forties ease") reaches the image model
-    bits.push(`looks ${genderPresentation === "man" ? "his" : genderPresentation === "woman" ? "her" : "their"} age, well-kept`);
+    const bits = [look.skinTone, look.heightBuild].map((x) => stripGlossWords(clean(x))).filter((x) => x !== "");
+    // the age is exact in the sentence; no ageing descriptor and no beautifying word reaches the image model
+    bits.push(`looks ${genderPresentation === "man" ? "his" : genderPresentation === "woman" ? "her" : "their"} age`);
     withClause = bits.length > 0 ? ` with ${bits.join(", ")}` : "";
-    faceLine = faceSentence(face);
   } else {
-    const prose = legacyAppearance(appearance);
+    const prose = stripGlossWords(legacyAppearance(appearance));
     withClause = prose !== "" ? ` with ${prose}` : "";
-    faceLine = faceSentence(face);
   }
+  // The person looks like their life: an ordinary person, not a model.
+  const job = clean(vocation), town = clean(hometown);
+  const lifeLine = sentence(`An ordinary person, not a model${job !== "" || town !== "" ? `: a ${age}-year-old ${job !== "" ? job : "resident"}${town !== "" ? ` from ${town}` : ""}` : ""}; `
+    + "their grooming, hands, build and clothes fit that life");
 
-  // 3. Hair: the shoot-day line, or the written cut trimmed and neatened.
-  const photoHair = stripWornWords(clean(look?.photoHair));
-  const writtenHair = look ? stripWornWords(trimWrittenHair(clean(look.hair))) : "";
+  // A minor mark goes inside the face sentence, once (a tooth gap is never sent).
+  const markPhrase = signatureMarkClause(look?.distinguishingMark).replace(/\.$/, "").toLowerCase();
+  const faceLine = faceSentence(face, markPhrase !== "" ? markPhrase : undefined);
+
+  // Hair: the shoot-day line, or the written cut trimmed; the written length and volume stated plainly.
+  const photoHair = stripGlossWords(clean(look?.photoHair));
+  const writtenHair = look ? stripGlossWords(trimWrittenHair(clean(look.hair))) : "";
   const hairLine = photoHair !== "" ? sentence(writtenHair !== "" && !photoHair.toLowerCase().includes(writtenHair.toLowerCase())
-      ? `Hair: ${photoHair} (the cut as written: ${writtenHair}; keep exactly that length and volume, no longer or bigger)` : `Hair: ${photoHair}`)
-    : writtenHair !== "" ? sentence(`Hair: ${writtenHair}, neatly styled`) : "";
+      ? `Hair: ${photoHair} (the cut as written: ${writtenHair}; exactly that length and volume, no longer or bigger)` : `Hair: ${photoHair}`)
+    : writtenHair !== "" ? sentence(`Hair: ${writtenHair}`) : "";
 
-  // 4. Signature features only.
-  const markLine = signatureMarkClause(look?.distinguishingMark);
-
-  // 5. Clothes.
+  // Clothes: what the card says they wear (as worn).
   const wardrobe = Array.isArray(look?.wardrobe)
-    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripWornWords(w.trim())).filter((w) => w !== "")
+    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripGlossWords(w.trim())).filter((w) => w !== "" && !WORK_GEAR_RE.test(w))
     : [];
-  const styleText = stripWornWords(clean(look?.style) !== "" ? clean(look?.style) : presentation.trim());
-  const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}`)
-    : sentence(`Wearing clothes in this style: ${styleText}`);
+  const styleText = stripGlossWords(clean(look?.style) !== "" ? clean(look?.style) : facets.presentation.trim());
+  const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear`)
+    : sentence(`Wearing everyday clothes in this style: ${styleText}`);
 
-  // 6. The shot: place and light, then the moment and any prop.
-  const settingLine = `${sentence(`Setting: ${shot.place}`)} ${sentence(`Light: ${shot.light}`)}`;
+  // The shot: place, light, the performance, any prop.
+  const settingLine = sentence(`Setting: ${shot.place}`);
+  const lightLine = variant === "minimal" ? "" : sentence(`Light: ${shot.light}`);
   const momentLine = sentence(`The moment: ${shot.moment}`);
   const propLine = shot.prop !== undefined ? sentence(`${pr.subj} ${pr.plural ? "are" : "is"} ${shot.prop}`) : "";
+  const format = sentence(`Framing, the same for the whole series: ${shot.framing}, ${shot.angle}, on ${shot.lens}`);
 
+  const opener = variant === "minimal" ? sentence(OPENER.minimal) : sentence(OPENER[variant]);
   const prompt = [
-    sentence(`${SHOT_OPENER}: ${shot.framing}, ${shot.angle}, on ${shot.lens}`),
-    sentence(`${who}${withClause}`),
-    faceLine, hairLine, markLine, clothesLine, settingLine, momentLine, propLine, REAL_PHOTO_TAIL,
+    opener, sentence(`${who}${withClause}`), lifeLine, faceLine, hairLine, clothesLine, settingLine, lightLine, momentLine, propLine, format, TAIL[variant],
   ].filter((x) => x !== "").join(" ");
 
   return { houseguestId, name, prompt };
@@ -317,6 +329,7 @@ export function buildCastPortraitPrompts(
     biography?: string;
   }>,
   styleAnchor: string,
+  variant: RealismVariant = "press",
 ): PortraitPromptResult[] {
   const complete = houseguests.filter((hg) => hg.appearance && hg.age !== undefined && hg.presentation);
   // ORW-480: the shot and face cards are dealt ACROSS the whole cast (caps per value), then each prompt is built from its own.
@@ -343,6 +356,7 @@ export function buildCastPortraitPrompts(
         },
         styleAnchor,
         plans.get(hg.id),
+        variant,
       ),
     );
 }

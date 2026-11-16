@@ -72,7 +72,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     for (const pp of view.portraitPrompts!) {
       expect(pp.houseguestId).toBeTruthy();
       expect(pp.name).toBeTruthy();
-      expect(pp.prompt).toContain("An official pre-season cast photo for a reality show");
+      expect(pp.prompt).toContain("An unretouched photograph from a reality show's press kit");
     }
     // The player is NOT in the cast portrait set.
     expect(view.portraitPrompts!.some((p) => p.houseguestId === PLAYER)).toBe(false);
@@ -101,7 +101,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     expect(got).not.toBeNull();
     expect(got!.houseguestId).toBe(someNpc.id);
     expect(got!.name).toBe(someNpc.name);
-    expect(got!.prompt).toContain("An official pre-season cast photo for a reality show");
+    expect(got!.prompt).toContain("An unretouched photograph from a reality show's press kit");
 
     expect(adapter.getPortraitPrompt("npc:does-not-exist" as EntityId)).toBeNull();
   });
@@ -120,7 +120,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     const before = adapter.getPortraitPrompt(npc.id as EntityId);
     expect(before).not.toBeNull();
     expect(before!.houseguestId).toBe(npc.id);
-    expect(before!.prompt).toContain("An official pre-season cast photo for a reality show");
+    expect(before!.prompt).toContain("An unretouched photograph from a reality show's press kit");
     // A pre-game authoring write-back MUTATES the warm store — the served prompt must reflect the
     // store AS IT STANDS (the per-NPC authored shoot fetches at shoot time, never a stale snapshot).
     adapter.recordCastProfile({
@@ -133,7 +133,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
       },
     });
     const after = adapter.getPortraitPrompt(npc.id as EntityId)!;
-    expect(after.prompt).not.toContain("storm-chasing meteorologist"); // the job is not sent (v3)
+    expect(after.prompt).toContain("storm-chasing meteorologist"); // ORW-480: the PUBLIC vocation is sent as the life the person looks like (never as a uniform or prop)
     expect(after.prompt).toContain("windswept dark curls");
     // An unknown id still yields null pre-game.
     expect(adapter.getPortraitPrompt("npc:does-not-exist" as EntityId)).toBeNull();
@@ -175,7 +175,8 @@ describe("0051 — sentinel sweep: hidden-layer content NEVER reaches a portrait
     expect(pp).not.toBeNull();
     expect(pp.prompt).not.toContain(SENTINEL);
     expect(pp.prompt).not.toContain("99999"); // no hidden stat leaked
-    expect(pp.prompt).not.toContain("rodeo clown"); // v3 sends neither the job nor the story
+    expect(pp.prompt).not.toContain("chasing one last spotlight"); // the story is never sent
+    expect(pp.prompt).toContain("rodeo clown");                     // ORW-480: the PUBLIC vocation is sent as the life the person looks like (an ordinary person: a N-year-old rodeo clown from ...), never as a uniform or prop
     expect(adapter2.getPortraitPrompt(PLAYER)).toBeNull();
     // The full cast response is clean too.
     const fresh = new GameSessionAdapter();
@@ -265,29 +266,30 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   const legacy = buildPortraitPrompt(ID, "Fixture One", base, anchor).prompt;
 
   it("full photo sheet: the sentences in order, the old studio recipe gone", () => {
-    const order = ["An official pre-season cast photo for a reality show, made by the production's unit photographer", "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks his age, well-kept.",
-      "Face: ", "Hair: short dark curls, shaped and neat.", "A tattoo half-sleeve on the left forearm, dimples.", "Wearing a faded grey hoodie, dark jeans.",
-      "Setting: ", "Light: ", "The moment: ", "Keep the stated age and build exactly: the person reads as that age", "The only person in the frame; no text or logos."];
+    const order = ["An unretouched photograph from a reality show's press kit, shot on location by a staff photographer",
+      "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks his age.",
+      "An ordinary person, not a model: a 27-year-old podcaster", "Face: ", "Hair: short dark curls, shaped.",
+      "Wearing a faded grey hoodie, dark jeans", "Setting: ", "Light: ", "The moment: ", "Framing, the same for the whole series: a half-length portrait",
+      "An ordinary member of the public, not a model or an actor", "The only person in the frame; no text or logos."];
     let at = -1;
     for (const o of order) { const i = full.indexOf(o); expect(i, o).toBeGreaterThan(at); at = i; }
     expect(full).not.toMatch(/Waist-up|softly out of focus|shallow depth|soft flattering|Official cast portrait|camera-ready/);
-    expect(full).toMatch(/unit photographer/);
-    expect(full).toMatch(/where the person lives, on an ordinary day of their own life/);
     expect(full).toMatch(/never a uniform, scrubs, apron, badge or work gear/);
     expect(full).not.toMatch(/laugh lines|distinguished|forties ease|crisp and youthful/);
-    expect(full).toMatch(/Natural skin texture, not plastic and not airbrushed/);
-    expect(full).toMatch(/reads as that age and looks their best on the day, groomed, with hair and makeup done for the shoot/);
-    expect(full).not.toMatch(/fine lines|creased|no retouching|visible pores|flash|tilted/);
-    // the written face line is replaced by the dealt face card (seven concrete features), the writer's on-camera line is not sent
+    expect(full).toMatch(/visible pores and uneven skin tone with a little shine, ordinary teeth, flyaway hairs/);
+    // no beautifying or quality word, no hair-and-makeup line
+    expect(full).not.toMatch(/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|airbrushed|no retouching/i);
+    // the written face line is replaced by the dealt face card, the writer's on-camera line is not sent, a mark sits inside the face sentence
     expect(full).not.toContain("kitchen island");
     expect(full).not.toContain("someone who misses nothing");
+    expect(full).toMatch(/Face: [^.]*, with a tattoo half-sleeve on the left forearm, dimples\./);
   });
 
   it("no photo sheet and legacy cards still build every part (the shot and face are dealt alone)", () => {
-    expect(none).toContain("Hair: short dark curls, neatly styled.");
-    expect(none).toContain("Wearing clothes in this style: relaxed streetwear.");
+    expect(none).toContain("Hair: short dark curls.");
+    expect(none).toContain("Wearing everyday clothes in this style: relaxed streetwear.");
     expect(legacy).toContain("The subject is a 27-year-old West African man with legacy prose appearance.");
-    expect(legacy).toContain("Wearing clothes in this style: easygoing.");
+    expect(legacy).toContain("Wearing everyday clothes in this style: easygoing.");
     expect(legacy).not.toContain("Hair:");
     const noGender = buildPortraitPrompt(ID, "Fixture One", { appearance: "tall", age: 41, presentation: "quiet" }, anchor).prompt;
     expect(noGender).toContain("The subject is a 41-year-old person with tall.");
@@ -300,9 +302,9 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: {
       ...facet, heightBuild: "rugged and tall", facialFeatures: "a rough jaw and tired eyes", hair: "worn dark curls, usually pinned",
       wardrobe: ["a worn grey hoodie", "dark jeans"], style: "rough streetwear" } }, anchor).prompt;
-    expect(p).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);
+    expect(p.replace("clothes that have been worn and washed, with creases", "")).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);   // the press-kit tail asks for worn-and-washed clothes on purpose
     expect(p).toContain("with warm brown skin, tall,");
-    expect(p).toContain("Hair: dark curls, neatly styled.");
+    expect(p).toContain("Hair: dark curls.");
     const legacyP = buildPortraitPrompt(ID, "X", { ...base, appearance: "athletic, a scar over the left eye, close-cropped hair usually under a cap, a birthmark on the neck, a warm smile" }, anchor).prompt;
     expect(legacyP).toContain("with athletic, close-cropped hair, a warm smile.");
     expect(legacyP).not.toMatch(/scar|birthmark|usually/i);
@@ -310,7 +312,7 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
 
   it("no name, job, character line, anchor, or the old random lines", () => {
     for (const p of [full, none, legacy]) {
-      expect(p).not.toMatch(/Fixture One|podcaster|Character:|Occupation|Expression:|Framing:|Lighting:|Backdrop|Skin:|Build & hair|Facial structure/);
+      expect(p).not.toMatch(/Fixture One|chaos-agent|Character:|Occupation|Expression:|Framing:|Lighting:|Backdrop|Skin:|Build & hair|Facial structure/);
       expect(p).not.toContain(anchor);
     }
   });
@@ -321,7 +323,9 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     expect(signatureMarkClause("none notable")).toBe("");
     expect(signatureMarkClause("a small nose stud, plus a scar on the chin")).toBe("A small nose stud.");
     expect(signatureMarkClause("freckles across the nose; a beauty mark by the lip")).toBe("Freckles across the nose, a beauty mark by the lip.");
-    expect(signatureMarkClause("a gap between the front teeth")).toBe("A gap between the front teeth.");
+    expect(signatureMarkClause("a gap between the front teeth")).toBe("");              // ORW-480: a tooth gap is never sent
+    expect(signatureMarkClause("a gap-toothed grin")).toBe("");
+    expect(signatureMarkClause("a gap-toothed grin; light freckles")).toBe("Light freckles.");
     expect(signatureMarkClause("a tattoo and chipped teeth")).toBe("A tattoo.");        // review of #2748: no article after "and"
     expect(signatureMarkClause("a scar on the chin and glasses")).toBe("Glasses.");
     expect(signatureMarkClause("round glasses")).toBe("Round glasses.");
@@ -344,18 +348,18 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     for (const w of ["weathered and sun-creased", "a worn look", "tired around the eyes", "haggard", "a lived-in face"]) {
       const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: w } }, anchor).prompt;
       expect(p).not.toContain(w);
-      expect(p).toContain("tall and lean, looks his age, well-kept.");   // the card's ageing text is never sent: the age is exact and the look is "well-kept"
+      expect(p).toContain("tall and lean, looks his age.");   // the card's ageing text is never sent: the age is exact and the look is that age
     }
   });
 
-  it("every built prompt is free of the banned words and is at most 320 words", () => {
-    // ORW-480 on purpose: "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (Kevin then wanted a polished look);
+  it("every built prompt is free of the banned words and is at most 340 words", () => {
+    // ORW-480 on purpose: "unretouched", "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (Kevin then wanted a polished look);
     // Kevin's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
-    const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|unretouched|blemishes|tired|\brough\b|Big Brother/i;
+    const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|blemishes|tired|\brough\b|Big Brother/i;
     const hairy = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired and weathered" } }, anchor).prompt;
     for (const p of [full, none, legacy, hairy]) {
       expect(p).not.toMatch(BANNED);
-      expect(p.split(/\s+/).length).toBeLessThanOrEqual(320);
+      expect(p.split(/\s+/).length).toBeLessThanOrEqual(340);
     }
     for (const a of STYLE_ANCHOR_VARIANTS) expect(a).not.toMatch(BANNED);
   });
@@ -379,7 +383,7 @@ describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prom
     const after = adapter.getPortraitPrompt(id)!.prompt;
     expect(after).not.toBe(before);
     expect(after).toContain("faded grey hoodie");
-    expect(after).toContain("a neat low bun");
+    expect(after).toContain("a low bun");
     expect(after).toContain("Setting: ");
     expect(after).not.toContain("kitchen island"); // ORW-480: the writer's on-camera line is no longer sent; the shot card sets the place and the moment
   });

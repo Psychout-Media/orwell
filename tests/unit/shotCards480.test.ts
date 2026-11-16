@@ -6,8 +6,9 @@ import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer } from "../../src/engine/deepProfile";
 import { buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
 import {
-  placeFit, placeText, regionOf, ANGLES, dealShotCards, dealFaceCards, shotCaps, capOf, bucketOf, propFor, momentFit, buildClassOf, FACE_MIN_DISTANCE, MOMENTS, PLACES, LIGHTS, FRAMINGS, type ShotSheet,
+  placeFit, placeText, regionOf, dealShotCards, dealFaceCards, shotCaps, capOf, propFor, buildClassOf, FACE_MIN_DISTANCE, PLACES, LIGHTS, PORTRAIT_FORMAT, type ShotSheet,
 } from "../../src/engine/shotCards";
+import { POSTURES, EXPRESSIONS, traitScores, perfCaps } from "../../src/engine/performance";
 
 // ORW-480: the shot card and the face card, dealt across the cast on their own seeded stream.
 
@@ -29,57 +30,92 @@ const sheetsOf = (seed: number): ShotSheet[] => {
 const tally = (xs: string[]): number => Math.max(0, ...[...new Set(xs)].map((x) => xs.filter((y) => y === x).length));
 
 describe("ORW-480 the caps come from the shared casting-director table", () => {
-  it("a cast of 15: place 3, framing 6, light 4, prop 2, face value 3", () => {
-    expect(shotCaps(15)).toMatchObject({ place: 3, framing: 6, light: 4, prop: 2, faceValue: 3 });
+  it("a cast of 15: place 3, light 4, prop 2, face value 3; closed half-smile 3, at least 4 not smiling", () => {
+    expect(shotCaps(15)).toMatchObject({ place: 3, light: 4, prop: 2, faceValue: 3 });
     expect(capOf("prop", 15)).toBe(2);
+    expect(perfCaps(15, 9)).toMatchObject({ closedHalf: 3, minNonSmiling: 4, perExpression: 2, perPosture: 2 });
   });
 });
 
 describe("ORW-480 shot cards", () => {
-  it("over 40 casts of 15: no place on more than 3, no framing on more than 6 (three-quarter on at most 3), no light on more than 4, a prop on at most 2, eyes on the lens not on everyone", () => {
+  it("over 40 casts of 15: ONE portrait format for everyone, the caps kept, every pose consistent with its place", () => {
     const caps = shotCaps(15);
     for (const seed of SEEDS) {
       const sheets = sheetsOf(seed);
       expect(sheets.length).toBe(15);
       const cards = [...dealShotCards(sheets).values()];
+      // one photographer, one series: nothing about the format is dealt
+      for (const c of cards) { expect(c.framingId).toBe(PORTRAIT_FORMAT.id); expect(c.framing).toBe(PORTRAIT_FORMAT.phrase); expect(c.lens).toBe(PORTRAIT_FORMAT.lens); expect(c.angle).toBe(PORTRAIT_FORMAT.angle); }
       expect(tally(cards.map((c) => c.placeId)), `place ${seed}`).toBeLessThanOrEqual(caps.place);
-      expect(tally(cards.map((c) => c.framingId)), `framing ${seed}`).toBeLessThanOrEqual(caps.framing);
-      expect(cards.filter((c) => c.framingId === "three-quarter").length, `3/4 ${seed}`).toBeLessThanOrEqual(3);
-      for (const c of cards) { expect(["close", "half", "three-quarter"]).toContain(c.framingId); expect(c.placeId).not.toMatch(/laundry|driveway|hallway|gym|pool|stair|lounge/); expect(c.place).not.toMatch(/Orwell house/); }
       expect(tally(cards.map((c) => c.lightId)), `light ${seed}`).toBeLessThanOrEqual(caps.light);
       expect(cards.filter((c) => c.prop !== undefined).length, `prop ${seed}`).toBeLessThanOrEqual(caps.prop);
       expect(cards.filter((c) => c.gaze === "lens").length, `gaze ${seed}`).toBeLessThanOrEqual(caps.lensGaze);
-      expect(new Set(cards.map((c) => c.momentId)).size, `moments ${seed}`).toBe(15);
+      expect(cards.filter((c) => c.closedHalf).length, `closed half-smile ${seed}`).toBeLessThanOrEqual(3);
+      expect(cards.filter((c) => !c.smiles).length, `not smiling ${seed}`).toBeGreaterThanOrEqual(4);
+      expect(tally(cards.map((c) => c.expression)), `expression ${seed}`).toBeLessThanOrEqual(2);
+      expect(tally(cards.map((c) => c.posture)), `posture ${seed}`).toBeLessThanOrEqual(2);
       expect(cards.filter((c) => c.outdoor).length, `outdoors ${seed}`).toBeGreaterThanOrEqual(4);
       expect(cards.filter((c) => !c.outdoor).length, `indoors ${seed}`).toBeGreaterThanOrEqual(3);
       expect(cards.filter((c) => c.placeKind === "work-adjacent").length, `work ${seed}`).toBeLessThanOrEqual(capOf("place-work", 15));
       for (const kind of ["home-interior", "home-exterior", "town", "nature"]) expect(cards.filter((c) => c.placeKind === kind).length, `${kind} ${seed}`).toBeLessThanOrEqual(capOf("place-kind", 15));
       expect(new Set(cards.map((c) => c.placeId)).size, `places ${seed}`).toBeGreaterThanOrEqual(6);
-      expect(cards.filter((c) => /stride|crouch|hiding/.test(c.moment)).length >= 0).toBe(true);
+      for (const c of cards) { expect(c.placeId).not.toMatch(/laundry|driveway|hallway|gym|pool|stair|lounge/); expect(c.place).not.toMatch(/Orwell house/); }
     }
   });
 
-  it("the light fits the place and a seated shot has somewhere to sit; no moment asks for what the place lacks", () => {
+  it("the light fits the place, a posture only asks for what the place has, a held prop leaves a hand free", () => {
     for (const seed of SEEDS) {
       for (const c of dealShotCards(sheetsOf(seed)).values()) {
         const place = PLACES.find((p) => p.id === c.placeId)!;
         const light = LIGHTS.find((l) => l.id === c.lightId)!;
         expect(light.where === "any" || (light.where === "out") === place.outdoor).toBe(true);
-        const m = MOMENTS.find((x) => x.id === c.momentId)!;
-        if (c.framingId === "close") expect(m.body).not.toBe(true);       // a close-up shows no body, so no body pose
-        if (c.prop !== undefined) expect(m.hands).not.toBe(true);          // a held thing leaves a hand free
-        if (m.needs === "seat") expect(place.seat).toBeDefined();
+        const po = POSTURES.find((x) => x.id === c.momentId.split("+")[1])!;
+        if (po.needs !== "any") expect(place[po.needs], `${c.placeId} ${po.id}`).toBeDefined();
+        if (c.prop !== undefined) expect(po.fixedHands).toBe(false);
         expect(c.moment).not.toMatch(/\{|undefined/);
-        expect(c.moment).not.toMatch(/\bon\s*,|\bon\s*$/);
+        expect(c.moment).not.toMatch(/whisper|hid|creep|crouch|sneak/);
       }
     }
+    for (const l of LIGHTS) expect(l.phrase).not.toMatch(/flash|no fill|dark corners|hard|squint|flatter|soft catchlight|beauty/);
+    expect(PORTRAIT_FORMAT.phrase).toMatch(/half-length.*both shoulders and at least one hand/);
+    expect(PORTRAIT_FORMAT.lens).toBe("a 50mm lens");
+    expect(PORTRAIT_FORMAT.angle).toMatch(/eye level/);
   });
 
-  it("a production's light and camera: no flash, no dark rooms, a level camera, 85/50/35mm by framing", () => {
-    for (const l of LIGHTS) expect(l.phrase).not.toMatch(/flash|no fill|dark corners|hard|squint/);
-    for (const a of ANGLES) expect(a).toMatch(/camera level/);
-    for (const a of ANGLES) expect(a).not.toMatch(/below|tilt/);
-    expect(FRAMINGS.map((f) => `${f.id}:${f.lens}`)).toEqual(["close:an 85mm lens", "half:a 50mm lens", "three-quarter:a 35mm lens"]);
+  it("the performance comes from the person's own sheet: a trait word, a full-strength expression, a posture and what the hands do", () => {
+    const loud: ShotSheet = { id: "a", age: 25, castingLabel: "the life of the party", castingRead: "big laugh, animated hands, lit up", demeanor: "warm, animated, and utterly unfiltered", energy: "loud and warm" };
+    const shy: ShotSheet = { id: "b", age: 25, castingLabel: "the wallflower", castingRead: "shy downcast eyes, shoulders drawn in, small smile" };
+    const sly: ShotSheet = { id: "c", age: 30, castingLabel: "the schemer", castingRead: "narrowed eyes, tight knowing smile, chin slightly raised" };
+    const intense: ShotSheet = { id: "d", age: 30, castingLabel: "the competitor", castingRead: "focused eyes, set jaw, ready stance" };
+    const guarded: ShotSheet = { id: "e", age: 40, castingLabel: "the tough nut", castingRead: "guarded stare, folded arms, firm closed mouth" };
+    const cards = dealShotCards([loud, shy, sly, intense, guarded]);
+    expect(cards.get("a")!.trait).toBe("loud"); expect(cards.get("b")!.trait).toBe("shy"); expect(cards.get("c")!.trait).toBe("sly");
+    expect(cards.get("d")!.trait).toBe("intense"); expect(cards.get("e")!.trait).toBe("guarded");
+    expect(cards.get("a")!.expression).toMatch(/laugh|grin/);          // loud types are visibly loud
+    expect(cards.get("b")!.expression).toMatch(/shy/);                 // quiet types are visibly closed
+    expect(cards.get("e")!.smiles).toBe(false);
+    for (const c of cards.values()) { expect(c.why).toMatch(/trait \w+ from (?:type|read|demeanor|voice)/); expect(c.hands !== "" || POSTURES.find((p) => p.id === c.momentId.split("+")[1])!.fixedHands).toBe(true); }
+    // one word per person, matched blind: the 58 casting types by label, and an abstract one falls back on demeanor and voice
+    const top = (x: ShotSheet) => traitScores(x).sort((p, q) => q.score - p.score)[0]!.trait;
+    expect(top({ id: "x", age: 30, castingLabel: "the loudmouth" })).toBe("loud");
+    expect(top({ id: "x", age: 30, castingLabel: "the sophisticate" })).toBe("poised");
+    expect(top({ id: "x", age: 30, castingLabel: "the grinder" })).toBe("intense");
+    expect(top({ id: "x", age: 30, castingLabel: "the floater" })).toBe("dreamy");
+    expect(top({ id: "x", age: 30, castingLabel: "the enigma", castingRead: "still face, level gaze, faint unreadable half-smile" })).toMatch(/sly|guarded/);
+    expect(top({ id: "x", age: 30, castingLabel: "the something new", demeanor: "bouncy, loud and goofy", energy: "manic" })).toBe("loud");
+    expect(EXPRESSIONS.filter((e) => e.closedHalf).length).toBeGreaterThan(0);
+  });
+
+  it("a prop only when the sheet gives a reason", () => {
+    expect(propFor({ id: "a", age: 30, vocation: "line cook" })).toBeUndefined();            // no work props in cast photos
+    expect(propFor({ id: "a", age: 30, vocation: "strength coach" })).toBeUndefined();
+    expect(propFor({ id: "a", age: 30, vocation: "high school teacher" })).toMatch(/paperback/);
+    expect(propFor({ id: "a", age: 30, vocation: "hospice night nurse" })).toBeUndefined();
+    const none = dealShotCards(Array.from({ length: 15 }, (_, i) => ({ id: `n${i}`, name: `N${i}`, age: 30, vocation: "office manager" })));
+    expect([...none.values()].filter((c) => c.prop).length).toBe(0);
+    const many = dealShotCards(Array.from({ length: 15 }, (_, i) => ({ id: `n${i}`, name: `N${i}`, age: 30, vocation: "high school teacher" })));
+    expect([...many.values()].filter((c) => c.prop).length).toBe(2);
+    expect([...many.values()].some((c) => /\bmug\b/.test(c.prop ?? ""))).toBe(false);
   });
 
   it("the place is from the person's ordinary day, looks like where they live, and the job does not define the photo", () => {
@@ -115,41 +151,6 @@ describe("ORW-480 shot cards", () => {
     const a = dealShotCards(sheets), b = dealShotCards([...sheets].reverse());
     for (const s of sheets) expect(b.get(s.id)).toEqual(a.get(s.id));
   });
-
-  it("the moment comes from the person's own sheet: the casting read first, then demeanor, voice and energy", () => {
-    const jock: ShotSheet = { id: "a", age: 25, castingLabel: "the jock", castingRead: "athletic ease, loose shoulders, competitive grin", demeanor: "warm, loud-laughing", energy: "warm" };
-    const wildcard: ShotSheet = { id: "b", age: 25, castingLabel: "the wildcard", castingRead: "unpredictable spark, restless eyes, lopsided grin", demeanor: "magnetic and in constant motion" };
-    const clown: ShotSheet = { id: "c", age: 30, castingLabel: "the class clown", castingRead: "mischief in the eyes, grin first", demeanor: "bouncy and disarming" };
-    const quiet: ShotSheet = { id: "d", age: 30, castingLabel: "the quiet storm", castingRead: "still, watchful, a small private smile", demeanor: "unflappable and warmly watchful" };
-    const cards = dealShotCards([jock, wildcard, clown, quiet]);
-    const wants: Record<string, RegExp> = { a: /^(?:comp-grin|chin-up|stride-grin|perched-grin|clap)$/, b: /^(?:comp-grin|stride-grin|squint-grin|laugh-back|perched-grin)$/,
-      c: /^(?:laugh-back|laugh-down|perched-grin|squint-grin)$/, d: /^(?:still-direct|listening|think-aside)$/ };
-    for (const id of Object.keys(wants)) { expect(cards.get(id)!.momentId, id).toMatch(wants[id]!); expect(cards.get(id)!.why, id).toMatch(/type|read/); }
-    // never a pose that reads as hiding or creeping unless the sheet says sly
-    for (const c of cards.values()) expect(c.moment).not.toMatch(/whisper|hid|creep|crouch|sneak/);
-    // an abstract type nothing in the pose table knows: the demeanor and voice lead (and the overall bucket), never a blank
-    const floater: ShotSheet = { id: "f", age: 30, castingLabel: "the floater", castingRead: "drifts between groups", demeanor: "warm, animated, and unfiltered", energy: "loud and warm" };
-    const best = [...MOMENTS].map((m) => ({ m, f: momentFit(m, floater, bucketOf(floater, () => 0.5)) })).sort((a, b) => b.f.score - a.f.score)[0]!;
-    expect(best.m.bucket).toBe("expressive");
-    expect(best.f.why.join(";")).toMatch(/demeanor|voice/);
-    expect(MOMENTS.filter((m) => /sly|sideways glance/.test(m.text)).every((m) => m.words.source.includes("sly"))).toBe(true);
-    expect(momentFit(MOMENTS.find((m) => m.id === "comp-grin")!, jock).why.join(";")).toContain('type "the jock"');
-    // across casts, the traced line is always present
-    for (const seed of SEEDS.slice(0, 10)) for (const c of dealShotCards(sheetsOf(seed)).values()) expect(c.why.length).toBeGreaterThan(0);
-  });
-
-  it("a prop only when the sheet gives a reason", () => {
-    expect(propFor({ id: "a", age: 30, vocation: "line cook" })).toBeUndefined();            // no work props in cast photos
-    expect(propFor({ id: "a", age: 30, vocation: "strength coach" })).toBeUndefined();
-    expect(propFor({ id: "a", age: 30, vocation: "high school teacher" })).toMatch(/paperback/);
-    expect(propFor({ id: "a", age: 30, vocation: "hospice night nurse" })).toBeUndefined();
-    expect(propFor({ id: "a", age: 30, vocation: "office manager" })).toBeUndefined();
-    const none = dealShotCards(Array.from({ length: 15 }, (_, i) => ({ id: `n${i}`, name: `N${i}`, age: 30, vocation: "office manager" })));
-    expect([...none.values()].filter((c) => c.prop).length).toBe(0);
-    const many = dealShotCards(Array.from({ length: 15 }, (_, i) => ({ id: `n${i}`, name: `N${i}`, age: 30, vocation: "high school teacher" })));
-    expect([...many.values()].filter((c) => c.prop).length).toBe(2);
-    expect([...many.values()].some((c) => /\bmug\b/.test(c.prop ?? ""))).toBe(false);
-  });
 });
 
 describe("ORW-480 face cards", () => {
@@ -173,10 +174,12 @@ describe("ORW-480 face cards", () => {
     }
     expect(buildClassOf("short and slight, light-boned")).toBe("slender");
     expect(buildClassOf("tall and solidly built, thick through the shoulders")).toBe("thick");
+    expect(buildClassOf("tall and lanky, with broad shoulders and a strong, wiry frame")).toBeUndefined();   // a conflicting build: no neck is forced
     const sheets = Array.from({ length: 15 }, (_, i) => ({ id: `s${i}`, name: `S${i}`, age: 25, heightBuild: i % 2 ? "short and slight" : "solidly built and powerful" }));
     for (const [id, f] of dealFaceCards(sheets)) {
       const slight = Number(id.slice(1)) % 2 === 1;
       expect(f.neck).toMatch(slight ? /slender|slim|average|strong/ : /thick|strong|average/);
+      expect(f.neck).not.toMatch(/shoulders$/.test(f.neck) && slight ? /broad/ : /^$/);
       expect(f.neck).not.toMatch(slight ? /thick/ : /slender|slim/);
     }
   });
@@ -214,7 +217,27 @@ describe("ORW-480 the prompts", () => {
     const get = (re: RegExp): string[] => ps.map((p) => re.exec(p)![1]!);
     expect(tally(get(/Setting: ([^.]+\.)/))).toBeLessThanOrEqual(3);
     expect(tally(get(/Light: ([^.]+\.)/))).toBeLessThanOrEqual(4);
-    expect(tally(get(/The moment: ([^.]+\.)/))).toBe(1);
+    expect(tally(get(/The moment: ([^.]+\.)/))).toBeLessThanOrEqual(2);
+  });
+  it("three realism wordings share every fact: format, personality, life fit, marks; none beautifies", () => {
+    const c = cast((i) => ({ distinguishingMark: i % 2 === 0 ? "a gap-toothed grin; light freckles across the nose" : "none notable", hair: "short, sleek, glossy black hair", photoHair: "perfectly sleek polished waves", wardrobe: ["designer silk shirt", "dark jeans"] }))
+      .map((h, i) => ({ ...h, vocation: "line cook", hometown: "Sidney, Nebraska", age: 36 + (i % 3) }));
+    const variants = (["press", "documentary", "minimal"] as const).map((v) => buildCastPortraitPrompts(c, "x", v));
+    for (const [vi, ps] of variants.entries()) for (const p of ps) {
+      expect(p.prompt, `${vi}`).toMatch(/An ordinary person, not a model: a \d\d-year-old line cook from Sidney, Nebraska; their grooming, hands, build and clothes fit that life\./);
+      expect(p.prompt).toContain("Framing, the same for the whole series: a half-length portrait from mid-torso up");
+      expect(p.prompt).toContain("The moment: ");
+      expect(p.prompt).not.toMatch(/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|glossy|sleek|designer|perfect/i);
+      expect(p.prompt).not.toMatch(/gap/i);                                   // a tooth gap is never sent
+      expect((p.prompt.match(/freckles/g) ?? []).length).toBeLessThanOrEqual(1);
+      expect(p.prompt).not.toMatch(/\.\s+Light freckles/i);                   // a mark is a detail inside the face sentence, never a sentence of its own
+    }
+    expect(variants[0]![0]!.prompt).toMatch(/^An unretouched photograph from a reality show's press kit, shot on location by a staff photographer with a full-frame camera/);
+    expect(variants[0]![0]!.prompt).toMatch(/visible pores and uneven skin tone with a little shine, ordinary teeth, flyaway hairs/);
+    expect(variants[1]![0]!.prompt).toMatch(/^A plain, honest portrait of a local resident by a newspaper documentary photographer/);
+    expect(variants[2]![0]!.prompt).toMatch(/^A candid photograph\./);
+    expect(variants[2]![0]!.prompt).not.toMatch(/pores|Light:|press kit|documentary|unretouched|sensor grain/);
+    expect(variants[0]![0]!.prompt).toMatch(/Face: [^.]*with light freckles across the nose\./);   // the mark sits inside the face sentence, once
   });
   it("the cast build and a one-person ask agree (same deal, same text)", () => {
     const c = cast(() => ({}));

@@ -29,7 +29,7 @@ def test_a_candid_brief_is_read_for_its_facts_and_asks_the_realism_codes():
     f = C.facts_from_prompt(NEW_PROMPT)
     assert f["candid"] is True and f["age"] == 31 and f["gender"] == "man" and f["spot"] == "the back yard of the person's home in Sidney"
     assert not f.get("eyes_on_camera")                       # the moment looks off-camera: eyes-off must not be judged
-    lens = C.facts_from_prompt(NEW_PROMPT.replace("caught mid-laugh at something off-camera", "arms wide, looking into the lens"))
+    lens = C.facts_from_prompt(NEW_PROMPT.replace("caught mid-laugh at something off-camera", "arms wide, eyes steady on the lens"))
     assert lens["eyes_on_camera"] is True
     req = C.build_request("deepseek-flash", "data:x", f)
     text = req["messages"][0]["content"][0]["text"]
