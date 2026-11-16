@@ -331,6 +331,10 @@ def mint_facet_ledger(seed, count: int, physical: Optional[list] = None) -> list
         pool = [x for x in FAMILY_JOBS.get(fam, ()) if x not in used_jobs]
         _shuffle(pool, j_rng)
         picks = pool[:3]
+        if len(picks) < 3 and FAMILY_JOBS.get(fam):  # a family dealt four or more times has run out of fresh jobs: reuse rather than offer none
+            again = [x for x in FAMILY_JOBS[fam] if x not in picks]
+            _shuffle(again, j_rng)
+            picks += again[:3 - len(picks)]
         used_jobs.update(picks)
         job_examples.append(picks)
     # ORW-464: a state inside each slot's region, distinct across the cast. Its OWN side stream, so no other dealt value moves.

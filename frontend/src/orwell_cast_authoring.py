@@ -71,9 +71,9 @@ PHOTO_SHEET_RULES = (
     "(3) onCamera: the MOMENT: ONE still moment a photographer captures, chosen for THIS person from "
     "their demeanor, identity concept and voice energy. It says where they are in the house, how they "
     "hold themselves, where they look, and one expression, in one to three short sentences of at most "
-    "240 characters. It names exactly ONE spot from: kitchen, living room, dining room, backyard, "
-    "lounge, a bedroom; pick the spot this person would be in, but not one that taken.spots shows "
-    "already used by 3 other houseguests. Where the eyes go follows the person: on the camera for the open and "
+    "240 characters. It names no room of the house (the room of the photo is chosen separately), so describe "
+    "posture, hands, gaze and expression only, with nothing that a room would have to supply (no counter, sofa, doorway "
+    "or window to lean on or sit at). Where the eyes go follows the person: on the camera for the open and "
     "bold; off to one side, down, at something in the room or past the lens for the guarded, shy, distracted or "
     "busy. Hands at rest or doing ONE simple thing (arms folded, hands in pockets, a hand on a knee, tucking hair, "
     "adjusting a cuff, elbow propped). The expression follows the person too: smiling only if this person would; "
@@ -1078,7 +1078,7 @@ _SPOT_PATTERNS = (
 _ONCAMERA_BANNED_RE = re.compile(
     r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _ONCAMERA_BANNED_WORDS), re.I)
 # The closing read may say "someone who ...": that one clause is exempt from the ban on "someone".
-_ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*someone (?:who|you|that)\b[^,;.\u2014\u2013-]*[.!]?\s*$", re.I)
+_ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*(?:someone|the one) (?:who|you|that)\b[^,;.\u2014\u2013-]*[.!]?\s*$", re.I)
 _PHOTOHAIR_BANNED_RE = re.compile(
     r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _PHOTOHAIR_BANNED_WORDS), re.I)
 _PRONOUN_CONTRADICTIONS = {
@@ -1093,6 +1093,37 @@ _PIECE_CUT_RE = re.compile(r"\s+(?:with|over|in|and|on|under|featuring|paired)\b
 def oncamera_spots(text: str) -> set:
     """The house spots a moment names (a set of canonical names)."""
     return {name for name, rx in _SPOT_PATTERNS if rx.search(text or "")}
+
+
+def repair_oncamera(text: str) -> str:
+    """The on-camera line with whatever made it a scene taken out: clauses with a banned word or a second house spot are dropped
+    (the closing "the one who ..." read is kept), then the rest is cut at a clause end inside the length cap. "" when nothing clean
+    is left."""
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    read = ""
+    m = _ONCAMERA_READ_RE.search(t)
+    if m:
+        read, t = t[m.start():].lstrip(",;.\u2014\u2013- "), t[:m.start()]
+    kept, spots = [], set()
+    for clause in re.split(r"(?<=[,;.\u2014\u2013])\s+|\s+[\u2014\u2013-]\s+", t):
+        if _ONCAMERA_BANNED_RE.search(clause):
+            continue
+        cs = oncamera_spots(clause)
+        if cs and spots and not (cs & spots):
+            continue  # a second house spot
+        spots |= cs
+        kept.append(clause.strip(" ,;.\u2014\u2013-"))
+    body = ", ".join(x for x in kept if x)
+    if read and not _ONCAMERA_BANNED_RE.search(_ONCAMERA_READ_RE.sub("", ", " + read)):
+        body = f"{body}, {read}" if body else read
+    while len(body) > _ONCAMERA_MAX and "," in body:
+        body = body.rsplit(",", 1)[0]
+    body = body.strip(" ,;")
+    if body and not body.endswith((".", "!", "?")):
+        body += "."
+    return body if len(body) <= _ONCAMERA_MAX else ""
 
 
 def oncamera_is_scene(text: str) -> bool:
@@ -1146,7 +1177,7 @@ _LOOK_PROBLEM_TEXT = {
     "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
     "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
     "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
-    "oncamera-shape": "onCamera must name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
+    "oncamera-shape": "onCamera is a still moment of posture, hands, gaze and expression, with no room named",
     "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
     "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
     "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
@@ -1218,9 +1249,7 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
         oc = str(pc.get("onCamera") or "")
         if oncamera_is_scene(oc):
             out.append("oncamera-scene")
-        elif len(oncamera_spots(oc)) != 1:
-            out.append("oncamera-shape")
-        elif isinstance(taken, dict) and (taken.get("spots") or {}).get(next(iter(oncamera_spots(oc))), 0) >= _SPOT_MAX:
+        elif oncamera_spots(oc) and isinstance(taken, dict) and (taken.get("spots") or {}).get(next(iter(oncamera_spots(oc))), 0) >= _SPOT_MAX:
             out.append("oncamera-taken")  # ORW-437: that house spot already holds three houseguests
     gender = (npc or {}).get("genderPresentation")
     if gender and (pronoun_mismatch(str(pc.get("onCamera") or ""), gender)
@@ -1273,7 +1302,13 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
                 fam = family_for_label(str((npc or {}).get("presentation") or ""))
                 pc["style"] = fam["sample"] if fam is not None else "plain everyday clothes"
         elif code in ("oncamera-shape", "oncamera-scene", "oncamera-taken"):
-            pc.pop("onCamera", None)
+            # ORW-480: mend the line (a clause out of a second spot or a banned word, cut to length) before dropping it, so a card
+            # keeps its on-camera line whenever a clean part of it survives
+            fixed = repair_oncamera(str(pc.get("onCamera") or ""))
+            if fixed and not oncamera_is_scene(fixed):
+                pc["onCamera"] = fixed
+            else:
+                pc.pop("onCamera", None)
         elif code == "pronoun-mismatch":
             gender = (npc or {}).get("genderPresentation")
             if pronoun_mismatch(str(pc.get("onCamera") or ""), gender):

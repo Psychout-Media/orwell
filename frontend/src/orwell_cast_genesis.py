@@ -696,6 +696,73 @@ def _job_over_cap(job: str, used_jobs: list, n: int) -> bool:
         return False
 
 
+_JOB_TEXT_FIELDS = ("identity", "biography", "background")
+
+
+def _all_family_jobs() -> list:
+    try:
+        from src.orwell_facet_ledger import FAMILY_JOBS
+        return [j for jobs in FAMILY_JOBS.values() for j in jobs]
+    except Exception:  # failsoft-ok
+        return []
+
+
+def _final_job_pass(entries: list, npcs: list, directives, spread: int = 0) -> int:
+    """ORW-480: the FINISHED cast's jobs (the writer's, else the engine's own floor job from the roster card) are checked once more
+    against the sector and job-word caps, in slot order; a later slot over a cap takes one of its own dealt example jobs, else any
+    ordinary job from the table that fits. The text written around a replaced job is dropped with it. Returns how many were replaced.
+    The guarantee "no sector on more than 2 of 15" holds on the finished cast, floor jobs included."""
+    n = len(entries)
+    by_id = {str(x.get("id")): x for x in npcs if isinstance(x, dict)}
+    taken: list = []
+    changed = 0
+    pool = _all_family_jobs()
+    for e in entries:
+        hid = str(e.get("id"))
+        npc = by_id.get(hid)
+        job = (npc or {}).get("vocation") or e.get("vocation")
+        if not isinstance(job, str) or not job.strip():
+            continue
+        if not _job_over_cap(job, taken, n):
+            taken.append(job)
+            continue
+        alt = _fitting_example_job(hid, directives, taken, n)
+        if not alt and pool:
+            start = sum(ord(c) for c in hid) % len(pool)
+            used = {x.lower() for x in taken}
+            for k in range(len(pool)):
+                j = pool[(start + k) % len(pool)]
+                if j.lower() not in used and not _job_over_cap(j, taken, n):
+                    alt = j
+                    break
+        if not alt:
+            taken.append(job)
+            continue
+        if npc is None:
+            npc = {"id": hid}
+            npcs.append(npc)
+            by_id[hid] = npc
+        npc["vocation"] = alt
+        for k in _JOB_TEXT_FIELDS:
+            npc.pop(k, None)
+        taken.append(alt)
+        changed += 1
+    return changed
+
+
+def _fitting_example_job(hid, directives, used_jobs: list, n: int):
+    """The first of the slot's dealt example jobs that is unused and inside the sector and job-word caps, else None."""
+    try:
+        hand = ((directives or {}).get(hid) or {}).get("ledger") or {}
+        used = {x.lower() for x in used_jobs}
+        for j in hand.get("jobExamples") or []:
+            if j.lower() not in used and not _job_over_cap(j, used_jobs, n):
+                return j
+    except Exception:  # failsoft-ok: the example jobs only help; the floor stands
+        pass
+    return None
+
+
 def _job_hint(jobs: list, n: int) -> str:
     try:
         from src import orwell_cast_realism as _R
@@ -1177,7 +1244,16 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
                     if j.lower() in {x.lower() for x in used_jobs}:
                         npc.pop("vocation", None)  # collision — the engine floors this slot's job
                     elif _job_over_cap(j, used_jobs, len(entries)):
-                        npc.pop("vocation", None)  # ORW-480: a job sector already full, or a job word already used: the engine floors the slot
+                        # ORW-480: a job sector already full, or a job word already used. The slot's own dealt example jobs come
+                        # first (an ordinary job of its family that fits the caps); only when none fits does the engine floor the slot.
+                        alt = _fitting_example_job(npc.get("id"), directives, used_jobs, len(entries))
+                        if alt:
+                            npc["vocation"] = alt
+                            used_jobs.append(alt)
+                        else:
+                            npc.pop("vocation", None)
+                        for k in _JOB_TEXT_FIELDS:
+                            npc.pop(k, None)  # the identity, biography and background were written around the job that was refused
                     else:
                         used_jobs.append(j)
                 name = npc.get("name")
@@ -1208,6 +1284,7 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
                 tied.add(b)
     if not any_ok or not combined_npcs:
         return {}
+    _final_job_pass(entries, combined_npcs, directives)
     out: dict = {"npcs": combined_npcs}
     if combined_ties:
         out["ties"] = combined_ties[:GENESIS_TIE_BUDGET]

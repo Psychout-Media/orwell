@@ -21,9 +21,10 @@ def table() -> dict:
 
 @lru_cache(maxsize=None)
 def _word_re(word: str):
+    # a space in a table word also matches a hyphen ("home health" reads "home-health")
     if word.endswith("*"):
-        return re.compile(r"\b" + re.escape(word[:-1]), re.I)
-    return re.compile(r"\b" + re.escape(word) + r"(?:s|es)?\b", re.I)
+        return re.compile(r"\b" + re.escape(word[:-1]).replace("\\ ", "[ -]"), re.I)
+    return re.compile(r"\b" + re.escape(word).replace("\\ ", "[ -]") + r"(?:s|es)?\b", re.I)
 
 
 def _matches(value_def: dict, text: str) -> Optional[int]:
@@ -55,6 +56,11 @@ def tag_kind(kind_id: str, card: dict) -> list:
     text = field_text(card, kind["field"], kind.get("scope") == "first-item")
     if not text.strip():
         return []
+    if kind.get("rule") == "rules":
+        for rule in kind["rules"]:
+            if any(_word_re(w.strip()).search(text) for w in rule["any"]) and not any(_word_re(w.strip()).search(text) for w in rule.get("not", [])):
+                return [rule["sector"]]
+        return ["other"]
     if kind.get("rule") == "head-noun":
         words = re.findall(r"[a-z]+", text.lower())
         return [words[-1]] if words else []
@@ -82,6 +88,8 @@ def tag_card(card: dict) -> dict:
 def cap_for(kind_id: str, value: str, n: int) -> int:
     kind = table()["kinds"][kind_id]
     cap = (kind.get("values", {}).get(value) or {}).get("cap") or kind["cap"]
+    if kind.get("rule") == "head-noun" and value in kind.get("generic", []):
+        cap = kind["generic-cap"]
     return max(int(cap.get("min", 1)), int(math.ceil(float(cap.get("share", 0)) * n)))
 
 

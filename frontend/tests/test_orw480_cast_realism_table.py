@@ -29,7 +29,7 @@ def test_caps_are_a_share_of_the_cast_with_a_floor():
     assert R.cap_for("room", "kitchen", 15) == 3
     assert R.cap_for("sector", "care-and-public-service", 15) == 2
     assert R.cap_for("sector", "trades-labor", 15) == 3
-    assert R.cap_for("role", "manager", 15) == 1
+    assert R.cap_for("role", "manager", 15) == 2 and R.cap_for("role", "nurse", 15) == 1  # a generic title word on two cards, a distinctive one on one
 
 
 def test_a_repetitive_cast_is_over_the_cap_and_only_later_cards_are_offenders():
@@ -47,7 +47,7 @@ def test_the_live_season_cast_the_reviewers_flagged_is_over_the_cap_where_they_s
     over = R.over_cap([R.tag_card(c) for c in cards])
     assert over["sector"]["care-and-public-service"] >= 4          # the medical / first responder cluster
     assert over["prop"]["mug"] >= 4 and over["gaze"]["lens"] >= 12 and over["expression"]["smile"] >= 12
-    assert over["role"]["manager"] == 2 and over["role"]["coach"] == 2
+    assert over["role"]["paramedic"] == 2                          # a distinctive title twice; manager and coach twice are inside the cap of 2
 
 
 # ---- real clothes (Track T item 3) -------------------------------------------------------------------------
@@ -99,9 +99,11 @@ def test_no_real_wardrobe_piece_from_the_saved_casts_is_flagged_except_the_ones_
 # ---- job sectors at the genesis deal (Track T item 2) ------------------------------------------------------
 def test_a_full_job_sector_and_a_repeated_job_word_are_offenders_and_a_new_sector_is_not():
     taken = ["hospice night nurse", "firefighter paramedic"]
-    assert R.job_offenders("hospital cafeteria manager", taken, 15)["sector"] == ["care-and-public-service"]
+    assert R.job_offenders("park ranger", taken, 15)["sector"] == ["care-and-public-service"]
     assert R.job_offenders("paramedic", taken[:1], 15) == {}  # one nurse so far: a second care job is still inside the cap of 2
-    assert "role" in R.job_offenders("office manager", ["dental office manager"], 15)
+    assert "role" in R.job_offenders("paramedic", ["wildland firefighter paramedic"], 15)  # a distinctive title word twice
+    assert R.job_offenders("office manager", ["dental office manager"], 15) == {}            # a generic one twice is inside the cap of 2
+    assert "role" in R.job_offenders("shop manager", ["dental office manager", "diner manager"], 15)
     assert R.job_offenders("tree trimmer", taken, 15) == {}
     hint = R.job_taken_hint(taken, 15)
     assert "care-and-public-service" in hint and "nurse" in hint and "paramedic" in hint
@@ -123,7 +125,7 @@ def test_genesis_drops_an_over_cap_job_so_the_engine_floors_the_slot():
     assert got["npc:1"] == "hospice night nurse" and got["npc:2"] == "firefighter paramedic"
     assert got.get("npc:3") is None            # a third care job is over the sector cap of 2
     assert got["npc:4"] == "tree trimmer" and got["npc:5"] == "line cook"
-    assert got["npc:6"] == "office manager" and got.get("npc:7") is None  # a second "manager" repeats a job word
+    assert got["npc:6"] == "office manager" and got["npc:7"] == "school office manager"  # two generic "manager" titles are inside the cap
 
 
 # ---- the casting-director pass inside the gate (Track T item 1) ----------------------------------------------
@@ -263,3 +265,52 @@ def test_the_writer_prompt_no_longer_seeds_the_mug_the_lens_the_smile_or_the_clo
     assert "never a mug or cup" in r and "OPENING PATTERN line says closing read: yes" in r and "a serious, wry, tired, guarded" in r
     shares = [ca.opening_pattern(i)["closing read"] for i in range(15)].count("yes")
     assert shares == 5  # one card in three
+
+
+def test_a_cast_of_fifteen_never_ends_with_more_than_two_jobs_in_one_sector_and_an_over_cap_job_gets_a_fitting_example():
+    import asyncio
+    from src import orwell_cast_genesis as g
+    # the live test cast's jobs: five in care and public service, a referee and a trainer, two office jobs
+    jobs = ["youth outreach coordinator", "home-health aide", "session guitarist", "personal trainer", "tree trimmer", "line cook",
+            "recreation league referee", "wildland firefighter", "paralegal", "postal carrier", "insurance claims adjuster",
+            "used-car salesperson", "hospice night nurse", "audio engineer", "heavy-equipment operator"]
+    roster = [{"id": f"npc:{i + 1}", "archetype": "comp-beast"} for i in range(15)]
+    directives = {f"npc:{i + 1}": {"ledger": {"jobExamples": ["wedding photographer", "pizzeria manager", "water-treatment chemist"]}} for i in range(15)}
+
+    async def llm(messages):
+        user = messages[-1]["content"]
+        i = next(k for k in range(15, 0, -1) if f"npc:{k}" in user)
+        return json.dumps({"npcs": [{"id": f"npc:{i}", "vocation": jobs[i - 1], "hometown": f"Town{i}, State{i}"}], "ties": []})
+    out = asyncio.new_event_loop().run_until_complete(g._gather_chunked_proposal(roster, {"season": "t"}, llm, {n["id"] for n in roster}, None, 15, directives))
+    got = [n.get("vocation") for n in sorted(out["npcs"], key=lambda n: int(n["id"].split(":")[1]))]
+    held = [v for v in got if v]
+    tags = [R.tag_card({"vocation": v}) for v in held]
+    assert R.over_cap(tags, 15).get("sector", {}) == {}, got
+    assert all(R.over_cap(tags, 15).get("role", {}) == {} for _ in [0])
+    assert "wedding photographer" in got or "pizzeria manager" in got  # an over-cap slot took one of its own example jobs
+
+
+def test_the_finished_cast_holds_the_sector_and_job_word_caps_over_200_seeded_floor_casts():
+    """The engine's own floor job is not capped by sector or title: 124 of 200 seeded floor casts had a sector over cap. The final pass
+    checks the finished 15 (writer jobs, else the floor job on the roster card), so the guarantee holds on every one."""
+    import random
+    import re as _re
+    from src import orwell_cast_genesis as g
+    corpus = [v for v in _re.findall(r'"([^"]+)"', open(os.path.join(ROOT, "src", "engine", "data", "vocations.ts")).read()) if len(v) > 3]
+    assert len(corpus) > 100
+    before_bad = after_bad = replaced = 0
+    for seed in range(200):
+        rng = random.Random(seed)
+        floor = [rng.choice(corpus) for _ in range(15)]
+        entries = [{"id": f"npc:{i + 1}", "vocation": floor[i]} for i in range(15)]
+        tags = [R.tag_card({"vocation": v}) for v in floor]
+        before_bad += bool(R.over_cap(tags, 15).get("sector"))
+        npcs: list = []
+        replaced += g._final_job_pass(entries, npcs, {})
+        final = {n["id"]: n["vocation"] for n in npcs}
+        jobs = [final.get(e["id"], e["vocation"]) for e in entries]
+        over = R.over_cap([R.tag_card({"vocation": v}) for v in jobs], 15)
+        assert not over.get("sector"), (seed, jobs, over)
+        assert not over.get("role"), (seed, jobs, over)
+        after_bad += bool(over.get("sector"))
+    assert before_bad > 40 and after_bad == 0 and replaced > 0

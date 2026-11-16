@@ -10,6 +10,8 @@ export interface ValueDef { words: string[]; cap?: CapSpec }
 export interface KindDef {
   field: string; multi: boolean; cap: CapSpec; note?: string; scope?: string; rule?: string; fallback?: string;
   values?: Record<string, ValueDef>;
+  rules?: Array<{ sector: string; any: string[]; not?: string[] }>;
+  generic?: string[]; "generic-cap"?: CapSpec;
 }
 export const CAST_REALISM = table as unknown as { kinds: Record<string, KindDef>; "unreal-clothes": { words: string[] }; "garment-nouns": string[] };
 
@@ -24,7 +26,9 @@ const wordRes = new Map<string, RegExp>();
 function wordRe(w: string): RegExp {
   let r = wordRes.get(w);
   if (!r) {
-    r = w.endsWith("*") ? new RegExp(`\\b${esc(w.slice(0, -1))}`, "i") : new RegExp(`\\b${esc(w)}(?:s|es)?\\b`, "i");
+    // a space in a table word also matches a hyphen ("home health" reads "home-health")
+    const sp = (x: string): string => esc(x).replace(/ /g, "[ -]");
+    r = w.endsWith("*") ? new RegExp(`\\b${sp(w.slice(0, -1))}`, "i") : new RegExp(`\\b${sp(w)}(?:s|es)?\\b`, "i");
     wordRes.set(w, r);
   }
   return r;
@@ -55,6 +59,12 @@ export function tagKind(kindId: string, card: RealismCard): string[] {
   const kind = CAST_REALISM.kinds[kindId]!;
   const text = fieldText(card, kind.field, kind.scope === "first-item");
   if (text.trim() === "") return [];
+  if (kind.rule === "rules") {
+    for (const rule of kind.rules ?? []) {
+      if (rule.any.some((w) => wordRe(w.trim()).test(text)) && !(rule.not ?? []).some((w) => wordRe(w.trim()).test(text))) return [rule.sector];
+    }
+    return ["other"];
+  }
   if (kind.rule === "head-noun") {
     const words = text.toLowerCase().match(/[a-z]+/g) ?? [];
     return words.length > 0 ? [words[words.length - 1]!] : [];
@@ -84,7 +94,7 @@ export function tagCard(card: RealismCard): CardTags {
 
 export function capFor(kindId: string, value: string, n: number): number {
   const kind = CAST_REALISM.kinds[kindId]!;
-  const cap = kind.values?.[value]?.cap ?? kind.cap;
+  const cap = kind.rule === "head-noun" && kind.generic?.includes(value) ? kind["generic-cap"]! : (kind.values?.[value]?.cap ?? kind.cap);
   return Math.max(cap.min, Math.ceil(cap.share * n));
 }
 
