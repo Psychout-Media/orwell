@@ -1,0 +1,909 @@
+{
+ "limit": 40,
+ "entries": [
+  {
+   "path": "frontend/app.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/core/middleware.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/mcp_servers/email_server.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/mcp_servers/email_server.py",
+   "kind": "list",
+   "name": "candidates",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player"
+  },
+  {
+   "path": "frontend/mcp_servers/image_gen_server.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/admin_health_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/chat_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/cookbook_helpers.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/cookbook_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/email_helpers.py",
+   "kind": "list",
+   "name": "candidates",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player"
+  },
+  {
+   "path": "frontend/routes/email_pollers.py",
+   "kind": "example",
+   "name": "text",
+   "max": 5,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/email_pollers.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/memory_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/skills_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/skills_routes.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/task_routes.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/routes/webhook_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/services/memory/memory_extractor.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/services/memory/skill_extractor.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/services/youtube/youtube_handler.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/setup.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/agent_loop.py",
+   "kind": "example",
+   "name": "text",
+   "max": 19,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "frontend/src/agent_loop.py",
+   "kind": "list",
+   "name": "_REAPPROACH_NUDGES",
+   "max": 1,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "frontend/src/ai_interaction.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/chroma_client.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/deep_research.py",
+   "kind": "example",
+   "name": "text",
+   "max": 6,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/document_processor.py",
+   "kind": "list",
+   "name": "candidates",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player"
+  },
+  {
+   "path": "frontend/src/goal_based_extractor.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/integrations.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "IDENTITY_OPENINGS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "ONCAMERA_OPENINGS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "BRIEF_DEMOGRAPHIC_SKEWS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "BRIEF_REGIONAL_FLAVORS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_SELF_AWARENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_SOCIAL_GRAVITY_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "_GENESIS_UNDERDOG_FLEX",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_identity.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "closed by design: structural enumerations the response validator checks (gender, orientation); not an example the model copies"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "HAIR_BOLD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "OUTLIER_VOCATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_portrait_check.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "frontend/src/orwell_portraits.py",
+   "kind": "list",
+   "name": "_STUDIO_VARIANTS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "frontend/src/task_scheduler.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/teacher_escalation.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/tool_execution.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/tool_implementations.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/tool_index.py",
+   "kind": "example",
+   "name": "text",
+   "max": 5,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/tool_schemas.py",
+   "kind": "example",
+   "name": "text",
+   "max": 52,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/visual_report.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/src/youtube_handler.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/static/js/admin.js",
+   "kind": "example",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/static/js/orwellDecision.js",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/static/js/sessions.js",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/static/js/settings.js",
+   "kind": "example",
+   "name": "text",
+   "max": 11,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "frontend/static/js/slashCommands.js",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+  },
+  {
+   "path": "src/adapters/mcp/McpServer.ts",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: tool argument schema message, not model-visible prose"
+  },
+  {
+   "path": "src/domain/traitConsistency.ts",
+   "kind": "list",
+   "name": "VOICE_LINE_TEMPLATES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_NAMES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+  },
+  {
+   "path": "src/engine/castGenesis.ts",
+   "kind": "list",
+   "name": "GENESIS_CASTING_RECIPE",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/castGenesis.ts",
+   "kind": "list",
+   "name": "GENESIS_UNDERDOG_FLEX",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "BUILDS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "COMPLEXIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "DEMEANORS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "FEATURES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HAIR",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_KINDS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "LOOKS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "OCCUPATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characters.ts",
+   "kind": "list",
+   "name": "HIDDEN_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "GRUDGE_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+  },
+  {
+   "path": "src/engine/dealConsent.ts",
+   "kind": "list",
+   "name": "order",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: internal key order or archetype keys, never shown to a player"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "BIO_CLOSERS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "BIO_DRIVES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "BIO_ROOTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "FACIAL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "MARKS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "PATHWAYS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SKIN_TONE",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "WEAKNESS_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/diversityConstants.ts",
+   "kind": "list",
+   "name": "GENDER_PRESENTATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "BRIEF_DEMOGRAPHIC_SKEWS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "BRIEF_REGIONAL_FLAVORS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_SELF_AWARENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_SOCIAL_GRAVITY_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/imageConstants.ts",
+   "kind": "list",
+   "name": "STYLE_ANCHOR_VARIANTS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "src/engine/juryMinds.ts",
+   "kind": "list",
+   "name": "all",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: internal key order or archetype keys, never shown to a player"
+  },
+  {
+   "path": "src/engine/momentPrompts.ts",
+   "kind": "example",
+   "name": "text",
+   "max": 6,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "src/engine/momentPrompts.ts",
+   "kind": "list",
+   "name": "lines",
+   "max": 2,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "src/engine/portraitPrompts.ts",
+   "kind": "list",
+   "name": "FALLBACK_ROOMS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_BACKSTORIES",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_BACKSTORY_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_DISPOSITIONS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_DISPOSITION_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_QUIRKS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_QUIRK_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_WITS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_WIT_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+  },
+  {
+   "path": "src/engine/reserveTwists.ts",
+   "kind": "list",
+   "name": "RESERVE_POOL",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+  },
+  {
+   "path": "src/engine/seededRelationships.ts",
+   "kind": "list",
+   "name": "TIE_NATURES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "MOOD_POOL",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "lines",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+  }
+ ]
+}

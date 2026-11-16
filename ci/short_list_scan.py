@@ -101,7 +101,7 @@ def js_strings(src: str) -> list[tuple[int, str]]:
             j = i + 1; start = line
             while j < n and src[j] != c and src[j] != "\n":
                 j += 2 if src[j] == "\\" else 1
-            out.append((start, src[i + 1:j])); i = j + 1; prev = c; continue
+            out.append((start, re.sub(r"\\(.)", r"\1", src[i + 1:j]))); i = j + 1; prev = c; continue
         if c == "`":
             start = line
             i, line, text = read_template(i, line)
@@ -196,7 +196,22 @@ def py_scan(path: str, src: str, deal_pool: str) -> tuple[list[Hit], list[Hit]]:
     return cands, others
 
 
+_IDX: dict[int, dict[str, list[str]]] = {}
+
+
+def _lines_with(name: str, pool: str) -> str:
+    idx = _IDX.get(id(pool))
+    if idx is None:
+        idx = {}
+        for ln in pool.split("\n"):
+            for w in set(re.findall(r"[A-Za-z_]\w*", ln)):
+                idx.setdefault(w, []).append(ln)
+        _IDX[id(pool)] = idx
+    return "\n".join(idx.get(name, []))
+
+
 def deal_use(name: str, pool: str, lang: str) -> bool:
+    pool = _lines_with(name, pool)
     n = re.escape(name)
     if lang == "py":
         pat = (rf"(?:choice|choices|sample|shuffle|pick\w*)\(\s*(?:[\w.]+,\s*)?{n}\b|%\s*len\(\s*{n}\s*\)|\b{n}\s*\[[^\]\n]*(?:random|randint|randrange|hash|crc|%)"
@@ -243,7 +258,7 @@ def ts_scan(path: str, src: str) -> tuple[list[Hit], list[Hit]]:
         if items and len(items) >= MIN_LIST:
             cands.append(Hit("list", "ts", path, src.count("\n", 0, m.end()) + 1, m.group(1), len(items)))
     others: list[Hit] = []
-    for m in re.finditer(r"\bpick\w*\(\s*[\w.]+\s*,\s*\[", src):
+    for m in re.finditer(r"\bpick\w*\(\s*(?:[\w.]+\s*,\s*)?\[", src):
         items = ts_string_array(src, m.end() - 1)
         if items and len(items) >= MIN_LIST:
             others.append(Hit("list", "ts", path, src.count("\n", 0, m.end()) + 1, "inline", len(items)))
@@ -271,22 +286,25 @@ def ts_scan(path: str, src: str) -> tuple[list[Hit], list[Hit]]:
 
 
 # --------------------------------------------------------------------------- driver
-def scan(limit: int = LIMIT) -> list[Hit]:
+def read_sources() -> dict[str, dict[str, str]]:
     files = scan_files()
-    srcs: dict[str, str] = {}
-    for lang in files:
-        for f in files[lang]:
+    out: dict[str, dict[str, str]] = {}
+    for lang, fs in files.items():
+        out[lang] = {}
+        for f in fs:
             try:
-                srcs[f] = (ROOT / f).read_text(encoding="utf8")
+                out[lang][f] = (ROOT / f).read_text(encoding="utf8")
             except (OSError, UnicodeDecodeError):
                 pass
-    pools = {lang: "\n".join(srcs[f] for f in files[lang] if f in srcs) for lang in files}
+    return out
+
+
+def scan_sources(srcs: dict[str, dict[str, str]], limit: int = LIMIT) -> list[Hit]:
+    """srcs = {"ts": {path: text}, "py": {...}, "js": {...}}. Pure: the guard test feeds it planted sources."""
+    pools = {lang: "\n".join(srcs.get(lang, {}).values()) for lang in ("ts", "py", "js")}
     hits: list[Hit] = []
     for lang in ("ts", "py", "js"):
-        for f in files[lang]:
-            src = srcs.get(f)
-            if src is None:
-                continue
+        for f, src in srcs.get(lang, {}).items():
             if lang == "py":
                 cands, others = py_scan(f, src, pools["py"])
             elif lang == "ts":
@@ -299,5 +317,8 @@ def scan(limit: int = LIMIT) -> list[Hit]:
                 if c.size < limit and deal_use(c.name, pools[lang], lang):
                     hits.append(c)
             hits += [o for o in others if o.kind != "list" or o.size < limit]
-    # JS lists: none scanned for deal use except via the same text pool (handled by ORW-511 inventory by hand)
     return sorted(set(hits), key=lambda h: (h.path, h.line, h.kind, h.name))
+
+
+def scan(limit: int = LIMIT) -> list[Hit]:
+    return scan_sources(read_sources(), limit)

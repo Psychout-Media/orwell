@@ -1,5 +1,6 @@
 """Shared helpers for chat routes — context building, post-response tasks, auth resolution."""
 
+import zlib
 import asyncio
 import collections
 import json
@@ -4887,11 +4888,23 @@ _CONF_PERSONAL_FACT_RE = re.compile(
     r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
     r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
 
-_CONFESSION_DEFLECTIONS = (
-    "The moment hangs — whatever was about to be said gets swallowed, and they smile it off.",
-    "They start to say something, think better of it, and wave it away with a half-laugh.",
-    "A beat of silence; then they shrug it off and let the subject drop.",
+# ORW-511: composed from an opening beat and a way out (5 x 6 = 30 lines, was 3); the pick is keyed on the replaced line so one turn does not always use the same line.
+_DEFLECTION_BEATS = (
+    "The moment hangs",
+    "They start to say something",
+    "A beat of silence",
+    "Whatever was about to be said stalls in their throat",
+    "Their eyes drop for half a second",
 )
+_DEFLECTION_EXITS = (
+    "and they smile it off.",
+    "then think better of it and wave it away with a half-laugh.",
+    "and they shrug it off and let the subject drop.",
+    "and the thought gets swallowed before it has a shape.",
+    "and they steer the talk somewhere safer.",
+    "and the moment passes without anyone naming it.",
+)
+_CONFESSION_DEFLECTIONS = tuple(f"{b} - {e}" for b in _DEFLECTION_BEATS for e in _DEFLECTION_EXITS)
 
 
 def _line_is_invented_confession(line: str) -> bool:
@@ -4922,7 +4935,7 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
         n = 0
         for ln in lines:
             if _line_is_invented_confession(ln):
-                new = _CONFESSION_DEFLECTIONS[n % len(_CONFESSION_DEFLECTIONS)]
+                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]
                 n += 1
                 ops.append((ln, new))
                 out.append(new)
