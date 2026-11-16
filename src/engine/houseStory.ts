@@ -49,6 +49,7 @@ function causeLine(c: Cause, nameOf: (id: EntityId) => string, scrub: (s: string
     case "pre-show-tie": return `a tie from before the show${who ? ` with ${who}` : ""}`;
     case "carry-over": return `it carried over from last week${who ? ` (${who})` : ""}`;
     case "question": return "a question they needed answered";
+    case "belief": return `something they believed about ${who}${c.ref ? ` (${scrub(c.ref)})` : ""}`;
   }
 }
 
