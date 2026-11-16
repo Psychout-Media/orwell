@@ -501,4 +501,25 @@ describe("0116 — a valid full proposal commits inside the envelope", () => {
     expect(res.ties.length).toBe(1);
     expect(res.violations.filter((v) => v.action === "re-roll").length).toBe(0);
   });
+
+  it("ORW-480: the age strata are the committed real-data counts, drawn per slot at those frequencies (the oldest of a cast varies)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const real = JSON.parse(readFileSync(new URL("../../src/domain/castAges.json", import.meta.url), "utf8")) as { strata: Array<{ lo: number; hi: number; count: number }> };
+    const { GENESIS_AGE_BANDS } = await import("../../src/engine/genesisConstants");
+    expect(GENESIS_AGE_BANDS.map((b) => ({ lo: b.lo, hi: b.hi, count: b.count }))).toEqual(real.strata);
+    const oldest = new Set<number>();
+    let over50 = 0;
+    for (let seed = 1; seed <= 200; seed++) {
+      const slots = assignGenesisSlots(seed, 15);
+      const hi = Math.max(...slots.map((x) => x.ageHi));
+      oldest.add(hi);
+      if (hi >= 50) over50++;
+    }
+    // the same plan the Python mirror pins for seed 108108 (byte for byte)
+    expect(assignGenesisSlots(108108, 15).map((x) => [x.ageLo, x.ageHi])).toEqual([[45, 49], [27, 29], [24, 26], [55, 59], [30, 32], [40, 44], [27, 29],
+      [24, 26], [45, 49], [40, 44], [24, 26], [40, 44], [24, 26], [40, 44], [21, 23]]);
+    expect(oldest.size).toBeGreaterThanOrEqual(4); // 44, 49, 54, 59, 70 across casts
+    expect(over50 / 200).toBeGreaterThan(0.25);
+    expect(over50 / 200).toBeLessThan(0.6);
+  });
 });

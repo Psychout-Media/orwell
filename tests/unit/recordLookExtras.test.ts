@@ -168,4 +168,34 @@ describe("ORW-437 recordCastProfile keeps what it omits, and renames the prose w
     expect(n.character.biography).toBe("Zephyra grew up near the water. Zephyra fixes boats.");
     expect(n.character.demeanor).toBe("Zephyra stays calm");
   });
+
+  it("ORW-480: lookSignature is stored with the other look fields, kept by a later profile write, and cleared on request", () => {
+    const { sb, id, npc } = setup();
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a grey cardigan", "dark jeans"], lookSignature: "  a long single braid  " }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "lookSignature"] });
+    expect((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature).toBe("a long single braid");
+    expect(sb.session.recordLookExtras({ houseguestId: id, lookSignature: "x".repeat(300) }).accepted).toBe(true);
+    expect(((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature ?? "").length).toBeLessThanOrEqual(90);
+    expect(sb.session.recordLookExtras({ houseguestId: id, clear: ["lookSignature"] })).toEqual({ accepted: true, fields: [], cleared: ["lookSignature"] });
+    expect((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature).toBeUndefined();
+  });
+
+  it("ORW-480: a look write-back lands on the PRE-WARMED cast before the season starts (it answered no-game, so every pre-game look rewrite was dropped)", () => {
+    const a = new GameSessionAdapter();
+    const warm = a.preSeedCast({ seed: 4242 });
+    const id = warm.house[0]!.id;
+    expect(a.recordLookExtras({ houseguestId: id, wardrobe: ["a rust flannel shirt", "canvas work pants"], lookSignature: "a shell necklace" }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "lookSignature"] });
+    const after = a.preSeedCast({ seed: 4242 });
+    expect(after.house.length).toBe(warm.house.length);
+    expect(a.recordLookExtras({ houseguestId: "npc:999", wardrobe: ["a shirt", "jeans"] })).toEqual({ accepted: false, fields: [], reason: "unknown-houseguest" });
+    expect(new GameSessionAdapter().recordLookExtras({ houseguestId: id, wardrobe: ["a shirt", "jeans"] })).toEqual({ accepted: false, fields: [], reason: "no-game" });
+  });
+
+  it("ORW-480: the style line is rewritten with the wardrobe it describes (a style naming a garment that is gone would reach the card and the portrait brief)", () => {
+    const { sb, id, npc } = setup();
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a navy cardigan", "grey trousers"], style: "  a navy cardigan, grey trousers  " }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "style"] });
+    expect(npc().character.physicalCharacteristics!.style).toBe("a navy cardigan, grey trousers");
+  });
 });

@@ -183,20 +183,22 @@ describe("ORW-432 what moved and what did not", () => {
   it("stats, names, ages, hidden profiles, threads and every look field are byte-identical to main for the blanked draws (the background text and the biographies built from it are re-pinned by ORW-458)", () => {
     // `blankText` also blanks what ORW-458 changed (the public background line and the floor biography built from it),
     // so the first hash proves NO DRAW MOVED: it equals main's hash with the same blanking. The second pins the full text.
+    // NOTE (ORW-480): the blanking also covers the presentation, the mark and the face line, so a change to THOSE draws is not covered by this
+    // pin; they have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts and the style-fit parity cases).
     const run = (blankText: boolean) => {
       let all = "";
       for (const seed of SEEDS6) {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0 } : {}) } }));
-        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: v.physicalCharacteristics, castingType: 0 }]));
+        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, presentation: 0 } : {}) } }));
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0, distinguishingMark: 0, facialFeatures: 0 } : v.physicalCharacteristics, castingType: 0 }]));
         all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("4bc2ae4cea0bab8b66643aae34ead42a5b064cc8502166a9d3f29654d3a42c7e"); // identical on main and on the ORW-458 branch: no random draw moved
-    expect(run(false)).toBe("4c4140a2b47d56162e5df2a5201306dad3ceeb33dd01acf695ffd771c3798c53"); // re-pinned on purpose by ORW-458: only the background text and the biography built from it
+    expect(run(true)).toBe("9754005645fdb3f32250ff15e49c44b50033fc3b4ee36b910894a4860d9bf6ad"); // identical on main and on this branch with the background, biographies, style line, mark, face line and presentation blanked: no random draw moved // identical on main and on this branch with the background, the biographies and the style line blanked: no random draw moved
+    expect(run(false)).toBe("988707a7b2bcd9ddc6412a36d04b430b25122ce7e30a0ec5624a69c83ff8be75"); // re-pinned on purpose: ORW-458 (the background text and the biography built from it) and ORW-480 (the corporate style family sample lost "a lanyard on show"), and ORW-480 (a 44-mark pool dealt to about 4 of 15, 40 face lines, the style family weighted by job sector, hometown and age)
   });
 });
 
