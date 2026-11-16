@@ -34,6 +34,17 @@ from src import orwell_engine
     ("I'll stay put until the rest of the morning", (None, True)),
     ("I stay put until the competition starts", (None, False)),
     ("I'll wait here until production calls us", (None, False)),
+    # ORW-477 review: first-person words and discourse openers still fire; the shorter units
+    ("Fine, I wait two hours", (120, False)),
+    ("Okay, stay put for an hour", (60, False)),
+    ("\"I'll stay here for an hour,\" I say to Maya", (60, False)),
+    ("I wait an hour or two", (60, False)),  # the first number is taken: an hour
+    ("I wait 1.5 hours", (90, False)),
+    ("I stay put for 2h", (120, False)),
+    ("I wait 2 h", (120, False)),
+    ("I wait a couple of minutes", (2, False)),
+    ("I wait a few minutes", (5, False)),
+    ("I'll wait ten minutes", (10, False)),
 ])
 def test_the_family_of_stated_waits(msg, want):
     assert ch.hang_out_intent(msg), msg
@@ -58,6 +69,18 @@ def test_the_family_of_stated_waits(msg, want):
     "I need two hours of sleep",
     "I wait by the door and tell him I need two hours",
     "wait, what? two hours?",
+    # ORW-477 review: a line addressed to a houseguest is not the player's own wait
+    "Alex, stay put for a few hours",
+    "Maya, you should stay here for a couple of hours",
+    "Hey Maya, wait here for an hour",
+    "\"stay here for an hour\" I say to Maya",
+    "I tell Maya: wait here for an hour",
+    "I ask Maya to wait for an hour",
+    "you wait here for an hour",
+    "you need to stay put for another two hours",
+    "wait for me for an hour",
+    "I want Jess to wait here for an hour",
+    "\"stay put for another three hours,\" I tell Priya",
 ])
 def test_not_the_players_wait_moves_nothing(msg):
     assert not ch.hang_out_intent(msg), msg
@@ -68,6 +91,8 @@ def test_not_the_players_wait_moves_nothing(msg):
     ("I wait a couple of hours", 120),
     ("I'll stay here for another two hours", 120),
     ("stay put for another three hours", 180),
+    ("Fine, I wait 1.5 hours", 90),
+    ("I stay put for 2h", 120),
 ])
 def test_the_real_path_hands_the_engine_the_target(monkeypatch, msg, mins):
     """parse -> maybe_hang_out -> the engine call: the stated minutes are the target the engine is given."""
@@ -88,6 +113,7 @@ def test_a_negative_never_calls_the_engine(monkeypatch):
         called.append(kw)
         return {"ok": True}
     monkeypatch.setattr(orwell_engine, "hang_out", fake)
-    for msg in ("I've been waiting two hours", "he said wait two hours", "Should I wait two hours?"):
+    for msg in ("I've been waiting two hours", "he said wait two hours", "Should I wait two hours?", "Alex, stay put for a few hours",
+                "Maya, you should stay here for a couple of hours", "\"stay here for an hour\" I say to Maya", "wait for me for an hour"):
         assert not asyncio.run(ch.maybe_hang_out("w477", {"started": True}, msg))
     assert called == []
