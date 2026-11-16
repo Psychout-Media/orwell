@@ -11,7 +11,7 @@ import { playMixGame, mixShares } from "../support/houseMixDriver";
  *   3. no single season is more than MAX_DEVIATION points off REFERENCE in any category (no season goes off the rails).
  * The late game keeps its own runaway guard (`tests/property/houseMixLate.property.test.ts`, untouched).
  *
- * Heavy lane (`npm run test:heavy:house-mix`, a heavy-sims leg): 12 seasons x 350 messages is about two minutes of play (about 10 s a season), so it runs in one process.
+ * Heavy lane (`npm run test:heavy:house-mix`, a heavy-sims leg): 12 seasons of full week-1 play (until week 2 begins), so it runs in one process.
  * ORWELL_MIX_SEEDS='3' (comma list) narrows the seeds for a local smoke run: it prints the numbers and skips the assertions (the guard needs all 12 seasons).
  * The test prints one `MIXGUARD12 {...}` line (average, spread, max deviation) so a CI log shows the real numbers.
  */
@@ -23,17 +23,17 @@ import { playMixGame, mixShares } from "../support/houseMixDriver";
 export const REFERENCE = { bonding: 38.0, strategy: 33.2, gossip: 22.5, conflict: 6.3 } as const;
 export const AVG_TOLERANCE = 5; // points: the 12-season average, each category, against REFERENCE
 export const MIN_SPREAD = 15; // points: at least one of bonding / strategy / gossip, most minus least extreme season
-export const MAX_DEVIATION = 20; // points: no season, in any category, further than this from REFERENCE
+export const MAX_DEVIATION = 25; // points: no season, in any category, further than this from REFERENCE. 20 was proposed; 25 chosen (Coordinator) because 1 of 12 healthy seasons on main is 22 off (seed 9 strategy); still catches a dead or runaway season
 // -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 const ALL_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-const MESSAGES = 350;
+const MESSAGES = 1500; // generous cap: play stops as soon as week 2 begins (stopAtWeek), so week 1 is played to completion
 const ADVANCE_EVERY = 6;
 type Shares = { seed: number; n: number; bonding: number; strategy: number; gossip: number; conflict: number };
 const CATS = ["bonding", "strategy", "gossip", "conflict"] as const;
 
 async function playSeed(seed: number): Promise<Shares> {
-  const game = await playMixGame(seed, MESSAGES, { advanceEvery: ADVANCE_EVERY });
+  const game = await playMixGame(seed, MESSAGES, { advanceEvery: ADVANCE_EVERY, stopAtWeek: 2 });
   const s = mixShares(game.scenes.filter((x) => x.week === 1 && !x.playerOut));
   return { seed, ...s };
 }
@@ -51,6 +51,7 @@ function judge(rows: Shares[]): void {
   const r1 = (o: Record<string, number>): Record<string, number> => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, +v.toFixed(1)]));
   console.log(`MIXGUARD12 ${JSON.stringify({ seasons: rows.length, scenes: rows.reduce((a, r) => a + r.n, 0), avg: r1(avg), spread: r1(spread), maxDev: r1(maxDev), reference: REFERENCE })}`);
   console.log(`MIXGUARD12-SEEDS ${JSON.stringify(rows.map((r) => ({ seed: r.seed, n: r.n, ...r1({ b: r.bonding, s: r.strategy, g: r.gossip, c: r.conflict }) })))}`);
+  for (const r of rows) console.log(`MIXGUARD12-SEEDS ${r.seed}: ${r.bonding.toFixed(1)}/${r.strategy.toFixed(1)}/${r.gossip.toFixed(1)}/${r.conflict.toFixed(1)} n${r.n}`);
   expect(rows.map((r) => r.seed).sort((a, b) => a - b), "all 12 seeded seasons are present").toEqual(ALL_SEEDS);
   for (const r of rows) expect(r.n, `season ${r.seed} has enough week-1 scenes to read a mix`).toBeGreaterThan(40);
   for (const k of CATS) expect(Math.abs(avg[k] - REFERENCE[k]), `average ${k} is ${avg[k].toFixed(1)}% against the reference ${REFERENCE[k]}%`).toBeLessThanOrEqual(AVG_TOLERANCE);
@@ -65,7 +66,7 @@ describe("house-life mix guard (12 seasons, week 1)", () => {
     const rows: Shares[] = [];
     for (const seed of envSeeds ?? ALL_SEEDS) rows.push(await playSeed(seed));
     if (envSeeds) { // local smoke run: numbers only
-      for (const r of rows) console.log(`MIXGUARD12-SMOKE ${JSON.stringify({ seed: r.seed, n: r.n, b: +r.bonding.toFixed(1), s: +r.strategy.toFixed(1), g: +r.gossip.toFixed(1), c: +r.conflict.toFixed(1) })}`);
+      for (const r of rows) console.log(`MIXGUARD12-SEEDS ${r.seed}: ${r.bonding.toFixed(1)}/${r.strategy.toFixed(1)}/${r.gossip.toFixed(1)}/${r.conflict.toFixed(1)} n${r.n}`);
       expect(rows[0]!.n).toBeGreaterThan(0);
       return;
     }
