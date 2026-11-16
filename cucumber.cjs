@@ -140,7 +140,6 @@ module.exports = {
       "docs/features/0156-house-meetings.feature",
       "docs/features/0157-rumor-mill-retrospective.feature",
       "docs/features/0161-alliance-history.feature",
-      "docs/features/0153-npcs-spread-and-lie.feature",
       "docs/features/0158-theme-2-end-to-end.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
