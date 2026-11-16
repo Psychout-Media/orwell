@@ -1544,6 +1544,7 @@ export function renderGameContext(view: GameStateView): string {
     // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
+    ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}. Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words and never add, correct or doubt it): ${view.sourceNote}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
@@ -2158,4 +2159,22 @@ export function buildSystemPrompt(
     // a live-turn happening, not a resume recap, so it must ride the ordinary per-turn prompt too.
     ...(surfacedFacts ? [surfacedFacts] : []),
   ].join("\n\n");
+}
+
+const MEETING_CLAIM: Readonly<Record<string, (c: { subject: string; object?: string }, caller: string) => string>> = {
+  "targets-you": (c) => `${c.subject} is targeting the houseguests`,
+  "voted-to-evict-you": (c, caller) => `${c.subject} voted to evict ${c.object ?? caller}`,
+  "final-two-with": (c) => `${c.subject} has a final two with ${c.object ?? "someone"}`,
+  "going-after": (c) => `${c.subject} is going after ${c.object ?? "someone"}`,
+  "talking-about": (c) => `${c.subject} has been talking about ${c.object ?? "someone"} behind their back`,
+  "lying-about": (c) => `${c.subject} is lying${c.object ? ` to ${c.object}` : ""}`,
+};
+
+/** 0156: one line for the narrator, from the Vault-free meeting view (names and the claim kind only). */
+export function houseMeetingLine(m: { caller: string; accused: string; claim: { kind: string; subject: string; object?: string }; answer: string; redirectTo?: string }): string {
+  const said = (MEETING_CLAIM[m.claim.kind] ?? ((c) => `${c.subject} did something`))(m.claim, m.caller);
+  const reply = m.answer === "admit" ? `${m.accused} admits it`
+    : m.answer === "redirect" ? `${m.accused} turns it back, telling the house ${m.redirectTo ?? m.caller} is the one lying`
+    : `${m.accused} denies it`;
+  return `${m.caller} called the house together and said: ${said}. ${reply}`;
 }

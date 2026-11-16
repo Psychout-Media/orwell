@@ -134,6 +134,7 @@ module.exports = {
       "docs/features/0149-claims-core.feature",
       "docs/features/0151-what-you-hear.feature",
       "docs/features/0152-who-told-you-that.feature",
+      "docs/features/0156-house-meetings.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
