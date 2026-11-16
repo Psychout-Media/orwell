@@ -72,7 +72,7 @@ describe("the finale bearing reads how the juror was treated (ORW-110)", () => {
   it("NPC-only finale: a juror blindsided by the FIRST finalist, then by the SECOND, reads burning either way; wronged by neither reads settled", () => {
     expect(spectatorFinale("first", { blindsided: true })).toBe("burning");
     expect(spectatorFinale("second", { blindsided: true })).toBe("burning");
-    expect(spectatorFinale("neither", { blindsided: true })).not.toBe("burning");
+    expect(spectatorFinale("neither", { blindsided: true })).toBe("settled");
   });
   it("NPC-only finale: a larger relayed grudge still wins over a milder manner, for either finalist", () => {
     expect(spectatorFinale("first", { disrespected: true }, { first: 0.15 })).toBe("burning");

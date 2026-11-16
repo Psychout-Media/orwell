@@ -87,7 +87,7 @@ describe("through the real session: the holder's traits and the bond to EACH sub
     const [holder, close, far] = sb.session.livingIds().filter((i) => i !== PLAYER);
     g.house.npcs.find((n) => n.id === holder)!.character.strategyStyle = style;
     g.soulObj = () => ({ volatility });
-    g.rel = { ...g.rel, bondStrength: (_a: string, b: string) => (b === close ? bonds.close : b === far ? bonds.far : 0.5) } as Rig["rel"];
+    g.rel = Object.assign(Object.create(Object.getPrototypeOf(g.rel)), g.rel, { bondStrength: (_a: string, b: string) => (b === close ? bonds.close : b === far ? bonds.far : 0.5) }) as Rig["rel"]; // keeps the prototype methods
     g.live.week = 30;
     const record = (): MemoryEntry[] => [{ kind: "scene-betrayal", week: 1, severity: 0.4 }];
     g.live.npcMemory = { [holder!]: { [close!]: record(), [far!]: record() } };

@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 
 import pytest
 
@@ -111,10 +112,15 @@ def _game_chat(stack, name):
     bug. Drive the bound chat when there is one (the mocked /api/history answers for any id), else the one just created."""
     import urllib.request
     sid = _session(stack, name)
-    try:
-        bound = json.loads(urllib.request.urlopen(stack["fe"] + "/api/orwell/game-session", timeout=10).read()).get("sessionId")
-    except Exception:  # noqa: BLE001
-        bound = None
+    bound = None
+    for _ in range(5):  # a transient failure must not silently pick a non-canonical chat (that is the race this helper removes)
+        try:
+            bound = json.loads(urllib.request.urlopen(stack["fe"] + "/api/orwell/game-session", timeout=10).read()).get("sessionId")
+            break
+        except Exception:  # noqa: BLE001
+            time.sleep(0.5)
+    else:
+        raise AssertionError("/api/orwell/game-session never answered; refusing to drive a non-canonical chat")
     return bound or sid
 
 

@@ -29,6 +29,7 @@ describe("same seed, same season, whatever ran before it (ORW-213)", () => {
   }, 600_000);
   it("the environment IS part of the game: a per-session flag pin plays a different season (so a cucumber-vs-alone difference is the environment, not leaked state)", async () => {
     const saved = process.env.ORWELL_CALM_PRESENCE;
+    const savedGate = process.env.ORWELL_BEDTIME_GATE; // `playSeed` sets it on every call
     try {
       delete process.env.ORWELL_CALM_PRESENCE;
       const defaults = await sig(1);
@@ -37,6 +38,7 @@ describe("same seed, same season, whatever ran before it (ORW-213)", () => {
       expect(pinned, "the pinned environment is a different season").not.toBe(defaults);
     } finally {
       if (saved === undefined) delete process.env.ORWELL_CALM_PRESENCE; else process.env.ORWELL_CALM_PRESENCE = saved;
+      if (savedGate === undefined) delete process.env.ORWELL_BEDTIME_GATE; else process.env.ORWELL_BEDTIME_GATE = savedGate;
     }
   }, 600_000);
 });
