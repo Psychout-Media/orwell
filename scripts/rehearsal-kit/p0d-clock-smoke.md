@@ -1,10 +1,10 @@
 # P0d - live clock smoke (dev, once #2145 is deployed there)
 
-Goal: prove, as a real player, that the clock moves +5 in-game minutes per message (plain chat included), nothing 409s, a hang-out does not make the next message free, and nothing fires early. About 15 messages, mostly chat. Images off. **There is NO spend cap in this manual session: nothing here stops the spend, so watch it yourself and stop at about $0.5.** (A staged rig run is different: its spend guard enforces the cap.)
+Goal: prove, as a real player, that the clock moves +5 in-game minutes per message (plain chat included), nothing 409s, a hang-out does not make the next message free, and nothing fires early. About 15 messages, mostly chat. Images off. **Spend: the $0.5 cap is NOT enforced in a manual session** (`spend_guard.py` only stops a staged rig run, by that run's PID files; a hosted dev box has none). Watch the spend yourself and stop at about $0.5.
 
 **Precondition (not mine to create):** dev has login on (it redirects to /login). I do not create accounts or enter credentials on hosted boxes, so someone must hand me an already-logged-in session (the Coordinator or Ryne starts it and gives me the cookie), or run this themselves. Start from a fresh game that has finished the premiere day-break (morning, 8:00 clock running).
 
-**After every message** run: `python3 ~/orwell-playtest/rehearsal-kit/p0d_read.py http://<dev> '<cookie>'` and note `minutesUntil`, `due`, `timeOfDay`. Also tail the dev front-end log for `stale-beat` / `409` (read-only: `journalctl -u orwell-frontend --since "-10 min" | grep -ci "stale-beat"`).
+**After every message** run: `python3 ~/orwell-playtest/rehearsal-kit/p0d_read.py http://<dev> '<cookie>'` and note `minutesUntil`, `due`, `timeOfDay`. Also tail the dev front-end log for `stale-beat` / `409` (read-only; count over the WHOLE run, not a rolling window: note the start time before line 1 and run `journalctl -u orwell-frontend --since "<that time>" | grep -ci "stale-beat"` at the end).
 
 ## The ~15 lines (send in order; wait for the reply to finish before the next)
 | # | Player line | Type |
@@ -31,8 +31,8 @@ Let M0 be `minutesUntil` before line 1 (minutes until the first scheduled event,
 |---|---|---|
 | Plain chat steps the clock | each plain-chat line (1-6, 8, 12-15) lowers `minutesUntil` by exactly 5 | every one is -5 (+/- 0) |
 | A tool-call message bills once | line 7 (move) lowers it by 5, not 10 | -5 |
-| Hang-out spends its own time | line 9 lowers it by the hang-out length (15-30 min per beat, up to 8 beats) or stops early with a stated reason | a stop reason is narrated; time moved |
-| **Hang-out does not make the next message free** | line 10 lowers it by exactly 5 | -5 (a 0 is the bug B fixed; a 0 here is a FAIL) |
+| Hang-out spends its own time | line 9 lowers it by the hang-out length (15-30 min per beat, up to 8 beats) or stops early with a stated reason; if it reaches the event, `minutesUntil` is clamped at 0 and `due` flips true | a stop reason is narrated; time moved |
+| **Hang-out does not make the next message free** | line 10 lowers it by exactly 5 (only when line 9 did not already reach the event: then `minutesUntil` stays 0 and the check is the `due` flip and the card) | -5 (a 0 with the event NOT reached is the bug B fixed; a 0 here is a FAIL) |
 | Deal offer | line 11 costs 5; any card/refusal is the NPC's own choice | -5 |
 | No 409 | zero `stale-beat` lines in the dev FE log for the window, or at most a handful already reconciled with no lost reply | 0 (or reconciled, no missing message) |
 | Nothing fires early | `due` stays false and no competition card appears while `minutesUntil` > 0 | no comp before it is due |

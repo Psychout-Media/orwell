@@ -8,6 +8,7 @@ def send(n, text, card):
         try: r = json.load(open(f"{RUN}/resp.json"))
         except Exception: continue
         if r["n"] == n: return r
+    sys.exit(f"timeout waiting for turn {n}: no response from the daemon")
 def show(n, r, label):
     s = r["status"]; ds = s.get("daySchedule") or {}
     ph = s.get("phase"); wk = s.get("week")
@@ -19,7 +20,7 @@ last = json.load(open(f"{RUN}/resp.json")) if N > 0 else None
 for line in LINES:
     while last and last.get("card"):
         N += 1
-        c = {"pick": [0]}
+        c = {"pick": [0, 1] if "nominat" in last["card"]["title"].lower() else [0]}   # a nominations card needs two distinct picks
         if any(k in last["card"]["title"].lower() for k in ("goodbye", "message")): c["text"] = "Take care out there."
         last = send(N, None, c); show(N, last, "(card) pick 0")
     N += 1
