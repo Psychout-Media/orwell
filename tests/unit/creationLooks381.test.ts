@@ -129,14 +129,17 @@ describe("ORW-381 no main-stream draw moved", () => {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: 0 }]));
-        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0, presentation: 0 } })) : npcs;
-        all += JSON.stringify([cast, pub, l.hidden, l.threads]);
+        // Blanked: what ORW-508 changes (vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on it) and what ORW-480 changes (the presentation and the whole look).
+        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0, presentation: 0, vocation: 0, hometown: 0 } })) : npcs;
+        const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
+        const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
+        all += JSON.stringify([cast, pub, hid, thr]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("b0407245a1433ac4d9e5c8368891d3dee0552b016763aafd7eecc70ce50d0144"); // identical on main and on this branch. NOTE (ORW-480): this blanked pin now also blanks the presentation and the whole look, so a change to the presentation, mark or face-line DRAWS is no longer covered by it; those draws have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts, styleFit)
+    expect(run(true)).toBe("986d0ffe76a90b933b5ad2520d0214ff3a800463f4a78fd67258fdf628f76bbd"); // identical on main and on the ORW-508 branch with ORW-508's and ORW-480's changed fields blanked: no other draw moved. NOTE (ORW-480): this blanked pin also blanks the presentation and the whole look; those draws have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts, styleFit)
     // ORW-458 (on purpose): only the background text and the biography built from it moved. Before that, ORW-432: only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
-    expect(run(false)).toBe("a1579dbb2f4a0947e3e6d12d3db2a462548ead966414f53a20631d2ec77ec698"); // re-pinned on purpose by ORW-480: the presentation family is weighted by job, hometown and age
+    expect(run(false)).toBe("6ba89c2649c08bb12c322996000c6756febf0277549f13f2573848581c6d3217"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt on its own stream, and the text built from the job) on top of ORW-480 (the presentation family weighted by job, hometown and age)
   });
 });
 
