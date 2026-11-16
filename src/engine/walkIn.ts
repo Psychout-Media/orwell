@@ -1,6 +1,6 @@
 /**
  * ORW-473 (Kevin with Ryne, 2026-11-15: "That should be dynamic based on character sheets involved"): the player walks into a room where two houseguests are in a private talk. Each one's reaction is chosen from THEIR OWN
- * sheet, not one rule for everyone: how candid their archetype and style make them, how they feel about the player and about the one they are talking to, and how much the talk has to hide. Pure and deterministic (the caller
+ * sheet, not one rule for everyone: how candid their archetype and style make them, how they feel about the player and about the one they are talking to; never the kind of talk. Pure and deterministic (the caller
  * supplies a small seeded jitter): no rng, no Vault, and the result never carries what the talk was about.
  */
 import { ACTIONS as HOUSE_LIFE_ACTIONS, type ActionKind } from "./houseLife";
@@ -22,8 +22,6 @@ export interface WalkInSheet {
   affinityToPlayer: number;
   /** How this houseguest feels about the one they are talking to, 0..1. */
   affinityToOther: number;
-  /** How much the talk has to hide (the kind of talk, whether it was truthful), 0..1. */
-  stakes: number;
 }
 
 
@@ -35,25 +33,19 @@ export function isPrivateTalk(action: string): boolean {
   return spec !== undefined && spec.speech && spec.partners.min >= 1 && (PRIVATE_FAMILIES.has(spec.family) || action === "gossip");
 }
 
-/** How much a talk of this kind has to hide, 0..1 (an attack on someone hides more than an alliance check-in). */
-export function talkStakes(action: string, truthful: boolean): number {
-  const spec = (HOUSE_LIFE_ACTIONS as Record<string, { family: string } | undefined>)[action as ActionKind];
-  const base = spec?.family === "attack" ? 0.85 : spec?.family === "alliances" ? 0.6 : 0.4;
-  return clamp01(base + (truthful ? 0 : 0.1));
-}
-
 /**
- * The reaction with the highest score for THIS sheet. The weights are plain and named so a reaction is traceable to the sheet: a houseguest who likes the player and has little to hide pulls the player in; one with a lot to hide
- * and little candor moves the talk; a candid one with some trust in the player carries on in guarded terms; one who does not warm to the player goes quiet. `jitter` (0..0.08, seeded) only separates near ties.
+ * The reaction with the highest score for THIS sheet. It depends only on the PEOPLE: the houseguest's candor, how they feel about the player and about the one they are talking to. It deliberately does NOT depend on
+ * the kind of talk (an attack, an alliance check-in, gossip): the reaction reaches the player as a manner line, so a kind-dependent reaction would leak the hidden stakes statistically. The weights are plain and named so a
+ * reaction is traceable to the sheet: one who likes the player and is candid pulls the player in; a candid one with some trust carries on in guarded terms; a secretive one wary of the player moves the talk; one who does
+ * not warm to the player goes quiet. `jitter` (0..0.08, seeded) only separates near ties.
  */
 export function walkInReaction(s: WalkInSheet, jitter = 0): WalkInReaction {
   const c = clamp01(s.candor), ap = clamp01(s.affinityToPlayer), ao = clamp01(s.affinityToOther);
-  const hide = clamp01(s.stakes) * (1 - 0.5 * c); // a candid houseguest hides less of it
   const scores: Record<WalkInReaction, number> = {
-    "pulls-the-player-in": 1.0 * ap + 0.5 * c - 0.8 * hide,
-    "carries-on-guarded": 0.6 * c + 0.3 * ap + 0.2 * hide + 0.2 * ao,
-    "moves-the-talk": 0.9 * hide * (1 - c) + 0.3 * (1 - ap),
-    "goes-quiet": 0.5 * (1 - ap) + 0.4 * (1 - c) * (1 - hide) + jitter,
+    "pulls-the-player-in": 1.0 * ap + 0.5 * c - 0.35,
+    "carries-on-guarded": 0.6 * c + 0.3 * ap + 0.2 * ao,
+    "moves-the-talk": 0.9 * (1 - c) * (1 - ao) + 0.3 * (1 - ap) - 0.05,
+    "goes-quiet": 0.5 * (1 - ap) + 0.4 * (1 - c) * (1 - ao) + jitter,
   };
   let best: WalkInReaction = "goes-quiet";
   for (const k of WALK_IN_REACTIONS) if (scores[k] > scores[best]) best = k;

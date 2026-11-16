@@ -3,30 +3,28 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
-import { walkInLine, walkInReaction, isPrivateTalk, talkStakes, WALK_IN_REACTIONS } from "../../src/engine/walkIn";
+import { walkInLine, walkInReaction, isPrivateTalk, WALK_IN_REACTIONS } from "../../src/engine/walkIn";
 import { resolvePending } from "../../features/support/answerPending";
 
 /** ORW-473: walking in on a private talk. Each houseguest's reaction comes from their own sheet; the narrator is told the manner, never the content; both remember. Roles only. */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
 const SHEETS = {
-  "pulls-the-player-in": { candor: 0.9, affinityToPlayer: 0.9, affinityToOther: 0.5, stakes: 0.3 },
-  "carries-on-guarded": { candor: 0.8, affinityToPlayer: 0.5, affinityToOther: 0.7, stakes: 0.6 },
-  "moves-the-talk": { candor: 0.1, affinityToPlayer: 0.3, affinityToOther: 0.5, stakes: 0.85 },
-  "goes-quiet": { candor: 0.3, affinityToPlayer: 0.05, affinityToOther: 0.4, stakes: 0.4 },
+  "pulls-the-player-in": { candor: 0.9, affinityToPlayer: 0.9, affinityToOther: 0.5 },
+  "carries-on-guarded": { candor: 0.8, affinityToPlayer: 0.5, affinityToOther: 0.7 },
+  "moves-the-talk": { candor: 0.1, affinityToPlayer: 0.3, affinityToOther: 0.1 },
+  "goes-quiet": { candor: 0.3, affinityToPlayer: 0.05, affinityToOther: 0.4 },
 } as const;
 
 describe("the pure sheet rule", () => {
   it("each of the four reactions is what a particular sheet produces", () => {
     for (const k of WALK_IN_REACTIONS) expect(walkInReaction(SHEETS[k], 0), k).toBe(k);
   });
-  it("only a spoken strategic talk with a partner is a private talk; an attack hides more than an alliance check-in", () => {
+  it("only a spoken strategic talk with a partner is a private talk; ", () => {
     expect(isPrivateTalk("pitch")).toBe(true);
     expect(isPrivateTalk("drive-a-wedge")).toBe(true);
     expect(isPrivateTalk("cook")).toBe(false);
     expect(isPrivateTalk("nap")).toBe(false);
-    expect(talkStakes("frame", true)).toBeGreaterThan(talkStakes("check-in", true));
-    expect(talkStakes("check-in", false)).toBeGreaterThan(talkStakes("check-in", true));
   });
 });
 
@@ -78,8 +76,8 @@ const sheet = (h: Hack, by: Record<string, { candor: number; ap: number; ao: num
 describe("walking in on a private talk", () => {
   it("the same interruption gives different reactions for different pairs, traceable to their sheets", () => {
     const one = stage(); const two = stage();
-    sheet(one.h, { [one.A]: { candor: 0.9, ap: 0.9, ao: 0.5 }, [one.B]: { candor: 0.1, ap: 0.2, ao: 0.5 } }, one.A, one.B);
-    sheet(two.h, { [two.A]: { candor: 0.1, ap: 0.2, ao: 0.5 }, [two.B]: { candor: 0.9, ap: 0.9, ao: 0.5 } }, two.A, two.B);
+    sheet(one.h, { [one.A]: { candor: 0.9, ap: 0.9, ao: 0.5 }, [one.B]: { candor: 0.1, ap: 0.2, ao: 0.1 } }, one.A, one.B);
+    sheet(two.h, { [two.A]: { candor: 0.1, ap: 0.2, ao: 0.1 }, [two.B]: { candor: 0.9, ap: 0.9, ao: 0.5 } }, two.A, two.B);
     one.s.movePlayer("kitchen"); two.s.movePlayer("kitchen");
     const w1 = one.s.getGameState().walkedIn!; const w2 = two.s.getGameState().walkedIn!;
     const by = (w: typeof w1, id: EntityId) => w.reactions.find((r) => r.id === id)!.line; // the view carries the manner only
@@ -179,5 +177,22 @@ describe("walking in on a private talk", () => {
     for (const k of WALK_IN_REACTIONS) expect(text).not.toContain(k);
     expect(text).not.toContain('"reaction"');
     for (const r of w.reactions) expect(Object.keys(r).sort()).toEqual(["id", "line", "name"]);
+  });
+
+  it("the visible reaction does not depend on the kind of talk: the same people give the same manner after an attack, an alliance check-in and gossip", () => {
+    const lines = ["drive-a-wedge", "pitch", "gossip"].map((kind) => {
+      const x = stage(kind); calm(x);
+      x.s.movePlayer("kitchen");
+      return JSON.stringify(x.s.getGameState().walkedIn!.reactions.map((r) => r.line));
+    });
+    expect(new Set(lines).size, lines.join(" | ")).toBe(1);
+  });
+
+  it("over many random sheets the reaction mix is one distribution, with no input for the kind of talk", () => {
+    let seed = 12345; const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const count = new Map<string, number>();
+    for (let i = 0; i < 4000; i++) { const r = walkInReaction({ candor: rnd(), affinityToPlayer: rnd(), affinityToOther: rnd() }, 0); count.set(r, (count.get(r) ?? 0) + 1); }
+    for (const k of WALK_IN_REACTIONS) expect(count.get(k) ?? 0, k).toBeGreaterThan(200); // all four stay reachable
+    expect(Object.keys({ candor: 0, affinityToPlayer: 0, affinityToOther: 0 })).not.toContain("stakes");
   });
 });
