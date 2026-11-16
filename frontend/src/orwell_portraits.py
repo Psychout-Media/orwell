@@ -1748,6 +1748,30 @@ def _safe_int(v, default: int = 0, floor: int = 0) -> int:
 PORTRAIT_WORDING = 4
 
 
+def _wording_only_stale(entry) -> bool:
+    """True for a face of the current version whose fingerprint predates the recorded wording: it is re-baselined quietly (never re-shot), not frozen."""
+    return (isinstance(entry, dict) and not _entry_version_stale(entry) and entry.get("source") != "upload" and bool(entry.get("fingerprint"))
+            and _safe_int(entry.get("promptWording", 0), 0) < PORTRAIT_WORDING)
+
+
+def _rebaseline_fingerprint(user, hid, fp: Optional[str]) -> None:
+    """Store today's engine fingerprint and the wording on a legacy face, image untouched, as the no-fingerprint backfill does: from the next sweep an edited
+    look is compared with this baseline and re-shoots. A failed write only means the baseline is taken again next sweep."""
+    if not fp:
+        return
+    try:
+        sid = _safe_id(str(hid))
+        manifest = load_manifest(user)
+        e = manifest.get(sid)
+        if isinstance(e, dict):
+            e["fingerprint"] = fp
+            e["promptWording"] = PORTRAIT_WORDING
+            manifest[sid] = e
+            _save_manifest(user, manifest)
+    except Exception as ex:  # failsoft-ok: best-effort-metadata (the baseline is simply taken again on the next sweep)
+        logger.info("[portraits] fingerprint baseline not saved: %s", type(ex).__name__)
+
+
 def _fingerprint_not_comparable(entry) -> bool:
     """True when a stored face was shot under an older prompt wording or version: its fingerprint is never a re-shoot trigger."""
     if _entry_version_stale(entry):
@@ -2472,6 +2496,11 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 # ORW-361: an explicit single re-shoot (the upgrader). Falls through to regenerate;
                 # the file is replaced only after the new image succeeds, stamped with the new version.
                 reshoot_ids.add(_safe_id(str(hid)))
+            elif _wording_only_stale(stored):
+                # ORW-480: a face shot before the shot-card wording is re-baselined quietly (today's engine fingerprint), never re-shot and never frozen
+                _rebaseline_fingerprint(user, hid, fp)
+                skipped += 1
+                return
             elif _fingerprint_not_comparable(stored):
                 # ORW-361: shot under an older prompt wording — its fingerprint is not comparable.
                 # Leave it alone: no re-shoot, no fingerprint or version change (v1 recorded explicitly).
@@ -3148,7 +3177,9 @@ def kickoff_authored_reshoot(hid, user: Optional[str]) -> bool:
                 except Exception:  # failsoft-ok: handled-by-terminal (orwell_engine._call already recorded record_io(ok=False) RED; this is only a staleness probe — None skips the discard optimization, backfill_missing below re-fetches)
                     p = None
                 cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
-                if cur_fp and _fingerprint_not_comparable(entry):
+                if cur_fp and _wording_only_stale(entry):
+                    _rebaseline_fingerprint(user, hid, cur_fp)      # ORW-480: a legacy face is re-baselined quietly on its first sweep
+                elif cur_fp and _fingerprint_not_comparable(entry):
                     pass  # ORW-361: older prompt wording, never a fingerprint re-shoot (ORW-369 upgrades it)
                 elif cur_fp and entry.get("fingerprint") != cur_fp:
                     logger.info("[portraits] ADR 0013: %s's stored face predates its authored "
@@ -3621,6 +3652,9 @@ async def _heal_stale_authored_faces(user: Optional[str], cards: list) -> int:
                 engine_ok = False  # engine trouble — verify nothing this sweep, try again next
                 break
             cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
+            if cur_fp and _wording_only_stale(manifest_now.get(_safe_id(str(hid)))):
+                _rebaseline_fingerprint(user, hid, cur_fp)          # ORW-480: re-baselined quietly, compared from the next sweep on
+                continue
             if cur_fp and _fingerprint_not_comparable(manifest_now.get(_safe_id(str(hid)))):
                 continue  # ORW-361: older prompt wording, never a fingerprint re-shoot
             if cur_fp and cur_fp != stored_fp:

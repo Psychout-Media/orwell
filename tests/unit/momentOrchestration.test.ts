@@ -261,10 +261,12 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
     // ORW-480 (on purpose): the portrait line is now "skin, build" and the face is the dealt face card (seven concrete features, a feature the written face line names is kept as a pin), so the written face line is no longer sent verbatim.
     expect(pp.prompt).toContain([f.skinTone, f.heightBuild].join(", "));
     expect(pp.prompt).toContain("Face: ");
-    // the written face line still reaches the prompt: the face card pins a feature the line names (a content word of it appears in the Face sentence)
+    // the written face line still reaches the prompt: the face card pins a feature the line names. Only a distinctive word counts (a descriptor), never a bare body-part word such as "eyes" or "nose".
     const faceSentence = /Face: [^.]*\./.exec(pp.prompt)?.[0]?.toLowerCase() ?? "";
-    const written = String(f.facialFeatures ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? [];
-    expect(written.some((w) => faceSentence.includes(w))).toBe(true);
+    const GENERIC = new Set(["eyes", "eye", "nose", "jaw", "face", "mouth", "lips", "brows", "brow", "cheeks", "cheekbones", "chin", "forehead", "ears", "with", "and", "that", "a", "the", "set", "wide", "narrow", "long", "short", "high", "low", "full", "thin", "round", "square"]);
+    const distinctive = (String(f.facialFeatures ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((w) => !GENERIC.has(w));
+    expect(distinctive.length).toBeGreaterThan(0);
+    expect(distinctive.some((w) => faceSentence.includes(w)), `${f.facialFeatures} -> ${faceSentence}`).toBe(true);
     expect(ctx).toContain(sharedLook);
   });
 

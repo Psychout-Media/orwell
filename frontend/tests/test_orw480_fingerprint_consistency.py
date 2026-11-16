@@ -33,7 +33,7 @@ def test_a_sweep_after_a_briefed_shoot_reshoots_nothing(tmp_portraits, monkeypat
     assert orwell_portraits.portrait_file("u", "npc:1") is not None
 
 
-def test_a_face_shot_before_the_shot_card_wording_is_not_a_fingerprint_reshoot(tmp_portraits, monkeypatch):
+def test_a_face_shot_before_the_shot_card_wording_is_rebaselined_quietly_then_an_edit_reshoots(tmp_portraits, monkeypatch):
     _stub_gate(monkeypatch, False)
     _stub_provider(monkeypatch, True)
     _stub_prompts(monkeypatch, suffix=" NEW WORDING")                            # today's prompt differs from the one the face was shot with
@@ -46,6 +46,15 @@ def test_a_face_shot_before_the_shot_card_wording_is_not_a_fingerprint_reshoot(t
     assert calls == [] and orwell_portraits.portrait_file("u", "npc:1").read_bytes() == b"LIVE-FACE"
     assert orwell_portraits.PORTRAIT_PROMPT_VERSION == 3                          # no version bump: the upgrader lists no live face
     assert orwell_portraits.stale_portrait_ids(orwell_portraits.load_manifest("u")) == []
+    # the first sweep took today's engine prompt as the baseline (stamped with the wording), image untouched
+    base = orwell_portraits.load_manifest("u")["npc_1"]
+    assert base["fingerprint"] == orwell_portraits._prompt_fingerprint("photoreal npc:1 NEW WORDING") and base["promptWording"] == orwell_portraits.PORTRAIT_WORDING
+    _kick_reshoot("npc:1", "u")
+    assert calls == []                                                           # an unchanged card after the baseline re-shoots nothing
+    # the look is then edited: the engine's prompt changes, so the sweep re-shoots from it
+    _stub_prompts(monkeypatch, suffix=" EDITED LOOK")
+    _kick_reshoot("npc:1", "u")
+    assert calls and "EDITED LOOK" in calls[0]
 
 
 def test_a_task_never_borrows_another_tasks_provider(monkeypatch):

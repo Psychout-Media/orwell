@@ -841,3 +841,42 @@ def test_round20_a_slow_brief_step_falls_to_the_floor(tmp_path, monkeypatch):
     anchors = B.deal_anchors(cs, B.season_seed("u", cs))
     assert [e["prompt"] for e in out] == [B.floor_with_anchors(FLOOR, anchors[c["id"]], c) for c in cs]       # the floor with this person's anchors, no brief, no hang
     assert B._load_cache("u") == {}
+
+
+def test_round21_a_timeout_keeps_the_batch_that_landed_and_a_later_sweep_resumes(tmp_path, monkeypatch):
+    import asyncio
+    cs = cards()
+    monkeypatch.setattr(B, "_cache_path", lambda user: tmp_path / "c.json")
+    assert B.BRIEF_STEP_TIMEOUT_S == 120.0
+    inner = writer()
+    n = {"writer": 0}
+
+    async def first_then_hang(messages):
+        user = json.loads(messages[-1]["content"])
+        if user.get("cast"):
+            n["writer"] += 1
+            if n["writer"] == 2:
+                await asyncio.sleep(5)                                      # the second batch never lands in time
+        return await inner(messages)
+    prompts = [{"houseguestId": c["id"], "name": c["name"], "prompt": FLOOR} for c in cs]
+    run(B.apply_briefs(prompts, "u", llm_fn=first_then_hang, cards=cs, timeout_s=0.5))
+    kept = B._load_cache("u")
+    assert 0 < len(kept) < len(cs) and all(v.get("brief") and v.get("anchors") for v in kept.values())      # the paid batch is cached
+    asked = []
+    run(B.apply_briefs(prompts, "u", llm_fn=writer(calls=asked), cards=cs))
+    done_ids = set(kept)
+    wanted = {i for m in asked if "cast" in json.loads(m[-1]["content"]) for i in json.loads(m[-1]["content"])["cast"]}
+    assert wanted and not (wanted & done_ids)                                # the resume pays only for the people not yet cached
+    assert len(B._load_cache("u")) == len(cs)
+
+
+def test_round21_a_cut_leaves_no_fragment_and_the_dash_markers_are_caught():
+    cs = cards(); c = cs[0]; an = B.deal_anchors(cs, 1)["npc:1"]
+    base = good_brief(c, 0)
+    fixed = B.repair_brief(c, {**base, "doing": "sitting on a crate talking with her neighbour who stands beside her"}, an)
+    assert fixed["doing"] == "sitting on a crate" and B.check_brief(c, an, fixed) == []
+    assert B._drop_clauses("sitting and then, her neighbour waves", B._PersonRx("doing")) == "sitting"
+    assert B._drop_clauses("on the porch, a friend nearby, who waves, with a mug", B._PersonRx("doing")) == "on the porch"
+    for t in ("sitting. Framing — the same for the whole series", "sitting, Setting - a studio", "ok. Wearing – a uniform"):
+        assert "prompt-structure" in B.check_brief(c, an, {**base, "doing": t}), t
+        assert not B.STRUCT_RE.search(B.repair_brief(c, {**base, "doing": t}, an)["doing"]) or "prompt-structure" in B.check_brief(c, an, B.repair_brief(c, {**base, "doing": t}, an))

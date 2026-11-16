@@ -413,7 +413,7 @@ def _trim(text: str, limit: int) -> str:
     return t[:limit].rsplit(" ", 1)[0].rstrip(" ,;")
 
 # A field that imitates the prompt's own structure (a section label, a new directive) or tries to instruct the image model is never printed as written.
-STRUCT_RE = re.compile(r"\b(?:Hair|Wearing|Setting|Light|The moment|Framing|Face|Camera position|The subject|An ordinary person|Taken the way|Keep the stated age|System|Assistant|Prompt)\s*:|\bFraming,\s*the same|\b(?:ignore|disregard|forget|override)\b[^.]{0,40}\b(?:instructions?|prompts?|rules?|above|previous|prior)\b|\bnew (?:instructions?|directive)s?\b", re.I)
+STRUCT_RE = re.compile(r"\b(?:Hair|Wearing|Setting|Light|The moment|Framing|Face|Camera position|The subject|An ordinary person|Taken the way|Keep the stated age|System|Assistant|Prompt)\s*(?::|[\u2013\u2014]|\s-+\s)|\bFraming,\s*the same|\b(?:ignore|disregard|forget|override)\b[^.]{0,40}\b(?:instructions?|prompts?|rules?|above|previous|prior)\b|\bnew (?:instructions?|directive)s?\b", re.I)
 PRINTED = ("where", "doing", "wear", "signature", "timeLight", "expressionBody")
 SPECIFIC_PERSON_RE = re.compile(r"\b(?:neighbou?rs?|friends?|kids?|child|children|sons?|daughters?|mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|babys?|couple|crowd|people|passers?-?by|strangers?|customers?|clients?|patients?|teammates?|students?|family members?|husband|wife|partner|boyfriend|girlfriend)\b", re.I)
 _OWNS_PLACE_RE = re.compile(r"\b(?:his|her|their|my)\s+(?:[a-z]+\s+)?(?:mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|parents?|husband|wife|partner|sons?|daughters?|family|friends?|neighbou?rs?)\s+(?:runs|owns|ran|owned|keeps|kept|manages|built|rents|rented|lives|lived|grew|bought|opened|founded)\b", re.I)
@@ -446,9 +446,25 @@ def _scrub_structure(text: str) -> str:
     return t.replace(":", ",")
 
 
+_DANGLING_START_RE = re.compile(r"^(?:who|whom|whose|which|that|where|while|and|then|but|or|so|as|because|with|talking|chatting|speaking)\b", re.I)
+_DANGLING_END_RE = re.compile(r"(?:\s+(?:and|then|but|or|while|who|which|that|where|with|as|so|talking|chatting|speaking))+$", re.I)
+
+
 def _drop_clauses(text: str, rx) -> str:
+    """The clauses (split at commas and semicolons) that do not match `rx`. A cut never leaves a fragment: the clauses that follow a dropped one and open with a
+    relative or a conjunction ("who stands beside her", "and then ...") go with it, and a clause is never left ending on a dangling conjunction ("sitting and then")."""
     parts = [p for p in re.split(r"\s*[,;]\s*", str(text or "")) if p.strip()]
-    kept = [p for p in parts if not rx.search(p)]
+    kept: list = []
+    cut = False
+    for p in parts:
+        if rx.search(p):
+            cut = True
+            continue
+        if cut and _DANGLING_START_RE.match(p.strip()):
+            continue
+        cut = False
+        kept.append(p)
+    kept = [t for t in (_DANGLING_END_RE.sub("", p).strip() for p in kept) if t and not re.fullmatch(r"(?:talking|chatting|speaking)", t, re.I)]
     return ", ".join(kept)
 
 
@@ -544,8 +560,10 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
             out[k] = _scrub_structure(out[k]) or out[k]
             if _other_person(out[k], k):
                 kept = _drop_clauses(re.sub(r"\s+(?:where|while|who|with|talking|chatting)\b", lambda m: "," + m.group(0), out[k]), _PersonRx(k))
-                if kept:
+                if kept and not _other_person(kept, k):
                     out[k] = kept
+                elif kept:
+                    out[k] = kept        # the person check runs again on the cut text in check_brief: a leftover is rejected, never printed
     if isinstance(out.get("inFrame"), list):
         out["inFrame"] = [_scrub_structure(x) for x in out["inFrame"] if isinstance(x, str) and _scrub_structure(x)]
     # the clothes line is clothes only, the signature is a thing: a clause about the body (arms, shoulders, chin, eyes, smile ...) is dropped
@@ -980,7 +998,7 @@ async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmF
     return landed
 
 
-async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, anchors: Optional[dict] = None) -> dict:
+async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, anchors: Optional[dict] = None, on_batch: Optional[Callable] = None, prior: Optional[dict] = None) -> dict:
     """The whole pipeline for a cast: anchors; the writer in `batches` sequential calls (each one sees what the earlier ones used); the per-brief checks after a deterministic
     repair; ONE editor pass for the offenders and the incomplete (a second object, a signature); the cast-wide 'one person only' rule for objects, signatures and places;
     the floor for the rest. Returns ``{briefs, floor, anchors, rejected, calls, rewritten, raw}`` (``briefs`` holds only accepted ones)."""
@@ -997,13 +1015,15 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, an
             for c in codes:
                 rejected[c] = rejected.get(c, 0) + 1
 
-    n_batches = batches if len(ids) >= 8 and batches > 1 else 1
-    size = -(-len(ids) // n_batches)
-    briefs: dict = {}
+    prior = {i: b for i, b in (prior or {}).items() if i in by_id and b}           # briefs a timed-out run already landed: not asked for again
+    todo = [i for i in ids if i not in prior]
+    n_batches = batches if len(todo) >= 8 and batches > 1 else 1
+    size = -(-len(todo) // n_batches) if todo else 1
+    briefs: dict = dict(prior)
     failures: dict = {}
-    accepted: dict = {}
+    accepted: dict = dict(prior)
     for k in range(n_batches):
-        part = ids[k * size:(k + 1) * size]
+        part = todo[k * size:(k + 1) * size]
         if not part:
             continue
         raw = await _call(llm_fn, build_messages([by_id[i] for i in part], anchors, used_summary(accepted)), ledger, "writer")
@@ -1017,6 +1037,11 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, an
                 failures[i] = codes
             else:
                 accepted[i] = briefs[i]
+        if on_batch is not None:                       # each finished batch is handed on as it lands (the caller caches it: paid work is never thrown away)
+            try:
+                on_batch({i: accepted[i] for i in part if i in accepted})
+            except Exception as e:  # failsoft-ok: best-effort-enrichment (an unsaved batch is only authored again)
+                logger.info(f"[photo-brief] batch not cached: {type(e).__name__}")
     tally(failures)
     last_codes: dict = {i: list(c) for i, c in failures.items()}
     complete = {i: missing_parts(b) for i, b in accepted.items() if missing_parts(b)}
@@ -1296,7 +1321,7 @@ async def _roster_cards(user) -> list:
     return [h for h in ((pre or {}).get("house") or []) if isinstance(h, dict) and h.get("id")]
 
 
-BRIEF_STEP_TIMEOUT_S = 45.0
+BRIEF_STEP_TIMEOUT_S = 120.0   # measured on real runs: 34 to 44 s of model time for the 4 calls (median about 37 s)
 
 
 def season_seed(user, cards: list) -> str:
@@ -1329,10 +1354,15 @@ async def apply_briefs(prompts: list, user, *, llm_fn: Optional[LlmFn] = None, c
                 fn = await A.resolve_authoring_llm_fn(user, min_output_tokens=9000)
             if fn is not None:
                 cast = [by_id[i] for i in ids if i in by_id]
+                prior = {i: (cache.get(i) or {}).get("brief") for i in ids if i in by_id and (cache.get(i) or {}).get("sheet") == _sheet_key(by_id[i])}
+                def _land(part: dict) -> None:
+                    for i, b in part.items():
+                        cache[i] = {"sheet": _sheet_key(by_id[i]), "brief": b, "anchors": deal.get(i)}
+                    _save_cache(user, cache)
                 try:
-                    res = await asyncio.wait_for(author_briefs(cast, fn, seed=seed_val, anchors=deal), timeout=timeout_s or BRIEF_STEP_TIMEOUT_S)
+                    res = await asyncio.wait_for(author_briefs(cast, fn, seed=seed_val, anchors=deal, on_batch=_land, prior=prior), timeout=timeout_s or BRIEF_STEP_TIMEOUT_S)
                 except asyncio.TimeoutError:
-                    logger.info("[photo-brief] timed out: the engine's own prompts stand")
+                    logger.info("[photo-brief] timed out: the batches that landed are kept, the engine's own prompts stand for the rest")
                     res = {"briefs": {}}
                 for i, b in res["briefs"].items():
                     cache[i] = {"sheet": _sheet_key(by_id[i]), "brief": b, "anchors": deal.get(i)}
