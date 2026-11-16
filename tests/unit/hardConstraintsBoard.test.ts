@@ -57,6 +57,7 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     expect(block).toContain(`BALLOTS (all ${ev.votesRevealed.length}, in the order read`);
     for (const b of ev.votesRevealed) expect(block).toContain(`a vote to evict ${b.votedFor.name}`);
     expect(block).toMatch(/result has not been committed yet/i);
+    expect(block).not.toContain("TALLY (engine-counted"); // a partial reveal is no count
     expect(block).not.toMatch(/\bvoted\b|\bvoter\b:/i);
     s.advanceGame(); // the result beat
     const after = s.getGameState().eviction!;
@@ -76,7 +77,7 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     const block = hc(s);
     const line = block.split("\n").find((l) => l.includes("TALLY (engine-counted"));
     expect(line).toBeDefined();
-    for (const [name, n] of per) expect(line).toContain(`${n} to evict ${name}`);
+    for (const [name, n] of per) expect(line).toMatch(new RegExp(`(?:^|[\\s,:])${n} to evict ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`)); // delimited, so 1 never matches inside 11
     expect(line).not.toMatch(/\bvoted\b|\bvoter\b/i); // ballots stay anonymized: counts per nominee only
     expect(block.indexOf("TALLY (engine-counted")).toBeGreaterThan(block.indexOf("BALLOTS (all"));
   });

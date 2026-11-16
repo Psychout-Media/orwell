@@ -67,6 +67,17 @@ describe("a house ritual pulls anyone free into its action, and the scene carrie
     expect(without.some((p) => p.ritual !== undefined)).toBe(false);
   });
 
+  it("ORW-507: a ritual nobody can share (empty kitchen, or a solo action) never takes the hour, and two same-time rituals never double the pull", () => {
+    const empty = new Map<string, Room>([[HOLDER, "living-room"], [PLAYER, "living-room"]]);
+    const cook = { timeOfDay: "evening" as const, action: "cook" as const, name: "Family Dinner" };
+    const nap = { timeOfDay: "evening" as const, action: "nap" as const, name: "Quiet Hour" };
+    expect(run(hv({ rituals: [cook], whereabouts: empty, affinity: new Map() })).some((p) => p.ritual !== undefined), "no company, no ritual").toBe(false);
+    expect(run(hv({ rituals: [nap] })).some((p) => p.ritual !== undefined), "a solo ritual leaves no scene").toBe(false);
+    const one = run(hv({ rituals: [cook] }), 600).filter((p) => p.ritual).length;
+    const two = run(hv({ rituals: [cook, { ...cook, name: "Second Supper" }] }), 600).filter((p) => p.ritual).length;
+    expect(two, `one ${one}, two ${two}`).toBeLessThan(one * 1.3);
+  });
+
   it("only at its time of day", () => {
     const ritual = { timeOfDay: "evening" as const, action: "cook" as const, name: "Family Dinner" };
     expect(run(hv({ rituals: [ritual], timeOfDay: "afternoon" })).some((p) => p.ritual !== undefined)).toBe(false);

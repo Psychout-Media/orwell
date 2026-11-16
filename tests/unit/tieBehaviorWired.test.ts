@@ -9,7 +9,7 @@ type G = { seededRels: { ties: Array<{ a: string; b: string; nature: string }> }
 function game() {
   const sb = new GameSessionRegistry().sandboxFor(`tiebeh-${Math.random()}`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
-  const g = sb.session as unknown as G; g.seededRels.ties.length = 0;
+  const g = sb.session as unknown as G; g.seededRels.ties.length = 0; g.setTieBehaviorEnabled(true); // explicit, so the tests hold under ORWELL_FLAGS_OFF=1 / ORWELL_TIE_BEHAVIOR=0
   const [p, q, r, s] = sb.session.livingIds().filter((i) => i !== PLAYER) as [string, string, string, string];
   return { g, p, q, r, s };
 }

@@ -251,6 +251,8 @@ export interface SessionCore {
    * saves. Vault-free (position, never the scene's content).
    */
   trackedSightings?: Record<EntityId, TrackedSighting>;
+  /** ORW-475: each houseguest's OWN last-known sighting of each other houseguest (viewer -> subject -> room, tick, day, part, heading). Played games only; absent on older saves. Vault-free. */
+  npcSightings?: Record<EntityId, Record<EntityId, { room: Room; tick: number; day: number; part: string; heading?: boolean }>>;
   /** ORW-462: the player's last-known sighting of each houseguest in view (room, tick, day, part of day). Played games only; absent on older saves. Vault-free: a room and a time, never what anyone did. */
   lastSeenAt?: Record<EntityId, { room: Room; tick: number; day: number; part: string }>;
   /** ORW-343: the mood WORD the player last saw on each active houseguest (a memory, kept beside presence; Vault-free: a word only). Absent on older saves / when the cue is off. */
@@ -763,7 +765,7 @@ export function toGameState(snap: SessionSnapshot): GameState {
  *   - `storyThreads` — an authored profile update REPLACES a source's whole thread set (filter-then-
  *     concat), so thread ids do not persist stably.
  *   - `secretPlayerBluffBelief` — a resolved bluff removes the caught subject from the belief list.
- *   - `presence` / `presenceBase` / `presenceTenure` / `presenceZone` / `trackedSightings` / `lastSeenAt` /
+ *   - `presence` / `presenceBase` / `presenceTenure` / `presenceZone` / `trackedSightings` / `lastSeenAt` / `npcSightings` /
  *     `readAnchors` — current-position / per-week snapshot state, overwritten by design every tick/week
  *     (like `ceremony`/`live`, already outside the checkpoint).
  *   - `pacingDripCount` (resets every new week by design; `pacingDripWeek` moves with it).

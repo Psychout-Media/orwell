@@ -31,11 +31,13 @@ PUBLIC_TOOL_EVENT_FIELDS = frozenset({
 })
 
 
-def public_tool_events(events: Any) -> Any:
-    """Whitelist each tool event down to its public fields (non-dict entries pass through unchanged)."""
+def public_tool_events(events: Any) -> list:
+    """Whitelist each tool event down to its public fields. Server-written tool events are always a list of dicts, so anything else
+    (a dict, a string, a non-dict entry) can only be client-supplied and is dropped, never passed through (review of #2248: a non-list
+    `tool_events` used to reach storage unchanged and the admin export, carrying a forged `engine_result`)."""
     if not isinstance(events, list):
-        return events
-    return [{k: v for k, v in e.items() if k in PUBLIC_TOOL_EVENT_FIELDS} if isinstance(e, dict) else e for e in events]
+        return []
+    return [{k: v for k, v in e.items() if k in PUBLIC_TOOL_EVENT_FIELDS} for e in events if isinstance(e, dict)]
 
 
 def public_metadata(metadata: Any) -> Any:

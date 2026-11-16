@@ -101,6 +101,17 @@ def test_a_theme_choice_made_in_the_ui_sticks_across_tweaks_and_reload(_app):  #
             pytest.skip(f"chromium unavailable: {e}")
         ctx = browser.new_context(viewport={"width": 1280, "height": 900})
         page = ctx.new_page()
+        # review of #2262: save() PUTs /api/prefs/theme, which the app writes to frontend/data/user_prefs.json (cwd-relative, not
+        # isolated by the temp DB). Keep the server-side theme in THIS test: a fake that remembers the PUT and serves it back on reload.
+        server_theme = {"value": None, "puts": 0}
+
+        def _prefs(route):
+            if route.request.method == "GET":
+                return route.fulfill(status=200, content_type="application/json", body=json.dumps({"key": "theme", "value": server_theme["value"]}))
+            server_theme["value"] = (json.loads(route.request.post_data or "{}") or {}).get("value")
+            server_theme["puts"] += 1
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"key": "theme", "value": server_theme["value"]}))
+        page.route("**/api/prefs/theme", _prefs)
         page.add_init_script(AUTO)
         page.add_init_script(SPOOF % json.dumps("llvmpipe (LLVM 15.0.7, 256 bits)"))
         page.goto(_app, wait_until="load")
@@ -113,6 +124,7 @@ def test_a_theme_choice_made_in_the_ui_sticks_across_tweaks_and_reload(_app):  #
         page.reload(wait_until="load")
         page.wait_for_timeout(3000)
         assert not page.evaluate("() => document.body.classList.contains('low-power')"), "an explicit choice must survive a reload"
+        assert server_theme["puts"] >= 1, "the saves went to this test's fake, never the shared prefs file"
         browser.close()
 
 

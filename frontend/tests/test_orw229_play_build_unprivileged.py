@@ -56,7 +56,8 @@ class Rig:
 case "$1" in
   ci) rm -rf node_modules; mkdir node_modules ;;
   run) rm -rf dist; mkdir -p dist/assets; cat src/app.txt > dist/index.html; cp dist/index.html dist/assets/app.js
-       if grep -q PLANT_SYMLINK src/app.txt; then ln -s /etc/hostname dist/assets/evil.js; fi ;;
+       if grep -q PLANT_SYMLINK src/app.txt; then ln -s /etc/hostname dist/assets/evil.js; fi
+       if grep -q PLANT_STAMP_LINK src/app.txt; then ln -s "$VICTIM" dist/.orwell-web-inputs; fi ;;
 esac
 exit 0
 """)
@@ -163,3 +164,14 @@ def test_a_build_with_a_symlink_in_it_is_refused(rig):
     out = rig.build()
     assert rig.staged() is None, "a symlink (or device, FIFO) in the output never reaches the code tree"
     assert "other than files and directories" in out
+
+
+@not_root
+def test_review_followup_a_planted_link_at_the_stamp_path_is_never_written_through(rig, tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("untouched\n")
+    rig.set_app("APP-3 PLANT_STAMP_LINK")
+    rig.build({"VICTIM": str(victim)})
+    assert victim.read_text() == "untouched\n", "the stamp is never written through a link the build planted"
+    stamp = rig.app / "frontend" / "web" / "dist.next" / ".orwell-web-inputs"
+    assert stamp.is_file() and not stamp.is_symlink(), "the planted link is replaced by a plain stamp file"

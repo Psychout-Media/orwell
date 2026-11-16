@@ -174,6 +174,19 @@ describe("0102 — the cliffhanger teases an in-motion thread but commits to no 
     // The hook's internal `thread` id is engine bookkeeping only — never a player-facing secret string.
     expect(typeof v.dailyRecap!.hook!.thread).toBe("string");
   });
+
+  it("ORW-517: every hook is in the player's own first person (Ryne, card 29: entirely first person)", () => {
+    const { session } = started(6);
+    const first = (t: string) => /\b(I|my|me)\b/.test(t) && !/\b(you|your|yours|the player)\b/i.test(t);
+    type Seam = { buildDailyRecapHook(day: number, surfaced: readonly string[]): { framing: string } | undefined; deals: { make: (...a: unknown[]) => unknown }; live: { week: number } };
+    const seam = session as unknown as Seam; // TEST-ONLY: the hook builder, to read each framing on its own
+    const heard = seam.buildDailyRecapHook(1, ["something worth watching"]);
+    expect(heard && first(heard.framing), heard?.framing).toBe(true);
+    const partner = session.livingIds().find((id) => id !== "player")!;
+    seam.deals.make(["player", partner], "safety", "we keep each other safe", undefined, seam.live.week, { vague: true });
+    const deal = seam.buildDailyRecapHook(1, []);
+    expect(deal && first(deal.framing), deal?.framing).toBe(true);
+  });
 });
 
 describe("0102 — the recap augments play and is reproducible", () => {
