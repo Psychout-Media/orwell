@@ -1448,6 +1448,8 @@ export class GameSessionAdapter implements GameSession {
     return {
       goalAgainst: (who, target) => (live?.agendas?.[who]?.goals ?? []).some((g) => g.status === "active" && g.target === target && AGAINST.has(g.kind)),
       votedToEvict: (voter, evictee) => (live?.voteRecord ?? []).some((r) => r.voteOf[voter] === evictee),
+      // the nominee faced the vote (evicted, or someone voted for them) and this voter's ballot went the other way (a nominee nobody voted for and who stayed is not on the record: then false)
+      votedToKeep: (voter, nominee) => (live?.voteRecord ?? []).some((r) => r.voteOf[voter] !== undefined && r.voteOf[voter] !== nominee && (r.evictee === nominee || Object.values(r.voteOf).includes(nominee))),
       finalTwo: (a, b) => this.deals.forParty(a).some((d) => d.status === "open" && d.kind === "final-two" && d.parties.includes(b)),
       liedTo: (a, b) => liesBy(live?.claims, a).some((c) => c.listener === b),
       talkedAbout: (a, b) => (live?.claims?.items ?? []).some((c) => c.speaker === a && (c.subject === b || c.object === b)),

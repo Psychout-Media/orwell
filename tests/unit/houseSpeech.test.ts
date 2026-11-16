@@ -6,12 +6,12 @@ import { beliefFor } from "../../src/engine/spokenClaims";
 /** 0153 / ORW-330 slice 3 - house-life speech as claims the engine decides. Roles only (an actor, a listener, a target, a bystander). */
 const ACTOR = "npc:a", EAR = "npc:e", TARGET = "npc:t", OTHER = "npc:o";
 const living = [ACTOR, EAR, TARGET, OTHER, "player"];
-const none: TruthFacts = { goalAgainst: () => false, votedToEvict: () => false, finalTwo: () => false, liedTo: () => false, talkedAbout: () => false };
+const none: TruthFacts = { goalAgainst: () => false, votedToEvict: () => false, votedToKeep: () => false, finalTwo: () => false, liedTo: () => false, talkedAbout: () => false };
 const ctx = (over: Partial<{ beliefs: BeliefStore; facts: TruthFacts; roll: number }> = {}) => ({ living, beliefs: {}, facts: none, roll: 0, ...over });
 
 describe("0153: what house-life speech says", () => {
   it("truth comes from the engine's records, kind by kind", () => {
-    const f: TruthFacts = { goalAgainst: (w, t) => w === TARGET && t === EAR, votedToEvict: (v, e) => v === TARGET && e === EAR, finalTwo: (a, b) => a === TARGET && b === OTHER, liedTo: (a, b) => a === TARGET && b === EAR, talkedAbout: (a, b) => a === TARGET && b === OTHER };
+    const f: TruthFacts = { goalAgainst: (w, t) => w === TARGET && t === EAR, votedToEvict: (v, e) => v === TARGET && e === EAR, votedToKeep: (v, n) => v === TARGET && n === OTHER, finalTwo: (a, b) => a === TARGET && b === OTHER, liedTo: (a, b) => a === TARGET && b === EAR, talkedAbout: (a, b) => a === TARGET && b === OTHER };
     expect(truthOf({ kind: "targets-you", listener: EAR, subject: TARGET }, f)).toBe(true);
     expect(truthOf({ kind: "targets-you", listener: OTHER, subject: TARGET }, f)).toBe(false);
     expect(truthOf({ kind: "voted-to-evict-you", listener: EAR, subject: TARGET }, f)).toBe(true);
@@ -21,6 +21,10 @@ describe("0153: what house-life speech says", () => {
     expect(truthOf({ kind: "lying-about", listener: EAR, subject: TARGET }, f)).toBe(true);
     expect(truthOf({ kind: "voted-against", listener: OTHER, subject: TARGET, object: EAR }, f)).toBe(true);
     expect(truthOf({ kind: "voted-against", listener: EAR, subject: TARGET, object: OTHER }, f)).toBe(false);
+    expect(truthOf({ kind: "voted-to-keep", listener: OTHER, subject: TARGET, object: OTHER }, f)).toBe(true);
+    expect(truthOf({ kind: "voted-to-keep", listener: EAR, subject: TARGET, object: EAR }, f)).toBe(false);
+    expect(beliefFor({ kind: "voted-to-keep", listener: EAR, subject: TARGET, object: EAR })).toEqual({ kind: "assured-me", subject: TARGET });
+    expect(beliefFor({ kind: "voted-to-keep", listener: OTHER, subject: TARGET, object: EAR })).toEqual({ kind: "heard-rumor", subject: TARGET, object: EAR, nature: "voted-to-keep" });
   });
 
   it("an untruthful plant is a lie the engine knows is false; a truthful one tells something true, or nothing", () => {
@@ -31,7 +35,7 @@ describe("0153: what house-life speech says", () => {
     const real = planSpeech("plant", ACTOR, EAR, TARGET, true, ctx({ facts: { ...none, goalAgainst: (w, t) => w === TARGET && t === EAR } }))!;
     expect(real).toMatchObject({ kind: "targets-you", isTrue: true, intent: "warn" });
     // an untruthful plant never tells something true by accident: with every kind true there is no lie to tell
-    const all: TruthFacts = { goalAgainst: () => true, votedToEvict: () => true, finalTwo: () => true, liedTo: () => true, talkedAbout: () => true };
+    const all: TruthFacts = { goalAgainst: () => true, votedToEvict: () => true, votedToKeep: () => true, finalTwo: () => true, liedTo: () => true, talkedAbout: () => true };
     expect(planSpeech("plant", ACTOR, EAR, TARGET, false, ctx({ facts: all }))).toBeUndefined();
   });
 
@@ -70,5 +74,24 @@ describe("0153: what house-life speech says", () => {
     expect(speechActionOf("flip-a-vote")).toBe("plant");
     expect(speechActionOf("frame")).toBe("plant");
     expect(speechActionOf("cook")).toBeUndefined();
+  });
+});
+
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+
+describe("0153: the adapter's truth reads the secret ballots (engine-only)", () => {
+  it("voted-to-evict and voted-to-keep come from the recorded ballot", () => {
+    const s = new GameSessionRegistry().sandboxFor(`hs-${Math.random()}`).session as GameSessionAdapter;
+    s.createCharacter({ playerName: "P", seed: 2 });
+    const [v1, v2, nomA, nomB, stranger] = s.livingIds().filter((id) => id !== "player");
+    (s as unknown as { live: { voteRecord?: unknown[] } }).live.voteRecord = [{ week: 1, evictee: nomA, voteOf: { [v1!]: nomA, [v2!]: nomB } }];
+    const f = (s as unknown as { truthFacts(): TruthFacts }).truthFacts();
+    expect(f.votedToEvict(v1!, nomA!)).toBe(true);
+    expect(f.votedToEvict(v2!, nomA!)).toBe(false);
+    expect(f.votedToKeep(v2!, nomA!)).toBe(true);   // the evictee faced the vote and v2 voted the other way
+    expect(f.votedToKeep(v1!, nomA!)).toBe(false);
+    expect(f.votedToKeep(v1!, nomB!)).toBe(true);   // nomB faced the vote (v2 voted for them); v1 voted against nomA
+    expect(f.votedToKeep(v1!, stranger!)).toBe(false); // never faced the vote
   });
 });

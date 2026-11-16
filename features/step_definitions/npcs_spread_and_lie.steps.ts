@@ -75,7 +75,7 @@ When("their lies go out over a day", function () {
   const agenda: Agenda = { owner: OWNER, goals: [goal], history: [], formedForWeek: 1 };
   const everyone = [OWNER, TARGET, OTHER_NOM, HOH, ...b.voters!];
   const where = new Map<string, Room>(everyone.map((id, i) => [id, (["living-room", "kitchen", "backyard"] as Room[])[i % 3]!]));
-  const facts: TruthFacts = { goalAgainst: () => false, votedToEvict: () => false, finalTwo: () => false, liedTo: () => false, talkedAbout: () => false };
+  const facts: TruthFacts = { goalAgainst: () => false, votedToEvict: () => false, votedToKeep: () => false, finalTwo: () => false, liedTo: () => false, talkedAbout: () => false };
   b.listeners = [];
   for (let hour = 8; hour < 24; hour++) {
     const v: HourView = { owner: OWNER, character: { archetype: "mastermind", strategyStyle: "social", secretKinds: [] }, agenda, habits: [], emotional: 0.5, room: "living-room",
