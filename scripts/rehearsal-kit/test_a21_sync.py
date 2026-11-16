@@ -46,7 +46,7 @@ def test_slot_value_prefers_the_runs_slot_env_and_refuses_a_disagreeing_variable
     (tmp_path / "slot.env").write_text("RIG_BASE=http://127.0.0.1:17001\n")
     monkeypatch.delenv("RIG_BASE", raising=False)
     assert drv.slot_value(str(tmp_path), "RIG_BASE", "d") == "http://127.0.0.1:17001"
-    monkeypatch.setenv("RIG_BASE", "http://127.0.0.1:17000")
+    monkeypatch.setenv("RIG_BASE", "http://127.0.0.1:17999")
     with pytest.raises(SystemExit):
         drv.slot_value(str(tmp_path), "RIG_BASE", "d")
     monkeypatch.delenv("RIG_BASE"); assert drv.slot_value(str(tmp_path / "x"), "RIG_BASE", "d") == "d"

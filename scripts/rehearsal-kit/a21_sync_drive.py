@@ -70,7 +70,7 @@ def main():
     ap.add_argument("--max-toast-nexts", type=int, default=12); ap.add_argument("--token", default="rehlocal")
     a = ap.parse_args()
     run = a.run
-    base = slot_value(run, "RIG_BASE", "http://127.0.0.1:17000"); engine = slot_value(run, "RIG_ENGINE_URL", "http://127.0.0.1:18765")
+    base = slot_value(run, "RIG_BASE", "http://127.0.0.1:17000"); engine = slot_value(run, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default (a run staged before slots existed has no slot.env)
     script = sync_lib.parse_script(open(f"{run}/script.txt").read())
     cap_msgs = clamp_messages(a.max_messages)
     os.makedirs(f"{run}/shots", exist_ok=True)
