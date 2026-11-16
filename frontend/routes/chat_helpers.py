@@ -4683,8 +4683,8 @@ def _forget_season_pacing(user) -> None:
       * the held social runway, steers, production hold and premiere counters (`clear_social_runway`);
       * the armed S1b forced-advance escalation;
       * an owed chyron or aired-fact steer (`clear_preresolve_debt`);
-      * the ORW-10 cut streak and the queued next-turn re-grounds;
-      * the premiere entrance stash.
+      * the ORW-10 cut streak, the queued next-turn re-grounds and an unvoiced ceremony note;
+      * the premiere entrance stash and an unconsumed hang-out steer.
     Registered on `orwell_engine.on_season_reset`; another user's state is never touched; never raises."""
     for clear in (clear_social_runway, clear_advance_escalation, clear_preresolve_debt):
         try:
@@ -4695,9 +4695,11 @@ def _forget_season_pacing(user) -> None:
         dkey = _desync_key(user)
         _CUT_STREAK.pop(dkey, None)
         _DESYNC_REGROUND.pop(dkey, None)
+        _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
         _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
         _PREMIERE_RELEASED_THIS_TURN.discard(rkey)
+        _HANGOUT_STEER.pop(rkey, None)  # review of #2287: an unconsumed hang-out steer belongs to the old season
     except Exception:
         logger.debug("[orwell] season-pacing reset skipped for user=%s", user)
     try:  # ORW-202: the persisted copy follows the reset (a restart must not resurrect last season's queued re-ground)
@@ -9540,6 +9542,12 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             staged_this_turn = _fl_d.consume_staged_this_turn(user, session_id)
         except Exception:
             belt_declined = False
+    # ORW-481 (retro review): consume the in-loop belt's "nobody engaged" verdict up front too, so a turn that returns early below can never leave it set for the NEXT turn's genuine under-call.
+    try:
+        from src import fold_ledger as _fl_nobody
+        _nobody = _fl_nobody.consume_scene_nobody(user)
+    except Exception:
+        _nobody = False
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
     # ORW-185: two turn shapes are NOT an unrecorded social scene, and used to trip this guard (the flat
@@ -9586,11 +9594,6 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     # ORW-346 (live week 2026-11-14: all 13 firings in 43 turns were turns where the extractor answered {"withIds":[]} - the player was alone in bed, or a comp/ceremony took the beat before anyone engaged): "nobody engaged" is
     # NOT the model skipping a recordInteraction - there is no scene with anyone to fold, and the flat floor digest it used to write recorded a phantom, participant-less "scene" and counted as an under-call. An in-loop belt that
     # already found nobody stands the guard down here; our own extraction below does the same. The WARN + counter now mean what they say: a real under-call.
-    try:
-        from src import fold_ledger as _fl_nobody
-        _nobody = _fl_nobody.consume_scene_nobody(user)
-    except Exception:
-        _nobody = False
     if _nobody:
         logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (a solo / board-took-the-beat turn), nothing to fold (ORW-346) user=%s", user)
         return False
@@ -10149,7 +10152,9 @@ def resolve_session_auth(sess, session_id: str, owner: Optional[str] = None):
                 # ORW-199/200: in-memory only. The endpoint record is the source of truth and
                 # `resolve_session_headers` supplies auth at call time; persisting a plain-text
                 # copy of the provider key on the session row is what let it go stale.
-                sess.headers = build_headers(ep.api_key, base)
+                # Keep the session's non-auth headers (a custom proxy header, say): only the auth is repaired (review of #2246).
+                from src.endpoint_resolver import _non_auth_headers, _stored_headers_dict
+                sess.headers = {**_non_auth_headers(_stored_headers_dict(sess.headers)), **build_headers(ep.api_key, base)}
                 logger.info(f"Resolved auth headers for session {session_id} from endpoint {ep.name}")
                 return
         finally:

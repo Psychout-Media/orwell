@@ -113,6 +113,20 @@ def test_the_belt_notes_nobody_only_for_an_explicit_empty_answer():
     assert "note_scene_nobody" in src and "if not _rejected_with_ids" in src
 
 
+def test_a_nobody_flag_left_by_an_early_return_turn_never_silences_the_next_turn(monkeypatch):
+    """ORW-481 (retro review): a turn that stands down early (here a bare OOC aside) still consumes the flag."""
+    calls = _spy_record(monkeypatch)
+    fold_ledger.note_scene_nobody("u")
+    _run(chat_helpers.ensure_turn_recorded("u", "(( what is happening? ))", NARRATION, []))
+    assert "u" not in fold_ledger._SCENE_NOBODY
+
+    async def declined(user, player_message, narration):
+        return False
+    monkeypatch.setattr(chat_helpers, "_e22_rich_extract", declined)
+    _run(chat_helpers.ensure_turn_recorded("u", "I press the swing vote.", NARRATION, []))
+    assert len(calls) == 1
+
+
 def test_orw481_an_old_requeued_fold_does_not_stand_the_guard_down(monkeypatch):
     """ORW-481 (review 4535233845): only a fold staged THIS turn stands the guard down; an older queued entry does not."""
     calls = _spy_record(monkeypatch)
