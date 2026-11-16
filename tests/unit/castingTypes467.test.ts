@@ -55,6 +55,27 @@ describe("ORW-467 the list", () => {
     }
   });
 
+  it("every read is a one-person pose a photo can show: no open-mouth words, at least two of face / posture / hands, and no two reads alike", () => {
+    // The writer's rules reject a mouth caught mid-word (photo check `mouth-mid-word`), so no read asks for an open or parted mouth or a shout.
+    const mouth = /\b(open|opened|opens|parted|shout\w*|yell\w*|scream\w*|speaking|talking|mid-word)\b/i;
+    const groups: Record<string, RegExp> = {
+      face: /\b(eyes?|brows?|eyebrow|smile|smirk|grin|gaze|stare|jaw|chin|lips?|mouth|face|nostrils|expression|squint|wink|glance|laughing)\b/i,
+      posture: /\b(shoulders?|posture|stance|lean|leaning|slouched|slumped|upright|hunched|chest|head|tilted|planted|toes|forward|sideways)\b/i,
+      hands: /\b(hands?|fists?|fingers?|fingertips|thumbs?|palms?|arms?|knee|hip|hips|collarbone|pockets?)\b/i,
+    };
+    const stop = new Set(["a", "an", "the", "and", "of", "in", "on", "to", "one", "with", "at", "its", "both", "his", "her"]);
+    const seen = new Map<string, string>();
+    for (const t of CASTING_TYPES) {
+      expect(t.read, `${t.id} read`).not.toMatch(mouth);
+      const hit = Object.entries(groups).filter(([, re]) => re.test(t.read)).map(([k]) => k);
+      expect(hit.length, `${t.id} "${t.read}" names ${hit.join("+")}`).toBeGreaterThanOrEqual(2);
+      const key = t.read.toLowerCase().split(/[^a-z-]+/).filter((w) => w && !stop.has(w)).sort().join(" ");
+      expect(seen.get(key), `${t.id} reads like ${seen.get(key)}`).toBeUndefined();
+      seen.set(key, t.id);
+    }
+    expect(CASTING_TYPES.find((t) => t.id === "bombshell")!.read).not.toMatch(/sultry|sexy|hot|beautiful/i); // an expression, not a verdict on looks
+  });
+
   it("the nonbinary label carries no gendered word", () => {
     for (const t of CASTING_TYPES) {
       expect(castingLabelFor(t, "nonbinary"), t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|guys|girl|girls|boy|queen|king|lady|gentleman|vixen|mom|dad|aunt|uncle|hunk|bombshell|dame)\b/i);
