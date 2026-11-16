@@ -653,7 +653,11 @@ def parse_stated_wait(player_msg) -> tuple:
         return (None, False)
     span = m.group(0).lower()
     # Review of #2772: the match span ends at "until"/"till", so "hang out until the rest of the afternoon" lost its band; test the message from the intent on.
-    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(text[m.start():]):
+    # Cubic on main: scan only the intent's OWN sentence (stop at . ? ! or a newline), never a later one.
+    _tail = text[m.start():]
+    _end = [i for i in (_tail.find(c) for c in ".?!\n") if i >= 0]
+    _own = _tail[:min(_end) + 1] if _end else _tail
+    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(_own):
         return (None, True)
     d = _STATED_DURATION_RE.search(span)
     if not d:
@@ -2006,6 +2010,15 @@ def mark_comp_walked(user) -> None:
 
 def consume_comp_walked(user) -> bool:
     return bool(_COMP_WALKED_THIS_TURN.pop(_desync_key(user), False))
+
+
+# ORW-505 (provisional default): the veto draw is its own beat, so the turn that voices it never also starts the competition. Set when the draw is committed; read (not consumed) by the agent loop's
+# forced-advance gate for the rest of the turn; cleared when the next framed turn begins.
+_VETO_DRAW_HOLDS: dict = {}
+
+
+def veto_draw_holds_force(user) -> bool:
+    return bool(_VETO_DRAW_HOLDS.get(_runway_key(user or None), False))  # the same key for a None (auth-off) and an empty owner
 
 
 def mark_pre_resolved_advance(user) -> None:
@@ -8363,6 +8376,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     from src import orwell_engine
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
         event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
+        _VETO_DRAW_HOLDS.pop(_runway_key(user or None), None)
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -8581,6 +8595,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         if _beat and phase == "veto-competition" and _beat_kind == "veto-draw":
             # ORW-250: the draw is its own ceremony - hand the narrator the committed draw and END the pass here (the competition is a later milestone and is never walked in the same pass).
             _SCHEDULE_STEER[_runway_key(user)] = _veto_draw_steer(str(_beat))
+            _VETO_DRAW_HOLDS[_runway_key(user or None)] = True
             logger.info("[orwell] veto draw committed for user=%s - voiced as its own ceremony, the competition waits for its hour", user)
             try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
                 _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
