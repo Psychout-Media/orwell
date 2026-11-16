@@ -42,8 +42,8 @@ describe("0150 beliefs drive decisions", () => {
   });
 
   it("only a grievance over the bar can form a goal, and only at full strength", () => {
-    const s = store(); claim(s, { kind: "voted-against-me", confidence: 0.8 }); claim(s, { kind: "lied-to-me", subject: OTHER, confidence: 0.7 });
-    expect(believedGrievances(s, HOLDER, [SUBJECT, OTHER], 1, { strength: "full" })).toEqual([{ toward: SUBJECT, strength: 0.8, ref: "voted-against-me" }]); // the lie (0.7 x 0.8 = 0.56) is under the bar
+    const s = store(); claim(s, { kind: "voted-against-me", confidence: 0.8 }); claim(s, { kind: "lied-to-me", subject: OTHER, confidence: 0.6 });
+    expect(believedGrievances(s, HOLDER, [SUBJECT, OTHER], 1, { strength: "full" })).toEqual([{ toward: SUBJECT, strength: 1, ref: "voted-against-me" }]); // 0160: 0.8 is held as a fact (full weight); the doubted lie (0.6 x 0.8 = 0.48) is under the bar
     expect(believedGrievances(s, HOLDER, [SUBJECT, OTHER], 1, { strength: "capped" })).toEqual([]);
   });
 });

@@ -11570,12 +11570,12 @@ export class GameSessionAdapter implements GameSession {
    */
   private questionsFor(owner: EntityId): { openQuestions: Array<{ ref: string; suspect?: EntityId }>; answered: string[] } {
     const vq = this.voteQuestionsFor(owner);
-    if (BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return vq;
+    if (BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled || !CONVICTION.askAround) return vq; // quiet testing: no find-out goals (see CONVICTION.askAround)
     const living = new Set(this.livingIds());
     const mine = claimsOf(this.live?.beliefs, owner);
     const testing = mine.filter((b) => underTest(b) && living.has(b.subject)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX);
     const settled = mine.filter((b) => b.confidence >= CONVICTION.asFact || b.refuted || !b.value).map(testRef);
-    return { openQuestions: [...vq.openQuestions, ...testing.map((b) => ({ ref: testRef(b), suspect: b.subject }))], answered: [...vq.answered, ...settled] };
+    return { openQuestions: [...vq.openQuestions, ...testing.map((b) => ({ ref: testRef(b), suspect: b.subject, weight: CONVICTION.testDrive }))], answered: [...vq.answered, ...settled] };
   }
   private static readonly CONVICTION_TESTS_MAX = 2;
   /** 0160: one night of looking into each belief a holder is testing (an active find-out goal for it): the evidence moves the conviction toward the truth. */
@@ -11586,8 +11586,10 @@ export class GameSessionAdapter implements GameSession {
     const day = s.dayNumber ?? s.week;
     for (const [holder, agenda] of Object.entries(s.agendas)) {
       const looking = new Set(agenda.goals.filter((g) => g.status === "active" && g.kind === "find-out" && g.test.kind === "question-answered").map((g) => (g.test as { ref: string }).ref));
+      // Visible testing: the beliefs they have a find-out goal for. Quiet testing: the strongest few doubts they keep an eye on (CONVICTION_TESTS_MAX).
+      const quiet = new Set((CONVICTION.askAround ? [] : (s.beliefs[holder] ?? []).filter((b) => underTest(b)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX)).map((b) => b.id));
       for (const b of s.beliefs[holder] ?? []) {
-        if (!underTest(b) || !looking.has(testRef(b))) continue;
+        if (!underTest(b) || !(quiet.has(b.id) || looking.has(testRef(b)))) continue;
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:evidence:${day}:${holder}:${b.id}`)).next();
         b.confidence = Math.max(0, Math.min(1, b.confidence + evidenceStep(beliefTruth(b, holder, facts), roll)));
         if (b.confidence < CONVICTION.dropBelow) {

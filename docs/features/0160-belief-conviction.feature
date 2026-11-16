@@ -20,7 +20,7 @@ Feature: Conviction - a houseguest acts on a belief as far as they believe it
 
   Scenario: A doubtful belief is tested, and the evidence moves the conviction toward the truth
     Given a houseguest who doubts something they were told that is false
-    Then they take up a goal to find out
+    Then they keep testing it quietly, with no asking-around scenes until Ryne re-agrees the house mix
     And as the nights pass their conviction falls, until they stop believing it
     And a doubted belief that is true grows into a conviction instead
 

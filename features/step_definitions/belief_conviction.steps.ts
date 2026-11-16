@@ -90,10 +90,13 @@ Given("a houseguest who doubts something they were told that is false", function
   seam(s).agendaRecheck("week-start", [b.holder!]);
 });
 
-Then("they take up a goal to find out", function () {
+Then("they keep testing it quietly, with no asking-around scenes until Ryne re-agrees the house mix", function () {
   const b = bag(this);
-  const goals = seam(b.s!).live.agendas![b.holder!]!.goals.filter((g) => g.kind === "find-out" && g.status === "active");
-  assert.ok(goals.some((g) => g.test.kind === "question-answered" && (g.test as { ref: string }).ref === testRef({ id: "doubt-false" })), "no find-out goal for the doubted belief");
+  const live = seam(b.s!).live;
+  const doubt = (live.beliefs?.[b.holder!] ?? []).find((c) => c.id === "doubt-false")!;
+  assert.ok(doubt.confidence < CONVICTION.asFact && !doubt.refuted, "the doubted belief is not under test");
+  const goals = live.agendas![b.holder!]!.goals.filter((g) => g.kind === "find-out" && g.status === "active" && (g.test as { ref?: string }).ref === testRef({ id: "doubt-false" }));
+  assert.equal(goals.length > 0, CONVICTION.askAround, "visible testing (a find-out goal) must follow CONVICTION.askAround");
 });
 
 const nights = (s: GameSessionAdapter, count: number) => {

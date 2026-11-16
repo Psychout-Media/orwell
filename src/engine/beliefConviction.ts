@@ -27,6 +27,14 @@ export const CONVICTION = {
   misleadP: 0.2,
   /** Credulity's reach: a fully credulous holder takes a tale at (0.5 + 1) x, a fully suspicious one at 0.5 x. */
   credulityFloor: 0.5,
+  /** How hard a houseguest pursues testing a doubted belief (the find-out goal's weight; a vote question's is 0.5). Tuned to the agreed house mix. */
+  testDrive: 0.5,
+  /**
+   * Whether testing is VISIBLE: a doubted belief becomes a find-out goal (asking around: fish / test-a-rumor scenes). Off for now: testing
+   * is quiet - the evidence still moves the conviction each night, but no asking-around scenes are staged - because visible testing pushes
+   * the week-1 house mix out of its agreed band (gossip 24.9 vs 19 +-5). Turned on once Ryne re-agrees the Theme 2 mix.
+   */
+  askAround: false,
   /** A small fixed personal offset, so two of the same type are not identical (+/- this). */
   personalSpread: 0.08,
 } as const;
