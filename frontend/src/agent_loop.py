@@ -5884,15 +5884,11 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
     )
 
 
-# ORW-479: the stream hands the pre-emission guard one sentence at a time, so after an early event announcement was held the REST of the call ("Backyard." "Now.") arrives in the next
-# chunk(s): while the held announcement is recent, a bare 1-2 word fragment is held with it (any real sentence ends that).
+# ORW-479: the stream hands the pre-emission guard one sentence at a time, so after an early event announcement was held the REST of the call ("Backyard." "Now.") arrives in the next chunk(s):
+# while the held announcement is recent (this turn, 8 s), a bare fragment made ONLY of the call's own words (chat_helpers.is_announcement_tail) is held with it; nothing else ever is.
+# Per-owner state: cleared when the turn ends, and reset with the season (it is in _SEASON_PACING_STORES).
 _ANN_HELD: dict = {}
 _ANN_FRAGMENT_WINDOW_S = 8.0
-
-
-def _is_call_fragment(part: str) -> bool:
-    t = part.strip()
-    return 0 < len(t) <= 24 and len(t.split()) <= 2 and t[-1] in ".!?" and not re.search(r"[,;:\"]", t)
 
 
 def _split_sentences_keep_dotted_times(text: str) -> list:
@@ -6012,6 +6008,7 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     except Exception:
         _ann_spans = []
     _ann_held = False
+    _drop_blank_after = 0
     _ann_active = (time.monotonic() - _ANN_HELD.get(owner, -1e9)) < _ANN_FRAGMENT_WINDOW_S
     _starts, _o = [], 0
     for _pp in parts:
@@ -6033,10 +6030,17 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
         if _prev_dropped and out and out[-1].endswith("\n"):
             part = part.lstrip(" \t")  # ORW-479: a dropped sentence at a line start left its blank behind: the line starts at its first word
         _last_part, _last_n = part, len(out)
+        if _drop_blank_after > 0 and part == "\n":
+            _drop_blank_after -= 1
+            continue  # ORW-479: the held line left blank line(s) behind it: its separators go with it (the stored-text mirror reads the same count)
+        _drop_blank_after = 0
         if _ann_spans and any(a < _p_end and b > _p_start for a, b in _ann_spans) and part.strip():
             _ann_held = True
+            _so_far = "".join(out)
+            _want = 2 if _so_far.endswith("\n\n") else (1 if _so_far.endswith("\n") else 0)   # newlines to remove: only when the held text started a line
+            _drop_blank_after = max(0, _want - (1 if part.endswith("\n") else 0))
             continue  # ORW-479: an announcement that the next event starts now, while the engine says it is minutes away
-        if part.strip() and _ann_active and _is_call_fragment(part):
+        if part.strip() and _ann_active and chat_helpers.is_announcement_tail(part):
             continue  # ORW-479: the rest of the call ("Backyard." "Now.") arriving in the next chunk of the same announcement
         if part.strip():
             _ann_active = False
@@ -6225,7 +6229,12 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
         b_parts = re.split(split_pattern, before)
         a_parts = re.split(split_pattern, after)
     ai = 0
-    for bp in b_parts:
+    _skip_blank = 0
+    for _bi, bp in enumerate(b_parts):
+        if _skip_blank > 0 and bp == "\n":
+            _skip_blank -= 1
+            continue  # ORW-479: separators that went with a held line (erased together with it below)
+        _skip_blank = 0
         if ai < len(a_parts) and a_parts[ai] == bp:
             ai += 1
             continue
@@ -6236,6 +6245,19 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
             ai += 1
             continue
         if not bp.strip():
+            continue
+        # ORW-479: a dropped line whose following newline separators were dropped with it (the guard's pair): erase line and separators together from the raw text
+        _j = 0
+        while _bi + 1 + _j < len(b_parts) and b_parts[_bi + 1 + _j] == "\n":
+            _j += 1
+        _a = 0
+        while ai + _a < len(a_parts) and a_parts[ai + _a] == "\n":
+            _a += 1
+        _k = max(0, _j - _a)
+        if _k > 0 and round_response.rfind(bp + "\n" * _k) >= 0:
+            idx = round_response.rfind(bp + "\n" * _k)
+            round_response = round_response[:idx] + round_response[idx + len(bp) + _k:]
+            _skip_blank = _k
             continue
         idx = round_response.rfind(bp)
         if idx >= 0:
@@ -7369,7 +7391,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _ANN_HELD,
 )
 
 
@@ -7951,6 +7973,7 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
                 from src import orwell_sync_ledger as _led_end

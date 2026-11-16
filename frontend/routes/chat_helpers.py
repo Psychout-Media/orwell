@@ -6474,7 +6474,8 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
 
 # ORW-479 (live sweep: production announced "Houseguests. Head of Household competition. Backyard. Now." at 11:55am with the comp five minutes from due; the phase flipped at 12:00): an
 # announcement that the scheduled EVENT is starting NOW, while the engine's day schedule says it is not due yet, is a time fact ahead of the engine. Pre-emission screen like the clock claims:
-# the announcement block is dropped before the player sees it (the event itself still fires at its time, with its own chyron). Closed set: only the engine's NEXT event, only today, only when not due.
+# the announcement is dropped before the player sees it (the event itself still fires at its time, with its own chyron). Closed set: only the engine's NEXT event, only today, only when not due,
+# only the narrator's or production's OWN announcement: a houseguest's quoted line, or a question ("does the competition start now?"), is never held.
 _EVENT_ANNOUNCE_NAMES = {
     "hoh-competition": r"(?:hoh|head\s+of\s+household)\s+(?:comp(?:etition)?|challenge)",
     "veto-competition": r"(?:power\s+of\s+)?veto\s+(?:comp(?:etition)?|challenge)",
@@ -6482,27 +6483,53 @@ _EVENT_ANNOUNCE_NAMES = {
     "veto-ceremony": r"(?:power\s+of\s+)?veto\s+ceremony",
     "eviction": r"(?:the\s+)?(?:live\s+)?eviction(?:\s+(?:vote|night|ceremony))?",
 }
-_ANY_EVENT_ANNOUNCE_RE = re.compile("(?:" + "|".join(_EVENT_ANNOUNCE_NAMES.values()) + r")\b", re.IGNORECASE)
+# With exactly ONE event next, the generic "the competition begins now" names it too (the "begins/starts now" shape only).
+_EVENT_GENERIC_NAMES = {
+    "hoh-competition": r"(?:the\s+)?(?:comp(?:etition)?|challenge)",
+    "veto-competition": r"(?:the\s+)?(?:comp(?:etition)?|challenge)",
+    "nominations": r"(?:the\s+)?nominations?",
+}
+_ANY_EVENT_ANNOUNCE_RE = re.compile("(?:" + "|".join(list(_EVENT_ANNOUNCE_NAMES.values()) + list(_EVENT_GENERIC_NAMES.values())) + r")\b", re.IGNORECASE)
+# The rest of production's call, arriving as its own one-word chunks: ONLY these words are held with a held announcement, nothing else.
+_ANNOUNCE_TAIL_WORDS = frozenset({"now", "backyard", "the backyard", "living room", "the living room", "houseguests"})
+
+
+def is_announcement_tail(part: str) -> bool:
+    """A bare fragment made only of the held call's own words ("Now.", "Backyard.", "Houseguests."): never a real sentence."""
+    t = re.sub(r"[^\w ]+", " ", part or "").strip().lower()
+    return " ".join(t.split()) in _ANNOUNCE_TAIL_WORDS
+
+
+def _inside_quotes_at(text: str, pos: int) -> bool:
+    """Is `text[pos]` inside a double quote opened earlier in this text (a straight quote toggles; curly open/close set the state)?"""
+    open_q = False
+    for ch in text[:pos]:
+        if ch == '"':
+            open_q = not open_q
+        elif ch == "\u201c":
+            open_q = True
+        elif ch == "\u201d":
+            open_q = False
+    return open_q
 
 
 def _event_start_spans(text: str, event: str) -> "list[tuple[int, int]]":
-    """Character spans of `text` that ANNOUNCE `event` as starting now: a short announcement block ("[Houseguests.] <Event>. [Backyard.] Now."), or "<the event> begins/starts now". Pure."""
+    """Character spans of `text` that ANNOUNCE `event` as starting now, in the narrator's or production's own voice: a short announcement block ("[Houseguests.] <Event>. [Backyard.] Now."),
+    "<the event> begins/starts now" in one sentence, or the bare event-name sentence. Never inside a quote, never a question. Pure."""
     name = _EVENT_ANNOUNCE_NAMES.get(event)
     if not text or not name:
         return []
+    generic = _EVENT_GENERIC_NAMES.get(event)
+    either = f"(?:{name}|{generic})" if generic else name
     spans: "list[tuple[int, int]]" = []
-    # a block of short fragments that names the event and ends "Now." (production's call to the house)
     block = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?" + name + r"[.!,]?\s*(?:[A-Za-z' -]{1,24}[.!]\s*){0,2}?now[.!]?", re.IGNORECASE)
-    for m in block.finditer(text):
-        spans.append((m.start(), m.end()))
-    # "the competition begins / starts / is starting now" in one sentence
-    one = re.compile(r"[^.!?\n]*\b(?:the\s+)?" + name + r"\s+(?:begins?|starts?|is\s+(?:starting|beginning)|kicks?\s+off)\s+now\b[^.!?\n]*[.!?]?", re.IGNORECASE)
-    for m in one.finditer(text):
-        spans.append((m.start(), m.end()))
-    # the bare announcement alone as a sentence ("Head of Household competition."), which the house reads as the call itself
+    one = re.compile(r"[^.!?\n]*?\b(?P<ev>" + either + r"\s+(?:begins?|starts?|is\s+(?:starting|beginning)|kicks?\s+off)\s+now)\b[^.!?\n]*[.!?]?", re.IGNORECASE)
     bare = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?" + name + r"[.!]?[ \t]*(?=\n|$)", re.IGNORECASE)
-    for m in bare.finditer(text):
-        spans.append((m.start(), m.end()))
+    for rx in (block, one, bare):
+        for m in rx.finditer(text):
+            at = m.start("ev") if rx is one else m.start()   # a quote is judged where the EVENT is named, not where the sentence starts ('Ana says, "The competition begins now."')
+            if m.end() > m.start() and not _inside_quotes_at(text, at) and not m.group(0).rstrip().endswith("?"):
+                spans.append((m.start(), m.end()))
     spans.sort()
     merged: "list[tuple[int, int]]" = []
     for a, b in spans:

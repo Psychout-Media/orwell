@@ -80,3 +80,46 @@ def test_the_announcement_is_held_when_the_stream_delivers_it_a_chunk_at_a_time(
     assert shown.endswith("Rain keeps falling.") and shown.startswith(T3S), shown
     # (an already-shown "Houseguests." lead-in of a per-sentence stream cannot be recalled; nothing of the call itself remains)
     assert stored == shown, (shown, stored)   # what was shown is what is stored
+
+
+# ── review of #2826 ───────────────────────────────────────────────────────────────────────────────────────────────────
+def test_only_the_held_calls_own_words_are_held_other_short_sentences_survive(monkeypatch):
+    _schedule(monkeypatch)
+    shown, stored = _round(monkeypatch, [T3, "Houseguests. ", "Head of Household competition. ", "Now. ", "She nods. ", "Ana laughs. ", "Okay. ", "The kettle ticks. "])
+    assert "Head of Household" not in shown and "Now." not in shown, shown
+    for kept in ("She nods.", "Ana laughs.", "Okay.", "The kettle ticks."):
+        assert kept in shown, (kept, shown)
+    assert stored == shown, (shown, stored)
+
+
+def test_the_tail_state_is_gone_when_the_turn_ends_and_is_a_season_store(monkeypatch):
+    from src import agent_loop as al
+    _schedule(monkeypatch)
+    _round(monkeypatch, [T3, "Head of Household competition. ", "Now. "])
+    assert al._ANN_HELD == {}, "a held announcement's tail window must not outlive its turn"
+    assert any(al._ANN_HELD is st for st in al._SEASON_PACING_STORES), "a per-owner store joins the new-season reset"
+
+
+def test_the_held_bare_line_leaves_no_empty_line_in_shown_or_stored(monkeypatch):
+    _schedule(monkeypatch)
+    shown, stored = _round(monkeypatch, ["Rain taps the glass.\n\nHead of Household competition.\n\nThe kettle ticks.\n"])
+    assert shown == "Rain taps the glass.\n\nThe kettle ticks." and stored == shown, (shown, stored)
+
+
+def test_the_generic_the_competition_begins_now_is_held_when_one_event_is_next(monkeypatch):
+    _schedule(monkeypatch)
+    shown, stored = _round(monkeypatch, [T3 + "The competition begins now. Rain keeps falling. "])
+    expected = T3S + " Rain keeps falling."
+    assert shown == expected and stored == expected, (shown, stored)
+
+
+@pytest.mark.parametrize("line", [
+    'Ana says, "The Head of Household competition starts now, right?" ',   # a houseguest's quoted question
+    'Ana says, "The competition begins now." ',                            # a houseguest's quoted line, not production's call
+    "Does the Head of Household competition begin now? ",                  # a narrator question
+])
+def test_dialogue_and_questions_about_the_event_are_not_held(monkeypatch, line):
+    _schedule(monkeypatch)
+    shown, stored = _round(monkeypatch, [T3 + line + "Rain keeps falling. "])
+    expected = (T3 + line + "Rain keeps falling.").strip()
+    assert shown == expected and stored == expected, (shown, stored)
