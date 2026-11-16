@@ -82,6 +82,31 @@ def test_a_rich_extraction_that_banked_a_scene_is_still_counted_as_an_under_call
     assert chat_helpers._unrecorded_turn_fallbacks == before + 1
 
 
+# ORW-507 (retro review of the ORW-346 change): the old source-string pin could not tell an explicit "nobody" from a malformed answer. These drive the REAL belt (`_auto_record_scene`) with a prefetched
+# extraction payload and read the ledger flag the guard consumes.
+_HOUSE = [{"id": "npc:1", "name": "Holder"}, {"id": "npc:2", "name": "Rival"}]
+_NARRATION_SCENE = "The player sits with the houseguest at the table and talks quietly about the week ahead and who they can trust."
+
+
+def _belt(raw, owner="belt-user"):
+    agent_loop = importlib.import_module("src.agent_loop")
+    fold_ledger._SCENE_NOBODY.clear()
+    out = _run(agent_loop._auto_record_scene(_NARRATION_SCENE, "I ask how they are doing.", _HOUSE, "http://unused", "m", {}, owner, raw=raw))
+    return out, fold_ledger.consume_scene_nobody(owner)
+
+
+def test_an_explicit_empty_withIds_marks_the_ledger_nobody():
+    out, marked = _belt('{"withIds": [], "kind": "strategy", "content": "x"}')
+    assert out is False and marked is True
+
+
+def test_a_malformed_or_unresolvable_answer_does_not_mark_nobody(monkeypatch):
+    # a rejected id (not on the living roster) and an unparseable / withIds-less reply are NOT "nobody engaged": the E22 guard must keep its normal under-call handling
+    for raw in ('{"withIds": ["npc:99"], "kind": "strategy", "content": "x"}', '{"withIds": "npc:1"}', '{"kind": "strategy", "content": "x"}', "not json at all"):
+        out, marked = _belt(raw)
+        assert out is False and marked is False, raw
+
+
 def test_the_belt_notes_nobody_only_for_an_explicit_empty_answer():
     import inspect
     src = inspect.getsource(importlib.import_module("src.agent_loop")._auto_record_scene)
