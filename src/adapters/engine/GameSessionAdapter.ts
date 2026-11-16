@@ -4588,6 +4588,8 @@ export class GameSessionAdapter implements GameSession {
       deals: this.deals.serialize(),
       // 0107: persist named alliances so they survive a restart (accumulate, never thin). Engine-only.
       ...(this.alliances.all().length ? { alliances: this.alliances.serialize() } : {}),
+      // ORW-544: the append-only alliance history (ended alliances included) - never thinned.
+      ...(this.alliances.history().length ? { allianceHistory: this.alliances.serializeHistory() } : {}),
       // 0085: persist live campaigns so a multi-week agenda + its history survive a restart (accumulate,
       // never thin). Engine-only hidden strategy — already inside the never-outward snapshot.
       ...(this.campaigns.length ? { campaigns: this.campaigns.map((c) => ({ ...c, owners: [...c.owners], plan: [...c.plan], knownTo: [...c.knownTo] })) } : {}),
@@ -4926,7 +4928,7 @@ export class GameSessionAdapter implements GameSession {
     this.live = core.live ? cloneSession(core.live) : null;
     this.deals.load(core.deals ?? []);
     // 0107: restore named alliances (absent on pre-0107 saves ⇒ none).
-    this.alliances.load(core.alliances ?? []);
+    this.alliances.load(core.alliances ?? [], core.allianceHistory ?? []);
     // 0085: restore live campaigns (absent on pre-0085 saves ⇒ none).
     this.campaigns = (core.campaigns ?? []).map((c) => ({ ...c, owners: [...c.owners], plan: [...c.plan], knownTo: [...c.knownTo] }));
     this.campaignTickCount = core.campaignTickCount ?? 0;
@@ -10708,6 +10710,7 @@ export class GameSessionAdapter implements GameSession {
   private fadeAlliances(): void {
     if (!this.live || this.alliances.all().length === 0) return;
     const day = this.live.dayNumber ?? this.live.week;
+    this.alliances.stamp(this.beatSeqNow(), day);
     // 0107 (prune-on-eviction, never wired until the cubic sweep): an evicted houseguest leaves every alliance they were in, and one left with a single member dissolves.
     const pruned = this.alliances.prune(new Set(this.presenceActive()));
     const gone = this.alliances.fade(
@@ -10718,7 +10721,27 @@ export class GameSessionAdapter implements GameSession {
     let changed = pruned || gone.length > 0;
     if (this.breakAlliancesOverGoals(day)) changed = true;
     // No persist() here: this runs INSIDE the off-screen tick, and a persist is a commit, which runs the tick again (a recursion that never ended). The tick's own commit saves the change.
+    this.flushAllianceEvents();
     if (changed) this.agendaRecheck("alliance-changed");
+  }
+
+  /**
+   * ORW-544 / 0161: record an engine event for each alliance change that has none yet - an NPC alliance FORMING, FADING, DISSOLVING (the betrayal and the player's own founding already record theirs at their own sites, so they are marked, not doubled; joins and leaves are history only).
+   * The event is hidden unless the player was a member or had been told of the alliance (`playerKnew`): the registry's recorder hides any event whose witness set leaves the player out, so a pact the player never heard of stays in the Vault (mandate #2).
+   */
+  private flushAllianceEvents(): void {
+    if (!this.onPlayerEvent) return;
+    for (const e of this.alliances.unrecorded()) {
+      if (e.kind === "joined" || e.kind === "left") { this.alliances.markRecorded(e.seq, "none"); continue; }
+      if (e.kind === "betrayed" || (e.kind === "formed" && e.founder === PLAYER)) { this.alliances.markRecorded(e.seq, "existing"); continue; }
+      const who = e.members.map((m) => this.nameOf(m)).join(", ");
+      const content = e.kind === "formed" ? `The alliance "${e.name}" formed: ${who}`
+        : e.kind === "faded" ? `The alliance "${e.name}" faded apart: ${who}`
+        : `The alliance "${e.name}" dissolved (${e.why ?? "ended"}): ${who}`;
+      const witnesses = e.playerKnew && !e.members.includes(PLAYER) ? [...e.members, PLAYER] : [...e.members];
+      const id = this.onPlayerEvent(content, witnesses, `alliance-${e.kind}`);
+      this.alliances.markRecorded(e.seq, id ?? "recorded");
+    }
   }
 
   /**
@@ -10745,12 +10768,14 @@ export class GameSessionAdapter implements GameSession {
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
         if (roll >= ALLIANCE.goalClashBreak) continue;
         const target = goal.target!;
+        this.alliances.stamp(this.beatSeqNow(), day);
         this.alliances.removeMember(al.id, m); // FIRST: the member is out before any side effect can re-enter the tick (recording the scene commits, and a commit runs the tick again)
         const e = this.rel.edge(target, m);
         e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump);
         e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump);
         recordDealBetrayal(live, target, m);
         this.onPlayerEvent?.(`${this.nameOf(m)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)}`, [target, m], "betrayal");
+        this.flushAllianceEvents();
         changed = true;
       }
     }
@@ -10759,6 +10784,7 @@ export class GameSessionAdapter implements GameSession {
 
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
+    this.alliances.stamp(beat, this.live?.dayNumber ?? this.live?.week);
     const npcs = this.livingIds().filter((id) => id !== PLAYER);
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a));
@@ -10787,6 +10813,7 @@ export class GameSessionAdapter implements GameSession {
       const a = this.alliances.add(name, founder, willing, beat);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
       if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER);
+      this.flushAllianceEvents(); // after the player pitch above, so a pitched player is told
       this.agendaRecheck("alliance-changed"); // ORW-312
       this.persist();
       return; // one new alliance per tick (bounded)
@@ -10813,6 +10840,7 @@ export class GameSessionAdapter implements GameSession {
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
           this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
         }
+        this.flushAllianceEvents();
         this.agendaRecheck("alliance-changed");
         this.persist();
         return; // one change per tick (bounded)
@@ -13597,6 +13625,7 @@ export class GameSessionAdapter implements GameSession {
       `${this.nameOf(PLAYER)} forms an alliance "${name}" with ${others.map((m) => this.nameOf(m)).join(", ")}`,
       willing, "alliance",
     );
+    this.alliances.stamp(this.beatSeqNow(), this.live?.dayNumber ?? this.live?.week);
     const a = this.alliances.add(name, PLAYER, willing, this.beatSeqNow());
     this.agendaRecheck("alliance-changed"); // ORW-312
     this.persist();
@@ -13630,6 +13659,7 @@ export class GameSessionAdapter implements GameSession {
     if (!a || a.members.includes(PLAYER) || !a.knownTo.includes(PLAYER)) return null; // not an open pitch
     const bondOf = (x: EntityId, y: EntityId): number => (this.rel.edge(x, y).trust + this.rel.edge(x, y).affinity) / 2;
     if (Math.min(bondOf(PLAYER, a.founder), bondOf(a.founder, PLAYER)) < ALLIANCE.joinBondFloor) return null; // not close enough
+    this.alliances.stamp(this.beatSeqNow(), this.live?.dayNumber ?? this.live?.week);
     const joined = this.alliances.join(a.id, PLAYER)!;
     this.onPlayerEvent?.(`${this.nameOf(PLAYER)} joins the alliance "${joined.name}"`, [...joined.members], "alliance");
     this.agendaRecheck("alliance-changed"); // ORW-312
@@ -13696,7 +13726,9 @@ export class GameSessionAdapter implements GameSession {
             [target, action.actor], "betrayal",
           );
         }
+        this.alliances.stamp(this.beatSeqNow(), this.live?.dayNumber ?? this.live?.week);
         this.alliances.removeMember(al.id, action.actor); // the betrayer is out — the alliance fractures
+        this.flushAllianceEvents();
         this.agendaRecheck("alliance-changed"); // ORW-312
       }
     }
