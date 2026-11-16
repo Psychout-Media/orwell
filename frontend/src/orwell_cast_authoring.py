@@ -60,7 +60,7 @@ PHOTO_SHEET_RULES = (
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
     "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
-    "visible words, logos, band names or brand names. The FIRST piece is the MAIN piece (the jacket, "
+    "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). Test every piece with one question: would this person, with this job, age, income and the weather of their hometown, really wear it on an ordinary day, at work or off it (not another trade's work gear, not the wrong season for the job, not above their money, not a costume)? The FIRST piece is the MAIN piece (the jacket, "
     "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
     "the garment, for example \"leather jacket\" or \"flannel shirt\"). "
     "(2) photoHair: at most 90 characters: the SAME cut, length and colour as their written hair, "
@@ -71,19 +71,29 @@ PHOTO_SHEET_RULES = (
     "(3) onCamera: the MOMENT: ONE still moment a photographer captures, chosen for THIS person from "
     "their demeanor, identity concept and voice energy. It says where they are in the house, how they "
     "hold themselves, where they look, and one expression, in one to three short sentences of at most "
-    "240 characters. It names exactly ONE spot from: kitchen, living room, dining room, backyard, "
-    "lounge, a bedroom; pick the spot this person would be in, but not one that taken.spots shows "
-    "already used by 3 other houseguests. Eyes on the camera, unless the person is guarded or aloof "
-    "(then looking away is allowed). Hands at rest or doing ONE simple thing (arms folded, hands in "
-    "pockets, holding a mug, chin on fist, elbow propped). Mouth closed, smiling, or one open laugh "
-    "for the loudest personalities, never mid-word. At most one prop, and it is theirs, never a chore. "
-    "It ends with a read of who they are in 3-8 words, introduced by \"the one who\" (for example "
-    "\"the one who misses nothing\"). It is a still photograph, not a scene: no sequence of events, "
+    "240 characters. It names no room of the house (the room of the photo is chosen separately), so describe "
+    "posture, hands, gaze and expression only, with nothing that a room would have to supply (no counter, sofa, doorway "
+    "or window to lean on or sit at). Where the eyes go follows the person: on the camera for the open and "
+    "bold; off to one side, down, at something in the room or past the lens for the guarded, shy, distracted or "
+    "busy. Hands at rest or doing ONE simple thing (arms folded, hands in pockets, a hand on a knee, tucking hair, "
+    "adjusting a cuff, elbow propped). The expression follows the person too: smiling only if this person would; "
+    "a serious, wry, tired, guarded, amused-without-smiling or thoughtful face is as likely as a smile; never "
+    "mid-word. Usually no prop: a prop only when this person's job or life gives a reason, never a mug or cup, and "
+    "at most one. Only when the OPENING PATTERN line says closing read: yes, end with a read of who they are in 3-8 "
+    "words, introduced by \"the one who\"; otherwise end the line plainly. It is a still photograph, not a scene: no sequence of events, "
     "no speech, no chores, no other people. Never use these words: "
     + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
     "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
     "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
     "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "
+    "(4) lookSignature: at most 90 characters: exactly ONE thing about how this person looks or dresses that someone would use to describe "
+    "them to a friend. It comes from their own life as the biography tells it (their job, hometown, family, hobby or a habit), is something "
+    "they could really buy or do where they live on their own money, and is something nobody else in the cast has: a different kind of thing "
+    "from every signature in taken.signatures. It is a real, ordinary choice (a hairstyle, jewellery, glasses, a garment worn a certain way, "
+    "facial hair, nails), never a costume, a uniform, a prop, a tattoo or anything with words on it, and the wardrobe carries it (the pieces and "
+    "this line agree). It is ONE thing, never a whole outfit. When it is about hair it names only the cut, length and texture that this card's own "
+    "hair and photoHair lines already carry. Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
+    "and about a third of the cast wears a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear (faded, worn-in). "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
 )
@@ -119,7 +129,7 @@ _SYSTEM = (
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
-    '"distinguishingMark", "ageLook", "style", "wardrobe", "photoHair", "onCamera" } — short phrases '
+    '"distinguishingMark", "ageLook", "style", "wardrobe", "lookSignature", "photoHair", "onCamera" } — short phrases '
     "(wardrobe is an array, photoHair and onCamera short lines, see PHOTO SHEET below); this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
@@ -128,12 +138,18 @@ _SYSTEM = (
     "your own words but keep it the SAME person. THE INK BUDGET IS FIXED: if the brief's "
     "distinguishingMark carries no tattoo, this houseguest has NO visible tattoos anywhere (not in the "
     "mark, the style, or the biography) — only a small minority of a real cast is visibly inked, and "
-    "the casting office already decided who. A distinguishingMark is usually minor or absent: freckles, "
-    "glasses, jewelry, dimples (no scars, birthmarks or tooth gaps: the portrait cannot hold them) — or plain \"none notable\"; never "
-    "default to a tattoo, "
-    "STYLE: the skeleton's presentation is this person's style FAMILY. Write \"style\" INSIDE that "
-    "family, as THIS person would wear it given their age, job and hometown; never blend in another "
-    "family (no rocker edge layered over bohemian). "
+    "the casting office already decided who. THE MARK IS DEALT: copy the skeleton's distinguishingMark exactly as it stands "
+    "(\"none notable\" stays \"none notable\"); never add a mark of your own or swap it, and never default to a tattoo (a real cast "
+    "has about four marks in all, dealt so none repeats; the portrait cannot hold them as scars: no scars, birthmarks or tooth gaps), "
+    "THE MARK LIVES IN distinguishingMark ONLY: never repeat it in facialFeatures, the biography or any other field (no gap-toothed grin in "
+    "the face line when the mark says so), and keep the face line to bone structure and expression, "
+    "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
+    "personality, would really own and wear to be photographed for TV, and could buy in an ordinary shop in or near their hometown on their income, and write that. The skeleton's presentation is only a "
+    "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
+    "with another family (no rocker edge layered over bohemian). Write \"style\" as those real clothes in a phrase. Every piece is ONE "
+    "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
+    "over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never \"worn like a uniform\"), no "
+    "costume, no work badge, name tag or lanyard, no bare skin under a blazer, no hand-sewn or DIY decoration. "
     + PHOTO_SHEET_RULES + " "
     "STORY MATCHES THE CARD (HARD): the biography is read beside the card, so it must agree with it. "
     "Use ONLY the houseguest's pinned pronouns for the houseguest (other people keep their own, named by role); "
@@ -1074,7 +1090,7 @@ _SPOT_PATTERNS = (
 _ONCAMERA_BANNED_RE = re.compile(
     r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _ONCAMERA_BANNED_WORDS), re.I)
 # The closing read may say "someone who ...": that one clause is exempt from the ban on "someone".
-_ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*someone (?:who|you|that)\b[^,;.\u2014\u2013-]*[.!]?\s*$", re.I)
+_ONCAMERA_READ_RE = re.compile(r"(?:^|[,;.\u2014\u2013-])\s*(?:someone|the one) (?:who|you|that)\b[^,;.\u2014\u2013-]*[.!]?\s*$", re.I)
 _PHOTOHAIR_BANNED_RE = re.compile(
     r"(?<![\w-])(?:%s)(?![\w-])" % "|".join(re.escape(w) for w in _PHOTOHAIR_BANNED_WORDS), re.I)
 _PRONOUN_CONTRADICTIONS = {
@@ -1089,6 +1105,37 @@ _PIECE_CUT_RE = re.compile(r"\s+(?:with|over|in|and|on|under|featuring|paired)\b
 def oncamera_spots(text: str) -> set:
     """The house spots a moment names (a set of canonical names)."""
     return {name for name, rx in _SPOT_PATTERNS if rx.search(text or "")}
+
+
+def repair_oncamera(text: str) -> str:
+    """The on-camera line with whatever made it a scene taken out: clauses with a banned word or a second house spot are dropped
+    (the closing "the one who ..." read is kept), then the rest is cut at a clause end inside the length cap. "" when nothing clean
+    is left."""
+    t = " ".join(str(text or "").split())
+    if not t:
+        return ""
+    read = ""
+    m = _ONCAMERA_READ_RE.search(t)
+    if m:
+        read, t = t[m.start():].lstrip(",;.\u2014\u2013- "), t[:m.start()]
+    kept, spots = [], set()
+    for clause in re.split(r"(?<=[,;.\u2014\u2013])\s+|\s+[\u2014\u2013-]\s+", t):
+        if _ONCAMERA_BANNED_RE.search(clause):
+            continue
+        cs = oncamera_spots(clause)
+        if cs and spots and not (cs & spots):
+            continue  # a second house spot
+        spots |= cs
+        kept.append(clause.strip(" ,;.\u2014\u2013-"))
+    body = ", ".join(x for x in kept if x)
+    if read and not _ONCAMERA_BANNED_RE.search(_ONCAMERA_READ_RE.sub("", ", " + read)):
+        body = f"{body}, {read}" if body else read
+    while len(body) > _ONCAMERA_MAX and "," in body:
+        body = body.rsplit(",", 1)[0]
+    body = body.strip(" ,;")
+    if body and not body.endswith((".", "!", "?")):
+        body += "."
+    return body if len(body) <= _ONCAMERA_MAX else ""
 
 
 def oncamera_is_scene(text: str) -> bool:
@@ -1142,11 +1189,14 @@ _LOOK_PROBLEM_TEXT = {
     "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
     "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
     "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
-    "oncamera-shape": "onCamera must name exactly one house spot: kitchen, living room, dining room, backyard, lounge, or a bedroom",
+    "oncamera-shape": "onCamera is a still moment of posture, hands, gaze and expression, with no room named",
     "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
     "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
     "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
     "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
+    "wardrobe-unreal": "a wardrobe piece or the style line is not a real garment (a work badge, lanyard or name tag, a costume, a uniform worn as a style, bare skin under a blazer, hand-sewn decoration); use ordinary pieces a shop sells",
+    "wardrobe-multi": "a wardrobe piece is two things in one (a vest over a polo, sneakers with a gold chain): write each garment as its own piece",
+    "wardrobe-not-garment": "a wardrobe piece names no garment or accessory a shop sells (it is hair, a person or a vibe); every piece must be a real garment",
     "wardrobe-taken": "the MAIN (first) wardrobe piece repeats one already taken in this cast; choose a different garment",
 }
 
@@ -1202,13 +1252,35 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             not isinstance(wardrobe, list) or not 2 <= len(items) <= 3
             or any(len(i) > 60 or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
         out.append("wardrobe-shape")
+    if items or pc.get("style"):
+        from src import orwell_cast_realism as _R
+        if any(_R.unreal_clothes(x) for x in items) or _R.unreal_clothes(str(pc.get("style") or "")):
+            out.append("wardrobe-unreal")
+        elif any(not _R.is_garment(x) for x in items):
+            out.append("wardrobe-not-garment")
+        elif any(_R.is_multi_garment(x) for x in items):
+            out.append("wardrobe-multi")
+    from src import orwell_cast_realism as _RL
+    if any(_RL.label_leaks(" ".join(str(x) for x in (v if isinstance(v, list) else [v]))) for v in (pc.get("wardrobe"), pc.get("style"), pc.get("lookSignature"), pc.get("onCamera"), pc.get("photoHair"))):
+        out.append("label-leak")  # an internal category name ("red-pink") in a card text: the gate scrubs it, a first pass is asked again
+    if "lookSignature" in pc:
+        sg = pc.get("lookSignature")
+        if (not isinstance(sg, str) or not sg.strip() or len(sg) > 90 or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
+                or _INK_RE.search(sg)):
+            out.append("signature-shape")
+        else:
+            from src import orwell_cast_realism as _RH
+            seeded_hair = ((npc or {}).get("physicalCharacteristics") or {}).get("hair") if isinstance((npc or {}).get("physicalCharacteristics"), dict) else ""
+            hair_text = f"{pc.get('hair') or seeded_hair or ''} {pc.get('photoHair') or ''}"
+            if _RH.tag_card({"physicalCharacteristics": {"lookSignature": sg}}).get("signature") == ["hair"] and _RH.hair_signature_conflict(sg, hair_text):
+                out.append("signature-hair")  # a hair signature that names a cut or texture the card's own hair does not carry
+            elif _RH.is_multi_garment(sg):
+                out.append("signature-shape")  # ONE thing, not a whole outfit ("a polo tucked into jeans with clogs")
     if "onCamera" in pc:
         oc = str(pc.get("onCamera") or "")
         if oncamera_is_scene(oc):
             out.append("oncamera-scene")
-        elif len(oncamera_spots(oc)) != 1:
-            out.append("oncamera-shape")
-        elif isinstance(taken, dict) and (taken.get("spots") or {}).get(next(iter(oncamera_spots(oc))), 0) >= _SPOT_MAX:
+        elif oncamera_spots(oc) and isinstance(taken, dict) and (taken.get("spots") or {}).get(next(iter(oncamera_spots(oc))), 0) >= _SPOT_MAX:
             out.append("oncamera-taken")  # ORW-437: that house spot already holds three houseguests
     gender = (npc or {}).get("genderPresentation")
     if gender and (pronoun_mismatch(str(pc.get("onCamera") or ""), gender)
@@ -1250,11 +1322,62 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             fam = family_for_label(str((npc or {}).get("presentation") or ""))
             if fam is not None:
                 pc["style"] = fam["sample"]
-            pc.pop("wardrobe", None)
+            # ORW-480: the clothes stay: the style family is only a lean now, so a retry that still blends another family keeps the
+            # writer's pieces (real garments are checked on their own) instead of blanking the wardrobe
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
-        elif code in ("oncamera-shape", "oncamera-scene", "oncamera-taken"):
-            pc.pop("onCamera", None)
+        elif code in ("signature-shape", "signature-hair"):
+            pc.pop("lookSignature", None)  # the casting-director pass asks for another (it is shown the card's hair lines)
+        elif code == "label-leak":
+            from src import orwell_cast_realism as _RS
+            for _f in ("wardrobe", "style", "lookSignature", "onCamera", "photoHair"):
+                _v = pc.get(_f)
+                if isinstance(_v, list):
+                    pc[_f] = [_RS.scrub_labels(str(x)) for x in _v]
+                elif isinstance(_v, str):
+                    pc[_f] = _RS.scrub_labels(_v)
+        elif code == "wardrobe-multi":
+            # ORW-480: split each two-things piece at its joiner ("a vest over a polo" -> "a vest", "a polo") rather than lose the clothes
+            from src import orwell_cast_realism as _R
+            split: list = []
+            for x in [str(i) for i in (pc.get("wardrobe") or [])]:
+                if _R.is_multi_garment(x):
+                    parts = re.split(r"\s+(?:over|with|and|under|plus|paired with|layered over|tucked into|beneath|atop)\s+|,\s*", x, maxsplit=1, flags=re.I)
+                    split += [p_.strip() for p_ in parts if p_.strip()]
+                else:
+                    split.append(x)
+            seen: list = []
+            for x in split:
+                if x.lower() not in {y.lower() for y in seen}:
+                    seen.append(x)
+            garments = [x for x in seen if _R.is_garment(x) and not _R.unreal_clothes(x)]
+            if len(garments) >= 2:
+                pc["wardrobe"] = garments[:3]  # a split that gives four pieces keeps the first three (the main piece leads)
+            else:
+                pc.pop("wardrobe", None)
+        elif code in ("wardrobe-unreal", "wardrobe-not-garment"):
+            # ORW-480: clothes a shop does not sell never reach the photo. The pieces that ARE real garments stay when two or more are left; only
+            # otherwise is the wardrobe omitted (the casting director then asks for one). An unreal style line falls back to the family sample.
+            from src import orwell_cast_realism as _R0
+            kept = [str(x) for x in (pc.get("wardrobe") or []) if _R0.is_garment(str(x)) and not _R0.unreal_clothes(str(x))]
+            if len(kept) >= 2:
+                pc["wardrobe"] = kept[:3]
+            else:
+                pc.pop("wardrobe", None)
+            from src import orwell_cast_realism as _R
+            if _R.unreal_clothes(str(pc.get("style") or "")):
+                fam = family_for_label(str((npc or {}).get("presentation") or ""))
+                pc["style"] = fam["sample"] if fam is not None else "plain everyday clothes"
+        elif code == "oncamera-taken":
+            pc.pop("onCamera", None)  # a named spot that already holds three houseguests: the line goes (the room is not asked of the writer now)
+        elif code in ("oncamera-shape", "oncamera-scene"):
+            # ORW-480: mend the line (a clause out of a second spot or a banned word, cut to length) before dropping it, so a card
+            # keeps its on-camera line whenever a clean part of it survives
+            fixed = repair_oncamera(str(pc.get("onCamera") or ""))
+            if fixed and not oncamera_is_scene(fixed):
+                pc["onCamera"] = fixed
+            else:
+                pc.pop("onCamera", None)
         elif code == "pronoun-mismatch":
             gender = (npc or {}).get("genderPresentation")
             if pronoun_mismatch(str(pc.get("onCamera") or ""), gender):
@@ -1902,6 +2025,167 @@ async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
     return rewritten
 
 
+FIT_AUDIT_RULE = (
+    "One rule, applied to each person on their own terms: would THIS person, with this job, this age, this income and the weather of this "
+    "hometown, plausibly wear each piece and carry the signature on an ordinary day, at work or off it? Flag a piece only when it clearly "
+    "does not make sense for who they are: gear or clothes that belong to a different trade or life, clothes for the wrong season or climate "
+    "for the job they do, something far above what they could pay, or a get-up that reads as a costume. Taste is not a fault. Every person "
+    "gets the same question; there is no list of jobs or garments."
+)
+
+
+def fit_audit_messages(cards: list) -> list[dict]:
+    """The one batched casting-director question for the whole cast: which cards carry a piece that does not fit the life."""
+    people = []
+    for c in cards:
+        pc = c.get("physicalCharacteristics") if isinstance(c.get("physicalCharacteristics"), dict) else {}
+        people.append({"id": c.get("id"), "age": c.get("age"), "job": c.get("vocation"), "hometown": c.get("hometown"),
+                       "wardrobe": pc.get("wardrobe"), "lookSignature": pc.get("lookSignature")})
+    system = ("You are the casting director of a reality show checking that every person looks like a real person with a real life. "
+              + FIT_AUDIT_RULE + ' Reply with STRICT JSON only: {"misfits": [{"id": "...", "piece": "the exact piece", "why": "one short reason"}]}, '
+              "at most 4, the clearest first, or an empty list.")
+    return [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(people, ensure_ascii=False)}]
+
+
+async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int = 6) -> int:
+    """The cast-level look pass (ORW-480). ONE model call over the finished cast applies the fit rule to every person and names the cards with a
+    piece that does not fit the life. Those cards, plus cards left with NO wardrobe, NO signature, or a signature whose category is full, get ONE
+    field-only rewrite each (at most `limit`, in that order of importance) that must pass the look checks and the table's look-fit check. A
+    rewritten wardrobe also rewrites the style line (so no style names a garment that is gone), and the rewrites are re-audited ONCE together (one
+    more call): a rewrite the audit flags again gets one more attempt with that reason, then whatever passes the checks is stored with
+    `write_look_fn`. A failure at any step leaves the original look. The audit is advisory: it can miss a misfit. Returns how many cards changed.
+    Logs counts only."""
+    by_id = {str(c["id"]): c for c in (cards or []) if isinstance(c, dict) and c.get("id")}
+    if len(by_id) < 2:
+        return 0
+    from src import orwell_cast_realism as _R
+    flagged: list = []
+    try:
+        got = _extract_json(await llm_fn(fit_audit_messages(list(by_id.values())))) or {}
+        flagged = got.get("misfits") if isinstance(got.get("misfits"), list) else []
+    except Exception as e:  # failsoft-ok: best-effort-enrichment (the looks stand; the missing-field rewrites below still run)
+        logger.info(f"[fit-audit] audit call failed: {type(e).__name__}")
+    jobs: list = []  # (hid, reason)
+    seen: set = set()
+
+    def add(hid, reason):
+        if hid in by_id and hid not in seen and len(jobs) < limit:
+            seen.add(hid)
+            jobs.append((hid, reason))
+
+    def _pc(c):
+        return c.get("physicalCharacteristics") if isinstance(c.get("physicalCharacteristics"), dict) else {}
+
+    def _wd(c):
+        return _pc(c).get("wardrobe")
+
+    def _sig(c):
+        return str(_pc(c).get("lookSignature") or "").strip()
+    for hid, c in by_id.items():
+        if not _wd(c):
+            add(hid, "it has no wardrobe at all")
+    for item in flagged:
+        if isinstance(item, dict):
+            add(str(item.get("id")), f'"{str(item.get("piece") or "")[:80]}" does not fit this life ({str(item.get("why") or "")[:120]})')
+    for hid, c in by_id.items():  # a card with NO signature outranks a card whose signature merely repeats a kind
+        if not _sig(c):
+            add(hid, "it has no lookSignature")
+    held: dict = {}  # category -> the cards holding it
+    cap = _R.cap_for("signature", "hair", len(by_id))
+    for hid, c in by_id.items():
+        if _sig(c):
+            for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": _sig(c)}}).get("signature", []):
+                if cat != "other":
+                    if len(held.get(cat, [])) >= cap:
+                        add(hid, f"its signature is about {_R.plain_label('signature', cat)}, which {cap} other cards already have")
+                    held.setdefault(cat, []).append(hid)
+    logger.info(f"[fit-audit] audit flagged={len(flagged)} rewrites-planned={len(jobs)}")
+
+    async def propose(hid, reason):
+        """One field-only rewrite for a card: {wardrobe, style, lookSignature} that passes the look checks, or None."""
+        card = by_id[hid]
+        phys = _pc(card)
+        free = [_R.plain_label("signature", c) for c in _R.signature_categories() if len([h for h in held.get(c, []) if h != hid]) < cap]
+        ask = (f"A casting director found a problem with this look: {reason}. " + FIT_AUDIT_RULE
+               + " Rewrite the wardrobe (2-3 pieces, one garment each; keep the current one when it is fine) and the lookSignature (ONE memorable thing about "
+               f"how they look or dress, from their own life, never a whole outfit; its kind must be one of: {', '.join(free)}; when it is about hair it names "
+               "only the cut, length and texture that the card's own hair lines already carry). "
+               'Reply with ONLY {"wardrobe": [...], "lookSignature": "..."}.')
+        fresh = _extract_json(await llm_fn(compact_rewrite_messages(card, ask))) or {}
+        wd = fresh.get("wardrobe")
+        wd = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()] if isinstance(wd, list) else []
+        new: dict = {}
+        if 2 <= len(wd) <= 3 and (not _wd(card) or "wardrobe" in reason.lower() or "fit" in reason.lower()):
+            new["wardrobe"] = wd
+            new["style"] = ", ".join(x.lower() for x in wd)  # the style line is the new pieces in plain words: it can never name a garment that is gone
+        sig = fresh.get("lookSignature")
+        if isinstance(sig, str) and sig.strip() and ("signature" in reason.lower() or "wardrobe" in new):
+            cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
+            if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
+                new["lookSignature"] = " ".join(sig.split())[:90]
+        new = {k: ([_R.scrub_labels(x) for x in v] if isinstance(v, list) else _R.scrub_labels(v)) for k, v in new.items()}
+        if not new:
+            logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, wardrobe pieces={len(wd)}, "
+                        f"signature kinds={[c for c in _R.tag_card({'physicalCharacteristics': {'lookSignature': str(fresh.get('lookSignature') or '')}}).get('signature', []) if c != 'other']}, "
+                        f"reason={reason.split(',')[0][:40]})")
+            return None
+        cand = {**card, "physicalCharacteristics": {**phys, **new}}
+        bad = [c for c in look_problems(cand, card) if c != "style-wrong-family"]
+        fit = [x for x in _R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]  # "family" and "family-worn" are about the dealt label, which this write-back cannot change
+        if bad or fit:
+            logger.info(f"[fit-audit] rewrite for {hid} rejected: {','.join(bad + fit)}")
+            if "signature-hair" in bad or "signature-shape" in bad:
+                new.pop("lookSignature", None)  # keep the clothes the checks passed; the signature is re-asked later, never stored contradicting the hair
+                cand = {**card, "physicalCharacteristics": {**phys, **new}}
+                if new and not [c for c in look_problems(cand, card) if c != "style-wrong-family"] and not [x for x in _R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]:
+                    return new
+            return None
+        return new
+
+    cands: dict = {}
+    for hid, reason in jobs:
+        try:
+            new = await propose(hid, reason)
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the original look stands)
+            logger.info(f"[fit-audit] rewrite skipped for {hid}: {type(e).__name__}")
+            continue
+        if new:
+            cands[hid] = (reason, new)
+            for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": new.get("lookSignature", "")}}).get("signature", []):
+                held.setdefault(cat, []).append(hid)
+    # the audit's own rewrites are audited once (a rewrite can introduce a new misfit): the cards whose wardrobe was rewritten, in one call
+    changed = [{**by_id[h], "physicalCharacteristics": {**_pc(by_id[h]), **n}} for h, (_, n) in cands.items() if "wardrobe" in n]
+    if len(changed) >= 1:
+        try:
+            again = _extract_json(await llm_fn(fit_audit_messages(changed))) or {}
+            for item in (again.get("misfits") if isinstance(again.get("misfits"), list) else []):
+                hid = str(item.get("id")) if isinstance(item, dict) else ""
+                if hid in cands:
+                    logger.info(f"[fit-audit] re-audit flagged the rewrite for {hid}: one more attempt")
+                    retry = await propose(hid, f'"{str(item.get("piece") or "")[:80]}" does not fit this life ({str(item.get("why") or "")[:120]})')
+                    if retry and "wardrobe" in retry:
+                        cands[hid] = (cands[hid][0], retry)
+                    else:
+                        del cands[hid]  # the original look stands rather than a second misfit
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the first rewrites stand)
+            logger.info(f"[fit-audit] re-audit skipped: {type(e).__name__}")
+    done = 0
+    for hid, (_, new) in cands.items():
+        try:
+            res = await write_look_fn(hid, new)
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the original look stands)
+            logger.info(f"[fit-audit] write skipped for {hid}: {type(e).__name__}")
+            continue
+        if isinstance(res, dict) and res.get("accepted"):
+            by_id[hid]["physicalCharacteristics"] = {**_pc(by_id[hid]), **new}
+            done += 1
+            logger.info(f"[fit-audit] look rewritten for {hid} ({','.join(new)})")
+        else:
+            logger.info(f"[fit-audit] write for {hid} not accepted: {(res or {}).get('reason') if isinstance(res, dict) else type(res).__name__}")
+    logger.info(f"[fit-audit] rewritten={done} of {len(jobs)}")
+    return done
+
+
 # Opening patterns, dealt by the card's slot in the cast (modulo the list), so cards written in parallel do not converge on
 # "A <age>-year-old ..." or "He stands ...". Steering text only; the checks and the gate are unchanged.
 IDENTITY_OPENINGS = ("the occupation", "what they care about most", "where they come from", "a trait people notice first",
@@ -1910,9 +2194,35 @@ ONCAMERA_OPENINGS = ("the house spot", "the hands", "the gaze", "the lean or pos
                      "the prop in reach")
 
 
+def _signature_lean(slot: int) -> str:
+    try:
+        from src import orwell_cast_realism as _R
+        cats = [c for c in _R.signature_categories() if c != "hair"]
+        return _R.plain_label("signature", cats[(slot * 5) % len(cats)])  # plain words: the internal category names never reach the writer
+    except Exception:  # failsoft-ok: the table never blocks a card
+        return "jewellery"
+
+
 def opening_pattern(slot: int) -> dict:
     return {"identityConcept opens with": IDENTITY_OPENINGS[slot % len(IDENTITY_OPENINGS)],
-            "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)]}
+            "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)],
+            # ORW-480: about one card in three ends with a "the one who" read, so it is not on every line
+            "closing read": "yes" if slot % 3 == 0 else "no"}
+
+
+def compact_rewrite_messages(npc: dict, ask: str) -> list[dict]:
+    """The short prompt for a field-only rewrite (a repeated opening, a name in the identity line, a casting-director offender): the
+    card's own facts, the on-camera and wardrobe rules, and the ask. About a third of the input and a tenth of the output of a full
+    regeneration, so it adds seconds, not tens of seconds."""
+    pc = npc.get("physicalCharacteristics") if isinstance(npc.get("physicalCharacteristics"), dict) else {}
+    facts = {k: npc.get(k) for k in ("genderPresentation", "age", "vocation", "hometown", "demeanor", "identityConcept", "presentation") if npc.get(k)}
+    facts["look"] = {k: pc.get(k) for k in ("hair", "heightBuild", "facialFeatures", "distinguishingMark", "style", "wardrobe", "lookSignature", "photoHair", "onCamera") if pc.get(k)}
+    if npc.get("biography"):
+        facts["biography"] = " ".join(str(npc["biography"]).split())[:420]  # the signature is drawn from their life
+    system = ("You fix one or two PUBLIC text fields of a reality-show houseguest card. Output STRICT JSON only. "
+              + PHOTO_SHEET_RULES)
+    user = f"The card (public facts): {json.dumps(facts, ensure_ascii=False)}\n{ask}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
 def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
@@ -2006,6 +2316,13 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             parts.append("onCamera lines already open: " + " | ".join(ph["oncamera_openings"]))
         if ph.get("marks"):
             parts.append("distinguishing marks already used (every mark is unique in the cast): " + " | ".join(ph["marks"]))
+        if ph.get("signatures"):
+            parts.append("lookSignature categories already taken (do NOT use these): " + ", ".join(ph["signatures"])
+                         + ("; still free (pick one that fits their life): " + ", ".join(ph["signatures_free"]) if ph.get("signatures_free") else ""))
+        if ph.get("colours"):
+            parts.append("colours already worn by enough people (no more " + ", ".join(ph["colours"]) + "; use other colours)")
+        if taken.get("signature_lean"):
+            parts.append(f"lookSignature leans toward {taken['signature_lean']} only if their own life supports it, otherwise a kind other than hair")
         op = taken.get("openings") if isinstance(taken.get("openings"), dict) else {}
         if op:
             # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
@@ -2160,6 +2477,9 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
             ph = phys.get("photoHair")
             if isinstance(ph, str) and ph.strip():
                 facet["photoHair"] = " ".join(ph.split())
+            ls = phys.get("lookSignature")
+            if isinstance(ls, str) and ls.strip():
+                facet["lookSignature"] = " ".join(ls.split())[:90]
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -2375,6 +2695,9 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("hometown")],
             **({"phrases": season_gate.taken_phrases(hid)} if season_gate.registry else {}),
             "openings": opening_pattern(slot_of.get(hid, 0)),
+            # ORW-480: cards are written at the same time, so none can see the others' signatures; each slot leans toward a different kind
+            # of signature (a lean, not a deal; kept out of `opening_pattern`, whose period of 6 is its contract)
+            "signature_lean": _signature_lean(slot_of.get(hid, 0)),
         }
     # #1057: SERIALIZE the engine write-back. The per-NPC recordCastProfile write-backs collide on the
     # orchestrator integrity checkpoint when they run concurrently (the live-verify's 3 `degradation`
@@ -2403,6 +2726,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
     from src import orwell_cast_gate as _gate  # ORW-431: the one gate at the end
     _gate_on = _gate.gate_enabled()
     season_gate = _gate.SeasonGate(user)
+    season_gate.want_signature = True
     gate_lock = asyncio.Lock()  # the cross-cast registry is checked and filled one card at a time
 
     async def _call_with_retries(npc: dict, hid: str):
@@ -2816,6 +3140,11 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     if _given_up(ukey, hid):
                         return None
                     _spend_attempt(ukey, hid)
+                    if message:
+                        # ORW-480: a repetition or casting-director ask regenerates ONLY the named field(s), from a short prompt
+                        _t = await llm_fn(compact_rewrite_messages(_npc, message))
+                        _obj = _extract_json(_t or "")
+                        return _obj if isinstance(_obj, dict) else None
                     _msgs = build_authoring_messages(_npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
                     _t = await llm_fn(_msgs + [{"role": "user", "content": message or _gate.rewrite_message(_codes)}])
                     return parse_authored_profile(_t or "", hid)
@@ -2912,6 +3241,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return await orwell_engine.record_look_extras(h, fields, user=user)
             if look_write_fn is not None:
                 await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
+                await fit_audit_pass(list(authored_cards.values()), llm_fn, look_write_fn)  # ORW-480: the cast-level look-fits-life audit
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
     for _hid, _card in authored_cards.items():

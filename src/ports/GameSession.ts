@@ -417,6 +417,15 @@ export interface JuryHouseView {
   jurors: JuryHouseJurorView[];
 }
 
+/** 0156: what the narrator may voice of a house meeting: who called it, who was accused, the claim made and how the accused answered. Names only (Vault-free). */
+export interface HouseMeetingView {
+  caller: string;
+  accused: string;
+  claim: { kind: string; subject: string; object?: string };
+  answer: "deny" | "admit" | "redirect";
+  redirectTo?: string;
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -525,6 +534,8 @@ export interface GameStateView {
    * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
+  /** ORW-473: the player walked in on a private talk this turn (only on the message it happened on). */
+  walkedIn?: WalkedInView;
   player: PlayerCard | null;
   house: HouseguestCard[];
   /** Deals the player is party to (0039) — fact + status only, never the hidden opinion numbers. */
@@ -560,6 +571,10 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
+  sourceNote?: string;
+  /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
+  houseMeeting?: HouseMeetingView;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -1082,6 +1097,8 @@ export interface CreateCharacterReq {
    * if the corpus has no headroom to honor every exclusion, the sampler relaxes it rather than failing.
    */
   priorCastNames?: string[];
+  /** ORW-466 - ENGINE-INTERNAL (like `priorCastNames`): the player's recent seasons' house themes, carried across a confirmed restart so the new season draws a different one. */
+  priorHouseThemes?: string[];
   /**
    * Season-over-season NOTORIETY carry (0104 / R4 — the diegetic opt-in). ENGINE-INTERNAL: the adapter
    * sets it true when this confirmed restart is a SAME-CHARACTER return (`keepCharacter`), so the
@@ -1150,8 +1167,12 @@ export interface RecordLookExtrasReq {
   onCamera?: string;
   /** ORW-380: shoot-day hair, at most 90 chars. */
   photoHair?: string;
-  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
-  clear?: Array<"wardrobe" | "onCamera" | "photoHair">;
+  /** ORW-480: the one memorable thing about how this person looks or dresses (authored), at most 90 chars. */
+  lookSignature?: string;
+  /** ORW-480: the style line that describes the clothes, rewritten with the wardrobe (at most 200 chars). */
+  style?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`, `lookSignature`) when the writer left them out. */
+  clear?: Array<"wardrobe" | "onCamera" | "photoHair" | "lookSignature">;
 }
 
 export interface RecordLookExtrasResult {
@@ -1195,6 +1216,24 @@ export interface RecordOpenLedgerResult {
   duplicate?: boolean;
 }
 
+/** ORW-510: the narration-use write-back request. Exactly one field; the text is the narration the player already saw. */
+export interface RecordNarrationUseReq {
+  /** The visible narration of one finished turn (out-of-character asides removed). The engine cuts it at 6000 characters. */
+  text: string;
+}
+
+/** ORW-510: counts only. Never an echo of the text or of any recorded phrase. */
+export interface RecordNarrationUseResult {
+  recorded: boolean;
+  /** Present when `recorded` is false: a code. */
+  reason?: string;
+  sentences?: number;
+  /** What the check found repeated against the record as it stood before this turn. */
+  repeated?: { opener: number; closer: number; gesture: number; line: number };
+  /** The season line, counts only (turns, sentences, repeats per kind, repeats per 1,000 sentences). */
+  seasonLine?: string;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -1209,7 +1248,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open" | "used"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -1890,13 +1929,18 @@ export interface MarkHouseguestMetOpts {
 export interface HouseSearchEntry {
   id: EntityId;
   name: string;
-  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "unknown";
+  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "told" | "unknown";
   /**
    * The room id. ORW-462 (Kevin, 2026-11-15: the game must not confirm where someone is if the player does not know): named only where the player can SEE now (their own room and the rooms in sightline), or, for the
    * houseguest they are LOOKING FOR, as a `lead` from the player's own record (a witnessed "walked into X", or the last-known sighting in view): never confirmed. Absent for everyone else ("unseen"), for a houseguest nobody here
    * can place (`unknown`), for a sleeper not being looked for, and for one who has not walked in yet at the premiere entrances.
    */
   room?: string;
+  /**
+   * ORW-475: a `told` answer comes from a houseguest the player can see, out of THEIR OWN record of who they saw go where (it can be out of date): who says it. Set on `told`, and on an `unknown` where the asked houseguest
+   * would not give a straight answer. Never a houseguest who had no way to know.
+   */
+  toldBy?: NamedRef;
   /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Present only for a houseguest in view. */
   access?: "open" | "closed";
   /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
@@ -1918,6 +1962,14 @@ export interface HouseSearchView {
  * through walls — fog of war is gameplay).
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
+/** ORW-473: the player walked in on a private talk between two houseguests this turn: who, and each one's reaction (chosen from their own sheet) as a manner to voice; never what the talk was about. */
+export interface WalkedInView {
+  room: string;
+  with: NamedRef[];
+  /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
+  reactions: Array<{ id: EntityId; name: string; line: string }>;
+}
+
 export type PlayerMoveView =
   | { from: string; to: string; refused?: undefined; msg?: string }
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
@@ -1930,6 +1982,10 @@ export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; wh
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
+  /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
+  roomNames?: Partial<Record<string, string>>;
+  /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
+  roomLook?: string;
   /**
    * The player's SUB-ZONE within a big, zoned room (0077 — "over by the pool" / "the workout corner").
    * Present ONLY in a zoned room (backyard, lounge); absent everywhere else. Pure flavor — eyeshot stays
@@ -2232,6 +2288,11 @@ export interface PresentKnowledgeView {
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
   rememberedAboutOthers?: string[];
+  /**
+   * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
+   * it is true, never why they are telling, never a claim id. Names, not ids.
+   */
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**
@@ -2387,7 +2448,29 @@ export interface HouseStory {
 export interface RecordNpcReflectionsReq { reflections: Array<{ id: EntityId; night: number; reflection: string }> }
 export interface RecordNpcReflectionsResult { accepted: number; rejected: number; reason?: string }
 
+/**
+ * ORW-525 (spec 0157, theme 2 slice 8): one false belief of the season, told in plain words. Present ONLY on the post-season retrospective
+ * (`RetrospectiveView.rumorMill`, behind the `finished` gate). Covers claim-planted beliefs only. No truth flag or intent is carried: every row IS a lie.
+ */
+export interface RumorMillBelief {
+  /** What was believed, in words ("that <name> was targeting them"; "them" = each believer). */
+  claim: string;
+  /** Who told it first (the earliest false claim of its kind). */
+  starter: NamedRef;
+  startedWeek: number;
+  /** Later tellers who passed it on without meaning to mislead (leaks, not starters). */
+  passedOn: NamedRef[];
+  /** The houseguests it was told to. */
+  believers: NamedRef[];
+  tellings: number;
+  /** The player was told it too. */
+  toldToYou: boolean;
+}
+export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose subject is the player: what the house got wrong about you. */ aboutYou: RumorMillBelief[] }
+
 export interface RetrospectiveView {
+  /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
+  rumorMill?: RumorMill;
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
    * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
@@ -3356,6 +3439,14 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+  /**
+   * ORW-510 - the live counterpart of season memory. The FE hands the narration of a finished turn back; the engine reads it
+   * (no model call: string work), checks it against a short bounded rolling record of what the narrator already used (sentence
+   * openings, scene closers, each houseguest's gestures and lines), counts the repeats, and folds it into the record. The Show
+   * Brief then lists the record as "ALREADY USED". Accepts only `{ text }`; the record is persisted in the session core, bounded
+   * by constants. A played game only; no rng; no Vault handle; the result is counts only.
+   */
+  recordNarrationUse(req: RecordNarrationUseReq): RecordNarrationUseResult;
   /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. Bounds the ENGINE enforces: per-field length caps, up to OPEN_LEDGER_MAX_ENTRIES (200) entries in total. The per-turn limits (3 entries, 2 resolutions) live only in the front-end extractor; the engine does not count writes per turn. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
   /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */

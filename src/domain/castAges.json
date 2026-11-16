@@ -1,0 +1,127 @@
+{
+ "_sources": "Contestant ages at filming/airing as listed on the Wikipedia season pages (en.wikipedia.org): Big Brother (American) seasons 11 to 26 and Survivor seasons 36 to 39 and 41 to 48 (Winners at War, all returnees, left out). Counts only; read 2026-11-16.",
+ "casts": 28,
+ "contestants": 473,
+ "under21_left_out": 8,
+ "strata": [
+  {
+   "lo": 21,
+   "hi": 23,
+   "count": 61
+  },
+  {
+   "lo": 24,
+   "hi": 26,
+   "count": 108
+  },
+  {
+   "lo": 27,
+   "hi": 29,
+   "count": 90
+  },
+  {
+   "lo": 30,
+   "hi": 32,
+   "count": 73
+  },
+  {
+   "lo": 33,
+   "hi": 35,
+   "count": 38
+  },
+  {
+   "lo": 36,
+   "hi": 39,
+   "count": 28
+  },
+  {
+   "lo": 40,
+   "hi": 44,
+   "count": 31
+  },
+  {
+   "lo": 45,
+   "hi": 49,
+   "count": 19
+  },
+  {
+   "lo": 50,
+   "hi": 54,
+   "count": 10
+  },
+  {
+   "lo": 55,
+   "hi": 59,
+   "count": 5
+  },
+  {
+   "lo": 60,
+   "hi": 70,
+   "count": 2
+  }
+ ],
+ "oldest_per_cast": [
+  33,
+  37,
+  40,
+  40,
+  40,
+  41,
+  42,
+  42,
+  42,
+  42,
+  46,
+  46,
+  47,
+  47,
+  48,
+  49,
+  50,
+  51,
+  52,
+  52,
+  53,
+  54,
+  55,
+  57,
+  58,
+  58,
+  60,
+  63
+ ],
+ "youngest_per_cast_21plus": [
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  21,
+  22,
+  22,
+  22,
+  22,
+  22,
+  22,
+  22,
+  23,
+  23,
+  23,
+  23,
+  23,
+  23,
+  23,
+  24,
+  25
+ ],
+ "per_cast_size": {
+  "min": 13,
+  "max": 20
+ }
+}

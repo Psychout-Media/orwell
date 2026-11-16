@@ -17,6 +17,8 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
+REALISM_LOWPRIO_BUDGET = 6  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
+REALISM_REWRITE_BUDGET = 12  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
 _SENT_END = re.compile(r"[.!?][\"'”’)\]]*(?=\s|$)")
@@ -95,8 +97,16 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
     done = list(A.repair_story(profile, npc, cast))
+    if _dealt_mark(profile, npc):
+        done.append("mark-dealt")
+    if _dedupe_mark(profile, npc):
+        done.append("mark-duplicated")
     if _drop_name_from_oncamera(profile, npc):
         done.append("oncamera-name")
+    if _drop_foreign_mark_words(profile, npc):
+        done.append("mark-words-elsewhere")
+    if _scrub_leaked_labels(profile):
+        done.append("label-scrubbed")
     return done
 
 
@@ -135,6 +145,96 @@ _COMMON_WORD_NAMES = frozenset((
     "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
 # Words after which a name is the subject of a new clause ("... and Namea stands").
 _SUBJECT_INTRODUCERS = frozenset("and but while as then when because so if that where though until".split())
+
+
+def _dealt_mark(profile: dict, npc: dict) -> bool:
+    """The engine DEALS each houseguest's distinguishing mark (a pool of 44, each at most once per cast, about four per cast), and the
+    dealt one is authoritative: a writer's own mark (it favoured "deep dimples" on three cards of one cast), or a rewrite that failed
+    to differ, is put back to what was dealt. A card with no dealt mark on its roster entry is left as the writer wrote it."""
+    dealt = ((npc or {}).get("physicalCharacteristics") or {}).get("distinguishingMark") if isinstance((npc or {}).get("physicalCharacteristics"), dict) else None
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not (isinstance(dealt, str) and dealt.strip() and isinstance(phys, dict)):
+        return False
+    if " ".join(str(phys.get("distinguishingMark") or "").split()) == " ".join(dealt.split()):
+        return False
+    phys["distinguishingMark"] = dealt
+    return True
+
+
+def _scrub_leaked_labels(profile: dict) -> bool:
+    """An internal category label ("red-pink", "brown-tan", "colour-any" ...) in any card text becomes its plain word: real people say red, pink,
+    coral or tan. The prompts show only plain words; this is the net under them."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(phys, dict):
+        return False
+    try:
+        from src import orwell_cast_realism as _R
+    except Exception:  # failsoft-ok: the table never blocks a card
+        return False
+    changed = False
+    for field in ("wardrobe", "style", "lookSignature", "onCamera", "photoHair", "facialFeatures", "hair"):
+        v = phys.get(field)
+        if isinstance(v, list):
+            new = [_R.scrub_labels(x) if isinstance(x, str) else x for x in v]
+        elif isinstance(v, str):
+            new = _R.scrub_labels(v)
+        else:
+            continue
+        if new != v:
+            phys[field] = new
+            changed = True
+    return changed
+
+
+_FACE_MARK_WORDS = re.compile(r"\b(?:dimples?|dimpled|freckles?|freckled|beauty marks?)\b", re.I)
+
+
+def _drop_foreign_mark_words(profile: dict, npc: dict) -> bool:
+    """A face mark (dimples, freckles, a beauty mark) is the dealt mark's alone: the writer's habit of putting "dimples creasing" into
+    the on-camera or face line of a card that was not dealt them made the same face on several cards. The clause that names it is
+    dropped from onCamera and facialFeatures unless the dealt mark carries that word; nothing is dropped when it would empty the line."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(phys, dict):
+        return False
+    mark = str(phys.get("distinguishingMark") or ((npc or {}).get("physicalCharacteristics") or {}).get("distinguishingMark") or "")
+    allowed = {re.sub(r"(?:s|ed)$", "", w.lower()) for w in _FACE_MARK_WORDS.findall(mark)}
+    changed = False
+    for field in ("onCamera", "facialFeatures"):
+        text = phys.get(field)
+        if not isinstance(text, str) or not _FACE_MARK_WORDS.search(text):
+            continue
+        clauses = re.split(r"(?<=[,;.!?])\s+|\s+[\u2014\u2013-]\s+", text)
+        kept = [c for c in clauses if not any(re.sub(r"(?:s|ed)$", "", w.lower()) not in allowed for w in _FACE_MARK_WORDS.findall(c))]
+        if not kept or len(kept) == len(clauses):
+            continue
+        out = " ".join(kept).strip().rstrip(",;")
+        if field == "onCamera" and not re.search(r"[.!?]$", out):
+            out += "."
+        phys[field] = out
+        changed = True
+    return changed
+
+
+def _dedupe_mark(profile: dict, npc: dict) -> bool:
+    """The distinguishing mark lives in distinguishingMark only: a clause of facialFeatures that restates it (a gap-toothed grin, the same
+    freckles or glasses) is dropped. Clauses are cut at commas and "and"; nothing is dropped when it would leave the line empty."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(phys, dict):
+        return False
+    mark = _norm(phys.get("distinguishingMark") or ((npc or {}).get("physicalCharacteristics") or {}).get("distinguishingMark"))
+    face = phys.get("facialFeatures")
+    if not mark or mark.startswith("none") or not isinstance(face, str):
+        return False
+    stop = {"a", "an", "the", "of", "on", "in", "one", "small", "with", "and", "to", "at"}
+    key = {w for w in mark.split() if w not in stop and len(w) > 3}
+    if not key:
+        return False
+    parts = [p_ for p_ in re.split(r",\s*|\s+and\s+", face) if p_.strip()]
+    kept = [p_ for p_ in parts if len({w for w in _norm(p_).split()} & key) < 1]
+    if len(kept) == len(parts) or not kept:
+        return False
+    phys["facialFeatures"] = ", ".join(kept)
+    return True
 
 
 def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
@@ -249,6 +349,59 @@ def rewrite_message(codes: list) -> str:
             "look lacks, never \"Big Brother\"; include voice, physicalCharacteristics with wardrobe and an identityConcept.")
 
 
+_REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "closing-read")  # the room is no longer asked of the writer
+_REALISM_WARDROBE_KINDS = ("garment", "colour", "colour-any", "pattern", "signature", "look-fit")
+
+
+def _realism_tags(card: dict) -> dict:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.tag_card(card)
+    except Exception:  # failsoft-ok: the realism table never blocks a card
+        return {}
+
+
+def _look_fit_failures(card: dict) -> list:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.look_fits_life(card)
+    except Exception:  # failsoft-ok: the realism table never blocks a card
+        return []
+
+
+def _plain(kind: str, value: str) -> str:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.plain_label(kind, value)
+    except Exception:  # failsoft-ok: the table never blocks a card
+        return str(value).replace("-", " ")
+
+
+_REALISM_ASK = {
+    "look-fit": lambda v: ("clothes this person could really own and buy where they live on their own income, for their job, age and the "
+                           "weather and coast of their hometown (nothing expensive-looking, no costume of a style family, no winter layers in a hot "
+                           "state or beach clothes inland)"),
+    "prop": lambda v: f"nothing in hand that reads as a {v} prop (no {v})",
+    "expression": lambda v: "no smile, grin or smirk: a serious, wry, guarded, thoughtful or amused-without-smiling face",
+    "smile-kind": lambda v: f"no {v} smile",
+    "gaze": lambda v: "eyes not on the lens: looking away, down, or at something in the room",
+    "pose": lambda v: f"not a {v} pose",
+    "room": lambda v: f"not in the {v.replace('-', ' ')}: another house spot",
+    "closing-read": lambda v: 'no closing "the one who ..." read',
+    "garment": lambda v: f"no {v.replace('-', ' ')} among the pieces",
+    "colour": lambda v: f"a main piece that is not {_plain('colour', v)}",
+    "colour-any": lambda v: f"less {_plain('colour-any', v)} anywhere in the outfit (another colour for at least two pieces)",
+    "pattern": lambda v: ("at least one piece with a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear "
+                          "(faded, worn-in), the way people really dress"),
+    "signature": lambda v: ("a lookSignature (ONE memorable thing about how they look or dress, drawn from their life, that nobody else in the "
+                            "cast has)" if v == "missing" else f"a lookSignature that is not about {_plain('signature', v)}: another card already has that"),
+}
+
+
+def _realism_ask(kinds: dict) -> str:
+    return "; ".join(_REALISM_ASK.get(k, lambda v, k=k: f"no {v}")(v) for k, vals in kinds.items() for v in vals)
+
+
 class SeasonGate:
     """One run's tallies and the registry of accepted texts (for the cross-cast checks). Counts and codes only."""
 
@@ -256,6 +409,12 @@ class SeasonGate:
         self.user = user
         self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
         self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
+        self.realism_rewrites = 0  # casting-director rewrites asked this run (bounded by REALISM_REWRITE_BUDGET)
+        self.want_signature = False  # a real cast run asks for the memorable look signature (set by the authoring pass)
+        self.wardrobe_asked: set = set()  # cards whose wardrobe has been sent for a casting-director rewrite
+        self.realism_demand = 0  # cards that WANTED a casting-director rewrite (offenders found), budget or not
+        self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
+        self.n = 0  # the cast size, from the first card gated
         self.codes: dict = {}
         self.registry: dict = {}
 
@@ -272,13 +431,32 @@ class SeasonGate:
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
                "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:3]),
+               "tags": _realism_tags(card),
                "hair_open": " ".join(_norm(phys.get("photoHair")).split()[:2]),
                "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
             if rec[key] and any(r.get(key) == rec[key] for o, r in self.registry.items() if o != hid):
                 self.count([code])
+        if self.want_signature and not str(phys.get("lookSignature") or "").strip():
+            self.count(["realism-signature:none"])
+        for x in _look_fit_failures(card):
+            self.count([f"realism-look-fit:{x}"])  # family (a poor-fit dealt family), family-worn, upscale, climate, missing
+        for kind, vals in self.realism_offenders(hid, card).items():
+            for v in vals:
+                self.count([f"realism-{kind}:{v}"])  # what the casting director found on this card, whether or not a rewrite cleared it
         self.registry[hid] = rec
+
+    def realism_offenders(self, hid: str, card: dict) -> dict:
+        """{kind: [value]} this card would add beyond the casting-director caps, against the cards already accepted (ORW-480)."""
+        n = self.n or 15
+        tags = _realism_tags(card)
+        earlier = [r.get("tags") or {} for o, r in self.registry.items() if o != hid]
+        try:
+            from src import orwell_cast_realism as _R
+            return _R.offenders_for(tags, earlier, n)
+        except Exception:  # failsoft-ok: the realism table never blocks a card
+            return {}
 
     def repeats(self, hid: str, profile: dict, npc: dict, cast) -> dict:
         """Which cast-level repetition this card would add against the cards already accepted: {"identity": opening,
@@ -291,6 +469,21 @@ class SeasonGate:
         first = str(card.get("name") or "").split(" ")[0]
         if first and re.search(r"\b%s\b" % re.escape(first), str(card.get("identityConcept") or "")):
             out["identity-name"] = first  # the identity line names the person: it is read beside the card, never needs the name
+        off = self.realism_offenders(hid, card)
+        cam = {k: v for k, v in off.items() if k in _REALISM_ONCAMERA_KINDS}
+        wd = {k: v for k, v in off.items() if k in _REALISM_WARDROBE_KINDS}
+        # a poor-fit dealt family alone also asks for a wardrobe from the person (the label cannot change, so it is asked once per card and
+        # is not held against the rewrite afterwards)
+        want = ("family-worn", "upscale", "climate", "missing") + (() if hid in self.wardrobe_asked else ("family",))
+        lf = [x for x in _look_fit_failures(card) if x in want]
+        if self.want_signature and not str(phys.get("lookSignature") or "").strip():
+            wd.setdefault("signature", []).append("missing")  # the writer's own memorable thing (low priority: asked after the fit asks)
+        if lf:  # ORW-480: clothes that do not fit this life (a poor-fit family worn, expensive looks, the wrong weather, none at all): rewritten from the person
+            wd["look-fit"] = lf
+        if cam:
+            out["realism-oncamera"] = cam
+        if wd:
+            out["realism-wardrobe"] = wd
         if ident_open and any(r.get("ident_open") == ident_open for o, r in self.registry.items() if o != hid):
             out["identity"] = ident_open
         if oncam_end and any(r.get("oncam_end") == oncam_end for o, r in self.registry.items() if o != hid):
@@ -306,13 +499,52 @@ class SeasonGate:
             for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("photohair_openings", "hair_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
                 if r.get(key) and r[key] not in out[k]:
                     out[k].append(r[key])
+        try:
+            from src import orwell_cast_realism as _R0
+            _cap = _R0.cap_for("signature", "hair", self.n or 15)
+        except Exception:  # failsoft-ok: the table never blocks a card
+            _cap = 2
+        _cnt: dict = {}
+        for o, r in self.registry.items():
+            if o != hid:
+                for v in (r.get("tags") or {}).get("signature", []):
+                    if v != "other":
+                        _cnt[v] = _cnt.get(v, 0) + 1
+        sigs = sorted(v for v, n_ in _cnt.items() if n_ >= _cap)  # only the kinds already FULL are named as taken
+        if sigs:
+            out["signatures"] = [_plain("signature", v) for v in sigs]  # plain words, never the internal category names
+            try:
+                from src import orwell_cast_realism as _R
+                out["signatures_free"] = [_plain("signature", c) for c in _R.signature_categories() if c not in sigs]
+            except Exception:  # failsoft-ok: the table never blocks a card
+                pass
+        full: list = []
+        try:
+            from src import orwell_cast_realism as _R2
+            for kind in ("colour", "colour-any"):
+                counts: dict = {}
+                for o, r in self.registry.items():
+                    if o != hid:
+                        for v in set((r.get("tags") or {}).get(kind, [])):
+                            counts[v] = counts.get(v, 0) + 1
+                full += [_plain(kind, v) for v, n_ in counts.items() if n_ >= _R2.cap_for(kind, v, self.n or 15)]
+        except Exception:  # failsoft-ok: the table never blocks a card
+            pass
+        if full:
+            out["colours"] = sorted(set(full))  # the colour families already at their cap, in plain words
         return {k: v for k, v in out.items() if v}
+
+    def marks_dealt(self) -> str:
+        """The distinguishing marks this cast carries, by category: "3[glasses,freckles,tattoo]" (the cross-season note, ORW-480)."""
+        kinds = [t["mark"][0] for t in (r.get("tags") or {} for r in self.registry.values()) if t.get("mark")]
+        return f"{len(kinds)}[{','.join(sorted(kinds))}]"
 
     def summary_line(self) -> str:
         per = ",".join(f"{k}={v}" for k, v in sorted(self.codes.items())) or "none"
         return (f"[cast-gate] season line: checked={self.checked} repaired={self.repaired} "
                 f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
-                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed}")
+                f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-demand={self.realism_demand} "
+                f"realism-asked={self.realism_rewrites}/{REALISM_REWRITE_BUDGET} realism-fixed={self.realism_fixed} marks={self.marks_dealt()}")
 
     def log_summary(self) -> None:
         if self.checked:
@@ -336,8 +568,19 @@ def repetition_message(repeats: dict, taken: dict) -> str:
         used = "; ".join(f'"{x}"' for x in (taken.get("oncamera_endings") or [])[:8])
         parts.append(f'the physicalCharacteristics.onCamera line ends "{repeats["oncamera"]}", which another card already ends with'
                      f" (endings taken: {used}); end it a different way")
-    return ("Only this needs fixing: " + " and ".join(parts) + ". Write the COMPLETE JSON object again with the same "
-            "person: same name, pronouns, age, voice, biography and look; change nothing except the wording named above.")
+    if "realism-oncamera" in repeats:
+        parts.append("the onCamera line repeats what other cards in this cast already show (" + _realism_ask(repeats["realism-oncamera"])
+                     + "); keep exactly one house spot, a still moment, the person's own pronoun and nothing that is not in their look")
+    if "realism-wardrobe" in repeats:
+        parts.append("the wardrobe repeats what other cards already wear (" + _realism_ask(repeats["realism-wardrobe"])
+                     + "); two or three real garments a shop sells, chosen from this person's job, hometown, age and money; the "
+                     "lookSignature is one thing someone would use to describe them to a friend, bought or done where they live"
+                     + (f" (signature kinds already taken, do NOT use these: {', '.join(taken['signatures'])}; kinds still free, pick one that fits "
+                        f"their life: {', '.join(taken.get('signatures_free') or [])})" if taken.get("signatures") else "")
+                     + (f" (no more {', '.join(taken['colours'])}: use other colours)" if taken.get("colours") else ""))
+    return ("Only this needs fixing: " + " and ".join(parts) + ". Reply with ONLY a JSON object holding just the field or fields "
+            "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe, style and lookSignature; when the wardrobe is asked, give a short \"style\" line too that describes these very clothes in plain words and names no style family), for the same person: same "
+            "pronouns, age and look; change nothing except the wording named above.")
 
 
 _ACCESSORY_RE = re.compile(r"\b(?:nose (?:ring|stud|piercing)|lip (?:ring|stud)|septum|eyebrow (?:ring|piercing)|piercings?|ear ?rings?|hoops?)\b", re.I)
@@ -366,8 +609,23 @@ def _oncamera_ok(cand: dict, npc: dict, cast) -> bool:
     return True
 
 
+def _wardrobe_ok(cand: dict, npc: dict) -> bool:
+    """A rewritten wardrobe passes the same look checks as a first-pass one (shape, real garments, pronouns, the taken main piece)."""
+    from src import orwell_cast_authoring as A
+    return not [c for c in A.look_problems(cand, npc) if c != "style-wrong-family"]  # the dealt family is the poor fit being replaced: the style line is rewritten from the clothes
+
+
 def _identity_ok(text: str) -> bool:
     return isinstance(text, str) and 12 <= len(" ".join(text.split())) <= 250  # the same bounds a first-pass identity gets
+
+
+_WARDROBE_WEIGHT = {"look-fit": 5, "garment": 1, "colour": 1, "pattern": 1, "signature": 1}
+
+
+def _wardrobe_score(wd) -> int:
+    """How much a wardrobe still asks for: a look-fit offender weighs 5, any other offender 1 (the dealt-family flag weighs 2: it is asked once
+    per card, so a later check never carries it)."""
+    return sum((2 if (k == "look-fit" and x == "family") else _WARDROBE_WEIGHT.get(k, 1)) for k, v in (wd or {}).items() for x in v)
 
 
 async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn, hid: str) -> None:
@@ -375,24 +633,47 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     gate's budget. Only identityConcept and physicalCharacteristics.onCamera can change, and only when the new text passes
     the whole gate and no longer repeats; otherwise the card ships as it is, still carrying the non-blocking code."""
     rep = gate.repeats(hid, profile, npc, cast)
+    if any(k.startswith("realism-") for k in rep):
+        gate.realism_demand += 1
+    if gate.realism_rewrites >= REALISM_REWRITE_BUDGET or (gate.realism_rewrites >= REALISM_LOWPRIO_BUDGET and not rep.get("realism-wardrobe", {}).get("look-fit")):
+        rep = {k: v for k, v in rep.items() if not k.startswith("realism-")}  # the budget is spent (the look-fits-life ones have the larger share): report only
     if not rep:
         return
+    if any(k.startswith("realism-") for k in rep):
+        gate.realism_rewrites += 1
     gate.rep_rewritten += 1
+    if "realism-wardrobe" in rep:
+        gate.wardrobe_asked.add(hid)
     try:
         fresh = await rewrite_fn(npc, ["rep"], message=repetition_message(rep, gate.taken_phrases(hid)))
     except Exception as e:  # failsoft-ok: a failed re-write leaves the card as it is
         logger.warning(f"[cast-gate] repetition re-write call failed for {hid}: {type(e).__name__}")
         return
     if not isinstance(fresh, dict):
+        gate.count(["rw-no-reply"])
         return
     new_ident = fresh.get("identityConcept")
     new_phys = fresh.get("physicalCharacteristics")
-    new_cam = new_phys.get("onCamera") if isinstance(new_phys, dict) else None
+    # a writer asked for "just the field" often answers with the field at the top level instead of inside physicalCharacteristics: both are read
+    new_phys = {**{k: fresh[k] for k in ("onCamera", "wardrobe", "style", "lookSignature") if k in fresh}, **(new_phys if isinstance(new_phys, dict) else {})}
+    new_cam = new_phys.get("onCamera")
+    new_wd = new_phys.get("wardrobe")
+    if isinstance(new_wd, list) and len(new_wd) > 3 and all(isinstance(x, str) and x.strip() for x in new_wd):
+        new_wd = new_wd[:3]  # four pieces: the main piece and the next two stand
+    new_sig = new_phys.get("lookSignature")
+    has_cam = isinstance(new_cam, str) and new_cam.strip()
+    has_wd = isinstance(new_wd, list) and 2 <= len(new_wd) <= 3 and all(isinstance(x, str) and x.strip() for x in new_wd)
+    has_sig = isinstance(new_sig, str) and new_sig.strip()
+    if "realism-oncamera" in rep and "oncamera" not in rep:
+        rep = {**rep, "oncamera": ""}  # the same line answers both asks
     # each repeated field is judged on its own: kept only when the new text passes the whole gate and no longer repeats
     for key, ok in (("identity", isinstance(new_ident, str) and new_ident.strip()),
                     ("identity-name", isinstance(new_ident, str) and new_ident.strip()),
-                    ("oncamera", isinstance(new_cam, str) and new_cam.strip())):
-        if key not in rep or not ok:
+                    ("oncamera", has_cam), ("realism-wardrobe", has_wd or (has_sig and "signature" in (rep.get("realism-wardrobe") or {})))):
+        if key not in rep:
+            continue
+        if not ok:
+            gate.count([f"rw-no-{key}", "rw-reply-keys:" + "+".join(sorted(str(k) for k in list(fresh)[:6]))])  # the writer's reply carried no usable value for the asked field
             continue
         cand = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
         if key in ("identity", "identity-name"):
@@ -402,22 +683,58 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         else:
             base = cand.get("physicalCharacteristics")
             base = dict(base) if isinstance(base, dict) else dict((npc or {}).get("physicalCharacteristics") or {})
-            base["onCamera"] = new_cam
+            if key == "oncamera":
+                base["onCamera"] = new_cam
+            else:
+                if has_wd:
+                    base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
+                if has_sig:
+                    base["lookSignature"] = " ".join(new_sig.split())[:90]  # the signature travels with the wardrobe it is carried by
+                new_style = new_phys.get("style") if isinstance(new_phys, dict) else None
+                if has_wd and "look-fit" in (rep.get("realism-wardrobe") or {}):
+                    # the style line travels with the clothes it describes: the writer's own line, unless it still names the poor-fit family
+                    # (or is missing), then the pieces themselves in plain words
+                    plain = ", ".join(" ".join(x.split()).lower() for x in new_wd)
+                    style = " ".join(new_style.split()) if isinstance(new_style, str) and new_style.strip() else plain
+                    if "family-worn" in _look_fit_failures({**cand, "physicalCharacteristics": {**base, "style": style}}):
+                        style = plain
+                    base["style"] = style
             cand["physicalCharacteristics"] = base
         mend(cand, npc, cast)
         if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):
+            gate.count([f"rw-blocking-{key}"])
             continue
         if key in ("identity", "identity-name") and not _identity_ok(cand.get("identityConcept")):
             continue
         if key == "oncamera" and not _oncamera_ok(cand, npc, cast):
             continue
+        if key == "realism-wardrobe" and not _wardrobe_ok(cand, npc):
+            from src import orwell_cast_authoring as _A
+            gate.count(["rw-look-" + "+".join(sorted(c for c in _A.look_problems(cand, npc) if c != "style-wrong-family"))])
+            continue
         still = gate.repeats(hid, cand, npc, cast)
-        asked = [k for k in rep if k.startswith("identity")] if key.startswith("identity") else [key]
-        if any(k in still for k in asked):
+        if key == "realism-wardrobe":
+            # a rewrite that IMPROVES the card is kept; perfection is not demanded (a fixed look-fit is not thrown away because a colour or
+            # signature cap is already over for the whole cast): the weighted offenders must drop and no new look-fit offender may appear
+            if _wardrobe_score(still.get("realism-wardrobe")) < _wardrobe_score(rep.get("realism-wardrobe")) and not (
+                    set((still.get("realism-wardrobe") or {}).get("look-fit", [])) - set((rep.get("realism-wardrobe") or {}).get("look-fit", []))):
+                still.pop("realism-wardrobe", None)
+        if key.startswith("identity"):
+            asked = [k for k in rep if k.startswith("identity")]
+        elif key == "oncamera":
+            asked = [k for k in ("oncamera", "realism-oncamera") if k in rep]
+        else:
+            asked = [key]
+        if key == "realism-wardrobe" and "realism-wardrobe" in still:
+            gate.count(["rw-not-improved"])
+        if any(k in still for k in asked):  # a realism dict is non-empty only while an offender remains (the asked one or a new one)
             continue  # it still repeats (or still names the person): that field ships as it is (fail open, the code is counted as before)
         profile.clear()
         profile.update(cand)
         gate.rep_fixed += 1
+        if key in ("realism-wardrobe",) or (key == "oncamera" and "realism-oncamera" in rep):
+            gate.realism_fixed += 1
+            gate.count(["realism-fixed"])
 
 
 async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn: Optional[RewriteFn]):
@@ -426,6 +743,7 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
     blocking is left not authored with a RED soft-fail (id + codes); non-blocking codes never hold a card back."""
     hid = str((npc or {}).get("id") or "")
     gate.checked += 1
+    gate.n = gate.n or len(cast or [])
     first = card_codes(profile, npc, cast, gate.registry)
     gate.count(first)
     if mend(profile, npc, cast):
