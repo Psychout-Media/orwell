@@ -5167,6 +5167,12 @@ async def do_create_character(
                             "Production is still casting the house — your houseguests are being "
                             "written. Hang tight; the season opens the moment the cast is ready."),
                     }
+                    # ORW-208 (review of #2252): this early return skips the normal result below, so carry a strategy-style
+                    # substitution here too; the later gate-clear refresh does not resend it.
+                    _hold_note = _strategy_style_adjusted_note(owner, res)
+                    if _hold_note:
+                        holding["strategyStyleAdjusted"] = res.get("strategyStyleAdjusted")
+                        holding["strategyStyleNote"] = _hold_note
                     try:
                         orwell_engine.remember_pending(holding, user=owner)
                     except Exception:
@@ -5207,30 +5213,39 @@ async def do_create_character(
                 orwell_npc_minds_words.kickoff_npc_minds_words(owner)
             except Exception as e:  # noqa: BLE001 — never block game start
                 logger.warning("[create] npc-minds-words kickoff failed: %s", e)
-        # ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an auto-corrected change is not a cloak)
-        # and a plain line for the narrator so the casting card and the player are told the STORED style, never the one asked for.
-        _out = json.dumps(res, indent=2)
-        _adj = res.get("strategyStyleAdjusted") if isinstance(res, dict) else None
-        if isinstance(_adj, dict) and _adj.get("applied"):
-            try:
-                from src import enrichment_policy as _ep_style
-                _ep_style.record_runtime_failure(
-                    owner, "casting-strategy-style",
-                    f"engine stored strategy style '{_adj.get('applied')}' instead of the requested '{_adj.get('requested')}' "
-                    f"(not offered by archetype '{_adj.get('archetype')}') - auto-corrected, RED-eligible per #1599",
-                    detail=json.dumps(_adj))
-            except Exception:
-                pass
-            _out += STRATEGY_STYLE_ADJUSTED_NOTE.format(applied=_adj.get("applied"), requested=_adj.get("requested"), archetype=_adj.get("archetype"))
-        return {"output": _out, "exit_code": 0}
+        out_obj = res
+        _note = _strategy_style_adjusted_note(owner, res)
+        if _note:
+            out_obj = {**res, "strategyStyleNote": _note}
+        return {"output": json.dumps(out_obj, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
 STRATEGY_STYLE_ADJUSTED_NOTE = (
-    "\n\nNOTE (engine truth): the stored strategy style is \"{applied}\" - the \"{archetype}\" archetype does not offer \"{requested}\", so the engine kept \"{applied}\". "
+    "NOTE (engine truth): the stored strategy style is \"{applied}\" - the \"{archetype}\" archetype does not offer \"{requested}\", so the engine kept \"{applied}\". "
     "The casting card shows the stored style; tell the player plainly if they asked for \"{requested}\" and do not describe their strategy as \"{requested}\"."
 )
+
+
+def _strategy_style_adjusted_note(owner: Optional[str], res: Any) -> Optional[str]:
+    """ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an
+    auto-corrected change is not a cloak) and the narrator line returned here, so the casting card and the player are told the STORED style,
+    never the one asked for. The caller puts the line INSIDE the JSON result (`strategyStyleNote`): the output must stay valid JSON, because
+    the finalize checks in agent_loop and the producer-view redactor parse it (review of #2252). None when nothing was substituted."""
+    _adj = res.get("strategyStyleAdjusted") if isinstance(res, dict) else None
+    if not (isinstance(_adj, dict) and _adj.get("applied")):
+        return None
+    try:
+        from src import enrichment_policy as _ep_style
+        _ep_style.record_runtime_failure(
+            owner, "casting-strategy-style",
+            f"engine stored strategy style '{_adj.get('applied')}' instead of the requested '{_adj.get('requested')}' "
+            f"(not offered by archetype '{_adj.get('archetype')}') - auto-corrected, RED-eligible per #1599",
+            detail=json.dumps(_adj))
+    except Exception:
+        pass
+    return STRATEGY_STYLE_ADJUSTED_NOTE.format(applied=_adj.get("applied"), requested=_adj.get("requested"), archetype=_adj.get("archetype"))
 
 
 async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
@@ -5655,6 +5670,7 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
         # ORW-320: "the house you never saw" is the retrospective WINDOW's per-houseguest story (long); it stays off the host model's context.
         if isinstance(res, dict):
             res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
+            res.pop("rumorMill", None)  # ORW-525: the rumor mill is the retrospective WINDOW's too, off the host model's context
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5966,12 +5982,18 @@ def is_deal_refusal(res) -> bool:
 def deal_refusal_for_narrator(res: dict) -> dict:
     """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
     why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
-    return {"output": json.dumps({
+    out = {
         "declined": True,
         "reason": res.get("reason"),
         "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
                     "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
-    }, indent=2), "exit_code": 0}
+    }
+    # ORW-481 (review 4539129295): the engine may attach a counteroffer; hand it over so the refusal is voiced WITH its terms (still no deal until the player accepts).
+    counter = res.get("counteroffer")
+    if isinstance(counter, dict) and (counter.get("terms") or counter.get("kind")):
+        out["counteroffer"] = {"kind": counter.get("kind"), "terms": counter.get("terms")}
+        out["message"] += (" The engine attached a COUNTEROFFER: voice its terms exactly as given as what they would accept instead; it is an offer only, no deal exists until the player takes it.")
+    return {"output": json.dumps(out, indent=2), "exit_code": 0}
 
 
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:

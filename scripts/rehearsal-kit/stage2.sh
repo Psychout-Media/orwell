@@ -3,8 +3,8 @@
 # Key handling: DeepSeek key is read from ~/.config/orwell/secrets.env ONLY inside this script's own subshells;
 # never echoed/logged/written. OpenRouter key is unset (images are OFF). Fresh FE data => FE seeds the DeepSeek endpoint.
 set -euo pipefail
-KIT=$(cd "$(dirname "$0")" && pwd); . "$KIT/slot.sh"   # RIG_SLOT (default 1) decides every port and path; see slot.sh
-[ "$RIG_SLOT" = 1 ] || { if ss -ltn | grep -qE ":$RIG_ENGINE_PORT\b|:$RIG_FE_PORT\b"; then echo "FATAL: ports $RIG_ENGINE_PORT/$RIG_FE_PORT are busy - another run holds rig slot $RIG_SLOT; not staging" >&2; exit 1; fi; }
+KIT=$(cd "$(dirname "$0")" && pwd); . "$KIT/slot.sh"; . "$KIT/pidcheck.sh"   # RIG_SLOT (default 1) decides every port and path; see slot.sh
+if ss -ltn | grep -E ":$RIG_ENGINE_PORT\b|:$RIG_FE_PORT\b" >/dev/null; then echo "FATAL: ports $RIG_ENGINE_PORT/$RIG_FE_PORT are busy - another run holds rig slot $RIG_SLOT; not staging" >&2; exit 1; fi   # both slots: an occupied slot 1 is never staged over
 . "$KIT/env_override.sh"; rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1   # a bad override fails HERE, before the checkout and the build
 git -C "$RIG_HOME/orwell" fetch -q origin
 rig_ensure_worktree || exit 1
@@ -14,14 +14,16 @@ for BR in ${MERGE_BRANCHES:-}; do   # extra origin branches (local-only merges, 
   git -C $WT fetch -q origin $BR; git -C $WT merge -q --no-edit FETCH_HEAD >/dev/null || { echo "FATAL: merging branch $BR conflicted - aborting the stage (no silent partial stack)" >&2; git -C $WT merge --abort 2>/dev/null; exit 1; }; echo "merged branch $BR $(git -C $WT rev-parse FETCH_HEAD)" >> /tmp/claude-1000/stage-merges.txt
 done
 if [ -n "${MERGE_PR:-}" ]; then   # local-only merge of an in-flight PR head (never pushed)
-  git -C $WT fetch -q origin pull/$MERGE_PR/head && git -C $WT merge -q --no-edit FETCH_HEAD >/dev/null
+  git -C $WT fetch -q origin pull/$MERGE_PR/head && git -C $WT merge -q --no-edit FETCH_HEAD >/dev/null || { echo "FATAL: merging PR $MERGE_PR failed/conflicted - aborting the stage" >&2; git -C $WT merge --abort 2>/dev/null; exit 1; }
   PR_SHA=$(git -C $WT rev-parse FETCH_HEAD)
 fi
-RUN=$RIG_PLAYTEST_DIR/${RIG_RUN_PREFIX}$(date +%Y%m%d-%H%M); mkdir -p $RUN/shots $RUN/engine-data/saves
+RUN=$RIG_PLAYTEST_DIR/${RIG_RUN_PREFIX}$(date +%Y%m%d-%H%M%S)-$$; mkdir -p "$RIG_PLAYTEST_DIR"   # unique per stage (seconds + pid): a second stage never reuses an earlier run's saves
+mkdir "$RUN" || { echo "FATAL: run directory $RUN already exists - not reusing it" >&2; exit 1; }; mkdir -p $RUN/shots $RUN/engine-data/saves
+trap 'rc=$?; if [ $rc -ne 0 ]; then for p in fe engine; do [ -f "$RUN/$p.pid" ] && rig_pid_is "$p" "$(cat "$RUN/$p.pid")" "$RUN" && kill "$(cat "$RUN/$p.pid")" 2>/dev/null; done; fi' EXIT   # a failed stage never leaves its own services holding the rig (only this run's recorded pids)
 echo $RUN > $RIG_RUN_PTR
 { echo "main=$MAIN_SHA"; echo "merged-pr=${MERGE_PR:-none} head=${PR_SHA:-none}"; git -C $WT log -1 --format='staged-head=%H' ; } > $RUN/main-sha.txt
 rm -rf $WT/frontend/data; (cd $WT && npm run build --silent >/dev/null 2>&1)
-for f in t.sh p.sh last.sh daemon.py env.sh check6.sh pr.sh slot.sh; do cp $KIT/$f $RUN/$f; done; rig_write_slot_env $RUN
+for f in t.sh p.sh last.sh daemon.py env.sh check6.sh pr.sh slot.sh pidcheck.sh; do cp $KIT/$f $RUN/$f; done; rig_write_slot_env $RUN
 sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
 ( cd $WT; set -a; . "$RIG_HOME/.config/orwell/secrets.env"; set +a; unset OPENROUTER_API_KEY
   . deploy/orwell-env-defaults.sh
@@ -29,13 +31,23 @@ sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
   # RIG_ENV_OVERRIDE="ORWELL_X=0 ORWELL_Y=1": applied AFTER the deploy defaults, so a proof run can stage a known-bad build with one flag flipped (ORW-109).
   rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
-  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
+  # ORW-506: slot 2 gets its OWN copy of the model cache (seeded once from slot 1's), so a download or a half-written model in one slot can never corrupt the other's.
+  EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
+  if [ "$RIG_SLOT" != 1 ]; then
+    EMBED_CACHE="$RIG_HOME/orwell-slot2-embed-cache"
+    rm -rf "$EMBED_CACHE.tmp"   # an interrupted earlier seed must not nest the copy one level deeper
+    [ -d "$EMBED_CACHE" ] || { if [ -d "$RIG_HOME/orwell/.orwell-data/models" ]; then cp -a "$RIG_HOME/orwell/.orwell-data/models" "$EMBED_CACHE.tmp" && mv "$EMBED_CACHE.tmp" "$EMBED_CACHE"; else mkdir -p "$EMBED_CACHE"; fi; }
+  fi
+  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$EMBED_CACHE"
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid
   cd frontend
   [ "$RIG_SLOT" = 1 ] || export PYTHONDONTWRITEBYTECODE=1   # a shared venv is never written to
   export AUTH_ENABLED=false ORWELL_ENGINE_MCP_URL=$RIG_ENGINE_URL ORWELL_ENGINE_TOKEN=rehlocal ORWELL_GAME_BUILD=1
   nohup .venv/bin/python3 -m uvicorn app:app --host 127.0.0.1 --port $RIG_FE_PORT > $RUN/fe.log 2>&1 & echo $! > $RUN/fe.pid )
-for i in $(seq 1 40); do curl -s -o /dev/null --max-time 10 $RIG_BASE/api/orwell/status && break; sleep 2; done
+ready=0; for i in $(seq 1 40); do curl -sf -o /dev/null --max-time 10 $RIG_BASE/api/orwell/status && { ready=1; break; }; sleep 2; done   # -f: a 502 while the front end starts is not ready
+[ "$ready" = 1 ] || { echo "FATAL: front end never became ready - see $RUN/fe.log; not driving" >&2; exit 1; }
+ready=0; for i in $(seq 1 20); do curl -sf --max-time 10 -H "x-orwell-token: rehlocal" $RIG_ENGINE_URL/health >/dev/null && { ready=1; break; }; sleep 2; done
+[ "$ready" = 1 ] || { echo "FATAL: engine not healthy after staging (port taken or crashed) - see $RUN/engine.log; not driving" >&2; exit 1; }
 ( cd $WT; . deploy/orwell-env-defaults.sh; orwell_optin_env_defaults $RUN/engine-data ) | grep -E '^ORWELL_' | grep -viE 'KEY|TOKEN|SECRET' > $RUN/env.txt
 curl -s $RIG_BASE/api/default-chat | python3 -c "import json,sys; d=json.load(sys.stdin); d.pop('api_key',None); print(json.dumps({k:v for k,v in d.items() if 'key' not in k.lower()}))" > $RUN/default-chat.json
 curl -s -H "x-orwell-token: rehlocal" $RIG_ENGINE_URL/health | python3 -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d.get('flags',d), indent=1))" > $RUN/flags.json 2>/dev/null || true

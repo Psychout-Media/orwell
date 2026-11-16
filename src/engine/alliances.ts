@@ -305,17 +305,21 @@ export class AllianceStore {
     return gone;
   }
 
-  /** Drop any member who has left the game (evicted); a one-member alliance dissolves. */
-  prune(living: ReadonlySet<EntityId>): void {
+  /** Drop any member who has left the game (evicted); a one-member alliance dissolves. Returns whether anything changed. */
+  prune(living: ReadonlySet<EntityId>): boolean {
+    if (this.alliances.every((a) => a.members.every((m) => living.has(m)) && a.knownTo.every((k) => living.has(k)))) return false;
     this.alliances = this.alliances
       .map((a) => ({ ...a, members: a.members.filter((m) => living.has(m)), knownTo: a.knownTo.filter((k) => living.has(k)) }))
       .filter((a) => a.members.length >= 2);
+    return true;
   }
 
   serialize(): Alliance[] { return this.alliances.map((a) => ({ ...a, members: [...a.members], knownTo: [...a.knownTo] })); }
 
   load(rows: readonly Alliance[]): void {
     this.alliances = rows.map((a) => ({ ...a, members: [...a.members], knownTo: [...a.knownTo] }));
-    this.seq = rows.length;
+    // A dissolved alliance (betrayal, fade, eviction) leaves a gap in the ids, so the row count can be lower than the highest id still in use; restoring
+    // `seq` from the count would hand the next alliance an id a live one already holds. Resume after the highest numeric id instead.
+    this.seq = rows.reduce((hi, a) => Math.max(hi, Number(/^alliance:(\d+)$/.exec(a.id)?.[1] ?? 0)), rows.length);
   }
 }

@@ -14,6 +14,15 @@ PRICE_CACHED = float(os.environ.get("RIG_PRICE_CACHED_PER_M", "0.03")) / 1e6
 PRICE_OUT = float(os.environ.get("RIG_PRICE_OUT_PER_M", "1.20")) / 1e6
 
 
+def _num(v):
+    """A provider cost as a non-negative float, or 0.0 when it is missing/non-numeric (the token estimate then applies, the guard never aborts)."""
+    try:
+        f = float(v)
+        return f if f == f and f >= 0 else 0.0
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
 def usage_of(row):
     u = row.get("usage") if isinstance(row, dict) else None
     if not isinstance(u, dict) and isinstance(row, dict):  # the live archive nests it: {"response": {"usage": {...}}}
@@ -27,7 +36,7 @@ def usage_of(row):
         return 0
     ptd = u.get("prompt_tokens_details") or {}
     cached = u.get("cached_tokens") if isinstance(u.get("cached_tokens"), (int, float)) else (ptd.get("cached_tokens") or 0)
-    return {"in": i("input_tokens", "prompt_tokens"), "cached": int(cached or 0), "out": i("output_tokens", "completion_tokens"), "cost": float(u.get("cost") or 0.0)}
+    return {"in": i("input_tokens", "prompt_tokens"), "cached": int(cached or 0), "out": i("output_tokens", "completion_tokens"), "cost": _num(u.get("cost"))}
 
 
 def row_usd(c):
@@ -51,14 +60,24 @@ def totals(path):
 
 
 def stop_run(run):
+    hints = {"driver": ("live_week", "live_short", "a9drive", "ab.py"), "daemon": ("daemon.py",), "fe": ("uvicorn",), "engine": ("dist/main.js", "main.js")}
     for name in ("driver", "daemon", "fe", "engine"):
-        try: os.kill(int(open(f"{run}/{name}.pid").read().strip()), signal.SIGTERM)
+        try:
+            pid = int(open(f"{run}/{name}.pid").read().strip())
+            cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
+            cwd = os.path.realpath(f"/proc/{pid}/cwd"); wt = os.environ.get("WT", "")
+            # identity: the command line names the process AND (engine/fe) it runs inside this rig's worktree; the daemon's names this run
+            own = (run in cmd) if name in ("daemon", "driver") else (not wt or cwd == wt or cwd.startswith(wt + "/"))
+            if own and any(h in cmd for h in hints[name]): os.kill(pid, signal.SIGTERM)   # a stale or reused pid of an unrelated process is never signalled
         except (OSError, ValueError): pass
 
 
 def main(argv):
     if len(argv) < 3: print(__doc__); return 2
-    path, cap, run = argv[0], float(argv[1]), argv[2]
+    path, run = argv[0], argv[2]
+    try: cap = float(argv[1])
+    except ValueError: cap = float("nan")
+    if not (0 < cap < float("inf")):     print(f"spend_guard: the cap must be a finite positive number (got {argv[1]!r})", file=sys.stderr); return 2
     interval = 15.0; once = "--once" in argv
     if "--interval" in argv: interval = float(argv[argv.index("--interval") + 1])
     while True:

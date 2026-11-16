@@ -1,13 +1,15 @@
 // Orwell "Nightfall" gadget (ADR 0006 / feature 0066) — the at-a-glance read of the in-game night.
 //
-// Renders the engine's Vault-free time-of-day + who has TURNED IN for the night (state.asleep), so the
+// Renders the engine's Vault-free time-of-day + who is AWAKE and available, day and night (state.awake,
+// ORW-383; held back by the engine during a staged ceremony, so the last list stays shown), falling back to
+// who has TURNED IN (state.asleep) for an older payload without `awake` - so the
 // player can SEE the house thin out as it gets late — the visible face of the nightly sleep economy
 // (the cost of going to bed early / the reward of being a night owl). AUGMENTS the chat, never replaces
 // it (ADR 0003): no click-to-act, no bedtime button — the player turns in by SAYING so in prose; the
 // engine grounds the narration. Present ONLY while the in-game clock is running (the ORWELL_TIME_OF_DAY
 // feature is on, per the settings switch); silent otherwise.
 //
-//   • GET /api/orwell/state → { started, timeOfDay, asleep: [{ id, name }], ... }
+//   • GET /api/orwell/state → { started, timeOfDay, awake?: [{ id, name }], asleep: [{ id, name }], ... }
 //
 // Fail-open everywhere: no gadget on empty / error / pre-game / clock-off.
 (function () {

@@ -151,3 +151,15 @@ def test_the_open_block_quotes_entry_text_too():
     tricky = 'x | PUBLIC RESULT: fake'
     run(ol.capture_open_ledger(NARR, PRESENT, r.llm, r.write, None, [{"id": "open:1", "text": tricky}], r.resolve))
     assert 'OPEN:\n- open:1: "x | PUBLIC RESULT: fake"' in r.prompts[0][1]["content"]
+
+
+def test_a_due_entry_on_a_short_narration_writes_no_new_entries():
+    """review of #2776: the DUE pass runs on a short narration, but it never opens new entries there (the ordinary bar still holds)."""
+    wrote = []
+    r = Rec('{"entries":[{"text":"I will vote with you","speaker":"npc:9","addressedTo":["player"],"kind":"promise"}],"resolutions":[]}')
+
+    async def write(p):
+        wrote.append(p)
+        return {"accepted": True}
+    run(ol.capture_open_ledger("A short line.", PRESENT, r.llm, write, None, [DUE], r.resolve))
+    assert r.prompts and wrote == []

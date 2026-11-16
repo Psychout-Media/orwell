@@ -920,6 +920,9 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // B29 - observers react to a visible tell (comfort / exploit / avoid). SELF-GATED: a no-op (zero draws) unless ORWELL_TELL_REACTIONS and ORWELL_NPC_TELLS are on.
   sandbox.session.tellReactionsTick();
 
+  // ORW-466 slice 3 - later bed moves + the house noticing an evictee's empty bed. SELF-GATED: a no-op unless a person is playing (headless/calibration games own no beds); side streams only, never this tick's rng.
+  sandbox.session.bedsTick();
+
   // 0100 — advance the sequestered JURY HOUSE one bounded stretch: the last-nine evictees keep living
   // (hidden juror↔juror scenes) and a grievance one juror carried out DIFFUSES to others, hardening the
   // room's read of the responsible houseguest before the finale. SELF-GATED: a no-op (ZERO draws, no

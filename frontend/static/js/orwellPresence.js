@@ -8,7 +8,8 @@
 // player still mills, asks "who's here?", and talks in PROSE; the engine grounds the narration.
 //
 //   • GET /api/orwell/state        → gate on an active game (started)
-//   • GET /api/orwell/whereabouts  → { whereabouts: { room, present[], nearby[{room, present[]}] } } | null
+//   • GET /api/orwell/whereabouts  → { whereabouts: { room, present[], nearby[{room, present[]}], roomNames? } } | null
+//     (ORW-466: `roomNames` = this season's themed name for every room; absent ⇒ the plain labels)
 //
 // L26 redesign:
 //   HEADER = the room you're in + who's with you, FIRST NAMES — "Kitchen — Keith, John, Joe"
@@ -54,7 +55,15 @@
     return r.json();
   }
 
-  function roomLabel(room) {
+  function roomLabel(room, names, midLine) {
+    // ORW-466: with a house theme the whereabouts carry `roomNames` (this season's name for every room). The themed
+    // name is shown exactly as written ("the Coral Reef Room", "Main Street": it carries its own article, so never
+    // prefix "the "), capitalised when it starts a line. Absent ⇒ today's plain label below.
+    const themed = names && typeof names === "object" ? names[String(room || "")] : null;
+    if (typeof themed === "string" && themed.trim()) {
+      const t = themed.trim();
+      return midLine ? t : t.charAt(0).toUpperCase() + t.slice(1);
+    }
     // "living-room" → "Living Room" (the engine's ids are kebab-case room names).
     // A lone trailing letter is a room identifier, not a word ("bedroom-b"), so it
     // must read "Bedroom B", not "Bedroom b" — title case otherwise.
@@ -193,7 +202,8 @@
     // HEADER: the room you're in (+ your corner of a big room, 0077) + who's with you — or "alone".
     const present = Array.isArray(w.present) ? w.present : [];
     const here = present.length ? joinWithTells(present) : "alone";
-    const roomName = roomLabel(w.room) + (w.zone ? " · " + String(w.zone).replace(/-/g, " ") : "");
+    const roomNames = w.roomNames; // ORW-466: this season's themed room names (absent ⇒ plain labels)
+    const roomName = roomLabel(w.room, roomNames) + (w.zone ? " · " + String(w.zone).replace(/-/g, " ") : "");
     const headLine = roomName + " — " + here;
     // TRANS-26: guard the write — the head text was wholesale-replaced on EVERY ~25s poll even
     // when nothing changed, a pure DOM-churn/flicker-risk mutation under concurrent updates.
@@ -220,7 +230,7 @@
     } else {
       parts.push(rooms
         .map((n) =>
-          '<span class="opres-room"><span class="opres-r">' + esc(roomLabel(n.room)) +
+          '<span class="opres-room"><span class="opres-r">' + esc(roomLabel(n.room, roomNames)) +
           ':</span> ' + esc(join(n.present)) + "</span>")
         .join(""));
     }
@@ -230,7 +240,7 @@
     if (tracked.length) {
       parts.push('<span class="opres-tracked"><span class="opres-r">Seen heading off:</span> ' +
         tracked.map((t) =>
-          esc(names.format(t)) + " → " + esc(roomLabel(t.room)) + (t.stale ? " (a while ago)" : ""))
+          esc(names.format(t)) + " → " + esc(roomLabel(t.room, roomNames, true)) + (t.stale ? " (a while ago)" : ""))
           .join(", ") + "</span>");
     }
     // 0077 CONSPICUOUSNESS: "two alone too long" — already Vault-free player-facing prose from the engine.

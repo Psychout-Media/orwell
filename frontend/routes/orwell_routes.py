@@ -1103,7 +1103,7 @@ def setup_orwell_routes() -> APIRouter:
                 return {"whereabouts": _live}
         except Exception as e:
             logger.warning(f"[orwell] whereabouts failed: {e}")
-            return {"whereabouts": None}
+            return {"whereabouts": None, "unavailable": True}  # a failed read, not "no room": the strip keeps its last valid view
 
     @router.get("/finale")
     async def orwell_finale(request: Request):

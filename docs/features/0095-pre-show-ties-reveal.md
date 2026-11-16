@@ -9,7 +9,7 @@
 > player-reachable `accuseTie` cover the built v1. Wired in `cucumber.cjs`.
 > **Tracks #867.**
 >
-> **Deploy status (2026-11-03):** only the automated **overhear** pathway is intentionally OFF in the deployed profile. `ORWELL_TIE_REVEAL` (TIE_REVEAL family; the off-screen overhear / tie-reveal scheduler) is not emitted by `deploy/orwell-env-defaults.sh` and is kept dark for the first playtest by owner direction. The player-reachable `accuseTie` lever is not behind that flag and stays live in the deployed profile.
+> **Deploy status (corrected 2026-11-16):** the automated **overhear** pathway is ON in the deployed profile: `ORWELL_TIE_REVEAL=1` is emitted by `deploy/orwell-env-defaults.sh` (ON since 2026-11-06, ORW-16 follow-up; the earlier "dark for the first playtest" direction was replaced by "built means on"). The player-reachable `accuseTie` lever is not behind that flag.
 > **Depends on:** 0001 (Vault Wall), 0002 (event visibility — a fact reaches the player ONLY through
 > a modeled pathway; `surfaceInformationTo` / the `told-by` / overhear seam), 0017/0026 (the directed
 > relationship model + the betrayal-shock the fallout reuses), 0023 (the consequence & memory fold —

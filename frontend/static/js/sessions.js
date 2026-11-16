@@ -1449,8 +1449,16 @@ export function historyRenderParity(rows, container) {
       : (Array.isArray(c) ? c.filter(p => p && p.type === 'text').map(p => p.text).join('\n') : '');
     if (txt && txt.trim()) expected++;
   }
-  const rendered = container
-    ? container.querySelectorAll('.msg-ai[data-from-history="1"]').length : 0;
+  // ORW-481 (review 4535270414): one assistant row can paint several bubbles (round_texts), so count DISTINCT rows (data-db-id), not bubbles - extra bubbles must not mask a row that painted none.
+  let rendered = 0;
+  if (container) {
+    const seen = new Set();
+    for (const el of Array.from(container.querySelectorAll('.msg-ai[data-from-history="1"]'))) {
+      const rid = el && el.dataset ? el.dataset.dbId : '';
+      if (rid) seen.add(rid); else rendered++;
+    }
+    rendered += seen.size;
+  }
   return { ok: rendered >= expected, expected, rendered };
 }
 
@@ -1762,7 +1770,8 @@ export async function selectSession(id, { keepSidebar = false } = {}) {
         const _parity = historyRenderParity(msgHistory, chatHistory);
         if (!_parity.ok) {
           _beaconHistoryParity(id, _parity);
-          const _keep = Array.from(chatHistory.children).filter(el => !(el.dataset && el.dataset.fromHistory === '1'));
+          // ORW-481 (review 4535270399): keep ONLY the nodes this swap itself preserved (pending sends, live holders); tool threads / announcement cards are repainted by _paintRows, so keeping them would double them.
+          const _keep = Array.from(chatHistory.children).filter(el => _pendingToPreserve.includes(el) || _liveHoldersToKeep.includes(el));
           chatHistory.innerHTML = '';
           _paintRows();
           for (const el of _keep) chatHistory.appendChild(el);
