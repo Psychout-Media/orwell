@@ -10167,6 +10167,7 @@ export class GameSessionAdapter implements GameSession {
         if (open.length > 0 && !mine) continue;
         if (mine) { this.alliances.join(mine.id, target); }
         else {
+          if (this.alliances.all().some((x) => x.founder === holder)) continue; // ORW-507 (#2613): one foundership per NPC, as in the founder loop above
           const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
@@ -10764,7 +10765,7 @@ export class GameSessionAdapter implements GameSession {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
         affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
-        threat: new Map(others.map((o) => [o, this.rel.edge(id, o).threat] as const)),
+        threat: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
         timeOfDay: tod, day, hour, inCompetition: false,
@@ -10773,8 +10774,11 @@ export class GameSessionAdapter implements GameSession {
       }, seed));
     }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
+    // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
+    const approachAllowed = (p: PlannedAction): boolean => this.desireClockEnabled && this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id);
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
+      if (p.goalId && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
       if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
@@ -10784,9 +10788,9 @@ export class GameSessionAdapter implements GameSession {
     for (const scene of assembleScenes(plans)) {
       for (const p of scene.actions) {
         const partner = p.with[0];
-        if (p.goalKind === "pull-them-in" && partner) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
+        if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
         // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
-        if (p.goalId && p.with.includes(house.player.id) && this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id)) {
+        if (p.goalId && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
         }
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;

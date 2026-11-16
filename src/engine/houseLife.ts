@@ -325,11 +325,15 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
   // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
-  const ritual = v.rituals?.find((r) => r.timeOfDay === v.timeOfDay && roll(`ritual:${r.name}`) < HOUSE_LIFE.ritualPull);
-  if (ritual) {
+  // ORW-507 (#2611): ONE ritual per time of day is chosen first (the seeded-first match, so two rituals sharing a time never double the 0.3 pull), then rolled; a ritual with nobody to share it
+  // (its action needs a partner, or it has none to record: a solo ritual leaves no event) falls through to ordinary life instead of silently eating the hour.
+  const ritual = v.rituals?.filter((r) => r.timeOfDay === v.timeOfDay).sort((a, b) => roll(`ritualpick:${a.name}`) - roll(`ritualpick:${b.name}`) || a.name.localeCompare(b.name))[0];
+  if (ritual && roll(`ritual:${ritual.name}`) < HOUSE_LIFE.ritualPull) {
     const spot = ACTIONS[ritual.action].place;
-    const company = spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
-    return finish({ kind: ritual.action, with: company.slice(0, ACTIONS[ritual.action].partners.max), ritual: ritual.name, ...(spot ? { place: spot } : {}) });
+    const company = (spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here).slice(0, ACTIONS[ritual.action].partners.max);
+    if (company.length >= Math.max(1, ACTIONS[ritual.action].partners.min)) {
+      return finish({ kind: ritual.action, with: company, ritual: ritual.name, ...(spot ? { place: spot } : {}) });
+    }
   }
   const habit = v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);
   if (habit) {
