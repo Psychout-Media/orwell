@@ -215,6 +215,8 @@ def test_mirror_call_wired_at_both_scrub_call_sites_before_cleaned_round_derives
     opener_src_at = src.index("_store_src = round_response[:_oi]")
     derive_at = src.index("cleaned_round = strip_tool_blocks(_store_src).strip()")
     assert normal_src_at < opener_src_at < derive_at
+    assert src.index("_oi = tool_call_opener_index(round_response)") > src.index(
+        "round_response = _mirror_wall_drop(\n                round_response, _pre_scrub_tail, _clean")  # the cut index is read after the mirrors too (review of #2784)
     cleaned_round_at = normal_src_at  # the earliest point either path reads round_response for the stored text
     mid_loop_mirror_at = src.index(
         "round_response = _mirror_wall_drop(\n                                    round_response, _complete, _clean")

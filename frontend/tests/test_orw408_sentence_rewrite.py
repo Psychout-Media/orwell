@@ -225,6 +225,17 @@ def test_text_protocol_tool_call_in_the_discarded_tail_still_runs_once(monkeypat
     assert stored[0] == CLEAN_A.strip() and n_rounds >= 2
 
 
+def test_prose_after_a_tool_call_in_the_discarded_tail_is_not_stored(monkeypatch):
+    """review of #2784: the call opened in the withheld tail; words after it were never shown, so they are not stored either."""
+    extra = {}
+    call = '<tool_call><invoke name="bash"><parameter name="command">echo hi</parameter></invoke></tool_call>'
+    emitted, cont, stored, _ = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL, call + " Trailing words the player never saw."]}, {"deltas": ["The morning moves on."]}],
+        redo=REDO.strip(), extra=extra)
+    assert extra["runs"] == ["bash"] and "Trailing" not in emitted
+    assert stored[0] == CLEAN_A.strip(), stored
+
+
 def test_multi_sentence_quoted_line_is_not_read_as_narration(monkeypatch):
     # the schedule fact: the second sentence of one quoted line arrives as its own chunk, with no opening quote
     quoted = ['Someone whispers, "Nobody\'s safe. ', 'The nominations are tonight, I\'m telling you." ', "The kettle clicks off. "]
@@ -464,17 +475,17 @@ def test_orw437_a_later_round_still_drops_a_conflicting_unterminated_final_sente
 
 # ORW-454 (Kevin: "allow it if the engine says she's awake"), driven through the real stream loop. Before the 8am wake-up call a greeting by a NAMED houseguest the engine lists as awake is kept;
 # the same greeting by a sleeper, and a claim that the whole house is up, are still dropped. The status is the one the screen already reads (`game_status`).
-EARLY_STATUS = {"timeOfDay": "late-night", "earlyMorning": True, "clockLabel": "5:30am, Day 3", "asleep": ["Sam Role"], "awake": ["Ana Role"], "started": True, "pending": None}
+EARLY_STATUS = {"timeOfDay": "late-night", "earlyMorning": True, "clockLabel": "5:30am, Day 3", "asleep": ["Napper Role"], "awake": ["Riser Role"], "started": True, "pending": None}
 
 
 @pytest.mark.parametrize("line,kept", [
-    ("'Good morning,' Ana Role whispers, already dressed. ", True),
-    ("“Good morning,” Ana Role whispers, already dressed. ", True),
-    ("'Good morning,' Sam Role whispers, already dressed. ", False),
+    ("'Good morning,' Riser Role whispers, already dressed. ", True),
+    ("“Good morning,” Riser Role whispers, already dressed. ", True),
+    ("'Good morning,' Napper Role whispers, already dressed. ", False),
     ("Everyone's up. ", False),
     ("The house is awake. ", False),
     ("'Good morning,' someone whispers. ", False),
-    ("'Good morning,' Ana Role whispers to Sam Role. ", False),
+    ("'Good morning,' Riser Role whispers to Napper Role. ", False),
 ])
 def test_orw454_a_greeting_by_a_named_awake_houseguest_is_kept_and_the_house_up_claim_is_dropped(monkeypatch, line, kept):
     emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=EARLY_STATUS)
@@ -485,10 +496,10 @@ def test_orw454_a_greeting_by_a_named_awake_houseguest_is_kept_and_the_house_up_
 
 
 @pytest.mark.parametrize("line,kept", [
-    ("'Good morning,' Ana whispers, already dressed. ", True),                 # first name only, unique in the roster
-    ("'Good morning,' Sam whispers, already dressed. ", False),                # a sleeper, first name only
-    ("'Good morning, Sam,' Ana Role whispers. ", False),                        # an awake speaker greeting a sleeper by first name
-    ("'Good morning, Sam,' Ana whispers. ", False),
+    ("'Good morning,' Riser whispers, already dressed. ", True),                 # first name only, unique in the roster
+    ("'Good morning,' Napper whispers, already dressed. ", False),                # a sleeper, first name only
+    ("'Good morning, Napper,' Riser Role whispers. ", False),                        # an awake speaker greeting a sleeper by first name
+    ("'Good morning, Napper,' Riser whispers. ", False),
 ])
 def test_orw454_first_names_are_recognised(monkeypatch, line, kept):
     emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=EARLY_STATUS)
@@ -499,8 +510,8 @@ def test_orw454_first_names_are_recognised(monkeypatch, line, kept):
 
 
 def test_orw454_a_first_name_shared_by_two_houseguests_stays_dropped(monkeypatch):
-    status = dict(EARLY_STATUS, awake=["Ana Role"], asleep=["Ana Other"])
-    line = "'Good morning,' Ana whispers, already dressed. "
+    status = dict(EARLY_STATUS, awake=["Riser Role"], asleep=["Riser Other"])
+    line = "'Good morning,' Riser whispers, already dressed. "
     emitted, _c, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=status)
     assert line.strip() not in emitted and "The kitchen is quiet." in emitted and "The kettle ticks." in emitted
     assert stored[0] == emitted.strip()

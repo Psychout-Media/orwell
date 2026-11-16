@@ -9708,6 +9708,7 @@ async def _stream_agent_loop_impl(
                 logger.info("[predisplay-rewrite] no continuation: native_calls=%d tail_opener=%s drain_timed_out=%s", len(native_tool_calls), _pd_op >= 0, _pd_drain["timed_out"])
                 if _pd_op >= 0:
                     round_response += _pd_all_tail[_pd_op:]
+                    _opener_halted_round = True  # review of #2784: prose after this opener was never shown either, so the storage cut below drops it (ORW-453)
                 _pd_rw_pending = None
             else:
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).

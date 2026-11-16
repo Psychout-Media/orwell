@@ -3,6 +3,7 @@ the page waits ("one moment") and re-sends the SAME clientMsgId, once the hold i
 test_orw406_silent_reconnect.py idiom). Roles only."""
 import importlib.util
 import os
+import re
 
 import pytest
 
@@ -48,7 +49,7 @@ function turnsOn(s) { return s.sent.filter((f) => f.t === "turn"); }
 })();
 """
 
-# A fake clock: every timer fires on the next macrotask and advances `now` by its delay, so a 150 s bound runs in milliseconds.
+# A fake clock: every timer fires on the next macrotask and advances `now` by its delay, so a bound of minutes runs in milliseconds.
 _FAKE = r"""
 let now = 1000000; Date.now = () => now;
 global.setTimeout = (fn, ms) => { setImmediate(() => { now += (ms || 0); fn(); }); return 0; };
@@ -68,7 +69,28 @@ function turnsOn(s) { return s.sent.filter((f) => f.t === "turn"); }
   }
   assert(settled[0] === "update-holding", "after the hold's end the refusal surfaces to the caller: " + settled.join());
   assert(n >= 2, "it retried while the hold was in force: " + n);
-  assert(now - t0 <= 40000, "bounded by the server's end of the hold plus slack, not the 150 s cap: " + (now - t0) + " ms");
+  assert(now - t0 <= 40000, "bounded by the server's end of the hold plus slack, not the client's own cap: " + (now - t0) + " ms");
+  console.log("OK"); process.exit(0);
+})();
+"""
+
+
+# Review of #2805: the updater holds for its turn wait (up to 300 s) plus 150 s for the restart and warm-up. A hold that long is waited out, not given up at the client's cap.
+_HOLD_LONG = _PRE.replace("let lastSock = null;", _FAKE + "let lastSock = null;", 1) + r"""
+function turnsOn(s) { return s.sent.filter((f) => f.t === "turn"); }
+(async function main() {
+  await until(() => lastSock !== null, "the first socket"); await handshake();
+  const t0 = now; let n = 0; const settled = [];
+  WS.sendTurnWhenLive({ message: "hello", clientMsgId: "c-1" }, undefined, {}).then(() => settled.push("ok"), (e) => settled.push(e.code));
+  for (let guard = 0; guard < 400; guard++) {
+    await until(() => turnsOn(lastSock).length === n + 1 || settled.length === 1, "the next frame or the end");
+    if (settled.length === 1) break;
+    n++;
+    const cid = turnsOn(lastSock)[n - 1].cid;
+    if (now - t0 < 450000) down({ t: "error", ch: "chat", cid: cid, d: { code: "update-holding", retryAfterMs: 5000, untilMs: t0 + 450000 } });
+    else down({ t: "ack", ch: "chat", cid: cid, d: { accepted: true } });
+  }
+  assert(settled[0] === "ok", "a hold of the updater's longest length is waited out and the turn goes through: " + settled.join() + " after " + (now - t0) + " ms");
   console.log("OK"); process.exit(0);
 })();
 """
@@ -82,10 +104,28 @@ def test_the_hold_wait_is_bounded_by_the_servers_own_end_of_the_hold():
     _silent._run(_HOLD_BOUNDED, "orwellWs.js")
 
 
-def test_the_chat_page_shows_one_moment_while_a_turn_is_held():
+def test_a_hold_as_long_as_the_updaters_longest_is_waited_out():
+    _silent._run(_HOLD_LONG, "orwellWs.js")
+
+
+def test_the_chat_page_shows_one_moment_and_stands_down_the_idle_abort_on_every_send_of_the_turn():
+    # Review of #2805: the page's hold callbacks are run, not grepped for: "held" shows "one moment…", stands the idle-abort down (past its bound it would stop the shared
+    # game session's run), and release clears the tag. The first send and the stale-beat retry both pass them.
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static", "js")
     chat = open(os.path.join(here, "chat.js"), encoding="utf-8").read()
     outbox = open(os.path.join(here, "chatOutbox.js"), encoding="utf-8").read()
-    i = chat.index("}, undefined, {\n            // ORW-461")
-    assert "_setQueuedTag(_userMsgEl, 'held')" in chat[i:i + 600] and "_setQueuedTag(_userMsgEl, null)" in chat[i:i + 600]
+    m = re.search(r"const _holdOpts = (\{.*?\n        \});", chat, re.S)
+    assert m, "chat.js builds the update-hold callbacks once, as `const _holdOpts = {...};`"
+    assert chat.count("}, undefined, _holdOpts)") == 2, "both the first send and the stale-beat retry pass the hold callbacks"
+    script = (
+        "const tags = []; let disarmed = 0; const _userMsgEl = {};\n"
+        "const _setQueuedTag = (el, mode) => tags.push(mode); const clearResponseTimeout = () => { disarmed++; };\n"
+        f"const o = {m.group(1)};\n"
+        "o.onHold();\n"
+        "if (disarmed !== 1 || tags[0] !== 'held') { console.log('held: disarmed=' + disarmed + ' tags=' + JSON.stringify(tags)); process.exit(1); }\n"
+        "o.onRelease();\n"
+        "if (tags[1] !== null) { console.log('release: tags=' + JSON.stringify(tags)); process.exit(1); }\n"
+        "console.log('OK');\n"
+    )
+    _silent._run(script, "chat.js")
     assert "'one moment…'" in outbox

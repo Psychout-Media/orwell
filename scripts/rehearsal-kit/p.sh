@@ -2,7 +2,7 @@
 # usage: p.sh N 'text' ['{"pick":[0],"text":".."}']  — quiet turn: engine status line + last persisted assistant msg (700 chars)
 . "$(dirname "$(readlink -f "$0")")/slot.sh"   # slot values (a run dir carries its own slot.env)
 RUN=$(cat $RIG_RUN_PTR)
-$RUN/t.sh "$@" >/dev/null 2>&1
+$RUN/t.sh "$@" >/dev/null 2>&1 || { echo "TURN FAILED (timed out or bad input) - resp.json is NOT this turn" >&2; exit 1; }
 python3 - "$RUN" <<'P'
 import json,sys
 r=json.load(open(sys.argv[1]+"/resp.json")); s=r["status"]

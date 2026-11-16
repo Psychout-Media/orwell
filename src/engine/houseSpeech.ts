@@ -18,6 +18,8 @@ export interface TruthFacts {
   goalAgainst(who: EntityId, target: EntityId): boolean;
   /** `voter` voted to evict `evictee` at a recorded eviction. */
   votedToEvict(voter: EntityId, evictee: EntityId): boolean;
+  /** `voter` cast a ballot at a recorded eviction where `nominee` faced the vote, and it was NOT a vote to evict them. */
+  votedToKeep(voter: EntityId, nominee: EntityId): boolean;
   /** `a` and `b` hold a final-two deal. */
   finalTwo(a: EntityId, b: EntityId): boolean;
   /** `a` has told `b` a claim the engine knows was false. */
@@ -36,6 +38,7 @@ export function truthOf(c: Pick<ClaimInput, "kind" | "listener" | "subject" | "o
     case "talking-about": return c.object !== undefined && f.talkedAbout(c.subject, c.object);
     case "lying-about": return f.liedTo(c.subject, c.object ?? c.listener);
     case "voted-against": return c.object !== undefined && f.votedToEvict(c.subject, c.object);
+    case "voted-to-keep": return c.object !== undefined && f.votedToKeep(c.subject, c.object);
   }
 }
 
