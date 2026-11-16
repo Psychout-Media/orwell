@@ -1,4 +1,4 @@
-"""A82 - tests for post_session_analyzer.py (it feeds every playtest report and had none). Tiny fixtures, offline. Run: python3 -m pytest rehearsal-kit/test_post_session_analyzer.py
+"""A82 - tests for post_session_analyzer.py (it feeds every playtest report and had none). Tiny fixtures, offline. Run: python3 -m pytest scripts/rehearsal-kit/test_post_session_analyzer.py
 Mutations that must go red: flip the sign of the timezone offset in parse_fe; swap the since-window comparison (an event or turn exactly AT `since` is included). Roles only."""
 import datetime as dt
 import json
@@ -131,3 +131,14 @@ def test_clock_metrics_counts_accepted_vs_duplicate_notes_and_reads_the_save(tmp
     assert C["save"]["hangouts"] == 2 and C["save"]["hangout_minutes"] == 75 and C["save"]["hour"] == 12.5
     assert dict(C["save"]["stops"]) == {"event-due": 1, "npc-approach": 1}
     assert psa.clock_metrics(events, [], None)["save"] is None
+
+
+def test_ssh_pull_refuses_option_like_hosts_and_non_exact_dates():
+    """ORW-481 (retro review of #2620): a crafted --ssh host or --since/--until value never reaches ssh."""
+    import pytest
+    for bad_host in ("-oProxyCommand=evil", "host; rm", ""):
+        with pytest.raises(SystemExit):
+            psa.ssh_read(bad_host, "cat /x")
+    for bad_when in ('2026-11-05 10:00" --since "x', "2026-11-05", "-1"):
+        with pytest.raises(SystemExit):
+            psa.pull("root@box", bad_when, "", "/nonexistent-dest-never-created")
