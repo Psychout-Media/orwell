@@ -35,6 +35,7 @@ export function truthOf(c: Pick<ClaimInput, "kind" | "listener" | "subject" | "o
     case "going-after": return c.object !== undefined && f.goalAgainst(c.subject, c.object);
     case "talking-about": return c.object !== undefined && f.talkedAbout(c.subject, c.object);
     case "lying-about": return f.liedTo(c.subject, c.object ?? c.listener);
+    case "voted-against": return c.object !== undefined && f.votedToEvict(c.subject, c.object);
   }
 }
 
@@ -57,12 +58,14 @@ export function claimFromBelief(b: BeliefClaim, speaker: EntityId, listener: Ent
   switch (b.kind) {
     case "targets-me": return { kind: "going-after", subject: b.subject, object: speaker };            // "X is after me"
     case "lied-to-me": return { kind: "lying-about", subject: b.subject, object: speaker };            // "X lied to me"
+    case "voted-against-me": return { kind: "voted-against", subject: b.subject, object: speaker };    // "X voted to evict me"
     case "allied-with": return b.object !== undefined && b.object !== b.subject ? { kind: "final-two-with", subject: b.subject, object: b.object } : undefined;
     case "heard-rumor":
       if (b.object === undefined || b.object === b.subject) return undefined;
       if (b.nature === "going-after") return { kind: "going-after", subject: b.subject, object: b.object };
       if (b.nature === "lying") return { kind: "lying-about", subject: b.subject, object: b.object };
       if (b.nature === "talking-about") return { kind: "talking-about", subject: b.subject, object: b.object };
+      if (b.nature === "voted-against") return { kind: "voted-against", subject: b.subject, object: b.object };
       return undefined;
     default: return undefined;
   }

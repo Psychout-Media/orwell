@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { recordClaim, type BeliefStore } from "../../src/engine/beliefStore";
 import { claimFromBelief, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../src/engine/houseSpeech";
+import { beliefFor } from "../../src/engine/spokenClaims";
 
 /** 0153 / ORW-330 slice 3 - house-life speech as claims the engine decides. Roles only (an actor, a listener, a target, a bystander). */
 const ACTOR = "npc:a", EAR = "npc:e", TARGET = "npc:t", OTHER = "npc:o";
@@ -18,6 +19,8 @@ describe("0153: what house-life speech says", () => {
     expect(truthOf({ kind: "going-after", listener: OTHER, subject: TARGET, object: EAR }, f)).toBe(true);
     expect(truthOf({ kind: "talking-about", listener: EAR, subject: TARGET, object: OTHER }, f)).toBe(true);
     expect(truthOf({ kind: "lying-about", listener: EAR, subject: TARGET }, f)).toBe(true);
+    expect(truthOf({ kind: "voted-against", listener: OTHER, subject: TARGET, object: EAR }, f)).toBe(true);
+    expect(truthOf({ kind: "voted-against", listener: EAR, subject: TARGET, object: OTHER }, f)).toBe(false);
   });
 
   it("an untruthful plant is a lie the engine knows is false; a truthful one tells something true, or nothing", () => {
@@ -45,6 +48,15 @@ describe("0153: what house-life speech says", () => {
     const b: BeliefStore = {};
     recordClaim(b, { holder: EAR, kind: "lied-to-me", subject: TARGET, value: true, origin: "told", confidence: 0.6, week: 1 });
     expect(planSpeech("confirm", ACTOR, EAR, TARGET, true, ctx({ beliefs: b }))).toMatchObject({ speaker: ACTOR, listener: EAR, kind: "lying-about", subject: TARGET, object: EAR, intent: "recruit" });
+  });
+
+  it("a held 'they voted against me' can be said: it is passed on as voted-against, and planted in the listener as a rumor about the speaker", () => {
+    const b: BeliefStore = {};
+    recordClaim(b, { holder: ACTOR, kind: "voted-against-me", subject: TARGET, value: true, origin: "deduced", confidence: 0.6, week: 1 });
+    const leak = planSpeech("leak", ACTOR, EAR, TARGET, true, ctx({ beliefs: b }))!;
+    expect(leak).toMatchObject({ kind: "voted-against", subject: TARGET, object: ACTOR, isTrue: false });
+    expect(beliefFor(leak)).toEqual({ kind: "heard-rumor", subject: TARGET, object: ACTOR, nature: "voted-against" });
+    expect(beliefFor({ ...leak, listener: ACTOR })).toEqual({ kind: "voted-against-me", subject: TARGET });
   });
 
   it("beliefs without a claim form, refuted ones, and ones about the listener are never passed on", () => {
