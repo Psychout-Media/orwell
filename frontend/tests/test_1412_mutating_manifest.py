@@ -85,6 +85,8 @@ READ_ONLY_TOOLS = frozenset({
     "recordProducerProfile",
     # ORW-223: `recordRoomCanon` is an FE-driven write-back of narrated room texture into the canon ledger; the status HUD never renders it.
     "recordRoomCanon",
+    # ORW-510: `recordNarrationUse` hands a finished turn back for the rolling narration-use record; the status HUD never renders it.
+    "recordNarrationUse",
     # ORW-407: `recordOpenLedger` is an FE-driven write-back of a narrated commitment/claim; the status HUD never renders it.
     "recordOpenLedger",
     # ORW-407 slice 2: its resolve write-back and its read of the still-open entries; neither is rendered by the status HUD.

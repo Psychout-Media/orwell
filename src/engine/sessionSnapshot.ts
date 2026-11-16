@@ -17,6 +17,7 @@ import type { HiddenRecord } from "../ports/VaultStore";
 import type { AdvanceView, PlayerMoveView } from "../ports/GameSession";
 import type { PersistedCanon } from "../domain/canon";
 import { canonSupersetProblems, restoreCanon } from "./canonLedger";
+import type { NarrationUse } from "./narrationUsage";
 import { openLedgerSuperset, restoreOpenLedger, type OpenLedger } from "./openLedger";
 
 /**
@@ -517,6 +518,8 @@ export interface SessionCore {
   canon?: PersistedCanon;
   /** ORW-407 - the open ledger: commitments and claims made to or by the player, free text with provenance. Append-only; absent until one is kept. */
   openLedger?: OpenLedger;
+  /** ORW-510 - the live narration-use record: recent sentence openings, scene closers, and per-houseguest gestures and lines the narrator already used, plus season counters. ROLLING and bounded (not append-only, so no superset rule); absent until a turn is recorded. Player-visible words only. */
+  narrationUse?: NarrationUse;
   /**
    * Issue #1322 (P2) — the approach-rotation anti-recency cooldown: per-NPC remaining STRETCHES (a
    * distinct week:phase) before they are eligible to lead `socialInitiatives`'s top-3 again, so the
