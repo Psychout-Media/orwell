@@ -337,12 +337,15 @@ describe("ORW-480 no other dealt value moves", () => {
         const l = generateCastDeepLayer(seed, npcs);
         dealShotCards(sheetsOf(seed));
         const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: 0 }]));
-        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0, presentation: 0 } })) : npcs;
-        all += JSON.stringify([cast, pub, l.hidden, l.threads]);
+        // The same blanking as creationLooks381 (ORW-508's and ORW-480's changed fields), so the two pins stay equal.
+        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0, presentation: 0, vocation: 0, hometown: 0 } })) : npcs;
+        const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
+        const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
+        all += JSON.stringify([cast, pub, hid, thr]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("b0407245a1433ac4d9e5c8368891d3dee0552b016763aafd7eecc70ce50d0144")   // equal to the creationLooks381 pin (main's value, blanking the presentation too);
-    expect(run(false)).toBe("a1579dbb2f4a0947e3e6d12d3db2a462548ead966414f53a20631d2ec77ec698")   // equal to the creationLooks381 pin;
+    expect(run(true)).toBe("986d0ffe76a90b933b5ad2520d0214ff3a800463f4a78fd67258fdf628f76bbd")   // equal to the creationLooks381 blanked pin on main
+    expect(run(false)).toBe("6ba89c2649c08bb12c322996000c6756febf0277549f13f2573848581c6d3217")   // equal to the creationLooks381 full pin on main
   });
 });
