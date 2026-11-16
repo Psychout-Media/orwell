@@ -1,3 +1,4 @@
+import { voteTalkBallot } from "./vote_talk.steps";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -211,6 +212,7 @@ When("houseguests accuse and answer each other about how they voted", function (
   b.s!.holdHouseMeeting({ caller: b.trusting!, accused: b.doubting!, claim: { kind: "lying-about", subject: b.doubting!, object: b.victim! } });
 });
 Then("no view shows any houseguest's actual ballot before the retrospective", async function () {
+  if ((this as { voteTalk?: unknown }).voteTalk) return voteTalkBallot.call(this); // 0154 scenario 7 shares this wording
   const b = bag(this);
   const blob = JSON.stringify([
     await b.sb!.mcp.player.callTool("getGameState", {}), await b.sb!.mcp.player.callTool("gameStatus", {}),

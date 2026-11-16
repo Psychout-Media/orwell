@@ -541,6 +541,20 @@ export function scrubMachineryAsides(text) {
 }
 
 /**
+ * ORW-540: cut the tail of a half-formed tool call echoed as prose (stray `</parameter>` / `</invoke>` closers, a DSML tag with ASCII or full-width bars) and unwrap a
+ * tool-result content envelope (`{"content":[{"type":"text","text":"..."}]`) to its text. Mirrors the server `_scrub_game_leak` additions; tag-only, prose is untouched.
+ */
+export function scrubToolMarkupTail(text) {
+  if (!text) return text;
+  let t = text.replace(/[ \t]*(?:<\/\s*(?:parameter|invoke)\s*>|<\s*\/?\s*[\uff5c|]+\s*DSML\s*[\uff5c|]*[^<>\n]{0,40}>)[ \t]*/gi, ' ');
+  const env = t.match(/^\s*\{\s*"content"\s*:\s*\[\s*\{\s*"type"\s*:\s*"text"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}\s*\]\s*\}?\s*$/);
+  if (env) {
+    try { return JSON.parse('"' + env[1] + '"').trim(); } catch (_) { return env[1].trim(); }
+  }
+  return t.trim();
+}
+
+/**
  * Real-world denylist scrub (#1784 F9) — structural defense.
  * Drops sentences that name a real host, network, or real-season continuity.
  * "Big Brother" is ALLOWED — the product's own name.
@@ -1434,6 +1448,7 @@ export function processWithThinking(text, ctx) {
       // machinery-aside scrub so it never reaches the public bubble.
       reply = (scrubMachineryAsides(reply) || '').trim();
       reply = (scrubRealWorldDeny(reply) || '').trim();
+      reply = (scrubToolMarkupTail(reply) || '').trim();
     }
     // NARR-9: the GM marks an OUT-OF-CHARACTER answer by wrapping its WHOLE reply
     // in `((...))` (the momentPrompts contract). The reload renderer reclassifies
@@ -1924,6 +1939,7 @@ const markdownModule = {
   scrubReasoningPreamble,
   redactRawIds,
   scrubMachineryAsides,
+  scrubToolMarkupTail,
   scrubMachineryForPersistence,
   composeThinkSource,
   extractSpeakerTags,
