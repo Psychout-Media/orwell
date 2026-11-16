@@ -1,5 +1,5 @@
 /**
- * B49 / PO ruling card 24 - NO HARD PER-SEASON COUNTS (behind `ORWELL_NO_HARD_CAPS`, default OFF, never-flipped).
+ * B49 / PO ruling card 24 - NO HARD PER-SEASON COUNTS (behind `ORWELL_NO_HARD_CAPS`, default ON).
  *
  * The old design capped NPC confide lies at 2 (`CONFIDENCE.maxLiesPerSeason`), player exposes at 3 (`LEVERAGE.maxExposesPerSeason`) and player trades at 5 (`SECRET_TRADE.maxTradesPerSeason`):
  * arbitrary, announced numbers. With the flag ON those counts stop being a DESIGN rule. What remains is (a) a HIGH technical safety valve (not a gameplay number: nothing in play should reach it) and

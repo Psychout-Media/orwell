@@ -10,7 +10,7 @@ import type { StrategyStyle } from "./characterFactory";
  * B10 / B11 slice 3 (design S3) - the scene-time SPREAD. For each CO-PRESENT pair of a night's off-screen scenes (the scene IS the co-presence: both are in the room), each side, as holder,
  * considers the facts they hold that the other lacks (top-K by motive, ASSUMED K=2 pending Ryne), draws ONE closed-set decision per (holder, fact, listener) ONCE (the told ledger), and a `share`
  * or `slip` moves the fact exactly ONE hop through `KnowledgeService.transmitGossip` (recorded as an event with the telling pair as witnesses - the same receipt path the graph diffusion used).
- * No network hops, no cross-room spread. Replaces the automatic graph rumor ONLY while `ORWELL_GOSSIP_COPRESENCE` is on (default OFF, so off is byte-identical: this is never called).
+ * No network hops, no cross-room spread. Replaces the automatic graph rumor ONLY while `ORWELL_GOSSIP_COPRESENCE` is on (the default) (default ON, so off is byte-identical: this is never called).
  * B34: SPIN is applied to the TRANSMISSION, never to authored text (ASSUMED, pending Ryne - the engine holds structured facts, not scripts, so it cannot write a falsehood): a `spun` share arrives with a
  * little distortion and less confidence; a `lie` (a share by a houseguest whose cunning reaches `DISCLOSURE.lieAt`) is recorded as `lied` in the told ledger - the engine's decision of WHO lied, limited not by a cap but by
  * `LIE_COST` (each lie told makes the next believed less) - and arrives with strong distortion and low confidence; content falsification waits for the narrator-facing slice.

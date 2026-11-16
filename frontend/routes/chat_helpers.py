@@ -1189,8 +1189,9 @@ _PENDING_KIND_HINTS = {
         "submitDecision (kind 'comp-round', intent=...). This approach is declared ONCE, up front, and "
         "covers the whole comp: it is committed before the round resolves and locked once it does. The "
         "later elimination rounds narrow the field as DRAMA over an already-decided result — they are "
-        "NOT a fresh choice each round, so never re-ask the player's approach as the field thins. Never "
-        "resolve a winner yourself and never re-label a finished round."
+        "NOT a fresh choice each round, so never re-ask the player's approach as the field thins. A "
+        "non-answer (\"next\") gets one or two in-fiction lines that the approach is waiting, never a "
+        "re-narrated scene. Never resolve a winner yourself and never re-label a finished round."
     ),
 }
 
@@ -6629,6 +6630,7 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
+        status = await _status_with_clock_label(user, status)  # review of #2630: `gameStatus` carries no clockLabel, so every clock-aware branch below needs it read fresh
         tod = str(status.get("timeOfDay") or "").strip().lower()
         lab = status.get("clockLabel")
         # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
@@ -6645,6 +6647,14 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
             return False
         if tod not in _UNBACKED_MORNING_BOARD_TIMES and not _clock_is_predawn(lab):
             return True
+        if _clock_is_predawn(lab) and tod not in _UNBACKED_MORNING_BOARD_TIMES:
+            # review of #2630: the player ALREADY turned in and woke early (the engine bands that "morning"): there is no bedtime to call turnIn for - say it is the small hours and where the morning begins.
+            _stash_overclaim_reground(
+                user,
+                "RE-GROUND ON THE CLOCK - you narrated the morning arriving, but the engine clock reads " + (_zc_narrator_clock(lab) if lab else "the small hours") + ": it is still the small hours, before 7am. "
+                "The player already turned in and woke early; it is dark, the house is asleep, and morning does not come until the engine's own morning. Voice only the quiet dark.")
+            logger.warning("[orwell] pre-emission guard HELD a pre-dawn morning claim for user=%s - engine clock still pre-dawn", user)
+            return False
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "

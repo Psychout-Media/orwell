@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi, beforeAll, afterAll } from "vitest";
 import { createHash } from "node:crypto";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -6,6 +6,11 @@ import type { LiveSeasonState } from "../../src/engine/liveSeason";
 import { recordClaim, claimsOf, BELIEF_CAP_PER_HOLDER, type BeliefStore } from "../../src/engine/beliefStore";
 import { resolvePending } from "../../features/support/answerPending";
 import { npc } from "../../src/domain/ids";
+
+// theme 2 slice 5b: vote talk (default on) adds told-claim beliefs of its own; this file pins the belief writers it tests (their exact kinds / provenance / neutrality), so it runs with vote talk off.
+let __voteTalk: string | undefined;
+beforeAll(() => { __voteTalk = process.env.ORWELL_VOTE_TALK; process.env.ORWELL_VOTE_TALK = "0"; });
+afterAll(() => { if (__voteTalk === undefined) delete process.env.ORWELL_VOTE_TALK; else process.env.ORWELL_VOTE_TALK = __voteTalk; });
 
 /**
  * #2017 S0a — the NPC belief store is DATA MODEL + PLUMBING ONLY. Gates: (1) the pure store (idempotent, bounded, deterministic);
@@ -70,7 +75,7 @@ describe("the belief store in a live season (S0a)", () => {
     expect(off.live.beliefs, "OFF: the key is never created").toBeUndefined();
     expect("beliefs" in off.live).toBe(false);
     expect(on.live.beliefs, "ON records claims").toBeDefined();
-    const { beliefs: _b, ...onRest } = on.live as LiveSeasonState & { beliefs?: BeliefStore };
+    const { beliefs: _b, claims: _c, ...onRest } = on.live as LiveSeasonState & { beliefs?: BeliefStore }; // `claims`: the 0149 told-claim log exists only while beliefs are on
     expect(sha(onRest), "everything but `beliefs` is byte-identical off vs on").toBe(sha(off.live));
     expect(on.live.winner).toBe(off.live.winner);
     expect(on.live.evictionOrder).toEqual(off.live.evictionOrder);

@@ -34,6 +34,7 @@ const SECRET = "SENTINEL-HIDDEN-SECRET-7731";
 const HIDDEN_EVENT = "SENTINEL-HIDDEN-SCENE-4410";
 const DIARY = "SENTINEL-DIARY-ENTRY-9082";
 const RUMOR = "SENTINEL-UNSURFACED-RUMOR-5523";
+const VISIBLE = "SENTINEL-WITNESSED-CEREMONY-2206";
 
 /** Plant everything the recap must never carry, then close day 1. */
 function plantAndClose(seed: number, opts: { strainedDeal?: boolean; surfaced?: string } = {}) {
@@ -43,7 +44,9 @@ function plantAndClose(seed: number, opts: { strainedDeal?: boolean; surfaced?: 
   const live = (session as unknown as { live: { nominees?: string[]; hoh?: string } }).live;
   live.nominees = [nominee!, evictee!]; live.hoh = hoh!;
   sb.engine.vault.writeHidden({ id: "h-secret", kind: "hidden-attribute", content: SECRET });
-  sb.engine.events.record({ id: "hid:1", ts: 9001, type: "scheme", initiator: teller!, witnessSet: [teller!, nominee!], hidden: true, content: HIDDEN_EVENT });
+  // review of ORW-254: the hidden event would QUALIFY as a highlight (a `season:` id and a deal type) if it were not hidden, so only the hidden filter keeps it out; the visible one is the control that proves the filter still lets a qualifying event through
+  sb.engine.events.record({ id: "season:hid-1", ts: 9001, type: "deal", initiator: teller!, witnessSet: [teller!, nominee!], hidden: true, content: HIDDEN_EVENT });
+  sb.engine.events.record({ id: "season:vis-1", ts: 9002, type: "house-event", initiator: hoh!, witnessSet: [PLAYER, hoh!, nominee!], hidden: false, content: VISIBLE });
   sb.engine.knowledge.seedBelief(teller!, { content: RUMOR, factId: "gossip:rumor" }, "witnessed"); // diffusing in the hidden layer, never surfaced to the player
   sb.engine.knowledge.recordDiaryRoom(DIARY); // the player's own OOC Diary Room (no in-game pathway to anyone)
   if (opts.surfaced) {
@@ -70,6 +73,7 @@ describe("ORW-254 - the real recap and hint carry only the player's perspective"
       expect(leaks(recap, [SECRET, HIDDEN_EVENT, DIARY, RUMOR])).toEqual([]);
       expect(leaks(recap, [names.nominee, names.evictee, names.hoh])).toEqual([]);
       expect(recap.surfaced.join(" ")).toContain("actually told"); // positive control: what the player WAS told does appear
+      expect(recap.highlights.join(" "), "a qualifying event the player witnessed is in the recap (the filter is not just empty)").toContain(VISIBLE);
       expect(recap.hook).toBeDefined();
     });
   }
@@ -85,5 +89,22 @@ describe("ORW-254 - the real recap and hint carry only the player's perspective"
     const a = plantAndClose(8, { surfaced: "something heard" }), b = plantAndClose(8, { surfaced: "something heard" });
     expect(a.recap.hook).toEqual(b.recap.hook);
     expect(a.session.dailyRecap()).toEqual(a.recap);
+  });
+  it("with a strained deal AND something heard, the hint is chosen on its own per-day stream: the shared beat stream neither moves it nor is moved by it", () => {
+    const hooks = new Set<string>();
+    for (const perturb of [false, true]) {
+      const { session } = rig(6);
+      const npcs = session.livingIds().filter((id) => id !== PLAYER);
+      (session as unknown as { deals: { make: (...a: unknown[]) => unknown } }).deals.make([PLAYER, npcs[4]!], "safety", "we keep each other safe", undefined, 1, { vague: true });
+      const surfacedFact = "SENTINEL-SURFACED-FOR-HOOK-3317";
+      const s = session as unknown as { buildDailyRecapHook(day: number, surfaced: readonly string[]): { thread: string } | undefined; live: { beat: string; week: number } };
+      const before = JSON.stringify(s.live);
+      if (perturb) { s.live.beat = "nominations"; s.live.week = 4; } // a different beat context => a different shared beat stream
+      const hook = s.buildDailyRecapHook(1, [surfacedFact]);
+      expect(hook, "both candidates exist").toBeDefined();
+      hooks.add(hook!.thread);
+      if (!perturb) expect(JSON.stringify(s.live), "choosing the hook leaves the loop state untouched").toBe(before);
+    }
+    expect([...hooks], "the same hook with or without the shared stream perturbed").toHaveLength(1);
   });
 });

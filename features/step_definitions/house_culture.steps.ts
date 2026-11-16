@@ -4,7 +4,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 import { GameSessionRegistry, type UserSandbox } from "../../src/composition/registry";
 import { LEAN_IDS, describeHouseLeans, type HouseLeans } from "../../src/engine/houseLeans";
 
-/** Feature 0159 - the house culture foundation (ORW-551). Drives the REAL adapter. Roles only. */
+/** Feature 0162 - the house culture foundation (ORW-551). Drives the REAL adapter. Roles only. */
 type Bag = { sb?: UserSandbox; s?: GameSessionAdapter; copy?: GameSessionAdapter; a?: string; b?: string };
 const bag = (w: unknown): Bag => ((w as { hc0159?: Bag }).hc0159 ??= {});
 const live = (s: GameSessionAdapter) => (s as unknown as { live: { houseLeans?: HouseLeans } }).live;

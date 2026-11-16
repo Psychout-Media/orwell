@@ -2142,9 +2142,8 @@
    "name": "SAFE_VOCATIONS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "plain-job fallback of the age/place plausibility acceptance (PR 2840)",
-   "decision": "plain-job fallback for a job the age rules rule out (PR 2840 bounded retries): the genesis writer authors the vocation live, this fallback only fires after rejections",
-   "transitional": "PR 2840"
+   "reason": "plain-job fallback of the age/place plausibility acceptance",
+   "decision": "plain-job fallback for a job the age rules rule out (PR 2840 bounded retries): the genesis writer authors the vocation live, this fallback only fires after rejections"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2472,6 +2471,15 @@
    "owner": "ORW-509",
    "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
    "transitional": "PR 2843 (replaced by composed floors)"
+  },
+  {
+   "path": "src/engine/houseLeans.ts",
+   "kind": "list",
+   "name": "LEAN_IDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: the engine's culture lean keys, drawn by a seeded side stream; never shown to the player or a model (the retrospective gets texture words only)",
+   "decision": "mechanics: an internal key set the seeded draw picks 2-3 of and blends; not player text"
   },
   {
    "path": "src/engine/houseLife.ts",

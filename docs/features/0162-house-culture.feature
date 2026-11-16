@@ -1,4 +1,4 @@
-# Feature 0159 - the season house culture, slice 1: the foundation (ORW-551). Design note: 0159-house-culture.md.
+# Feature 0162 - the season house culture, slice 1: the foundation (ORW-551). Design note: 0162-house-culture.md.
 # A played season draws a loose seeded blend of a few culture leans, stored engine-only. Nothing reads it yet, so no dial moves. Revealed only after
 # the crown, in plain words. Roles only.
 

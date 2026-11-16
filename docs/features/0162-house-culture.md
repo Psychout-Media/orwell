@@ -1,6 +1,6 @@
-# 0159 - Season house culture (slice 1: the foundation)
+# 0162 - Season house culture (slice 1: the foundation)
 
-Card: ORW-551. Executable spec: `0159-house-culture.feature`. Unit gate: `tests/unit/houseLeans.test.ts`.
+Card: ORW-551. Executable spec: `0162-house-culture.feature`. Unit gate: `tests/unit/houseLeans.test.ts`.
 
 ## What it is
 
