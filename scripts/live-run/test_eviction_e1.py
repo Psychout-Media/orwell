@@ -115,9 +115,9 @@ def test_a_card_on_eviction_night_is_answered_through_the_weeks_own_card_turn(mo
 class _ClockEng:
     """minutesUntil falls 5 per message tick; the hour jumps to 24 at one point so the bed path runs."""
     def __init__(self, start, night_at=None):
-        self.mu, self.ticks, self.slept, self.night_at = start, 0, 0, night_at
+        self.mu, self.ticks, self.slept, self.night_at, self.tomorrow = start, 0, 0, night_at, False
     def call(self, name, args=None):
-        if name == "getGameState": return {"daySchedule": {"minutesUntil": self.mu, "due": self.mu <= 0}}
+        if name == "getGameState": return {"daySchedule": {"minutesUntil": self.mu, "due": self.mu <= 0, "tomorrow": self.tomorrow}}
         if name == "noteMessage": self.ticks += 1; self.mu -= 5
         return {}
     def hour(self): return (24, 0) if self.night_at is not None and self.ticks == self.night_at and not self.slept else (14, 0)
@@ -138,3 +138,11 @@ def test_the_night_goes_to_bed_and_the_bound_stops_a_clock_that_never_moves():
             if name == "noteMessage": self.ticks += 1; return {}
             return super().call(name, args)
     assert ev.advance_to_due(_Stuck(600), max_ticks=40) is False
+
+
+def test_a_near_clock_does_not_count_while_the_ceremony_is_still_tomorrow():
+    """ORW-548 (by design, ORW-258): the eviction waits behind the night; the E-1 clock mark needs `tomorrow` cleared."""
+    e = _ClockEng(20); e.tomorrow = True
+    assert ev.advance_to_due(e, max_ticks=10) is False     # 20 minutes away but still behind the night
+    e.tomorrow = False
+    assert ev.advance_to_due(e) is True

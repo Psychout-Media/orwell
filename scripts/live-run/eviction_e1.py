@@ -66,7 +66,8 @@ def advance_to_due(eng, minutes_before=NEAR_DUE_MINUTES, max_ticks=MAX_ADVANCE_T
     for n in range(max_ticks):
         ds = (eng.call("getGameState") or {}).get("daySchedule") or {}
         mu = ds.get("minutesUntil")
-        if ds.get("due") or (isinstance(mu, (int, float)) and mu <= minutes_before):
+        # the eviction waits BEHIND the night (ORW-258): it only counts as night-of-eviction once the night has passed (`tomorrow` cleared), however few minutes the schedule reads
+        if not ds.get("tomorrow") and (ds.get("due") or (isinstance(mu, (int, float)) and mu <= minutes_before)):
             return True
         h, _ = eng.hour()
         if h is not None and h >= 24:
