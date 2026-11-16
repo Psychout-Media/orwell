@@ -31,7 +31,7 @@ def _profile(first, ident, cam=None):
 
 
 def _go(c):
-    return asyncio.new_event_loop().run_until_complete(c)
+    return asyncio.run(c)  # a fresh loop per call, closed after (review of #2780)
 
 
 def _two(second_npc=None, rewrite=None, cam_b=None, ident_b="A thirty-year-old welder who reads a room before speaking."):
@@ -106,6 +106,7 @@ def test_a_writer_error_or_nothing_leaves_the_card_as_it_is():
     assert got is not None and got["identityConcept"].startswith("A thirty-year-old welder who reads")
     _, got2, calls = _two(rewrite=None)
     assert len(calls) == 1 and got2 is not None
+    assert got2["identityConcept"] == "A thirty-year-old welder who reads a room before speaking.", "no rewrite: the original line stands"
 
 
 def test_an_introduced_card_is_never_rewritten():

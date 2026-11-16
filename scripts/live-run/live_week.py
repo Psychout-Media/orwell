@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import argparse, json, re, sys, time
 
-from live_short import clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
+from live_short import slot_default, clock_hour, BUB, BUSY_JS, CAST_LINES, COMP_PLAY_RE, EARLY_ASK, LEAK_RE, SHELL_RE, Chat, Engine, score as score_turn, write
 
 CARD = """() => { const d=document.querySelector('#orwell-decision-card'); if(!d) return null;
   return {title:(d.querySelector('.odec-title')||{}).innerText||'', opts:[...d.querySelectorAll('.odec-opt')].map(o=>o.innerText.trim()), hasText:!!d.querySelector('textarea')}; }"""
@@ -31,6 +31,15 @@ BED = ["It's late and I'm exhausted. I say goodnight and go to bed.", "I head to
 GOODBYE = "I'll miss you all. Play your own games, and good luck."
 
 
+def simplest_option(opts):
+    """The index of the simplest legal option, or None. An evicted player skips to the finale (the run is about the season, not a spectator tour): skip gets its OWN pass over every option, so the
+    order the engine lists them in ("Keep watching" before "Skip ahead") never decides it."""
+    for pat in (r"(?i)\bskip\b", r"(?i)\bcompete\b", r"(?i)do not use|don'?t use|not use|keep"):
+        hit = next((i for i, o in enumerate(opts) if re.search(pat, o)), None)
+        if hit is not None: return hit
+    return None
+
+
 class _Resume(Exception):
     pass
 
@@ -43,15 +52,13 @@ class Week(Chat):
         title = (c.get("title") or "").lower(); opts = c["opts"]
         pick = [0]
         try: me = self.name_fn() if self.name_fn else None
-        except Exception: me = None
+        except Exception as e: me = None; print(f"[live_week] could not read the player's name from the engine ({e}); a nominee's veto card will not pick Save", file=sys.stderr)
         mine = next((i for i, o in enumerate(opts) if me and re.fullmatch(r"(?i)save\s+" + re.escape(me), o.strip())), None)
         if "veto" in title and mine is not None: pick = [mine]  # the runner is a player, not a saboteur: a nominee who holds the veto uses it on themselves (two runs lost the player in week 1 to "Don't use the veto")
         elif "nominat" in title and len(opts) > 1: pick = [0, 1]
         else:
-            for i, o in enumerate(opts):
-                if re.search(r"(?i)\bskip\b", o): pick = [i]; break  # an evicted player: skip to the finale (the run is about the season, not a spectator tour). Checked FIRST: "Keep watching" used to win and the run sat in Watch mode
-                if re.search(r"(?i)\bcompete\b", o): pick = [i]; break
-                if re.search(r"(?i)do not use|don'?t use|not use|keep", o): pick = [i]; break
+            hit = simplest_option(opts)
+            if hit is not None: pick = [hit]
         btns = self.page.query_selector_all("#orwell-decision-card .odec-opt")
         for i in pick:
             if i < len(btns): btns[i].click(); self.page.wait_for_timeout(150)
@@ -88,11 +95,12 @@ class Week(Chat):
         # ORW-348: a reply read as unsettled (no footer yet) gets a GRACE window, polled once a second, before it is called stuck. Recorded: did the footer appear late (and when), did the text keep growing (the wait loop quit between
         # rounds), or is the bubble still without a footer after the grace (a reply the player would see hang). Tells a runner that gave up too early from a real stuck reply.
         late = {}
-        if new and not new[-1]["done"]:
+        if new and not new[-1]["done"] and time.time() - t0 < limit:   # the grace is for a reply that went quiet, never a second wait on a turn that already timed out
             g0 = time.time(); txt0 = "\n".join(x["txt"] for x in new)
             while time.time() - g0 < 45:
                 self.page.wait_for_timeout(1000)
                 bs2 = self.page.evaluate(BUB); new2 = bs2[before:] if len(bs2) >= before else bs2
+                if time.time() - g0 > 45: break   # a poll that overran the deadline is not a late completion
                 if new2 and new2[-1]["done"]:
                     late = {"late_done_s": round(time.time() - g0), "late_grew_chars": len("\n".join(x["txt"] for x in new2)) - len(txt0), "late_busy": bool(self.page.evaluate(BUSY_JS))}; new = new2; break
             else:
@@ -106,19 +114,25 @@ class Week(Chat):
         r = self.wait_new(before, t0); r["label_extra"] = label; return r
 
 
+def first_name_evicted(player_name, evicted_names):
+    """Is the player's first name the first name of someone evicted? Whole tokens, so 'Al' never matches 'Alan' (review of #2839)."""
+    me_ = (player_name or "").split()[:1]
+    return bool(me_) and any(me_[0].lower() == (n_ or "").split()[:1][0].lower() for n_ in (evicted_names or []) if (n_ or "").split())
+
+
 def names(lst): return [x.get("name") for x in (lst or []) if isinstance(x, dict)]
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
-    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=None)
+    ap.add_argument("--engine", default=None); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--max-turns-per-phase", type=int, default=30); ap.add_argument("--turn-limit-secs", type=int, default=120)
     ap.add_argument("--season", action="store_true", help="after Week 1, keep playing week after week to the finale and the jury vote")
     ap.add_argument("--resume", action="store_true", help="attach to the game already running on the rig (no casting, no Week 1 checks) and play on with --season")
     ap.add_argument("--stop-after-week", type=int, default=0, help="with --season: stop once this week has ended (0 = play to the finale)")
     ap.add_argument("--max-turns-total", type=int, default=400); ap.add_argument("--max-turns-per-week", type=int, default=90)
-    a = ap.parse_args()
+    a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     from playwright.sync_api import sync_playwright
     eng = Engine(a.engine, a.token); turns, checks, facts = [], [], {"phases": []}
     if a.resume:
@@ -133,6 +147,7 @@ def main():
              "settled": r["settled"], "timed_out": r["timed_out"], **{k: v for k, v in r.items() if k.startswith("late_")}, "new_bubbles": r["new_bubbles"], "pending": ((st.get("pending") or {}).get("kind") if isinstance(st.get("pending"), dict) else None),
              "nominees": names(cer.get("nominees") or st.get("nominees")), "veto_holder": ((cer.get("veto") or {}).get("holder") or {}).get("name") if isinstance((cer.get("veto") or {}).get("holder"), dict) else None,
              "hoh": (cer.get("hoh") or {}).get("name") if isinstance(cer.get("hoh"), dict) else None}
+        t["clock_pre_send"] = facts.pop("_pre_clock", None)
         t["harness_jump"] = eng.jumps; eng.jumps = 0; t["phase_before"] = facts.get("_last_phase"); facts["_last_phase"] = st.get("phase")
         turns.append(t)
         try: open(f"{a.run_dir}/turns.jsonl", "a").write(json.dumps(t, default=str) + "\n")
@@ -169,6 +184,7 @@ def main():
                 if bed_n >= 3: eng.call("turnIn"); eng.jumps += 1; facts.setdefault("bed_not_honoured", []).append({"clock": st.get("clockLabel"), "turn": len(turns)}); bed_n = 0  # the model never turned them in after 3 asks: report it and move on
             else:
                 text = GO[n % len(GO)] if ds.get("due") else SOCIAL[n % len(SOCIAL)]
+            facts["_pre_clock"] = (eng.call("getGameState") or {}).get("clockLabel")  # review of #2839: the clock just before THIS message, so the runner's own moves are excused only up to here
             t0 = time.time(); before = len(week.page.evaluate(BUB))
             week.page.fill("#message", text); week.page.wait_for_timeout(300)
             if week.page.evaluate("document.querySelector('.send-btn')?.getAttribute('data-mode')") == "send": week.page.click(".send-btn")
@@ -181,6 +197,8 @@ def main():
         wk = 1; per_week = 0; last_week = eng.call("getGameState").get("week", 2); facts["weeks"] = []
         while not over(eng.call("getGameState")) and len(turns) < a.max_turns_total:
             cur = eng.call("getGameState").get("week", last_week)
+            if a.stop_after_week and cur > a.stop_after_week:   # Week 1 is already over when the bound is 1: never start the next week
+                facts["stopped_after_week"] = cur - 1; return
             ok = play_until(lambda s: over(s) or s.get("week", cur) > cur, f"w{cur}", a.max_turns_per_week)
             facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
             check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")
@@ -231,11 +249,15 @@ def main():
                 check("W3d-no-wrong-winner", not bad, f"replies crown someone other than the engine's winner: {bad}" if bad else "no conflicting winner")
             ok = play_until(lambda s: s.get("phase") == "eviction", "cer", cap)
             check("W4-veto-ceremony-done", ok, f"reached eviction within {cap} turns")
-            ok = play_until(lambda s: s.get("week", 1) >= 2 and s.get("phase") in ("hoh-competition", "premiere"), "evict", cap + 10)
-            check("W5-eviction-night-done", ok, f"reached Week 2 within {cap + 10} turns")
+            def player_out(s):  # ORW-503: the player voted out in Week 1 is a healthy outcome that ends the Week 1 checks (the run then skips to the finale), not a failed run
+                return first_name_evicted((s.get("player") or {}).get("name"), names((eng.call("seasonRecap") or {}).get("evicted")))
+            ok = play_until(lambda s: (s.get("week", 1) >= 2 and s.get("phase") in ("hoh-competition", "premiere")) or player_out(s), "evict", cap + 10)
+            check("W5-eviction-night-done", ok, f"reached Week 2 (or the player was voted out) within {cap + 10} turns")
             rec = eng.call("seasonRecap") or {}; ev = names(rec.get("evicted")); facts["evicted"] = ev
-            check("W5b-one-evicted", len(ev) == 1, f"engine evicted: {ev}")
-            if ev:
+            _out = player_out(eng.call("getGameState") or {})
+            if _out: check("W5b-player-evicted-early", True, f"the player was voted out in Week 1 (engine evicted: {ev}); the remaining Week 1 checks do not apply", "note")
+            else: check("W5b-one-evicted", len(ev) == 1, f"engine evicted: {ev}")
+            if ev and not _out:
                 ev_text = "\n".join(t["text"] for t in turns if t["label"].startswith("evict-"))
                 check("W5c-evictee-voiced", ev[0].split()[0] in ev_text, f"the engine's evictee ({ev[0]}) is named in the eviction-night replies")
             if a.season: season_loop()

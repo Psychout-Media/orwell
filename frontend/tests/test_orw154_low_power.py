@@ -131,6 +131,10 @@ out.classifier = {
 lib.setThemeChoiceClassifier(() => { throw new Error('boom'); });
 lib.setThemeChoiceClassifier('not a function');   // ignored: the throwing classifier above stays installed
 out.classifierThrows = { stamped: lib.hasExplicitThemeChoice(store({ name: 'glass', _explicit: true })), unstamped: lib.hasExplicitThemeChoice(store({ name: 'dark' })) };
+// review of #2262: a browser that BLOCKS storage throws on the bare `localStorage` read; the decision must still run (no storage -> no choice)
+Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('SecurityError: storage is blocked'); } });
+try { out.blockedStorage = lib.decideLowPower({ search: '', detect: SW, automated: false, fresh: true }).on; } catch (e) { out.blockedStorage = 'threw: ' + e.message; }
+delete globalThis.localStorage;
 console.log(JSON.stringify(out));
 """
 
@@ -234,3 +238,9 @@ def test_theme_js_registers_its_classifier_and_a_first_tier_pick_is_saved():
     mig = theme[theme.index("function _isPristineOldDefault(obj) {"):]
     mig = mig[:mig.index("\n}\n")]
     assert "obj.name !== _PREV_DEFAULT_THEME" in mig and "if (obj._explicit) return false;" in mig and "_isUncustomizedRecordOf(obj, _PREV_DEFAULT_THEME)" in mig
+
+
+def test_blocked_storage_does_not_throw_out_of_the_decision(unit):
+    """review of #2262: reading `localStorage` throws where storage is blocked; that used to escape decideLowPower (via glassTierCeiling)
+    and stop initThemeUI half way. Blocked storage reads as no saved choice: a software renderer stays low-power."""
+    assert unit["blockedStorage"] is True, unit["blockedStorage"]

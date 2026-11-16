@@ -52,6 +52,8 @@ Vault with a *kind* (`pre-game-tie` / `showmance`) and a *stage*, seeded sparsel
 
 ## 3. Governed by the reserve-twist rules (0025) — the hard gate (L35 ruling)
 
+> Scope note (see the ORW-132 amendment below): the sealed-until-a-pathway rule here applies to SECRET ties only; a tie marked public from Day 1 is plain knowledge.
+
 This layer inherits the **reserve-twist governance** verbatim (feature 0025):
 
 1. **Vault-sealed from the player AND the admin.** The engine generates + seals each tie; neither the
@@ -93,6 +95,8 @@ player only as *behavior*.
 
 ## 6. Vault-Wall guarantees & testability
 
+> Scope note (see the ORW-132 amendment below): these guarantees cover SECRET ties only; a public tie is not sealed.
+
 - **No tie, stage, or partner ever reaches the player OR the admin** until a modeled pathway
   surfaces it — sentinel-tested on the player surface, the admin/God-Mode surface, `npcVoice`, and
   the moment prompt (extends the 0001 canary). Dependency-cruiser stays green (no `VaultStore` edge).
@@ -130,4 +134,5 @@ affinity bias is identical for every tie, so no nature is a competition or vote 
 - Rare, like reserve twists: a budgeted tie slot loads with `TIE_LOAD_PROB` (ASSUMED 0.25, pending Ryne; reserve twists load at 0.5), so most seasons have no pre-show tie at all.
 - Every tie carries a `visibility` mark, `secret` or `public`, decided at season start from a dedicated seeded draw whose chance depends on the pair (`PUBLIC_TIE_CHANCE`: family and former teammates are usually out in the open, an ex or a prior romance usually kept quiet; ASSUMED pending Ryne).
 - A PUBLIC tie starts at exposure `public` and is announced on Day 1 as an event the whole house (player included) witnessed, so it is an ordinary house fact. A SECRET tie stays sealed and spreads only by the normal rules (0059 section 5, 0095).
+- This SUPERSEDES the earlier rules where they conflict: the identical-bias amendment holds for friendly natures only (an ex or a rival starts cold), and the sealed-until-a-pathway guarantees of sections 3 and 6 apply to SECRET ties only (a public tie is a Day 1 house fact, by design).
 - Hostility is the pair's own: an ex or a rival starts cold, each side by its own temperament (`tieDirectedBias`: strategy style and volatility); every friendly nature keeps the original small warm bias. Engine: `src/engine/tieVisibility.ts`. Tests: `tests/unit/preShowTiesVisibility.test.ts`.

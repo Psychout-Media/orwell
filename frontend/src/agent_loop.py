@@ -3351,7 +3351,7 @@ _MOVE_TOOLS = {"moveTo"}
 _MAX_MOVE_NUDGES_PER_TURN = 1  # at most one auto-move per finishing turn
 # The canonical house floor plan (mirrors src/domain/house.ts HOUSE_ROOMS). The engine no-ops an
 # unknown room; matching here keeps the extraction honest and the pre-filter cheap.
-from src.house_rooms import HOUSE_ROOMS as _HOUSE_ROOMS  # ORW-418: the engine's own list (no copy here)
+from src.house_rooms import HOUSE_ROOMS as _HOUSE_ROOMS, room_id_list as _room_id_list, room_id_of as _room_id_of, themed_rooms_in as _themed_rooms_in  # ORW-418: the engine's own list (no copy here); ORW-466: + the season's names
 # A deliberately BROAD pre-filter — movement language is varied ("I head to the kitchen", "let's go
 # out back", "I wander into the living room", "walk over to the bedroom", "step into the bathroom").
 # A missed signal means a lost move (the immersion bug); a false hit only costs a rare extraction
@@ -3473,9 +3473,29 @@ def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers
     return fallback_url, fallback_model, fallback_headers
 
 
-def _player_move_instructions() -> str:
-    """The player-move extraction instruction block (ORW-294: shared verbatim by _move_player_extract and the merged call)."""
-    rooms = ", ".join(_HOUSE_ROOMS)
+def _season_room_names(owner):
+    """ORW-466: this season's themed room names (the whereabouts pinned at this turn's framing), or None without a house theme. No engine read."""
+    try:
+        from routes import chat_helpers as _ch
+        return _ch.turn_room_names(owner)
+    except Exception:  # failsoft-ok: expected-empty (no names => the plain room-id list, exactly as before)
+        return None
+
+
+def _themed_move_signal(text: str, owner) -> bool:
+    """ORW-466: the movement pre-filter's second half - `text` names one of this season's themed rooms ("leaves for the Coral Reef Room"), which `_MOVE_SIGNAL_RE` cannot know. False without a theme."""
+    return bool(_themed_rooms_in(text, _season_room_names(owner)))
+
+
+def _themed_rooms_note(room_names) -> str:
+    """ORW-466: the one extra sentence a themed season adds to a move-extraction prompt ("" without a theme)."""
+    return (" This season the rooms have themed names (in brackets after each id): a themed name, or a short form of it, means that room; "
+            "reply with its id, never the themed name.") if isinstance(room_names, dict) and room_names else ""
+
+
+def _player_move_instructions(room_names=None) -> str:
+    """The player-move extraction instruction block (ORW-294: shared verbatim by _move_player_extract and the merged call). `room_names`: ORW-466, the season's themed names."""
+    rooms = _room_id_list(_HOUSE_ROOMS, room_names)
     return (
         "Decide whether the PLAYER walked to a new room in this Big Brother scene, and if so "
         "which one. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, no "
@@ -3487,6 +3507,7 @@ def _player_move_instructions() -> str:
         'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
         '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
         "\"couch\" → living-room, \"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."
+        + _themed_rooms_note(room_names)
     )
 
 
@@ -3494,7 +3515,7 @@ async def _move_player_extract(narration, last_user, endpoint_url, model, header
     """ORW-173: the player-move EXTRACTION call alone (no engine write), so it can run concurrently with the NPC-move extraction."""
     from src.llm_core import llm_call_async
     msgs = [
-        {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _player_move_instructions()},
+        {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _player_move_instructions(_season_room_names(owner))},
         {"role": "user", "content":
             f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
             f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -3548,9 +3569,10 @@ def _merged_extraction_enabled() -> bool:
     return str(os.environ.get(_MERGED_EXTRACTION_FLAG, "")).strip().lower() not in ("0", "false", "no", "off")
 
 
-def _merged_extract_instructions() -> str:
+def _merged_extract_instructions(room_names=None) -> str:
     """The three existing instruction blocks, verbatim (the same constants/builders the separate calls use, so the wording cannot
-    drift), under one output envelope (the caller prepends the untrusted-data fence, like every extraction belt). Vault-free like each block alone."""
+    drift), under one output envelope (the caller prepends the untrusted-data fence, like every extraction belt). Vault-free like each block alone.
+    `room_names`: ORW-466, the season's themed room names, handed to both move blocks."""
     return (
         "You make THREE independent judgements about ONE Big Brother scene (the user message). Reply IMMEDIATELY with ONLY ONE JSON "
         "object — no analysis, no thinking, no prose, no code fence — with exactly these three keys:\n"
@@ -3559,8 +3581,8 @@ def _merged_extract_instructions() -> str:
         "Decide each section on its own, from its own instructions; each section's value is the whole object that section describes "
         "(an empty answer is still that object, e.g. {\"withIds\":[]}, {\"moves\":[]}, {\"room\":null}).\n\n"
         "=== SECTION 1 (key \"scene\") ===\n" + _SCENE_EXTRACT_INSTRUCTIONS + "\n\n"
-        "=== SECTION 2 (key \"npcMoves\") ===\n" + _npc_move_instructions() + "\n\n"
-        "=== SECTION 3 (key \"playerRoom\") ===\n" + _player_move_instructions())
+        "=== SECTION 2 (key \"npcMoves\") ===\n" + _npc_move_instructions(room_names) + "\n\n"
+        "=== SECTION 3 (key \"playerRoom\") ===\n" + _player_move_instructions(room_names))
 
 
 def _parse_merged_reply(raw: str) -> dict:
@@ -3602,7 +3624,7 @@ async def _merged_turn_extract(narration, last_user, house, endpoint_url, model,
         if not roster:
             return none
         msgs = [
-            {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _merged_extract_instructions()},
+            {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _merged_extract_instructions(_season_room_names(owner))},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
                 f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -3647,8 +3669,8 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         if obj is None:
             logger.info(f"[orwell] auto-move: no parseable JSON (len={len(raw)})")
             return False
-        room = obj.get("room")
-        if not isinstance(room, str) or room not in _HOUSE_ROOMS:
+        room = _room_id_of(obj.get("room"), _season_room_names(owner))  # ORW-466: a themed-name echo still maps to its id
+        if not room:
             return False  # null / no move / unknown room → nothing to do
         # 0065 Part A: attach the CAS token + refresh last-seen from the response; a stale 409 (the
         # board moved under us) is reconciled-and-skipped (None) — the move re-derives next turn.
@@ -3709,9 +3731,9 @@ def _player_summoned(last_user, name) -> bool:
     return bool(_SUMMON_RE.search(text))
 
 
-def _npc_move_instructions() -> str:
-    """The NPC-move extraction instruction block (ORW-294: shared verbatim by _move_npc_extract and the merged call)."""
-    rooms = ", ".join(r for r in _HOUSE_ROOMS if r != "diary-room")  # NPCs never walk the player's DR
+def _npc_move_instructions(room_names=None) -> str:
+    """The NPC-move extraction instruction block (ORW-294: shared verbatim by _move_npc_extract and the merged call). `room_names`: ORW-466, the season's themed names."""
+    rooms = _room_id_list([r for r in _HOUSE_ROOMS if r != "diary-room"], room_names)  # NPCs never walk the player's DR
     return (
         "Decide which OTHER houseguests (NOT the player) walked to a new room in this Big "
         "Brother scene, and where each one ended up. Reply IMMEDIATELY with ONLY a JSON object "
@@ -3723,6 +3745,7 @@ def _npc_move_instructions() -> str:
         "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"couch\" → living-room, "
         "\"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
         'If no houseguest clearly moved, reply {"moves":[]}.'
+        + _themed_rooms_note(room_names)
     )
 
 
@@ -3734,7 +3757,7 @@ async def _move_npc_extract(narration, last_user, house, endpoint_url, model, he
     if not roster:
         return ""
     msgs = [
-        {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _npc_move_instructions()},
+        {"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _npc_move_instructions(_season_room_names(owner))},
         {"role": "user", "content":
             f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
             f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -3780,13 +3803,14 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
         valid = {h.get("id") for h in house}
         seen: set[str] = set()
         picks: list[tuple[str, str]] = []
+        _names466 = _season_room_names(owner)  # ORW-466: a themed-name echo still maps to its id
         for mv in (obj.get("moves") or []):
             if not isinstance(mv, dict):
                 continue
-            hid, room = mv.get("id"), mv.get("room")
+            hid, room = mv.get("id"), _room_id_of(mv.get("room"), _names466)
             if not isinstance(hid, str) or hid not in valid or hid in seen:
                 continue
-            if not isinstance(room, str) or room not in _HOUSE_ROOMS or room == "diary-room":
+            if not room or room == "diary-room":
                 continue
             seen.add(hid)
             picks.append((hid, room))
@@ -6375,7 +6399,7 @@ def close_open_markup(text: str) -> str:
             stack.append("\u201d")
         elif ch == "\u201d":
             if "\u201d" in stack:
-                del stack[stack.index("\u201d"):]
+                del stack[len(stack) - 1 - stack[::-1].index("\u201d"):]  # the INNERMOST open curly quote closes, an outer one stays open
         elif ch == '"':
             if '"' in stack:
                 del stack[stack.index('"'):]
@@ -7999,6 +8023,12 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     user — then delegates to the loop implementation and RESETS the context in a ``finally`` at turn
     end (even on early consumer close / exception) so keys never bleed across turns. Byte-identical and
     a cheap no-op when observability is disabled (the default). See ``llm_trace.set_observability_context``."""
+    try:  # ORW-481 (review 4582382317): a fold staged by a turn that dropped/errored before its [DONE] must not stand the next turn's E22 floor down
+        if kwargs.get("session_id") is not None:
+            from src import fold_ledger as _fl_turn
+            _fl_turn.consume_staged_this_turn(kwargs.get("owner"), kwargs.get("session_id"))
+    except Exception as _e:  # failsoft-ok: the flag is a stand-down hint only
+        logger.debug("ORW-481: staged-flag reset failed: %s", _e)
     _obs_token = _set_turn_observability_context(
         kwargs.get("owner"), kwargs.get("session_id"), kwargs.get("game_mode", False)
     )
@@ -9030,6 +9060,9 @@ async def _stream_agent_loop_impl(
                     _candidate_choice = _forced_tool_choice_for_beat(
                         _framed_key, _turn_tool_names_force, pending_open=_pending_open,
                         required_lever=_framed_required_lever)
+                    from routes import chat_helpers as _ch_draw
+                    if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
+                        _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
                     if _candidate_choice is not None and _model_honors_forced_tool_choice(model):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
@@ -9108,7 +9141,7 @@ async def _stream_agent_loop_impl(
                 and bool(get_setting("force_tool_choice_at_beats", True))):
             try:
                 from routes import chat_helpers as _ch_esc
-                if _ch_esc.advance_escalation_armed(owner):
+                if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
                     if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
@@ -9699,6 +9732,7 @@ async def _stream_agent_loop_impl(
                 logger.info("[predisplay-rewrite] no continuation: native_calls=%d tail_opener=%s drain_timed_out=%s", len(native_tool_calls), _pd_op >= 0, _pd_drain["timed_out"])
                 if _pd_op >= 0:
                     round_response += _pd_all_tail[_pd_op:]
+                    _opener_halted_round = True  # review of #2784: prose after this opener was never shown either, so the storage cut below drops it (ORW-453)
                 _pd_rw_pending = None
             else:
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
@@ -10304,7 +10338,8 @@ async def _stream_agent_loop_impl(
                 # returns room:null when the PLAYER did not move — stays the gatekeeper.
                 _want_move = _gates.want_move(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
-                    signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)), signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
+                    signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
+                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
                 # room but the model never called moveHouseguest, so the engine's open presence still has
                 # them in their seeded room and the whereabouts gadget snaps them back. Gated on a cheap
@@ -10314,7 +10349,7 @@ async def _stream_agent_loop_impl(
                 # Model-driven moveHouseguest always wins (`_npc_moved` short-circuits).
                 _want_npc_move = _gates.want_npc_move(
                     npc_moved=_npc_moved, turn_npc_move_nudges=_turn_npc_move_nudges, max_npc_move_nudges=_MAX_NPC_MOVE_NUDGES_PER_TURN,
-                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
+                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
                 # NPC-approach nudge (0036/0049): the house lives between the player's beats — NPCs play
                 # THEIR game and come to the player, not only the other way around. With the "Wants a
                 # word" notification panel removed (owner ruling 2026-06-18 — that intent must never reach
@@ -11312,6 +11347,9 @@ async def _stream_agent_loop_impl(
                             # double-advance silently skips a beat). The per-turn cap still holds (one force).
                             _force_ok = True
                             try:
+                                from routes import chat_helpers as _ch_hold
+                                if _ch_hold.veto_draw_holds_force(owner or ""):
+                                    _force_ok = False  # ORW-505: the veto draw was voiced this turn; the stall force waits for a later one
                                 _gs_now = await _oe.get_game_state(owner)
                                 _beat_now = ((_gs_now or {}).get("week"),
                                              (_gs_now or {}).get("phase"),
@@ -12727,6 +12765,8 @@ async def _stream_agent_loop_impl(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    if _casting_finalized_this_turn:
+        metrics["casting_finalized"] = True  # ORW-481: this casting-stamped reply carries the premiere (the Show Brief may tail it)
     if _turn_owed_announcements:
         metrics["announcements"] = _turn_owed_announcements  # Vault-free BeatAnnouncementViews; repainted on reload
     yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"

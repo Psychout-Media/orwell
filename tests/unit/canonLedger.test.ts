@@ -317,6 +317,10 @@ describe("persistence and the non-degradation rule (K4 §2.5)", () => {
 
   it("a pre-feature save is an empty ledger with nothing to report", () => {
     expect(restoreCanon(undefined)).toEqual({ ledger: emptyCanonLedger(), problems: [] });
+    const lost = restoreCanon({ schemaVersion: 1, nextId: 1, entries: [], recent: [{ key: "k", result: null }, { key: "j", result: [] }, { key: 7 }] }); // review: a dropped idempotency entry is a NOTE (it must not lock canon recording), and null / array results are malformed
+    expect(lost.notes?.join(" ")).toMatch(/malformed recent entry was dropped/);
+    expect(lost.problems).toEqual([]);
+    expect(lost.ledger.recent).toEqual([]);
   });
 
   it("reports (never silently drops) malformed data, and repairs nextId past the highest id", () => {

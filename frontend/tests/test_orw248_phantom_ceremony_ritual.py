@@ -39,3 +39,11 @@ def test_once_the_engine_committed_the_nominees_the_ritual_recap_is_not_a_phanto
     live = dict(LIVE, noms=["npc:5", "npc:6"])
     for name in ("key walk", "turns a key", "last two"):
         assert not ch._narration_claims_outcome(RITUAL[name], dict(live), dict(live)), f"{name}: after the engine ran the ceremony a recap of it is fine"
+
+
+def test_orw481_key_and_left_without_need_nomination_context():
+    """ORW-481 (review 4502149708): a door key or 'left without a drink' is not the nominations ritual."""
+    from routes.chat_helpers import _CLAIM_NOMINATED_RE
+    assert not _CLAIM_NOMINATED_RE.search("She turns the key in the bedroom door.")
+    assert not _CLAIM_NOMINATED_RE.search("Both are left without a drink.")
+    assert _CLAIM_NOMINATED_RE.search("The HOH turns a key for the first safe houseguest.")

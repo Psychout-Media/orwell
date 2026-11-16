@@ -9,6 +9,10 @@ import { resolvePending } from "../../features/support/answerPending";
  */
 const LEDGER_TOOLS = ["getGameState", "whereabouts", "gameStatus", "createCharacter"] as const;
 const FORBIDDEN_KEY = /soul|relationship|threat|vault|suspects/i;
+// The named hidden cast fields (castGenesisGenderCohere's VAULT_ONLY_KEYS), matched EXACTLY anywhere in the output (review of #2248: the
+// pattern above missed them).
+const VAULT_ONLY_KEYS = new Set(["hiddenElements", "secrets", "trueGoals", "weakness", "dayOnePerception", "stats", "influence", "privateStrategy"]);
+const isForbidden = (k: string) => FORBIDDEN_KEY.test(k) || VAULT_ONLY_KEYS.has(k);
 
 function keysOf(v: unknown, out: string[] = []): string[] {
   if (Array.isArray(v)) for (const x of v) keysOf(x, out);
@@ -36,7 +40,7 @@ describe("ORW-187 admin transcript ledger tools stay Vault-free", () => {
     };
     for (const [tool, out] of Object.entries(outputs)) {
       expect(out, `${tool} produced an output`).toBeTruthy();
-      const bad = keysOf(out).filter((k) => FORBIDDEN_KEY.test(k));
+      const bad = keysOf(out).filter(isForbidden);
       expect(bad, `${tool} leaked hidden-layer keys: ${bad.join(",")}`).toEqual([]);
     }
   });
@@ -49,7 +53,7 @@ describe("ORW-187 admin transcript ledger tools stay Vault-free", () => {
       if (v.pending) resolvePending(v.pending, (req) => void sb.session.submitDecision(req));
       if (i % 8 === 7) {
         for (const out of [sb.session.getGameState(), sb.session.whereabouts(), sb.session.gameStatus()]) {
-          const bad = keysOf(out).filter((k) => FORBIDDEN_KEY.test(k));
+          const bad = keysOf(out).filter(isForbidden);
           expect(bad, `step ${i}: leaked hidden-layer keys: ${bad.join(",")}`).toEqual([]);
         }
       }

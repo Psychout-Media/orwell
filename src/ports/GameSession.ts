@@ -1082,6 +1082,8 @@ export interface CreateCharacterReq {
    * if the corpus has no headroom to honor every exclusion, the sampler relaxes it rather than failing.
    */
   priorCastNames?: string[];
+  /** ORW-466 - ENGINE-INTERNAL (like `priorCastNames`): the player's recent seasons' house themes, carried across a confirmed restart so the new season draws a different one. */
+  priorHouseThemes?: string[];
   /**
    * Season-over-season NOTORIETY carry (0104 / R4 — the diegetic opt-in). ENGINE-INTERNAL: the adapter
    * sets it true when this confirmed restart is a SAME-CHARACTER return (`keepCharacter`), so the
@@ -1932,6 +1934,10 @@ export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; wh
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
+  /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
+  roomNames?: Partial<Record<string, string>>;
+  /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
+  roomLook?: string;
   /**
    * The player's SUB-ZONE within a big, zoned room (0077 — "over by the pool" / "the workout corner").
    * Present ONLY in a zoned room (backyard, lounge); absent everywhere else. Pure flavor — eyeshot stays
