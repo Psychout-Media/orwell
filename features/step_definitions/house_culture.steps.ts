@@ -6,7 +6,7 @@ import { LEAN_IDS, describeHouseLeans, dialMult, HOUSE_LEAN_TUNING, type HouseLe
 import { chooseHourAction, type HourView } from "../../src/engine/houseLife";
 import { HOUSE_LIFE, type HouseCulture } from "../../src/engine/houseLifeConstants";
 
-/** Feature 0159 - the house culture foundation (ORW-551). Drives the REAL adapter. Roles only. */
+/** Feature 0168 - the house culture foundation (ORW-551). Drives the REAL adapter. Roles only. */
 type Bag = { sb?: UserSandbox; s?: GameSessionAdapter; copy?: GameSessionAdapter; a?: string; b?: string };
 const bag = (w: unknown): Bag => ((w as { hc0159?: Bag }).hc0159 ??= {});
 const live = (s: GameSessionAdapter) => (s as unknown as { live: { houseLeans?: HouseLeans } }).live;

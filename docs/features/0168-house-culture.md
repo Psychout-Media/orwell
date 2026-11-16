@@ -1,6 +1,6 @@
-# 0159 - Season house culture (slices 1-2: the foundation, then the house-life dials)
+# 0168 - Season house culture (slices 1-2: the foundation, then the house-life dials)
 
-Card: ORW-551. Executable spec: `0159-house-culture.feature`. Unit gate: `tests/unit/houseLeans.test.ts`.
+Card: ORW-551. Executable spec: `0168-house-culture.feature`. Unit gate: `tests/unit/houseLeans.test.ts`.
 
 ## What it is
 

@@ -3,7 +3,7 @@ import type { TieNature } from "./seededRelationships";
 import { clamp01Raw as clamp01 } from "../domain/num";
 
 /**
- * B50 (Ryne's accuseTie ruling 2026-11-05; flag ORWELL_ACCUSE_COST, off by default) - ACCUSING a pre-show tie has consequences. "Falsely accusing someone should definitely ding. But honestly accusing
+ * B50 (Ryne's accuseTie ruling 2026-11-05; flag ORWELL_ACCUSE_COST, ON by default) - ACCUSING a pre-show tie has consequences. "Falsely accusing someone should definitely ding. But honestly accusing
  * someone should always have the chance of negatively affecting someone. Or maybe they respect it?" A MISS dings the accuser with the accused pair (and a tiny ripple with the room); a HIT carries a chance
  * of resentment OR respect from each member of the exposed pair, decided by the ENGINE from their relationship with the accuser, their own temperament and what the tie is - never from the accuser's wording
  * (accuseTie takes no wording). Bounded, seeded, recorded, no number shown. Every magnitude lives here (ASSUMED, pending Ryne).

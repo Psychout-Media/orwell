@@ -2,6 +2,7 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry, type UserSandbox } from "../../src/composition/registry";
+import { recordClaim } from "../../src/engine/beliefStore";
 import { PLAYER } from "../../src/domain/ids";
 import type { RetrospectiveView } from "../../src/ports/GameSession";
 
@@ -40,6 +41,13 @@ Given("a season where a houseguest lied about a rival and a second houseguest la
   tell(this, { speaker: liar!, listener: l1!, kind: "voted-to-evict-you", subject: rival!, isTrue: false, intent: "mislead" });
   tell(this, { speaker: repeater!, listener: liar!, kind: "voted-to-evict-you", subject: rival!, isTrue: false, intent: "inform" });
 });
+Given("a season where nobody lied aloud but a houseguest came to believe something false about the player", function () {
+  start(this);
+  const [holder] = bag(this).npcs!;
+  // a belief the engine formed itself (deduced), claiming the player is after the holder; no goal exists, so the engine's records say it is false
+  recordClaim(((live(bag(this).s!) as { beliefs?: Record<string, unknown[]> }).beliefs ??= {}) as never,
+    { holder: holder!, kind: "targets-me", subject: PLAYER, value: true, origin: "deduced", confidence: 0.6, week: 1 });
+});
 Given("a season where nobody lied", function () { start(this); });
 
 When("the season is over and a winner is crowned", function () {
@@ -64,8 +72,9 @@ Then("it names the liar as who started it and both listeners as who believed it"
 });
 Then("it lists what the house got wrong about the player", function () {
   const mine = bag(this).retro!.rumorMill!.aboutYou;
-  assert.equal(mine.length, 1);
-  assert.equal(mine[0]!.starter.id, bag(this).npcs![4]);
+  const row = mine.find((m) => m.starter.id === bag(this).npcs![4]);
+  assert.ok(row, "the claim-planted lie about the player is listed");
+  assert.deepEqual(row.believers.map((x) => x.id).sort(), [bag(this).npcs![1]!]);
 });
 Then("the retrospective names the first teller as the starter and the second as having passed it on", function () {
   const [liar, , repeater] = bag(this).npcs!;
@@ -86,13 +95,23 @@ Then("no player or admin view, and no retrospective, shows a claim, its truth or
   assert.ok(!/intent\W{1,6}(inform|warn|recruit|mislead|deflect|protect)/.test(blob), "a live surface carries a claim intent");
 });
 
-Then("the retrospective carries no rumor mill and is otherwise whole", function () {
+Then("the retrospective carries no claim-planted rumors and is otherwise whole", function () {
   const r = bag(this).retro!;
-  assert.equal(r.rumorMill, undefined);
+  // no claim was ever told, so nothing claim-planted; the engine may still have formed a false belief about the player on its own (aboutYou only)
+  assert.deepEqual(r.rumorMill?.biggest ?? [], []);
   assert.ok(Array.isArray(r.hiddenStory) && r.winner);
 });
 Then("reading the retrospective leaves the claim log and the beliefs exactly as they were", function () {
   const b = bag(this);
   b.s!.seasonRetrospective();
   assert.equal(JSON.stringify({ c: live(b.s!).claims, b: live(b.s!).beliefs }), b.before);
+});
+
+Then("the retrospective lists that wrong belief about the player with its believer and no claim, truth or intent", function () {
+  const m = bag(this).retro!.rumorMill!;
+  assert.deepEqual(m.biggest, []);
+  const row = m.aboutYou.find((r) => r.starter.id === bag(this).npcs![0] && r.believers.some((x) => x.id === bag(this).npcs![0]));
+  assert.ok(row, "the engine-formed false belief about the player is listed");
+  const blob = JSON.stringify(m);
+  for (const k of ["claim:", "isTrue", "intent", "confidence", "targets-me", "deduced"]) assert.ok(!blob.includes(k), `the rumor mill carries ${k}`);
 });

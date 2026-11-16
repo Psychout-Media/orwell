@@ -607,7 +607,7 @@ export interface LiveSeasonState {
   npcMemory?: NpcMemoryLedger;
   /** ORW-319 (ORW-253 slice 5): what the utility model wrote at cast time - habits + aim hints per houseguest, and the house culture. Write-once; engine-side. */
   npcMindsAuthored?: NpcMindsAuthored;
-  /** ORW-551 / spec 0159: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
+  /** ORW-551 / spec 0168: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
@@ -1154,7 +1154,7 @@ export interface SeasonCtx {
    */
   finalHohThreePart?: boolean;
   /**
-   * A2 (design §13, `ORWELL_JUROR_PROFILES`, default OFF) - each juror votes by their OWN profile (archetype weights + friend-forgives) instead of the one global weight
+   * A2 (design §13, `ORWELL_JUROR_PROFILES`, default ON) - each juror votes by their OWN profile (archetype weights + friend-forgives) instead of the one global weight
    * vector. Absent/false => the global ballot, byte-identical (the seeded spine is unmoved). `jurorProfileSalt` (the game seed) keeps profiles stable per game.
    */
   /** B26 (ORWELL_JURY_MEMORY): a juror's signed MEMORY lean toward a finalist (+ favors them, - holds a grudge), bounded. Absent => +0, byte-identical. */
@@ -1584,7 +1584,7 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     // `comp-elimination` falls through every commit side-effect switch (no fold, no soul inflection, no
     // confessional, no rng) — so a reveal is inert to the game state, keeping the trajectory unchanged.
     beat: "comp-elimination",
-    content: authored ?? (wipeout ? `${template} ${wipeout}` : template),
+    content: authored ?? (wipeout ? `${template}. ${wipeout}` : template),
     participants: [...droppedThisRound, ...c.stillIn],
   };
 }
@@ -1596,10 +1596,12 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
  */
 function wipeoutContentFor(c: CompetitionProgress, droppedThisRound: readonly EntityId[]): string | undefined {
   if (!c.failureStyles) return undefined;
+  // ORW-543: each fact text is a bare predicate ("apologizes mid-round, ..."), so every one is voiced with ITS OWN subject (the id, humanized to a name downstream) and ends as its own sentence. The text itself
+  // is unchanged (wipeoutHistory must trace to an aired line verbatim). Presentation only: no rng.
   const parts: string[] = [];
   for (const id of droppedThisRound) {
     const fact = c.failureStyles[id];
-    if (fact) parts.push(fact.text);
+    if (fact) parts.push(`${id} ${fact.text}`);
   }
   return parts.length > 0 ? parts.join(" ") : undefined;
 }
