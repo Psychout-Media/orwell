@@ -55,7 +55,7 @@ def test_authoring_prompt_gives_age_gender_pronouns_and_look_beside_the_biograph
 
 
 def test_marks_list_no_longer_offers_scars_birthmarks_or_tooth_gaps():
-    mark = ca._SYSTEM[ca._SYSTEM.index("A distinguishingMark is usually"):][:330]
+    mark = ca._SYSTEM[ca._SYSTEM.index("THE MARK IS DEALT"):][:420]
     assert "gap-toothed grin" not in mark and "a scar, a birthmark" not in mark
     assert "no scars, birthmarks or tooth gaps" in mark
 

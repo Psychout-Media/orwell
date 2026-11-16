@@ -322,7 +322,7 @@ def test_dealing_the_state_moves_no_other_dealt_value():
     h = hashlib.sha256()
     for seed in (1, 2, 3, 77, 2026, 4242):
         for hand in L.mint_facet_ledger(seed, 15):
-            h.update(json.dumps({k: v for k, v in hand.items() if k != "state"}, sort_keys=True).encode())
+            h.update(json.dumps({k: v for k, v in hand.items() if k not in ("state", "jobExamples")}, sort_keys=True).encode())
     assert h.hexdigest() == "f821b75007415c00593bdc333ad2fca75ada950738ca8ec6ed5182323226df89"  # equal to the hash over the same hands on main
 
 
@@ -343,3 +343,25 @@ def test_a_card_that_already_has_a_hometown_gets_no_dealt_hometown_clause():
     without = ca.build_authoring_messages(base, hand=hand)[-1]["content"]
     assert "hometown: " + hand["townSize"] not in with_town and "vocation family:" in with_town
     assert "hometown: " + hand["townSize"] in without
+
+
+
+# ── ORW-480: three ordinary example jobs per slot, inside the family, distinct across the cast, on their own side stream ──
+
+def test_every_slot_gets_three_distinct_example_jobs_inside_its_family_and_no_other_value_moves():
+    import hashlib
+    import json
+    h = hashlib.sha256()
+    for seed in (1, 2, 3, 77, 2026, 4242):
+        ledger = L.mint_facet_ledger(seed, 15)
+        examples = [j for hand in ledger for j in hand["jobExamples"]]
+        assert all(len(hand["jobExamples"]) == 3 for hand in ledger if hand["vocationFamily"] in L.FAMILY_JOBS)  # an outlier family has none
+        assert all(set(hand["jobExamples"]) <= set(L.FAMILY_JOBS[hand["vocationFamily"]]) for hand in ledger if hand["vocationFamily"] in L.FAMILY_JOBS)
+        for hand in ledger:
+            h.update(json.dumps({k: v for k, v in hand.items() if k not in ("state", "jobExamples")}, sort_keys=True).encode())
+    assert h.hexdigest() == "f821b75007415c00593bdc333ad2fca75ada950738ca8ec6ed5182323226df89"  # equal to the hash over the same hands on main
+
+
+def test_the_hand_offers_the_example_jobs():
+    hand = L.mint_facet_ledger(5, 15)[0]
+    assert "for example " + hand["jobExamples"][0] in L.render_hand(hand)

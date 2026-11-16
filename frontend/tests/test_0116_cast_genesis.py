@@ -93,7 +93,7 @@ def test_per_slot_directives_match_the_engine_byte_for_byte():
     slots = G.assign_genesis_slots(108108, 15)
     assert slots[0] == {
         "role": "floater", "roleNote": "drifts to whoever holds power, never a target, never a leader",
-        "archetype": "floater", "physical": False, "ageLo": 21, "ageHi": 26,
+        "archetype": "floater", "physical": False, "ageLo": 45, "ageHi": 49,
         "accent": "a hopeless romantic wired for a showmance", "amplified": True,
         "energy": "high-energy and bouncy", "register": "polished and articulate",
         "expressiveness": "loud and impossible to ignore",
@@ -103,13 +103,16 @@ def test_per_slot_directives_match_the_engine_byte_for_byte():
         "ink": False, "lookFeature": "no single notable mark — a plain, clean look"}
     assert slots[4] == {
         "role": "flirt", "roleNote": "charming and touchy, plays the social-romantic angle",
-        "archetype": "flirt", "physical": False, "ageLo": 27, "ageHi": 33,
+        "archetype": "flirt", "physical": False, "ageLo": 30, "ageHi": 32,
         "accent": "a stoic lone-wolf who keeps their cards close and their distance closer",
         "amplified": False, "energy": "steady and even-keeled", "register": "clipped and economical",
         "expressiveness": "reserved and hard to read", "emotionalRegister": "cold and hard to rattle",
         "selfAwareness": "insecure, quietly underrates themselves",
         "socialGravity": "a magnetic main-character who fills the room",
         "ink": False, "lookFeature": "bright, wide-set eyes"}
+    # ORW-480: the age strata are drawn per slot at the real-data frequencies; the whole plan is pinned here and in the engine's test
+    assert [(s["ageLo"], s["ageHi"]) for s in slots] == [(45, 49), (27, 29), (24, 26), (55, 59), (30, 32), (40, 44), (27, 29), (24, 26), (45, 49), (40, 44),
+                                                         (24, 26), (40, 44), (24, 26), (40, 44), (21, 23)]
     assert G.assign_genesis_slots(7, 15) == G.assign_genesis_slots(7, 15)  # deterministic
 
 
