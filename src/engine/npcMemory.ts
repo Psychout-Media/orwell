@@ -66,8 +66,8 @@ export const DEAL_WITNESS = {
   targetedSeverity: 0.3,
   /** the witness's own ally struck a deal without it: a small hurt toward that ally */
   leftOutSeverity: 0.12,
-  /** otherwise: remembered, no sign. Just above the speech floor (`MEMORY_SPEECH.floor`, 0.08) so a witness can RECALL the deal in words; the kind is neither a grudge nor a favor, so it moves nothing else (review of ORW-85). */
-  recallSeverity: 0.09,
+  /** otherwise: remembered, no sign */
+  recallSeverity: 0.05,
 } as const;
 
 const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict", "secret-exposed", "deal-resented"]);

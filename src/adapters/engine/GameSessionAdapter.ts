@@ -3188,8 +3188,6 @@ export class GameSessionAdapter implements GameSession {
   }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
   /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
-  /** ORW-481: true while the prompt builder reads `npcVoice` for its own block (no speech state is spent by that read). */
-  private speechPeek = false;
   private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
   /** floor/bar/chanceScale/top as before (ASSUMED, tunable). `repeatDays`: a memory raised in the last N in-game days is not raised again. `maxPerDay`: the ceiling for the most talkative/aggrieved houseguest. */
   private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8, repeatDays: 3, maxPerDay: 3 } as const;
@@ -3225,13 +3223,10 @@ export class GameSessionAdapter implements GameSession {
       .filter((x) => x.w >= M.floor).sort((a, b) => b.w - a.w);
     if (scored.length === 0) return {};
     const when = (age: number): string => (age <= 0 ? "this week" : age <= 2 ? "recently" : "a while back");
-    const factOf = (x: (typeof scored)[number]): string => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`;
-    const facts = scored.slice(0, M.top).map(factOf);
+    const facts = scored.slice(0, M.top).map((x) => `${GameSessionAdapter.MEMORY_ABOUT_YOU[x.e.kind]} (${when(live.week - x.e.week)})`);
     const day = live.dayNumber ?? live.week;
     const st = this.bringUp.get(id);
-    // ORW-481 (review of ORW-131): a read that only BUILDS the narrator's prompt (`speechPeek`) works on a copy - it never spends the daily allowance or marks a memory as raised, since it carries no `bringUp` to the narrator.
-    const base = st && st.day === day ? st : { day, used: 0, recent: (st?.recent ?? []).filter((r) => day - r.day < M.repeatDays) };
-    const state = this.speechPeek ? { day: base.day, used: base.used, recent: [...base.recent] } : base;
+    const state = st && st.day === day ? st : { day, used: 0, recent: (st?.recent ?? []).filter((r) => day - r.day < M.repeatDays) };
     // the memory to raise: the strongest one not raised lately
     const lead = scored.find((x) => !state.recent.some((r) => r.key === `${x.e.kind}:${x.e.week}`));
     let bring = false;
@@ -3251,9 +3246,7 @@ export class GameSessionAdapter implements GameSession {
         if (roll < chance) { bring = true; state.used++; state.recent.push({ key: `${lead.e.kind}:${lead.e.week}`, day }); }
       }
     }
-    if (!this.speechPeek) this.bringUp.set(id, state);
-    // ORW-481 (review of ORW-131): the memory chosen to raise can sit below the strongest three (the top ones were raised lately). It always takes the place of the weakest of the three facts the narrator receives, so `bringUp` never points at a line the narrator was not given.
-    if (bring && lead && !scored.slice(0, M.top).includes(lead)) facts.splice(Math.max(0, M.top - 1), facts.length, factOf(lead));
+    this.bringUp.set(id, state);
     return { rememberedAboutYou: facts, ...(bring ? { bringUp: true as const } : {}) };
   }
   /** ORW-317: memory kinds whose underlying fact the WHOLE HOUSE saw (ceremonies), so a houseguest voicing one surfaces nothing hidden. */
@@ -15696,9 +15689,7 @@ export class GameSessionAdapter implements GameSession {
       : present0;
     return present
       .map((p) => {
-        this.speechPeek = true;
-        let v: ReturnType<GameSessionAdapter["npcVoice"]>;
-        try { v = this.npcVoice(p.id); } finally { this.speechPeek = false; }
+        const v = this.npcVoice(p.id);
         if (!v) return null;
         // Audit band D F2 — also carry the Vault-safe carriage cues (0084 mood / 0088 currentRead /
         // 0096 rivalry) npcVoice already computed, so the narrator gets them every turn without the

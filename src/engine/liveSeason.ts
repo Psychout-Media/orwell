@@ -2326,8 +2326,6 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
       s.dayNumber = (s.dayNumber ?? 1) + 1; // A69: a real night passed - it is a new day
       s.nightDepth = WAKE_HOUR;
       s.timeOfDay = DAY_START;
-      // ORW-481 (review of ORW-116): the night the clock itself just rolled IS the night the pending day-break would have crossed, exactly as the player's own turn-in marks it. Without this a played game waits through a second night. Played game only (`clockInteractive`): headless clock-live sims keep their trajectory.
-      if (s.clockInteractive === true && nightBreakPending(s)) markNightGateCrossed(s);
       return;
     }
     // The per-conversation path holds at the bitter pre-dawn edge (no auto-bank): the player owns bedtime.
