@@ -1370,6 +1370,21 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
     )
 
 
+def _walked_in_directive(walked_in) -> Optional[str]:
+    """ORW-473: the player walked in on a private talk between two houseguests this turn (the engine's `walkedIn`): each houseguest's reaction was chosen from THEIR OWN sheet, and is handed over as a manner to voice. The talk's
+    subject is never known here and must not be invented. None when there is nothing to voice (fail-open)."""
+    if not isinstance(walked_in, dict):
+        return None
+    reactions = [r for r in (walked_in.get("reactions") or []) if isinstance(r, dict) and r.get("name") and r.get("line")]
+    if len(reactions) < 2:
+        return None
+    room = str(walked_in.get("room") or "").replace("-", " ")
+    lines = [f"- {r['name']} {r['line']}." for r in reactions]
+    return ("THE PLAYER JUST WALKED IN ON A PRIVATE TALK" + (f" in the {room}" if room else "") + " between " + " and ".join(str(r["name"]) for r in reactions) + " (engine truth; each reaction was chosen from that houseguest's own character):\n"
+            + "\n".join(lines)
+            + "\nVoice each reaction as written, in the houseguest's own manner. You are not told what they were saying: never invent the subject, a name they were plotting against, or a plan; the player learns only that a talk was happening and how each of them reacts.")
+
+
 # ORW-386 - "Look for Miguel. Where is he?" had no engine fact to answer it: whereabouts lists only the player's room and the rooms in sight, so two awake houseguests in a bedroom were in NO listed room and the
 # narrator invented closed doors ("the house isn't giving him up"). When the player asks where someone is or searches the house, the engine's house search (whereabouts with search=true) is handed in as facts:
 # each houseguest's ROOM and whether the player can walk in. A room and an access word only - never what anyone is doing or with whom.
@@ -9226,6 +9241,13 @@ async def apply_game_framing(
             freeze_capture_whereabouts(user, game_state.get("whereabouts"))
         except Exception as e:
             logger.warning("[orwell] location grounding skipped for user=%s: %s", _gkey, e)
+        # ORW-473: the player walked in on a private talk this turn - each houseguest's reaction comes from their own sheet (engine-chosen); the narrator voices it. Best-effort / fail-open.
+        try:
+            _walk = _walked_in_directive(game_state.get("walkedIn"))
+            if _walk:
+                gm_prompt = gm_prompt + "\n\n" + _walk
+        except Exception as e:
+            logger.warning("[orwell] walk-in framing skipped for user=%s: %s", _gkey, e)
         # ORW-386 - the player asks where someone is / searches the house: hand the narrator the engine's house search (each houseguest's room + whether the player can walk in) so it never invents closed doors.
         try:
             if _is_house_search(player_msg):

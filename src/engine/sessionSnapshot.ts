@@ -221,6 +221,10 @@ export interface SessionCore {
   presenceTenure?: Record<EntityId, number>;
   /** ORW-419 - the player's own engine-resolved move this turn ({from,to} or {refused,reason}); room ids + words only. Absent when none. Per-turn projection state: exempt from the non-degradation counts. */
   playerMove?: PlayerMoveView;
+  /** ORW-473: the private talk the player walked in on (stamped with its message). Absent on older saves. Vault-free. */
+  /** ORW-473: ids of the talks already walked in on, so one talk fires once (a bounded ring of the last few). Absent on older saves. */
+  walkInDone?: string[];
+  walkIn?: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: "goes-quiet" | "carries-on-guarded" | "moves-the-talk" | "pulls-the-player-in" }[] };
   /**
    * The presence-tick COUNTER (L21/L24). Movement randomness rides a DEDICATED stream forked off the
    * game seed + this counter — never the orchestrator's shared per-user stream — so personality-weighted
@@ -762,7 +766,7 @@ export function toGameState(snap: SessionSnapshot): GameState {
  *   - `storyThreads` — an authored profile update REPLACES a source's whole thread set (filter-then-
  *     concat), so thread ids do not persist stably.
  *   - `secretPlayerBluffBelief` — a resolved bluff removes the caught subject from the belief list.
- *   - `presence` / `presenceBase` / `presenceTenure` / `presenceZone` / `trackedSightings` / `lastSeenAt` / `npcSightings` /
+ *   - `presence` / `presenceBase` / `presenceTenure` / `presenceZone` / `trackedSightings` / `walkIn` / `walkInDone` / `lastSeenAt` / `npcSightings` /
  *     `readAnchors` — current-position / per-week snapshot state, overwritten by design every tick/week
  *     (like `ceremony`/`live`, already outside the checkpoint).
  *   - `pacingDripCount` (resets every new week by design; `pacingDripWeek` moves with it).

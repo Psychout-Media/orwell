@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -57,6 +57,7 @@ import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
 import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
+import { isPrivateTalk, walkInReaction, walkInLine, WALK_IN_MAX_HOURS, WALK_IN_DONE_CAP, type WalkInReaction } from "../../engine/walkIn";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
@@ -4505,6 +4506,7 @@ export class GameSessionAdapter implements GameSession {
       // society's positions stay reproducible across a restart and never reseed from the weighted view.
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
+      ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -4842,6 +4844,8 @@ export class GameSessionAdapter implements GameSession {
     // re-seeds it from the weighted positions, which `societyOccupancy` falls back to in the meantime).
     this.presenceBase = core.presenceBase ? new Map(Object.entries(core.presenceBase) as [EntityId, Room][]) : null;
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
+    this.walkIn = core.walkIn ? { ...core.walkIn } : null; // ORW-473
+    this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
@@ -5502,6 +5506,61 @@ export class GameSessionAdapter implements GameSession {
    * whereabouts unchanged (the model knows the valid rooms from the moment prompt, so this is rare).
    * Returns the resulting whereabouts so the caller can voice the move. Vault-free.
    */
+  /**
+   * ORW-473: the player just walked in on a private talk between two houseguests. Each one's reaction is chosen from their OWN sheet (`walkInReaction`); the narrator is handed who and the reaction's manner, never the talk's content; both
+   * remember the player walked in. Stamped with the message it happened on, like `playerMove`, so only that turn's state carries it. Played games only.
+   */
+  private walkInDone: string[] = [];
+  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
+  private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
+  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
+    const w = this.walkIn;
+    if (!w) return null;
+    const cur = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined;
+    return w.msg === cur ? w : null;
+  }
+  private walkedInView(w: NonNullable<GameSessionAdapter["walkIn"]>): WalkedInView {
+    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction) })) };
+  }
+  private detectWalkIn(dest: Room): void {
+    this.walkIn = null; // a new arrival replaces the last one
+    if (this.live?.playedGame !== true || !this.presence || !this.house) return;
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const there = new Set(this.presenceActive().filter((id) => id !== me && this.presence!.get(id) === dest && (!awake || awake.has(id))));
+    if (there.size < 2) return;
+    const events = this.record?.events() ?? [];
+    const nowHour = this.inGameAbsHour();
+    if (nowHour === undefined) return; // no running clock, so no way to tell a fresh talk from an old one
+    for (let i = events.length - 1; i >= Math.max(0, events.length - 40); i--) {
+      const e = events[i]!;
+      const hl = e.houseLife;
+      if (!e.hidden || !hl || hl.place !== dest || !isPrivateTalk(hl.action)) continue;
+      if (hl.at === undefined || nowHour - hl.at > WALK_IN_MAX_HOURS || nowHour < hl.at) continue; // recent in GAME time, not only by event count
+      if (this.walkInDone.includes(e.id)) continue; // a talk is walked in on once
+      const people = [...new Set(e.witnessSet)].filter((x) => x !== me);
+      if (people.length !== 2 || !people.every((x) => there.has(x))) continue;
+      const day = this.live.dayNumber ?? 1;
+      const reactions = people.map((id) => {
+        const other = people.find((x) => x !== id)!;
+        const character = this.agendaCharacterOf(id);
+        const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
+        const jitter = (hashSeed(`${this.gameSeed ?? ""}:walkin:${id}:${other}:${day}:${hl.stretch}`) % 800) / 10000;
+        return { id, reaction: walkInReaction({ candor, affinityToPlayer: this.rel.edge(id, me).affinity, affinityToOther: this.rel.edge(id, other).affinity }, jitter) };
+      });
+      this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
+      this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
+      // both remember it: a fact in each one's own memory (engine-side, never shown)
+      for (const id of people) {
+        const other = people.find((x) => x !== id)!;
+        const note = `the player walked in on my private talk with ${this.nameOf(other)}`;
+        const n = this.house.npcs.find((x) => x.id === id);
+        if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
+      }
+      return;
+    }
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -5528,6 +5587,7 @@ export class GameSessionAdapter implements GameSession {
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
     this.sendAwake = null;
+    this.detectWalkIn(dest); // ORW-473: walking in on a private talk
     this.persist();
     return this.whereabouts();
   }
@@ -11223,7 +11283,7 @@ export class GameSessionAdapter implements GameSession {
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex },
+          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}) },
         };
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
@@ -16399,6 +16459,7 @@ export class GameSessionAdapter implements GameSession {
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
       whereabouts: this.whereabouts(),
       ...(this.playerMoveThisTurn() ? { playerMove: this.playerMoveThisTurn() as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn (ORW-478: only on the message it was made for)
+      ...(this.walkInThisTurn() ? { walkedIn: this.walkedInView(this.walkInThisTurn()!) } : {}), // ORW-473: walked in on a private talk this turn
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
