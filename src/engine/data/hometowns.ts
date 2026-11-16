@@ -11,6 +11,8 @@
  * `region` is the spread key for the diversity cap; `city` is what the narrator speaks. A few cities
  * repeat across the corpus is fine — the engine caps PER REGION so no single area dominates a house.
  */
+import { WORLD_PLACES } from "./worldPlaces";
+
 export interface Hometown {
   /** "City, ST" (or "City, Country") — the concrete origin the narrator voices. */
   city: string;
@@ -19,7 +21,12 @@ export interface Hometown {
     | "Northeast" | "Midwest" | "South" | "West" | "International";
 }
 
-export const HOMETOWNS: readonly Hometown[] = [
+/**
+ * The original hand list. Kept ONLY so the legacy deal in `generateBackstoryFacets` still consumes the same
+ * draws from its stream (every other seeded value stays byte-identical); the surfaced hometown comes from
+ * the world place table (ORW-508).
+ */
+export const LEGACY_HOMETOWNS: readonly Hometown[] = [
   // — Northeast —
   { city: "Boston, MA", region: "Northeast" },
   { city: "Providence, RI", region: "Northeast" },
@@ -132,6 +139,13 @@ export const HOMETOWNS: readonly Hometown[] = [
   { city: "São Paulo, Brazil", region: "International" },
   { city: "Berlin, Germany", region: "International" },
 ];
+
+/** Every hometown the engine can deal: the legacy hand list plus the world place table (union, no duplicates). */
+export const HOMETOWNS: readonly Hometown[] = (() => {
+  const seen = new Set(LEGACY_HOMETOWNS.map((h) => h.city));
+  const extra = WORLD_PLACES.filter((p) => !seen.has(p.city)).map((p): Hometown => ({ city: p.city, region: p.region }));
+  return [...LEGACY_HOMETOWNS, ...extra];
+})();
 
 /** Every region key present in the corpus — the spread axis (exported for the diversity test). */
 export const HOMETOWN_REGIONS: readonly Hometown["region"][] =

@@ -10,7 +10,10 @@ import { generateInfluence, type Influence } from "./campaigns";
 import { GIVEN_NAMES } from "./data/givenNames";
 import { SURNAMES } from "./data/surnames";
 import { VOCATIONS } from "./data/vocations";
-import { HOMETOWNS } from "./data/hometowns";
+import { LEGACY_HOMETOWNS } from "./data/hometowns";
+import { dealWorldHometowns } from "./data/worldHometowns";
+import { ageProblem, countRejection, newAcceptanceReport, SAFE_VOCATIONS, type AcceptanceReport } from "./data/worldPlausibility";
+import type { AvoidSets } from "../domain/recentSeasons";
 import { labelFitWeight } from "../domain/styleFit";
 import type { Hometown } from "./data/hometowns";
 import { TRIGGER, type EruptionKind } from "./triggerConstants";
@@ -419,7 +422,15 @@ export interface BackstoryFacets {
  * 15-cast; if a draw can't satisfy a cap within a guard budget it relaxes that one pick rather than
  * looping forever (never silently re-mirrors — it simply takes the next legal-ish draw).
  */
-export function generateBackstoryFacets(rng: RandomnessSource, count: number): BackstoryFacets[] {
+export function generateBackstoryFacets(
+  rng: RandomnessSource, count: number,
+  /** ORW-508: a side stream for the world hometown deal and the sets a recent-seasons memory asks to avoid. Absent: the legacy deal, byte for byte. */
+  world?: {
+    hometownRng: RandomnessSource; avoid?: AvoidSets;
+    /** ORW-508 acceptance: a side stream for re-dealing a job the person's age rules out, each cast member's age, and the report that counts rejections. */
+    vocationRng?: RandomnessSource; ages?: readonly number[]; report?: AcceptanceReport;
+  },
+): BackstoryFacets[] {
   const out: BackstoryFacets[] = [];
   const vocationUses = new Map<string, number>();
   const regionUses = new Map<Hometown["region"], number>();
@@ -428,7 +439,7 @@ export function generateBackstoryFacets(rng: RandomnessSource, count: number): B
   const pickVocation = (): string => {
     for (let g = 0; g < 400; g++) {
       const v = rng.pick(VOCATIONS);
-      if ((vocationUses.get(v) ?? 0) < MAX_PER_VOCATION) {
+      if ((vocationUses.get(v) ?? 0) < MAX_PER_VOCATION && !(world?.avoid?.vocations.has(v.toLowerCase()) && g < 300)) {
         vocationUses.set(v, (vocationUses.get(v) ?? 0) + 1);
         return v;
       }
@@ -439,20 +450,52 @@ export function generateBackstoryFacets(rng: RandomnessSource, count: number): B
   };
   const pickHometown = (): string => {
     for (let g = 0; g < 400; g++) {
-      const h = rng.pick(HOMETOWNS);
+      const h = rng.pick(LEGACY_HOMETOWNS);
       if (!usedCities.has(h.city) && (regionUses.get(h.region) ?? 0) < MAX_PER_REGION) {
         usedCities.add(h.city);
         regionUses.set(h.region, (regionUses.get(h.region) ?? 0) + 1);
         return h.city;
       }
     }
-    const h = rng.pick(HOMETOWNS); // budget exhausted — take the draw rather than loop forever
+    const h = rng.pick(LEGACY_HOMETOWNS); // budget exhausted — take the draw rather than loop forever
     usedCities.add(h.city);
     regionUses.set(h.region, (regionUses.get(h.region) ?? 0) + 1);
     return h.city;
   };
 
   for (let i = 0; i < count; i++) out.push({ vocation: pickVocation(), hometown: pickHometown() });
+  // ORW-508: the legacy hometown draws above are kept so the vocation stream does not move; the surfaced
+  // hometown comes from the world place table on its own side stream.
+  if (world) {
+    // Acceptance (wide generation, narrow acceptance): a job the person's age rules out is re-dealt on its own
+    // side stream, bounded, with a plain fallback; every rejection is counted by rule name.
+    if (world.ages && world.vocationRng) {
+      const uses = new Map<string, number>();
+      for (const f of out) uses.set(f.vocation, (uses.get(f.vocation) ?? 0) + 1);
+      out.forEach((f, i) => {
+        const age = world.ages![i];
+        if (age === undefined) return;
+        const why = ageProblem(f.vocation, age);
+        if (!why) return;
+        countRejection(world.report, why);
+        uses.set(f.vocation, (uses.get(f.vocation) ?? 1) - 1);
+        let next: string | undefined;
+        for (let t = 0; t < 80 && next === undefined; t++) {
+          const v = world.vocationRng!.pick(VOCATIONS);
+          const bad = ageProblem(v, age);
+          if (bad) { countRejection(world.report, bad); continue; }
+          if ((uses.get(v) ?? 0) >= MAX_PER_VOCATION || world.avoid?.vocations.has(v.toLowerCase())) continue;
+          next = v;
+        }
+        if (next === undefined) { next = SAFE_VOCATIONS[i % SAFE_VOCATIONS.length]!; if (world.report) world.report.fallbacks++; }
+        uses.set(next, (uses.get(next) ?? 0) + 1);
+        f.vocation = next;
+      });
+    }
+    const people = world.ages ? out.map((f, i) => ({ vocation: f.vocation, age: world.ages![i] ?? 30 })) : undefined;
+    const towns = dealWorldHometowns(world.hometownRng, count, MAX_PER_REGION, world.avoid, people, world.report);
+    for (let i = 0; i < count; i++) out[i]!.hometown = towns[i]!;
+  }
   return out;
 }
 
@@ -831,7 +874,9 @@ function seedPriorNames(
 export function generateHouse(
   rng: RandomnessSource,
   priorNames?: readonly string[],
-): { npcs: Houseguest[] } {
+  /** ORW-508: what a recent-seasons memory asks this cast to avoid (hometowns, vocations). Absent in tests and headless runs. */
+  avoid?: AvoidSets,
+): { npcs: Houseguest[]; acceptance: AcceptanceReport } {
   const specs = curatedArchetypes(rng, NPC_COUNT);
   const used = new Set<string>();
   const usedGiven = new Set<string>();
@@ -889,7 +934,12 @@ export function generateHouse(
   // player's profile is never read here). Cast-wide so the caps (≤2 per vocation, region-spread)
   // apply across everyone. It touches no main-stream draw, so stats/names/volatility stay byte-stable.
   const facetRng = new SeededRandom(hashSeed(`backstory:${npcs.map((n) => n.name).join("|")}`));
-  const facets = generateBackstoryFacets(facetRng, npcs.length);
+  const castKey = npcs.map((n) => n.name).join("|");
+  const acceptance = newAcceptanceReport();
+  const facets = generateBackstoryFacets(facetRng, npcs.length, {
+    hometownRng: new SeededRandom(hashSeed(`world-hometown:${castKey}`)), ...(avoid ? { avoid } : {}),
+    vocationRng: new SeededRandom(hashSeed(`world-vocation:${castKey}`)), ages: npcs.map((n) => n.character.age), report: acceptance,
+  });
   // L28 (the deeper half): deal a SPREAD of observable DEMEANORS/registers the same way — cast-wide off
   // a seed-derived side rng, capped (≤MAX_PER_DEMEANOR each) so the house is NOT all warm bonders. And
   // deal BUILDS cast-wide too (the per-NPC appearance side rng draws builds INDEPENDENTLY, so it can
@@ -930,7 +980,7 @@ export function generateHouse(
     n.character.voice = generateVoice(voiceRng, n.character.archetype, { fixRng: voiceFixRng, tellCounts: stressTellCounts, demeanor: n.character.demeanor });
     n.character.influence = generateInfluence(influenceRng, n.character.archetype);
   });
-  return { npcs };
+  return { npcs, acceptance };
 }
 
 /** The OOBE intake — the only human-authored profile. `name` is required; the rest deepen it. */
@@ -1089,10 +1139,12 @@ export function startNewGame(
     genderPresentation?: "man" | "woman" | "nonbinary";
     /** NAME-1 (#547): prior seasons' names this game's new cast should avoid (bounded, fail-soft). */
     priorCastNames?: readonly string[];
+    /** ORW-508: recent-seasons avoid sets (hometowns, vocations); absent for seeded headless runs. */
+    avoid?: AvoidSets;
   },
 ): GameHouse {
   const rng = new SeededRandom(opts.seed);
-  const npcs = generateHouse(rng, opts.priorCastNames).npcs;
+  const npcs = generateHouse(rng, opts.priorCastNames, opts.avoid).npcs;
   const player = runPlayerOOBE({
     name: opts.playerName,
     ...(opts.archetype ? { archetype: opts.archetype } : {}),
