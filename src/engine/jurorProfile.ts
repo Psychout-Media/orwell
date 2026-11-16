@@ -4,7 +4,7 @@ import { mannerLeanOf, type EvictionManner, type JuryRel } from "./jury";
 import { fnv1a as fnv } from "../domain/num";
 
 /**
- * A2 (design §13, behind `ORWELL_JUROR_PROFILES`, default OFF) - PER-JUROR vote profiles. One GLOBAL weight vector is the defect the jury-conversion diagnosis found:
+ * A2 (design §13, behind `ORWELL_JUROR_PROFILES`, default ON) - PER-JUROR vote profiles. One GLOBAL weight vector is the defect the jury-conversion diagnosis found:
  * every juror weighed comp-share, bond and grievance identically, so one dial (gameRespect 0.7) moved the whole house and no player behaviour but winning comps could
  * buy votes. Here each juror votes by their OWN personality: a *competitor* weighs the game resume, a *loyalist* weighs bond and demonstrated loyalty, a *grudge-holder*
  * weighs how they were treated on the way out, a *forgiver* discounts a grievance when the finalist was a friend, a *pragmatist* is swayed by the finale. A player can

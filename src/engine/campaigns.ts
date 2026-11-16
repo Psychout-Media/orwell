@@ -209,7 +209,7 @@ export interface FormCampaignDeps {
   beat: number;
   c?: CampaignConstants;
   /**
-   * B5 (vote counting, ORWELL_VOTE_COUNT, default OFF): the actor's own read of whether the eviction count is still IN DOUBT. An EVICT campaign forms only when this says yes
+   * B5 (vote counting, ORWELL_VOTE_COUNT, default ON): the actor's own read of whether the eviction count is still IN DOUBT. An EVICT campaign forms only when this says yes
    * (a decided count is not worked); absent => always forms (byte-identical). Alliance-building is never gated by it.
    */
   worthWorking?: (actor: EntityId, target: EntityId) => boolean;

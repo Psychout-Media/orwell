@@ -386,6 +386,9 @@ jobs:
           # `npm run test:heavy:jury`, `:gradient`, `:jury-reweight`, `:gradient-reweight`, `:uat-reweight` (and `npm run test:heavy`).
           - leg: uat-rest
             scripts: "uat-5seed uat-decisions"
+          # ORW-551 slice 4: the 12-season house-mix guard (replaces the 2-seed unit guard). About two minutes of play in one process.
+          - leg: house-mix
+            scripts: "house-mix"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4

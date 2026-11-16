@@ -98,9 +98,9 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
   commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
-  // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default OFF).
+  // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default ON; `ORWELL_ASSURANCES=0` turns it off).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
-  // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default OFF).
+  // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default ON; `ORWELL_HEARD_ABOUT_ME=0` turns it off).
   commands.setHeardAboutMeSink((h) => session.recordHeardAboutMe(h));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its
   // bounded duration to the session, which the orchestrator's per-turn clock advance then consumes — so

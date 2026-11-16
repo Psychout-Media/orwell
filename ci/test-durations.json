@@ -322,7 +322,6 @@
  "tests/unit/houseLife.test.ts": 99,
  "tests/unit/houseLifeLive.test.ts": 118145,
  "tests/unit/houseLivesInInGameTime.test.ts": 2291,
- "tests/unit/houseMixGuard.test.ts": 132149,
  "tests/unit/houseSearchOrw386.test.ts": 1944,
  "tests/unit/houseSuspicion.test.ts": 234,
  "tests/unit/houseYouNeverSaw.test.ts": 66327,

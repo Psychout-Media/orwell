@@ -43,8 +43,8 @@ export interface Bloc {
  * CURRENT soul state (0041: a freshly-rattled loyalist's effective loyalty dips). Derived per
  * read; never stored per bloc.
  */
-export function derivedLoyalty(disposition: RelationshipDisposition, soulState: number): number {
-  const base = BLOC.dispositionLoyalty[disposition];
+export function derivedLoyalty(disposition: RelationshipDisposition, soulState: number, cultureMult = 1): number {
+  const base = BLOC.dispositionLoyalty[disposition] * cultureMult; // ORW-551 slice 3: the house culture's loyalty dial scales the BASELINE, before the per-person soul swing (1 = byte-identical)
   const v = base + (soulState - 0.5) * BLOC.soulSwing;
   return Math.max(0, Math.min(1, v));
 }
