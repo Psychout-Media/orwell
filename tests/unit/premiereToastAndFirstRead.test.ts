@@ -86,6 +86,7 @@ describe("item 5 - the toast", () => {
       if (n > 0) sizes.push(n);
     }
     // review of ORW-68: a slower pace would still satisfy "at most"; every batch but the last is exactly full
+    expect(sizes.length, JSON.stringify(sizes)).toBeGreaterThan(1); // else the every() below is vacuous
     expect(sizes.slice(0, -1).every((n) => n === TOAST_BATCH), JSON.stringify(sizes)).toBe(true);
   });
   it("movePlayer is a no-op during an entrances-ON toast", () => {
