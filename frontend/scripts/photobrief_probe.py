@@ -14,6 +14,7 @@ endpoints into a temp dir; a Python audit hook blocks every write, rename, delet
 raise. It starts NO engine (briefs need none) and makes NO image call. --dry uses a canned writer and no network at all.
 
 Usage:
+  Put orwell_photo_brief.py (frontend/src/) next to this file when running against a production install that does not have it yet.
   python3 photobrief_probe.py --cards casts/0052-....json --floor floor-0052.json --ids npc:10,npc:15,npc:12 [--briefs briefs.json] [--out prompts.txt] [--seed 1]
   python3 photobrief_probe.py ... --dry --app <a checkout with frontend/src>   # offline, canned writer
 Exit: 0 ok, 2 error.
@@ -90,8 +91,21 @@ def parse_floor(path):
     return {k.replace("_", ":"): v for k, v in d.items()}
 
 
+def load_brief_module():
+    """The brief module: the copy next to this file when there is one (so the probe runs against a production install that does not have the new code), else the front end's own."""
+    import importlib.util
+    here = os.path.join(HERE, "orwell_photo_brief.py")
+    if os.path.exists(here):
+        spec = importlib.util.spec_from_file_location("orwell_photo_brief_local", here)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    from src import orwell_photo_brief as mod
+    return mod
+
+
 async def run(args, cards, floor, llm_fn):
-    from src import orwell_photo_brief as B
+    B = load_brief_module()
     res = await B.author_briefs(cards, llm_fn, seed=args.seed)
     finals = {}
     for c in cards:
