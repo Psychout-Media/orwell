@@ -1,6 +1,6 @@
+import { testTmpDir } from "../support/freshTmpDir";
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -9,7 +9,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
  * Feature B36 / audit A2 — non-degradation at its single most destructive point: createCharacter must
  * never silently wipe an already-started season. HARD rule: roles only — no names.
  */
-const freshDir = (): string => mkdtempSync(join(tmpdir(), "orwell-b36-"));
+const freshDir = (): string => testTmpDir("orwell-b36-");   // removed when its test ends
 const userDir = (dir: string, user: string): string => join(dir, Buffer.from(user, "utf8").toString("hex"));
 const versions = (dir: string, user: string): string[] =>
   readdirSync(userDir(dir, user)).filter((f) => /^v\d+\.json$/.test(f));
