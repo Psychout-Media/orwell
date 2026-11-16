@@ -19,6 +19,7 @@ single migration pass rewrites them.
 """
 
 import os
+import time
 import logging
 from pathlib import Path
 
@@ -31,6 +32,17 @@ logger = logging.getLogger(__name__)
 _KEY_PATH = Path(__file__).resolve().parent.parent / "data" / ".app_key"
 _PREFIX = "enc:"
 _fernet: Fernet | None = None
+
+
+def _read_published_key() -> bytes:
+    # The winner of an O_EXCL create may still be writing; wait (briefly) for a complete key rather than returning a partial one.
+    data = b""
+    for _ in range(100):
+        data = _KEY_PATH.read_bytes()
+        if len(data) >= 44:
+            return data
+        time.sleep(0.02)
+    return data
 
 
 def _load_or_create_key() -> bytes:
@@ -53,7 +65,16 @@ def _load_or_create_key() -> bytes:
         except FileExistsError:
             return _KEY_PATH.read_bytes()  # another process published first
         except OSError:
-            os.replace(tmp, _KEY_PATH)
+            # ORW-492: no hard links here. Never overwrite a key another process may have published: create the final path O_EXCL (first writer wins) and write the key in
+            # one go; a loser waits for the winner's complete key and returns that instead of its own.
+            try:
+                ffd = os.open(_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return _read_published_key()
+            with os.fdopen(ffd, "wb") as fh:
+                fh.write(key)
+                fh.flush()
+                os.fsync(fh.fileno())
     finally:
         try:
             os.unlink(tmp)

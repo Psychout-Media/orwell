@@ -62,3 +62,37 @@ def test_many_processes_creating_at_once_agree_on_one_key(tmp_path):
     [p.join(30) for p in ps]
     assert len(keys) == 1, "racing creators ended with different keys"
     assert open(path, "rb").read() in keys
+
+
+def test_orw492_no_hard_links_never_overwrites_a_published_key(tmp_path, monkeypatch):
+    """Without hard links the fallback must not replace a key another process published between our temp write and our publish."""
+    ss = _fresh(tmp_path, monkeypatch)
+    real_open = os.open
+
+    def no_link(src, dst, *a, **k):
+        raise OSError("hard links unavailable")
+
+    def racing_open(path, flags, mode=0o777, *a, **k):
+        # another process publishes its key just before our O_EXCL create of the final path
+        if str(path) == str(ss._KEY_PATH) and flags & os.O_EXCL and not ss._KEY_PATH.exists():
+            ss._KEY_PATH.write_bytes(b"w" * 44)
+        return real_open(path, flags, mode, *a, **k)
+
+    monkeypatch.setattr(os, "link", no_link)
+    monkeypatch.setattr(os, "open", racing_open)
+    assert ss._load_or_create_key() == b"w" * 44
+    assert ss._KEY_PATH.read_bytes() == b"w" * 44
+    assert [p.name for p in ss._KEY_PATH.parent.iterdir()] == [".app_key"]
+
+
+def test_orw492_no_hard_links_creates_the_key_when_none_exists(tmp_path, monkeypatch):
+    ss = _fresh(tmp_path, monkeypatch)
+
+    def no_link(src, dst, *a, **k):
+        raise OSError("hard links unavailable")
+
+    monkeypatch.setattr(os, "link", no_link)
+    key = ss._load_or_create_key()
+    assert ss._KEY_PATH.read_bytes() == key and len(key) == 44
+    assert stat.S_IMODE(os.stat(ss._KEY_PATH).st_mode) == 0o600
+    assert [p.name for p in ss._KEY_PATH.parent.iterdir()] == [".app_key"]
