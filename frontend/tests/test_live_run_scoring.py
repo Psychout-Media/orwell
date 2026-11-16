@@ -90,11 +90,15 @@ def test_k3_a_due_evening_ceremony_unfired_for_more_than_two_messages_fails():
 
 def _load(name):
     import sys
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run"))
-    p = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run" / f"{name}.py"
+    d = str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run")
+    p = pathlib.Path(d) / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, p)
     m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
+    sys.path.insert(0, d)
+    try:
+        spec.loader.exec_module(m)
+    finally:
+        sys.path.remove(d)  # review of ORW-109: the path edit never leaks into other tests
     return m
 
 
@@ -142,6 +146,16 @@ def test_a_raw_tool_tag_reply_is_machinery():
     assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]
 
 
+# review follow-ups (ORW-481): one case per fixed scoring bug
+def test_review_followups_scoring_regexes_and_clock():
+    assert ls.LEAK_RE.search("The Vault holds the secrets") and not ls.LEAK_RE.search("the vault door was open") and not ls.LEAK_RE.search("a vault wall of safe-deposit boxes")  # a sentence-start "The Vault" is machinery too
+    assert not ls.PHANTOM_CER_RE.search("The nomination ceremony is tomorrow, and the house is nervous.")  # speculation about a later ceremony is not a ceremony voiced
+    assert ls.PHANTOM_CER_RE.search("The nomination ceremony begins.")
+    bad = _score([_turn("c", "The nominees are Aa Bb and then everyone left.", phase="hoh-competition", nominees=["Aa Bb", "Cc Dd"])])
+    assert not [k for k in bad if k.startswith("C5-")], "a lowercase word after 'and' is not a second nominee name"
+    assert ls.abs_hours("2:00am, Day 1") - ls.abs_hours("11:00pm, Day 1") == 3  # a night across midnight keeps one day number
+
+
 def test_orw503_alone_is_still_checked_and_the_messages_own_skip_is_not_excused_by_runner_moves():
     txt = "The kitchen hums.\n\nMVMarisol Vance — \"Coffee?\""
     alone = _score([_turn("t1", txt, phase="hoh-competition", rooms_known=True)])
@@ -159,3 +173,16 @@ def test_review_2839_player_out_matches_whole_first_names_and_legacy_rooms_skip(
     legacy = _turn("legacy", "ABSomeone Name — hello there.", room_end=[], phase="hoh-competition")
     legacy.pop("rooms_known", None)
     assert not [k for k in _score([legacy]) if k.startswith("C6-")], "an older report without rooms_known is not read as an empty room"
+
+
+def test_review_k2_boundary_and_k3_eviction_allowance():
+    a = _turn("t1", "x", clock="4:05pm, Day 1")
+    ok = _score([a, _turn("t2", "x", clock="5:35pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert not [k for k in ok if k.startswith("K2-")], "the crown's 1.5h share is the allowed edge"
+    over = _score([a, _turn("t2", "x", clock="5:41pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert not [c for k, c in over.items() if k.startswith("K2-")][0]["ok"], "just above 1.5h is a competition in one message"
+    due = {"next": "eviction", "phase": "evening", "due": True, "minutesUntil": 0}
+    eight = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 9)]
+    assert not [k for k in _score(eight) if k.startswith("K3-")], "an eviction night gets 8 replies"
+    nine = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 10)]
+    assert [k for k in _score(nine) if k.startswith("K3-")], "the 9th reply of an unfired eviction night fails"

@@ -82,6 +82,8 @@ describe("through the live game: a public tie is a house fact from Day 1, a secr
     const house = [PLAYER, ...sb.session.snapshot().house!.npcs.map((n) => n.id)];
     for (const e of ev) { expect(e.hidden, "a public tie is not Vault content").toBe(false); expect(e.witnessSet.slice().sort()).toEqual(house.slice().sort()); }
     expect(sb.engine.events.query({ witnessedBy: PLAYER }).some((e) => e.type === "pre-show-tie")).toBe(true);
+    const names = sb.session.snapshot().house!.npcs.filter((n) => n.id === tie.a || n.id === tie.b).map((n) => n.name);
+    expect(ev.some((e) => names.every((nm) => e.content.includes(nm)) && e.content.includes(tieNatureProse(tie.nature))), "the SELECTED tie was announced, not some other pair").toBe(true);
   });
   it("SECRET: stays sealed, no announcement event, and nothing in the player's sweep names the pair's connection", () => {
     const { sb, tie } = findSeason("secret");
@@ -92,6 +94,14 @@ describe("through the live game: a public tie is a house fact from Day 1, a secr
     expect(sweep.includes(tieNatureProse(tie.nature)), "the connection's prose never reaches the player").toBe(false);
     const announced = sb.engine.events.queryAll().filter((e) => e.type === "pre-show-tie");
     expect(announced.every((e) => !names.every((nm) => e.content.includes(nm))), "no announcement names the secret pair").toBe(true);
+  });
+  it("PUBLIC: accusing an openly declared pair lands but costs nobody a betrayal shock (nobody hid anything)", () => {
+    const { sb, tie } = findSeason("public");
+    const rel = sb.engine.relationships;
+    const others = [PLAYER, ...sb.session.snapshot().house!.npcs.map((n) => n.id)].filter((id) => id !== tie.a && id !== tie.b);
+    const before = others.map((o) => [rel.edge(o, tie.a).trust, rel.edge(o, tie.b).trust]);
+    expect((sb.session as unknown as { accuseTie(a: string, b: string): { landed: boolean } | null }).accuseTie(tie.a, tie.b)).toEqual({ landed: true });
+    expect(others.map((o) => [rel.edge(o, tie.a).trust, rel.edge(o, tie.b).trust])).toEqual(before);
   });
   it("is deterministic per seed (same marks, same exposure)", () => {
     const run = (): string => {

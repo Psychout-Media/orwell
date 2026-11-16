@@ -341,7 +341,8 @@ export function _onWsChatFrame(frame) {
         } else if (_wd && !isNaN(_wd.getTime())) {
           _ts.title = _wd.toLocaleString();
           _ts.dataset.wallClock = _wd.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else {
+        } else if (!_ts.dataset.wallClock && !_ts.classList.contains('role-timestamp-moment')) {
+          // review of ORW-365: a holder seeded with the in-world moment already carries its wall clock; never store the moment text as one
           _ts.dataset.wallClock = _ts.textContent;
         }
         _ts.textContent = d.moment.trim();

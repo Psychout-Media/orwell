@@ -52,6 +52,11 @@ def test_clock_time_wrong_hour_is_dropped_even_when_band_is_morning(monkeypatch)
     assert "8:15" not in out and "The hall is quiet." in out
 
 
+def test_a_second_wrong_clock_claim_in_the_same_sentence_is_held(monkeypatch):
+    out, _ = _guard(monkeypatch, "It's 4:20 in the morning, but the time is 8:15 in the morning. The hall is quiet.", PREDAWN)
+    assert "8:15" not in out and "The hall is quiet." in out
+
+
 # Negative controls: a claim the clock backs is never touched.
 @pytest.mark.parametrize("text,status", [
     ("Morning comes in bright and early, and the house stirs.", {"timeOfDay": "morning", "clockLabel": "8:00am, Day 4"}),

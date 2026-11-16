@@ -261,3 +261,13 @@ def test_agent_loop_progression_carries_sync_fields_source_pin():
     assert "_mint_idempotency_key" in src
     # the stale-beat reconcile is routed through the existing chat_helpers spine
     assert "_handle_stale_beat" in src or "_is_stale_beat_error" in src
+
+
+def test_clear_social_runway_forgets_a_paused_competition():
+    from routes import chat_helpers
+    key = chat_helpers._runway_key("u-pause")
+    chat_helpers._COMP_PAUSED[key] = "1:veto-competition"
+    chat_helpers._COMP_CONT[key] = True
+    chat_helpers._COMP_STEER_BASE[key] = "x"
+    chat_helpers.clear_social_runway("u-pause")
+    assert key not in chat_helpers._COMP_PAUSED and key not in chat_helpers._COMP_CONT and key not in chat_helpers._COMP_STEER_BASE

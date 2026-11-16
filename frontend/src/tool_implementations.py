@@ -5981,12 +5981,18 @@ def is_deal_refusal(res) -> bool:
 def deal_refusal_for_narrator(res: dict) -> dict:
     """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
     why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
-    return {"output": json.dumps({
+    out = {
         "declined": True,
         "reason": res.get("reason"),
         "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
                     "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
-    }, indent=2), "exit_code": 0}
+    }
+    # ORW-481 (review 4539129295): the engine may attach a counteroffer; hand it over so the refusal is voiced WITH its terms (still no deal until the player accepts).
+    counter = res.get("counteroffer")
+    if isinstance(counter, dict) and (counter.get("terms") or counter.get("kind")):
+        out["counteroffer"] = {"kind": counter.get("kind"), "terms": counter.get("terms")}
+        out["message"] += (" The engine attached a COUNTEROFFER: voice its terms exactly as given as what they would accept instead; it is an offer only, no deal exists until the player takes it.")
+    return {"output": json.dumps(out, indent=2), "exit_code": 0}
 
 
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:

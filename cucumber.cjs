@@ -93,6 +93,7 @@ module.exports = {
       "docs/features/0096-emergent-nemesis.feature",
       "docs/features/0100-jury-grudge-book.feature",
       "docs/features/0101-npc-myth-making.feature",
+      "docs/features/0102-weekly-recap-cliffhanger.feature",
       "docs/features/0104-season-notoriety.feature",
       "docs/features/0105-suspicion-and-mood-anchoring.feature",
       "docs/features/0109-deal-duration.feature",

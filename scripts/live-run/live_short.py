@@ -39,14 +39,14 @@ PREMIERE_MINGLE = [
     "I compliment the latest arrival on their outfit.",
 ]
 # a nominations ceremony voiced before the engine committed one (ritual cues only - 'nominations' in general talk is fine)
-PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\bon the block\b")
+PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony (?:begins|starts|opens|is (?:now )?(?:starting|beginning|under ?way))\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\b(?:are|is|were) (?:now )?on the block\b|\b(?:you|they|we)[\u2019']re (?:now )?on the block\b|\b(?:he|she|it)[\u2019']s (?:now )?on the block\b")
 # one dialogue line: the chip initials, then the full name, then a dash ("TBTerrance Boyd — ...")
 SPEAKER_RE = re.compile(r"(?m)^[A-Z]{1,3}([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)+)\s*[\u2014-]")
-PAIR_AFTER_RE = re.compile(r"(?i)nominees?\W+(?:are|were|is)\W+([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
+PAIR_AFTER_RE = re.compile(r"(?i:nominees?\W+(?:are|were|is)\W+)([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
 PAIR_BEFORE_RE = re.compile(r"([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?),? (?:are|were)(?: both)? (?:the )?(?:nominees|nominated|on the block|up for eviction)")
 
 # machinery that must never reach a player-facing reply
-LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\bthe Vault\b|\bVault Wall\b)", re.I)
+LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\b[Tt]he Vault\b|\bVault Wall\b)", re.I)
 # a guard's replacement shell is not a scene
 SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again\?|Responding\W*$", re.I)
 # competition play that must not be narrated before the engine has run the competition
@@ -283,7 +283,7 @@ def main():
         ent = (eng.call("premiereIntros") or {}).get("entrance") or {} if st.get("phase") == "premiere" else {}
         t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"], "finalized": r.get("finalized"),
              "room_start": room_of(st0), "room_end": sorted(set(room_of(st)) | set(ent.get("arrivedNames") or [])), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
-             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
+             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "part_before": (st0.get("daySchedule") or {}).get("finalHohPart"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
         t["harness_jump"] = eng.jumps; eng.jumps = 0
         t["clock_pre_send"] = st0.get("clockLabel")  # ORW-503: the clock just before THIS message, so the runner's own moves are excused only up to here
@@ -345,7 +345,9 @@ def draw_voiced(text):
 
 def abs_hours(label):
     m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", label or "")
-    return None if not m else (int(m.group(4)) - 1) * 24 + int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+    if not m: return None
+    h = int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+    return (int(m.group(4)) - 1) * 24 + h + (24 if h < 8 else 0)  # the engine keeps the day number until the 8am wake, so 2am belongs to the night that began the evening before
 
 
 def clock_hour(label):
@@ -403,6 +405,8 @@ def score(turns, checks, check, turn_limit):
                 # ORW-281: the veto chip draw is its own morning mini ceremony and costs a ceremony's felt hours (~1h, daySchedule DURATION_CATEGORY "veto-draw": "ceremony"),
                 # so the reply that voices the draw moves the clock about an hour. Sanctioned, not skipped time.
                 check(f"K1-clock-jump-veto-draw[{t['label']}]", True, f"+{gap:.1f}h: the veto draw ceremony (ORW-281, about 1h)", "note")
+            elif t.get("phase_before") == t.get("phase") == "hoh-competition" and gap <= 4.5 and t.get("part_before") and t.get("part_before") != (t.get("ds") or {}).get("finalHohPart"):
+                check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: one part of the Final HOH played inside one message", "note")
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_
