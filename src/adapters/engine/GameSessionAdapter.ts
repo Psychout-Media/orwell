@@ -337,7 +337,8 @@ import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSou
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
-import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1682,7 +1683,7 @@ export class GameSessionAdapter implements GameSession {
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}:${attempt}`));
     const decided = decideTellToPlayer(live.beliefs?.[id] ?? [], {
       holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id),
-      toldToday: told.some((c) => c.week === live.week && c.day === day),
+      toldToday: toldTodayBy(told, live.week, day),
       alreadyTold: new Set(told.map((c) => toPlayerKey(c.kind, c.subject, c.object))), roll: rng.next(),
     });
     let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
@@ -1691,8 +1692,36 @@ export class GameSessionAdapter implements GameSession {
       const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
       if (claim) tells = { kind: b.kind, subject: this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), certainty: decided.band };
     }
+    if (!tells) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
+  }
+  /**
+   * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
+   * (`plantToPlayer.ts` decides whether/about whom; slice 3's `planSpeech` makes the false claim). Own side stream `${seed}:plant-to-player:${id}:${week}:${day}`, no trust gate. Told as a claim (listener =
+   * the player, no belief); the narrator gets the SAME `tellsYou` fields as a true claim, the band a draw over the range a held belief spans (`presentedBand(undefined, roll)`): no tell, no truth, no intent.
+   */
+  private plantOnPlayer(id: EntityId, day: number, toldToday: boolean): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const live = this.live;
+    if (!live || toldToday) return undefined;
+    const AGAINST = new Set(["get-them-out", "revenge", "long-con"]);
+    const living = this.livingIds();
+    const candidates = (live.agendas?.[id]?.goals ?? [])
+      .filter((g) => g.status === "active" && AGAINST.has(g.kind) && g.target !== undefined && g.target !== PLAYER && g.target !== id && living.includes(g.target))
+      .map((g) => g.target as EntityId);
+    if (candidates.length === 0) return undefined;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:plant-to-player:${id}:${live.week}:${day}`));
+    const roll = rng.next(), pick = rng.next(), planKind = rng.next(), bandRoll = rng.next();
+    const decided = decidePlantToPlayer({
+      holder: id, candidates, cunning: cunningOf(this.agendaCharacterOf(id)?.archetype), candor: this.candorOf(id), audience: this.audienceAround(id), toldToday, roll, pick,
+    });
+    if (!decided) return undefined;
+    const said = planSpeech("plant", id, PLAYER, decided.about, false, { living, beliefs: live.beliefs, facts: this.truthFacts(), roll: planKind });
+    if (!said) return undefined;
+    const claim = this.tellClaim(said);
+    if (!claim) return undefined;
+    const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
+    return { kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
@@ -6180,7 +6209,11 @@ export class GameSessionAdapter implements GameSession {
     const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
     for (const claim of askableClaims(this.live.claims.items, present)) {
       const held = heldBeliefFor(this.live.beliefs, claim);
-      if (!held) continue;
+      if (!held) {
+        // 0159: a lie planted on the player has no belief behind it. The liar says they saw it themself (names no one; the note never hints it is untrue).
+        if (claim.intent === "mislead" && claim.isTrue === false) { this.claimSourceNote = sourceNote("witnessed", this.nameOf(claim.speaker)); return false; }
+        continue;
+      }
       const answer = decideSourceAnswer({
         seed: this.gameSeed ?? 0, holder: claim.speaker, claimId: claim.id, origin: held.origin, source: held.source,
         sourceAffinity: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).affinity : 0.5,
