@@ -57,6 +57,7 @@ def night_resolved(state, evicted_before, week_before, evicted_now):
 
 
 NEAR_DUE_MINUTES = 30
+RESOLVED_TURNS: set = set()   # labels of the chat turns inside which the eviction resolved (read by live_short's K1 clock check)
 MAX_ADVANCE_TICKS = 500
 
 
@@ -121,7 +122,10 @@ def run(eng, play, check, chat, turns=DEFAULT_TURNS):
             continue
         if played >= turns:
             break
-        play(f"eviction-{played + 1}", next_line(played)); played += 1
+        label = f"eviction-{played + 1}"
+        play(label, next_line(played)); played += 1
+        if len(evicted_names(eng.call("seasonRecap"))) > len(before):   # the ceremony resolved INSIDE this reply: its clock move is the engine's staged ceremony, not skipped time (live run 6: +2.1h)
+            RESOLVED_TURNS.add(label)
     st = eng.call("getGameState"); now = evicted_names(eng.call("seasonRecap"))
     resolved = resolved or night_resolved(st, before, wk0, now)
     check("E2-eviction-resolved", resolved, f"evicted before {len(before)}, after {len(now)}; week {wk0} -> {st.get('week')}; {played} chat turns and {cards} cards (bound {turns} turns)")
