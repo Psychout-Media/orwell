@@ -180,6 +180,27 @@ describe("buildShowBrief: invariants", () => {
     expect(b.text).not.toMatch(/npc:\d|someone/);
   });
 
+  it("ORW-510: the ALREADY USED section rides last, and a full one keeps the whole brief small", async () => {
+    const { emptyNarrationUse, narrationUsageSection, narrationAnchor, recordNarration } = await import("../../src/engine/narrationUsage");
+    const all = Array.from({ length: 15 }, (_, i) => ref(i));
+    const busy = view({ room: "kitchen", turnsHere: 2, present: all.slice(0, 5), companions: all.slice(0, 5).map((r) => ({ ...r, turnsHere: 2 })), nearby: [] });
+    const roster = all.map((r, i) => ({ id: r.id as string, name: `Pxa${"abcdefghijklmno"[i]} Sxb${"abcdefghijklmno"[i]}` }));
+    let rec = emptyNarrationUse();
+    for (let t = 0; t < 60; t++) {
+      const who = roster[t % 15]!.name.split(" ")[0]!;
+      const w = "abcdefghijklmnopqrstuvwxyz"[t % 26]!.repeat(5);
+      rec = recordNarration(rec, `You walk into ${w}. ${who} tucks her hair behind ${w}. "Honestly, I could use ${w} now," ${who} says. Quiet follows ${w} around.`, roster).record;
+    }
+    const b = buildShowBrief(busy, {}, undefined, undefined, undefined, (here) => narrationUsageSection(rec, here as readonly string[], (id) => roster.find((r) => r.id === id)?.name ?? "someone", narrationAnchor(1, rec.turns)))!;
+    const used = b.sections.find((s) => s.id === "used")!;
+    expect(used).toBeDefined();
+    expect(b.sections[b.sections.length - 1]!.id).toBe("used");
+    expect(used.tokens).toBeLessThanOrEqual(200);
+    expect(b.tokens).toBeLessThan(1000);
+    const bare = buildShowBrief(busy, {})!;
+    expect(bare.sections.some((s) => s.id === "used")).toBe(false);
+  });
+
   it("the quoted tail drops out-of-character asides, is one line, and is capped", () => {
     expect(cleanLastShown("Before ((an aside)) after.\nNext line.")).toBe("Before after. Next line.");
     expect(cleanLastShown("((only an aside))")).toBeUndefined();
