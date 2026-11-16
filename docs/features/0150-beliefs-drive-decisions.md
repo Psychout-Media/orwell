@@ -40,13 +40,16 @@ A different answer is a change in that one place.
 Beliefs and the goals they form are engine-only, never projected. Scenario 3 proves that telling the claim and forming the
 goal changes nothing on any player or admin surface.
 
+## The veto too
+
+The veto save reads beliefs as well. Its memory bias (`vetoMemoryFor`, B7) already includes the holder's belief tilt
+(`beliefNomTiltFor`), and this slice turned that tilt into `beliefPull`. So a believed grievance against a nominee cuts the
+save at the same strength.
+
 ## Not in this slice
 
-- The veto's use or save decision does not read beliefs yet.
 - The reads that still use the hidden truth (who's a floater, who the HOH really wants out, a juror's trust) are not yet moved
-  to beliefs.
-
-Both are noted on ORW-330 for a later slice.
+  to beliefs. This is noted on ORW-330 for a later slice.
 
 ## Measured, not gated
 
