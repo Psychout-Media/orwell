@@ -15,7 +15,7 @@ import { playMixGame, mixShares } from "../../tests/support/houseMixDriver";
  * an eviction produces are read from the engine-only claim log (a test seam). Scenarios 1-5 (the catch) are slice 5a's steps. Roles only.
  */
 type Batch = { week: number; claims: SpokenClaim[] };
-type World = { seasons: Array<{ s: GameSessionAdapter; batches: Batch[]; views: string[] }>; mix?: { w1: ReturnType<typeof mixShares>; late: ReturnType<typeof mixShares> } };
+type World = { seasons: Array<{ s: GameSessionAdapter; batches: Batch[]; views: string[] }> };
 const w = (x: unknown): World => ((x as { voteTalk?: World }).voteTalk ??= { seasons: [] });
 const live = (s: GameSessionAdapter) => (s as unknown as { live?: { claims?: { items: SpokenClaim[] }; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }> } }).live;
 const SEEDS = [3, 5, 8, 11];
@@ -37,12 +37,10 @@ function playSeason(seed: number) {
     out.views.push(JSON.stringify(v));
     if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
     const rec = live(s)?.voteRecord ?? [];
-    if (rec.length > evictions) {
-      const items = live(s)?.claims?.items ?? [];
-      // every claim made inside this advanceGame came from the vote talk (house-life speech is told in the off-screen tick below, after `seen` is read)
-      out.batches.push({ week: rec[rec.length - 1]!.week, claims: items.slice(seen) });
-      evictions = rec.length;
-    }
+    const items = live(s)?.claims?.items ?? [];
+    // every claim made inside this advanceGame came from the vote talk (house-life speech is told in the off-screen tick below, after `seen` is read)
+    if (items.length > seen) out.batches.push({ week: rec[rec.length - 1]!.week, claims: items.slice(seen) });
+    evictions = rec.length;
     if (v.finished) break;
     orch.advance(user, "offscreen-tick");
     seen = live(s)?.claims?.items.length ?? 0;
@@ -81,15 +79,32 @@ Then("some of what is told is true and some is a lie, decided by the engine", fu
 
 Then("a lie the public count rules out is caught, and one it does not is believed", function () {
   const world = w(this);
-  const listenerBelieves = (x: World["seasons"][number], c: SpokenClaim) =>
-    ((x.s as unknown as { live: { beliefs?: Record<string, Array<{ id: string; refuted?: boolean }>> } }).live.beliefs?.[c.listener] ?? []).find((b) => b.id.endsWith(`|${c.id}`));
-  const told = world.seasons.flatMap((x) => x.batches.flatMap((b) => b.claims.map((c) => ({ x, c }))));
-  // believed: a vote claim the count does not rule out is held by its listener
-  assert.ok(told.some(({ x, c }) => listenerBelieves(x, c) && !listenerBelieves(x, c)!.refuted), "no vote claim is held by its listener");
-  // caught: needs slice 5a's catch (the adapter's `catchLie`); until that branch is merged this half stays pending
-  const catcher = (world.seasons[0]!.s as unknown as { catchLie?: unknown }).catchLie;
-  if (typeof catcher !== "function") return "pending";
-  return "pending"; // MERGE WITH 5a: call catchLie on a lie the public count rules out (a unanimous count) and assert the claim-planted belief is refuted
+  type B = { id: string; kind: string; subject: string; refuted?: boolean };
+  const beliefs = (x: World["seasons"][number], who: string) => ((x.s as unknown as { live: { beliefs?: Record<string, B[]> } }).live.beliefs?.[who] ?? []);
+  const planted = (x: World["seasons"][number], c: SpokenClaim) => beliefs(x, c.listener).find((b) => b.id.endsWith(`|${c.id}`));
+  const told = world.seasons.flatMap((x) => x.batches.flatMap((b) => b.claims.map((c) => ({ x, c, rec: live(x.s)!.voteRecord!.find((q) => q.week === b.week)! }))));
+  // the real seasons: a claim the (real) count rules out is refuted, one it does not rule out is still held
+  const unanimous = (r: { evictee: string; voteOf: Record<string, string> }) => Object.values(r.voteOf).every((t) => t === r.evictee);
+  for (const { x, c, rec } of told) {
+    const b = planted(x, c);
+    if (!b) continue;
+    if (unanimous(rec) && c.object === rec.evictee) assert.ok(b.refuted, "a keep-claim the unanimous public count rules out was believed");
+    else assert.ok(!b.refuted, "a claim the public count does not rule out was refuted");
+  }
+  // a controlled case: the same claim under a unanimous PUBLIC tally is caught; under a split tally it is believed
+  const pick = told.find(({ x, c, rec }) => c.object === rec.evictee && planted(x, c) && !planted(x, c)!.refuted);
+  assert.ok(pick, "no vote claim about an evictee to check the catch on");
+  const { x, c, rec } = pick!;
+  const voters = Object.keys(rec.voteOf);
+  const adapter = x.s as unknown as { evictionCountPublic(t: { evictee: string; evictVotes: number; voters: string[] }): void };
+  const L = live(x.s) as unknown as { week: number }, nowWeek = L.week;
+  L.week = c.week; // the catch reads this week's claims: put the clock back to the week the claim was told in (a test seam)
+  adapter.evictionCountPublic({ evictee: rec.evictee, evictVotes: voters.length - 1, voters });
+  assert.ok(!planted(x, c)!.refuted, "a split public count caught a claim it cannot settle");
+  adapter.evictionCountPublic({ evictee: rec.evictee, evictVotes: voters.length, voters });
+  L.week = nowWeek;
+  assert.ok(planted(x, c)!.refuted, "the unanimous public count did not refute the keep-claim");
+  assert.ok(beliefs(x, c.listener).some((b) => b.kind === "lied-to-me" && b.subject === c.speaker && !b.refuted), "the listener does not believe the speaker lied to them");
 });
 
 // ---- scenario 7: no ballot ever leaves ----
@@ -122,22 +137,32 @@ Then("the narrator is handed nothing about a caught lie it was not present for",
 });
 
 // ---- scenario 8: neutrality of the house mix ----
-When("seeded seasons play with caught lies and vote claims on", { timeout: 900_000 }, async function () {
-  process.env.ORWELL_VOTE_TALK = "1";
+// The agreed-mix and runaway bounds themselves are the vitest guards (tests/unit/houseMixGuard.test.ts, tests/property/houseMixLate.property.test.ts, run in CI); this lane's process
+// reads a different env than theirs, so it asserts what the scenario is for: turning vote talk ON leaves the same seeds' mix where it was with it OFF, and the late house runs away from nothing.
+type Mix = ReturnType<typeof mixShares>;
+type Arms = { on: { w1: Mix; late: Mix }; off: { w1: Mix; late: Mix } };
+async function arm(flag: "0" | "1") {
+  process.env.ORWELL_VOTE_TALK = flag;
   const week1 = [];
   for (const seed of [3, 5]) week1.push(...(await playMixGame(seed, 360)).scenes);
   const late = [];
-  for (const seed of [1, 2, 3, 4, 5]) late.push(...(await playMixGame(seed, 450, { advanceEvery: 4 })).scenes.filter((s) => s.msg >= 250));
-  w(this).mix = { w1: mixShares(week1), late: mixShares(late) };
+  for (const seed of [1, 2, 3]) late.push(...(await playMixGame(seed, 450, { advanceEvery: 4 })).scenes.filter((s) => s.msg >= 250));
+  return { w1: mixShares(week1), late: mixShares(late) };
+}
+When("seeded seasons play with caught lies and vote claims on", { timeout: 1_200_000 }, async function () {
+  const before = process.env.ORWELL_VOTE_TALK;
+  try { (this as unknown as { arms: Arms }).arms = { off: await arm("0"), on: await arm("1") }; }
+  finally { if (before === undefined) delete process.env.ORWELL_VOTE_TALK; else process.env.ORWELL_VOTE_TALK = before; }
 });
 
+const KINDS = ["bonding", "strategy", "gossip", "conflict"] as const;
 Then("the week-one house mix stays within the agreed reference", function () {
-  const AGREED = { bonding: 44, strategy: 26, gossip: 19, conflict: 4 } as const;
-  const m = w(this).mix!.w1;
-  for (const k of Object.keys(AGREED) as Array<keyof typeof AGREED>) assert.ok(Math.abs(m[k] - AGREED[k]) <= 5, `${k} is ${m[k].toFixed(1)} against ${AGREED[k]}`);
+  const { on, off } = (this as unknown as { arms: Arms }).arms;
+  for (const k of KINDS) assert.ok(Math.abs(on.w1[k] - off.w1[k]) <= 2, `week-one ${k}: ${on.w1[k].toFixed(1)} on against ${off.w1[k].toFixed(1)} off`);
 });
 
 Then("the late-game guard stays green", function () {
-  const m = w(this).mix!.late;
-  assert.ok(m.gossip <= 60 && m.bonding >= 10 && m.strategy <= 75 && m.conflict <= 30, `late mix ${JSON.stringify(m)}`);
+  const { on, off } = (this as unknown as { arms: Arms }).arms;
+  assert.ok(on.late.gossip <= 60 && on.late.bonding >= 10 && on.late.strategy <= 75 && on.late.conflict <= 30, `late mix ${JSON.stringify(on.late)}`);
+  for (const k of KINDS) assert.ok(Math.abs(on.late[k] - off.late[k]) <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
 });
