@@ -82,12 +82,12 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | A1 | Every houseguest is inside by the end of the premiere | FAIL |
 | A2 | Arrivals keep progressing (no long flat stretch of the inside count) | FAIL |
 | D1 | Day one is not skipped: after the premiere the clock still reads Day 1 | FAIL |
-| K1 | No skipped time: a clock jump over an hour needs a bed or nap message, the 8am wake, the runner's own move, or a sanctioned ceremony (competition crown share, staged eviction ballots, the veto draw when the reply voices it) | FAIL (notes for the sanctioned cases) |
+| K1 | No skipped time: a clock jump over an hour needs a bed or nap message, the 8am wake, the runner's own move, or a sanctioned ceremony (competition crown share, staged eviction ballots, the veto draw when the reply voices it). A jump of at most 4.5 hours in a message that also moves the phase (a beat played inside one message) is accepted too and listed as a note, so read the notes; this allowance never covers a competition crown, which is accepted only up to 1.5 hours and is otherwise a K2 failure | FAIL (notes for the sanctioned cases) |
 | K2 | A competition is never crowned inside one message that also moves the clock by hours | FAIL |
 | K3 | An event the schedule reports due fires within a few messages | FAIL |
 | N1, N2, N5, N12 | A daytime goodnight does not end the day (N1); "hang out until morning" never reaches morning (N2); an early bed wakes before the house (N5); a nap stays in the day (N12) | FAIL |
 | N4 | The bed reply names the evicted houseguest in the day in review | WARN |
-| N7, N8 | The Nightfall card lists who is awake; the Whereabouts card shows no sleeper with the player. A missing card is recorded as `N7-widget-missing` / `N8-widget-missing` | FAIL / WARN when the card is missing |
+| N7, N8 | The Nightfall card lists who is awake; the Whereabouts card shows no sleeper with the player. A missing card is recorded as `N7-widget-missing[<moment>]` / `N8-widget-missing[<moment>]` (for example `N7-widget-missing[morning]`) | FAIL / WARN when the card is missing |
 | W2, W3, W10 | Only with `RIG_CROSSOVER=1`: a Week recap card after the bed, the HOH next in the afternoon, the bubble header shows the new week | FAIL |
 | X0 | Only with `RIG_CROSSOVER=1`: eviction night is reached and Week 2 begins with no HOH | FAIL |
 | T1c, T2b | A settled reply's bubble has its footer (T1c); a player request gets a scene, not a thin answer (T2b) | WARN |

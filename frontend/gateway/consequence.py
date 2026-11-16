@@ -235,6 +235,11 @@ async def fold_gateway_turn(user: str, message_text: str, narration: str, house:
     try:
         if _is_nondiegetic(message_text) or _is_nondiegetic(narration):
             return False
+        # A mixed turn (an aside plus a real action) is a scene, but its asides are private: drop them before name matching, the
+        # extraction call and the fallback content, so a name inside an aside never becomes a witnessed participant (review of #2247).
+        from src.ooc_aside import strip_asides
+        message_text = strip_asides(message_text)
+        narration = strip_asides(narration)
         house = house or []
         house_names = _living_house_names(house)
         if not _scene_touched_house(narration, message_text, house_names):

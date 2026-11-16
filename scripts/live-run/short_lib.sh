@@ -24,7 +24,11 @@ P
 # $1 run dir  $2 sha  $3 cap
 short_partial_report() {
   local run="$1" sha="$2" cap="$3"
-  [ -f "$run/report.md" ] && return 0
+  if [ -f "$run/report.md" ]; then
+    # The driver finished and scored before the final recount found the cap passed: keep its checks, but the title says CAPPED like the wrapper's verdict (review of #2795).
+    grep -q '^# Live run (short tier) - CAPPED' "$run/report.md" || sed -i "1s/^# Live run (short tier) - .*/# Live run (short tier) - CAPPED (the spend went over the \\\$$cap cap after the checks below were scored; they are kept for reading, the run counts as CAPPED)/" "$run/report.md"
+    return 0
+  fi
   {
     echo "# Live run (short tier) - CAPPED"; echo
     echo "- Build: \`$sha\`; the spend cap of \$$cap was hit and the guard stopped the run before the driver wrote its report: NO checks were scored."
