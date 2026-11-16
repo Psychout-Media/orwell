@@ -11,7 +11,7 @@ It prints, from the ledger's daily roll-up:
   * cost per played day (mean, median, worst), for entries that carry an in-game day.
 
 Hit rate = cache-hit tokens / (hit + miss) prompt tokens. A site whose rate is low while its input is large is
-where a prompt-prefix fix pays most (a cache hit costs about one fiftieth of a miss).
+where a prompt-prefix fix pays most (on DeepSeek a cache hit costs about a fiftieth of a miss on flash, a thirtieth on pro).
 """
 
 from __future__ import annotations
