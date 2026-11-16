@@ -1231,11 +1231,18 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
                    "they may only be MENTIONED. Do not write a scene, a line of dialogue or a movement for any of them." if sleepers else "")
     # ORW-478: the player's own move this turn (the engine already performed it, ORW-419). Without it the narrator saw only the new room name and could keep the scene where the player WAS ("head back to the kitchen" narrated in the living room).
     move_line = ""
-    if isinstance(player_move, dict) and not player_move.get("refused") and player_move.get("from") and player_move.get("to") and player_move.get("from") != player_move.get("to"):
+    moved_now = False
+    # Only when the engine's recorded move ends in the room the player is in NOW and the player has just arrived (tenure 0 on the turn of the move): a failed `resolvePlayerMove` call leaves last turn's move in state, and that must not be voiced again.
+    if (isinstance(player_move, dict) and not player_move.get("refused") and player_move.get("from") and player_move.get("to") and player_move.get("from") != player_move.get("to")
+            and str(player_move.get("to")) == room and whereabouts.get("turnsHere") == 0):
+        moved_now = True
         move_line = (f"\nTHE PLAYER JUST MOVED: from the {str(player_move['from']).replace('-', ' ')} to the {str(player_move['to']).replace('-', ' ')} (the engine has already done it). Open this turn's scene in the {str(player_move['to']).replace('-', ' ')}, "
                      f"with exactly the people listed above; never in the {str(player_move['from']).replace('-', ' ')}, and never re-describe the walk as still to come.")
-    # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head: they leave in the fiction (a line, a step out) or are only mentioned.
-    absent_line = ("\nIf the last scene had someone in this room who is not on the list above, do not write them as still here and do not make them vanish: show them stepping out in a line, or let them be only mentioned." if not present else "")
+    # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
+    # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
+    since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
+    left = bool(since.get("departed"))
+    absent_line = ("\nIf the last scene had someone in this room who is not on the list above, do not write them as still here and do not make them vanish: show them stepping out in a line, or let them be only mentioned (unless they are on the asleep list: then only mentioned)." if (not present and (moved_now or left)) else "")
     return (
         "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
         f"the player is in the {room}, with: {here}.{move_line}{nearby_line}{asleep_line}{absent_line}\n"
