@@ -134,7 +134,7 @@ def test_spend_is_the_providers_cost_when_given_else_a_high_estimate(tmp_path):
 def test_the_cap_stops_the_run_by_pid_and_marks_it(tmp_path):
     f = tmp_path / "llm-io.jsonl"
     _rows(f, [{"usage": {"input_tokens": 5_000_000, "output_tokens": 1_000_000}}])
-    victim = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "live_week"])   # its command line names the driver, as the real one does
+    victim = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "live_week", "--run-dir", str(tmp_path)])   # its command line names the driver and its run dir, as the real one does
     try:
         (tmp_path / "driver.pid").write_text(str(victim.pid))
         rc = spend_guard.main([str(f), "1.0", str(tmp_path), "--once"])
