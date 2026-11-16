@@ -378,3 +378,11 @@ def test_bug2_clean_empty_turn_renders_retry(_app):
     assert result["hasRetryBtn"], "the empty-turn recourse must include a clickable Retry button"
     assert result["retryBtnText"] == "Retry", f"the button must read 'Retry', got {result['retryBtnText']!r}"
     assert "retry" in (result["noteText"] or "").lower(), "the empty-turn note must invite a retry"
+
+
+def test_orw502_retry_holder_is_dropped_once_the_server_answered():
+    """ORW-502 (retro thread 4535725357): a dropped stream's Retry holder is carried across a rebuild only while the server log still ends on the player's message; once it ends on an assistant answer the
+    holder is stale. Source-pinned (the repo convention for this seam); the rule itself is the exported pure helper."""
+    js = _read("static/js/chatReconcile.js")
+    assert "export function _retryHolderSuperseded(el, visible)" in js
+    assert "!_retryHolderSuperseded(el, visible)" in js and "last.role === 'assistant'" in js

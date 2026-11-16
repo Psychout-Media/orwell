@@ -140,3 +140,14 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
 def test_a_raw_tool_tag_reply_is_machinery():
     # ORW-440: a whole reply of "</tool_use>" reached the player; the short tier must flag it.
     assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]
+
+
+def test_orw503_alone_is_still_checked_and_the_messages_own_skip_is_not_excused_by_runner_moves():
+    txt = "The kitchen hums.\n\nMVMarisol Vance — \"Coffee?\""
+    alone = _score([_turn("t1", txt, phase="hoh-competition", rooms_known=True)])
+    assert not alone["C6-speakers-in-room[t1]"]["ok"], "an empty room is a real answer: a speaker nobody placed there is still flagged"
+    nodata = _score([_turn("t1", txt, phase="hoh-competition", rooms_known=False)])
+    assert "C6-speakers-in-room[t1]" not in nodata, "no whereabouts data: the check cannot judge, so it skips"
+    a = _turn("t1", "x", clock="4:05pm, Day 1")
+    ran = _score([a, _turn("t2", "x", clock="8:05am, Day 2", harness_jump=1, clock_pre_send="4:10pm, Day 1", msg="Can we start the competition?")])
+    assert [c for k, c in ran.items() if k.startswith("K1-no-skipped-time")][0]["ok"] is False, "the runner moved nothing between pre-send and now: the message skipped the night"

@@ -8350,7 +8350,9 @@ export class GameSessionAdapter implements GameSession {
     if (!refusal) {
       const terms = "a favor called in";
       const evId = this.onPlayerEvent?.(`${this.nameOf(PLAYER)} calls in a favor and ${this.nameOf(npcId)} honors it with a ${ask} deal`, [PLAYER, npcId], "deal");
-      this.trackDealMade(this.deals.make(direction === "ask" ? [npcId, PLAYER] : [PLAYER, npcId], ask, terms, evId, s.week));
+      // ORW-504 (provisional): a one-way favor binds the houseguest who honored it, so target-other / information put the NPC first like the active kinds.
+      const npcPromises = direction === "ask" || ask === "target-other" || ask === "information";
+      this.trackDealMade(this.deals.make(npcPromises ? [npcId, PLAYER] : [PLAYER, npcId], ask, terms, evId, s.week));
       this.persist();
       return { honored: true, kind: ask, narratable: "they honor the favor they owed" };
     }

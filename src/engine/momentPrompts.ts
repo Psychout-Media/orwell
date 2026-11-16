@@ -895,9 +895,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "CLOSE THE REVEAL IN THE SHOW'S OWN GRAMMAR — never a recited script, always the ACTUAL evictee the " +
     "game just handed you: once the `eviction-result` beat names the evictee, deliver it in the classic " +
     "host cadence, naming the evictee plainly — '<the evictee>, you are evicted from the Big Brother " +
-    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally, so do NOT " +
-    "reach for a 'by a vote of <count>' line here (the rules on the rare case where a count may be voiced " +
-    "are below); if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
+    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally of its own, so do NOT " +
+    "reach for a 'by a vote of <count>' line from your own arithmetic; when the moment lists a TALLY line (engine-counted), you may " +
+    "state exactly that count once every ballot has been read, and no other; if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
     "evictee their own beat to say goodbye to the room (some version of 'you have a few seconds to say " +
     "your goodbyes'), then the door, the hug line, and the house watching them go. " +
     "EXIT INTERVIEW (0130): when the game hands you an `exit-interview` beat, play the producers' " +

@@ -231,11 +231,16 @@ def main():
                 check("W3d-no-wrong-winner", not bad, f"replies crown someone other than the engine's winner: {bad}" if bad else "no conflicting winner")
             ok = play_until(lambda s: s.get("phase") == "eviction", "cer", cap)
             check("W4-veto-ceremony-done", ok, f"reached eviction within {cap} turns")
-            ok = play_until(lambda s: s.get("week", 1) >= 2 and s.get("phase") in ("hoh-competition", "premiere"), "evict", cap + 10)
-            check("W5-eviction-night-done", ok, f"reached Week 2 within {cap + 10} turns")
+            def player_out(s):  # ORW-503: the player voted out in Week 1 is a healthy outcome that ends the Week 1 checks (the run then skips to the finale), not a failed run
+                me_ = ((s.get("player") or {}).get("name") or "").split()[:1]
+                return bool(me_) and any(me_[0] in n_ for n_ in names((eng.call("seasonRecap") or {}).get("evicted")))
+            ok = play_until(lambda s: (s.get("week", 1) >= 2 and s.get("phase") in ("hoh-competition", "premiere")) or player_out(s), "evict", cap + 10)
+            check("W5-eviction-night-done", ok, f"reached Week 2 (or the player was voted out) within {cap + 10} turns")
             rec = eng.call("seasonRecap") or {}; ev = names(rec.get("evicted")); facts["evicted"] = ev
-            check("W5b-one-evicted", len(ev) == 1, f"engine evicted: {ev}")
-            if ev:
+            _out = player_out(eng.call("getGameState") or {})
+            if _out: check("W5b-player-evicted-early", True, f"the player was voted out in Week 1 (engine evicted: {ev}); the remaining Week 1 checks do not apply", "note")
+            else: check("W5b-one-evicted", len(ev) == 1, f"engine evicted: {ev}")
+            if ev and not _out:
                 ev_text = "\n".join(t["text"] for t in turns if t["label"].startswith("evict-"))
                 check("W5c-evictee-voiced", ev[0].split()[0] in ev_text, f"the engine's evictee ({ev[0]}) is named in the eviction-night replies")
             if a.season: season_loop()

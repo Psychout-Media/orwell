@@ -76,6 +76,12 @@ describe("calling a favor in", () => {
     expect(g.live.owedFavors).toBeUndefined();
     expect(s.callInFavor(npc, "comp-throw")).toBeNull(); // spent
   });
+  it("a called-in target-other favor binds the NPC who honored it (the promisor), not the player (ORW-504, provisional default)", () => {
+    const { s, g, npc } = game();
+    g.bankOwedFavor(npc, PLAYER);
+    expect(s.callInFavor(npc, "target-other")!.honored).toBe(true);
+    expect(dealsWith(s, npc)[0]!.parties[0]!.id).toBe(npc);
+  });
   it("a feared/distrusted player is still refused: no deal, the favor is spent, and the player's read of them drops", () => {
     const { s, g, npc } = game();
     const e = g.rel.edge(npc, PLAYER); e.trust = 0; e.affinity = 0; e.threat = 0.95;
