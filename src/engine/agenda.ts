@@ -31,7 +31,7 @@ export type GoalHorizon = "season" | "week";
 export type GoalStatus = "active" | "achieved" | "failed" | "dropped" | "replaced" | "ended";
 
 /** One reason a goal exists - a pointer to something real, never invented. `weight` is how much it counted (0..1). */
-export type CauseKind = "character" | "threat-read" | "bond" | "memory" | "board" | "secret" | "pre-show-tie" | "carry-over" | "question";
+export type CauseKind = "character" | "threat-read" | "bond" | "memory" | "board" | "secret" | "pre-show-tie" | "carry-over" | "question" | "belief";
 export interface Cause { kind: CauseKind; about?: EntityId; ref?: string; weight: number }
 
 /** The closed set of tests the engine evaluates to decide whether a goal worked. */
@@ -104,6 +104,8 @@ export interface AgendaView {
   affinity: Array<{ toward: EntityId; affinity: number }>;
   /** The holder's remembered grievances, by person (0..1 salience, from the memory ledger). */
   grudges: Array<{ toward: EntityId; salience: number; ref: string }>;
+  /** 0150 / ORW-330 slice 2: grievances the holder BELIEVES (they were told or deduced it; it can be wrong), strong enough to act on (0..1). Absent => none (byte-identical). */
+  believedGrievances?: Array<{ toward: EntityId; strength: number; ref: string }>;
   /** The holder's soul emotional state (0..1, 0.5 calm). */
   emotional: number;
   /** The holder's alliance mates right now. */
@@ -318,6 +320,14 @@ function emergentSeasonCandidates(view: AgendaView, board: AgendaBoard, agenda: 
     if (g.salience < AGENDA.revengeGrudge || !live.has(g.toward) || held.has(`revenge:${g.toward}`)) continue;
     out.push({ horizon: "season", kind: "revenge", target: g.toward, weight: g.salience, test: { kind: "evicted", who: g.toward },
       why: [{ kind: "memory", about: g.toward, ref: g.ref, weight: g.salience }] });
+  }
+  // 0150 / ORW-330 slice 2: a believed grievance (told or deduced; possibly wrong) is a reason too - revenge on someone they BELIEVE voted against them or lied to
+  // them, with the belief as the reason. Never a second revenge on the same person (a remembered grudge already made one).
+  const fromGrudge = new Set(out.map((c) => c.target));
+  for (const b of view.believedGrievances ?? []) {
+    if (!live.has(b.toward) || held.has(`revenge:${b.toward}`) || fromGrudge.has(b.toward)) continue;
+    out.push({ horizon: "season", kind: "revenge", target: b.toward, weight: b.strength, test: { kind: "evicted", who: b.toward },
+      why: [{ kind: "belief", about: b.toward, ref: b.ref, weight: b.strength }] });
   }
   // A long con: strategic types only, at most once a season, decided by a seeded roll per holder (Ryne: "most people wouldn't do it").
   if (canRunLongCon(view.character) && !board.juryStarted && ![...everHeld].some((k) => k.startsWith("long-con:"))

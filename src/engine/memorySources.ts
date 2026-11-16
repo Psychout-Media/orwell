@@ -48,7 +48,7 @@ export type OtherDecision = "tieBreak" | "jury" | "dealConsent" | "movement";
 export const OTHER_DECISION_READS: Readonly<Record<OtherDecision, readonly string[]>> = {
   tieBreak: ["voteChoice"],
   jury: ["edgeAsJuryRel", "gameRespectTerm", "appealPerf", "jurorProfile"], // A62: the recorded manner (and a juror's possibly mistaken blame) now arrives inside edgeAsJuryRel, no separate mannerFor read
-  dealConsent: ["memoryGrudge", "memoryFavor", "targetsMeTilt", "moodDealFor"],
+  dealConsent: ["memoryGrudge", "memoryFavor", "beliefPull", "moodDealFor"],
   movement: ["bondStrength", "applyWantToPulls"],
 };
 
