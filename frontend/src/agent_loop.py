@@ -714,6 +714,43 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
     return ""
 
 
+_GENDER_HEAL_DONE: set = set()
+
+
+async def _heal_unstated_player_gender(owner, own_words: str) -> bool:
+    """ORW-476: once per owner per process, when the saved player card holds a gender and NONE of the player's own typed words
+    state it, clear it (the engine's updateCasting `unset`). A conversation with no player words at all (history not loaded) heals
+    nothing: silence is not evidence. Returns True when it cleared one."""
+    if _belt_key(owner) in _GENDER_HEAL_DONE or not (own_words or "").strip():  # owner None = single-tenant, keyed like the other belts
+        return False
+    from src import orwell_engine as _oe
+    from src.orwell_player_gender import any_genderish_token
+    st = await _oe.get_game_state(user=owner)
+    if not isinstance(st, dict) or not st.get("started"):
+        return False
+    _GENDER_HEAL_DONE.add(_belt_key(owner))
+    g = ((st.get("player") or {}).get("genderPresentation"))
+    if not g or any_genderish_token(own_words):  # a disagreement with the latest reading never clears; only "no gender-ish token anywhere" does
+        return False
+    await _oe.update_casting({"genderPresentation": "unset"}, user=owner)
+    logger.info("[orwell] ORW-476: cleared a saved player gender that no words of the player's support")
+    return True
+
+
+def _player_own_words(messages) -> str:
+    """ORW-476: the player's own typed words across the conversation (user turns that are not hidden production cues)."""
+    parts = []
+    for msg in messages or []:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+        if isinstance(content, str) and content.strip() and not _is_production_cue(content):
+            parts.append(content)
+    return "\n".join(parts)[-20000:]
+
+
 def _recent_context_for_retrieval(messages: List[Dict], max_user: int = 3, max_chars: int = 600) -> str:
     """Build the tool-retrieval query from the last few USER turns, not just
     the latest one.
@@ -1922,7 +1959,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
                 names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
-        if tod and not stated:
+        try:  # ORW-474 (the clock wins): a wake before the house wake-up is the dark small hours, whatever band name the status carries ("morning")
+            from routes.chat_helpers import _clock_is_before_house_wake
+            _d = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+            _s = _d.get("status") if isinstance(_d, dict) and isinstance(_d.get("status"), dict) else (_d if isinstance(_d, dict) else {})
+            _early = _s.get("earlyMorning") is True or _clock_is_before_house_wake(_s.get("clockLabel"))
+        except Exception:
+            _early = False
+        if _early:
+            lines.append("- It is still the dark small hours, before the house's 8am wake-up (engine truth)" + (": the house is quiet and asleep" if names else "") + ". Write NO morning light, daylight, dawn, sunrise or sun; morning comes at the wake-up call.")
+        elif tod and not stated:
             lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
         if names:
             lines.append(f"- Still asleep ({len(names)}): {', '.join(names)}. They are NOT awake in this scene: do not write them up, talking or moving about; only the houseguests not listed are awake.")
@@ -7336,7 +7382,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE,
 )
 
 
@@ -7898,6 +7944,17 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _ptt.set(_extract_last_user_message(_msgs or []) or "")
     except Exception:
         _ptt = None
+    _pow = None
+    try:  # ORW-476: heal a saved season whose player gender no words of theirs support (a guess from the name, saved before the check)
+        _msgs_h = kwargs.get("messages") if "messages" in kwargs else (args[2] if len(args) > 2 else None)
+        await _heal_unstated_player_gender(kwargs.get("owner"), _player_own_words(_msgs_h))
+    except Exception as _e:  # failsoft-ok: healing is best-effort; the next turn tries again
+        logger.debug("ORW-476: gender heal failed: %s", _e)
+    try:  # ORW-476: every word the player typed this conversation (no production cues), for the player-gender check
+        from src.tool_implementations import PLAYER_OWN_WORDS as _pow
+        _pow.set(_player_own_words(_msgs))
+    except Exception:
+        _pow = None
     _mut0 = None
     try:
         from src import orwell_engine as _oe_mut
@@ -7928,6 +7985,8 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
             _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
             _ptt.set("")
+        if _pow is not None:
+            _pow.set("")
         try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
             from src import belt_state_persist
             belt_state_persist.save_soon()

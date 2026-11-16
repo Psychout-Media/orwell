@@ -1919,8 +1919,8 @@ export interface HouseSearchView {
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
 export type PlayerMoveView =
-  | { from: string; to: string; refused?: undefined }
-  | { refused: true; reason: string; from?: string; to?: string };
+  | { from: string; to: string; refused?: undefined; msg?: string }
+  | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
 export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
@@ -3007,7 +3007,7 @@ export interface GameSession {
    * Clock-per-message (2026-11-05): the front-end announces ONE player message ({messageId}, its stable id); the announcement steps the in-game clock one message-step (~5 minutes), idempotent per id
    * (`accepted: false` for a repeat). From the first announcement on, commits bill the clock nothing - the clock is paid per PLAYER MESSAGE, not per engine mutation. FE clock infra, not a model lever.
    */
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number };
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string };
   /** Resolve the current pending decision and continue the loop (validated; 0011). `req` may carry the
    *  optional 0065 `expectedBeatSeq` / `idempotencyKey` (absent ⇒ byte-identical to today). */
   submitDecision(req: SubmitDecisionReq): AdvanceView;
