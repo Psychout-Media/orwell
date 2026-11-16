@@ -32,6 +32,8 @@ function claimText(kind: SpokenClaimKind, subject: string, object: string | unde
     case "going-after": return `that ${subject} was going after ${object}`;
     case "talking-about": return `that ${subject} was talking about ${object} behind their back`;
     case "lying-about": return object ? `that ${subject} was lying to ${object}` : `that ${subject} was lying to them`;
+    case "voted-against": return `that ${subject} voted to evict ${object ?? "them"}`;
+    case "voted-to-keep": return `that ${subject} voted to keep ${object ?? "them"}`;
   }
 }
 

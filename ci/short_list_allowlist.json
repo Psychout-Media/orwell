@@ -2984,6 +2984,15 @@
    "owner": "ORW-508",
    "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
    "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "src/engine/houseSpeech.ts",
+   "kind": "list",
+   "name": "PLANT_KINDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine claim-kind ids from the 0149 fixed claim set (Ryne's Q1 seam), tried in order for a plant; never a sample of prose (the narrator words the claim)",
+   "decision": "mechanics: an internal candidate list of claim kinds tried in order; not player text"
   }
  ]
 }
