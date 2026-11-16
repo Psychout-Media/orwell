@@ -124,6 +124,8 @@ describe("0118 — the telegraphed schedule rides the view + primes the narrator
       expect(line).toContain(milestoneLabel(view.daySchedule!.next, view.daySchedule!.finalHohPart));
       expect(line).toContain(view.daySchedule!.phase);
       expect(line).not.toMatch(/pitch|last-minute|scheme/i);
+      expect(line, "no unresolved placeholder").not.toContain("undefined");
+      if (todaysEvent) { expect(line).toContain("TOMORROW"); expect(line).toContain(`today is the ${MILESTONE_LABEL[todaysEvent]}'s day`); }
     }
   });
 

@@ -1578,7 +1578,7 @@ export function renderGameContext(view: GameStateView): string {
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
               ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
-              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming; nobody is surprised when production calls them in.`,
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it; nobody is surprised when production calls them in.`,
         ]
       : []),
   ].join("\n");

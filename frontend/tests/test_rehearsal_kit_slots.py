@@ -18,6 +18,7 @@ VARS = ["RIG_SLOT", "RIG_ENGINE_PORT", "RIG_FE_PORT", "WT", "RIG_RUN_PTR", "RIG_
 
 def _slot(slot=None, extra_env=None, cwd=KIT):
     env = {k: v for k, v in os.environ.items() if not k.startswith("RIG_") and k not in ("ORWELL_LIVE_STATE", "ORWELL_PLAYTEST_DIR")}
+    env["ORWELL_RIG_HOME"] = RIG_HOME
     if slot is not None:
         env["RIG_SLOT"] = str(slot)
     env.update(extra_env or {})
@@ -27,8 +28,9 @@ def _slot(slot=None, extra_env=None, cwd=KIT):
 
 
 # What the rig has ALWAYS used (the literals the scripts carried before slots): slot 1 must never drift from these.
-SLOT1 = {"RIG_SLOT": "1", "RIG_ENGINE_PORT": "18765", "RIG_FE_PORT": "17000", "WT": "/home/ryne/orwell-rehearsal", "RIG_RUN_PTR": "/tmp/claude-1000/a11_run",
-         "RIG_LOCK": "/home/ryne/orwell-playtest/live-short/rig.lock", "RIG_RUN_PREFIX": "rehearsal-", "RIG_SUFFIX": "",
+RIG_HOME = "/rig/home"   # the rig user's home: the tests pin it through ORWELL_RIG_HOME so no real user name or path appears here
+SLOT1 = {"RIG_SLOT": "1", "RIG_ENGINE_PORT": "18765", "RIG_FE_PORT": "17000", "WT": f"{RIG_HOME}/orwell-rehearsal", "RIG_RUN_PTR": "/tmp/claude-1000/a11_run",
+         "RIG_LOCK": f"{RIG_HOME}/orwell-playtest/live-short/rig.lock", "RIG_RUN_PREFIX": "rehearsal-", "RIG_SUFFIX": "",
          "RIG_BASE": "http://127.0.0.1:17000", "RIG_ENGINE_URL": "http://127.0.0.1:18765"}
 
 
@@ -169,3 +171,18 @@ def test_spend_guard_reads_the_live_archive_row_shape(tmp_path):
     f.write_text(json.dumps({"response": {"usage": {"input_tokens": 1000, "output_tokens": 100, "cached_tokens": 0, "cost": 0.5}}}) + "\n")
     t = spend_guard.totals(str(f))
     assert t["calls"] == 1 and t["usd_estimate"] == 0.5
+
+
+def test_the_rig_home_defaults_to_the_users_home_and_is_overridden_by_orwell_rig_home():
+    # no literal user name in the kit: ORWELL_RIG_HOME, else $HOME (the rig runs as its own user, so that IS its home)
+    rc, got, _ = _slot(None, extra_env={"ORWELL_RIG_HOME": "", "HOME": "/the/rig/user"})
+    assert rc == 0 and got["WT"] == "/the/rig/user/orwell-rehearsal" and got["RIG_LOCK"] == "/the/rig/user/orwell-playtest/live-short/rig.lock", got
+    rc, got, _ = _slot(None, extra_env={"ORWELL_RIG_HOME": "/elsewhere", "HOME": "/the/rig/user"})
+    assert got["WT"] == "/elsewhere/orwell-rehearsal"
+
+
+def test_no_kit_or_live_run_script_carries_a_literal_user_home():
+    root = KIT.parent.parent
+    offenders = [str(p.relative_to(root)) for d in ("scripts/rehearsal-kit", "scripts/live-run") for p in (root / d).rglob("*") if p.is_file() and p.suffix in (".sh", ".py", ".md")
+                 and "/home/" in p.read_text(errors="ignore") and "__pycache__" not in str(p)]
+    assert offenders == [], offenders

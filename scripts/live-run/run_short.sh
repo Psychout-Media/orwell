@@ -9,8 +9,8 @@ STATE=$RIG_STATE_DIR; mkdir -p "$STATE"
 IF_NEW=0; [ "${1:-}" = "--if-new" ] && { IF_NEW=1; shift; }; REF=${1:-main}; CAP=${RIG_SPEND_CAP:-0.5}   # ORW-109: a spend cap per run (dollars, estimated high)
 short_valid_cap "$CAP" || { echo "LIVE-SHORT COULD-NOT-RUN RIG_SPEND_CAP=$CAP is not a positive number (a run without a working cap is never started)"; exit 2; }
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SHORT BUSY (another live run holds rig slot $RIG_SLOT)"; exit 3; }
-git -C /home/ryne/orwell fetch -q origin "${REF%%~*}" || { echo "LIVE-SHORT COULD-NOT-RUN fetch failed"; exit 2; }
-SHA=$(git -C /home/ryne/orwell rev-parse --short=8 "origin/$REF")
+git -C "$RIG_HOME/orwell" fetch -q origin "${REF%%~*}" || { echo "LIVE-SHORT COULD-NOT-RUN fetch failed"; exit 2; }
+SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 "origin/$REF")
 [ "$IF_NEW" = 1 ] && [ "$(cat "$STATE/last-sha$RIG_SUFFIX" 2>/dev/null)" = "$SHA" ] && { echo "LIVE-SHORT SKIPPED $SHA (already run)"; exit 0; }
 if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then echo "LIVE-SHORT COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
 RUN=$(cat $RIG_RUN_PTR)
@@ -21,8 +21,8 @@ import os
 if os.environ.get("RIG_ZERO_CLOCKS") == "0": d["zero_clocks"]=False  # the known-bad proof: the ORW-377 setting OFF brings back clock times
 json.dump(d,open(f,"w"))
 P
-TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
-PY=${ORWELL_PY:-/home/ryne/orwell/frontend/.venv/bin/python3}
+TMPDIR=${TMPDIR:-$RIG_HOME/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
+PY=${ORWELL_PY:-$RIG_HOME/orwell/frontend/.venv/bin/python3}
 LLMIO="$WT/frontend/data/llm-io.jsonl"
 # The report header (the Live Run Pass Bar's format): build, model, cap, and the engine's /health flags.
 python3 - "$RUN" "$SHA" "$REF" "$CAP" "$WT/frontend/data/settings.json" <<'P'

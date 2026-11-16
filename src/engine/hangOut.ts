@@ -20,7 +20,7 @@ export const HANGOUT = {
   maxStatedMinutes: 180,
 } as const;
 
-export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats" | "target";
+export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
 
 export interface HangOutProbes {
   /** Advance the in-game clock by `hours` (the caller owns clamping at the pre-dawn edge). */
@@ -53,11 +53,11 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
   // ORW-445: a player-stated target. Absent/invalid => the original behaviour, byte-identical (same rng draws, same cap).
   const target = typeof opts.maxMinutes === "number" && Number.isFinite(opts.maxMinutes) && opts.maxMinutes > 0 ? Math.min(HANGOUT.maxStatedMinutes, opts.maxMinutes) : null;
   // A target needs room to be reached with the shortest beats (15 min): the beat count scales to it, never past the 3 h cap.
-  // Review of #2772: an explicit maxBeats is a cap the caller asked for and wins over the stated-wait scaling; only an OMITTED cap scales to the target.
-  const explicitCap = typeof opts.maxBeats === "number" ? Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(opts.maxBeats))) : null;
-  const cap = explicitCap !== null ? explicitCap
-    : target !== null ? Math.max(1, Math.ceil(target / HANGOUT.beatMinutesBase))
-    : HANGOUT.maxBeats;
+  // Review of #2772: an explicitly supplied `maxBeats` still caps a stated wait; only an OMITTED cap scales to the target.
+  const stated = typeof opts.maxBeats === "number" && Number.isFinite(opts.maxBeats) ? Math.max(1, Math.floor(opts.maxBeats)) : null;
+  const cap = target !== null
+    ? Math.max(1, stated !== null ? Math.min(stated, Math.ceil(target / HANGOUT.beatMinutesBase)) : Math.ceil(target / HANGOUT.beatMinutesBase))
+    : Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(opts.maxBeats ?? HANGOUT.maxBeats)));
   if (p.eventDue()) return { stopReason: "event-due", beats: 0, minutes: 0 };
   if (p.bedtime()) return { stopReason: "bedtime", beats: 0, minutes: 0 };
   let minutes = 0;
@@ -72,7 +72,7 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
         const room = target !== null ? Math.max(0, target - minutes) : Infinity;
         const spend = Math.min(until * 60, room);
         if (spend > 0) { p.advance(spend / 60); minutes += spend; }
-        if (spend < until * 60 - 1e-9) return { stopReason: "target", beats: beat, minutes: Math.round(minutes) };
+        if (spend < until * 60 - 1e-9) return { stopReason: "max-beats", beats: beat, minutes: Math.round(minutes) };
       }
       return { stopReason: "event-due", beats: beat - 1, minutes: Math.round(minutes) };
     }
@@ -88,7 +88,7 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
     const ob = p.observed(rng, beat);
     if (ob) return { stopReason: "observed", beats: beat, minutes: Math.round(minutes), detail: { kind: ob.kind, who: ob.who } };
     if (p.bedtime()) return { stopReason: "bedtime", beats: beat, minutes: Math.round(minutes) };
-    if (target !== null && minutes >= target - 1e-9) return { stopReason: "target", beats: beat, minutes: Math.round(minutes) };
+    if (target !== null && minutes >= target - 1e-9) return { stopReason: "max-beats", beats: beat, minutes: Math.round(minutes) };
   }
   return { stopReason: "max-beats", beats: cap, minutes: Math.round(minutes) };
 }

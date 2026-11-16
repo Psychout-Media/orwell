@@ -1980,7 +1980,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
     if isinstance(hand, dict):
         try:
             from src.orwell_facet_ledger import render_hand
-            rendered = render_hand(hand)
+            rendered = render_hand(hand, hometown=not str(npc.get("hometown") or "").strip())  # the card's own hometown wins over the dealt one
             if rendered:
                 hand_rule = (f"\nDEALT FACETS (the casting office's bible for {name} — honor them; "
                              f"the committed skeleton above already reflects this deal): {rendered}.")
@@ -1998,6 +1998,8 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         ph = taken.get("phrases") if isinstance(taken.get("phrases"), dict) else {}
         if ph.get("oncamera_endings"):
             parts.append("onCamera lines already end: " + " | ".join(ph["oncamera_endings"]))
+        if ph.get("photohair_openings"):
+            parts.append("photoHair lines already open: " + " | ".join(ph["photohair_openings"]) + " (open this one differently)")
         if ph.get("identity_openers"):
             parts.append("identity lines already open: " + " | ".join(ph["identity_openers"]))
         if ph.get("oncamera_openings"):

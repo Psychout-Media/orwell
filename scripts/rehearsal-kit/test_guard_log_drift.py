@@ -1,5 +1,5 @@
 """A81 - the analyzer must have a class for every narration-guard log line the front-end can emit (drift test), and report the new guard section from tiny fixtures. Run: python3 -m pytest rehearsal-kit/test_guard_log_drift.py
-FE source is read from $ORWELL_REPO (default /home/ryne/orwell). Roles only."""
+FE source is read from $ORWELL_REPO (default: orwell under $ORWELL_RIG_HOME, else the home directory). Roles only."""
 import ast
 import datetime as dt
 import os
@@ -10,7 +10,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import post_session_analyzer as psa  # noqa: E402
 
-REPO = os.environ.get("ORWELL_REPO", "/home/ryne/orwell")
+REPO = os.environ.get("ORWELL_REPO") or os.path.join(os.environ.get("ORWELL_RIG_HOME") or os.path.expanduser("~"), "orwell")
 FE_FILES = ("frontend/routes/chat_helpers.py", "frontend/src/agent_loop.py")
 GUARDISH = re.compile(r"guard|HELD|STRIPPED|BLOCKED|replaced|DOWN|OMISSION|dropped|replay|stood down|refused by|circuit-breaker|desync", re.I)
 # the four pre-existing classes the analyzer already counts by their own branches in analyze()

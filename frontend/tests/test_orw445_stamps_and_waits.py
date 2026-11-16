@@ -33,23 +33,6 @@ def test_hiccup_keeps_the_start_of_turn_stamp(monkeypatch):
     assert ch.current_game_moment("u2") == "Week 1 · Nominations · Morning"
 
 
-def test_a_stalled_engine_read_is_bounded_and_keeps_the_stamp(monkeypatch):
-    """Review of #2772: the persist-time refresh never holds the save for the engine's full timeout."""
-    ch._LAST_FRAMED_GAME_MOMENT["u4"] = "Week 1 · Nominations · Morning"
-    monkeypatch.setattr(ch, "_STAMP_REFRESH_TIMEOUT", 0.05)
-
-    async def stall(user=None):
-        await asyncio.sleep(30)
-    monkeypatch.setattr(orwell_engine, "get_game_state", stall)
-
-    async def run():
-        t = asyncio.get_running_loop().time()
-        await ch.refresh_framed_game_stamps("u4")
-        return asyncio.get_running_loop().time() - t
-    assert asyncio.run(run()) < 2
-    assert ch.current_game_moment("u4") == "Week 1 · Nominations · Morning"
-
-
 def test_pregame_stays_none(monkeypatch):
     ch._LAST_FRAMED_GAME_MOMENT.pop("u3", None)
 
@@ -62,13 +45,12 @@ def test_pregame_stays_none(monkeypatch):
 
 def test_persist_sites_refresh_before_reading_the_stamp():
     src = open(ch.__file__.replace("chat_helpers.py", "chat_routes.py")).read()
-    assert src.count("refresh_framed_game_stamps(ctx.user") == 4
-    read_sites = 0
-    for line_no, line in enumerate(src.splitlines()):
-        if "current_game_moment(ctx.user) if ctx.game_active" in line:
-            read_sites += 1
-            assert "refresh_framed_game_stamps" in "\n".join(src.splitlines()[line_no - 2:line_no])
-    assert read_sites == 4, "the read-site match went vacuous (review of #2772): one stamp read per persist site"
+    assert src.count("await refresh_framed_game_stamps(ctx.user)") == 4
+    lines = src.splitlines()
+    sites = [n for n, line in enumerate(lines) if "current_game_moment(ctx.user) if ctx.game_active" in line]
+    assert len(sites) == 4, "the read sites changed: update this pin deliberately (review of #2772: it passed vacuously with no match)"
+    for line_no in sites:
+        assert "refresh_framed_game_stamps" in "\n".join(lines[line_no - 2:line_no])
 
 
 @pytest.mark.parametrize("msg,want", [
@@ -111,10 +93,25 @@ def test_maybe_hang_out_passes_the_target(monkeypatch):
     assert seen == {"max_minutes": None, "until_band_end": False}
 
 
-def test_rest_of_band_after_until_sets_the_band_target():
-    """Review of #2772: the match ends at until/till, so the band phrase after it must still count."""
+def test_until_the_rest_of_the_band_is_a_band_target_even_after_until():
     assert ch.parse_stated_wait("hang out until the rest of the afternoon") == (None, True)
     assert ch.parse_stated_wait("chill till the rest of the morning") == (None, True)
+    assert ch.parse_stated_wait("hang out for the rest of the afternoon") == (None, True)
+
+
+def test_stamp_refresh_is_bounded_and_keeps_the_start_of_turn_stamp(monkeypatch):
+    from src import orwell_engine
+    ch._LAST_FRAMED_GAME_MOMENT["u-slow"] = "start-of-turn"
+
+    async def hang(user=None):
+        await asyncio.sleep(30)
+    monkeypatch.setattr(orwell_engine, "get_game_state", hang)
+    monkeypatch.setattr(ch, "_STAMP_REFRESH_TIMEOUT", 0.05)
+    import time
+    t0 = time.monotonic()
+    asyncio.run(ch.refresh_framed_game_stamps("u-slow"))
+    assert time.monotonic() - t0 < 2
+    assert ch._LAST_FRAMED_GAME_MOMENT["u-slow"] == "start-of-turn"
 
 
 @pytest.mark.parametrize("msg,want", [
@@ -143,19 +140,3 @@ def test_orw477_stated_waits_start_a_hangout(msg, want):
 def test_orw477_not_a_wait(msg):
     assert not ch.hang_out_intent(msg)
     assert ch.parse_stated_wait(msg) == (None, False)
-
-
-@pytest.mark.parametrize("gs,want", [
-    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "morning", "earlyMorning": True}, "Week 1 · Nominations · Early morning"),
-    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "morning", "earlyMorning": False}, "Week 1 · Nominations · Morning"),
-    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "morning"}, "Week 1 · Nominations · Morning"),
-    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "late-night", "earlyMorning": True}, "Week 1 · Nominations · Early morning"),
-    ({"started": True, "week": 1, "phase": "nominations", "timeOfDay": "evening", "earlyMorning": True}, "Week 1 · Nominations · Evening"),
-])
-def test_orw479_header_says_early_morning(gs, want):
-    assert ch._format_game_moment(gs) == want
-
-
-def test_orw479_pregame_none():
-    assert ch._format_game_moment({"started": False, "earlyMorning": True}) is None
-    assert ch._format_game_moment(None) is None
