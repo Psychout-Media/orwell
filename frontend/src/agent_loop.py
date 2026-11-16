@@ -6375,7 +6375,7 @@ def close_open_markup(text: str) -> str:
             stack.append("\u201d")
         elif ch == "\u201d":
             if "\u201d" in stack:
-                del stack[stack.index("\u201d"):]
+                del stack[len(stack) - 1 - stack[::-1].index("\u201d"):]  # the INNERMOST open curly quote closes, an outer one stays open
         elif ch == '"':
             if '"' in stack:
                 del stack[stack.index('"'):]
@@ -7999,6 +7999,12 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     user — then delegates to the loop implementation and RESETS the context in a ``finally`` at turn
     end (even on early consumer close / exception) so keys never bleed across turns. Byte-identical and
     a cheap no-op when observability is disabled (the default). See ``llm_trace.set_observability_context``."""
+    try:  # ORW-481 (review 4582382317): a fold staged by a turn that dropped/errored before its [DONE] must not stand the next turn's E22 floor down
+        if kwargs.get("session_id") is not None:
+            from src import fold_ledger as _fl_turn
+            _fl_turn.consume_staged_this_turn(kwargs.get("owner"), kwargs.get("session_id"))
+    except Exception as _e:  # failsoft-ok: the flag is a stand-down hint only
+        logger.debug("ORW-481: staged-flag reset failed: %s", _e)
     _obs_token = _set_turn_observability_context(
         kwargs.get("owner"), kwargs.get("session_id"), kwargs.get("game_mode", False)
     )
@@ -12733,6 +12739,8 @@ async def _stream_agent_loop_impl(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    if _casting_finalized_this_turn:
+        metrics["casting_finalized"] = True  # ORW-481: this casting-stamped reply carries the premiere (the Show Brief may tail it)
     if _turn_owed_announcements:
         metrics["announcements"] = _turn_owed_announcements  # Vault-free BeatAnnouncementViews; repainted on reload
     yield f"data: {json.dumps({'type': 'metrics', 'data': metrics})}\n\n"

@@ -68,6 +68,14 @@ describe("a watching spectator's goodnight", () => {
     const s = new GameSessionRegistry().sandboxFor(`sg${seq++}`).session;
     s.createCharacter({ playerName: "P", seed: 3 });
     expect((s as unknown as { live: { spectator?: unknown } }).live.spectator).toBeUndefined();
-    expect(() => s.turnIn()).not.toThrow();
+    // ORW-507: assert what the old path DOES (a committed night for the active player), not merely that it does not throw.
+    const live = (s as unknown as { live: { spectator?: unknown; dayNumber?: number; weekDigests?: unknown[] } }).live;
+    const beatSeq0 = s.gameStatus().beatSeq, day0 = live.dayNumber ?? 1, digests0 = (live.weekDigests ?? []).length;
+    const v = s.turnIn();
+    expect(v.held, "not refused").toBeUndefined();
+    expect(s.gameStatus().beatSeq, "the night passed: a committed mutation").toBeGreaterThan(beatSeq0);
+    expect(live.dayNumber ?? 1, "the day rolled by exactly the one night").toBe(day0 + 1);
+    expect((live.weekDigests ?? []).length, "an active player's goodnight does not run a watched week").toBe(digests0);
+    expect(live.spectator, "still no spectator").toBeUndefined();
   });
 });

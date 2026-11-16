@@ -19,6 +19,8 @@ def test_coalescer_listens_but_never_dispatches_gamechanged():
     src = open(JS, encoding="utf-8").read()
     assert 'addEventListener("orwell:gamechanged"' in src
     assert "new CustomEvent" not in src and "dispatchEvent" not in src  # g15: one dispatcher
+    # ORW-481 (review 4534603431): CAPTURE phase, so the cache is cleared before any panel's own bubble-phase gamechanged listener refetches
+    assert 'addEventListener("orwell:gamechanged", clear, true)' in src
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node required")

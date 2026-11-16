@@ -157,3 +157,10 @@ def test_the_vanish_line_comes_only_on_a_move_or_a_departure_and_never_over_the_
     left = chat_helpers._whereabouts_barrier_directive(_wa("kitchen", [], turns=2, sinceSend={"arrived": [], "departed": ["Role A"]}))
     assert "do not make them vanish" in left
     assert "do not make them vanish" not in chat_helpers._whereabouts_barrier_directive(_wa("kitchen", ["Role B"], turns=0, sinceSend={"departed": ["Role A"]}))
+
+
+def test_orw481_adjacent_room_alias_frames_elsewhere():
+    """ORW-481 (review 4502876781): 'the yard' is the adjacent backyard, so the sentence frames another room."""
+    from routes.chat_helpers import _sentence_frames_elsewhere
+    assert _sentence_frames_elsewhere("Somebody laughs out in the yard.", {"adjacent_rooms": ["backyard"]})
+    assert not _sentence_frames_elsewhere("Somebody laughs in the kitchen.", {"adjacent_rooms": ["backyard"]})
