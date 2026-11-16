@@ -289,6 +289,7 @@ import {
 import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } from "../../engine/beatAnnouncement";
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
+import type { WorldAvoid } from "../../engine/data/composedFloor";
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE, NAP } from "../../engine/sleepConstants";
@@ -1861,6 +1862,8 @@ export class GameSessionAdapter implements GameSession {
   private trackedSightings: Map<EntityId, TrackedSighting> | null = null;
   /** The game's seed (B60/E12): per-moment rng keys off it — two same-named games never share streams. */
   private gameSeed: number | null = null;
+  /** ORW-509: the previous seasons' world picks this season avoids (explicit input at createCharacter; persisted). */
+  private worldAvoid: WorldAvoid = {};
   /** The per-season style anchor for portrait prompts (0051): seeded at cast time, stable through the season. */
   private portraitStyleAnchor: string | null = null;
   /**
@@ -4419,6 +4422,7 @@ export class GameSessionAdapter implements GameSession {
        // B20: the co-presence told ledger survives a restart (a telling already decided is not re-rolled). Absent when empty => old saves round-trip byte-identical.
        ...(this.copresenceTold.size > 0 ? { toldLedger: this.copresenceTold.snapshot() } : {}),
        ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
+       ...(Object.values(this.worldAvoid).some((v) => v && v.length > 0) ? { worldAvoid: this.worldAvoid } : {}),
       // The producer persona's seed (producer-persona feature) — persisted so the SAME off-camera casting
       // producer is voiced across turns and a restart (it is established pre-game, before any season seed).
       ...(this.producerSeed !== null ? { producerSeed: this.producerSeed } : {}),
@@ -4752,6 +4756,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.live && this.seenMessageIds.length > 0) this.live.playedGame = true; // ORW-281 slice 5: a save that predates the persisted flag (or lost it) but has announced messages IS a played game - backfill so the two notions agree
     this.messageMode = this.seenMessageIds.length > 0; // a restart after announcements stays in message mode (no fall back to per-commit billing)
     this.copresenceTold = ToldLedger.restore(core.toldLedger);
+    this.worldAvoid = core.worldAvoid ?? {};
     this.gameSeed = core.seed ?? null; // pre-B60 saves: fall back to the legacy name-keyed streams
     // The producer persona's seed (producer-persona feature): restore so the SAME off-camera casting
     // producer is voiced after a restart. Persisted on feature+ saves; on a started game that predates
@@ -6983,6 +6988,7 @@ export class GameSessionAdapter implements GameSession {
     // first-class for tests and replays. An adopted warm reuses its already-minted seed.
     const seed = adopt ? adopt.seed : (effReq.seed ?? entropySeed());
     this.gameSeed = seed; // B60/E12: every per-moment rng below keys off the GAME's seed
+    this.worldAvoid = effReq.avoidWorld ?? {};
     // The producer persona (producer-persona feature): keep the producer the player has been interviewing
     // with if one was already established pre-game; otherwise bind it to the season seed so a direct
     // `createCharacter` (no prior interview, e.g. tests) still has a deterministic, reproducible producer.
@@ -9470,6 +9476,18 @@ export class GameSessionAdapter implements GameSession {
   compThemesEnabledNow(): boolean { return this.compThemesEnabled; }
 
   /**
+   * ORW-509: what THIS season used from the non-character world lists, for the caller's recent-seasons ledger to hand to the NEXT season as `avoidWorld`.
+   * Pure read (no rng). Competition themes are the worlds both phases drew for the first 16 weeks (a season's reach, cycles included).
+   */
+  worldMemory(): WorldAvoid {
+    const compThemes = new Set<string>();
+    if (this.gameSeed !== null) {
+      for (let w = 1; w <= 16; w++) for (const phase of ["hoh", "veto"] as const) for (const cycle of [0, 1]) compThemes.add(themeForWeek(this.gameSeed, phase, w, cycle, this.worldAvoid.compThemes ?? []).id);
+    }
+    return { compThemes: [...compThemes], allianceNames: this.alliances.all().map((a) => a.name) };
+  }
+
+  /**
    * 0125 — the Vault-free surfaced scaffold for a drawn mechanic def, dressed in this week's seeded theme
    * when the layer is on. The theme is a pure PROJECTION (chosen on a dedicated hash, never the beat rng),
    * so a theme never moves the winner; off (or pre-seed) ⇒ the bare 0042 library name/premise (byte-identical).
@@ -9486,7 +9504,7 @@ export class GameSessionAdapter implements GameSession {
     // the frozen `cycle` (twist "running" ⇒ 1) still draws a distinct skin from the first crown.
     const week = frozen?.week ?? this.week;
     const cycle = frozen ? frozen.cycle : (this.live?.twist?.phase === "running" ? 1 : 0);
-    const t = applyTheme(def, themeForWeek(this.gameSeed, def.phase, week, cycle));
+    const t = applyTheme(def, themeForWeek(this.gameSeed, def.phase, week, cycle, this.worldAvoid.compThemes ?? []), `${this.gameSeed}:${def.phase}:${week}:${cycle}`);
     return { name: t.name, theme: t.theme, narrative: t.narrative };
   }
 
@@ -10184,7 +10202,7 @@ export class GameSessionAdapter implements GameSession {
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
       if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
       if (this.alliances.all().some((a) => sameMembers(a.members, willing))) continue; // dedup
-      const name = pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)));
+      const name = pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)), new Set(this.worldAvoid.allianceNames ?? []));
       const a = this.alliances.add(name, founder, willing, beat);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
       if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER);
@@ -10208,7 +10226,7 @@ export class GameSessionAdapter implements GameSession {
           const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
-          this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
+          this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)), new Set(this.worldAvoid.allianceNames ?? [])), holder, willing, beat);
         }
         this.agendaRecheck("alliance-changed");
         this.persist();

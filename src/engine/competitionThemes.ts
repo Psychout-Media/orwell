@@ -197,7 +197,9 @@ export function themeForWeek(
   const idx = (Math.max(1, week) - 1) % n;
   // Rotate the SAME permutation by nonzero, seed-derived offsets — each keeps the phase repeat-free while
   // guaranteeing a same-week beat lands on a distinct theme (idx + k mod n can never equal idx for k≠0).
-  const vetoK = phase === "veto" ? 1 + ((hashSeed(`${seed}:comp-theme:veto-offset`) >>> 0) % (n - 1)) : 0;
+  // ORW-509: with a pool this size the veto offset keeps >= 14 weeks of clearance either side, so a ~14-week season's HOH and veto skins are also disjoint from each
+  // other (one shared permutation, so the same world would otherwise land on both phases in different weeks about half the time).
+  const vetoK = phase === "veto" ? (n >= 28 + 2 ? 14 + ((hashSeed(`${seed}:comp-theme:veto-offset`) >>> 0) % (n - 27)) : 1 + ((hashSeed(`${seed}:comp-theme:veto-offset`) >>> 0) % (n - 1))) : 0;
   const cycleK = cycle > 0 ? 1 + ((hashSeed(`${seed}:comp-theme:cycle-offset`) >>> 0) % (n - 1)) : 0;
   const base = pool[order[(idx + vetoK + cycleK) % n]!]!;
   return dressTheme(base, `${seed}:comp-theme-dress:${phase}:${week}:${cycle}`);

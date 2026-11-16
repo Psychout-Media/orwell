@@ -83,3 +83,19 @@ export function sideStream(key: string): { next(): number; int(n: number): numbe
   };
   return { next, int: (n: number) => Math.min(n - 1, Math.floor(next() * n)) };
 }
+
+/**
+ * ORW-509 season memory for the non-character world lists: what the previous seasons on this install used, as an EXPLICIT input (default empty). The engine
+ * never reads a store; the caller hands this in, and the adapter persists it with the season so a restart derives the same skins. Every field is a list of
+ * plain strings/ids and none is private. (The character-side ledger, `recentSeasons`, is owned by the ORW-508 branch; this is the world-side slice.)
+ */
+export interface WorldAvoid {
+  /** Competition theme ids used by the previous season(s). */
+  compThemes?: string[];
+  /** Alliance names used by the previous season(s). */
+  allianceNames?: string[];
+  /** House theme ids of the previous season(s). */
+  houseThemes?: string[];
+  /** House-event lines (without the week stamp) used by the previous season(s). */
+  eventLines?: string[];
+}

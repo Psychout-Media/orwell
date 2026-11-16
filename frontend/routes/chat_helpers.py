@@ -5,6 +5,7 @@ import collections
 import json
 import logging
 import os
+import zlib
 import re
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
@@ -4887,10 +4888,26 @@ _CONF_PERSONAL_FACT_RE = re.compile(
     r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
     r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
 
-_CONFESSION_DEFLECTIONS = (
+# ORW-509: the three authored deflections stay first; the rest are composed (opening x turn x close) so a season's replaced lines are rarely the same one.
+_CONFESSION_DEFLECTION_CLASSICS = (
     "The moment hangs — whatever was about to be said gets swallowed, and they smile it off.",
     "They start to say something, think better of it, and wave it away with a half-laugh.",
     "A beat of silence; then they shrug it off and let the subject drop.",
+)
+_CONFESSION_DEFLECTION_OPENINGS = (
+    "They start to say it,", "Their mouth opens,", "The words are right there,", "For a second it looks like they might say it,", "They lean in to say it,",
+    "The room waits,", "They draw a breath,", "Something almost gets said,",
+)
+_CONFESSION_DEFLECTION_TURNS = (
+    "then think better of it", "then catch themselves", "and the thought slides away", "and a wry look takes its place", "and they change course mid-sentence",
+    "but a laugh gets there first", "and they let it die in their throat",
+)
+_CONFESSION_DEFLECTION_CLOSES = (
+    "and wave the subject off.", "and move on as if nothing was said.", "and the moment passes.", "and they shrug it off.", "and the talk drifts elsewhere.",
+    "and a small smile covers the gap.", "and nobody pushes.",
+)
+_CONFESSION_DEFLECTIONS = _CONFESSION_DEFLECTION_CLASSICS + tuple(
+    f"{o} {t} {c}" for o in _CONFESSION_DEFLECTION_OPENINGS for t in _CONFESSION_DEFLECTION_TURNS for c in _CONFESSION_DEFLECTION_CLOSES
 )
 
 
@@ -4922,7 +4939,7 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
         n = 0
         for ln in lines:
             if _line_is_invented_confession(ln):
-                new = _CONFESSION_DEFLECTIONS[n % len(_CONFESSION_DEFLECTIONS)]
+                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line, so the pick spreads over the whole composed set
                 n += 1
                 ops.append((ln, new))
                 out.append(new)

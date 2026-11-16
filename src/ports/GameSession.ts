@@ -1083,6 +1083,11 @@ export interface CreateCharacterReq {
    */
   priorCastNames?: string[];
   /**
+   * ORW-509 season memory for the non-character world lists (competition themes, alliance names, house theme, event lines): what the previous season(s) used,
+   * so this season's skins differ. ENGINE-INTERNAL like `priorCastNames`; explicit input, default empty; persisted with the season so a restart is stable.
+   */
+  avoidWorld?: import("../engine/data/composedFloor").WorldAvoid;
+  /**
    * Season-over-season NOTORIETY carry (0104 / R4 — the diegetic opt-in). ENGINE-INTERNAL: the adapter
    * sets it true when this confirmed restart is a SAME-CHARACTER return (`keepCharacter`), so the
    * registry's restart hook folds the user's accumulated notoriety into the new cast's day-one reads. A

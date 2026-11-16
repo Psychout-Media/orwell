@@ -22,7 +22,8 @@ export function simulateOffscreenStretch(deps: {
   interactions: number;
 }): GameEvent[] {
   const { events, rng, npcs, interactions } = deps;
-  const verbs = ["schemed with", "gossiped about the house with", "bonded with", "argued with"];
+  // ORW-509: the four verbs are the authored classics; the pool is those plus verb x manner (one rng.pick, as before).
+  const verbs = widenOffscreenVerbs(["schemed with", "gossiped about the house with", "bonded with", "argued with"]);
   const produced: GameEvent[] = [];
 
   for (let i = 0; i < interactions; i++) {
@@ -45,6 +46,17 @@ export function simulateOffscreenStretch(deps: {
   }
 
   return produced;
+}
+
+const OFFSCREEN_MANNERS: readonly string[] = [
+  "in the pantry with", "over a late snack with", "on the patio with", "under their breath with", "behind a closed door with", "in the hallway with", "while folding laundry with",
+  "by the pool with", "at the kitchen island with", "in a whisper to", "from the hammock with", "in the bathroom mirror's earshot with",
+];
+const OFFSCREEN_ACTS: readonly string[] = ["schemed", "gossiped", "bonded", "argued", "plotted", "traded stories", "compared notes", "cleared the air", "strategized", "vented"];
+function widenOffscreenVerbs(classics: string[]): string[] {
+  const out = [...classics];
+  for (const a of OFFSCREEN_ACTS) for (const m of OFFSCREEN_MANNERS) out.push(`${a} ${m}`);
+  return out;
 }
 
 /** A typed off-screen scene — the interaction's real nature, so callers fold the right impact. */
