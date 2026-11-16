@@ -31,16 +31,18 @@ const beliefsOf = (w: unknown, holder: string) => live(s(w)).beliefs?.[holder] ?
 
 async function surfaces(sb: UserSandbox): Promise<string> {
   const parts = [
+    // review of #2858: the player reads the narrator and the status panel use, and the admin's state read (a standalone registry has no health record, so it is not sampled)
     await sb.mcp.player.callTool("getGameState", {}),
     await sb.mcp.player.callTool("gameStatus", {}),
+    await sb.mcp.player.callTool("getMomentPrompt", {}),
     await sb.mcp.admin.callTool("inspectNonVaultState", {}),
-    await sb.mcp.admin.callTool("sandboxHealth", {}),
   ];
   return JSON.stringify(parts);
 }
 
 Given("a started season with claims on", function () {
   const sb = new GameSessionRegistry().sandboxFor(`claims0149-${n++}`);
+  sb.session.setNpcBeliefsEnabled(true); // review of #2858: "claims on" turns the belief layer on explicitly (independent of ORWELL_NPC_BELIEFS / ORWELL_FLAGS_OFF)
   sb.session.createCharacter({ playerName: "The Player", seed: 7 });
   const b = bag(this);
   b.sb = sb; b.s = sb.session;

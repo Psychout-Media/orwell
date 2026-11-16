@@ -329,3 +329,14 @@ def test_openai_route_does_not_write_the_key_onto_the_row():
     src = open(os.path.join(FRONTEND, "routes", "session_routes.py"), encoding="utf-8").read()
     body = src.split("def create_session_openai")[1].split("@router.")[0]
     assert "session.headers" not in body and "Bearer" not in body
+
+
+def test_auth_recovery_keeps_the_sessions_non_auth_headers(db):
+    """review of #2246: a session whose stored auth was stripped goes through resolve_session_auth on a streamed chat; that used to
+    REPLACE all headers with build_headers(...), dropping a custom (non-auth) header the strip migration had kept."""
+    import routes.chat_helpers as ch
+    _ep(db, "or", OR_BASE, "sk-live")
+    sess = _sess(OR_BASE + "/chat/completions", {"X-Proxy-Route": "lane-b"})
+    ch.resolve_session_auth(sess, "s", owner="u1")
+    assert sess.headers.get("X-Proxy-Route") == "lane-b"
+    assert sess.headers.get("Authorization") == "Bearer sk-live"

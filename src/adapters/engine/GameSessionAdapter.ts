@@ -324,7 +324,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1182,6 +1182,7 @@ export class GameSessionAdapter implements GameSession {
     // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
     const nowOcc = this.witnessOccupancy();
     this.sendOccupancy = nowOcc ? new Map(nowOcc) as Occupancy : null;
+    this.sendAwake = this.awakeNow() ? new Set(this.awakeNow()!) : null; // ORW-249 (#2321): who was visibly UP at send, frozen BEFORE the clock step below can put someone to bed
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
@@ -1195,6 +1196,8 @@ export class GameSessionAdapter implements GameSession {
   }
   /** The occupancy frozen at the player's last SEND (see `noteMessage`); null before any send or after the player moved rooms. Memory-only, never persisted. */
   private sendOccupancy: Occupancy | null = null;
+  /** The awake set frozen with `sendOccupancy` (null = the clock was off, everyone visible). Memory-only. */
+  private sendAwake: Set<EntityId> | null = null;
   /**
    * The occupancy the WITNESS grounding reads for a recorded scene: the send-time roster while it still applies (the player is still in the room they sent from), else the live witness occupancy.
    * Anyone who arrived after the player spoke is placed elsewhere here, so the engine drops them as a phantom witness; anyone who was there and left still heard it.
@@ -1416,14 +1419,15 @@ export class GameSessionAdapter implements GameSession {
   tellClaim(input: ClaimInput): SpokenClaim | undefined {
     if (!this.live) return undefined;
     const live = this.live;
+    const living = this.livingIds();
+    if (claimProblem(input, living) !== undefined) return undefined; // review of #2858: a refused claim allocates and persists nothing (no claim log, no belief store)
     const log = (live.claims ??= { seq: 0, items: [] });
     const beliefs = this.npcBeliefsEnabled ? (live.beliefs ??= {}) : undefined;
     const told = tellClaim(log, beliefs, input, {
-      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living: this.livingIds(),
+      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
     });
-    if (log.items.length === 0) delete live.claims;   // a refused first claim leaves the season byte-identical
     return told;
   }
   /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
@@ -2962,7 +2966,14 @@ export class GameSessionAdapter implements GameSession {
     const theirs = this.npcKnowledge?.known(this.house!.player.id) ?? [];
     const lineages = new Set(theirs.flatMap((f) => (f.factId !== undefined ? [f.factId] : [])));
     const contents = new Set(theirs.map((f) => f.content));
-    return mine.filter((f) => (f.factId !== undefined && lineages.has(f.factId)) || contents.has(f.content));
+    // A lineage match hands over the PLAYER'S copy, not the houseguest's: gossip can change severity or subject while the factId survives, so the holder's version may be a claim the player never learned.
+    const playerCopy = new Map(theirs.flatMap((f) => (f.factId !== undefined ? [[f.factId, f] as const] : [])));
+    const out: Array<{ content: string; factId?: string }> = [];
+    for (const f of mine) {
+      if (contents.has(f.content)) out.push(f);
+      else if (f.factId !== undefined && lineages.has(f.factId)) out.push(playerCopy.get(f.factId)!);
+    }
+    return out;
   }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
   /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
@@ -3143,8 +3154,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
-      // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Slice first so humanize runs on a bounded tail.
-      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
+      // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
+      knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {
@@ -5409,6 +5420,8 @@ export class GameSessionAdapter implements GameSession {
     // so the society's player-overhears and `whereabouts` always agree about where the player is.
     this.presenceBase?.set(me, dest);
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
+    this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
+    this.sendAwake = null;
     this.persist();
     return this.whereabouts();
   }
@@ -5429,7 +5442,10 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here);
+    // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
+    // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
+    const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here) ?? (claimedBed ? roomOfBed(claimedBed) : null);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     let result: ResolvePlayerMoveResult;
@@ -6287,11 +6303,11 @@ export class GameSessionAdapter implements GameSession {
    * ORW-249 - the arrival/departure beat: diff the roster frozen at the player's last send (`sendOccupancy`) against who is in the player's room now. Only while the player is still in the room they sent
    * from (a room change makes the old roster stale, exactly as `sendTimeOccupancy`). Names only; absent (empty spread) when nothing changed.
    */
-  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[] } } {
+  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], _isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[] } } {
     const sent = this.sendOccupancy;
     if (!sent || sent.get(me) !== room) return {};
     const was = new Set<EntityId>();
-    for (const [id, where] of sent) if (where === room && id !== me && isUp(id) && !notHere?.has(id)) was.add(id);
+    for (const [id, where] of sent) if (where === room && id !== me && (!this.sendAwake || this.sendAwake.has(id)) && !notHere?.has(id)) was.add(id);
     const now = new Set(present.map((p) => p.id));
     const arrived = present.filter((p) => !was.has(p.id)).map((p) => p.name);
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -7188,6 +7204,8 @@ export class GameSessionAdapter implements GameSession {
     this.lastApproachStretch = undefined;
     this.seenMessageIds = []; // a fresh season forgets the prior season's message ids and returns to legacy billing until announced
     this.messageMode = false;
+    this.seenMoods = null; // ORW-343 (#2619): the mood word the player last saw belongs to ONE season; reused npc ids must not show the prior season's look
+    this.sendOccupancy = null; // the frozen send-time roster is the prior season's too
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
@@ -10362,6 +10380,7 @@ export class GameSessionAdapter implements GameSession {
         if (open.length > 0 && !mine) continue;
         if (mine) { this.alliances.join(mine.id, target); }
         else {
+          if (this.alliances.all().some((x) => x.founder === holder)) continue; // ORW-507 (#2613): one foundership per NPC, as in the founder loop above
           const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
@@ -10970,7 +10989,7 @@ export class GameSessionAdapter implements GameSession {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
         affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
-        threat: new Map(others.map((o) => [o, this.rel.edge(id, o).threat] as const)),
+        threat: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
         ...this.roommateView(bedsNow, id, inHouse, where),
@@ -10980,8 +10999,11 @@ export class GameSessionAdapter implements GameSession {
       }, seed));
     }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
+    // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
+    const approachAllowed = (p: PlannedAction): boolean => this.desireClockEnabled && this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id);
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
+      if (p.goalId && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
       if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
@@ -10991,9 +11013,9 @@ export class GameSessionAdapter implements GameSession {
     for (const scene of assembleScenes(plans)) {
       for (const p of scene.actions) {
         const partner = p.with[0];
-        if (p.goalKind === "pull-them-in" && partner) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
+        if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
         // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
-        if (p.goalId && p.with.includes(house.player.id) && this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id)) {
+        if (p.goalId && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
         }
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;
@@ -12001,14 +12023,14 @@ export class GameSessionAdapter implements GameSession {
       if (d.vague || nearingExpiry) {
         candidates.push({
           thread: `deal:${d.id}`,
-          framing: `what you and ${this.nameOf(other)} agreed to feels like it's on borrowed time`,
+          framing: `what I agreed to with ${this.nameOf(other)} feels like it's on borrowed time`, // ORW-517: the player's own first person (Ryne, card 29)
         });
       }
     }
     if (surfacedToday.length > 0) {
       candidates.push({
         thread: `surfaced:${day}`,
-        framing: "what you heard today doesn't feel finished playing out",
+        framing: "what I heard today doesn't feel finished playing out",
       });
     }
     if (candidates.length === 0) return undefined;
@@ -12283,8 +12305,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.timeOfDayEnabled) return remember(this.advanceView(null)); // dormant unless the clock is running
     // ORW-351 (Ryne: one rule for every night): an evicted player WATCHING the season who says goodnight ends their night like any player's - the watched season moves on (the same player-less beats advanceGame runs for a spectator) instead of the
     // call being a silent no-op while the narrator carries on narrating a night that never passes (a live week sat 90 turns on one night, 5 minutes per goodnight).
-    if (this.live.spectator && !this.live.pending && !this.live.finished) {
-      return remember(this.inOneCommit(() => this.spectatorFastForward()));
+    if (this.live.spectator && (!this.live.pending || this.live.pending.kind === "ceremony-step") && !this.live.finished) {
+      // ORW-351 (#2626): an open ceremony WATCH step is answered by the beat itself (advanceGame's Continue), so the goodnight takes that step first - otherwise the fast-forward sees a pending and the call is a silent no-op.
+      return remember(this.inOneCommit(() => { if (this.live!.pending?.kind === "ceremony-step") this.advanceOneBeat(); return this.spectatorFastForward(); }));
     }
     if (this.live.finished || playerHasLeft(this.live, PLAYER)) return remember(this.advanceView(null));
     // Bedtime gate (found in a live run: the narrator called turnIn on "wake up in the morning" and the engine slept through a whole day). A bed in the morning or afternoon is not a night: refuse with a typed
@@ -15236,10 +15259,9 @@ export class GameSessionAdapter implements GameSession {
         // under-called tool. Each only when set (absent ⇒ the entry is byte-identical to before).
         // 0129: in the jury house a juror's block omits the engine-seeded vote-deduction beliefs (sealed ballot, E12).
         const knows = juryMode
-          ? (this.npcKnowledge?.known(p.id) ?? [])
+          ? dedupeKeepNewest((this.npcKnowledge?.known(p.id) ?? [])
               .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
-              .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
-              .map((f) => this.humanizeTidy(f.content))
+              .map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
           : v.knows;
         const e: import("../../ports/GameSession").PresentKnowledgeView = {
           id: p.id,
@@ -15322,7 +15344,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

@@ -1,8 +1,8 @@
 # Rehearsal play plan (S0–S7 + §5 checklist + E-1 + C-1) — A-15, driver pre-staged
 Driver: `$RUN/pr.sh <logical-turn-id> 'text' ['{"pick":[i],"text":".."}']` (always a NEW, increasing id); `$RUN/last.sh N` prints persisted
-assistant text; `$RUN/check6.sh <label>` = §6 N-5 numbers (run BEFORE turn 1, after ~10 turns, at the end). Reload: write req with "reload":true
-(daemon supports it) — used for S7 (F7) and C-1. Spend guard: stop at ~$3 (token ledger / llm-io); images OFF (verify settings.json image_gen_enabled=false).
-Start: `stage.sh` (fresh data dir, DeepSeek flash from the FE seed, images off) → set image_gen off → start daemon → check6.sh baseline.
+assistant text; `$RUN/check6.sh <label>` = §6 N-5 numbers (run BEFORE turn 1, after ~10 turns, at the end). Reload: write `$RUN/req.json` as `{"n": <next increasing n>, "text": null, "card": null, "reload": true}`
+(daemon supports it) — used for S7 (F7) and C-1. Spend guard (after `. ./slot.sh; RUN=$(cat $RIG_RUN_PTR)`, which stage.sh cannot export back to you): `python3 ./spend_guard.py $WT/frontend/data/llm-io.jsonl 3 $RUN &` (stops the run at ~$3; check `$RUN/SPEND-CAP-HIT`); images OFF (verify settings.json image_gen_enabled=false).
+Start (from the kit directory): `export RIG_SLOT=<1|2>` for the whole session (default 1), then `./stage.sh` (fresh data dir, DeepSeek flash from the FE seed, images off) → set image_gen off → start daemon → `$RUN/check6.sh baseline`.
 Per turn after each step: copy engine status (daemon resp.json has it), persisted text (last.sh), screenshot (auto), llm-io tail.
 | Step | Turns (text) | Checks |
 | S0 | casting: persona "a firefighter, Rowan", one vague answer; finalize | N-11 headcount (sixteen = you + fifteen) |
