@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -407,6 +407,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["status"])) refuse("status", "kept, broken or withdrawn");
       if (typeof args["note"] !== "string") refuse("note", "a free-text note (string; may be empty)");
       return;
+    case "recordNarrationUse":
+      // ORW-510: shape guard only (one string); the engine bounds and reads it.
+      if (!isStr(args["text"])) refuse("text", "the visible narration of one turn (string)");
+      return;
     case "recordRoomCanon":
       // ORW-223: the FE room-canon write-back. Shape-guard only (both fields strings); the engine re-validates the room,
       // the length and every content rule, and rejects extra keys.
@@ -583,6 +587,9 @@ export class McpServer {
         return this.deps.session.resolveOpenLedger(args as unknown as ResolveOpenLedgerReq);
       case "openLedgerHere":
         return this.deps.session.openLedgerHere();
+      case "recordNarrationUse":
+        // ORW-510: check a finished turn against the rolling record of what the narration already used, and fold it in (counts only back).
+        return this.deps.session.recordNarrationUse(args as unknown as RecordNarrationUseReq);
       case "recordRoomCanon":
         // ORW-223: record a narrated room feature as canon (Vault-free; never an event, outcome or secret).
         return this.deps.session.recordRoomCanon(args as unknown as RecordRoomCanonReq);

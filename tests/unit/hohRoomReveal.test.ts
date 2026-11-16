@@ -40,7 +40,9 @@ describe("BB-14 — the HOH-room reveal is staged as narration, never a structur
   it("the hoh-competition moment fragment carries the room-reveal framing (letter/photos, who-wants-to-see)", () => {
     const frag = MOMENT_PROMPTS["hoh-competition"]!;
     expect(frag).toMatch(/HOH-ROOM REVEAL/i);
-    expect(frag).toMatch(/who wants to see my HOH room/i);
+    // ORW-510: the crowd-upstairs beat stays; the stock line it used to quote is a copied example, so it is no longer scripted.
+    expect(frag).toMatch(/crowding upstairs to see the room/i);
+    expect(frag).not.toMatch(/who wants to see my HOH room/i);
     expect(frag).toMatch(/letter and photos from home/i);
     // Distinct player-vs-NPC framing, and the anti-perturbation guardrails (pure color, no mechanic).
     expect(frag).toMatch(/if the PLAYER is the new HOH/i);
