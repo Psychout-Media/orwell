@@ -99,7 +99,13 @@
       // ORW-157: one pass per animation frame over the still-attached added nodes (not per streamed token).
       var _sbQueue = [];
       var _sbPending = false;
+      var _sbRaf = 0, _sbTimer = 0;
       var _sbRun = function () {
+        // Cancel whichever of the pair has not fired (as frameBatched does): a leftover 120 ms timer would otherwise flush the
+        // NEXT batch between frames (review of #2261).
+        if (_sbRaf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(_sbRaf);
+        if (_sbTimer) clearTimeout(_sbTimer);
+        _sbRaf = 0; _sbTimer = 0;
         if (!_sbPending) return;
         _sbPending = false;
         var recs = _sbQueue; _sbQueue = [];
@@ -115,8 +121,8 @@
         for (var i = 0; i < records.length; i++) _sbQueue.push(records[i]);
         if (_sbPending) return;
         _sbPending = true;
-        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(_sbRun);
-        setTimeout(_sbRun, 120);
+        if (typeof requestAnimationFrame === 'function') _sbRaf = requestAnimationFrame(_sbRun);
+        _sbTimer = setTimeout(_sbRun, 120);
       });
       mo.observe(document.body, { childList: true, subtree: true });
       window.__owScrollbarsObserver = mo;

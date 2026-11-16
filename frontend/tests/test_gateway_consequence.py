@@ -247,3 +247,33 @@ class TestGatewayNoModelDeterministicFloor:
 
         assert reply
         assert calls == []
+
+
+class TestPrivateAsidesInAMixedTurn:
+    """review of #2247: a mixed turn (a real action plus ((asides))) is a scene, but the asides are private. A houseguest named only
+    inside an aside must not become a witnessed participant, and the aside text must not be saved as the recorded content."""
+
+    def _no_model(self, monkeypatch):
+        async def fake_resolve(owner):
+            return None
+        monkeypatch.setattr(cast_authoring, "_resolve_llm_fn", fake_resolve)
+
+    def test_a_name_only_inside_an_aside_records_nothing(self, monkeypatch):
+        import gateway.consequence as gc
+        _stub_reads(monkeypatch, present_ids={"npc:1", "npc:2"})
+        calls = _capture_record_interaction(monkeypatch)
+        self._no_model(monkeypatch)
+        ok = _run(gc.fold_gateway_turn("user_gw_aside", "((Alex is my secret target)) I wave. ((end note))",
+                                       "You wave at the empty kitchen.", _HOUSE))
+        assert ok is False and calls == [], calls
+
+    def test_the_real_action_is_recorded_without_the_aside(self, monkeypatch):
+        import gateway.consequence as gc
+        _stub_reads(monkeypatch, present_ids={"npc:1", "npc:2"})
+        calls = _capture_record_interaction(monkeypatch)
+        self._no_model(monkeypatch)
+        ok = _run(gc.fold_gateway_turn("user_gw_aside2", "((Alex is my secret target)) I ask Jordan about the vote.",
+                                       "Jordan shrugs.", _HOUSE))
+        assert ok is True and len(calls) == 1
+        assert calls[0]["with_ids"] == ["npc:2"]
+        assert "secret target" not in calls[0]["content"] and "Jordan" in calls[0]["content"]
