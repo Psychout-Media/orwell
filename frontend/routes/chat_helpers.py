@@ -6636,6 +6636,18 @@ def _clock_is_before_house_wake(lab) -> bool:
     return bool(mm) and _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3)) < _HOUSE_WAKE_MIN
 
 
+# ORW-524 (live re-check of ORW-520: 4:41-4:56am, 0 awake / 15 asleep): the whole-house claims also come as a COUNT ("fifteen other people are already awake in it", "Fifteen people up and moving past that door"),
+# as "properly/fully awake", and as the house "just beginning to remember itself". Same closed-set clock claim: held only while the engine clock is before the 8am wake. Never the player's own wakefulness.
+_HOUSE_COUNT_WORD = r"(?:all|the|every|\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen)"
+_HOUSE_WHOLE_EXTRA = (
+    r"|\b(?:everyone|everybody|(?:" + _HOUSE_COUNT_WORD + r"\s+)(?:other\s+)?(?:people|houseguests|housemates|souls))\b[^.!?\n]{0,25}?"
+    r"\b(?:awake|up\s+and\s+(?:moving|about|around)|up\s+and\s+at\s+it)\b"
+    r"|\bthe\s+house\s+(?:is|was)\s+(?:now\s+|already\s+|just\s+)?(?:properly|fully|wide|truly|finally)\s+(?:awake|up|alive)\b"
+    r"|\bthe\s+house\s+(?:is\s+|was\s+)?(?:just\s+|slowly\s+)?(?:beginning|starting)\s+to\s+(?:wake|stir|remember|come\s+alive)\b"
+    r"|\bthe\s+house\s+(?:just\s+|slowly\s+)?remembers\s+itself\b"
+)
+
+
 # ORW-422: an early bed wakes the player ALONE in the dark early morning with the house asleep (engine is right: wake = min(8am, bed+8h)). A sentence asserting the house is up / people greet the player is a phantom.
 _HOUSE_AWAKE_RE = re.compile(
     r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
@@ -6643,7 +6655,8 @@ _HOUSE_AWAKE_RE = re.compile(
     r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
     r"|(?<!\w)[\"\u201c\u2018']\s*(?:good\s+)?morning\b[,.!]?"  # an OPENING quote: never an apostrophe that follows a letter ("the twins' morning routine"; review of #2767)
     r"|\bI\s+know\s+it(?:'s|\u2019s)\s+early\b"
-    r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
+    r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b"
+    + _HOUSE_WHOLE_EXTRA,
     re.IGNORECASE,
 )
 # ORW-454 (Kevin: "allow it if the engine says she's awake"): only the WHOLE-HOUSE claims are screened outright. A quoted morning greeting (or "I know it's early") attributed to a NAMED houseguest the engine reports awake is a
@@ -6652,7 +6665,8 @@ _HOUSE_WHOLE_RE = re.compile(
     r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
     r"|\bthe\s+house\s+(?:wakes|woke|stirs|stirred)\b"
     r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
-    r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
+    r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b"
+    + _HOUSE_WHOLE_EXTRA,
     re.IGNORECASE,
 )
 
@@ -6691,9 +6705,35 @@ _LIGHT_NEGATION_RE = re.compile(
     r"\b(?:not|never|no|nor|without|yet|hours?\s+away|still\s+(?:down|dark|hours|far|below))\b|n't|n\u2019t", re.IGNORECASE)
 
 
+# ORW-524: the COLOUR / BRIGHTNESS of dawn light ("thin and gold", "gold through the blinds", "fully lit"): the same closed-set clock claim as the wording above. Its negation is LOCAL (a "not" just before the
+# match, or a still-to-come marker): a refusal like "The light's too far along - gold now, not grey" asserts the gold and negates only the grey.
+_GOLD_NOUNS_NOT = r"(?!\s+(?:hair|watch|ring|chain|retriever|curls?|skin|tooth|teeth|medal|coin|frame|trim|leaf|fish|star))"
+_GOLD_LIGHT_RE = re.compile(
+    r"\b(?:gold|golden)\s+morning\s+(?:light|glow|sun|sunlight|rays?|haze)\b"
+    r"|\b(?:gold|golden)\s+(?:light|glow|sun|sunlight|rays?|haze)\b(?=[^.!?\n]*\b(?:blinds?|curtains?|windows?|glass|sky|dawn|gr[ae]y|bed|room|ceiling|walls?|floor)\b)"
+    r"|\b(?:light|glow|sky)\b(?:'s|\u2019s)?[^.!?\n]{0,30}?(?:\band|\bgone|\bturned|\bturning|\bnow|[-\u2013\u2014,])\s+(?:gold|golden)\b" + _GOLD_NOUNS_NOT +
+    r"|\b(?:gold|golden)\s+(?:through|across|on|over|spill\w*|pour\w*)\b[^.!?\n]{0,25}\b(?:blinds?|curtains?|glass|window\w*|shutters?)\b"
+    r"|\b(?:fully|brightly|completely)\s+lit\b",
+    re.IGNORECASE,
+)
+_GOLD_STILL_TO_COME_RE = re.compile(r"\b(?:yet|hours?\s+away|still\s+(?:dark|down|black|thick|night))\b", re.IGNORECASE)
+
+
+def _gold_light_hit(text: str) -> bool:
+    if _GOLD_STILL_TO_COME_RE.search(text):
+        return False
+    for m in _GOLD_LIGHT_RE.finditer(text):
+        if re.search(r"(?:\bnot|\bnever|\bno|\bnor|\bwithout|n['\u2019]t)\s+(?:\w+\s+){0,2}$", text[max(0, m.start() - 24):m.start()], re.IGNORECASE):
+            continue
+        return True
+    return False
+
+
 def _sentence_has_morning_light_claim(text: str) -> bool:
-    return bool(text and (_MORNING_LIGHT_RE.search(text) or (_LIGHT_COLOUR_RE.search(text) and _LIGHT_WAKE_CTX_RE.search(text)))
-                and not _LIGHT_NEGATION_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+    if not text or _UNBACKED_MORNING_EXEMPT_RE.search(text):
+        return False
+    return bool((_MORNING_LIGHT_RE.search(text) or (_LIGHT_COLOUR_RE.search(text) and _LIGHT_WAKE_CTX_RE.search(text)))
+                and not _LIGHT_NEGATION_RE.search(text)) or _gold_light_hit(text)
 
 
 def _sentence_has_house_awake_claim(text: str) -> bool:
