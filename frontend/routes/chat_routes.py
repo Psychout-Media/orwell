@@ -1791,6 +1791,11 @@ def setup_chat_routes(
                 # 0064 §B/D / F5: snapshot the user's last-seen engine beatSeq BEFORE the turn so the
                 # end-of-turn HUD-parity push can tell a committed mutation from a no-op/OOC turn.
                 _beat_seq_before = last_beat_seq(ctx.user)
+                try:  # ORW-507: a stale "nobody engaged" verdict from an earlier turn whose E22 guard never ran must not stand down THIS turn's genuine under-call
+                    from src import fold_ledger as _fl_ts
+                    _fl_ts.consume_scene_nobody(ctx.user)
+                except Exception:
+                    pass
                 _answered_by = None  # set if the selected model failed and a fallback answered
                 _requested_model = sess.model
                 _actual_model = None

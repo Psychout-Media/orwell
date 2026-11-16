@@ -12524,12 +12524,15 @@ export class GameSessionAdapter implements GameSession {
    * Ends their night where it stands (an early night ⇒ rested for tomorrow; outlasting the house into
    * late-night ⇒ running on empty) and rolls the house to the next morning. Never auto-called — only
    * the player's own action fires it. A no-op when the clock isn't running, the game is over, or the
-   * player has left. Durable (0030): the new morning + banked rest survive a reload.
+   * player has left AND is not watching (an evicted spectator WATCHING the season is not a no-op: the
+   * goodnight takes any open ceremony watch step and fast-forwards the watched season, ORW-351; that
+   * branch carries no `dailyRecap`/`weekChapter`, the spectator has no day of their own to review).
+   * Durable (0030): the new morning + banked rest survive a reload.
    *
    * 0102 (redesign #884): BEFORE the night rolls, materializes the day-that-just-closed's Vault-free
    * "day in review" digest and carries it on the result as `dailyRecap` (present only when it exists —
    * `materializeDailyRecap` always returns one once the clock is running, so this is present on every
-   * turn-in that actually fires; absent only when the whole call was a dormant no-op above).
+   * ACTIVE-player turn-in that actually fires; absent for a dormant no-op and for the spectator goodnight).
    */
   private bedtimeGateEnabled = flagDefaultOn("ORWELL_BEDTIME_GATE");
   setBedtimeGateEnabled(on: boolean): void { this.bedtimeGateEnabled = on; }

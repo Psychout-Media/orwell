@@ -4241,7 +4241,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             logger.info(f"[orwell] auto-record: rejected malformed withIds entries "
                        f"{_rejected_with_ids!r} (#1734 normalize/validate boundary) user={owner}")
         if not ids:
-            if not _rejected_with_ids:  # ORW-346: an explicit "nobody engaged" (not a malformed answer): tell the E22 guard there is no scene to fold
+            if isinstance(obj.get("withIds"), list) and not _rejected_with_ids:  # ORW-346/507: only an explicit empty LIST is "nobody engaged"; a missing/null withIds is a malformed answer and stays an under-call
                 try:
                     from src import fold_ledger as _fl_nob
                     _fl_nob.note_scene_nobody(owner)
@@ -4283,10 +4283,10 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 logger.info(f"[orwell] auto-record: dropped off-scene withIds {_off_scene} "
                            f"(#1730 — not in engine whereabouts) user={owner}")
             if not ids:
+                from src import fold_ledger as _fl_decl
                 if session_id is not None:  # ORW-26: tell the E22 guard this turn's extraction already found nobody present (no second identical LLM call)
-                    from src import fold_ledger as _fl_decl
                     _fl_decl.note_belt_declined(owner, session_id)
-                    _fl_decl.note_scene_nobody(owner)  # ORW-346: everyone proposed was off-scene: no scene with anyone to fold
+                _fl_decl.note_scene_nobody(owner)  # ORW-346/507: everyone proposed was off-scene: no scene with anyone to fold (owner-scoped, so it must not depend on session_id: E22's rich extraction runs without one)
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
