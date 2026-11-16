@@ -6,6 +6,12 @@
 # RIG_HOME: the rig user's home, where the checkout (orwell), the worktrees, the playtest dir and ~/.config/orwell/secrets.env live. ORWELL_RIG_HOME overrides it; otherwise it is $HOME
 # (the rig runs as its own user, so $HOME is that home). A stage records it in slot.env so a run directory keeps the value it was staged with.
 RIG_HOME=${ORWELL_RIG_HOME:-${HOME:-}}
+# A rig home that is empty, "/" or holds no orwell checkout means root-level paths and a different lock (a root or bare-systemd run with no real $HOME): refuse, never guess.
+# A run directory's own slot.env (sourced below) carries the home it was staged with, so a copied script is not asked to find a checkout.
+if [ -z "${RIG_SLOT_ENV:-}" ] && [ ! -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/slot.env" ]; then
+  case "$RIG_HOME" in ""|"/") echo "FATAL: RIG_HOME is '${RIG_HOME}' (ORWELL_RIG_HOME unset and no usable \$HOME): set ORWELL_RIG_HOME=<the rig user's home>; not guessing root-level paths" >&2; exit 2 ;; esac
+  [ -d "$RIG_HOME/orwell" ] || { echo "FATAL: no orwell checkout at $RIG_HOME/orwell: set ORWELL_RIG_HOME=<the rig user's home>" >&2; exit 2; }
+fi
 if [ -n "${RIG_SLOT_ENV:-}" ] && [ -f "$RIG_SLOT_ENV" ]; then . "$RIG_SLOT_ENV"; else
   _rig_here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
   if [ -f "$_rig_here/slot.env" ]; then . "$_rig_here/slot.env"; else
