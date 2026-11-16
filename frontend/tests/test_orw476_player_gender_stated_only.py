@@ -104,6 +104,12 @@ STATED = [
     ("non binary", "nonbinary"), ("female here", "woman"), ("just a regular dude", "man"), ("I'm a she", "woman"), ("I'm a they", "nonbinary"),
     ("Mom of two", "woman"), ("Woman and proud", "woman"), ("As a woman, I know how this goes", "woman"), ("I'm from Ohio, a mom of two", "woman"),
     ("I'm a woman\nI'm going to find the guy\nactually I'm a man", "man"),
+    # review 3: shapes the heal's lexicon covers and the gate now reads
+    ("trans woman", "woman"), ("cis woman", "woman"), ("I'm a trans woman", "woman"), ("she/they", "woman"), ("they/she", "nonbinary"),
+    ("he him", "man"), ("him/he", "man"), ("she her", "woman"), ("nb", "nonbinary"), ("I'm nb", "nonbinary"), ("genderfluid", "nonbinary"),
+    ("gender fluid", "nonbinary"), ("agender", "nonbinary"), ("M", "man"), ("F", "woman"), ("30F", "woman"), ("25 m", "man"),
+    ("name's Dana, woman", "woman"), ("I'm a queen", "woman"), ("I'm a king", "man"), ("I'm a bloke", "man"), ("I'm a chick", "woman"),
+    ("identifies as male", "man"), ("I identify as female", "woman"),
 ]
 NOT_STATED = [
     "Brianna", "My name is Brianna", "Brianna from Ohio, I love my sister, she is a girl scout", "my brother is a guy who plays chess",
@@ -111,7 +117,7 @@ NOT_STATED = [
     "I'm a girl scout", "I'm lazy", "I'm a lazy person", "I'm rude", "I'm a barista", "call me Sam", "",
     # ORW-476 review 2: the noun must be the predicate of "I'm", and a lone him / her / them is not an answer
     "I'm looking for the girl", "I'm the new guy", "I'm a father figure", "use her name", "as a guy would", "I'm going to find the guy",
-    "I'm talking to the lady by the door", "him", "her", "them", "I'm here for the boy", "Mom is great", "man the grill",
+    "I'm talking to the lady by the door", "him", "her", "them", "tell him/her", "I told him he was wrong", "I'm the queen of this house", "I'm here for the boy", "Mom is great", "man the grill",
 ]
 
 
@@ -154,7 +160,17 @@ def test_a_houseguest_line_or_production_cue_never_sets_it():
     assert stated_gender(own) is None
 
 
-def test_heal_clears_only_when_no_line_states_any_gender(monkeypatch):
+GENDERISH = [
+    "trans woman", "cis woman", "she/they", "he him", "him/he", "nb", "30F", "M", "F", "name's Dana, woman", "I'm a queen", "I'm a bloke",
+    "I'm a chick", "identifies as male", "genderfluid", "agender", "I'm a woman", "I'm going to find the guy", "tell them I said hi",
+    "I'm queer", "masc", "femme", "my wife and I", "I love my daughter", "he said it was fine", "pronouns are whatever",
+]
+NO_GENDERISH = ["I'm Brianna and I love this", "My name is Dana. I want to play loyal.", "I used to be a barista", "I'm Sam", "Let's go", "42 and ready",
+                "call me Sam", "I'm 30, from Ohio"]
+
+
+@pytest.mark.parametrize("words", GENDERISH)
+def test_the_heal_never_clears_when_any_gender_ish_token_appears(monkeypatch, words):
     import src.agent_loop as al
     sent = []
 
@@ -166,20 +182,57 @@ def test_heal_clears_only_when_no_line_states_any_gender(monkeypatch):
         return {}
     monkeypatch.setattr(oe, "get_game_state", _state)
     monkeypatch.setattr(oe, "update_casting", _uc)
-
-    def heal(user, words):
-        al._GENDER_HEAL_DONE.discard(al._belt_key(user))
-        return _run(al._heal_unstated_player_gender(user, words))
-    assert heal("u1", "I'm Brianna and I love this") is True
-    assert sent == [{"genderPresentation": "unset"}]
-    sent.clear()
-    assert heal("u2", "I'm a woman") is False                                    # supported: kept
-    assert heal("u3", "") is False                                               # no player words at all: silence is not evidence
-    # a disagreement with the latest reading never clears or changes it
-    assert heal("u4", "I'm a woman\nI'm going to find the guy") is False
-    assert heal("u5", "I'm a man\nI'm talking to the lady by the door") is False
-    assert heal("u6", "I'm a man") is False                                      # saved woman, player said man: never changed by the heal
+    al._GENDER_HEAL_DONE.discard(al._belt_key("uh"))
+    assert _run(al._heal_unstated_player_gender("uh", words)) is False
     assert sent == []
+
+
+@pytest.mark.parametrize("words", NO_GENDERISH)
+def test_the_heal_clears_when_there_is_no_gender_ish_token_at_all(monkeypatch, words):
+    import src.agent_loop as al
+    sent = []
+
+    async def _state(user=None, timeout=None):
+        return {"started": True, "player": {"genderPresentation": "woman"}}
+
+    async def _uc(fields=None, user=None):
+        sent.append(dict(fields))
+        return {}
+    monkeypatch.setattr(oe, "get_game_state", _state)
+    monkeypatch.setattr(oe, "update_casting", _uc)
+    al._GENDER_HEAL_DONE.discard(al._belt_key("uh"))
+    assert _run(al._heal_unstated_player_gender("uh", words)) is True
+    assert sent == [{"genderPresentation": "unset"}]
+
+
+def test_the_heal_runs_with_no_owner_single_tenant(monkeypatch):
+    import src.agent_loop as al
+    sent = []
+
+    async def _state(user=None, timeout=None):
+        return {"started": True, "player": {"genderPresentation": "man"}}
+
+    async def _uc(fields=None, user=None):
+        sent.append((dict(fields), user))
+        return {}
+    monkeypatch.setattr(oe, "get_game_state", _state)
+    monkeypatch.setattr(oe, "update_casting", _uc)
+    al._GENDER_HEAL_DONE.discard(al._belt_key(None))
+    assert _run(al._heal_unstated_player_gender(None, "I'm Sam")) is True
+    assert sent == [({"genderPresentation": "unset"}, None)]
+    assert _run(al._heal_unstated_player_gender(None, "I'm Sam")) is False  # once per process
+
+
+def test_heal_edge_cases_unchanged(monkeypatch):
+    import src.agent_loop as al
+
+    async def _state(user=None, timeout=None):
+        return {"started": True, "player": {}}  # nothing saved: nothing to clear
+    monkeypatch.setattr(oe, "get_game_state", _state)
+    al._GENDER_HEAL_DONE.discard(al._belt_key("ue"))
+    assert _run(al._heal_unstated_player_gender("ue", "I'm Sam")) is False
+    al._GENDER_HEAL_DONE.discard(al._belt_key("ue2"))
+    assert _run(al._heal_unstated_player_gender("ue2", "")) is False  # no words at all: silence is not evidence
 
 
 def test_unset_passes_the_gate_but_a_value_cannot_be_set_post_season(words, seen):

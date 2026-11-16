@@ -720,16 +720,16 @@ async def _heal_unstated_player_gender(owner, own_words: str) -> bool:
     """ORW-476: once per owner per process, when the saved player card holds a gender and NONE of the player's own typed words
     state it, clear it (the engine's updateCasting `unset`). A conversation with no player words at all (history not loaded) heals
     nothing: silence is not evidence. Returns True when it cleared one."""
-    if owner is None or _belt_key(owner) in _GENDER_HEAL_DONE or not (own_words or "").strip():
+    if _belt_key(owner) in _GENDER_HEAL_DONE or not (own_words or "").strip():  # owner None = single-tenant, keyed like the other belts
         return False
     from src import orwell_engine as _oe
-    from src.orwell_player_gender import any_gender_stated
+    from src.orwell_player_gender import any_genderish_token
     st = await _oe.get_game_state(user=owner)
     if not isinstance(st, dict) or not st.get("started"):
         return False
     _GENDER_HEAL_DONE.add(_belt_key(owner))
     g = ((st.get("player") or {}).get("genderPresentation"))
-    if not g or any_gender_stated(own_words):  # a disagreement with the latest reading never clears; only "no line states any gender" does
+    if not g or any_genderish_token(own_words):  # a disagreement with the latest reading never clears; only "no gender-ish token anywhere" does
         return False
     await _oe.update_casting({"genderPresentation": "unset"}, user=owner)
     logger.info("[orwell] ORW-476: cleared a saved player gender that no words of the player's support")

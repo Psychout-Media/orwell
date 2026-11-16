@@ -9,9 +9,9 @@ MAN, WOMAN, NB = "man", "woman", "nonbinary"
 
 # Words that state a gender about the speaker. Closed list; fuzzy (typo) matching is limited to FUZZY_WORDS.
 _NOUNS = {
-    **{w: MAN for w in ("man", "male", "guy", "dude", "boy", "gentleman", "dad", "father", "husband", "son", "brother", "daddy", "papa")},
-    **{w: WOMAN for w in ("woman", "female", "girl", "lady", "gal", "mom", "mum", "mother", "wife", "daughter", "sister", "mommy", "mama")},
-    **{w: NB for w in ("nonbinary", "non-binary", "enby", "genderqueer")},
+    **{w: MAN for w in ("man", "male", "guy", "dude", "boy", "gentleman", "dad", "father", "husband", "son", "brother", "daddy", "papa", "bloke", "king")},
+    **{w: WOMAN for w in ("woman", "female", "girl", "lady", "gal", "mom", "mum", "mother", "wife", "daughter", "sister", "mommy", "mama", "chick", "queen")},
+    **{w: NB for w in ("nonbinary", "non-binary", "enby", "genderqueer", "nb", "genderfluid", "agender")},
 }
 # Typo tolerance (one edit, transposition counts) only for words long enough that a near miss is not another common word.
 _FUZZY_WORDS = ("woman", "female", "girl", "gentleman", "nonbinary", "genderqueer", "husband", "mother", "father", "daughter", "brother", "sister")
@@ -25,14 +25,27 @@ _BLOCK = {"my", "our", "his", "her", "their", "your", "is", "are", "was", "were"
           "meet", "see", "here", "there", "that", "this", "those", "these", "when", "if", "because", "so", "but"}
 _NEG = {"not", "never", "no", "isnt", "arent", "wasnt", "cant", "dont"}
 _NOT_AFTER = {"band", "bands", "scout", "scouts", "next", "figure", "friend", "power"}  # "boy band", "girl scout", "father figure"
-_ANCHOR_RE = re.compile(r"(?<![\w'])(?:i\s*'?m|i\s+am|identify\s+as|i\s+was\s+born\s+an?|born\s+an?)(?![\w'])")
+_ANCHOR_RE = re.compile(r"(?<![\w'])(?:i\s*'?m|i\s+am|identif(?:y|ies)\s+as|i\s+was\s+born\s+an?|born\s+an?)(?![\w'])")
 _AS_RE = re.compile(r"^\s*as\s+an?\s+([\w'-]+)\s*,")  # "As a woman, I ..." (only at the start, only with the comma)
-_PRON_PAIR_RE = re.compile(r"(?<![\w])(he|she|they)\s*(?:/|\bor\b|\band\b)\s*(him|her|them)(?![\w])")
+_PRON_ANY = "he|she|they|him|her|them"
+_PRON_PAIR_RE = re.compile(r"(?<![\w])(" + _PRON_ANY + r")\s*(?:/|\bor\b|\band\b)\s*(" + _PRON_ANY + r")(?![\w])")
+_PRON_SPACE_RE = re.compile(r"(" + _PRON_ANY + r")\s+(" + _PRON_ANY + r")")
+
+
+def _pair_gender(a: str, b: str):
+    """A pronoun pair states a gender when both read the same ("he/him", "him/he") or when both are subject forms ("she/they": the FIRST
+    listed wins, as the engine keeps one presentation). "him/her" (the generic "tell him/her") states nothing."""
+    if _PRONOUN[a] == _PRONOUN[b]:
+        return _PRONOUN[a]
+    if a in _SUBJ and b in _SUBJ:
+        return _SUBJ[a]
+    return None
 # A pronoun statement ends the phrase: "use her name" / "call me he-man's friend" state nothing.
+_NAME_TAIL_RE = re.compile(r"\b(?:name'?s?|name is|called|call me)\b[^,.!?;]*,\s*(?:an?\s+)?([\w'-]+)\s*[.!?]?\s*$")
 _PRON_STMT_RE = re.compile(
     r"(?<![\w])(?:pronouns?\s*(?:are|is|:|=)?|use|go(?:es)?\s+by|going\s+by|call\s+me)\s+(?:the\s+)?(he|she|they|him|her|them)"
     r"(?=\s*(?:[,.!?;/]|$|\band\b|\bor\b|\bplease\b|\bpronouns?\b))")
-_LEAD = {"it's", "its", "a", "an", "just", "regular", "plain", "ordinary", "simple", "normal", "yes", "yeah", "yep", "proud", "also", "actually", "i",
+_LEAD = {"trans", "cis", "it's", "its", "a", "an", "just", "regular", "plain", "ordinary", "simple", "normal", "yes", "yeah", "yep", "proud", "also", "actually", "i",
          "i'm", "im", "am", "use", "call", "me", "go", "by", "pronouns", "pronoun", "my", "are", "is"}
 _TRAIL = {"here", "and", "proud", "of", "too", "please", "myself", "thanks", "thank", "you", "yes", "one", "two", "three", "four", "five", "six",
           "kids", "boys", "girls", "children"}
@@ -72,7 +85,8 @@ def _noun_gender(tok: str):
 
 def _norm(line: str) -> str:
     t = line.lower().replace("’", "'")
-    return re.sub(r"\bnon[\s-]+binary\b", "nonbinary", t)
+    t = re.sub(r"\bnon[\s-]+binary\b", "nonbinary", t)
+    return re.sub(r"\bgender[\s-]+fluid\b", "genderfluid", t)
 
 
 def _bare_turn(low: str):
@@ -82,9 +96,12 @@ def _bare_turn(low: str):
     t = re.sub(r"\s+", " ", t).strip()
     if not t:
         return None
-    m = re.fullmatch(r"(he|she|they)\s*/\s*(him|her|them)", t)
+    m = re.fullmatch(r"(" + _PRON_ANY + r")\s*/\s*(" + _PRON_ANY + r")", t) or _PRON_SPACE_RE.fullmatch(t)
     if m:
-        return _SUBJ[m.group(1)]
+        return _pair_gender(m.group(1), m.group(2))
+    m = re.fullmatch(r"(?:\d{1,2}\s*)?([mf])", t)  # "M", "F", "30F", "25 m"
+    if m:
+        return MAN if m.group(1) == "m" else WOMAN
     toks = t.split(" ")
     i = 0
     while i < len(toks) - 1 and toks[i] in _LEAD:
@@ -146,7 +163,12 @@ def _statements(words: str) -> list:
         if g:
             found.append((offset, g))
         for m in _PRON_PAIR_RE.finditer(low):
-            found.append((offset + m.start(), _SUBJ[m.group(1)]))
+            pg = _pair_gender(m.group(1), m.group(2))
+            if pg:
+                found.append((offset + m.start(), pg))
+        for m in _NAME_TAIL_RE.finditer(low):  # "name's Dana, woman"
+            if _noun_gender(m.group(1)):
+                found.append((offset + m.start(), _noun_gender(m.group(1))))
         for m in _PRON_STMT_RE.finditer(low):
             found.append((offset + m.start(), _PRONOUN[m.group(1)]))
         for sent in re.finditer(r"[^.!?;]+", low):
@@ -172,3 +194,21 @@ def any_gender_stated(words: str) -> bool:
 def player_stated_genders(words: str) -> set:
     g = stated_gender(words)
     return {g} if g else set()
+
+
+# --- the heal's broad lexicon -----------------------------------------------------------------------------------------------------
+# A detector can never be complete, so the heal does not use it: a saved gender is cleared ONLY when the player's words contain no
+# gender-ish token at all. Any hit anywhere leaves the saved value alone (a guess may then survive: the safe side).
+_GENDERISH_WORDS = (
+    "man men woman women male female guy guys girl girls boy boys dude dudes lady ladies gal bloke blokes chick chicks queen king gentleman "
+    "mom mum mommy mama mother dad daddy papa father husband wife son daughter brother sister uncle aunt grandma grandpa "
+    "he she him her hers his they them their theirs trans transgender cis nb enby nonbinary non-binary genderfluid agender queer masc femme "
+    "gender pronoun pronouns m f"
+).split()
+_GENDERISH_RE = re.compile(
+    r"(?<![\w'\u2019])(?:" + "|".join(re.escape(w) for w in sorted(_GENDERISH_WORDS, key=len, reverse=True)) + r"|\d{1,2}\s?[mf])(?![\w'\u2019])", re.I)
+
+
+def any_genderish_token(words: str) -> bool:
+    """True when the player's words contain ANY gender-ish token (see the lexicon above), however it is used. The heal clears only on False."""
+    return bool(_GENDERISH_RE.search(_norm(words or "")))
