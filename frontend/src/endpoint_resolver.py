@@ -388,14 +388,33 @@ def _supplies_auth(ep) -> bool:
     return any(str(k).lower() in AUTH_HEADER_NAMES for k in hdrs)
 
 
+def _serves_model_for_tie(ep, m) -> bool:
+    """ORW-483 tie-break only: like `_model_available`, but an admin-PINNED model (which may never appear in the
+    provider's cached /v1/models list) counts as served unless it is hidden. Kept local so the narrator/utility
+    fallback's own availability rule is unchanged."""
+    if _model_available(ep, m):
+        return True
+    if m in _endpoint_hidden_models(ep):
+        return False
+    try:
+        pinned = json.loads(getattr(ep, "pinned_models", None) or "[]")
+    except (TypeError, ValueError):
+        pinned = []
+    return m in (pinned if isinstance(pinned, list) else [])
+
+
 def _break_session_endpoint_tie(matches: list, model: str, owner: Optional[str]) -> list:
     """ORW-483: narrow same-URL candidates that carry different keys using what IS known — a
     session row records no endpoint id, only its URL and model. First drop endpoints that
     demonstrably do not serve the session's model (`_model_available`); then, if the configured
     default chat endpoint (`default_endpoint_id`, per-user then global) is still a candidate, it
     wins. Returns the narrowed list (unchanged when nothing narrows)."""
-    narrowed = [ep for ep in matches if _model_available(ep, model)] if model else []
-    matches = narrowed or matches
+    if model:
+        # #2845 review: a candidate that demonstrably cannot serve the model is never used, even through the default endpoint below;
+        # when NONE can serve it, nothing is chosen (the session keeps its stored headers, as before ORW-483).
+        matches = [ep for ep in matches if _serves_model_for_tie(ep, model)]
+        if not matches:
+            return []
     if len({(ep.api_key or "").strip() for ep in matches}) <= 1:
         return matches
     try:

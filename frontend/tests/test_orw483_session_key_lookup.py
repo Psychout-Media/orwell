@@ -67,10 +67,11 @@ def resolver(monkeypatch):
     return state
 
 
-def _ep(S, ep_id, base, key, models=None, owner="u1"):
+def _ep(S, ep_id, base, key, models=None, owner="u1", pinned=None):
     with S() as s:
         s.add(d.ModelEndpoint(id=ep_id, name=ep_id, base_url=base, api_key=key, is_enabled=True,
-                              owner=owner, cached_models=json.dumps(models) if models else None))
+                              owner=owner, cached_models=json.dumps(models) if models else None,
+                              pinned_models=json.dumps(pinned) if pinned else None))
         s.commit()
 
 
@@ -137,3 +138,32 @@ def test_an_unrelated_ip_does_not_match_a_hostname_endpoint(db, settings, resolv
     other = "http://192.0.2.99:8000/v1/chat/completions"
     assert not er.session_url_matches_endpoint(other, base)
     assert er.resolve_session_headers(_sess(other)) == {}
+
+
+# ---- #2845 review ------------------------------------------------------------------------------
+
+def test_an_ip_form_url_matches_only_with_the_same_scheme_and_port(db, settings, resolver):
+    base = f"http://{LAN_HOST}:8000/v1"
+    resolver["dns_ok"] = False
+    stored_url = er.build_chat_url(base)          # the IP form, as stored during an outage
+    resolver["dns_ok"] = True
+    er._tailscale_cache.clear()
+    getattr(er, "_tailscale_ips_cache", {}).clear()
+    assert er.session_url_matches_endpoint(stored_url, base)                                   # control: same scheme and port
+    assert not er.session_url_matches_endpoint(stored_url.replace("http://", "https://", 1), base)
+    assert not er.session_url_matches_endpoint(stored_url.replace(":8000", ":9000", 1), base)
+
+
+def test_a_pinned_model_counts_as_served_in_the_tie_break(db, settings):
+    _ep(db, "first", BASE, "sk-test-a", models=["m-listed"])
+    _ep(db, "second", BASE, "sk-test-b", models=["m-listed"], pinned=["m-pinned"])
+    out = er.resolve_session_headers(_sess(BASE + "/chat/completions", model="m-pinned"))
+    assert out.get("Authorization") == "Bearer sk-test-b"
+
+
+def test_no_candidate_serving_the_model_means_no_key_even_from_the_default_endpoint(db, settings):
+    _ep(db, "first", BASE, "sk-test-a", models=["m-listed"])
+    _ep(db, "second", BASE, "sk-test-b", models=["m-listed"])
+    settings["default_endpoint_id"] = "second"
+    sess = _sess(BASE + "/chat/completions", model="m-elsewhere", headers={"X-Custom": "keep"})
+    assert er.resolve_session_headers(sess) == {"X-Custom": "keep"}
