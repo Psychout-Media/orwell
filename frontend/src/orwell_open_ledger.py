@@ -295,7 +295,8 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         accepted = 0
         refused_full = False
         mode = grounding_mode()
-        entries = clean_entries(parsed, {p["id"] for p in people}, known)
+        # review of #2776: a DUE entry lets the call run on a short narration, but NEW entries still need the ordinary bar (someone here, enough narration).
+        entries = clean_entries(parsed, {p["id"] for p in people}, known) if people and len(narration or "") >= _MIN_NARRATION_CHARS else []
         weak, lowest = 0, 1.0
         for entry in entries:
             if mode != "off":
