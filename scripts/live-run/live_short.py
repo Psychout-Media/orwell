@@ -434,7 +434,7 @@ def score(turns, checks, check, turn_limit):
                 check(f"C5-nominee-names[{t['label']}]", same, f"narration names {sorted(said)}; engine nominees {sorted(truth)}")
     # (e) nobody speaks in the player's room unless the engine has them there (at the start or end of the turn - people can walk in or out within a reply)
     for t in turns:
-        if t["phase"] in ("setup",) or t.get("room_end") is None or t.get("rooms_known") is False: continue  # ORW-503: alone is a real answer and is still checked; only missing whereabouts data skips
+        if t["phase"] in ("setup",) or t.get("room_end") is None or t.get("rooms_known") is False or ("rooms_known" not in t and not t.get("room_end")): continue  # an older report carries no rooms_known: an empty room there is missing data, not "alone"  # ORW-503: alone is a real answer and is still checked; only missing whereabouts data skips
         ok_names = {n.lower() for n in (t.get("room_start") or []) + (t.get("room_end") or [])}
         bad = sorted({n for n in SPEAKER_RE.findall(t["text"]) if n.lower() not in ok_names and not any(n.lower() == x or n.split()[0].lower() == x.split()[0] for x in ok_names)})
         check(f"C6-speakers-in-room[{t['label']}]", not bad, f"spoke in the player's room but the engine has them elsewhere: {bad}" if bad else "every speaker is in the room")

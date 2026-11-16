@@ -79,3 +79,10 @@ def test_the_draw_turn_holds_the_same_turn_competition_force_and_the_next_turn_r
     assert ch.veto_draw_holds_force("u250c") is True
     _run(ch._pre_resolve_npc_ceremony("u250c", {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
     assert ch.veto_draw_holds_force("u250c") is False
+
+
+def test_the_draw_hold_reads_the_same_key_for_an_auth_off_owner(monkeypatch):
+    """Review of #2839: the write keyed the hold under None while the agent loop reads an empty owner."""
+    _rig(monkeypatch, None, [("veto-draw", DRAW), ("veto-competition", "x")])
+    _run(ch._pre_resolve_npc_ceremony(None, {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
+    assert ch.veto_draw_holds_force("") is True and ch.veto_draw_holds_force(None) is True

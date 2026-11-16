@@ -8399,6 +8399,7 @@ export class GameSessionAdapter implements GameSession {
     const row = s.owedFavors?.find((f) => f.debtor === npcId && f.n > 0);
     if (!row || this.dealOfferPartyGone(npcId)) return null;
     if (isPositiveObligation(ask) && !this.dealDepthEnabled) return null;
+    if (ask === "protect-third") return null; // a favor request carries no third houseguest to protect, so it cannot bind (review of #2839)
     const direction = isPositiveObligation(ask) ? "ask" : undefined;
     const refusal = this.dealConsentRefusal(npcId, ask, direction, DEAL_CONSENT.calledFavorBonus);
     row.n -= 1;

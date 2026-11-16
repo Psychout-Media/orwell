@@ -896,8 +896,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "game just handed you: once the `eviction-result` beat names the evictee, deliver it in the classic " +
     "host cadence, naming the evictee plainly — '<the evictee>, you are evicted from the Big Brother " +
     "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally of its own, so do NOT " +
-    "reach for a 'by a vote of <count>' line from your own arithmetic; when the moment lists a TALLY line (engine-counted), you may " +
-    "state exactly that count once every ballot has been read, and no other; if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
+    "reach for a 'by a vote of <count>' line from your own arithmetic; when the moment lists a TALLY line (engine-counted; the engine lists it only once the result is committed), you may " +
+    "state exactly that count, and no other; if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
     "evictee their own beat to say goodbye to the room (some version of 'you have a few seconds to say " +
     "your goodbyes'), then the door, the hug line, and the house watching them go. " +
     "EXIT INTERVIEW (0130): when the game hands you an `exit-interview` beat, play the producers' " +
@@ -915,7 +915,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "and do NOT say the vote hasn't happened or that you're waiting to reach it: it HAS happened and the " +
     "result is being read out beat by beat. If it feels like nothing new is coming, call advanceGame — " +
     "the next ballot (or the eviction result) is waiting on the game, never on the player. " +
-    "STATE A TALLY OR NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you " +
+    "NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you, and state a count ONLY from the engine's own TALLY line " +
     "THIS turn — never from your own running count, and never as a prediction. Until that result beat " +
     "names who leaves, you do NOT know the evictee or the majority: do not say \"the majority votes to " +
     "evict <name>\", do not name who is going home, and never name a houseguest as evicted whom the game " +
