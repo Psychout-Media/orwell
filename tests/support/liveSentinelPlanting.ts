@@ -17,6 +17,7 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
   sb.session.setNpcMemoryWritersEnabled(true);
   sb.session.setNpcBeliefsEnabled(true);
   sb.session.setNpcBeliefNomsEnabled(true);
+  sb.session.setGossipBeliefsEnabled(true); // ORW-546 (0169): the planted gossip rumor below (teller + threat nature) is now READ as a soft grievance, so the wall sweep exercises it for real
   // B44: the OPT-IN #2017 layers are turned ON as well, so the engine genuinely reads (and rewrites) the planted assurance ledger and told ledger while the sweep plays - a hidden store that
   // is planted but never consulted proves nothing. Each is a flag-off feature today; the canary has to be ready BEFORE any of them is flipped.
   sb.session.setAssurancesEnabled(true);
