@@ -8480,6 +8480,7 @@ export class GameSessionAdapter implements GameSession {
     return (this.live?.owedFavors ?? []).filter((f) => f.n > 0).map((f) => ({ from: this.named(f.debtor)!, n: f.n }));
   }
 
+  private static readonly FAVOR_ASK_KINDS: ReadonlySet<string> = new Set(["safety", "vote", "final-two", "target-other", "comp-throw", "veto-save", "protect-third", "conditional", "information"]);
   /**
    * 0142 (ORW-88 idea 2) - call in a favor. The houseguest's consent read prices the ask like a normal deal plus the called-favor bonus, so a marginal ask can be honored but a
    * distrusted or feared player is still refused. Honored => an ordinary deal binds (the NPC is the promisor of an active kind); ignored => the favor is spent and the player's own
@@ -8492,6 +8493,7 @@ export class GameSessionAdapter implements GameSession {
     const row = s.owedFavors?.find((f) => f.debtor === npcId && f.n > 0);
     if (!row || this.dealOfferPartyGone(npcId)) return null;
     if (isPositiveObligation(ask) && !this.dealDepthEnabled) return null;
+    if (!GameSessionAdapter.FAVOR_ASK_KINDS.has(ask)) return null; // an unknown kind never spends the favor (protect-third names a third houseguest a favor request cannot carry)
     if (ask === "protect-third") return null; // a favor request carries no third houseguest to protect, so it cannot bind (review of #2839)
     const direction = isPositiveObligation(ask) ? "ask" : undefined;
     const refusal = this.dealConsentRefusal(npcId, ask, direction, DEAL_CONSENT.calledFavorBonus);
@@ -8732,7 +8734,7 @@ export class GameSessionAdapter implements GameSession {
     // party brings it). Either way it is the unchanged anchored organ; the drip only CHOSE and PACED it.
     // It counts against 0060's season cap inside surfaceThread (surfacedThreadCount++), so the pace can
     // never add payoff past the season ceiling.
-    this.surfaceThread(thread, pos, rng, channel);
+    if (!this.surfaceThread(thread, pos, rng, channel)) return []; // held / nobody awake to relay it: nothing was spent, nothing is charged
     // Charge the weekly budget + record the per-thread last-dripped week (the anti-spam state). Persistence
     // is the orchestrator's batched commit (this rides its bounded tick) — no `persist()` here (R3).
     this.pacingDripCount += 1;
@@ -8874,7 +8876,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private surfaceThread(
     thread: StoryThread, pos: SeasonPosition, rng: RandomnessSource, force?: "player" | "gossip",
-  ): void {
+  ): boolean {
     const name = this.nameOf(thread.sourceId);
     const rumor = threadRumor(thread, name);
     // Choose an NPC ORIGIN for the rumor: a living NPC other than the source (someone who'd whisper it).
@@ -8900,7 +8902,7 @@ export class GameSessionAdapter implements GameSession {
         signals: this.confidenceSignalsFor(src), style: src.character.strategyStyle, volatility: this.soulObj(src.id)?.volatility,
         audience: 0, pressure: 0.5, risk: 0.2,
         roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dripRoute:${thread.id}:${this.week}:${this.phase}`)).next(),
-      }) === "hold") return;
+      }) === "hold") return false;
     }
     if (toPlayer && this.onThreadSurfaceToPlayer) {
       // Rare: a modeled pathway already reaches the player — surface a content-lineage-anchored belief
@@ -8912,7 +8914,7 @@ export class GameSessionAdapter implements GameSession {
         : rumor;
       const told = this.onThreadSurfaceToPlayer(thread.sourceId, belief);
       // #1913 — nobody awake to relay it tonight: the story is not spent (clock off ⇒ unchanged).
-      if (!told && awake) return;
+      if (!told && awake) return false;
     } else if (livingNpcs.length > 0 && this.onThreadGossip) {
       // The common case: hand the paraphrase to the 0038 gossip engine to diffuse NPC↔NPC.
       const origin = livingNpcs[rng.int(livingNpcs.length)]!;
@@ -8935,11 +8937,12 @@ export class GameSessionAdapter implements GameSession {
     } else if (this.onThreadGossip && awake) {
       // Nobody is awake to whisper it tonight: the story is NOT spent — it stays eligible (and off the season
       // cap) for a later surface (cubic #1914).
-      return;
+      return false;
     }
     thread.status = "surfaced";
     thread.lifecycleWeek = this.week;
     this.surfacedThreadCount++;
+    return true; // review of 0092: the caller charges the weekly drip budget only for a thread that actually surfaced
   }
 
   /** 0101/#1401 — does the CURRENT showrunner note emphasize this thread (above the baseline multiplier)?
@@ -11548,9 +11551,9 @@ export class GameSessionAdapter implements GameSession {
     // (`scheduleGateBypass`) are unaffected; flag off => this block is skipped entirely (byte-identical).
     // ORW-303: NOT for a player who has left the game (evicted: a juror, or a spectator): their clock only moves with messages they never send as an outsider, and turnIn is a no-op for them, so the hold could never lift
     // (the season froze for every evicted player once the gate shipped ON). Same exclusion as the night hold above.
-    if (this.advanceGateEnabled && !this.scheduleGateBypass && this.live.playedGame === true && !this.live.spectator && !playerHasLeft(this.live, PLAYER) && this.perConversationClockLive() && !this.live.pending && !this.live.finished) {
-      const m = nextMilestone(this.live);
-      if (m && !milestoneDueOf(this.live)) return { ...this.advanceView(null), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live) ?? 0, reason: "schedule" } };
+    if (this.scheduleHoldsAdvance()) {
+      const m = nextMilestone(this.live!)!;
+      return { ...this.advanceView(null), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live!) ?? 0, reason: "schedule" } };
     }
     // One persisted commit per beat (E3): interior persists (a deal broken mid-tally) defer to a
     // single hook call AFTER all state mutation — a refused commit throws instead of narrating.
@@ -11562,6 +11565,13 @@ export class GameSessionAdapter implements GameSession {
     });
     // 0065 Part B — cache the committed result under its key, so a retry replays it verbatim.
     return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, view) : view;
+  }
+
+  /** A65 gate, shared: with the gate on, the clock running and the next milestone NOT yet due, an ordinary beat is refused. The chain after a resolved decision asks the same question (review of T0-2: it used to bypass the schedule). */
+  private scheduleHoldsAdvance(): boolean {
+    const live = this.live;
+    if (!live || !this.advanceGateEnabled || this.scheduleGateBypass || live.playedGame !== true || live.spectator || playerHasLeft(live, PLAYER) || !this.perConversationClockLive() || live.pending || live.finished) return false;
+    return !!nextMilestone(live) && !milestoneDueOf(live);
   }
 
   /**
@@ -11911,8 +11921,13 @@ export class GameSessionAdapter implements GameSession {
       // this chained call honors the SAME gate a separate `advanceGame` call would: if a deal is due at
       // the post-resolution lull, it sets `live.dealOffer` and the beat does NOT advance here either —
       // byte-identical to the un-chained two-call path, never bypassed by going straight to a beat draw.
-      if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") this.advanceOneBeat(); // ORW-281 4a: a ceremony watch step waits for the player's own Continue
-      return this.advanceView(ev);
+      let chainHeld = false;
+      if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") { // ORW-281 4a: a ceremony watch step waits for the player's own Continue
+        if (this.scheduleHoldsAdvance()) chainHeld = true; else this.advanceOneBeat();
+      }
+      const m = chainHeld ? nextMilestone(this.live!) : null;
+      // the schedule held the chained advance: say so exactly as advanceGame does (typed `held`), so the caller does not read the quiet as a stall
+      return m ? { ...this.advanceView(ev), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live!) ?? 0, reason: "schedule" as const } } : this.advanceView(ev);
     }));
   }
 
