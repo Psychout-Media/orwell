@@ -5955,6 +5955,7 @@ _INLINE_PLANNING_OPENER_RE = re.compile(
     r"^\s*(?:let(?:'s)? me\s+(?:now\s+|first\s+|then\s+|also\s+|just\s+|quickly\s+)?"
     r"(?:think|ground myself|orient myself|reason (?:this|it) through|work through|"
     r"figure out|process|look at|check|review|re-?read|parse|plan|map out|sort out)\b"
+    r"|(?:let me|i(?:'ll| will| should| need to))\s+(?:now\s+|first\s+)?get (?:a|an) (?:real |better |proper |good |quick )?(?:read|sense|feel)\b"  # ORW-541
     r"|i need to\s+(?:ground myself|orient myself|think|reason|figure out|process|check|"
     r"make sure|understand|recall|remember|re-?read|review)\b"
     r"|i should\s+(?:ground myself|orient myself|think|reason|figure out|process|check|"

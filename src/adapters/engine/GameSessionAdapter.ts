@@ -337,6 +337,7 @@ import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type H
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
+import { drawHouseLeans, describeHouseLeans, dialMult } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -713,8 +714,8 @@ const _hoScale = Number(process.env.ORWELL_HANGOUT_P_SCALE);
 const HANGOUT_P_SCALE = process.env.ORWELL_HANGOUT_P_SCALE !== undefined && Number.isFinite(_hoScale) && _hoScale > 0 ? _hoScale : 1;
 const HANGOUT_PULL_P = Math.min(0.9, 0.03 * HANGOUT_P_SCALE), HANGOUT_APPROACH_P = Math.min(0.9, 0.08 * HANGOUT_P_SCALE), HANGOUT_OBSERVED_P = Math.min(0.9, 0.07 * HANGOUT_P_SCALE);
 /**
- * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
- * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
+ * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). ON by default;
+ * `ORWELL_DESIRE_CLOCK=0` turns it off. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
  */
 const DESIRE_CLOCK_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DESIRE_CLOCK");
 /**
@@ -1205,7 +1206,10 @@ export class GameSessionAdapter implements GameSession {
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
     // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
+    const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
     if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
+    // ORW-551 / spec 0168: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
+    if (this.live && firstPlayedMessage && this.houseCultureEnabled && !this.live.houseLeans) this.live.houseLeans = drawHouseLeans(`${this.gameSeed ?? 0}`);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
@@ -1633,6 +1637,9 @@ export class GameSessionAdapter implements GameSession {
    * Draws come from the `${seed}:house-meeting` side stream. ON unless `ORWELL_HOUSE_MEETINGS=0`; needs the belief layer and a played game.
    */
   private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
+  /** ORW-551 / spec 0168 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
+  private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
+  setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
   holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
@@ -4406,7 +4413,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
-    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}) };
+    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
+    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -10206,13 +10214,13 @@ export class GameSessionAdapter implements GameSession {
     return strategicDriveWeight(this.statsOf(id).mental, npc?.character.strategyStyle);
   }
 
-  // --- 0066 Phase-2 (#1125): the three sleep-economy extension flags (each default OFF) --------------
+  // --- 0066 Phase-2 (#1125): the three sleep-economy extension flags (each default ON; `=0` turns it off) --------------
 
-  /** Extension 1 — the per-conversation clock advance. Off by default — calibration leaves it off. */
+  /** Extension 1 — the per-conversation clock advance. On by default (`ORWELL_TIME_PER_CONVERSATION=0` turns it off). */
   setPerConversationClockEnabled(on: boolean): void { this.perConversationClockEnabled = on; }
-  /** Extension 2 — NPC next-day social fatigue (dampened sway + conflict-drained bedtime). Off by default. */
+  /** Extension 2 — NPC next-day social fatigue (dampened sway + conflict-drained bedtime). On by default (`ORWELL_SOCIAL_FATIGUE=0` turns it off). */
   setSocialFatigueEnabled(on: boolean): void { this.socialFatigueEnabled = on; }
-  /** Extension 3 — the compounding multi-night fatigue meter. Off by default. */
+  /** Extension 3 — the compounding multi-night fatigue meter. On by default (`ORWELL_MULTI_NIGHT_FATIGUE=0` turns it off). */
   setMultiNightFatigueEnabled(on: boolean): void { this.multiNightFatigueEnabled = on; }
 
   /** #1400 — generative competition design (the model dresses the fixed roll). Off by default (env-gated). */
@@ -11593,6 +11601,8 @@ export class GameSessionAdapter implements GameSession {
     const plans: PlannedAction[] = [];
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
+    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0159 slice 2): the culture's baseline multipliers; undefined = byte-identical
+    const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -11611,6 +11621,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, where),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
+        ...(houseCulture ? { culture: houseCulture } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
@@ -12406,6 +12417,67 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * The clock/night bookkeeping a resolved beat charges (ADR 0006; the comments below carry the history). Shared by `advanceOneBeat` and by `submitDecision` for the one beat a
+   * player's answer resolves itself without going through the advance loop: the first staged `comp-elimination` (ORW-550: it was resolved by the player's `comp-round` answer and
+   * never charged its share of the competition's hours, so the crown paid it late). Clock path only: no rng, no fold.
+   */
+  private chargeBeatClock(ev: BeatEvent | null, ceremonyHours: number | null, weekBefore: number): void {
+    // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
+    // toward late-night and wrapping to a new morning (banking a late night the player never ended).
+    // The diegetic bound + sleep cost ride this; dormant (byte-identical) unless the clock is enabled.
+    //
+    // #537: the clock advances by SUBSTANTIVE PLAY — once per resolved ceremony/eviction/finale
+    // beat — never on a staged competition's per-round PRESENTATION (the `comp-round` PAUSES, which
+    // emit no event, and the inert `comp-elimination` reveal beats: no rng, no fold, no soul
+    // inflection — see `advanceCompetition`/`stagedTrajectoryNeutral`). Advancing on each of those
+    // cycled most of a day inside ONE competition (the HOH crowned at late-night the morning it
+    // began). The clock still INITIALIZES on the first advance (so the HUD/rest cue are live from
+    // turn one) even before the first substantive beat lands.
+    //
+    // 0066 Phase-2 (PR #715): the graded sleep economy — chronotype bedtimes + continuous night
+    // depth + the night-end fatigue/conflict bookkeeping — rides this SAME substantive-play gate, so
+    // it never over-advances on inert staged-comp beats either. On the bare init advance `advanceClock`
+    // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
+    // deficit is 0 (no night ran) and the conflict tally is still empty.
+    // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
+    const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+      ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
+      : null;
+    if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat) && ceremonyHours === null) || (compRoundHours !== null && compRoundHours > 0) || (ceremonyHours !== null && ceremonyHours > 0))) {
+      const wasRetired = this.live!.playerRetired ?? false;
+      const depthBefore = this.live!.nightDepth;
+      // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
+      // comp ~3h, an eviction ~2h (beatFeltHours), instead of a flat +3h. Applied ONLY when the
+      // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
+      // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
+      // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
+      let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
+      if (ceremonyHours !== null) feltHours = ceremonyHours; // ORW-281 4a: a staged ceremony's hours are SPREAD over its steps (one helper, like a comp's rounds)
+      if (ev?.beat === "veto-draw" && !this.playedGameNow()) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
+      if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
+      // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
+      // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
+      // so one eviction night ran most of a day and the finale ran for days).
+      // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
+      // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
+      const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+        ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
+        : null;
+      if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
+      else if (eventHours !== null) advanceClock(this.live!, eventHours);
+      else if (feltHours !== null) advanceClock(this.live!, feltHours);
+      else advanceClock(this.live!);
+      // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning
+      // after a turnIn (that night already accrued). Detect: a fresh morning (back at the wake hour) we
+      // did NOT reach via retirement.
+      // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
+      // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
+      if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
+      this.rollNightConflicts();
+    }
+  }
+
+  /**
    * The deterministic "one more step" of the live loop: offer the LULL-gated NPC deal check (0123),
    * then draw the CURRENT beat's outcome (or raise its pending), apply the SAME ADR-0006 clock/night
    * bookkeeping a plain `advanceGame` call would, and commit. A no-op (returns `null`, mutates
@@ -12443,59 +12515,7 @@ export class GameSessionAdapter implements GameSession {
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
-      // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
-      // toward late-night and wrapping to a new morning (banking a late night the player never ended).
-      // The diegetic bound + sleep cost ride this; dormant (byte-identical) unless the clock is enabled.
-      //
-      // #537: the clock advances by SUBSTANTIVE PLAY — once per resolved ceremony/eviction/finale
-      // beat — never on a staged competition's per-round PRESENTATION (the `comp-round` PAUSES, which
-      // emit no event, and the inert `comp-elimination` reveal beats: no rng, no fold, no soul
-      // inflection — see `advanceCompetition`/`stagedTrajectoryNeutral`). Advancing on each of those
-      // cycled most of a day inside ONE competition (the HOH crowned at late-night the morning it
-      // began). The clock still INITIALIZES on the first advance (so the HUD/rest cue are live from
-      // turn one) even before the first substantive beat lands.
-      //
-      // 0066 Phase-2 (PR #715): the graded sleep economy — chronotype bedtimes + continuous night
-      // depth + the night-end fatigue/conflict bookkeeping — rides this SAME substantive-play gate, so
-      // it never over-advances on inert staged-comp beats either. On the bare init advance `advanceClock`
-      // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
-      // deficit is 0 (no night ran) and the conflict tally is still empty.
-      // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
-      const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-        ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
-        : null;
-      if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat) && ceremonyHours === null) || (compRoundHours !== null && compRoundHours > 0) || (ceremonyHours !== null && ceremonyHours > 0))) {
-        const wasRetired = this.live!.playerRetired ?? false;
-        const depthBefore = this.live!.nightDepth;
-        // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
-        // comp ~3h, an eviction ~2h (beatFeltHours), instead of a flat +3h. Applied ONLY when the
-        // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
-        // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
-        // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
-        let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
-        if (ceremonyHours !== null) feltHours = ceremonyHours; // ORW-281 4a: a staged ceremony's hours are SPREAD over its steps (one helper, like a comp's rounds)
-        if (ev?.beat === "veto-draw" && !this.playedGameNow()) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
-        if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
-        // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
-        // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
-        // so one eviction night ran most of a day and the finale ran for days).
-        // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
-        // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
-        const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
-          : null;
-        if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
-        else if (eventHours !== null) advanceClock(this.live!, eventHours);
-        else if (feltHours !== null) advanceClock(this.live!, feltHours);
-        else advanceClock(this.live!);
-        // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning
-        // after a turnIn (that night already accrued). Detect: a fresh morning (back at the wake hour) we
-        // did NOT reach via retirement.
-        // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
-        // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
-        this.rollNightConflicts();
-      }
+      this.chargeBeatClock(ev, ceremonyHours, weekBefore);
       this.commit(ev);
       return ev;
     }
@@ -12585,6 +12605,7 @@ export class GameSessionAdapter implements GameSession {
         const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
         if (h !== null && h > 0) advanceClock(this.live!, h);
       }
+      if (ev?.beat === "comp-elimination") this.chargeBeatClock(ev, null, this.live!.week); // ORW-550: the round the player's answer resolved pays its share of the comp's hours, like every later round
       this.commit(ev);
       // T0-2 ("beats terminate themselves") — for the CLOSED-SET ceremony/comp pending kinds
       // (`AUTO_ADVANCE_PENDING_KINDS`, documented above), the resolution's own commit IS the exit: the
