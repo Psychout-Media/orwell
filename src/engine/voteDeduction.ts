@@ -99,7 +99,7 @@ export function deduceEvictionVoters(
   const believedSet = new Set(believed);
   const perVoter = new Map(scored.map((s) => [s.v, { believed: believedSet.has(s.v), suspicion: s.base }]));
 
-  return { believed, confidence: deductionConfidence(scored.map((s) => s.base), n), perVoter };
+  return { believed, confidence: deductionConfidence(scored.map((s) => s.base).sort((a, b) => b - a), n), perVoter };
 }
 
 /**
