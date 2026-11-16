@@ -432,7 +432,7 @@ def _break_session_endpoint_tie(matches: list, model: str, owner: Optional[str])
 
 
 def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str], model: Optional[str] = None,
-                           break_ties: bool = False):
+                           break_ties: bool = False, endpoint_id: Optional[str] = None):
     """The enabled endpoint that unambiguously supplies auth for a session URL, or None.
 
     Owner scoping is STRICT (no admin bypass): own rows + shared/null-owner rows only, so a
@@ -456,6 +456,11 @@ def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str], model: O
         and _supplies_auth(ep)
     ]
     exact = [ep for ep in matches if _session_url_exact(endpoint_url, ep.base_url or "")]
+    # ORW-512: the session's OWN endpoint, when it is still a match (enabled, owner-eligible, keyed, same URL), settles any same-URL tie.
+    if endpoint_id:
+        own = [ep for ep in matches if getattr(ep, "id", None) == endpoint_id]
+        if own:
+            return own[0]
     matches = exact or matches
     if not matches:
         return None
@@ -497,6 +502,23 @@ def _is_server_env_auth(endpoint_url: str, hdrs) -> bool:
     return bool(got) and got.get("authorization") == env["Authorization"] and set(got) == {"authorization"}
 
 
+def _session_endpoint_id(db, sess) -> Optional[str]:
+    """ORW-512: the registered endpoint id stored on the session's row (or on the session object itself), if any."""
+    own = getattr(sess, "endpoint_id", None)
+    if isinstance(own, str) and own.strip():
+        return own.strip()
+    sid = getattr(sess, "id", None)
+    if not sid:
+        return None
+    try:
+        from core.database import Session as DbSession
+        row = db.query(DbSession).filter(DbSession.id == sid).first()
+        v = getattr(row, "endpoint_id", None) if row is not None else None
+        return v.strip() if isinstance(v, str) and v.strip() else None
+    except Exception:
+        return None
+
+
 def resolve_session_headers(sess, owner: Optional[str] = None):
     """Auth headers to SEND for a session, resolved from the endpoint record at call time.
 
@@ -519,7 +541,7 @@ def resolve_session_headers(sess, owner: Optional[str] = None):
             # same-URL / different-key tie is broken by the session's model + the default endpoint.
             stored_has_auth = any(str(k).lower() in AUTH_HEADER_NAMES for k in _stored_headers_dict(stored))
             ep = _find_session_endpoint(db, url, owner, model=getattr(sess, "model", None),
-                                        break_ties=not stored_has_auth)
+                                        break_ties=not stored_has_auth, endpoint_id=_session_endpoint_id(db, sess))
             if ep is None:
                 env = _server_env_headers(url)
                 if env:

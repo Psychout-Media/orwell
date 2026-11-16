@@ -1,5 +1,5 @@
 /**
- * ORW-350: the house-life scene mix BY WEEK on a chat-paced seeded game (the same driver as tests/unit/houseMixGuard.test.ts, run long). Usage:
+ * ORW-350: the house-life scene mix BY WEEK on a chat-paced seeded game (the same driver as tests/uat/houseMixGuard.test.ts (the old 2-seed form; now the 12-season guard), run long). Usage:
  *   npx tsx scripts/probes/houseMixByWeek.ts [messages=1100] [seeds=12]
  * Prints, per seed and pooled, the bonding/strategy/gossip/conflict share of house-life scenes in each game week the player lived through, plus the action mix of the gossip scenes. Read-only: it plays a throwaway game.
  */

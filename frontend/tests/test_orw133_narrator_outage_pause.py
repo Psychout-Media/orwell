@@ -157,3 +157,54 @@ def test_a_new_season_clears_the_outage_alert_latch_for_that_owner_only():
     agent_loop._forget_season_pacing("alice")
     assert agent_loop._OUTAGE_ALERTED == {("bob", "account")}
     agent_loop._OUTAGE_ALERTED.clear()
+
+
+def _think(t="weighing the scene"):
+    return 'data: ' + json.dumps({"delta": t, "thinking": True}) + '\n\n'
+
+
+def test_review_2367_an_outage_after_thinking_only_still_retries(monkeypatch):
+    """Private thinking is not output the player saw: a failure after it must reach the retry path, not pass through."""
+    out, calls, sleeps, _ = _drive(monkeypatch, [[_think(), _err(503)], _GOOD])
+    assert calls["n"] == 2 and sleeps == [2.0]
+    assert "kitchen goes quiet" in _text(out)
+
+
+def test_review_2367_other_modes_keep_their_own_error_not_a_pause_line(monkeypatch):
+    """Casting and ordinary chat run the same loop; the pause wrapper is live-game only, so their error is not swallowed."""
+    from src import agent_loop as al
+    calls = {"n": 0}
+
+    async def fake_stream(candidates, messages, **kw):
+        calls["n"] += 1
+        yield _err(503)
+
+    monkeypatch.setattr(al, "stream_llm_with_fallback", fake_stream)
+
+    async def run():
+        return [c async for c in al._narrator_stream_with_outage_pause([("u", "m", {})], [], owner="default", live_game=False)]
+    out = asyncio.run(run())
+    assert calls["n"] == 1 and out == [_err(503)]
+
+
+def test_review_2380_an_outage_after_an_earlier_round_still_shows_the_pause():
+    """The turn's earlier narration must not hide the pause notice: it is shown, with wording that keeps what already aired."""
+    from src import agent_loop as al
+    sep, line = al._pause_notice_parts(True, True, "You step into the yard.")
+    assert sep == "\n\n" and line == al._NARRATOR_AWAY_MIDTURN_LINE and "already aired stands" in line and "nothing has happened" not in line
+    assert al._pause_notice_parts("account", True, "x ")[1] == al._NARRATOR_ACCOUNT_MIDTURN_LINE
+    assert al._pause_notice_parts(True, False, "") == ("", al._NARRATOR_AWAY_LINE)
+    assert al._pause_notice_parts("account", False, "") == ("", al._NARRATOR_ACCOUNT_LINE)
+    for ln in (al._NARRATOR_AWAY_MIDTURN_LINE, al._NARRATOR_ACCOUNT_MIDTURN_LINE):
+        for bad in ("error", "402", "503", "provider", "deepseek", "model", "token", "engine", "api", "balance"):
+            assert bad not in ln.lower()
+
+
+def test_review_2367_the_route_forwards_the_outage_notices_and_skips_the_record_fallback():
+    """The chat route's agent branch forwards only named event types: the retry/pause notices must be among them (or the client never shows them), and a paused turn must not run the [DONE] record fallback."""
+    import re
+    src = open(os.path.join(FRONTEND, "routes", "chat_routes.py")).read()
+    fwd = re.search(r'elif data\.get\("type"\) in \((.*?)\):', src, re.S).group(1)
+    assert '"narrator_away"' in fwd and '"narrator_paused"' in fwd
+    assert re.search(r'if not _narrator_paused_turn:\s+#[^\n]*\n\s+_rec_task = asyncio\.create_task\(ensure_turn_recorded', src)
+    assert 'data.get("type") == "narrator_paused"' in src and "_narrator_paused_turn = True" in src
