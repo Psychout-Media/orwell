@@ -710,7 +710,7 @@ def test_older_prompt_version_is_not_reshot_and_keeps_version_1(tmp_portraits, m
     m = orwell_portraits.load_manifest("u")
     assert m["npc_1"]["promptVersion"] == 1  # kept (explicit), never bumped
     assert m["npc_1"]["fingerprint"] == orwell_portraits._prompt_fingerprint("old wording")
-    assert m["npc_2"]["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION == 4
+    assert m["npc_2"]["promptVersion"] == orwell_portraits.PORTRAIT_PROMPT_VERSION == 3
 
 
 def test_forced_single_reshoot_records_the_current_version_and_keeps_old_file_on_failure(tmp_portraits, monkeypatch):

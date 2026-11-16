@@ -279,7 +279,7 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     expect(full).not.toMatch(/laugh lines|distinguished|forties ease|crisp and youthful/);
     expect(full).toMatch(/The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim\./);   // ORW-480: no frame or border
     expect(full).toMatch(/Clothes are worn the way this person would on an ordinary day\./);
-    expect(full).toMatch(/real skin and hair, worn everyday clothes/);   // documentary is the default realism wording (Kevin's pick, 2026-11-16)
+    expect(full).toMatch(/real skin and hair, worn everyday clothes/);   // documentary is the default realism wording (the owner's pick, 2026-11-16)
     // no beautifying or quality word, no hair-and-makeup line
     expect(full).not.toMatch(/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|airbrushed|no retouching/i);
     // the written face line is replaced by the dealt face card, the writer's on-camera line is not sent, a mark sits inside the face sentence
@@ -362,8 +362,8 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   });
 
   it("every built prompt is free of the banned words and is at most 360 words", () => {
-    // ORW-480 on purpose: "unretouched", "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (Kevin then wanted a polished look);
-    // Kevin's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
+    // ORW-480 on purpose: "unretouched", "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (the owner then wanted a polished look);
+    // the owner's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
     const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|blemishes|tired|\brough\b|Big Brother/i;
     const hairy = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired and weathered" } }, anchor).prompt;
     for (const p of [full, none, legacy, hairy]) {

@@ -225,7 +225,7 @@ ACTED_RE = re.compile(
     r"mid-(?:swing|throw|jump|leap|spin|cast|kick|toss|motion|action|air)|(?:arms?|hands?) (?:raised|thrown|held|stretched) (?:up|high|overhead|above)|arms? (?:raised|up) |hands? (?:in|up in) the air", re.I)
 OPEN_PALM_RE = re.compile(r"palms? (?:up|open|out)|open (?:hand|palm)|hand open|hands open|palm facing up", re.I)
 TALKING_RE = re.compile(r"mid-sentence|talking to|telling (?:a|the) story|speaking to|laughing with|in conversation|chatting", re.I)
-WORK_GEAR_RE = re.compile(r"\b(?:scrubs|uniform|apron|badge|lanyard|hard hat|turnout gear|stethoscope|name ?tag|high-vis|hi-vis|chef'?s? (?:coat|jacket|whites))\b", re.I)
+WORK_GEAR_RE = re.compile(r"\b(?:scrubs?|scrub (?:tops?|pants)|uniforms?|aprons?|badges?|lanyards?|hard ?hats?|turnout gear|stethoscopes?|name ?tags?|hi[- ]?vis|high[- ]?vis(?:ibility)?|chef'?s? (?:coat|jacket|whites))\b", re.I)
 TEXT_RE = re.compile(r"\b(?:logo|brand|sign (?:reading|that says)|reads? ['\"]|lettering|slogan|printed words|text on|written on|banner reading)\b|[A-Z][a-z]+(?:'s)? (?:Pizza|Diner|Market|Bar|Cafe|Café)\b(?= sign)", re.I)
 _BRAND_STRONG = re.compile(r"\b(?:nike|adidas|coca[- ]cola|pepsi|starbucks|mcdonald'?s|walmart|harley|carhartt|patagonia|north face|levi'?s|budweiser|yeti|samsung|toyota|chevrolet)\b", re.I)
 _BRAND_CAPITAL = re.compile(r"\b(?:Target|Ford|Apple|Honda|Vans|Converse|Puma|Corona|Chevy)\b")      # ordinary words in lower case (a target, a ford, vans): brands only when capitalised
@@ -243,6 +243,7 @@ class _Brand:
 
 BRAND_RE = _Brand()
 HAT_RE = re.compile(r"\b(?:hat|cap|beanie|fedora|visor|bonnet)\b", re.I)
+PERSON_PHOTO_OK_RE = re.compile(r"^(?:an?|the|one|two|some)?\s*(?:old |framed |small |faded |family )*(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b(?!.*\b(?:held|holding|carried|carrying|handed|beside|next to|with|by)\b)", re.I)
 PERSON_OBJ_RE = re.compile(r"\b(?:neighbou?rs?|friends?|kids?|child|children|sons?|daughters?|boys?|girls?|mans?|men|womans?|women|customers?|clients?|patients?|mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|babys?|baby|couple|crowd|people|passers?-?by|strangers?|someone|somebody|persons?|dog walker|owner|worker|workers|coach|teammates?|teacher|students?|family members?)\b", re.I)
 SUNGLASSES_RE = re.compile(r"\b(?:sunglasses|shades|goggles)\b", re.I)
 INDOOR_RE = re.compile(r"\b(?:indoors?|inside|kitchen|living room|bedroom|dining|diner|booth|café|cafe|studio|shop(?! (?:window|front))|church (?:hall|basement|kitchen)|garage|hallway|stairwell|apartment|bar|kitchenette|bathroom|office|classroom|gym|locker|barn)\b", re.I)
@@ -411,6 +412,39 @@ def _trim(text: str, limit: int) -> str:
         return t[:cut].rstrip(" ,;")
     return t[:limit].rsplit(" ", 1)[0].rstrip(" ,;")
 
+# A field that imitates the prompt's own structure (a section label, a new directive) or tries to instruct the image model is never printed as written.
+STRUCT_RE = re.compile(r"\b(?:Hair|Wearing|Setting|Light|The moment|Framing|Face|Camera position|The subject|An ordinary person|Taken the way|Keep the stated age|System|Assistant|Prompt)\s*:|\bFraming,\s*the same|\b(?:ignore|disregard|forget|override)\b[^.]{0,40}\b(?:instructions?|prompts?|rules?|above|previous|prior)\b|\bnew (?:instructions?|directive)s?\b", re.I)
+PRINTED = ("where", "doing", "wear", "signature", "timeLight", "expressionBody")
+SPECIFIC_PERSON_RE = re.compile(r"\b(?:neighbou?rs?|friends?|kids?|child|children|sons?|daughters?|mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|babys?|couple|crowd|people|passers?-?by|strangers?|customers?|clients?|patients?|teammates?|students?|family members?|husband|wife|partner|boyfriend|girlfriend)\b", re.I)
+_OWNS_PLACE_RE = re.compile(r"\b(?:his|her|their|my)\s+(?:[a-z]+\s+)?(?:mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|parents?|husband|wife|partner|sons?|daughters?|family|friends?|neighbou?rs?)\s+(?:runs|owns|ran|owned|keeps|kept|manages|built|rents|rented|lives|lived|grew|bought|opened|founded)\b", re.I)
+_POSSESSIVE_PLACE_RE = re.compile(r"\b[a-z]+['\u2019]s\b", re.I)
+
+
+def _other_person(text: str, field: str) -> bool:
+    """Another person in a printed field. A possessive place ("her daughter's kitchen") is a place, not a person; the face line is checked against relations only
+    (a figure of speech such as "someone who misses nothing" is not a second person)."""
+    t = re.sub(r"\bthe person\b", " ", str(text or ""), flags=re.I)         # the name scrub's own stand-in for the subject is the one person in the frame
+    t = _OWNS_PLACE_RE.sub(" ", _POSSESSIVE_PLACE_RE.sub(" ", t))
+    rx = SPECIFIC_PERSON_RE if field == "expressionBody" else PERSON_OBJ_RE
+    return bool(rx.search(t))
+
+
+class _PersonRx:
+    def __init__(self, field):
+        self.field = field
+
+    def search(self, t):
+        return _other_person(t, self.field)
+
+
+def _scrub_structure(text: str) -> str:
+    """Cut a field at the first piece that imitates the prompt's structure, and turn any colon into a comma."""
+    t = str(text or "")
+    m = STRUCT_RE.search(t)
+    if m:
+        t = t[:m.start()].rstrip(" ,;.-")
+    return t.replace(":", ",")
+
 
 def _drop_clauses(text: str, rx) -> str:
     parts = [p for p in re.split(r"\s*[,;]\s*", str(text or "")) if p.strip()]
@@ -493,7 +527,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         return t.rstrip(". ")
     for k in ("where", "doing", "wear", "signature", "timeLight", "expressionBody", "why", "tie"):
         if isinstance(out.get(k), str):
-            out[k] = fix(out[k])
+            out[k] = fix(_scrub_structure(out[k]) or out[k]) if k in PRINTED else fix(out[k])
     if isinstance(out.get("inFrame"), list):
         out["inFrame"] = [fix(x) for x in out["inFrame"] if isinstance(x, str)]
     class _Bad:
@@ -504,6 +538,16 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for k in ("where", "doing", "wear", "signature", "expressionBody"):
         if isinstance(out.get(k), str) and bad_rx.search(out[k]):
             out[k] = _drop_clauses(out[k], bad_rx) or out[k]
+    # the printed fields hold no imitation of the prompt's own structure and no second person (a clause naming one is dropped, as the closers say the only person in the frame)
+    for k in PRINTED:
+        if isinstance(out.get(k), str):
+            out[k] = _scrub_structure(out[k]) or out[k]
+            if _other_person(out[k], k):
+                kept = _drop_clauses(re.sub(r"\s+(?:where|while|who|with|talking|chatting)\b", lambda m: "," + m.group(0), out[k]), _PersonRx(k))
+                if kept:
+                    out[k] = kept
+    if isinstance(out.get("inFrame"), list):
+        out["inFrame"] = [_scrub_structure(x) for x in out["inFrame"] if isinstance(x, str) and _scrub_structure(x)]
     # the clothes line is clothes only, the signature is a thing: a clause about the body (arms, shoulders, chin, eyes, smile ...) is dropped
     for k in ("wear", "signature"):
         if k == "signature" and out.get("_look"):
@@ -536,7 +580,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for item in (out.get("inFrame") or []):
         if bad_rx.search(item):
             continue
-        if PERSON_OBJ_RE.search(item) and not re.search(r"\b(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b", item, re.I):
+        if PERSON_OBJ_RE.search(item) and not PERSON_PHOTO_OK_RE.search(item.strip()):
             continue                                                  # a person is not an object (the closers say the only person in the frame)
         iw = _cw(item)
         if ACCESSORY_RE.search(item) and not HELDABLE_RE.search(item) and not (iw & wear_words):
@@ -607,6 +651,12 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("acted-or-odd-pose")
     if OPEN_PALM_RE.search(brief["doing"] + " " + brief["expressionBody"]) and not TALKING_RE.search(brief["doing"] + " " + brief["expressionBody"]):
         codes.append("open-palm-to-nobody")
+    for k in PRINTED:
+        if _other_person(brief[k], k):
+            codes.append("person-in-frame")
+            break
+    if any(STRUCT_RE.search(str(brief[k])) for k in PRINTED) or any(STRUCT_RE.search(x) for x in brief["inFrame"]):
+        codes.append("prompt-structure")
     if WORK_GEAR_RE.search(body):
         codes.append("work-gear")
     if TEXT_RE.search(body) or BRAND_RE.search(body):
@@ -638,7 +688,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("signature-repeats-wear")
     if _needs_layer(anchors) and not LAYER_RE.search(brief["wear"]):
         codes.append("weather-layer")
-    if any(PERSON_OBJ_RE.search(x) and not re.search(r"\b(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b", x, re.I) for x in brief["inFrame"]):
+    if any(PERSON_OBJ_RE.search(x) and not PERSON_PHOTO_OK_RE.search(x.strip()) for x in brief["inFrame"]):
         codes.append("person-in-objects")
     # the two own objects are things from their life in this place: not clothing they wear, and not the signature item again
     worn = _tokens(brief["wear"]) | wear_words
@@ -930,14 +980,14 @@ async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmF
     return landed
 
 
-async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) -> dict:
+async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, anchors: Optional[dict] = None) -> dict:
     """The whole pipeline for a cast: anchors; the writer in `batches` sequential calls (each one sees what the earlier ones used); the per-brief checks after a deterministic
     repair; ONE editor pass for the offenders and the incomplete (a second object, a signature); the cast-wide 'one person only' rule for objects, signatures and places;
     the floor for the rest. Returns ``{briefs, floor, anchors, rejected, calls, rewritten, raw}`` (``briefs`` holds only accepted ones)."""
     cards = [c for c in (cards or []) if isinstance(c, dict) and c.get("id")]
     ids = _natural([str(c["id"]) for c in cards])
     by_id = {str(c["id"]): c for c in cards}
-    anchors = deal_anchors(cards, seed)
+    anchors = anchors if isinstance(anchors, dict) and all(str(i) in anchors for i in ids) else deal_anchors(cards, seed)
     ledger: list = []
     rejected: dict = {}
     raws: list = []
@@ -1246,10 +1296,21 @@ async def _roster_cards(user) -> list:
     return [h for h in ((pre or {}).get("house") or []) if isinstance(h, dict) and h.get("id")]
 
 
-async def apply_briefs(prompts: list, user, *, llm_fn: Optional[LlmFn] = None, cards: Optional[list] = None, seed=0) -> list:
+BRIEF_STEP_TIMEOUT_S = 45.0
+
+
+def season_seed(user, cards: list) -> str:
+    """The seed of this cast's deals: the user and the cast itself (ids and names), so two casts with the same role ids never get the same anchors and one cast always gets its own."""
+    key = "|".join(sorted(f"{c.get('id')}:{c.get('name')}" for c in cards if isinstance(c, dict)))
+    return hashlib.sha256(f"{user}|{key}".encode("utf-8")).hexdigest()[:16]
+
+
+async def apply_briefs(prompts: list, user, *, llm_fn: Optional[LlmFn] = None, cards: Optional[list] = None, seed=None, timeout_s: Optional[float] = None) -> list:
     """The engine's ``[{houseguestId, name, prompt}]`` with each person's clothes, setting, light and moment sentences replaced by their authored brief.
-    Briefs are authored once for the whole cast (when 3 or more people lack one) and cached per user; a single re-shoot reuses the cached brief. Never raises:
-    with no writer, a failed call or a failed check the engine's own prompt (the floor) stands."""
+    Briefs are authored once for the whole cast (when 3 or more people lack one) and cached per user together with the anchors they were written for; a single re-shoot
+    reuses both. Every changed entry also carries ``enginePrompt``, the engine's own prompt, which is what the staleness fingerprint is taken from.
+    The authoring step is bounded by an overall timeout (after which the engine's own prompt, the floor, stands). Never raises."""
+    import asyncio
     try:
         if not isinstance(prompts, list) or not prompts:
             return prompts
@@ -1257,6 +1318,9 @@ async def apply_briefs(prompts: list, user, *, llm_fn: Optional[LlmFn] = None, c
         ids = [str(e.get("houseguestId") or e.get("id")) for e in prompts if isinstance(e, dict)]
         card_list = cards if cards is not None else await _roster_cards(user)
         by_id = {str(c.get("id")): c for c in card_list if isinstance(c, dict)}
+        roster = list(by_id.values())
+        seed_val = seed if seed is not None else season_seed(user, roster)
+        deal = deal_anchors(roster, seed_val)                      # one deal over the whole roster: a lone re-shoot gets the same anchors as the cast deal
         fresh = [i for i in ids if i in by_id and (cache.get(i) or {}).get("sheet") != _sheet_key(by_id[i])]
         if len(fresh) >= MIN_CAST:
             fn = llm_fn
@@ -1265,18 +1329,24 @@ async def apply_briefs(prompts: list, user, *, llm_fn: Optional[LlmFn] = None, c
                 fn = await A.resolve_authoring_llm_fn(user, min_output_tokens=9000)
             if fn is not None:
                 cast = [by_id[i] for i in ids if i in by_id]
-                res = await author_briefs(cast, fn, seed=seed)
+                try:
+                    res = await asyncio.wait_for(author_briefs(cast, fn, seed=seed_val, anchors=deal), timeout=timeout_s or BRIEF_STEP_TIMEOUT_S)
+                except asyncio.TimeoutError:
+                    logger.info("[photo-brief] timed out: the engine's own prompts stand")
+                    res = {"briefs": {}}
                 for i, b in res["briefs"].items():
-                    cache[i] = {"sheet": _sheet_key(by_id[i]), "brief": b}
+                    cache[i] = {"sheet": _sheet_key(by_id[i]), "brief": b, "anchors": deal.get(i)}
                 _save_cache(user, cache)
-        anchors = deal_anchors([by_id[i] for i in ids if i in by_id], seed)
         out = []
         for e in prompts:
             i = str(e.get("houseguestId") or e.get("id")) if isinstance(e, dict) else ""
             c = cache.get(i) or {}
-            b = c.get("brief") if i in by_id and c.get("sheet") == _sheet_key(by_id[i]) else None
-            new = final_prompt(str(e.get("prompt") or ""), b, anchors.get(i), by_id.get(i)) if i in by_id else str(e.get("prompt") or "")
-            out.append({**e, "prompt": new} if new != e.get("prompt") else e)
+            ok = i in by_id and c.get("sheet") == _sheet_key(by_id[i])
+            b = c.get("brief") if ok else None
+            anc = (c.get("anchors") if ok and isinstance(c.get("anchors"), dict) else None) or deal.get(i)
+            raw = str(e.get("prompt") or "")
+            new = final_prompt(raw, b, anc, by_id.get(i)) if i in by_id else raw
+            out.append({**e, "prompt": new, "enginePrompt": raw} if new != raw else e)
         return out
     except Exception as e:  # failsoft-ok: best-effort-enrichment (the engine's own shot card stands)
         logger.info(f"[photo-brief] skipped: {type(e).__name__}")

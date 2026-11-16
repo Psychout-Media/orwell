@@ -261,6 +261,10 @@ describe("L29 — narration and portrait share ONE appearance source", () => {
     // ORW-480 (on purpose): the portrait line is now "skin, build" and the face is the dealt face card (seven concrete features, a feature the written face line names is kept as a pin), so the written face line is no longer sent verbatim.
     expect(pp.prompt).toContain([f.skinTone, f.heightBuild].join(", "));
     expect(pp.prompt).toContain("Face: ");
+    // the written face line still reaches the prompt: the face card pins a feature the line names (a content word of it appears in the Face sentence)
+    const faceSentence = /Face: [^.]*\./.exec(pp.prompt)?.[0]?.toLowerCase() ?? "";
+    const written = String(f.facialFeatures ?? "").toLowerCase().match(/[a-z]{4,}/g) ?? [];
+    expect(written.some((w) => faceSentence.includes(w))).toBe(true);
     expect(ctx).toContain(sharedLook);
   });
 

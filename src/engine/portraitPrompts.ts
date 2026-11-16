@@ -251,7 +251,7 @@ function momentSentence(onCamera: string, subj: string, plural: boolean, ownName
   return sentence(`${subj} ${be} photographed with ${lowerFirst(t)}`);
 }
 
-/** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident (the default, picked by Kevin), (C) a minimal candid photograph. */
+/** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident (the default, picked by the owner), (C) a minimal candid photograph. */
 export type RealismVariant = "press" | "documentary" | "minimal";
 
 const OPENER: Record<RealismVariant, string> = {
@@ -285,7 +285,7 @@ export function stripGlossWords(t: string): string {
  * the performance (expression, posture, hands, from their casting read, demeanor, voice energy) from the shot card; the face structure from
  * the face card; a line saying the person is ordinary and their grooming, hands, build and clothes fit their life; a minor mark inside the
  * face sentence (never a tooth gap, never twice). No name, no season anchor (still stored by the adapter, ignored here).
- * `variant` is the realism wording (documentary by default: Kevin picked it in the A/B of 2026-11-16). `plan` is the cast's deal; without it the person is dealt alone.
+ * `variant` is the realism wording (documentary by default: the owner picked it in the A/B of 2026-11-16). `plan` is the cast's deal; without it the person is dealt alone.
  */
 export function buildPortraitPrompt(
   houseguestId: string,

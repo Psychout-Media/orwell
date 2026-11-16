@@ -5,7 +5,7 @@
  *
  *   npx tsx scripts/orw480-three.ts <cards.json> npc:6 npc:3 npc:15
  *   npx tsx scripts/orw480-three.ts <cards.json> --ab npc:3        # realism A/B on ONE person: keys npc_3_a (press kit), npc_3_b (documentary), npc_3_c (minimal)
- *   npx tsx scripts/orw480-three.ts <cards.json> --all --json     # the floor prompts as JSON { id: { name, prompt } } (input of photobrief_probe.py)
+ *   npx tsx scripts/orw480-three.ts <cards.json> --all --json     # the floor prompts as JSON { id: { name, prompt } } (input of an offline brief probe)
  *   npx tsx scripts/orw480-three.ts <cards.json> --all            # every card of the file, in order (a full cast of 15)
  *
  * `<cards.json>`: a flat list of public cards (cards-s3.json, casts/live-*.json, casts/0008-*.json), or the older casts/*.json wrapper

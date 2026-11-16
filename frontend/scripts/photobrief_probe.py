@@ -9,12 +9,9 @@ What one run does:
   4. composes the final prompt of each person (the engine's prompt with its clothes, setting, light and moment sentences replaced by the brief);
   5. prints the prompts in the `--- npc_N (Name)` format on stdout, the briefs + anchors + rejections to --briefs FILE, and the model calls and cost to stderr.
 
-Isolation (the same sandbox as castprobe, imported from the file next to this one): the writer config is a one-time READ-ONLY copy of production settings and
-endpoints into a temp dir; a Python audit hook blocks every write, rename, delete, subprocess and every connect to the production engine port; image entry points
-raise. It starts NO engine (briefs need none) and makes NO image call. --dry uses a canned writer and no network at all.
+Offline only: --dry uses a canned writer and no network, makes no model call and starts no engine.
 
 Usage:
-  Put orwell_photo_brief.py (frontend/src/) next to this file when running against a production install that does not have it yet.
   python3 photobrief_probe.py --cards casts/0052-....json --floor floor-0052.json --ids npc:10,npc:15,npc:12 [--briefs briefs.json] [--out prompts.txt] [--seed 1]
   python3 photobrief_probe.py ... --dry --app <a checkout with frontend/src>   # offline, canned writer
 Exit: 0 ok, 2 error.
@@ -100,7 +97,7 @@ def parse_floor(path):
 
 
 def load_brief_module():
-    """The brief module: the copy next to this file when there is one (so the probe runs against a production install that does not have the new code), else the front end's own."""
+    """The brief module: the copy next to this file when there is one else the front end's own."""
     import importlib.util
     here = os.path.join(HERE, "orwell_photo_brief.py")
     if os.path.exists(here):
@@ -177,67 +174,7 @@ def main():
         emit(args, cards, floor, res, finals)
         log(f"[photobrief] DRY: canned writer, calls={res['calls']} accepted={len(res['briefs'])} floor={len(res['floor'])} rejected={json.dumps(res['rejected'])}")
         return 0
-    try:
-        sys.path.insert(0, HERE)
-        import castprobe as CP
-    except Exception as e:
-        sys.exit(f"photobrief_probe: castprobe.py must sit next to this file for the sandbox ({type(e).__name__}: {e}); use --dry offline")
-    CP.STATE.update(dry=False, max_calls=args.max_calls, max_usd=args.max_usd)
-    for var in ("ORWELL_ENGINE_MCP_URL", "BBAI_ENGINE_MCP_URL"):
-        m = re.search(r":(\d+)", os.environ.get(var, "") or "")
-        if m:
-            CP.STATE["prod_ports"].add(int(m.group(1)))
-    outs = {os.path.abspath(p) for p in (args.out, args.briefs) if p}
-    orig_under = CP._under_tmp
-    CP._under_tmp = lambda p: (isinstance(p, (str, os.PathLike)) and os.path.abspath(os.fspath(p)) in outs) or orig_under(p)
-    tmp = os.path.realpath(tempfile.mkdtemp(prefix="photobrief-", dir="/tmp"))
-    os.chmod(tmp, 0o700)
-    CP.STATE["tmp"] = tmp
-    sys.addaudithook(CP._audit)
-    code = 0
-    try:
-        for k in [k for k in os.environ if k.startswith("BBAI_")]:
-            os.environ.pop(k)
-        # no engine is started: these only let the front-end modules import (nothing connects to them)
-        os.environ["ORWELL_ENGINE_MCP_URL"] = "http://127.0.0.1:9"
-        os.environ["ORWELL_ENGINE_TOKEN"] = "probe-none"
-        os.environ["ORWELL_ENGINE_ADMIN_TOKEN"] = "probe-none"
-        ns = argparse.Namespace(dry=False, fe_data=args.fe_data, resolve_as=args.resolve_as)
-        fe_dir, prod_data, fe_tmp = CP.prepare_frontend(app, tmp, ns)
-        os.chdir(fe_tmp)
-        CP.patch_constants(fe_tmp)
-        import importlib
-        importlib.import_module("core.database")
-        CP.patch_after_import(fe_tmp, ns)
-        n = CP.copy_endpoints(prod_data, fe_tmp)
-        log(f"[photobrief] writer config: copied {n} model_endpoints row(s) read-only into the temp DB")
-        CP.block_images()
-        CP.install_meter()
-        from src import orwell_cast_authoring as A
-        owner = f"castprobe-{os.getpid()}-0"
-        llm_fn = asyncio.run(A.resolve_authoring_llm_fn(owner, min_output_tokens=9000))
-        if llm_fn is None:
-            raise RuntimeError("no writer resolved")
-        res, finals = asyncio.run(run(args, cards, floor, llm_fn))
-        emit(args, cards, floor, res, finals)
-        log(f"[photobrief] briefs accepted={len(res['briefs'])} (rewritten {res['rewritten']}) floor={len(res['floor'])} rejected={json.dumps(res['rejected'], sort_keys=True)}")
-        log(f"[photobrief] floor reasons: {json.dumps(res.get('floorReasons'), sort_keys=True)}; objects landed {res.get('objectsLanded')}; one object left on {res.get('oneObject')}; calmed {res.get('calmed')}; why no object: {json.dumps(res.get('objectsWhy'), sort_keys=True)}")
-    except Exception as e:
-        log(f"[photobrief] ERROR: {type(e).__name__}: {e}")
-        code = 2
-    finally:
-        calls = CP.STATE["calls"]
-        log(f"[photobrief] TOTAL calls={len(calls)} in_tokens={sum(c['in'] for c in calls)} out_tokens={sum(c['out'] for c in calls)} "
-            f"cost=${sum(c['cost'] for c in calls):.4f}{' (partly estimated from tokens)' if any(c['est'] for c in calls) else ''}")
-        log(f"[photobrief] sandbox: blocked write/network attempts = {len(CP.STATE['blocked'])}")
-        for b in CP.STATE["blocked"][:20]:
-            log(f"[photobrief]   blocked: {b}")
-        import shutil
-        os.chdir("/")
-        CP.STATE["cleaning"] = True
-        shutil.rmtree(tmp, ignore_errors=True)
-        CP.STATE["cleaning"] = False
-    return code
+    sys.exit("photobrief_probe: this checkout only runs offline (--dry, a canned writer). A real-writer run needs a sandboxed harness that is not part of this repository.")
 
 
 if __name__ == "__main__":

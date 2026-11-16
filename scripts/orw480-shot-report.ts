@@ -78,7 +78,7 @@ for (const min of [5, 3]) {
 log("NEW shared (>=3):"); for (const x of shared(newP, 3)) log(`  x${x.n}  ${x.s}`);
 log("OLD shared (>=5):"); for (const x of shared(oldP, 5)) log(`  x${x.n}  ${x.s.slice(0, 110)}`);
 
-// ---- sheet lines -> performance (the trace Kevin asked for) ------------------------------------------------------------------
+// ---- sheet lines -> performance (the trace the owner asked for) ------------------------------------------------------------------
 log("\n==== ONE WORD PER PERSON -> EXPRESSION + POSTURE + HANDS (match them blind) ====");
 for (const c of cards) {
   const sh = plans.get(c.id)!.shot;
@@ -99,7 +99,7 @@ for (let i = 0; i < cards.length; i++) for (let j = 0; j < i; j++) {
   if (union > 0 && inter.length / union >= 0.4) log(`${cards[j]!.id} ${cards[j]!.name} / ${cards[i]!.id} ${cards[i]!.name}: ${inter.join(", ")}`);
 }
 
-// ---- the checklist (Kevin, 2026-11-15): marked per prompt, printed at the top --------------------------------------------------
+// ---- the checklist (the owner, 2026-11-15): marked per prompt, printed at the top --------------------------------------------------
 const faces = dealFaceCards(cast.map((c) => castSheetOf(c)));
 const AX = ["shape", "jaw", "brows", "neck", "nose", "eyes", "mouth", "quirk"] as const;
 const caps = shotCaps(cards.length);
@@ -108,7 +108,7 @@ const placesAll = [...plans.values()].map((p) => p.shot.placeId), lightsAll = [.
 const rows: string[] = [];
 const placeKindsAll = [...plans.values()].map((p) => p.shot.placeKind);
 const CHECK = [
-  "R1 the documentary wording (Kevin's pick): a plain, honest portrait of a local resident, nothing retouched, an ordinary person not a model; no beautifying or gloss words (best, flattering, groomed, polished, hair and makeup done, well-kept, sharp)",
+  "R1 the documentary wording (the owner's pick): a plain, honest portrait of a local resident, nothing retouched, an ordinary person not a model; no beautifying or gloss words (best, flattering, groomed, polished, hair and makeup done, well-kept, sharp)",
   "R2 ONE portrait format for the whole cast: the identical framing, lens and angle on every card; nothing about framing is dealt (a sheet of 15 reads as one photographer's series)",
   "R3 personality at a glance: one trait word from the sheet; a full-strength expression, a posture and the hands from the sheet; closed half-smile on <= 3, >= 4 not smiling, no expression or posture on more than 2",
   "R4 a real photograph: real skin and hair, worn everyday clothes, the real place in normal focus, available light, nothing retouched",
@@ -154,9 +154,9 @@ for (const c of cards) {
   if (r.includes(false)) allOk = false;
   rows.push(`${c.id} ${c.name.padEnd(24)} ${r.map((x, i) => `R${i + 1}:${x ? "ok" : "NO"}`).join(" ")}  (${sh.trait}, ${sh.momentId.split("+")[0]}, ${sh.momentId.split("+")[1]}, ${sh.placeId}, ${sh.lightId}, face distance ${dist})`);
 }
-console.log("==== CHECKLIST (Kevin 2026-11-15) ====");
+console.log("==== CHECKLIST (the owner 2026-11-15) ====");
 for (const x of CHECK) console.log(x);
-console.log("\nMarked per prompt (automatic checks on the built prompt and its cards; R3 and R1's tone still need Kevin's eye on the photo):");
+console.log("\nMarked per prompt (automatic checks on the built prompt and its cards; R3 and R1's tone still need the owner's eye on the photo):");
 for (const x of rows) console.log(x);
 console.log("Card defects (R11 / R12 NO from the CARD itself: the text builder fixes these at the source):");
 for (const d of cardDefects) console.log("  " + d);

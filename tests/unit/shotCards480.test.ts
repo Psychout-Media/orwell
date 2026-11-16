@@ -312,7 +312,7 @@ describe("ORW-480 the prompts", () => {
       expect((p.prompt.match(/freckles/g) ?? []).length).toBeLessThanOrEqual(1);
       expect(p.prompt).not.toMatch(/\.\s+Light freckles/i);                   // a mark is a detail inside the face sentence, never a sentence of its own
     }
-    expect(buildCastPortraitPrompts(c, "x")).toEqual(variants[1]);                                  // documentary is the default (Kevin's pick of the A/B)
+    expect(buildCastPortraitPrompts(c, "x")).toEqual(variants[1]);                                  // documentary is the default (the owner's pick of the A/B)
     expect(variants[0]![0]!.prompt).toMatch(/^An unretouched photograph from a reality show's press kit, shot on location by a staff photographer with a full-frame camera/);
     expect(variants[0]![0]!.prompt).toMatch(/visible pores and uneven skin tone with a little shine, ordinary teeth, flyaway hairs/);
     expect(variants[1]![0]!.prompt).toMatch(/^A plain, honest portrait of a local resident by a newspaper documentary photographer/);

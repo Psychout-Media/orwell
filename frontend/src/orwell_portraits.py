@@ -468,7 +468,7 @@ def _consume_gen_detail() -> Optional[str]:
 
 
 # ORW-480: the dollar cost the provider returned for the image(s) and checks of the current task, summed, consumed by the
-# attempt logger (prod's portrait log recorded no cost). Per asyncio task like the reasons above; None when no call returned one.
+# attempt logger (the portrait log recorded no cost). Per asyncio task like the reasons above; None when no call returned one.
 _TASK_COST: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
 _LAST_COST: Optional[float] = None
 
@@ -512,8 +512,8 @@ def _note_gen_provider(model_id: str, route: str) -> None:
 
 def _peek_gen_provider() -> Optional[dict]:
     t = _gen_task()
-    if t is not None and t in _TASK_PROVIDER:
-        return _TASK_PROVIDER[t]
+    if t is not None:
+        return _TASK_PROVIDER.get(t)          # inside a task only this task's own provider counts: another task's is never borrowed
     return _LAST_PROVIDER
 
 
@@ -1134,10 +1134,14 @@ async def _generate_via_images_edit(client, base_url: str, model_id: str, prompt
             return None
         body = resp.json()
         imgs = body.get("data", []) if isinstance(body, dict) else []
+        _note_gen_cost(_usage_cost(body))
         if imgs and imgs[0].get("b64_json"):
+            _note_gen_provider(model_id, "images-edit")
             return base64.b64decode(imgs[0]["b64_json"])
         if imgs and imgs[0].get("url"):
             ir = await client.get(imgs[0]["url"])
+            if ir.status_code == 200:
+                _note_gen_provider(model_id, "images-edit")
             return ir.content if ir.status_code == 200 else None
         _note_gen_error("empty-response")
         return None
@@ -1706,7 +1710,7 @@ def _prompt_fingerprint(prompt: Optional[str]) -> Optional[str]:
 # Only a portrait actually shot with the new prompt records PORTRAIT_PROMPT_VERSION (new seasons,
 # missing faces, a forced single re-shoot). A background upgrader (ORW-369) walks `stale_portrait_ids`
 # and re-shoots one houseguest at a time through `generate_and_store(..., force_ids=[id])`.
-PORTRAIT_PROMPT_VERSION = 4  # ORW-480: v4 = the shot card and face card wording (v3 = ORW-380)
+PORTRAIT_PROMPT_VERSION = 3  # ORW-380. ORW-480 (shot cards, v4) is NOT a version bump here: a bump re-shoots every live season; the owner decides when
 
 # ORW-380: prepended to the prompt of a forced upgrade re-shoot (the ORW-369 upgrader) that carries the current
 # portrait as the reference image: it keeps the person and lets the new brief change everything else.
@@ -1737,6 +1741,18 @@ def _safe_int(v, default: int = 0, floor: int = 0) -> int:
     elif not isinstance(v, int):
         return default
     return v if v >= floor else default
+
+
+# ORW-480: the shot-card wording changes every engine prompt, so a face shot before it carries a fingerprint that is not comparable with today's prompt. The version above is NOT bumped
+# (a bump lists every live face for the upgrader); instead only a face shot with this wording records it, and the fingerprint sweeps leave the others alone.
+PORTRAIT_WORDING = 4
+
+
+def _fingerprint_not_comparable(entry) -> bool:
+    """True when a stored face was shot under an older prompt wording or version: its fingerprint is never a re-shoot trigger."""
+    if _entry_version_stale(entry):
+        return True
+    return isinstance(entry, dict) and entry.get("source") != "upload" and bool(entry.get("fingerprint")) and _safe_int(entry.get("promptWording", 0), 0) < PORTRAIT_WORDING
 
 
 def _entry_version_stale(entry) -> bool:
@@ -1890,6 +1906,7 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
         entry["fingerprint"] = fingerprint
     if source != "upload":  # ORW-437: a literal upload was made by no prompt, so it carries no prompt version
         entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
+        entry["promptWording"] = PORTRAIT_WORDING
     if source == "reference" and ref_clean:
         entry["refClean"] = True
     if cast_look_reshot:  # ORW-480: this photo was re-shot once by the cast-level look; it is never sent back again
@@ -2383,11 +2400,11 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             # legacy entry with no stored fingerprint backfills (no re-shoot) ⇒ not counted.
             stored = load_manifest(user).get(_safe_id(str(hid)))
             stored_fp = stored.get("fingerprint") if isinstance(stored, dict) else None
-            cur_fp = _prompt_fingerprint(str(entry.get("prompt")))
+            cur_fp = _prompt_fingerprint(str(entry.get("enginePrompt") or entry.get("prompt")))
             if _sid_forced(hid, stored):
                 to_generate += 1
             elif (stored_fp and cur_fp and stored_fp != cur_fp
-                    and not _entry_version_stale(stored)):
+                    and not _fingerprint_not_comparable(stored)):
                 to_generate += 1
     if to_generate and not silent:
         _progress_start(user, to_generate)
@@ -2430,7 +2447,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             return
 
         # The current facet's fingerprint (a stable hash of the engine's deterministic prompt).
-        fp = _prompt_fingerprint(str(prompt))
+        fp = _prompt_fingerprint(str(entry.get("enginePrompt") or prompt))   # ORW-480: the engine's own prompt (what the staleness sweeps compare), never the briefed one
 
         # #998: an overlapping run already CLAIMED this id and is mid-generation (claimed but not
         # yet written to disk, so the on-disk check below would not catch it) — skip, let that run
@@ -2455,7 +2472,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 # ORW-361: an explicit single re-shoot (the upgrader). Falls through to regenerate;
                 # the file is replaced only after the new image succeeds, stamped with the new version.
                 reshoot_ids.add(_safe_id(str(hid)))
-            elif _entry_version_stale(stored):
+            elif _fingerprint_not_comparable(stored):
                 # ORW-361: shot under an older prompt wording — its fingerprint is not comparable.
                 # Leave it alone: no re-shoot, no fingerprint or version change (v1 recorded explicitly).
                 _stamp_version_one(user, _safe_id(str(hid)))
@@ -2472,6 +2489,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                     # facet change re-shoots. The image bytes are untouched (generate-once preserved).
                     async with manifest_lock:
                         stored["fingerprint"] = fp
+                        stored["promptWording"] = PORTRAIT_WORDING        # the fingerprint is of today's wording: comparable from now on
                         manifest = load_manifest(user)
                         manifest[_safe_id(str(hid))] = stored
                         _save_manifest(user, manifest)
@@ -2831,7 +2849,7 @@ async def cast_look_pass(prompts: list, user: Optional[str]) -> dict:
                     continue
                 meta = {"ok": True if second is None else second["ok"], "problems": [] if second is None else second["problems"], "reshot": True}
                 _write_portrait(user, hid, png2, str((stored or {}).get("name") or entry.get("name") or ""), source="generated",
-                                fingerprint=_prompt_fingerprint(prompt), check=meta, cast_look_reshot=True, provider=_peek_gen_provider())
+                                fingerprint=_prompt_fingerprint(str(entry.get("enginePrompt") or prompt)), check=meta, cast_look_reshot=True, provider=_peek_gen_provider())
                 log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check=meta, cost=_consume_gen_cost(), provider=_peek_gen_provider())
                 out["reshotIds"].append(hid)
             finally:
@@ -3130,7 +3148,7 @@ def kickoff_authored_reshoot(hid, user: Optional[str]) -> bool:
                 except Exception:  # failsoft-ok: handled-by-terminal (orwell_engine._call already recorded record_io(ok=False) RED; this is only a staleness probe — None skips the discard optimization, backfill_missing below re-fetches)
                     p = None
                 cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
-                if cur_fp and _entry_version_stale(entry):
+                if cur_fp and _fingerprint_not_comparable(entry):
                     pass  # ORW-361: older prompt wording, never a fingerprint re-shoot (ORW-369 upgrades it)
                 elif cur_fp and entry.get("fingerprint") != cur_fp:
                     logger.info("[portraits] ADR 0013: %s's stored face predates its authored "
@@ -3603,7 +3621,7 @@ async def _heal_stale_authored_faces(user: Optional[str], cards: list) -> int:
                 engine_ok = False  # engine trouble — verify nothing this sweep, try again next
                 break
             cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
-            if cur_fp and _entry_version_stale(manifest_now.get(_safe_id(str(hid)))):
+            if cur_fp and _fingerprint_not_comparable(manifest_now.get(_safe_id(str(hid)))):
                 continue  # ORW-361: older prompt wording, never a fingerprint re-shoot
             if cur_fp and cur_fp != stored_fp:
                 fp_stale.append(hid)
