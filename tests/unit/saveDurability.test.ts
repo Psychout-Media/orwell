@@ -36,9 +36,12 @@ vi.mock("node:fs", async (importOriginal) => {
       calls.push(`open:${String(args[0])}`);
       return real.openSync(...args);
     },
+    // ORW-519: RECORD the fsync and do not pay it. These tests pin the ORDER of the store's fs calls, never real durability (the round-trip
+    // reads back through the page cache). Paying the real fsync made the file's runtime the disk's: the checkpoint test makes 50 sync-mode
+    // saves (about 52 blocking fsyncs), and on a loaded runner a single fsync took ~4 s (SLOW step=save.fsync ms=4050), past the 30 s test timeout.
     fsyncSync: (fd: number) => {
       calls.push("fsync");
-      return real.fsyncSync(fd);
+      real.fstatSync(fd); // still fails loudly on a bad descriptor, the way a real fsync would
     },
     renameSync: (...args: Parameters<typeof real.renameSync>) => {
       calls.push(`rename:${String(args[1])}`);
