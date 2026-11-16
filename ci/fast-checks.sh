@@ -5,7 +5,7 @@
 #
 # What is in it (all pure source checks, no browser, no game simulation). The guard tests and word scans (2 to 4) also run again in their full lanes; the typecheck (1), the
 # py_compile and the ES-module syntax check (5) were MOVED here from the slower lanes and run only here (`ci-gate` requires this job):
-#   0. every workflow and composite-action file parses as YAML (ORW-413: a colon in a step name made ci.yml unparseable and the PR got no checks)
+#   0. no internal address / host name / real /home path in a tracked file (ORW-426: the repository is public); every workflow and composite-action file parses as YAML (ORW-413: a colon in a step name made ci.yml unparseable and the PR got no checks)
 #   1. typecheck (tsc --noEmit)
 #   2. the engine guard tests: the CI wiring pins (gate logic, path filter, shard tables, flaky rule), the Vault-Wall dependency test, the
 #      BDD word-scan helpers and the player-projection ratchet
@@ -30,6 +30,9 @@ run node -e '
 const Y = require("yaml"); const fs = require("fs"); let bad = 0;
 for (const f of process.argv.slice(1)) { try { Y.parse(fs.readFileSync(f, "utf8"), { strict: true }); if (Y.parseDocument(fs.readFileSync(f, "utf8")).errors.length) throw new Error("yaml errors"); } catch (e) { console.error("::error file=" + f + "::" + String(e.message).split("\n")[0]); bad = 1; } }
 process.exit(bad);' $(git ls-files '.github/workflows/*.yml' '.github/actions/*/action.yml')
+
+step "no internal address, host name or real user's home path in a tracked file (the repository is public, ORW-426)"
+run python3 ci/check_no_internal_details.py
 
 step "typecheck"
 run npx tsc --noEmit

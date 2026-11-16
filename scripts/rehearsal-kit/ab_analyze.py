@@ -17,7 +17,7 @@ c.pop("wrapper", None)
 other_guards = {"scene circuit-breaker cuts": sum(1 for l in fe if "circuit-breaker HELD" in l), "sentence-guard drops/corrections": sum(1 for l in fe if "pre-emission" in l.lower() or "phantom board" in l.lower() and "circuit" not in l),
                 "interlude": sum(1 for l in fe if "technical interlude" in l), "host cooled": sum(1 for l in fe if "host cooled" in l)}
 import os
-WT = os.environ.get("WT", "/home/ryne/orwell-rehearsal")  # the slot's worktree (slot 1 by default)
+WT = os.environ.get("WT") or os.path.join(os.environ.get("ORWELL_RIG_HOME") or os.path.expanduser("~"), "orwell-rehearsal")  # the slot's worktree (slot 1 by default)
 db = sqlite3.connect(f"file:{WT}/frontend/data/app.db?mode=ro", uri=True)
 msgs = [r[0] or "" for r in db.execute("select content from chat_messages where role='assistant'")]
 LEAK = re.compile(r"(?i)</?think|\bnpc:\d|\bas an ai\b|\bi (?:cannot|can't) (?:help|comply)|\badvanceGame\b|\bgetGameState\b|\bBOARD\b|engine-committed|\bsystem prompt\b|\btool[_ ]call\b|\"toolCalls\"|^\s*\{\s*\"")
