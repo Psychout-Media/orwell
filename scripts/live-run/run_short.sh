@@ -41,6 +41,7 @@ P
 curl -s --max-time 10 -H "x-orwell-token: rehlocal" "$RIG_ENGINE_URL/health" > "$RUN/health.json" 2>/dev/null || true
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>&1 & echo $! > "$RUN/spend.pid"
 CROSS=(); [ "${RIG_CROSSOVER:-}" = 1 ] && CROSS=(--crossover)   # only the exact value 1 (RIG_CROSSOVER=0 must not turn it on)
+[ "${RIG_EVICTION:-}" = 1 ] && [ "${RIG_CROSSOVER:-}" != 1 ] && CROSS=(--eviction)   # ORW-506: RIG_EVICTION=1 forces eviction night and plays it (the exact value 1; not with RIG_CROSSOVER=1); the run stays under the same RIG_SPEND_CAP guard
 "$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" ${CROSS[@]+"${CROSS[@]}"} > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
 wait "$(cat "$RUN/driver.pid")"; RC=$?
 kill "$(cat "$RUN/spend.pid")" 2>/dev/null
