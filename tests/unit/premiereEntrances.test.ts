@@ -201,7 +201,7 @@ describe("ORW-205 entrance headcount", () => {
     pe.arrived = pe.order.length - 1; // every NPC is inside, the player is not
     expect(sb.session.premiereIntros()!.complete).toBe(false);
     expect(sb.session.premiereIntros()!.powerReachable).toBe(false);
-    pe.arrived = pe.order.length;
+    sb.session.advanceGame(); // the player's own entrance: the engine's real step, not a forced counter
     expect(sb.session.premiereIntros()!.complete).toBe(true);
   });
   it("insideCount/playerInside/headcount track the arrivals and say whether the player is counted", () => {
