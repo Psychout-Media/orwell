@@ -623,7 +623,8 @@ def parse_stated_wait(player_msg) -> tuple:
     if not m:
         return (None, False)
     span = m.group(0).lower()
-    if _REST_OF_BAND_RE.search(span):
+    # Review of #2772: the match span ends at "until"/"till", so "hang out until the rest of the afternoon" lost its band; test the message from the intent on.
+    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(str(player_msg)[m.start():]):
         return (None, True)
     d = _STATED_DURATION_RE.search(span)
     if not d:
@@ -1259,6 +1260,12 @@ def _is_house_search(msg) -> bool:
     return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_FIND_RE.search(text))
 
 
+# Given names that are also everyday words or months (same list as src/engine/diversity.ts COMMON_WORD_NAMES): only the capitalised form is the name.
+_COMMON_WORD_FIRST_NAMES = frozenset((
+    "may will grace hope summer faith mark art rose june april august dawn joy ivy pearl amber frank lane chase cliff drew gene guy hunter miles "
+    "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
+
+
 def _search_target(player_msg, game_state) -> Optional[str]:
     """ORW-462: the houseguest the player's message names, from the ACTIVE roster, so the engine search can ALWAYS resolve that one person. Full names first (the earliest in the message);
     then CAPITALISED first names only (case-sensitive, word-bounded, more than two letters), the earliest by position in the message. A first name shared by two active houseguests, with no
@@ -1286,7 +1293,9 @@ def _search_target(player_msg, game_state) -> Optional[str]:
         first = full.split()[0]
         if len(first) <= 2:
             continue
-        m = re.search(r"\b" + re.escape(first) + r"\b", msg)  # case-sensitive: "will" the verb is not Will
+        # Ordinary first names match in any case ("where is miguel?"); a first name that is also an everyday word ("will", "may", "mark") only as written with a capital ("will you check" is not Will).
+        flags = 0 if first.lower() in _COMMON_WORD_FIRST_NAMES else re.IGNORECASE
+        m = re.search(r"\b" + re.escape(first) + r"\b", msg, flags)
         if m:
             firsts.append((m.start(), first))
     if not firsts:
@@ -7813,12 +7822,16 @@ def current_game_day(user) -> Optional[int]:
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
+_STAMP_REFRESH_TIMEOUT = 2.0  # seconds: the persist-time stamp refresh is best-effort and must stay short
+
+
 async def refresh_framed_game_stamps(user) -> None:
     """ORW-445: re-stamp the bubble's moment/week/day from a state read AFTER the turn's tools ran (persist time). The framing stash is read at the START of the turn, so a
     tool that moves the clock (a nap 11am -> 2pm) left the header one band behind. Fail-soft: any hiccup / pre-game / non-started read keeps the start-of-turn stamp, never blocks the save."""
     try:
         from src import orwell_engine
-        gs = await orwell_engine.get_game_state(user=user)
+        # Review of #2772: bounded, so a stalled engine read can never hold the save for the full framing timeout (the start-of-turn stamp stands).
+        gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
         if not isinstance(gs, dict) or not gs.get("started"):
             return
         key = user or "default"

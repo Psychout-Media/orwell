@@ -91,13 +91,19 @@ def test_a_ceremony_step_card_continues_to_the_next_step_and_the_total_can_grow(
 def test_a_status_read_that_lands_late_and_agrees_keeps_the_card_and_one_that_disagrees_drops_it(fe):
     """ORW-298 by design: the watch card follows the engine. A status answer that lands AFTER the card mounted (slow runner) and still shows the same step changes nothing; one that
     shows no pending removes the card. The first half is what the continue test above depends on; the second pins why its old `{}` stub raced."""
-    import time
     sync_api = pytest.importorskip("playwright.sync_api")
-    engine = {"pending": _step(2, 3, "The host reads the veto result aloud."), "delay": 0.0}
+    engine = {"pending": _step(2, 3, "The host reads the veto result aloud."), "hold": False}
+    held = []
+
+    def answer(route):
+        route.fulfill(**_j({"pending": engine["pending"]} if engine["pending"] else {}))
 
     def status(route):
-        time.sleep(engine["delay"])   # a slow runner: the answer lands well after the card is on screen
-        route.fulfill(**_j({"pending": engine["pending"]} if engine["pending"] else {}))
+        # a slow runner: while `hold` is set the request is parked (not answered) and the TEST releases it later. No sleep in the route callback, which would block the synchronous dispatcher (review of #2800).
+        if engine["hold"]:
+            held.append(route)
+            return
+        answer(route)
 
     with sync_api.sync_playwright() as p:
         browser = p.chromium.launch()
@@ -109,11 +115,20 @@ def test_a_status_read_that_lands_late_and_agrees_keeps_the_card_and_one_that_di
             page.route("**/api/orwell/whereabouts", lambda r: r.fulfill(**_j({"whereabouts": {"room": "kitchen", "present": []}})))
             page.goto(fe, wait_until="domcontentloaded")
             page.wait_for_selector("#chat-history", timeout=15000)
-            engine["delay"] = 1.0
+            engine["hold"] = True
             page.evaluate("(p) => window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: p } }))", engine["pending"])
             page.wait_for_selector(".odec-watch", timeout=10000)
-            page.evaluate("window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")   # a status read starts now and lands about a second later
-            frames(page, 180)   # the late answer (1 s) has landed: an absence check, so a bounded window of the page's own frames, not a sleep
+            page.evaluate("window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")   # a status read starts now and is held until the test answers it
+            for _ in range(50):
+                if held:
+                    break
+                page.wait_for_timeout(100)
+            assert held, "the status read must reach the route"
+            for r in held:
+                answer(r)     # the late answer lands now, long after the card is on screen
+            held.clear()
+            engine["hold"] = False
+            frames(page, 180)   # an absence check, so a bounded window of the page's own frames, not a sleep
             assert page.evaluate("document.querySelectorAll('.odec-watch').length") == 1, "a late status that agrees must keep the card"
             engine["pending"] = None
             page.evaluate("window.dispatchEvent(new CustomEvent('orwell:gamechanged'))")

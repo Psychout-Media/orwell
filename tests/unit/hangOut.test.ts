@@ -115,6 +115,12 @@ describe("runHangOut", () => {
     expect((hour - start) * 60).toBeCloseTo(0.5, 6);
     expect(probes.eventDue()).toBe(false);
   });
+  it("review of #2772: an explicit maxBeats still caps a stated wait; an omitted one scales to the target", () => {
+    expect(runHangOut(world().probes, rng(), { maxMinutes: 180, maxBeats: 3 }).beats).toBe(3);
+    const scaled = runHangOut(world().probes, rng(), { maxMinutes: 180 });
+    expect(scaled).toMatchObject({ stopReason: "max-beats", minutes: 180 }); // an omitted cap lets the wait reach its target
+    expect(runHangOut(world().probes, rng(), { maxMinutes: 20, maxBeats: 8 }).beats).toBeLessThanOrEqual(2); // the target still bounds the beats
+  });
   it("float residue after real beats stops event-due with the minutes already spent", () => {
     let calls = 0;
     const w = world({ eventDue: () => false, hoursUntilEvent: () => (calls++ === 0 ? 5 : 1e-9) });

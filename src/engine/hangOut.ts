@@ -53,8 +53,10 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
   // ORW-445: a player-stated target. Absent/invalid => the original behaviour, byte-identical (same rng draws, same cap).
   const target = typeof opts.maxMinutes === "number" && Number.isFinite(opts.maxMinutes) && opts.maxMinutes > 0 ? Math.min(HANGOUT.maxStatedMinutes, opts.maxMinutes) : null;
   // A target needs room to be reached with the shortest beats (15 min): the beat count scales to it, never past the 3 h cap.
+  // Review of #2772: an explicitly supplied `maxBeats` still caps a stated wait; only an OMITTED cap scales to the target.
+  const stated = typeof opts.maxBeats === "number" && Number.isFinite(opts.maxBeats) ? Math.max(1, Math.floor(opts.maxBeats)) : null;
   const cap = target !== null
-    ? Math.max(1, Math.ceil(target / HANGOUT.beatMinutesBase))
+    ? Math.max(1, stated !== null ? Math.min(stated, Math.ceil(target / HANGOUT.beatMinutesBase)) : Math.ceil(target / HANGOUT.beatMinutesBase))
     : Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(opts.maxBeats ?? HANGOUT.maxBeats)));
   if (p.eventDue()) return { stopReason: "event-due", beats: 0, minutes: 0 };
   if (p.bedtime()) return { stopReason: "bedtime", beats: 0, minutes: 0 };
