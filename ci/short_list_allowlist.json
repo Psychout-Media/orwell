@@ -2473,6 +2473,15 @@
    "transitional": "PR 2843 (replaced by composed floors)"
   },
   {
+   "path": "src/engine/houseLeans.ts",
+   "kind": "list",
+   "name": "LEAN_IDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: the engine's culture lean keys, drawn by a seeded side stream; never shown to the player or a model (the retrospective gets texture words only)",
+   "decision": "mechanics: an internal key set the seeded draw picks 2-3 of and blends; not player text"
+  },
+  {
    "path": "src/engine/houseLife.ts",
    "kind": "list",
    "name": "inline",
