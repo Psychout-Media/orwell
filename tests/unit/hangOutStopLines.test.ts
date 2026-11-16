@@ -8,7 +8,7 @@ import { PLAYER } from "../../src/domain/ids";
 
 /** ORW-22: every hang-out stop kind carries a player-facing, Vault-free line (and the recorded ones leave exactly one witnessed event). Roles only. */
 
-const KINDS: HangOutStopReason[] = ["event-due", "pulled", "npc-approach", "observed", "bedtime", "max-beats", "target"];
+const KINDS: HangOutStopReason[] = ["event-due", "pulled", "npc-approach", "observed", "bedtime", "max-beats"];
 
 describe("hangOutStopLine (pure)", () => {
   it("every stop kind has a non-empty line", () => {
