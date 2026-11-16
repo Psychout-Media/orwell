@@ -988,14 +988,15 @@
   // + a getBoundingClientRect and a canvas read per visible bubble + style writes (which wake the gadget-rail observer). So a scroll burst is debounced to ONE pass after it goes idle
   // (SCROLL_IDLE_MS), with a max wait (SCROLL_MAX_WAIT_MS) so ink still catches up during a long continuous scroll. Resize/theme/backdrop stay on the immediate fullSchedule.
   var SCROLL_IDLE_MS = 250, SCROLL_MAX_WAIT_MS = 1200;
-  var _scrollT = 0, _scrollFirst = 0;
+  var _scrollT = 0, _scrollFirst = 0, _scrollPending = false;
   function scrollSchedule() {
-    _markAllDirty();   // cheap flag; the heavy pass waits for the burst to settle
+    // ORW-481 (review 4539202348): a separate flag, merged into _allDirty only when the scroll timer fires - setting _allDirty here let a chat-mutation schedule() (120ms) consume the full flag before the scroll wait expired.
+    _scrollPending = true;
     var now = Date.now();
     if (!_scrollFirst) _scrollFirst = now;
     if (_scrollT) clearTimeout(_scrollT);
     var wait = Math.max(0, Math.min(SCROLL_IDLE_MS, SCROLL_MAX_WAIT_MS - (now - _scrollFirst)));
-    _scrollT = setTimeout(function () { _scrollT = 0; _scrollFirst = 0; schedule(); }, wait);
+    _scrollT = setTimeout(function () { _scrollT = 0; _scrollFirst = 0; if (_scrollPending) { _scrollPending = false; _markAllDirty(); } schedule(); }, wait);
   }
 
   function init() {

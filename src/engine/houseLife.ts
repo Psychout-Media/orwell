@@ -344,7 +344,8 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     // ORW-466 slice 4: a night owl's bed talk is with their roommates, in their own bedroom; a napper naps in their own bed.
     const ownBed = v.bedroom && (k === "bed-talk" || k === "nap") ? v.bedroom : undefined;
     const spot = ownBed ?? ACTIONS[k].place;
-    const company = ownBed ? (k === "nap" ? [] : (v.roommates ?? []).filter((p) => pool.includes(p) && !avoid.has(p))) : spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
+    // (review of #2850) company is whoever is already in that room - only the actor moves, so a roommate elsewhere is never pulled in
+    const company = ownBed ? (k === "nap" ? [] : (v.roommates ?? []).filter((p) => pool.includes(p) && roomOf(v, p) === ownBed && !avoid.has(p))) : spot ? pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p)) : here;
     const max = ACTIONS[k].partners.max;
     return finish({ kind: k, with: company.slice(0, max), ...(spot ? { place: spot } : {}) });
   }
@@ -355,7 +356,8 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   // ORW-466 slice 4 (roommate life): at night the house drifts back to the bedrooms. A free houseguest with an awake roommate often ends the day with them in their own room, their double-bed
   // partner most of all: late-night bed talk, or a squabble when the two rub each other wrong (the same friction rule as anywhere). Who sleeps where was the houseguest's own choice on move-in day.
   if (v.bedroom && (v.timeOfDay === "night" || v.timeOfDay === "late-night")) {
-    const roomies = (v.roommates ?? []).filter((p) => pool.includes(p) && !avoid.has(p));
+    // review of #2850: only roommates already in the bedroom (only the actor moves this hour; one place at a time)
+    const roomies = (v.roommates ?? []).filter((p) => pool.includes(p) && roomOf(v, p) === v.bedroom && !avoid.has(p));
     if (roomies.length > 0 && roll("roommate") < HOUSE_LIFE.roommateNightPull) {
       const mate = v.bedPartner && roomies.includes(v.bedPartner) && roll("bedmate") < HOUSE_LIFE.bedPartnerPull
         ? v.bedPartner

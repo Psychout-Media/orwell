@@ -44,5 +44,5 @@
     return hit.p.then(function (r) { return r.clone(); });
   };
   window.__orwellReadCoalesce = { clear: clear, ttlMs: TTL_MS };
-  window.addEventListener("orwell:gamechanged", clear);
+  window.addEventListener("orwell:gamechanged", clear, true);
 })();
