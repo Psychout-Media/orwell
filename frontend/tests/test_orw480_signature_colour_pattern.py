@@ -122,3 +122,14 @@ def test_the_rewrite_carries_the_signature_with_the_wardrobe():
 def test_a_writer_that_leaves_the_signature_out_still_ships_the_clothes_it_fixed():
     pc = _run(None, {"physicalCharacteristics": {"wardrobe": ["mustard corduroy overshirt", "faded black jeans"]}})
     assert pc["wardrobe"][0].startswith("mustard") and "lookSignature" not in pc
+
+
+def test_a_face_mark_word_in_the_oncamera_or_face_line_of_a_card_not_dealt_it_is_dropped():
+    phys = {"distinguishingMark": "wire-rimmed glasses", "facialFeatures": "round face, deep dimples",
+            "onCamera": "Hands folded at the waist, eyes up and off past the lens, dimples creasing as she bites back a grin. The one who waits."}
+    prof = {"physicalCharacteristics": dict(phys)}
+    assert G._drop_foreign_mark_words(prof, {"id": "npc:1"})
+    assert "dimple" not in prof["physicalCharacteristics"]["onCamera"] and "dimple" not in prof["physicalCharacteristics"]["facialFeatures"]
+    assert prof["physicalCharacteristics"]["onCamera"].startswith("Hands folded")
+    own = {"physicalCharacteristics": {**phys, "distinguishingMark": "deep dimples"}}
+    assert not G._drop_foreign_mark_words(own, {"id": "npc:1"})

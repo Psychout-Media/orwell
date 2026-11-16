@@ -103,6 +103,8 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
         done.append("mark-duplicated")
     if _drop_name_from_oncamera(profile, npc):
         done.append("oncamera-name")
+    if _drop_foreign_mark_words(profile, npc):
+        done.append("mark-words-elsewhere")
     return done
 
 
@@ -155,6 +157,35 @@ def _dealt_mark(profile: dict, npc: dict) -> bool:
         return False
     phys["distinguishingMark"] = dealt
     return True
+
+
+_FACE_MARK_WORDS = re.compile(r"\b(?:dimples?|dimpled|freckles?|freckled|beauty marks?)\b", re.I)
+
+
+def _drop_foreign_mark_words(profile: dict, npc: dict) -> bool:
+    """A face mark (dimples, freckles, a beauty mark) is the dealt mark's alone: the writer's habit of putting "dimples creasing" into
+    the on-camera or face line of a card that was not dealt them made the same face on several cards. The clause that names it is
+    dropped from onCamera and facialFeatures unless the dealt mark carries that word; nothing is dropped when it would empty the line."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(phys, dict):
+        return False
+    mark = str(phys.get("distinguishingMark") or ((npc or {}).get("physicalCharacteristics") or {}).get("distinguishingMark") or "")
+    allowed = {re.sub(r"(?:s|ed)$", "", w.lower()) for w in _FACE_MARK_WORDS.findall(mark)}
+    changed = False
+    for field in ("onCamera", "facialFeatures"):
+        text = phys.get(field)
+        if not isinstance(text, str) or not _FACE_MARK_WORDS.search(text):
+            continue
+        clauses = re.split(r"(?<=[,;.!?])\s+|\s+[\u2014\u2013-]\s+", text)
+        kept = [c for c in clauses if not any(re.sub(r"(?:s|ed)$", "", w.lower()) not in allowed for w in _FACE_MARK_WORDS.findall(c))]
+        if not kept or len(kept) == len(clauses):
+            continue
+        out = " ".join(kept).strip().rstrip(",;")
+        if field == "onCamera" and not re.search(r"[.!?]$", out):
+            out += "."
+        phys[field] = out
+        changed = True
+    return changed
 
 
 def _dedupe_mark(profile: dict, npc: dict) -> bool:
