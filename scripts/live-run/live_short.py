@@ -60,15 +60,14 @@ BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el =>
 
 
 def slot_default(run_dir, key, fallback):
-    """The rig URL for a run: an inherited environment value wins, else the run's own slot.env (a staged slot-2 run), else the slot-1 default."""
-    if os.environ.get(key): return os.environ[key]
+    """The rig URL for a run: the run's own slot.env wins (a staged slot-2 run), else an inherited environment value, else the slot-1 default."""
     try:
         import shlex
         for ln in open(os.path.join(run_dir, "slot.env")):
             k, _, v = ln.strip().partition("=")
-            if k == key and v: return shlex.split(v)[0]
+            if k == key and v: return shlex.split(v)[0]   # the run's own slot.env wins over a stale inherited variable
     except OSError: pass
-    return fallback
+    return os.environ.get(key) or fallback
 
 
 class Engine:
@@ -350,7 +349,7 @@ def draw_voiced(text):
 def eviction_voiced(text):
     """The reply plays eviction-night steps (ballots read, a vote tally, the evictee's exit): the evidence the K1 ceremony allowance needs beyond the phase name (ORW-506)."""
     t = text or ""
-    return bool(re.search(r"(?i)\bvotes?\b|ballots?|\bevict", t) and re.search(r"(?i)\bvote[sd]?\b|ballots?|tally|goodbye|walks? out|leaves the house|by a vote|evicted", t))
+    return bool(re.search(r"(?i)\bvotes?\b|ballots?|\bevict", t) and re.search(r"(?i)ballots?|tally|goodbye|walks? out|leaves the house|by a vote|evicted", t))
 
 
 def abs_hours(label):
@@ -391,7 +390,7 @@ def score(turns, checks, check, turn_limit):
             nh = int(cm.group(1)) + int(cm.group(2)) / 60
             pm_word = re.search(re.escape(cm.group(0)) + r"\s+(?:at night|in the (?:evening|afternoon)|tonight)", body, flags=re.I)  # "8:10 at night" is 8:10pm
             if pm_word:   # the reply's own words decide: "8:10 at night" is 20:10, and "12:10 at night" is just after midnight
-                nh = nh % 12 + (0 if (int(cm.group(1)) == 12 and re.search(r"at night", pm_word.group(0), flags=re.I)) else 12)
+                nh = nh % 12 + (0 if (int(cm.group(1)) == 12 and re.search(r"at night|tonight", pm_word.group(0), flags=re.I)) else 12)
             elif nh < 8 and eh >= 12: nh += 12
             d_ = abs(nh - eh); d_ = min(d_, 24 - d_)
             check(f"C3-clock-claim[{lab}]", d_ <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")

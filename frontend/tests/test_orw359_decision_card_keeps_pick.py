@@ -3,7 +3,7 @@
 The same pending reaches the card from several seams (the chat tool-output seam, the surface-the-pending belt, a socket state frame, the backstop poll), and `render()` rebuilt the card from scratch each
 time: a player who had picked a houseguest saw the pick cleared and Confirm go grey under their cursor. Reproduced on a real staged game (the engine's own `eviction-vote` pending, two nominees): select a
 name, Confirm enabled; dispatch the SAME pending again, nothing selected, Confirm disabled. In a REAL browser: a repeat of the same decision leaves the card (and the pick) alone; a DIFFERENT decision still
-replaces it; a dispatch with no pending removes the card. (Dismissal and completion/redispatch are NOT exercised here.)
+replaces it; a dispatch with no pending removes the card. (Dismissal and completion/redispatch are also exercised below.)
 
 Run: cd frontend && .venv/bin/python -m pytest tests/test_orw359_decision_card_keeps_pick.py
 """

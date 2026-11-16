@@ -8,8 +8,7 @@ narration that runs ahead of the engine, and stalls. Roles only; no cast name is
 - **Short tier (this slice, `live_short.py`):** after every dev update. Casting -> premiere -> an early "run the competition" ask -> the engine clock is jumped
   with the engine's own player API (turn-in / time-passing) to the veto morning of Week 1 -> four real chat turns (the draw, then the house waiting for the
   competition). About 10 minutes, a few cents on DeepSeek, images OFF.
-- **Full week (not built yet):** a whole week played like a real player, before each playtest and release. The short tier should grow eviction night and the
-  finale before this one is started.
+- **Full week:** `week.sh` (below) plays a whole week like a real player under a spend cap.
 
 ## Automatic run: `run_short.sh`
 
