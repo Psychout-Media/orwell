@@ -218,5 +218,5 @@ def test_orw481_scroll_does_not_mark_all_dirty_until_its_timer_fires():
     """ORW-481 (review 4539202348): scrollSchedule keeps its own pending flag; _allDirty is set only when the idle timer fires."""
     body = JS[JS.index("function scrollSchedule("):JS.index("function init(")]
     head, _, timer = body.partition("setTimeout(")
-    assert "_markAllDirty" not in head and "_scrollPending = true" in head
+    assert "_markAllDirty" not in head and "_allDirty = true" not in head and "_scrollPending = true" in head
     assert "_markAllDirty();" in timer

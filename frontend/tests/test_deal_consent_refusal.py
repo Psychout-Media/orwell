@@ -93,3 +93,12 @@ def test_orw481_a_counteroffer_reaches_the_narrator():
     out = json.loads(ti.deal_refusal_for_narrator({**REFUSAL, "counteroffer": {"kind": "safety", "terms": "a lighter pact"}})["output"])
     assert out["counteroffer"] == {"kind": "safety", "terms": "a lighter pact"} and "COUNTEROFFER" in out["message"]
     assert "counteroffer" not in json.loads(ti.deal_refusal_for_narrator(REFUSAL)["output"])
+
+
+def test_orw481_a_counteroffer_survives_the_real_tool_path_to_the_narrator_text(monkeypatch):
+    """ORW-481 (review 4582382342): engine reply -> do_make_deal -> format_tool_result keeps the counteroffer terms and still records no deal."""
+    _engine(monkeypatch, {**REFUSAL, "counteroffer": {"kind": "safety", "terms": "a lighter pact"}})
+    res = _run(ti.do_make_deal(json.dumps({"with": "npc:3", "kind": "safety", "terms": "we protect each other"}), owner="u"))
+    seen = format_tool_result("makeDeal", res)
+    assert "a lighter pact" in seen and "COUNTEROFFER" in seen and "No deal was made" in seen
+    assert "deal:" not in seen

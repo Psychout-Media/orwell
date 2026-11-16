@@ -4243,6 +4243,28 @@ async def record_post_turn_presence_check(user, narration: str) -> None:
         logger.warning("[orwell] post-turn presence check skipped for user=%s: %s", user, e)
 
 
+def _scan_quote_state(part: str, quote):
+    """ORW-481: scan `part` from the open quote mark `quote` (None, '"', a curly double or a curly single opener). Returns (state at the end, index just past the FIRST closing mark or None). A curly closing single between two letters is an apostrophe, not a quote."""
+    first_close = None
+    for i, ch in enumerate(part):
+        prev_c = part[i - 1] if i else ""
+        next_c = part[i + 1] if i + 1 < len(part) else ""
+        if ch == '"':
+            if quote == '"':
+                quote = None; first_close = i + 1 if first_close is None else first_close
+            elif quote is None:
+                quote = '"'
+        elif ch == "\u201c" and quote is None:
+            quote = "\u201c"
+        elif ch == "\u201d" and quote == "\u201c":
+            quote = None; first_close = i + 1 if first_close is None else first_close
+        elif ch == "\u2018" and quote is None and not prev_c.isalpha():
+            quote = "\u2018"
+        elif ch == "\u2019" and quote == "\u2018" and not (prev_c.isalpha() and next_c.isalpha()):
+            quote = None; first_close = i + 1 if first_close is None else first_close
+    return quote, first_close
+
+
 async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4278,14 +4300,15 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
-    open_quote = False  # ORW-481 (review 4534334471): a dropped line that opens a quote drops the rest of that quote too
+    quote = None  # ORW-481: the quote mark open across the WHOLE reply (kept sentences count too), so a dropped line's close is not read as an open
+    drop_quote = False  # a dropped line that left a quote open drops the rest of that quote too
     for part in parts:
-        if open_quote:
-            close = re.search(r'["\u201d]', part)
-            if not close:
+        quote, close_end = _scan_quote_state(part, quote)
+        if drop_quote:
+            if close_end is None:
                 continue  # still inside the dropped speaker's quote
-            open_quote = False
-            part = part[close.end():]  # the closing mark ends the quote; the rest is judged on its own
+            drop_quote = False
+            part = part[close_end:]  # the closing mark ends the quote; the rest is judged on its own
             if not part.strip():
                 continue
         try:
@@ -4294,7 +4317,7 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
                 hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
                 dropped.add(hit)
-                open_quote = bool((part.count('"') % 2) or part.count("\u201c") > part.count("\u201d"))
+                drop_quote = quote is not None
                 continue  # DROP — a non-present houseguest is never staged as present
         except Exception:
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
@@ -4423,7 +4446,7 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
 # Deliberately narrow: only a definite "the nominee(s)" in a sentence with NO hypothetical / future / negation / question cue, in a phase before nominations, with no committed nominee.
 _FALSE_NOMINEE_RE = re.compile(r"\bthe\s+(?:two\s+|both\s+|current\s+)?nominees?\b", re.IGNORECASE)
 _FALSE_NOMINEE_SAFE_CUE_RE = re.compile(
-    r"\b(?:no|not|nobody|none|never|yet|\w+n['\u2019]t|\w+['\u2019](?:ll|d)|if|unless|suppose|imagine|whoever|whichever|hypothetically|will|would|could|might|"
+    r"\b(?:no|not|nobody|none|never|yet|(?:isn|aren|wasn|weren|hasn|haven|hadn|won|wouldn|couldn|shouldn|mightn)['\u2019]t|\w+['\u2019](?:ll|d)|if|unless|suppose|imagine|whoever|whichever|hypothetically|will|would|could|might|"
     r"going\s+to|about\s+to|once|until|before|when|after|soon|tonight|tomorrow|later|upcoming|next|eventually|someday|who|what|which|should|may)\b|\?",
     re.IGNORECASE,
 )

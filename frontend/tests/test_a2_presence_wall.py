@@ -444,3 +444,23 @@ def test_orw481_a_dropped_multi_sentence_quote_is_dropped_whole(monkeypatch):
     transcript = 'A Schemer leans in and says, "Hello. I saved you a seat." An Ally rolls her eyes.'
     out = _run(chat_helpers.screen_presence_wall(_USER, transcript))
     assert "saved you a seat" not in out and "An Ally rolls her eyes" in out
+
+
+def test_orw481_a_dropped_line_that_closes_a_kept_quote_does_not_drop_the_narration_after(monkeypatch):
+    """ORW-481 (review 4582382289): the quote opened in a KEPT sentence; the dropped sentence only closes it."""
+    from src import orwell_engine
+    state = _state("backyard", present=["An Ally"], house=_house(active=["An Ally", "A Schemer"]))
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(state))
+    transcript = 'An Ally whispers, "Be careful. A Schemer is listening from the door." An Ally shrugs and looks away.'
+    out = _run(chat_helpers.screen_presence_wall(_USER, transcript))
+    assert "An Ally shrugs and looks away" in out
+
+
+def test_orw481_a_dropped_curly_single_quoted_line_is_dropped_whole(monkeypatch):
+    """ORW-481 (review 4582382362): curly single quotes are tracked like the double ones."""
+    from src import orwell_engine
+    state = _state("backyard", present=["An Ally"], house=_house(active=["An Ally", "A Schemer"]))
+    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(state))
+    transcript = 'A Schemer leans in and says, \u2018Hello. I don\u2019t trust her.\u2019 An Ally rolls her eyes.'
+    out = _run(chat_helpers.screen_presence_wall(_USER, transcript))
+    assert "trust her" not in out and "An Ally rolls her eyes" in out

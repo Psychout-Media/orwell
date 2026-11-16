@@ -46,13 +46,14 @@ def test_parity_counts_narrator_rows_vs_bubbles():
     assert p.returncode == 0, f"{p.stdout}\n{p.stderr}"
 
 
-def test_select_session_retries_once_and_keeps_non_history_nodes():
+def test_select_session_retries_once_and_keeps_only_pending_sends_and_live_holders():
     s = open(SESSIONS, encoding="utf-8").read()
     i = s.index("ORW-197: render-parity self-heal")
     blk = s[i:i + 2000]
     assert blk.count("_paintRows()") == 1  # one bounded retry, no loop
     assert "while" not in blk and "for (let" not in blk
     assert "_keep" in blk and "appendChild(el)" in blk
-    assert "_pendingToPreserve.includes(el)" in blk and "_liveHoldersToKeep.includes(el)" in blk  # ORW-481: untagged tool threads / cards are repainted, not kept  # live holders / pending sends re-appended
+    # ORW-481: only pending sends + live holders are kept; untagged tool threads / cards are repainted
+    assert "Array.from(chatHistory.children).filter(el => _pendingToPreserve.includes(el) || _liveHoldersToKeep.includes(el))" in blk
     assert "_beaconHistoryParity" in blk
     assert "'history-parity'" in s

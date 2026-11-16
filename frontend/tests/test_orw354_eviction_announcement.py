@@ -68,3 +68,9 @@ def test_orw481_a_second_comma_clause_still_binds_you_to_the_player():
     spans = rc.name_spans("Nom Alpha, the HOH, says you won.", ROSTER, "Player Epsilon")
     assert any(c == "Player Epsilon" for c, _a, _b in spans)
     assert not any(c == "Player Epsilon" for c, _a, _b in rc.name_spans("Nom Alpha, you are evicted.", ROSTER, "Player Epsilon"))
+
+
+def test_orw481_a_vocative_with_an_interjection_still_binds_you_to_the_name():
+    """ORW-481 (review 4582382295): 'Name, honestly, you are going home' addresses the name, not the player."""
+    spans = rc.name_spans("Nom Alpha, honestly, you're going home.", ROSTER, "Player Epsilon")
+    assert not any(c == "Player Epsilon" for c, _a, _b in spans)

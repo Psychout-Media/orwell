@@ -231,8 +231,25 @@ def test_the_game_turn_trim_keeps_the_brief_intact_and_terminal():
     assert out[-3]["content"] == "now"
 
 
-def test_orw481_last_scene_tail_skips_casting_replies():
-    """ORW-481 (review 4532868183): a casting-phase reply must not seed the first live turn's tail."""
+def test_orw481_last_scene_tail_stops_at_the_casting_boundary():
+    """ORW-481 (review 4582382296): a casting reply is newer than any earlier season's scene, so the tail is None, never that older scene."""
     casting = _Msg("assistant", "a casting reply")
     casting.metadata = {"phase": "casting"}
+    scene = _Msg("assistant", "the last scene reply")
+    assert sb.last_scene_tail([scene, casting, _Msg("user", "ready")]) is None
     assert sb.last_scene_tail([casting, _Msg("user", "ready")]) is None
+    assert sb.last_scene_tail([scene, _Msg("user", "next")]) == "the last scene reply"
+
+
+def test_orw481_the_finalize_turn_premiere_reply_still_counts():
+    """ORW-481 (review 4582382336): the finalize turn's reply is stamped casting but carries the premiere (casting_finalized)."""
+    old = _Msg("assistant", "an older scene")
+    premiere = _Msg("assistant", "the premiere walk-in reply")
+    premiere.metadata = {"phase": "casting", "casting_finalized": True}
+    assert sb.last_scene_tail([old, premiere, _Msg("user", "ok")]) == "the premiere walk-in reply"
+
+
+def test_orw481_the_agent_loop_marks_the_finalize_turn_metrics():
+    import inspect
+    src = inspect.getsource(importlib.import_module("src.agent_loop")._stream_agent_loop_impl)
+    assert 'if _casting_finalized_this_turn:\n        metrics["casting_finalized"] = True' in src

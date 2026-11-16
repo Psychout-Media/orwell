@@ -45,7 +45,6 @@ def test_hypotheticals_questions_negations_asides_and_future_talk_are_not_flagge
         "((There are no nominees yet - the nominee of the week is decided at the ceremony.))",
         "Whoever ends up as the nominee will want an ally.",
         "Nobody here is the nominee.",
-        "The nominee doesn't trust the HOH.",
     ):
         key = _setup()
         _run(ch.record_post_turn_false_premise_check("u78", text))
@@ -65,10 +64,20 @@ def test_the_agent_loop_calls_the_check_after_the_roster_check():
 
 def test_orw481_a_turn_that_committed_nominations_queues_no_correction(monkeypatch):
     """ORW-481 (review 4535275168): the turn-start board had no nominees, but this turn committed them; no 'no nominees yet' correction."""
-    key = _setup(phase="nominations")
+    key = _setup(phase="hoh-competition")
 
     async def now(user):
         return {"noms": ["x", "y"], "nomNames": ["A", "B"], "phase": "nominations"}
     monkeypatch.setattr(ch, "_capture_beat_signature", now)
     _run(ch.record_post_turn_false_premise_check("u78", "The nominee sits quietly at the end of the couch."))
+    assert not _pending(key)
+
+
+def test_orw481_a_predicate_negation_is_not_a_nobody_is_the_nominee_negation():
+    """ORW-481 (review 4582382324): 'The nominee doesn't trust the HOH.' presumes a nominee exists, so it IS flagged; an existence negation is not."""
+    key = _setup()
+    _run(ch.record_post_turn_false_premise_check("u78", "The nominee doesn't trust the HOH."))
+    assert _pending(key), "a predicate negation still presumes a nominee"
+    key = _setup()
+    _run(ch.record_post_turn_false_premise_check("u78", "The nominee isn't named."))
     assert not _pending(key)

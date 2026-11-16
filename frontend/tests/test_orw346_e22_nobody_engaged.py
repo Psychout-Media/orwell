@@ -22,9 +22,9 @@ def _run(coro):
 
 @pytest.fixture(autouse=True)
 def _clean():
-    chat_helpers._fallback_in_flight.clear(); fold_ledger._SCENE_NOBODY.clear()
+    chat_helpers._fallback_in_flight.clear(); fold_ledger._SCENE_NOBODY.clear(); fold_ledger.clear_all()
     yield
-    chat_helpers._fallback_in_flight.clear(); fold_ledger._SCENE_NOBODY.clear()
+    chat_helpers._fallback_in_flight.clear(); fold_ledger._SCENE_NOBODY.clear(); fold_ledger.clear_all()
 
 
 def _spy_record(monkeypatch):
@@ -99,4 +99,18 @@ def test_orw481_an_old_requeued_fold_does_not_stand_the_guard_down(monkeypatch):
     fold_ledger.consume_staged_this_turn("u", "s")  # that turn is over; the entry stays queued (a re-queue)
     _run(chat_helpers.ensure_turn_recorded("u", "hello", NARRATION, [], session_id="s"))
     assert calls, "the floor fold must run for a turn that staged nothing"
-    fold_ledger.clear_all()
+
+
+def test_orw481_a_stage_left_by_a_dropped_turn_does_not_leak_into_the_next_turn(monkeypatch):
+    """ORW-481 (review 4582382317): a turn that staged a fold then dropped/errored before [DONE] never consumed the flag; the next turn start clears it."""
+    agent_loop = importlib.import_module("src.agent_loop")
+
+    async def impl(*a, **k):
+        yield "data: [DONE]\n\n"
+    monkeypatch.setattr(agent_loop, "_stream_agent_loop_impl", impl)
+    fold_ledger.stage_pending_fold("u", "s", content="x", with_ids=["npc:3"], kind="bonding", consequence=None, felt_minutes=None, idempotency_key="k2")
+
+    async def drive():
+        return [c async for c in agent_loop.stream_agent_loop(owner="u", session_id="s")]
+    _run(drive())
+    assert fold_ledger.consume_staged_this_turn("u", "s") is False
