@@ -9226,6 +9226,12 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             belt_declined = _fl_d.consume_belt_declined(user, session_id)
         except Exception:
             belt_declined = False
+    # ORW-481 (retro review): consume the in-loop belt's "nobody engaged" verdict up front too, so a turn that returns early below can never leave it set for the NEXT turn's genuine under-call.
+    try:
+        from src import fold_ledger as _fl_nobody
+        _nobody = _fl_nobody.consume_scene_nobody(user)
+    except Exception:
+        _nobody = False
     if len(text) < GAME_TURN_RECORD_MIN_CHARS:
         return False
     # ORW-185: two turn shapes are NOT an unrecorded social scene, and used to trip this guard (the flat
@@ -9273,11 +9279,6 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
     # ORW-346 (live week 2026-11-14: all 13 firings in 43 turns were turns where the extractor answered {"withIds":[]} - the player was alone in bed, or a comp/ceremony took the beat before anyone engaged): "nobody engaged" is
     # NOT the model skipping a recordInteraction - there is no scene with anyone to fold, and the flat floor digest it used to write recorded a phantom, participant-less "scene" and counted as an under-call. An in-loop belt that
     # already found nobody stands the guard down here; our own extraction below does the same. The WARN + counter now mean what they say: a real under-call.
-    try:
-        from src import fold_ledger as _fl_nobody
-        _nobody = _fl_nobody.consume_scene_nobody(user)
-    except Exception:
-        _nobody = False
     if _nobody:
         logger.info("[orwell] E22 guard: stood down - the scene extraction found no houseguest engaged (a solo / board-took-the-beat turn), nothing to fold (ORW-346) user=%s", user)
         return False

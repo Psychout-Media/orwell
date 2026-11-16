@@ -130,3 +130,12 @@ def test_non_admin_refused(env, monkeypatch):
 def test_provider_host_is_host_only():
     assert apr.provider_host("https://user:pw@api.x.example:8443/v1/chat?key=sk-1") == "api.x.example:8443"
     assert apr.provider_host("") == ""
+
+
+def test_ambiguous_shared_url_with_different_keys_is_refused_before_any_write(env):
+    with env.S() as s:
+        s.add(d.ModelEndpoint(id="ep2", name="ep2", base_url=NEW_BASE, api_key="sk-other", is_enabled=True, owner=None))
+        s.commit()
+    r = _post(env, endpoint_id="ep", model="new-model", owner="u1")
+    assert r.status_code == 409
+    assert _row(env.S, "a")[0] == "old" and _row(env.S, "b")[0] == "old"

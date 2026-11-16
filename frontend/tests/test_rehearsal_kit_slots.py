@@ -90,24 +90,26 @@ def test_no_script_hard_codes_a_slot_value_outside_slot_sh():
             code = ln.split("#", 1)[0] if p.suffix == ".sh" or not ("'" in ln or '"' in ln) else ln
             if p.suffix == ".sh" and ln.lstrip().startswith("#"):
                 continue
-            if bad.search(ln) and not ln.lstrip().startswith("#") and "slot-1 default" not in ln and "slot 1 by default" not in ln and 'os.environ.get("RIG_' not in ln:
+            if bad.search(code) and not ln.lstrip().startswith("#") and "slot-1 default" not in ln and "slot 1 by default" not in ln and 'os.environ.get("RIG_' not in ln:
                 offenders.append(f"{p.name}:{n}: {ln.strip()[:90]}")
     assert not offenders, offenders
 
 
-def test_daemon_base_follows_the_run_slot_env():
+def test_daemon_base_follows_the_run_slot_env(monkeypatch):
     import tempfile
     for name in ("daemon.py", "a9drive.py"):
         src = (KIT / name).read_text()
-        m = re.search(r"\ndef _rig_base\(run\):.*?\n    return \"http://127\.0\.0\.1:17000\"  # slot-1 default\n", src, re.S)
+        m = re.search(r"\ndef _rig_base\(run\):.*?\n    return rec or env or \"http://127\.0\.0\.1:17000\"[^\n]*\n", src, re.S)
         assert m, f"{name} reads its base through _rig_base"
-        ns = {"os": os}
+        ns = {"os": os, "sys": sys}
         exec(m.group(0), ns)
         d = pathlib.Path(tempfile.mkdtemp())
-        os.environ.pop("RIG_BASE", None)
+        monkeypatch.delenv("RIG_BASE", raising=False)
         assert ns["_rig_base"](str(d)) == "http://127.0.0.1:17000", "a run staged before slots existed (no slot.env) is slot 1"
         (d / "slot.env").write_text("RIG_BASE=http://127.0.0.1:17001\n")
         assert ns["_rig_base"](str(d)) == "http://127.0.0.1:17001"
+        monkeypatch.setenv("RIG_BASE", "http://127.0.0.1:17000")   # a stray exported value that disagrees with the run's slot.env is refused, not obeyed
+        with pytest.raises(SystemExit): ns["_rig_base"](str(d))
 
 
 # ── the spend guard ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -132,7 +134,7 @@ def test_spend_is_the_providers_cost_when_given_else_a_high_estimate(tmp_path):
 def test_the_cap_stops_the_run_by_pid_and_marks_it(tmp_path):
     f = tmp_path / "llm-io.jsonl"
     _rows(f, [{"usage": {"input_tokens": 5_000_000, "output_tokens": 1_000_000}}])
-    victim = subprocess.Popen(["sleep", "60"])
+    victim = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "live_week"])   # its command line names the driver, as the real one does
     try:
         (tmp_path / "driver.pid").write_text(str(victim.pid))
         rc = spend_guard.main([str(f), "1.0", str(tmp_path), "--once"])
@@ -164,7 +166,7 @@ def test_rig_stats_reports_sent_size_and_the_e22_rate(tmp_path):
     (tmp_path / "fe.log").write_text("x\nE22 guard: game turn narrated with no engine write\ny\n")
     rig_stats.main(str(tmp_path / "llm-io.jsonl"), str(tmp_path))
     txt = (tmp_path / "rig-stats.md").read_text()
-    assert "model calls: 2" in txt and "sent size per turn" in txt and "E22 guard firings: 1; per turn: 0.500" in txt
+    assert "model calls: 2" in txt and "mean): 2000" in txt and "E22 guard firings: 1; per turn: 0.500" in txt
 
 
 def test_spend_guard_reads_the_live_archive_row_shape(tmp_path):
@@ -208,3 +210,43 @@ def test_no_kit_or_live_run_script_carries_a_literal_user_home():
     offenders = [str(p.relative_to(root)) for d in ("scripts/rehearsal-kit", "scripts/live-run") for p in (root / d).rglob("*") if p.is_file() and p.suffix in (".sh", ".py", ".md")
                  and "/home/" in p.read_text(errors="ignore") and "__pycache__" not in str(p)]
     assert offenders == [], offenders
+
+
+def test_the_cap_never_signals_an_unrelated_process_behind_a_stale_pid(tmp_path):
+    f = tmp_path / "llm-io.jsonl"
+    _rows(f, [{"usage": {"input_tokens": 5_000_000, "output_tokens": 1_000_000}}])
+    bystander = subprocess.Popen(["sleep", "30"])
+    try:
+        (tmp_path / "driver.pid").write_text(str(bystander.pid))
+        assert spend_guard.main([str(f), "1.0", str(tmp_path), "--once"]) == 3
+        assert bystander.poll() is None, "a pid whose command line is not this kit's must be left alone"
+    finally:
+        bystander.kill()
+
+
+def test_a_non_numeric_cost_falls_back_to_the_token_estimate_and_a_bad_cap_is_refused(tmp_path):
+    f = tmp_path / "llm-io.jsonl"
+    _rows(f, [{"usage": {"input_tokens": 1_000_000, "output_tokens": 0, "cost": "n/a"}}])
+    assert abs(spend_guard.totals(str(f))["usd_estimate"] - 0.30) < 1e-6
+    assert spend_guard.main([str(f), "bogus", str(tmp_path), "--once"]) == 2
+
+
+def test_p0d_check_reads_only_the_last_invocation_and_fails_on_missing_telemetry(tmp_path):
+    def row(i, mu, due=False):
+        return json.dumps({"i": i, "msg": f"m{i}", "ds": {"minutesUntil": mu, "due": due}})
+    good = [row(i, 300 - 5 * i) for i in range(1, 17)]   # row 1 is the OFFSET row (the casting/premiere message before the first P0d line)
+    stale = [row(i, 999) for i in range(1, 16)]   # an earlier, different run in the same appended log
+    (tmp_path / "a9.log").write_text("\n".join(stale + good) + "\n")
+    (tmp_path / "fe.log").write_text("")
+    out = subprocess.run([sys.executable, str(KIT / "p0d_check.py"), str(tmp_path)], capture_output=True, text=True, env={**os.environ, "P0D_OFFSET": "1"}).stdout
+    assert "FAIL - plain chat" not in out and "PASS - plain chat = -5 each" in out
+    broken = [row(i, 300 - 5 * i) for i in range(1, 17)]
+    broken[4] = json.dumps({"i": 4, "msg": "m4", "ds": {}})   # a row with no minutesUntil / due
+    (tmp_path / "a9.log").write_text("\n".join(broken) + "\n")
+    out = subprocess.run([sys.executable, str(KIT / "p0d_check.py"), str(tmp_path)], capture_output=True, text=True, env={**os.environ, "P0D_OFFSET": "1"}).stdout
+    assert "FAIL - plain chat" in out
+    nodue = [row(i, 300 - 5 * i) for i in range(1, 17)]
+    nodue[6] = json.dumps({"i": 7, "msg": "m7", "ds": {"minutesUntil": 300 - 35}})   # telemetry present but `due` missing
+    (tmp_path / "a9.log").write_text("\n".join(nodue) + "\n")
+    out = subprocess.run([sys.executable, str(KIT / "p0d_check.py"), str(tmp_path)], capture_output=True, text=True, env={**os.environ, "P0D_OFFSET": "1"}).stdout
+    assert "FAIL - nothing due early" in out

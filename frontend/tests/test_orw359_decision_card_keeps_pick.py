@@ -3,7 +3,7 @@
 The same pending reaches the card from several seams (the chat tool-output seam, the surface-the-pending belt, a socket state frame, the backstop poll), and `render()` rebuilt the card from scratch each
 time: a player who had picked a houseguest saw the pick cleared and Confirm go grey under their cursor. Reproduced on a real staged game (the engine's own `eviction-vote` pending, two nominees): select a
 name, Confirm enabled; dispatch the SAME pending again, nothing selected, Confirm disabled. In a REAL browser: a repeat of the same decision leaves the card (and the pick) alone; a DIFFERENT decision still
-replaces it; a dismissed or finished card is not resurrected by the guard.
+replaces it; a dispatch with no pending removes the card. (Dismissal and completion/redispatch are NOT exercised here.)
 
 Run: cd frontend && .venv/bin/python -m pytest tests/test_orw359_decision_card_keeps_pick.py
 """
@@ -90,11 +90,13 @@ def test_a_repeat_of_the_same_decision_keeps_the_pick_and_a_different_one_replac
             browser = pw.chromium.launch()
         except Exception as e:
             pytest.skip(f"chromium unavailable: {e}")
-        page = browser.new_page()
-        page.goto(_app + "/", wait_until="load", timeout=30000)
-        app_ready(page)
-        r = page.evaluate(_HARNESS)
-        browser.close()
+        try:
+            page = browser.new_page()
+            page.goto(_app + "/", wait_until="load", timeout=30000)
+            app_ready(page)
+            r = page.evaluate(_HARNESS)
+        finally:
+            browser.close()  # a setup or evaluation failure never leaves Chromium behind for the next browser test
     assert r["first"] and r["first"]["confirmDisabled"] is True, f"Confirm is grey until a name is picked: {r}"
     assert r["picked"]["confirmDisabled"] is False and r["picked"]["pressed"] == ["true", "false"], r
     assert r["afterSame"]["pressed"] == ["true", "false"], f"the SAME decision dispatched again must leave the pick alone: {r}"

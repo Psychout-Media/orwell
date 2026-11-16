@@ -78,6 +78,13 @@ def setup_admin_provider_routes(session_manager=None) -> APIRouter:
             for r in rows:
                 if not _visible(ep.owner, r.owner):
                     raise HTTPException(403, "endpoint is not visible to the session owner")
+            # ORW-481 (retro review): sessions store only the URL, so two visible keyed endpoints on one URL cannot be told apart at call time and
+            # the switch would strand the sessions on the wrong (or no) key. Refuse an ambiguous target before anything is written.
+            same = [e for e in db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True).all()  # noqa: E712
+                    if build_chat_url(normalize_base(e.base_url or "")) == url]
+            for r in rows:
+                if len({e.api_key for e in same if _visible(e.owner, r.owner)}) > 1:
+                    raise HTTPException(409, "more than one visible endpoint shares that URL with different keys; switch refused")
             # Computed BEFORE any write; old auth headers are dropped so a previous provider's
             # key can never ride along to the new host.
             plan = [(r, persistable_session_headers(

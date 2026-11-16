@@ -86,3 +86,17 @@ def test_the_belt_notes_nobody_only_for_an_explicit_empty_answer():
     import inspect
     src = inspect.getsource(importlib.import_module("src.agent_loop")._auto_record_scene)
     assert "note_scene_nobody" in src and "if not _rejected_with_ids" in src
+
+
+def test_a_nobody_flag_left_by_an_early_return_turn_never_silences_the_next_turn(monkeypatch):
+    """ORW-481 (retro review): a turn that stands down early (here a bare OOC aside) still consumes the flag."""
+    calls = _spy_record(monkeypatch)
+    fold_ledger.note_scene_nobody("u")
+    _run(chat_helpers.ensure_turn_recorded("u", "(( what is happening? ))", NARRATION, []))
+    assert "u" not in fold_ledger._SCENE_NOBODY
+
+    async def declined(user, player_message, narration):
+        return False
+    monkeypatch.setattr(chat_helpers, "_e22_rich_extract", declined)
+    _run(chat_helpers.ensure_turn_recorded("u", "I press the swing vote.", NARRATION, []))
+    assert len(calls) == 1

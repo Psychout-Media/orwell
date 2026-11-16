@@ -6,13 +6,15 @@ from playwright.sync_api import sync_playwright
 def _rig_base(run):
     """The front-end base URL for this run's slot: RIG_BASE from the environment, else the run's slot.env, else the slot-1 default (a run staged before slots existed has no slot.env)."""
     import shlex
-    if os.environ.get("RIG_BASE"): return os.environ["RIG_BASE"]
-    try:
+    rec = None
+    try:   # the run's own slot.env is authoritative: a stray exported RIG_BASE must never point the daemon at the other rig
         for ln in open(f"{run}/slot.env"):
             k, _, v = ln.strip().partition("=")
-            if k == "RIG_BASE" and v: return shlex.split(v)[0]
+            if k == "RIG_BASE" and v: rec = shlex.split(v)[0]
     except OSError: pass
-    return "http://127.0.0.1:17000"  # slot-1 default
+    env = os.environ.get("RIG_BASE")
+    if rec and env and env != rec: sys.exit(f"FATAL: RIG_BASE={env} disagrees with this run's slot.env ({rec}); refusing to drive the wrong rig")
+    return rec or env or "http://127.0.0.1:17000"  # slot-1 default (a run staged before slots existed has no slot.env)
 RUN = sys.argv[1]; BASE = _rig_base(RUN)
 REQ, RESP = f"{RUN}/req.json", f"{RUN}/resp.json"
 turnlog = open(f"{RUN}/turnlog.txt", "a"); transcript = open(f"{RUN}/transcript.txt", "a")
@@ -28,6 +30,9 @@ with sync_playwright() as p:
     page = ctx.new_page()
     page.goto(BASE + "/", wait_until="load", timeout=60000); page.wait_for_timeout(6000)
     last = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+    if len(sys.argv) <= 2:   # a restart must not replay the last mailbox request: resume after the durable acknowledgment
+        try: last = int(json.load(open(RESP))["n"])
+        except Exception: pass
     print("DAEMON READY", flush=True)
     while True:
         time.sleep(0.8)
@@ -57,8 +62,9 @@ with sync_playwright() as p:
         while time.time() - t0 < req.get("timeout", 240):
             page.wait_for_timeout(2000)
             bs = page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
-            busy = page.evaluate("!!document.querySelector('.send-btn[data-mode=\"stop\"], .send-btn[data-mode=\"cancel\"]')")
-            if sig == prev and not busy and (not bs or bs[-1]["done"] or len(bs) > before or stable > 4): stable += 1
+            busy = page.evaluate("!!document.querySelector('.send-btn[data-mode=\"streaming\"]')")   # the UI's real active-generation state
+            fresh = len(bs) > before or not req.get("text")   # a text turn is finished only once a NEW bubble exists (a failed submission must not report the previous reply)
+            if sig == prev and not busy and fresh and (not bs or bs[-1]["done"] or len(bs) > before or stable > 4): stable += 1
             else: stable = 0
             prev = sig
             if stable >= 3: break
