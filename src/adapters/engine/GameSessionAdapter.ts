@@ -277,7 +277,7 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
-import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -327,6 +327,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
@@ -1461,6 +1462,91 @@ export class GameSessionAdapter implements GameSession {
       case "lying-about": return (live.claims?.items ?? []).some((c) => !c.isTrue && c.speaker === b.subject && c.listener === b.object);
       case "talking-about": return b.object !== undefined && this.rel.edge(b.subject, b.object).trust < 0.4;
       default: return false;
+    }
+  }
+  /**
+   * 0156 / ORW-330 (theme 2, slice 7a) - HOUSE MEETINGS (`houseMeeting.ts` holds the rules). `caller` accuses `accused` (an NPC; the claim is about them) in front of the awake house: the accusation is `tellClaim`ed from the
+   * caller to EACH NPC attendee, the accused answers (deny / admit / redirect, from the engine's own truth check), and each NPC listener settles from their trust in each side (an admission confirms; whoever they trust more
+   * wins them; a listener who comes out doubting has the belief the accusation planted refuted). The player is an attendee only when awake and in the house, and gets no belief. A refused call allocates nothing.
+   * Draws come from the `${seed}:house-meeting` side stream. OFF unless `ORWELL_HOUSE_MEETINGS` is on; needs the belief layer and a played game.
+   */
+  private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
+  setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
+  private meetingCallDecided = new Set<string>();
+  holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
+    const live = this.live;
+    if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || !this.house) return undefined;
+    const { caller, accused, claim } = input;
+    const who: MeetingCaller = caller === PLAYER ? "player" : "npc";
+    const awake = this.awakeNow();
+    const living = this.livingIds();
+    const here = (id: EntityId): boolean => living.includes(id) && (!awake || awake.has(id));
+    if (!canCallMeeting(who) || accused === PLAYER || accused === caller || claim.subject !== accused || !MEETING_CLAIM_KINDS.includes(claim.kind)) return undefined;
+    if (!here(caller) || !here(accused) || !living.includes(accused)) return undefined;
+    if (claim.object !== undefined && !living.includes(claim.object)) return undefined;
+    const attendees = living.filter(here);
+    const listeners = attendees.filter((id) => id !== PLAYER && id !== caller && id !== accused);
+    if (listeners.length === 0) return undefined;
+    const probe: ClaimInput = { speaker: caller, listener: listeners[0]!, kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), isTrue: false, intent: "warn" };
+    if (claimProblem(probe, living) !== undefined) return undefined; // a refused call allocates nothing
+    const meetings = (live.houseMeetings ??= []);
+    const day = live.dayNumber ?? 1;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:house-meeting:${live.week}:${day}:${meetings.length}`));
+    const sayable: SayableBelief = { beliefId: "", kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), confidence: 1, week: live.week };
+    const isTrue = this.believedThingIsTrue(sayable);
+    const lean = listeners.reduce((a, l) => a + this.rel.edge(l, caller).trust - this.rel.edge(l, accused).trust, 0) / listeners.length;
+    const answer = decideAnswer({ isTrue, candor: this.candorOf(accused), cunning: cunningOf(this.agendaCharacterOf(accused)?.archetype), roomLean: lean, roll: rng.next() });
+    const accusation = new Map<EntityId, SpokenClaim>();
+    for (const l of listeners) { const c = this.tellClaim({ ...probe, listener: l, isTrue, intent: isTrue ? "inform" : "mislead" }); if (c) accusation.set(l, c); }
+    const redirectClaims = new Map<EntityId, SpokenClaim>();
+    if (answer === "redirect") for (const l of listeners) { const c = this.tellClaim({ speaker: accused, listener: l, kind: "lying-about", subject: caller, isTrue: !isTrue, intent: "deflect" }); if (c) redirectClaims.set(l, c); }
+    const beliefs = (live.beliefs ??= {});
+    const find = (holder: EntityId, claimId: string) => (beliefs[holder] ?? []).find((b) => b.id.endsWith(`|${claimId}`));
+    for (const l of listeners) {
+      const acc = accusation.get(l); if (!acc) continue;
+      const out = listenerOutcome(this.rel.edge(l, caller).trust, this.rel.edge(l, accused).trust, answer);
+      const held = find(l, acc.id), red = redirectClaims.get(l) ? find(l, redirectClaims.get(l)!.id) : undefined;
+      if (!held) continue;
+      if (out === "holds-harder") {
+        recordClaim(beliefs, { ...held, confidence: clamp01(answer === "admit" ? Math.max(held.confidence, MEETING.admitConfidence) : held.confidence + MEETING.holdBump) });
+        if (red && !red.refuted) red.refuted = true;
+      } else if (out === "doubts") {
+        refuteClaim(beliefs, l, held.id, (h, s) => this.rel.edge(h, s));
+        if (!held.refuted) held.refuted = true; // the planted belief carries no edge impact, so refuteClaim alone leaves it standing: keep the id, mark it refuted
+      }
+    }
+    const first = [...accusation.values()][0];
+    if (!first) return undefined;
+    const meeting: HouseMeeting = {
+      id: `meeting:${meetings.length + 1}`, week: live.week, day, caller, accused, claim: { kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}) },
+      accuser: caller, claimId: first.id, claimIds: [...accusation.values()].map((c) => c.id), answer, ...(answer === "redirect" ? { redirect: { to: caller } } : {}),
+      attendees, playerPresent: attendees.includes(PLAYER),
+    };
+    meetings.push(meeting);
+    return meeting;
+  }
+  /** 0156 - the narrator seam (wired by slice 7b): the latest meeting the player was present for, as the speakers' words in names. Never the truth, intent, ids or any listener's outcome. */
+  houseMeetingThePlayerHeard(): HeardMeeting | undefined {
+    const m = [...(this.live?.houseMeetings ?? [])].reverse().find((x) => x.playerPresent);
+    return m ? heardMeeting(m, (id) => this.nameOf(id)) : undefined;
+  }
+  /** 0156 - the NPC call trigger: once per in-game day, at most one NPC with a strong grievance belief may call a meeting, at most one a week per house. Called from the calm off-screen tick (`whisperPairings`). */
+  private npcCallsHouseMeeting(): void {
+    const live = this.live;
+    if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || !this.house || live.playedGame !== true) return;
+    const day = live.dayNumber ?? 1;
+    const key = `${live.week}:${day}`;
+    if (this.meetingCallDecided.has(key)) return;
+    this.meetingCallDecided.add(key);
+    const calledThisWeek = (live.houseMeetings ?? []).some((m) => m.week === live.week);
+    if (calledThisWeek) return;
+    const awake = this.awakeNow();
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:house-meeting-call:${key}`));
+    for (const n of this.house.npcs) {
+      if (!this.livingIds().includes(n.id) || (awake && !awake.has(n.id))) continue;
+      const g = strongestGrievance(live.beliefs?.[n.id] ?? [], n.id, PLAYER);
+      if (!npcWouldCall(g, false, rng.next()) || !g) continue;
+      if (this.holdHouseMeeting({ caller: n.id, accused: g.subject, claim: { kind: g.kind, subject: g.subject, object: g.object } })) return;
     }
   }
   private candorOf(id: EntityId): number {
@@ -6528,6 +6614,7 @@ export class GameSessionAdapter implements GameSession {
    * this on or off. Reads the WEIGHTED player-facing occupancy (what the house observably looks like).
    */
   whisperPairings(knowledge: KnowledgeService): void {
+    this.npcCallsHouseMeeting();
     if (!this.house || !this.presence) return;
     const player = this.house.player.id;
     const evicted = new Set(this.live?.evictionOrder ?? []);
