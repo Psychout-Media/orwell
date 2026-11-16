@@ -648,7 +648,11 @@ def parse_stated_wait(player_msg) -> tuple:
         return (None, False)
     span = m.group(0).lower()
     # Review of #2772: the match span ends at "until"/"till", so "hang out until the rest of the afternoon" lost its band; test the message from the intent on.
-    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(str(player_msg)[m.start():]):
+    # Cubic on main: scan only the intent's OWN sentence (stop at . ? ! or a newline), never a later one.
+    _tail = str(player_msg)[m.start():]
+    _end = [i for i in (_tail.find(c) for c in ".?!\n") if i >= 0]
+    _own = _tail[:min(_end) + 1] if _end else _tail
+    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(_own):
         return (None, True)
     d = _STATED_DURATION_RE.search(span)
     if not d:

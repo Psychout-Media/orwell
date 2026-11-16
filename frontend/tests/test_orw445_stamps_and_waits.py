@@ -140,3 +140,12 @@ def test_orw477_stated_waits_start_a_hangout(msg, want):
 def test_orw477_not_a_wait(msg):
     assert not ch.hang_out_intent(msg)
     assert ch.parse_stated_wait(msg) == (None, False)
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("I wait here. Tomorrow I will sleep for the rest of the day", (None, False)),
+    ("hang out until the rest of the afternoon. then bed for the rest of the night", (None, True)),
+    ("chill for a while\nfor the rest of the morning I will nap", (None, False)),
+])
+def test_rest_of_band_scan_stays_in_the_intents_own_sentence(msg, want):
+    assert ch.parse_stated_wait(msg) == want
