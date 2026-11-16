@@ -1,6 +1,6 @@
 # P0d - live clock smoke (dev, once #2145 is deployed there)
 
-Goal: prove, as a real player, that the clock moves +5 in-game minutes per message (plain chat included), nothing 409s, a hang-out does not make the next message free, and nothing fires early. About 15 messages, mostly chat. Images off. Spend cap $0.5: start `python3 spend_guard.py <the run's llm-io.jsonl> 0.5 <run dir> &` before line 1 and check for `SPEND-CAP-HIT` at the end.
+Goal: prove, as a real player, that the clock moves +5 in-game minutes per message (plain chat included), nothing 409s, a hang-out does not make the next message free, and nothing fires early. About 15 messages, mostly chat. Images off. **Spend: the $0.5 cap is NOT enforced in a manual session** (`spend_guard.py` only stops a staged rig run, by that run's PID files; a hosted dev box has none). Watch the spend yourself and stop at about $0.5.
 
 **Precondition (not mine to create):** dev has login on (it redirects to /login). I do not create accounts or enter credentials on hosted boxes, so someone must hand me an already-logged-in session (the Coordinator or Ryne starts it and gives me the cookie), or run this themselves. Start from a fresh game that has finished the premiere day-break (morning, 8:00 clock running).
 
