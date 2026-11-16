@@ -19,8 +19,9 @@ import { plantLiveSentinels, args } from "../support/liveSentinelPlanting";
 describe("B42 — the sentinel canary bites the live game (production path)", () => {
   it("no player or admin tool leaks a sentinel — across the whole game incl. the finale", async () => {
     let totalJurorsTold = 0;
-    // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 keeps askJuror's output exercised.
-    for (const seed of (process.env.SENT_SEEDS ?? "2,5,7").split(",").map(Number)) {
+    // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 kept askJuror's output exercised.
+    // 0163 (ORW-539, 2026-11-16): perceived bonds moved that again; seed 3 does now (probed 1/3/4/6/8/9/10/11: 3, 8 and 10 do).
+    for (const seed of [2, 5, 3]) {
       const reg = new GameSessionRegistry();
       const user = `u${seed}`;
       const player = reg.resolver()("player", user) as McpServer;
