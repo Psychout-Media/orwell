@@ -345,6 +345,12 @@ def draw_voiced(text):
     return bool(re.search(r"(?i)veto", text or "") and re.search(r"(?i)draw|chip|pull|playing for", text or ""))
 
 
+def eviction_voiced(text):
+    """The reply plays eviction-night steps (ballots read, a vote tally, the evictee's exit): the evidence the K1 ceremony allowance needs beyond the phase name (ORW-506)."""
+    t = text or ""
+    return bool(re.search(r"(?i)\bvotes?\b|ballots?|\bevict", t) and re.search(r"(?i)\bvote[sd]?\b|ballots?|tally|goodbye|walks? out|leaves the house|by a vote|evicted", t))
+
+
 def abs_hours(label):
     m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", label or "")
     return None if not m else (int(m.group(4)) - 1) * 24 + int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
@@ -400,7 +406,7 @@ def score(turns, checks, check, turn_limit):
                 # which also moves the clock by hours spent its hours inside ONE reply.
                 if gap <= 1.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: the crown's share on top of the spread rounds (a competition that spans several messages)", "note")
                 else: check(f"K2-competition-in-one-message[{t['label']}]", False, f"{t.get('phase_before')} was crowned in a single message and the clock jumped +{gap:.1f}h ({t.get('msg')!r})")
-            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5:
+            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5 and eviction_voiced(t.get("text")):
                 # ORW-347: a staged eviction night reads its ballots one per engine step (5 minutes each, up to 15 voters ~ 75 min, more when the reply also plays the goodbye steps) and a reply may play several steps. Same phase, same evening, never across a night: the scheduled ceremony playing out, not skipped time.
                 check(f"K1-clock-jump-ceremony[{t['label']}]", True, f"+{gap:.1f}h: the eviction night's ballots read inside one reply (5 min per staged step)", "note")
             elif t.get("phase_before") == t.get("phase") == "veto-competition" and gap <= 1.5 and draw_voiced(t.get("text")):

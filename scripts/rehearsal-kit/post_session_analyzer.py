@@ -10,10 +10,10 @@ It pulls: the front-end journal, the engine journal, app.db (+ -wal/-shm) and ll
   card timings, narration-vs-engine mismatches (with short snippets), and what could NOT be measured.
 Times: the DB stores UTC; journald lines carry their own offset and are converted to UTC. Pass --since/--until in UTC.
 """
-import argparse, collections, datetime as dt, json, os, re, sqlite3, statistics, subprocess, sys, tempfile
+import argparse, calendar, collections, datetime as dt, json, os, re, sqlite3, statistics, subprocess, sys, tempfile
 
 APP = "/opt/orwell"
-READ_ONLY_PREFIXES = ("journalctl ", "cat ", "stat ", "ls ")
+READ_ONLY_PREFIXES = ("journalctl ", "cat ", "stat ", "ls ", "sqlite3 -readonly ")
 
 
 HOST_RE = re.compile(r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9][A-Za-z0-9._-]*$")   # never a leading '-': ssh would parse it as an option (ProxyCommand etc.)
@@ -33,12 +33,29 @@ def ssh_read(host, cmd, binary=False, timeout=180):
     return r.stdout if binary else r.stdout.decode("utf-8", "replace")
 
 
+def load_dump(text, db_path):
+    """Replay a `sqlite3 .dump` into a fresh local db file. True on success."""
+    try:
+        if os.path.exists(db_path): os.remove(db_path)
+        c = sqlite3.connect(db_path); c.executescript(text); c.commit(); c.close()
+        return True
+    except Exception:
+        return False
+
+
+def _remote_mtime(host, path):
+    out = ssh_read(host, f"stat -c %Y {path}")
+    try: return int((out or "").strip())
+    except ValueError: return float("inf")   # unknown time: never claim it is inside the window
+
+
 def pull(host, since, until, dest, app=APP):
     if not WHEN_RE.match(since or "") or (until and not WHEN_RE.match(until)):   # the exact datetime format only: a quote or an option can never ride into the remote command
         raise SystemExit("--since/--until must be exactly 'YYYY-MM-DD HH:MM'")
     if not SAFE_PATH_RE.match(app or ""):
         raise SystemExit(f"refusing an unsafe --app path: {app!r}")
     os.makedirs(dest, exist_ok=True)
+    until_epoch = calendar.timegm(dt.datetime.strptime(until, "%Y-%m-%d %H:%M").timetuple()) if until else None
     got = {}
     for unit, name in (("orwell-frontend", "fe.log"), ("orwell-engine", "engine.log")):
         cmd = f'journalctl -u {unit} --no-pager -o short-iso --since "{since}"' + (f' --until "{until}"' if until else "")
@@ -46,12 +63,22 @@ def pull(host, since, until, dest, app=APP):
         if txt is not None:
             open(os.path.join(dest, name), "w").write(txt)
             got[name] = len(txt)
-    for rel, name in ((f"{app}/frontend/data/app.db", "app.db"), (f"{app}/frontend/data/app.db-wal", "app.db-wal"),
-                      (f"{app}/frontend/data/app.db-shm", "app.db-shm"), (f"{app}/frontend/data/llm-io.jsonl", "llm-io.jsonl")):
-        b = ssh_read(host, f"cat {rel}", binary=True)
-        if b is not None:
-            open(os.path.join(dest, name), "wb").write(b)
-            got[name] = len(b)
+    # ONE consistent snapshot of app.db: a single read transaction (`.dump`) replayed locally. Copying app.db, -wal and -shm with three separate `cat`s
+    # can pair a database with a WAL from a different moment (a wrong answer, not a missing one); that copy stays only as a flagged fallback.
+    dump = ssh_read(host, f"sqlite3 -readonly {app}/frontend/data/app.db .dump", timeout=600)
+    if dump and load_dump(dump, os.path.join(dest, "app.db")):
+        got["app.db"] = len(dump); got["app.db (consistent snapshot)"] = len(dump)
+    else:
+        got["app.db (INCONSISTENT copy: no sqlite3 dump available, db and wal fetched separately)"] = 0
+        for rel, name in ((f"{app}/frontend/data/app.db", "app.db"), (f"{app}/frontend/data/app.db-wal", "app.db-wal"), (f"{app}/frontend/data/app.db-shm", "app.db-shm")):
+            b = ssh_read(host, f"cat {rel}", binary=True)
+            if b is not None:
+                open(os.path.join(dest, name), "wb").write(b)
+                got[name] = len(b)
+    b = ssh_read(host, f"cat {app}/frontend/data/llm-io.jsonl", binary=True)
+    if b is not None:
+        open(os.path.join(dest, "llm-io.jsonl"), "wb").write(b)
+        got["llm-io.jsonl"] = len(b)
     # the engine's latest save (clock + hang-out log); read-only ls/cat of the highest version only
     for base in (f"{app}/data/saves", f"{app}/.orwell-data/saves", f"{app}/data/.orwell-data/saves"):
         users = ssh_read(host, f"ls -1 {base}")
@@ -62,8 +89,10 @@ def pull(host, since, until, dest, app=APP):
             if not re.fullmatch(r"[0-9a-f]+", u):
                 continue
             vs = ssh_read(host, f"ls -1 {base}/{u}") or ""
-            vers = sorted(v for v in vs.split() if re.fullmatch(r"v\d+\.json", v))
-            if vers and (best is None or vers[-1] > best[1]):
+            vers = sorted((v for v in vs.split() if re.fullmatch(r"v\d+\.json", v)), key=lambda v: int(v[1:-5]))
+            if until_epoch is not None:   # the save as of the END of the window, never a later one
+                vers = [v for v in vers if _remote_mtime(host, f"{base}/{u}/{v}") <= until_epoch]
+            if vers and (best is None or int(vers[-1][1:-5]) > int(best[1][1:-5])):
                 best = (u, vers[-1])
         if best:
             b = ssh_read(host, f"cat {base}/{best[0]}/{best[1]}", binary=True)
@@ -328,8 +357,9 @@ def analyze(events, turns, llm_rows, since, until):
     return R
 
 
-def find_save(d):
-    """The newest engine save under a run dir (engine-save.json from --ssh, or engine-data/saves/<user>/vNNN.json from a rehearsal)."""
+def find_save(d, until=None):
+    """The newest engine save under a run dir (engine-save.json from --ssh, or engine-data/saves/<user>/vNNN.json from a rehearsal).
+    With `until` (naive UTC) a rehearsal-dir save written after the window's end is skipped, so the clock reads as of the window, not as of later play."""
     direct = os.path.join(d, "engine-save.json")
     if os.path.exists(direct):
         return direct
@@ -337,6 +367,8 @@ def find_save(d):
     for root, _, files in os.walk(os.path.join(d, "engine-data", "saves")):
         for f in files:
             m = re.fullmatch(r"v(\d+)\.json", f)
+            if until is not None and dt.datetime.utcfromtimestamp(os.path.getmtime(os.path.join(root, f))) > until:
+                continue
             if m and (best is None or int(m.group(1)) > best[0]):
                 best = (int(m.group(1)), os.path.join(root, f))
     return best[1] if best else None
@@ -495,7 +527,7 @@ def main():
             except Exception:
                 pass
     R = analyze(events, turns, llm, since, until)
-    R["clock"] = clock_metrics([e for e in events if e[0] >= since and (not until or e[0] <= until)], turns, find_save(d))
+    R["clock"] = clock_metrics([e for e in events if e[0] >= since and (not until or e[0] <= until)], turns, find_save(d, until))
     rep = fmt(R, f"{a.since} .. {a.until or 'now'}", sources, casting)
     if a.out == "-":
         print(rep)
