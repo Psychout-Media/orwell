@@ -18,9 +18,13 @@ Feature: A played season carries a hidden house culture
     Given a season where a person has started playing
     Then no player or admin view shows a lean, a weight or the culture
 
-  Scenario: Turning it on changes nothing else
-    Given two played seasons with the same seed, one with house culture on and one off
-    Then they are identical apart from the culture itself
+  Scenario: No culture, no change
+    Given two played seasons with the same seed, one with house culture off and one whose culture has no leans
+    Then they are identical
+
+  Scenario: A drawn culture leans the house dials a little, never past the bound
+    Given a gossip-mill culture and a powder-keg culture
+    Then the gossip rate and the friction rate rise over no culture, and no baseline moves by more than a factor of 1.35
 
   Scenario: A game nobody played gets no culture
     Given a season that nobody has played

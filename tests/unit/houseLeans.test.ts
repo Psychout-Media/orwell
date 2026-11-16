@@ -89,7 +89,7 @@ describe("storage and byte-identity", () => {
   it("a headless (never-played) game gets no culture", () => {
     expect(live(play(5, { flag: true, played: false })).houseLeans).toBeUndefined();
   });
-  it("flag on vs off: the played game is identical apart from the houseLeans field", () => {
+  it.skip("flag on vs off: (slice 1 only; from slice 2 a drawn culture moves house life by design, see houseCultureDials.test.ts)", () => {
     for (const seed of [3, 11]) expect(snap(play(seed, { flag: true, played: true }))).toBe(snap(play(seed, { flag: false, played: true })));
   });
   it("a headless game's snapshot is byte-identical with the flag on or off", () => {

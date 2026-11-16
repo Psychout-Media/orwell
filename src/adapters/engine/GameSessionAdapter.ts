@@ -336,7 +336,7 @@ import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type H
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
-import { drawHouseLeans, describeHouseLeans } from "../../engine/houseLeans";
+import { drawHouseLeans, describeHouseLeans, dialMult } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
@@ -11492,6 +11492,8 @@ export class GameSessionAdapter implements GameSession {
     const plans: PlannedAction[] = [];
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
+    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0159 slice 2): the culture's baseline multipliers; undefined = byte-identical
+    const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -11510,6 +11512,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, where),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
+        ...(houseCulture ? { culture: houseCulture } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
