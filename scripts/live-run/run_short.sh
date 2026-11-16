@@ -12,7 +12,7 @@ exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SHORT BUSY (another live run hold
 git -C "$RIG_HOME/orwell" fetch -q origin "${REF%%~*}" || { echo "LIVE-SHORT COULD-NOT-RUN fetch failed"; exit 2; }
 SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 "origin/$REF")
 [ "$IF_NEW" = 1 ] && [ "$(cat "$STATE/last-sha$RIG_SUFFIX" 2>/dev/null)" = "$SHA" ] && { echo "LIVE-SHORT SKIPPED $SHA (already run)"; exit 0; }
-trap '"$KIT/stop.sh" >/dev/null 2>&1' EXIT TERM INT   # a cancelled run never leaves the rig running
+trap '"$KIT/stop.sh" >/dev/null 2>&1' EXIT; trap 'exit 143' TERM; trap 'exit 130' INT   # a cancelled run stops the rig AND ends (a bare TERM trap would let the script carry on against a stopped rig)
 if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then echo "LIVE-SHORT COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
 RUN=$(cat $RIG_RUN_PTR)
 python3 - <<P || { echo "LIVE-SHORT COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }

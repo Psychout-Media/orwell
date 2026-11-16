@@ -148,7 +148,7 @@ def test_a_raw_tool_tag_reply_is_machinery():
 
 # review follow-ups (ORW-481): one case per fixed scoring bug
 def test_review_followups_scoring_regexes_and_clock():
-    assert ls.LEAK_RE.search("The Vault holds the secrets") and not ls.LEAK_RE.search("the vault door was open")  # a sentence-start "The Vault" is machinery too
+    assert ls.LEAK_RE.search("The Vault holds the secrets") and not ls.LEAK_RE.search("the vault door was open") and not ls.LEAK_RE.search("a vault wall of safe-deposit boxes")  # a sentence-start "The Vault" is machinery too
     assert not ls.PHANTOM_CER_RE.search("The nomination ceremony is tomorrow, and the house is nervous.")  # speculation about a later ceremony is not a ceremony voiced
     assert ls.PHANTOM_CER_RE.search("The nomination ceremony begins.")
     bad = _score([_turn("c", "The nominees are Aa Bb and then everyone left.", phase="hoh-competition", nominees=["Aa Bb", "Cc Dd"])])

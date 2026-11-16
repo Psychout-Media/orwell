@@ -46,7 +46,7 @@ PAIR_AFTER_RE = re.compile(r"(?i:nominees?\W+(?:are|were|is)\W+)([A-Z][a-z'-]+(?
 PAIR_BEFORE_RE = re.compile(r"([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?),? (?:are|were)(?: both)? (?:the )?(?:nominees|nominated|on the block|up for eviction)")
 
 # machinery that must never reach a player-facing reply
-LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\b[Tt]he Vault\b|\b[Vv]ault [Ww]all\b)", re.I)
+LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\b[Tt]he Vault\b|\bVault Wall\b)", re.I)
 # a guard's replacement shell is not a scene
 SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again\?|Responding\W*$", re.I)
 # competition play that must not be narrated before the engine has run the competition

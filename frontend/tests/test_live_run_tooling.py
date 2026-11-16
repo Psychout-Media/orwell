@@ -166,5 +166,6 @@ def test_dev_watch_records_an_in_flight_verdict_and_keeps_its_period():
 def test_review_followups_the_live_run_scripts_clean_up_lock_and_record_only_a_real_run():
     short, season, resume = [(LIVE / n).read_text() for n in ("run_short.sh", "season.sh", "season_resume.sh")]
     assert 'case $RC in 0|1) echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"' in short  # a COULD-NOT-RUN revision is not recorded as tested
-    assert "trap '\"$KIT/stop.sh\"" in short and "trap '\"$KIT/stop.sh\"" in season  # a cancelled run stops the rig
+    for src in (short, season):  # a cancelled run stops the rig AND ends: a TERM/INT trap that only stops the rig lets the script carry on
+        assert "trap '\"$KIT/stop.sh\" >/dev/null 2>&1' EXIT" in src and "trap 'exit 143' TERM" in src and "trap 'exit 130' INT" in src
     assert 'flock -n 9' in resume  # the resume takes the rig lock like the other runners
