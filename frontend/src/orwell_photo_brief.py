@@ -119,7 +119,7 @@ SYSTEM = (
     "Rules for every person. The facet of life to feature is the thing the photo shows; when it says near their work, the place is close to where they work but they wear "
     "their own clothes and nothing shows the job: no uniform, scrubs, apron, badge, work gear or work prop. The job is never a caption for the photo anywhere else either; "
     "a hobby or a family object is welcome. Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
-    "nothing is acted. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
+    "nothing is acted. Never change their hair or its styling, whatever the activity. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
     "background (other people, animals, vehicles) is welcome and wanted but out of focus. No readable brand names, signs or text. Do not write the person's name: say "
     "'the person'. Do not describe framing, lens or camera. Invent from the sheet; do not reuse wording between people. Every object, signature item and place is used by ONE "
     "person only: when 'alreadyUsed' lists things, choose different ones."
@@ -978,6 +978,13 @@ def _sentence(t: str) -> str:
     return f"{x}." if x else ""
 
 
+HAIR_SIG_RE = re.compile(r"\b(?:hair|braids?|locs|dreads?|curls?|curly|waves?|wavy|bun|ponytail|pigtails|afro|fade|buzz\w*|bob|bangs|fringe|twist\w*|updo|mohawk|shaved head|bald|pompadour|undercut)\b", re.I)
+
+
+def is_hair_signature(sig: str) -> bool:
+    return bool(sig) and bool(HAIR_SIG_RE.search(sig))
+
+
 def _lc(text: str, proper: Optional[set] = None) -> str:
     """Lower-case the first letter for a mid-sentence start, unless the first word is a proper name (a word of the hometown)."""
     t = str(text or "").strip()
@@ -1001,6 +1008,8 @@ def brief_sentences(brief: dict, proper: Optional[set] = None) -> str:
     wear = str(brief["wear"]).rstrip(". ")
     sig = str(brief.get("signature") or "").rstrip(". ")
     objs = [str(x).rstrip(". ") for x in brief["inFrame"]]
+    if is_hair_signature(sig):
+        sig = ""           # a hair signature is the Hair sentence (compose_prompt), not clothes and not an object
     if not sig:
         pass
     elif CLOTHING_RE.search(sig):
@@ -1046,7 +1055,12 @@ def compose_prompt(floor_prompt: str, brief: Optional[dict], proper: Optional[se
     if not brief or not isinstance(floor_prompt, str) or not _SPAN_RE.search(floor_prompt):
         return floor_prompt
     face = str(brief.get("expressionBody") or "").strip() or floor_expression(floor_prompt)
-    return _SPAN_RE.sub(lambda m: brief_sentences({**brief, "expressionBody": face}, proper) + " ", floor_prompt, count=1)
+    out = _SPAN_RE.sub(lambda m: brief_sentences({**brief, "expressionBody": face}, proper) + " ", floor_prompt, count=1)
+    sig = str(brief.get("signature") or "").strip().rstrip(".")
+    if is_hair_signature(sig):
+        # when the signature is hair it overrides the hair line's styling (a braid cannot come from the activity): the sentence says it and that it holds whatever they are doing
+        out = re.sub(r"Hair: .*?(?= Wearing )", lambda m: f"Hair: {sig}, exactly as the sheet says, worn this way whatever the person is doing.", out, count=1, flags=re.S)
+    return out
 
 
 def final_prompt(floor_prompt: str, brief: Optional[dict], anchors: Optional[dict], card: Optional[dict] = None) -> str:

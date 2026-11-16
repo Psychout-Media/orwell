@@ -46,8 +46,38 @@ PROBLEM_WORDS = {
     "not-a-real-photo": "a real, unposed photograph with real skin texture, not a studio, stock, glossy or rendered look",
     "bad-held-object": "natural hands and held objects with correct fingers, grip and shape, or nothing held",
     "fake-clothes": "ordinary real garments with proper seams, fit and structure",
+    # ORW-480: a frame or border (a black edge, a film-scan rim) and a provider watermark
+    "frame-or-border": "a photograph that runs to all four edges: no frame, border, black edge or film-scan rim",
+    "watermark": "no watermark, sparkle, star or logo mark in any corner",
 }
 KNOWN_CODES = frozenset(PROBLEM_WORDS)
+
+
+def has_border(png: bytes) -> bool:
+    """A cheap, deterministic edge test (no model call): True when all four edges of the picture are one flat, very dark (or very light) band, as a black frame or a
+    film-scan rim is. Needs Pillow; without it, or on an unreadable image, False."""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(png))
+        im.load()
+        im = im.convert("L")
+        im.thumbnail((256, 256))
+        w, h = im.size
+        t = max(2, int(min(w, h) * 0.03))
+        px = im.load()
+
+        def band(coords):
+            vals = [px[x, y] for x, y in coords]
+            mean = sum(vals) / len(vals)
+            sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+            return mean, sd
+        sides = (
+            band((x, y) for x in range(w) for y in range(t)), band((x, y) for x in range(w) for y in range(h - t, h)),
+            band((x, y) for x in range(t) for y in range(h)), band((x, y) for x in range(w - t, w) for y in range(h)),
+        )
+        return all(sd < 7 and (mean < 28 or mean > 238) for mean, sd in sides)
+    except Exception:  # failsoft-ok: best-effort-enrichment (no edge verdict: the vision check still looks)
+        return False
 
 
 def problems_in_words(codes: list) -> str:
@@ -180,7 +210,9 @@ _CHECKLIST = (
     "wrong-presentation (the clothes contradict the stated gender presentation), "
     "eyes-off (eyes not on the camera; only judge this when the facts say eyes on camera was asked), "
     "not-a-portrait (not a head-and-shoulders or waist-up portrait photo), "
-    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour or length, is not in the photo)"
+    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour or length, is not in the photo), "
+    "frame-or-border (a black or white frame, border or film-scan edge around the picture), "
+    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner)"
 )
 
 
@@ -188,7 +220,9 @@ _REALISM_CHECKLIST = (
     "not-a-real-photo (it does not look like a real photograph: a glossy studio or stock-photo look, plastic or airbrushed skin, "
     "a rendered or illustrated look, a blurred-away background that hides the place), "
     "bad-held-object (hands or a held object look unnatural: wrong finger count, fused or bent fingers, a held thing with a wrong shape), "
-    "fake-clothes (the clothes are not real garments: impossible construction, melted seams, a collar or lapel that makes no sense, a lanyard or badge as costume)"
+    "fake-clothes (the clothes are not real garments: impossible construction, melted seams, a collar or lapel that makes no sense, a lanyard or badge as costume), "
+    "frame-or-border (a black or white frame, border or film-scan edge around the picture), "
+    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner)"
 )
 # codes that do not apply to a candid brief: the moment may be a laugh or a glance, and loose hairs are asked for
 _CANDID_SKIPPED = ("messy-hair", "mouth-mid-word", "not-a-portrait")

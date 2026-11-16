@@ -495,6 +495,40 @@ def _consume_gen_cost() -> Optional[float]:
     return None if c is None else round(c, 6)
 
 
+# ORW-480: which provider and model made the image of the current task ("gpt-image" route, the Gemini fallback, a direct images API), recorded in the manifest
+# entry and the attempt log, so a photo's origin is never a guess (a fallback image can carry a provider watermark).
+_TASK_PROVIDER: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+_LAST_PROVIDER: Optional[dict] = None
+
+
+def _note_gen_provider(model_id: str, route: str) -> None:
+    global _LAST_PROVIDER
+    rec = {"model": str(model_id or "")[:80], "route": route}
+    _LAST_PROVIDER = rec          # the module-level copy serves a reader in another task (a sync caller, a test), like the generation reason
+    t = _gen_task()
+    if t is not None:
+        _TASK_PROVIDER[t] = rec
+
+
+def _peek_gen_provider() -> Optional[dict]:
+    t = _gen_task()
+    if t is not None and t in _TASK_PROVIDER:
+        return _TASK_PROVIDER[t]
+    return _LAST_PROVIDER
+
+
+def _set_gen_provider(rec: Optional[dict]) -> None:
+    global _LAST_PROVIDER
+    t = _gen_task()
+    if t is not None:
+        if rec is None:
+            _TASK_PROVIDER.pop(t, None)
+        else:
+            _TASK_PROVIDER[t] = rec
+    else:
+        _LAST_PROVIDER = rec
+
+
 def _usage_cost(data) -> Optional[float]:
     u = data.get("usage") if isinstance(data, dict) else None
     c = u.get("cost") if isinstance(u, dict) else None
@@ -654,7 +688,7 @@ def _provider_error_reason(resp) -> Optional[str]:
 
 def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
                 duration_ms: int = 0, detail: Optional[str] = None,
-                check: Optional[dict] = None, cost: Optional[float] = None) -> None:
+                check: Optional[dict] = None, cost: Optional[float] = None, provider: Optional[dict] = None) -> None:
     """Append one generation attempt/outcome to the capped JSONL ring. Best-effort:
     a logging failure must never break the generation pipeline itself.
 
@@ -670,6 +704,8 @@ def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
     }
     if (not ok) and detail:
         entry["detail"] = str(detail)[:200]
+    if isinstance(provider, dict) and provider.get("route"):
+        entry["provider"] = {"model": str(provider.get("model") or "")[:80], "route": str(provider["route"])[:24]}   # ORW-480: who made the image
     if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
         entry["costUsd"] = round(float(cost), 6)  # ORW-480: only when the provider returned one (images, the check and any re-shoot)
     if isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
@@ -1298,6 +1334,7 @@ async def _generate_via_chat_completions(client, chat_url: str, model_id: str,
             return None, "no-image-in-response", _chat_text_hint(data), resp.status_code
         png, fetch_reason = await _image_bytes_from_url(client, img_url)
         if png:
+            _note_gen_provider(model_id, "chat")
             return png, None, None, resp.status_code
         return None, fetch_reason or "image-decode-failed", None, resp.status_code
 
@@ -1376,11 +1413,42 @@ async def _generate_via_openrouter_images(client, base_url: str, model_id: str, 
         except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
             pass
         logger.info("[portraits] gpt-image %s cost %s for %s", model_id, cost, _hid_tag())
+        _note_gen_provider(model_id, "gpt-image")
         return png
     except Exception as e:  # failsoft-ok: handled-by-caller (reason recorded, then the Gemini fallback)
         logger.info("[portraits] gpt-image failed: %s", e)
         _note_gen_error("gpt-image-failed", type(e).__name__)
         return None
+
+
+# ORW-480: GPT Image is retried this many more times, with these waits in seconds, on a transient failure before anything else is tried.
+GPT_RETRY_WAITS_S = (3.0, 9.0)
+
+
+def _gpt_failure_retryable(err: tuple) -> bool:
+    """A transient GPT Image failure: a 429, any 5xx, a 408, a timeout or a dropped connection, whether the class or the detail carries it. A 400, a 404, an empty
+    response or an undecodable image is a failure of the content or the request that a blind retry cannot fix."""
+    cls, detail = err
+    if _is_transient_gen_error(cls) and not is_billing_error(cls, detail):
+        return True
+    if cls == "gpt-image-failed" and detail:
+        status = _http_status_of(detail)
+        if status is not None:
+            return status in (408, 429) or 500 <= status <= 599
+        return _is_transient_gen_error(str(detail).split(":")[0])
+    return False
+
+
+def gemini_fallback_enabled(user: Optional[str]) -> bool:
+    """The setting `portrait_gemini_fallback` (default off): whether a portrait that GPT Image could not make may be made by the Gemini chat route instead."""
+    try:
+        from src.settings import get_user_setting
+        v = get_user_setting("portrait_gemini_fallback", owner=user or "", default=False)
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "on", "yes")
+        return bool(v)
+    except Exception:
+        return False
 
 
 async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
@@ -1402,7 +1470,8 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
         if png:
             # ORW-389: the fallback made the photo, so the GPT Image reason is no longer a failure.
             _set_gen_state(None, None)
-            logger.info("[portraits] fallback used for %s (after gpt-image failure)", _hid_tag())
+            logger.info("[portraits] fallback used for %s (after gpt-image failure): provider gemini chat route, the image may carry a provider watermark", _hid_tag())
+            _note_gen_provider(fb_model, "gemini-fallback")
         return png
     return None
 
@@ -1544,13 +1613,26 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
             if is_openrouter and model_id.lower().startswith(OPENROUTER_GPT_IMAGE_PREFIX):
                 # ORW-362: GPT Image is served on OpenRouter's Image API only. On any failure make
                 # this one portrait with Gemini on the chat route (one attempt, no loop).
-                png = await _generate_via_openrouter_images(client, base_url, model_id, prompt,
-                                                            headers, reference_png, quality, user=user)
-                if png:
-                    return png
-                if is_billing_error(*_peek_gen_error()):
-                    return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
+                png = None
+                for _attempt in range(1 + len(GPT_RETRY_WAITS_S)):
+                    png = await _generate_via_openrouter_images(client, base_url, model_id, prompt,
+                                                                headers, reference_png, quality, user=user)
+                    if png:
+                        return png
+                    if is_billing_error(*_peek_gen_error()):
+                        return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
+                    # ORW-480: a transient GPT Image failure (429, 5xx, a timeout, a dropped connection) is retried with a growing wait BEFORE any other provider is tried
+                    if _attempt < len(GPT_RETRY_WAITS_S) and _gpt_failure_retryable(_peek_gen_error()):
+                        logger.info("[portraits] gpt-image failed for %s (%s): retry %d after %.0fs", _hid_tag(), _peek_gen_error()[0], _attempt + 1, GPT_RETRY_WAITS_S[_attempt])
+                        await asyncio.sleep(GPT_RETRY_WAITS_S[_attempt])
+                        continue
+                    break
                 gpt_err = _peek_gen_error()  # ORW-437: the GPT class and detail are the primary cause
+                if not gemini_fallback_enabled(user):
+                    # ORW-480: no Gemini fallback by default: a fallback image can carry the provider's visible watermark. The failure is recorded (RED) and the
+                    # reconciler shoots this person again later with GPT Image.
+                    logger.info("[portraits] gpt-image failed for %s after %d tries (%s): no Gemini fallback (setting portrait_gemini_fallback is off)", _hid_tag(), 1 + len(GPT_RETRY_WAITS_S), gpt_err[0])
+                    return None
                 fb_png = await _gpt_image_fallback(client, user, prompt, reference_png, ctx=_ctx)
                 fb_err = _peek_gen_error()
                 if (not fb_png and gpt_err[0] and not is_billing_error(*fb_err)
@@ -1583,6 +1665,7 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
                 _note_gen_error("empty-response")
                 return None
             img = images[0]
+            _note_gen_provider(model_id, "images-api")
             if img.get("b64_json"):
                 return base64.b64decode(img["b64_json"])
             if img.get("url"):
@@ -1716,6 +1799,11 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         from src import orwell_portrait_check as C
         facts = C.facts_from_prompt(prompt)
         first = await C.check_portrait(png, facts, user)
+        border = C.has_border(png) and C.check_enabled(user)   # ORW-480: the free edge test; only while the photo check is on
+        if first is None and border:
+            first = {"ok": False, "problems": ["frame-or-border"]}
+        elif first is not None and border and "frame-or-border" not in first["problems"]:
+            first = {"ok": False, "problems": list(first["problems"]) + ["frame-or-border"]}
         if first is None:
             return png, None
         logger.info("[portraits] photo check for %s: %s", _hid_tag(), "ok" if first["ok"] else "problems " + ",".join(map(str, first["problems"])))
@@ -1729,6 +1817,7 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
                     return old_png.read_bytes(), {"ok": False, "problems": list(prior), "reshot": False}
             return png, {"ok": False, "problems": first["problems"], "reshot": False}
         meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
+        prov_first = _peek_gen_provider()      # ORW-480: the provider of the first image, restored when the first photo is the one kept
         fix_prompt = prompt + " Fix in this version: " + C.problems_in_words(first["problems"]) + "."
         if upgrade:  # ORW-437: the re-shoot of a FORCED UPGRADE keeps the upgrade's identity-only prefix, never the generic one
             png2 = await _generate_one(UPGRADE_IDENTITY_PREFIX + fix_prompt, user, reference_png=ref, keep_identity=False)
@@ -1737,13 +1826,18 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         logger.info("[portraits] photo re-shoot for %s: %s", _hid_tag(), "made" if png2 else "failed")
         if not png2:
             meta["reshot"] = False
+            _set_gen_provider(prov_first)
             return png, meta
         second = await C.check_portrait(png2, facts, user)
+        if C.has_border(png2) and C.check_enabled(user):
+            second = {"ok": False, "problems": (list(second["problems"]) if second else []) + (["frame-or-border"] if not second or "frame-or-border" not in second["problems"] else [])}
         if second is None:
             return png2, meta  # re-shot but the second look was skipped: keep the fix, verdict stays the first's
         meta["ok"], meta["problems"] = second["ok"], second["problems"]
-        return (png, {**meta, "ok": False, "problems": first["problems"]}) if len(second["problems"]) > len(first["problems"]) \
-            else (png2, meta)
+        if len(second["problems"]) > len(first["problems"]):
+            _set_gen_provider(prov_first)
+            return png, {**meta, "ok": False, "problems": first["problems"]}
+        return png2, meta
     except Exception as e:  # failsoft-ok: fail-open (the photo is kept as is)
         logger.info("[portraits] photo check skipped: %s", e)
         return png, None
@@ -1752,7 +1846,7 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
 def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: str,
                     source: str = "generated", fingerprint: Optional[str] = None,
                     ref_clean: Optional[bool] = None, check: Optional[dict] = None,
-                    cast_look_reshot: bool = False) -> str:
+                    cast_look_reshot: bool = False, provider: Optional[dict] = None) -> str:
     """Persist one portrait + update the manifest; return its stored filename.
 
     `source` (G26) records HOW the portrait was made: 'generated' (text-to-image, the default),
@@ -1800,6 +1894,8 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
         entry["refClean"] = True
     if cast_look_reshot:  # ORW-480: this photo was re-shot once by the cast-level look; it is never sent back again
         entry["castLookReshot"] = True
+    if isinstance(provider, dict) and provider.get("route"):  # ORW-480: which provider and route made this image (a Gemini fallback image can carry a watermark)
+        entry["provider"] = {"model": str(provider.get("model") or "")[:80], "route": str(provider["route"])[:24]}
     if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
         entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
                           "reshot": bool(check.get("reshot"))}
@@ -2465,8 +2561,8 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             try:
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
-                                    ref_clean=ref_clean, check=check_meta)
-                log_attempt(str(hid), True, None, duration_ms, check=check_meta, cost=_consume_gen_cost())
+                                    ref_clean=ref_clean, check=check_meta, provider=_peek_gen_provider())
+                log_attempt(str(hid), True, None, duration_ms, check=check_meta, cost=_consume_gen_cost(), provider=_peek_gen_provider())
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
                 if not silent:
@@ -2667,8 +2763,8 @@ async def dedupe_lookalikes(prompts: list, user: Optional[str],
                         duration_ms, detail=_consume_gen_detail())
             continue
         try:
-            _write_portrait(user, str(hid), png, name, source="generated")
-            log_attempt(str(hid), True, None, duration_ms)
+            _write_portrait(user, str(hid), png, name, source="generated", provider=_peek_gen_provider())
+            log_attempt(str(hid), True, None, duration_ms, provider=_peek_gen_provider())
             regenerated_ids.append(str(hid))
         except Exception as e:
             # #1599 (CodeRabbit finding b): a broken look-alike regen persist must show RED — the
@@ -2735,8 +2831,8 @@ async def cast_look_pass(prompts: list, user: Optional[str]) -> dict:
                     continue
                 meta = {"ok": True if second is None else second["ok"], "problems": [] if second is None else second["problems"], "reshot": True}
                 _write_portrait(user, hid, png2, str((stored or {}).get("name") or entry.get("name") or ""), source="generated",
-                                fingerprint=_prompt_fingerprint(prompt), check=meta, cast_look_reshot=True)
-                log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check=meta, cost=_consume_gen_cost())
+                                fingerprint=_prompt_fingerprint(prompt), check=meta, cast_look_reshot=True, provider=_peek_gen_provider())
+                log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check=meta, cost=_consume_gen_cost(), provider=_peek_gen_provider())
                 out["reshotIds"].append(hid)
             finally:
                 try:

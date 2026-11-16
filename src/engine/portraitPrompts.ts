@@ -174,10 +174,10 @@ const OPENER: Record<RealismVariant, string> = {
 const TAIL: Record<RealismVariant, string> = {
   press: "An ordinary member of the public, not a model or an actor: natural asymmetry, visible pores and uneven skin tone with a little shine, ordinary teeth, flyaway hairs, "
     + "clothes that have been worn and washed, with creases. The place is in normal focus with its real clutter, lit by the ordinary available light there, with its mixed colour, a little sensor grain. "
-    + "Keep the stated age exactly. The only person in the frame; no text or logos.",
+    + "Keep the stated age exactly. The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim. The only person in the frame; no text or logos.",
   documentary: "Taken the way a local paper would: available light, the real place in normal focus, nothing retouched, the person looking like themselves, real skin and hair, worn everyday clothes. "
-    + "Keep the stated age exactly. The only person in the frame; no text or logos.",
-  minimal: "The only person in the frame; no text or logos.",
+    + "Keep the stated age exactly. The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim. The only person in the frame; no text or logos.",
+  minimal: "The picture runs to all four edges: no frame or border. The only person in the frame; no text or logos.",
 };
 
 /** Words from the cards that push a glossy, catalogue look: never passed on (the person is ordinary, not polished). */
