@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent)
+SKIP_NAMES = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "ci/test-durations.json", "ci/bdd-durations.json", "frontend/tests/_ci_durations.json"}   # generated tables and lock files: no prose
 SELF = {"ci/check_no_internal_details.py", "tests/unit/ciNoInternalDetails.test.ts"}
 ALLOWED_192 = {"192.168.0.0", "192.168.0.1", "192.168.0.2", "192.168.1.1", "192.168.1.20", "192.168.1.50", "192.168.1.100"}
 ALLOWED_HOME = {"user", "runner", "settings"}
@@ -22,10 +23,13 @@ RULES = [
 
 
 def main() -> int:
-    files = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True).stdout.decode().split("\0")
+    # git grep (C speed) picks the few candidate files first; only those are read line by line for the allow-list decisions.
+    cand = r"10\.0\.1\.[0-9]|192\.168\.[0-9]|/home/[A-Za-z0-9_.-]|proxnode|ubuntuide|hnet00|rhinoide|tradeagent"
+    r = subprocess.run(["git", "-C", str(ROOT), "grep", "-l", "-z", "-I", "-i", "-E", cand], capture_output=True)
+    files = r.stdout.decode().split("\0") if r.returncode in (0, 1) else subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True).stdout.decode().split("\0")
     bad = []
     for f in filter(None, files):
-        if f in SELF:
+        if f in SELF or f in SKIP_NAMES or f.endswith((".lock", "requirements.lock.txt")):
             continue
         p = ROOT / f
         try:
