@@ -183,23 +183,25 @@ describe("ORW-432 what moved and what did not", () => {
   it("stats, names, ages, hidden profiles, threads and every look field are byte-identical to main for the blanked draws (the background text and the biographies built from it are re-pinned by ORW-458)", () => {
     // `blankText` also blanks what ORW-458 changed (the public background line and the floor biography built from it),
     // so the first hash proves NO DRAW MOVED: it equals main's hash with the same blanking. The second pins the full text.
+    // NOTE (ORW-480): the blanking also covers the presentation, the mark and the face line, so a change to THOSE draws is not covered by this
+    // pin; they have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts and the style-fit parity cases).
     const run = (blankText: boolean) => {
       let all = "";
       for (const seed of SEEDS6) {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-        // ORW-508 also blanks what its acceptance re-deal and world hometown change: vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on the vocation.
-        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, vocation: 0, hometown: 0 } : {}) } }));
+        // ORW-508 also blanks what its acceptance re-deal and world hometown change (vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on it); ORW-480 blanks the presentation, style line, mark and face line.
+        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, presentation: 0, vocation: 0, hometown: 0 } : {}) } }));
         const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
         const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
-        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: v.physicalCharacteristics, castingType: 0 }]));
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0, distinguishingMark: 0, facialFeatures: 0 } : v.physicalCharacteristics, castingType: 0 }]));
         all += JSON.stringify([blanked, pub, hid, thr]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("654f5b8859d93923260d80f075c916fe4dee4dc9ffc50279e096e2c3dc99d845"); // identical on main and on the ORW-508 branch with vocation, hometown, background and their derived text blanked: no random draw moved
-    expect(run(false)).toBe("6a0d248eb8565506ea7cc0d3cbf7261b4346f7ca8bf0382e7ca5ba81224d50e4"); // re-pinned on purpose by ORW-508: hometown from the world table, and a job the age rules out re-dealt on its own stream (with the background, biography, secrets, goals, weakness and thread premises built from the job); earlier: ORW-458 background text
+    expect(run(true)).toBe("23a86119fd0d9952f1a535083bd67f5500e9ef2e64a3ebb691c5d6a6606073ee"); // identical on main and on the ORW-508 branch with ORW-508's and ORW-480's changed fields blanked: no other random draw moved
+    expect(run(false)).toBe("b30a7db3df6814428e5205b140514f407a8c8a12f37fb1b2bcfa2fbf609b6142"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
   });
 });
 

@@ -107,6 +107,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
+  // 0154 / ORW-330 slice 5b: after an eviction NPC voters tell one NPC how they voted ("I voted to keep you"), true or a lie, engine-decided on its own seeded stream. Needs ORWELL_NPC_BELIEFS. `=0` turns it off.
+  { envKey: 'ORWELL_VOTE_TALK', key: 'voteTalk', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
   // A49 / #2017 E1a: npcVoice hands the narrator each PRESENT houseguest's observable tells (top 2, words only). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -131,6 +133,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
   // 0151 / ORW-330 (theme 2 slice 4a): a houseguest who trusts the player may pass on one belief per day, hedged by their certainty (engine-decided, own side stream, no outcome moves). Default-ON; `=0` opts out.
   { envKey: 'ORWELL_CLAIMS_TO_PLAYER', key: 'claimsToPlayer', parser: 'defaultOn' },
+  // 0156 / ORW-330 (theme 2 slice 7a): house meetings - an accusation in front of the house, the accused answers, each listener decides who to believe. NPCs call at most one a week; the player's call is slice 7b.
+  { envKey: 'ORWELL_HOUSE_MEETINGS', key: 'houseMeetings', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },

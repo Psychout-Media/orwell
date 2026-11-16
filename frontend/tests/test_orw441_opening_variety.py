@@ -135,3 +135,10 @@ def test_photohair_openings_already_used_reach_the_next_writers_prompt():
     assert ph["photohair_openings"] == ["close cropped"]
     text = _msg({"vocations": [], "hometowns": [], "phrases": ph})
     assert "photoHair lines already open: close cropped" in text
+
+
+def test_the_signature_lean_is_a_plain_word_in_the_taken_list_not_part_of_the_opening_pattern():
+    assert "lookSignature" not in " ".join(ca.opening_pattern(2))  # the period-6 opening pattern stays as it was
+    lean = ca._signature_lean(2)
+    assert lean and "-" not in lean  # plain words ("jewellery", "a hat or headwear"), never an internal category name
+    assert f"leans toward {lean}" in _msg({"vocations": [], "hometowns": [], "signature_lean": lean})

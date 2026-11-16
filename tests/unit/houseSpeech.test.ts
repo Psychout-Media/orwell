@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import { recordClaim, type BeliefStore } from "../../src/engine/beliefStore";
+import { claimFromBelief, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../src/engine/houseSpeech";
+import { beliefFor, claimProblem } from "../../src/engine/spokenClaims";
+
+/** 0153 / ORW-330 slice 3 - house-life speech as claims the engine decides. Roles only (an actor, a listener, a target, a bystander). */
+const ACTOR = "npc:a", EAR = "npc:e", TARGET = "npc:t", OTHER = "npc:o";
+const living = [ACTOR, EAR, TARGET, OTHER, "player"];
+const none: TruthFacts = { goalAgainst: () => false, votedToEvict: () => false, votedToKeep: () => false, finalTwo: () => false, liedTo: () => false, talkedAbout: () => false };
+const ctx = (over: Partial<{ beliefs: BeliefStore; facts: TruthFacts; roll: number }> = {}) => ({ living, beliefs: {}, facts: none, roll: 0, ...over });
+
+describe("0153: what house-life speech says", () => {
+  it("truth comes from the engine's records, kind by kind", () => {
+    const f: TruthFacts = { goalAgainst: (w, t) => w === TARGET && t === EAR, votedToEvict: (v, e) => v === TARGET && e === EAR, votedToKeep: (v, n) => v === TARGET && n === OTHER, finalTwo: (a, b) => a === TARGET && b === OTHER, liedTo: (a, b) => a === TARGET && b === EAR, talkedAbout: (a, b) => a === TARGET && b === OTHER };
+    expect(truthOf({ kind: "targets-you", listener: EAR, subject: TARGET }, f)).toBe(true);
+    expect(truthOf({ kind: "targets-you", listener: OTHER, subject: TARGET }, f)).toBe(false);
+    expect(truthOf({ kind: "voted-to-evict-you", listener: EAR, subject: TARGET }, f)).toBe(true);
+    expect(truthOf({ kind: "final-two-with", listener: EAR, subject: TARGET, object: OTHER }, f)).toBe(true);
+    expect(truthOf({ kind: "going-after", listener: OTHER, subject: TARGET, object: EAR }, f)).toBe(true);
+    expect(truthOf({ kind: "talking-about", listener: EAR, subject: TARGET, object: OTHER }, f)).toBe(true);
+    expect(truthOf({ kind: "lying-about", listener: EAR, subject: TARGET }, f)).toBe(true);
+    expect(truthOf({ kind: "voted-against", listener: OTHER, subject: TARGET, object: EAR }, f)).toBe(true);
+    expect(truthOf({ kind: "voted-against", listener: EAR, subject: TARGET, object: OTHER }, f)).toBe(false);
+    expect(truthOf({ kind: "voted-to-keep", listener: OTHER, subject: TARGET, object: OTHER }, f)).toBe(true);
+    expect(truthOf({ kind: "voted-to-keep", listener: EAR, subject: TARGET, object: EAR }, f)).toBe(false);
+    expect(beliefFor({ kind: "voted-to-keep", listener: EAR, subject: TARGET, object: EAR })).toEqual({ kind: "assured-me", subject: TARGET });
+    expect(beliefFor({ kind: "voted-to-keep", listener: OTHER, subject: TARGET, object: EAR })).toEqual({ kind: "heard-rumor", subject: TARGET, object: EAR, nature: "voted-to-keep" });
+    // a speaker may claim their OWN vote, and nothing else about themselves
+    expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "voted-to-keep", subject: TARGET, object: EAR, isTrue: false, intent: "deflect" }, living)).toBeUndefined();
+    expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "voted-against", subject: TARGET, object: OTHER, isTrue: true, intent: "inform" }, living)).toBeUndefined();
+    expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "going-after", subject: TARGET, object: OTHER, isTrue: true, intent: "inform" }, living)).toBeDefined();
+  });
+
+  it("an untruthful plant is a lie the engine knows is false; a truthful one tells something true, or nothing", () => {
+    const lie = planSpeech("plant", ACTOR, EAR, TARGET, false, ctx())!;
+    expect(lie).toMatchObject({ speaker: ACTOR, listener: EAR, subject: TARGET, isTrue: false, intent: "mislead" });
+    expect(truthOf(lie, none)).toBe(false);
+    expect(planSpeech("plant", ACTOR, EAR, TARGET, true, ctx())).toBeUndefined();
+    const real = planSpeech("plant", ACTOR, EAR, TARGET, true, ctx({ facts: { ...none, goalAgainst: (w, t) => w === TARGET && t === EAR } }))!;
+    expect(real).toMatchObject({ kind: "targets-you", isTrue: true, intent: "warn" });
+    // an untruthful plant never tells something true by accident: with every kind true there is no lie to tell
+    const all: TruthFacts = { goalAgainst: () => true, votedToEvict: () => true, votedToKeep: () => true, finalTwo: () => true, liedTo: () => true, talkedAbout: () => true };
+    expect(planSpeech("plant", ACTOR, EAR, TARGET, false, ctx({ facts: all }))).toBeUndefined();
+  });
+
+  it("a leak passes on only what the speaker believes; a fish is answered by the listener's belief", () => {
+    expect(planSpeech("leak", ACTOR, EAR, TARGET, true, ctx())).toBeUndefined();
+    const b: BeliefStore = {};
+    recordClaim(b, { holder: ACTOR, kind: "targets-me", subject: TARGET, object: ACTOR, value: true, origin: "told", confidence: 0.7, week: 1 });
+    expect(planSpeech("leak", ACTOR, EAR, TARGET, true, ctx({ beliefs: b }))).toMatchObject({ speaker: ACTOR, listener: EAR, kind: "going-after", subject: TARGET, object: ACTOR, isTrue: false, intent: "inform" });
+    expect(planSpeech("fish", EAR, ACTOR, TARGET, true, ctx({ beliefs: b }))).toMatchObject({ speaker: ACTOR, listener: EAR, kind: "going-after", subject: TARGET });
+  });
+
+  it("a confirm re-tells what the listener already believes; nothing to confirm, nothing said", () => {
+    expect(planSpeech("confirm", ACTOR, EAR, TARGET, true, ctx())).toBeUndefined();
+    const b: BeliefStore = {};
+    recordClaim(b, { holder: EAR, kind: "lied-to-me", subject: TARGET, value: true, origin: "told", confidence: 0.6, week: 1 });
+    expect(planSpeech("confirm", ACTOR, EAR, TARGET, true, ctx({ beliefs: b }))).toMatchObject({ speaker: ACTOR, listener: EAR, kind: "lying-about", subject: TARGET, object: EAR, intent: "recruit" });
+  });
+
+  it("a held 'they voted against me' can be said: it is passed on as voted-against, and planted in the listener as a rumor about the speaker", () => {
+    const b: BeliefStore = {};
+    recordClaim(b, { holder: ACTOR, kind: "voted-against-me", subject: TARGET, value: true, origin: "deduced", confidence: 0.6, week: 1 });
+    const leak = planSpeech("leak", ACTOR, EAR, TARGET, true, ctx({ beliefs: b }))!;
+    expect(leak).toMatchObject({ kind: "voted-against", subject: TARGET, object: ACTOR, isTrue: false });
+    expect(beliefFor(leak)).toEqual({ kind: "heard-rumor", subject: TARGET, object: ACTOR, nature: "voted-against" });
+    expect(beliefFor({ ...leak, listener: ACTOR })).toEqual({ kind: "voted-against-me", subject: TARGET });
+  });
+
+  it("beliefs without a claim form, refuted ones, and ones about the listener are never passed on", () => {
+    const base = { holder: ACTOR, value: true, origin: "told" as const, confidence: 0.6, week: 1, id: "x" };
+    expect(claimFromBelief({ ...base, kind: "holds-power", subject: TARGET }, ACTOR, EAR)).toBeUndefined();
+    expect(claimFromBelief({ ...base, kind: "targets-me", subject: TARGET, refuted: true }, ACTOR, EAR)).toBeUndefined();
+    expect(claimFromBelief({ ...base, kind: "targets-me", subject: EAR }, ACTOR, EAR)).toBeUndefined();
+  });
+
+  it("a campaign's flip-a-vote and a frame are plants; other actions say nothing", () => {
+    expect(speechActionOf("flip-a-vote")).toBe("plant");
+    expect(speechActionOf("frame")).toBe("plant");
+    expect(speechActionOf("cook")).toBeUndefined();
+  });
+});
+
+import { GameSessionRegistry } from "../../src/composition/registry";
+import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+
+describe("0153: the adapter's truth reads the secret ballots (engine-only)", () => {
+  it("voted-to-evict and voted-to-keep come from the recorded ballot", () => {
+    const s = new GameSessionRegistry().sandboxFor(`hs-${Math.random()}`).session as GameSessionAdapter;
+    s.createCharacter({ playerName: "P", seed: 2 });
+    const [v1, v2, nomA, nomB, stranger] = s.livingIds().filter((id) => id !== "player");
+    (s as unknown as { live: { voteRecord?: unknown[] } }).live.voteRecord = [{ week: 1, evictee: nomA, voteOf: { [v1!]: nomA, [v2!]: nomB } }];
+    const f = (s as unknown as { truthFacts(): TruthFacts }).truthFacts();
+    expect(f.votedToEvict(v1!, nomA!)).toBe(true);
+    expect(f.votedToEvict(v2!, nomA!)).toBe(false);
+    expect(f.votedToKeep(v2!, nomA!)).toBe(true);   // the evictee faced the vote and v2 voted the other way
+    expect(f.votedToKeep(v1!, nomA!)).toBe(false);
+    expect(f.votedToKeep(v1!, nomB!)).toBe(true);   // nomB faced the vote (v2 voted for them); v1 voted against nomA
+    expect(f.votedToKeep(v1!, stranger!)).toBe(false); // never faced the vote
+  });
+});

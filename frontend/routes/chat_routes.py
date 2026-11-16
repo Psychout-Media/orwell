@@ -1791,6 +1791,12 @@ def setup_chat_routes(
                 # 0064 §B/D / F5: snapshot the user's last-seen engine beatSeq BEFORE the turn so the
                 # end-of-turn HUD-parity push can tell a committed mutation from a no-op/OOC turn.
                 _beat_seq_before = last_beat_seq(ctx.user)
+                _narrator_paused_turn = False  # ORW-133: set when the agent loop reports the show paused (outage / account fault)
+                try:  # ORW-507: a stale "nobody engaged" verdict from an earlier turn whose E22 guard never ran must not stand down THIS turn's genuine under-call
+                    from src import fold_ledger as _fl_ts
+                    _fl_ts.consume_scene_nobody(ctx.user)
+                except Exception:
+                    pass
                 _answered_by = None  # set if the selected model failed and a fallback answered
                 _requested_model = sess.model
                 _actual_model = None
@@ -1862,7 +1868,10 @@ def setup_chat_routes(
                                     "rounds_exhausted",
                                     "ask_user",
                                     "plan_update",
+                                    "narrator_away", "narrator_paused",  # ORW-133 outage notices (review of #2367): the chain had no branch, so the client never saw the retry/pause toast
                                 ):
+                                    if data.get("type") == "narrator_paused":
+                                        _narrator_paused_turn = True  # the failed scene aired nothing: the [DONE] fallback must not record it
                                     if data.get("type") == "agent_step":
                                         _agent_rounds = max(_agent_rounds, data.get("round", 1))
                                         # ORW-153: each round's text arrives as its own deltas, so the
@@ -1978,15 +1987,16 @@ def setup_chat_routes(
                                     except Exception:
                                         pass
 
-                                _rec_task = asyncio.create_task(ensure_turn_recorded(
-                                    ctx.user, message, full_response, _agent_tools_called,
-                                    beat_seq_before=_beat_seq_before,
-                                    session_id=session,
-                                ))
-                                # Retain a strong ref until the task finishes (weak-ref GC guard).
-                                _BG_TASKS.add(_rec_task)
-                                _rec_task.add_done_callback(_BG_TASKS.discard)
-                                _rec_task.add_done_callback(_push_after_fallback)
+                                if not _narrator_paused_turn:  # a paused turn (ORW-133) changed nothing: the pause line is not a scene to fold
+                                    _rec_task = asyncio.create_task(ensure_turn_recorded(
+                                        ctx.user, message, full_response, _agent_tools_called,
+                                        beat_seq_before=_beat_seq_before,
+                                        session_id=session,
+                                    ))
+                                    # Retain a strong ref until the task finishes (weak-ref GC guard).
+                                    _BG_TASKS.add(_rec_task)
+                                    _rec_task.add_done_callback(_BG_TASKS.discard)
+                                    _rec_task.add_done_callback(_push_after_fallback)
                             if full_response:
                                 # M2-6: the beat's IN-WORLD moment (from this turn's framing state)
                                 # stamps the transcript timestamp; None pre-game (casting) ⇒ neutral.

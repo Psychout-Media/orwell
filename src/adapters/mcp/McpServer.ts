@@ -391,6 +391,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["wardrobe"] !== undefined && !Array.isArray(args["wardrobe"])) refuse("wardrobe", "an array when present");
       if (args["onCamera"] !== undefined && typeof args["onCamera"] !== "string") refuse("onCamera", "a string when present");
       if (args["photoHair"] !== undefined && typeof args["photoHair"] !== "string") refuse("photoHair", "a string when present");
+      if (args["lookSignature"] !== undefined && typeof args["lookSignature"] !== "string") refuse("lookSignature", "a string when present");
+      if (args["style"] !== undefined && typeof args["style"] !== "string") refuse("style", "a string when present");
       if (args["clear"] !== undefined && !Array.isArray(args["clear"])) refuse("clear", "an array when present");
       return;
     case "recordOpenLedger":

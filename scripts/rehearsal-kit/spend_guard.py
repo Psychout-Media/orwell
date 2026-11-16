@@ -60,7 +60,7 @@ def totals(path):
 
 
 def stop_run(run):
-    hints = {"driver": ("live_week", "live_short", "a9drive", "ab.py"), "daemon": ("daemon.py",), "fe": ("uvicorn",), "engine": ("dist/main.js", "main.js")}
+    hints = {"driver": ("live_week", "live_short", "a9drive", "a21_sync_drive", "ab.py"), "daemon": ("daemon.py",), "fe": ("uvicorn",), "engine": ("dist/main.js", "main.js")}
     for name in ("driver", "daemon", "fe", "engine"):
         try:
             pid = int(open(f"{run}/{name}.pid").read().strip())

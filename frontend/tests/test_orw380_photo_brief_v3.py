@@ -108,8 +108,8 @@ def test_neat_photohair_passes():
 def test_wardrobe_taken_compares_the_last_two_words(piece):
     taken = {"mainPieces": ["a tan leather jacket", "a flannel shirt"], "spots": {}}
     assert ca.look_problems(_pc(wardrobe=[piece, "dark jeans"]), _npc(), taken) == ["wardrobe-taken"]
-    assert ca.look_problems(_pc(wardrobe=["a grey flannel shirt", "x"]), _npc(), taken) == ["wardrobe-taken"]
-    assert ca.look_problems(_pc(wardrobe=["a denim jacket", "x"]), _npc(), taken) == []
+    assert ca.look_problems(_pc(wardrobe=["a grey flannel shirt", "dark jeans"]), _npc(), taken) == ["wardrobe-taken"]
+    assert ca.look_problems(_pc(wardrobe=["a denim jacket", "dark jeans"]), _npc(), taken) == []
     assert ca.look_problems(_pc(wardrobe=["jeans", "a leather jacket"]), _npc(), taken) == []  # only the MAIN piece counts
     assert ca.look_problems(_pc(wardrobe=[piece, "dark jeans"]), _npc()) == []                  # no taken list, no check
 
@@ -137,8 +137,8 @@ def test_gray_hair_young_never_falls_back_to_a_gray_seeded_hair():
 
 def test_the_shared_instruction_names_the_rules_and_has_no_worked_example():
     t = ca.PHOTO_SHEET_SYSTEM
-    for needle in ("wardrobe", "photoHair", "onCamera", "genderPresentation", "taken.mainPieces", "taken.spots",
-                   "90 characters", "240 characters", "3-8 words", "ONE spot", "castingType", "without naming the type", "he/him", "she/her", "they/them"):
+    for needle in ("wardrobe", "photoHair", "onCamera", "genderPresentation", "taken.mainPieces", "names no room",
+                   "90 characters", "240 characters", "3-8 words", "castingType", "without naming the type", "he/him", "she/her", "they/them"):
         assert needle in t
     for banned in ca._ONCAMERA_BANNED_WORDS:
         assert banned in t

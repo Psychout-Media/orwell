@@ -689,6 +689,8 @@ export interface LiveSeasonState {
    * Append-only for the season. Absent until the first claim is told (absent => byte-identical season state).
    */
   claims?: import("./spokenClaims").ClaimLog;
+  /** 0156 / ORW-330 slice 7a: the season's house meetings (`houseMeeting.ts`), append-only, kept whole, ENGINE-ONLY and never projected whole (only `houseMeetingThePlayerHeard` as names). Absent until the first meeting. */
+  houseMeetings?: import("./houseMeeting").HouseMeeting[];
   /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
   assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**
@@ -1102,6 +1104,8 @@ export interface SeasonCtx {
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
+  /** 0154 (caught in a lie): the eviction count is PUBLIC (who left, how many votes read "evict", who was eligible to vote) - never a ballot. The adapter catches any "I voted to keep you" the count rules out. Absent => nothing. */
+  evictionCountPublic?: (tally: { evictee: EntityId; evictVotes: number; voters: readonly EntityId[] }) => void;
   /** B4 slice 8: the HOH's nominations are final and did NOT include the houseguests they had assured 'safe'/'loyal' - those assurances were KEPT (resolved + the assured remembers a favor, by the adapter). */
   assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
   /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
@@ -2960,6 +2964,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // secret votes become tellable only once the season is over.
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
+  ctx.evictionCountPublic?.({ evictee, evictVotes: votesToEvict.length, voters: Object.keys(e.voteOf) }); // 0154: the count is public now; counts and the eligible list only, never who voted for whom
   // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
   if (s.playedGame === true) {
     // The FINAL eviction block (after the veto and any replacement), not the original nominees; one question per holder per week (a double eviction must not collide on the same ref).

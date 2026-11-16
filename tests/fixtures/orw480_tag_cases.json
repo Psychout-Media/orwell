@@ -1,0 +1,8333 @@
+{
+"cases": [
+{
+"card": {
+"vocation": "hospice night nurse",
+"physicalCharacteristics": {
+"onCamera": "Gaze fixed straight down the lens with one heavy brow lifted and a small closed-mouth smile, shoulders squared in the lounge doorway, one thumb hooked in a vest pocket, the one who dares you to blink first.",
+"wardrobe": [
+"olive puffer vest over a cream thermal top",
+"dark straight-leg hiking trousers",
+"worn brown hiking boots"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"vest",
+"trousers",
+"boots"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "tree trimmer",
+"physicalCharacteristics": {
+"onCamera": "Gaze fixed straight into the lens from a lounge chair, one hand resting flat on a knee, mouth closed in a small, knowing smile \u2014 the one who misses nothing.",
+"wardrobe": [
+"fitted charcoal blazer over a bare neckline",
+"slim high-waisted trousers with a clean crease",
+"polished ankle boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"trimmer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"trousers",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook",
+"physicalCharacteristics": {
+"onCamera": "A small, knowing smile plays at the corner of her mouth as she leans against the kitchen counter, arms loosely crossed, eyes fixed on the camera. The one who remembers everything.",
+"wardrobe": [
+"charcoal linen button-down shirt",
+"black straight-leg trousers",
+"simple black leather flats"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "defensive line coach",
+"physicalCharacteristics": {
+"onCamera": "Leaning back in a dining room chair, one hand resting on a folded playbook, he looks straight into the lens with a calm, knowing smirk, the one who already knows the next move.",
+"wardrobe": [
+"a bold printed silk shirt",
+"tailored white shorts",
+"white leather sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"prop": [
+"papers"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"shorts",
+"sneakers"
+],
+"colour": [
+"bright"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "restaurant supply sales rep",
+"physicalCharacteristics": {
+"onCamera": "Seated at the dining room table with a mug wrapped in both hands, chin lifted, dark eyebrows raised a half inch as if she just heard something worth a second look, the one who tastes every word before swallowing.",
+"wardrobe": [
+"brown tweed blazer with elbow patches",
+"moss-green knit sweater vest",
+"straight-leg dark jeans"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"rep"
+],
+"prop": [
+"mug"
+],
+"pose": [
+"seated"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"vest",
+"sweater",
+"jeans"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "firefighter paramedic",
+"physicalCharacteristics": {
+"onCamera": "Hands folded loose over one knee from the arm of the couch in the living room, chin lifted and eyes on the lens with a slow grin already breaking; the one who scores the room without a word.",
+"wardrobe": [
+"cream cashmere crewneck sweater",
+"charcoal tailored trousers",
+"dark brown leather loafers"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "dental office manager",
+"physicalCharacteristics": {
+"onCamera": "Gaze fixed on the camera from the living room sofa, one elbow propped on the armrest and chin resting on her knuckles, a closed-lip smile that reads as a challenge \u2014 the one who runs the room.",
+"wardrobe": [
+"navy blazer over a crisp white button-down",
+"slim gray slacks",
+"a thin silver lanyard with a badge holder"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"chin-on-hand"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "office manager at a rural school district",
+"physicalCharacteristics": {
+"onCamera": "Shoulders loose and forward on the living room couch, hands folded around a mug, eyes on the camera with a wide, warm grin \u2014 the one who remembers your birthday.",
+"wardrobe": [
+"faded gray zip-up hoodie",
+"baggy dark-wash jeans",
+"canvas sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"district"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "after-school program director",
+"physicalCharacteristics": {
+"onCamera": "A broad grin and relaxed shoulders at the kitchen counter, one hand resting on a coffee mug, eyes on the camera. The one who feeds people first.",
+"wardrobe": [
+"black button-down with lace trim at the collar",
+"fitted black jeans",
+"silver chain necklace"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"director"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "paramedic",
+"physicalCharacteristics": {
+"onCamera": "A ceramic mug rests in both hands on the kitchen island; her gaze is fixed on the camera, mouth curved into a small, knowing grin, the one who laughs before bad news.",
+"wardrobe": [
+"mustard-yellow corduroy blazer",
+"cream ribbed knit turtleneck",
+"high-waisted dark denim jeans"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"sweater",
+"jeans"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "video editor",
+"physicalCharacteristics": {
+"onCamera": "Seated at the kitchen island, hands wrapped around a mug, eyes on the camera with a quick half-smile, the one who already picked her person",
+"wardrobe": [
+"fitted navy compression tee",
+"gray team-color athletic shorts",
+"white slide sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"editor"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "hospital cafeteria manager",
+"physicalCharacteristics": {
+"onCamera": "Backyard, hands loose in jacket pockets, a soft warm smile straight to the camera. The one who remembers every name.",
+"wardrobe": [
+"crisp camo field jacket",
+"clean light-gray flannel shirt",
+"dark straight-leg jeans"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"warm-easy"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"button-down",
+"jeans"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "network reliability engineer",
+"physicalCharacteristics": {
+"onCamera": "Gaze fixed level at the lens from the kitchen doorway, hands loose at his sides, one corner of his mouth lifted in a patient half-smile. The one who already knows the wiring.",
+"wardrobe": [
+"black denim vest with hand-sewn patches",
+"faded plaid flannel shirt",
+"heavy black lace-up boots"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"engineer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"vest",
+"button-down",
+"jeans",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "Shoulders loose and settled back on the living room couch, one hand on a knee, dark eyes straight on the camera with a slow knowing smile \u2014 the one who believes in you early.",
+"wardrobe": [
+"waxed canvas chore jacket in dark olive",
+"cream waffle-knit henley",
+"broken-in work boots laced high"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"sweater",
+"boots"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "podcast producer",
+"physicalCharacteristics": {
+"onCamera": "An easy half-smile, eyes on the camera, hands folded atop the back of a dining room chair, chin lifted slightly, the one who is already three questions ahead.",
+"wardrobe": [
+"cream pearl-snap Western shirt with embroidered yoke",
+"dark pressed bootcut jeans",
+"tooled brown leather belt with a plain oval buckle"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"producer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "actuarial analyst",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with hands in his pockets, squared to the camera, chin slightly down and eyes level, mouth closed in a flat knowing half-smile: the one who already did the math.",
+"wardrobe": [
+"gray zip-front fleece pullover",
+"navy quilted puffer vest",
+"dark technical hiking trousers"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"analyst"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"vest",
+"hoodie",
+"trousers"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "after-school program director",
+"physicalCharacteristics": {
+"onCamera": "They stand at the lounge bookshelf with one hand resting on a spine, eyes on the camera, mouth closed in a small knowing smile, the one who files everything away.",
+"wardrobe": [
+"charcoal tweed blazer over a mustard sweater vest",
+"dark straight-leg trousers",
+"round wire-rim glasses"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"director"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"vest",
+"sweater",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook",
+"physicalCharacteristics": {
+"onCamera": "He leans on the backyard fence rail, shell necklace swinging, eyes on the camera with a slow half-smile \u2014 the one who counts every card.",
+"wardrobe": [
+"faded coral cotton tee",
+"navy board shorts",
+"woven shell necklace"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts"
+],
+"colour": [
+"red-pink"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "barbecue pit manager",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his arms loosely folded, eyes on the lens, half-smiling like he already knows the score \u2014 the one who keeps the tally.",
+"wardrobe": [
+"a fitted navy quarter-zip pullover",
+"light gray flat-front trousers",
+"a white visor"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "signals intelligence analyst for a defense contractor",
+"physicalCharacteristics": {
+"onCamera": "She sits at the kitchen island with a black mug hugged to her chest, chin just above the rim, eyes on the lens and a flat half-smile that gives nothing. The one who reads you first.",
+"wardrobe": [
+"a black high-necked top with lace trim at the collar",
+"a slim silver-chain bracelet",
+"dark straight-leg trousers"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"contractor"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "journeyman power-line technician",
+"physicalCharacteristics": {
+"onCamera": "He stands in the living room with arms folded, snapback tipped back and eyes locked on the lens, one eyebrow already halfway up, the one who reads the whole room.",
+"wardrobe": [
+"oversized charcoal hoodie",
+"dark relaxed-fit jeans",
+"high-top sneakers, fresh out of the box"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"technician"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "corporate mediator",
+"physicalCharacteristics": {
+"onCamera": "She stands in the lounge doorway, thumbs hooked in her pockets, weight on one hip, chin lifted, eyes straight into the lens, a closed confident smile \u2014 the one who studies the room before entering it.",
+"wardrobe": [
+"fitted olive camo-print button-up",
+"dark straight-leg jeans",
+"worn leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"mediator"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans",
+"boots"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green",
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "funeral director apprentice and embalmer",
+"physicalCharacteristics": {
+"onCamera": "He stands in the living room with arms folded, loafers planted, eyes on the camera and a warm crinkle-eyed smile \u2014 the one who makes grief honest.",
+"wardrobe": [
+"crisp light-blue linen button-down",
+"pressed seersucker blazer",
+"brown leather loafers"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"embalmer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"warm-easy"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "firefighter paramedic",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room with her boots planted, elbows resting on the back of a chair and her eyes steady on the camera, a small closed-mouth smile, the one who does the work first.",
+"wardrobe": [
+"fitted pearl-snap denim shirt",
+"dark straight-leg jeans",
+"scuffed leather rodeo boots"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans",
+"boots"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "community theater stage manager",
+"physicalCharacteristics": {
+"onCamera": "She stands in the kitchen leaning one hip against the counter, mug in hand, eyes on camera with a calm, knowing smile. The one who feeds the room.",
+"wardrobe": [
+"navy zip-front jacket",
+"gray scrub pants",
+"white clogs"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"manager"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "used-car salesperson",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room with her hands in her jacket pockets, weight on one boot, eyes straight to the lens and a wide closed-mouth grin \u2014 the one who has already read the room.",
+"wardrobe": [
+"fitted dark canvas chore jacket over a plain white tee",
+"worn-in carpenter pants with a clean press",
+"oil-tanned leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"salesperson"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"trousers",
+"boots"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "He leans back in the living room armchair with his beanie pulled low, one ankle on his knee, eyes on the lens and a slow grin just breaking. The one who needs you to watch.",
+"wardrobe": [
+"oversized slate-green hoodie",
+"relaxed dark straight-leg jeans",
+"worn white canvas sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "stunt performer",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard near the far fence, hands in his pockets, chin slightly lifted, eyes steady on the lens with a faint closed-mouth smile. The one who has already run the numbers.",
+"wardrobe": [
+"a plain charcoal crewneck sweatshirt",
+"loose dark denim jeans",
+"a ribbed knit beanie"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"performer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"sweater",
+"jeans"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "pediatric nurse",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen counter with a mug held in both hands, glasses catching the light, a closed-mouth grin just before the laugh escapes; the one who flirts before he thinks.",
+"wardrobe": [
+"brown tweed blazer over a cream sweater vest",
+"dark slim jeans and brown leather boots",
+"round tortoiseshell glasses"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"vest",
+"sweater",
+"jeans",
+"boots"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "graveyard-shift diner manager",
+"physicalCharacteristics": {
+"onCamera": "She stands in the kitchen doorway, arms loosely folded, eyes on the camera with a small, knowing smile. The one who keeps the ledger.",
+"wardrobe": [
+"a plain white compression tee",
+"navy team-color shorts",
+"white slide sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "cell-phone store franchise owner",
+"physicalCharacteristics": {
+"onCamera": "She stands at the kitchen island with a lanyard loose around her neck, one hand resting flat on the counter, chin slightly lifted toward the lens, a wide gap-toothed grin, the one who closes every room she enters.",
+"wardrobe": [
+"navy single-breasted blazer",
+"crisp white button-down shirt",
+"dark slim slacks"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"owner"
+],
+"prop": [
+"keys"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "police dispatcher",
+"physicalCharacteristics": {
+"onCamera": "He stands in the living room with his arms folded cross his chest, visor pushed back, looking square into the lens, mouth set in a flat daring smile \u2014 the one who never backs down.",
+"wardrobe": [
+"fitted teal performance polo",
+"light gray quarter-zip pullover",
+"black training shorts"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"dispatcher"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"button-down",
+"shorts"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "craft cocktail bartender",
+"physicalCharacteristics": {
+"onCamera": "Seated at the kitchen island with one elbow propped and a glass of ice water within reach, she looks straight down the lens with a flat, knowing half-smile, the one who has read the whole room.",
+"wardrobe": [
+"pressed light-blue seersucker blazer",
+"cream linen button-down shirt",
+"leather loafers and a folded pocket square"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"bartender"
+],
+"prop": [
+"drink"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "youth gymnastics coach",
+"physicalCharacteristics": {
+"onCamera": "They sit on the living room couch with a knee drawn up, chin on their fist and eyes on the lens, mouth closed and faintly amused \u2014 the one who is already keeping score.",
+"wardrobe": [
+"fitted white crew-neck tee, crisply tucked",
+"olive fitted cargo pants with clean pressed seams",
+"a slim dark belt and low canvas sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"chin-on-hand"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "accounts-payable clerk",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room, weight on one hip, arms loosely folded, eyes on the camera with a lazy half-smile\u2014the one who is already keeping score.",
+"wardrobe": [
+"faded low-rise jeans with a slim belt",
+"cropped graphic tee with a retro sunburst print",
+"tinted rectangular glasses with thin gold frames"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"clerk"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "landscape crew foreman",
+"physicalCharacteristics": {
+"onCamera": "He stands at the kitchen counter with both palms flat on the surface, leaning in slightly, chin level and eyes on the lens, a small closed smile that reads like he already knows the answer. The one who has already done the math.",
+"wardrobe": [
+"loose linen overshirt in oat",
+"soft cotton tee underneath in warm sand",
+"dark denim, cuffed once at the ankle"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"foreman"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "livestock auctioneer",
+"physicalCharacteristics": {
+"onCamera": "She leans against the kitchen counter, hands in her hoodie pocket, eyes on the camera with a small, knowing smile\u2014the one who reads the room.",
+"wardrobe": [
+"oversized cream hoodie",
+"dark straight-leg jeans",
+"white high-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"auctioneer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "demolition crew foreman",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his arms folded on his chest, feet set wide, eyes straight down the lens and one corner of his grin just breaking loose\u2014the one who already knows the score.",
+"wardrobe": [
+"grey zip-front designer track jacket",
+"matching tapered track pants",
+"clean low-profile white sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"foreman"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"sneakers"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "He stands at the living room mantel with a hand resting flat on the shelf, shoulders loose, eyes on the camera and a slow closed-mouth grin, the one who already has the roster set.",
+"wardrobe": [
+"charcoal tailored blazer over a fitted dark tee",
+"slim navy trousers with clean lines",
+"polished leather sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"tee",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "dairy herd records coordinator",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room, hands clasped loosely in front of her, looking straight into the camera with a bright, knowing smile \u2014 the one who has already run the numbers.",
+"wardrobe": [
+"charcoal fine-knit crewneck top",
+"straight-leg black trousers",
+"simple white low sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"coordinator"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "insurance claims adjuster",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with her hands in her jacket pockets, chin level, eyes on the lens and a small closed smile, the one who stays calm when it matters.",
+"wardrobe": [
+"burgundy canvas chore jacket",
+"dark carpenter jeans with a utility loop",
+"brown leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"adjuster"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"jeans",
+"boots"
+],
+"colour": [
+"red-pink"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "healthcare data analyst",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room doorway with her arms folded loosely, chin lifted, eyes on the camera and a half grin, the one who holds the room together.",
+"wardrobe": [
+"olive camo zip-front jacket",
+"faded black jeans",
+"plain white crew-neck tee"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"analyst"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"jeans"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "children's pageant coach and fair-circuit emcee",
+"physicalCharacteristics": {
+"onCamera": "Gaze straight into the lens from the living room sofa, elbow propped on the armrest, chin resting on two fingers, a small closed-lip smile \u2014 the one who is already keeping score.",
+"wardrobe": [
+"fitted navy quarter-zip pullover over a white collared polo",
+"cream pleated athletic skirt",
+"white leather sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"emcee"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"chin-on-hand"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"button-down",
+"dress-skirt",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook",
+"physicalCharacteristics": {
+"onCamera": "Shoulders squared and chin lifted on the living room couch, one arm draped along the backrest, tinted glasses catching the light, a slow sideways grin for the lens; the one who's already bored.",
+"wardrobe": [
+"faded cropped baby tee with a plain chest",
+"low-rise straight-leg jeans",
+"tinted rectangular glasses"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "medical device sales rep",
+"physicalCharacteristics": {
+"onCamera": "With a knowing half-smile, Namea stands in the backyard, hands in her vest pockets, looking straight into the lens \u2014 the one who is always three steps ahead.",
+"wardrobe": [
+"dark fleece pullover",
+"olive puffer vest",
+"sturdy hiking boots"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"rep"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"vest",
+"hoodie",
+"boots"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "commercial crabber",
+"physicalCharacteristics": {
+"onCamera": "A heavy ceramic mug in one hand at the kitchen counter, shoulders easy, eyes straight to camera with a flat closed-mouth half-smile, the one who saves his temper for the right insult.",
+"wardrobe": [
+"cream ribbed-knit crewneck sweater",
+"charcoal tailored trousers",
+"dark brown leather watch strap"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"crabber"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "firefighter-paramedic",
+"physicalCharacteristics": {
+"onCamera": "In the backyard, one hand hooked in his pocket and a silver stud catching the light, he grins straight down the lens, the one who's already sized up the whole yard.",
+"wardrobe": [
+"loose cream linen overshirt with a soft collar",
+"plain olive cotton tee",
+"dark slim jeans and a fringed scarf"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "stunt coordinator",
+"physicalCharacteristics": {
+"onCamera": "Gaze direct over round glasses from the kitchen island, one hand flat on the countertop, grin spreading slow and broad \u2014 the one who already ran the numbers.",
+"wardrobe": [
+"loose-fit dark tweed blazer",
+"cream knit sweater vest over a plain collared shirt",
+"dark straight-leg trousers with a plain belt"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"coordinator"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"vest",
+"sweater",
+"trousers"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "data scientist",
+"physicalCharacteristics": {
+"onCamera": "Shoulders loose and angled back against the kitchen island, one gold-ringed hand curled around a mug, freckled brows lifted. She looks straight into the lens with a flat, knowing half-smile, the one who already had the answer.",
+"wardrobe": [
+"a fuchsia-and-orange printed silk shirt",
+"fitted dark denim jeans",
+"clean white leather sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"scientist"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jeans",
+"sneakers"
+],
+"colour": [
+"bright"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "insurance claims adjuster",
+"physicalCharacteristics": {
+"onCamera": "A wry half-smile and level green eyes from the kitchen doorway, one hand resting in his jacket pocket, easy and unbothered, the one who has heard every excuse.",
+"wardrobe": [
+"a soft zip-front fleece jacket in oatmeal",
+"a plain crew-neck tee in charcoal",
+"dark relaxed-fit trousers with slip-on clogs"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"adjuster"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "home-health aide",
+"physicalCharacteristics": {
+"onCamera": "Fingers curled around a chipped black mug she brought from home, she sits on the kitchen counter edge, boots dangling, dark eyes on the lens and a small private smile over the rim; the one who has already decided about you.",
+"wardrobe": [
+"black leather jacket over a plain black tee",
+"dark slim jeans with scuffed black boots",
+"layered silver hoops and thin stacking rings"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"aide"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"jeans",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "drive-time radio host",
+"physicalCharacteristics": {
+"onCamera": "Hands loose at his sides in the backyard, one hip dropped easy, eyes straight to camera with a half-smile that's still deciding \u2014 the one who makes you feel already known.",
+"wardrobe": [
+"a fitted charcoal quarter-zip pullover",
+"navy joggers with a tapered leg",
+"white running shoes, laced and clean"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"host"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "fire captain",
+"physicalCharacteristics": {
+"onCamera": "Gaze level and unblinking from the lounge doorway, one hand resting flat on the frame, mouth set in a flat half-smile \u2014 the one who already logged your odds.",
+"wardrobe": [
+"olive camo jacket with a structured collar",
+"grey flannel shirt, sleeves rolled once",
+"dark straight-leg jeans with work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"captain"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"pose": [
+"standing"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"button-down",
+"jeans",
+"boots"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "former college athlete",
+"physicalCharacteristics": {
+"onCamera": "Shoulders angled loose toward the backyard door, hands resting easy at his hips, eyes straight on the camera with a slow half-smile \u2014 the one who flirts with the whole room.",
+"wardrobe": [
+"a crisp white oxford buttoned to the collar",
+"slim olive chinos with a clean crease",
+"a plain black crew-neck undershirt"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"athlete"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "union masonry foreman",
+"physicalCharacteristics": {
+"onCamera": "A broad grin breaks wide from the kitchen doorway, one shoulder braced on the frame and a coffee mug resting in both hands, eyes full on the lens \u2014 the one who feeds you first.",
+"wardrobe": [
+"a pressed sage-green pearl-snap shirt with a rodeo collar",
+"dark indigo bootcut jeans worn clean",
+"a wide brown leather belt with a tooled silver buckle"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"foreman"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "corporate compliance auditor",
+"physicalCharacteristics": {
+"onCamera": "Gaze level and unhurried from the backyard, hands loose in his pockets, a small private smile at the corner of his mouth, the one who has already read the fine print.",
+"wardrobe": [
+"loose oatmeal linen button-up shirt",
+"khaki hemp trousers",
+"leather thong sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"auditor"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "recreation center program coordinator",
+"physicalCharacteristics": {
+"onCamera": "Shoulders squared back in the kitchen, one palm flat on the counter, a mug held steady in the other hand, his gaze direct and a slow half-smile just arrived; the one who has already read the room.",
+"wardrobe": [
+"a cream cable-knit sweater with a soft rolled collar",
+"an olive smocked linen shirt",
+"woven leather slip-on shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"coordinator"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "demolition foreman",
+"physicalCharacteristics": {
+"onCamera": "Grinning wide from the lounge doorway, one boot propped on the frame and hands loose at her sides, she looks straight into the lens, gap-toothed and bright \u2014 the one who is waiting for a good reason.",
+"wardrobe": [
+"a fitted charcoal fleece pullover",
+"a quilted olive puffer vest",
+"broken-in brown hiking boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"foreman"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"vest",
+"hoodie",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "open-water swim coach",
+"physicalCharacteristics": {
+"onCamera": "In the backyard, a stopwatch dangles from one hand, her gaze level on the camera with a small, knowing smile, the one who reads the water first.",
+"wardrobe": [
+"a cream crochet-trimmed tunic",
+"a long fringed cardigan",
+"layered silver rings"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"prop": [
+"tool"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "swim coach",
+"physicalCharacteristics": {
+"onCamera": "In the backyard, hands loose at his sides, chin lifted with eyes on the lens and a small closed-mouth smile, the one who keeps his word.",
+"wardrobe": [
+"pearl-snap western shirt in washed navy",
+"dark straight-leg jeans",
+"worn brown leather boots"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans",
+"boots"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "farm equipment salesperson",
+"physicalCharacteristics": {
+"onCamera": "Hands tucked into the pocket of her zip-up, she stands in the backyard with a level gaze and a small, knowing grin, the one who will tell you the truth.",
+"wardrobe": [
+"fitted black zip-up jacket",
+"charcoal joggers",
+"white running shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"salesperson"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"hoodie",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "general contractor",
+"physicalCharacteristics": {
+"onCamera": "Gaze direct across the kitchen island, one hand wrapped around a chipped mug, mouth curled in a wry half-smile \u2014 the one who misses nothing.",
+"wardrobe": [
+"rust corduroy jacket over a cream knit top",
+"dark straight-leg trousers with a leather belt",
+"worn brown leather boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"contractor"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"sweater",
+"trousers",
+"boots"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "country radio program director",
+"physicalCharacteristics": {
+"onCamera": "With shoulders squared and a warm, easy lean against the kitchen counter, Namea's gaze stays level on the camera, one hand resting on a coffee mug, her expression a closed, knowing smile \u2014 the one who reads the room first.",
+"wardrobe": [
+"crisp white button-down shirt",
+"navy tailored chinos",
+"soft gray cardigan"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"director"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"button-down",
+"trousers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "paramedic",
+"physicalCharacteristics": {
+"onCamera": "Grinning wide at the dining room table, one hand curled loose around a coffee mug, those freckles catching the light as the grin shifts to something a little more measuring, the one who reads you before you've finished the hello.",
+"wardrobe": [
+"a pressed light-blue button-down shirt, sleeves cuffed",
+"a cream seersucker blazer",
+"a folded coral pocket square"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "wedding and lounge singer",
+"physicalCharacteristics": {
+"onCamera": "A black tambourine resting on one knee in the lounge, one hand loose beside it, chin lifted with a slow closed-mouth smile aimed straight at the camera \u2014 the one who plays the long set.",
+"wardrobe": [
+"black patched denim vest with plaid flannel lining",
+"sleeveless band-tee in plain charcoal",
+"heavy-soled black lace-up boots"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"singer"
+],
+"prop": [
+"instrument"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"vest",
+"tee",
+"jeans",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "Backyard, perched on the arm of a patio chair, chin propped on one fist, eyes on the lens with a small knowing smile \u2014 the one who reads the room before the room reads itself.",
+"wardrobe": [
+"crisp ivory blazer with structured shoulders",
+"slim black trousers",
+"simple heeled ankle boots"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"chin-on-hand"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"trousers",
+"boots"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "school cafeteria manager",
+"physicalCharacteristics": {
+"onCamera": "Gaze steady across the dining room table, hands folded on the wood, mouth closed in a mild almost-smile \u2014 the one who has read the whole room.",
+"wardrobe": [
+"oversized washed-black hoodie",
+"wide-leg light denim jeans",
+"low canvas sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "customs officer",
+"physicalCharacteristics": {
+"onCamera": "Shoulders squared at the kitchen island, one hand flat on the counter and chin lifted, a broad grin aimed straight at the lens, the one who clocks the lie early.",
+"wardrobe": [
+"crisp tucked white tee with pressed short sleeves",
+"fitted olive cargos with a clean crease",
+"close-cropped auburn locs worn off the collar"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"officer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"trousers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "home-health nurse",
+"physicalCharacteristics": {
+"onCamera": "Grinning wide in the kitchen doorway, one hand on the frame and the other tucked in his pocket, eyes on the camera like he already knows his next line, the one who charms before he measures.",
+"wardrobe": [
+"a faded plain cotton tee in washed sand tone",
+"navy board shorts with a drawstring",
+"a braided cord necklace with small pale shells"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook at a soul-food kitchen",
+"physicalCharacteristics": {
+"onCamera": "He leans against the backyard fence rail, cap tipped up, hands loose in his jacket pockets, looking straight into the lens with a slow gap-toothed grin \u2014 the one who never seems in a rush.",
+"wardrobe": [
+"faded green camo jacket, broken-in",
+"plain heather-gray flannel shirt",
+"dark-wash jeans and a worn brown leather belt"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"kitchen"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"button-down",
+"jeans"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "hospital case manager",
+"physicalCharacteristics": {
+"onCamera": "She stands at the kitchen island with a mug held in both hands, shoulders square, eyes on the camera, mouth in a small closed smile \u2014 the one who plans three moves ahead.",
+"wardrobe": [
+"oatmeal cashmere crewneck",
+"cream tailored wide-leg trousers",
+"low block-heel leather loafers"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"manager"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "firefighter",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his arms folded across his chest, glasses pushed up on his head, eyes on the camera and a slow crinkle-eyed grin spreading, the one who keeps everybody calm.",
+"wardrobe": [
+"faded cropped graphic tee",
+"low-rise bootcut jeans",
+"tinted rectangular glasses"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"firefighter"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "community theater director",
+"physicalCharacteristics": {
+"onCamera": "They stand in the backyard with arms folded, weight on one hip, eyes straight to the camera and a lopsided grin breaking through, the one who runs the whole room.",
+"wardrobe": [
+"heather-gray compression tee with a crew neck",
+"navy team-color athletic shorts",
+"white slide sandals with a cushioned footbed"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"director"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts",
+"sneakers"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "insurance claims adjuster",
+"physicalCharacteristics": {
+"onCamera": "He stands at the living room mantel with one hand in his trouser pocket, straw hat in the other, eyes on the camera, mouth closed in a faintly amused line \u2014 the one who is quietly taking notes.",
+"wardrobe": [
+"cream smocked linen shirt",
+"oatmeal chunky knit sweater over his shoulders",
+"flat-brim straw hat"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"adjuster"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "hotel banquet captain",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room with her arms folded loose, chin level, eyes on the camera, one corner of her mouth already halfway to a laugh \u2014 the one who runs the room.",
+"wardrobe": [
+"crisp white tucked tee with a sharp shoulder seam",
+"fitted olive cargo pants with clean pressing",
+"simple gold hoop earrings"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"captain"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"trousers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green",
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "community outreach coordinator",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen counter with a mug, one sneaker crossed over the other, chin lifted and eyes on the lens, mouth closed in a slow crooked grin \u2014 the one who remembers your name.",
+"wardrobe": [
+"oversized cream cable-knit cardigan over a plain tee",
+"baggy dark-wash jeans cuffed at the ankle",
+"a rust-colored knit beanie"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"coordinator"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"tee",
+"jeans"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "fire captain",
+"physicalCharacteristics": {
+"onCamera": "She stands in the kitchen doorway with her arms folded loosely, chin lifted, and studies the camera with an even, measuring half-smile, the one who is already reading the room.",
+"wardrobe": [
+"navy blazer over a crisp white button-down",
+"charcoal straight-leg slacks",
+"a thin silver chain at the throat"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"captain"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "medical-billing account manager",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room half-turned toward the hallway, weight on one long leg, one hand on her hip, chin lifted, eyes straight down the lens with a slow closed-mouth smirk \u2014 the one who flirts with the exit.",
+"wardrobe": [
+"fitted black blazer with a satin lapel",
+"slim cream trousers with a sharp crease",
+"small gold stud earrings and a thin chain"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard near the fence line, arms folded, shoulders square, eyes level on the camera, mouth closed in a flat half-smile. The one who measures before he moves.",
+"wardrobe": [
+"plain canvas chore jacket in faded tobacco",
+"dark carpenter pants with a hammer loop",
+"worn brown leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"boots"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "journeyman power-line technician",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen island, arms folded, eyes on the camera with a half-smile. The one who keeps his cards close.",
+"wardrobe": [
+"Black leather jacket with a soft, worn-in finish",
+"Faded black graphic tee with a subtle vintage print",
+"Dark slim-fit jeans with a chain detail"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"technician"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"jeans"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "diesel mechanic",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard near the fence, hands in her hoodie pocket, meeting the camera with a small knowing smirk, the one who fixes what's broken.",
+"wardrobe": [
+"oversized charcoal hoodie with a front pocket",
+"dark slim-fit jeans with a clean hem",
+"white high-top sneakers with a subtle red accent"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"mechanic"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "high school strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "She stands at the kitchen island, weight on one hip, one hand wrapped around a water bottle, eyes straight to the camera with a closed, easy grin \u2014 the one who is always keeping score.",
+"wardrobe": [
+"navy short-sleeve golf polo",
+"white pleated tennis skirt",
+"white visor with a clean brim"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"prop": [
+"drink"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"warm-easy"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"dress-skirt"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "data analyst",
+"physicalCharacteristics": {
+"onCamera": "She leans against the kitchen island with a mug held in both hands, eyes on the camera, one easy open smile, the one who remembers your name.",
+"wardrobe": [
+"charcoal zip-front knit jacket over a plain teal top",
+"straight-leg dark trousers",
+"clean white low-profile sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"analyst"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "community college academic advisor",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room with one hand resting flat on the back of a chair, shoulders level, eyes on the camera, mouth closed in a mild unreadable look, the one who is already keeping score.",
+"wardrobe": [
+"charcoal fine-knit long-sleeve top",
+"straight black trousers with a clean break",
+"simple black flat shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"advisor"
+],
+"expression": [
+"serious"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "dental office manager",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with her boots planted, hands hooked in her pockets, chin lifted and eyes on the camera, a slow crooked grin breaking loose \u2014 the one who makes a room hers.",
+"wardrobe": [
+"faded canvas work jacket with rolled cuffs",
+"plain crew-neck tee in a deep green",
+"dark carpenter pants with a worn pocket seam"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"trousers"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "banquet captain at a boutique hotel",
+"physicalCharacteristics": {
+"onCamera": "Standing in the backyard with hands in pockets, chin lifted, eyes on the camera, one corner of the mouth pulling into a knowing half-smile \u2014 the one who has seen every seating chart.",
+"wardrobe": [
+"olive technical fleece zip-up",
+"navy quilted puffer vest",
+"dark straight-leg hiking trousers"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"hotel"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"vest",
+"hoodie",
+"trousers"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "junior data analyst at a health-tech startup",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with hands in his pockets, eyes on the camera, one easy grin, the one who talks to everybody.",
+"wardrobe": [
+"charcoal zip-up track jacket",
+"fitted navy joggers",
+"white running shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"startup"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"warm-easy"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"hoodie",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "kettlebell and mobility coach",
+"physicalCharacteristics": {
+"onCamera": "He sits cross-legged on the lounge floor, hands resting loose on his knees, chin tipped up and eyes on the camera with a drowsy half-smile \u2014 the one who looks half asleep and hears everything.",
+"wardrobe": [
+"black long-sleeve top with lace trim at the collar",
+"fitted black trousers",
+"silver chain necklace and stacked rings"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "data analyst",
+"physicalCharacteristics": {
+"onCamera": "He leans against the backyard fence, hands loose in his pockets, eyes on the camera and a half-smile he won't finish \u2014 the one who keeps a tally.",
+"wardrobe": [
+"faded coral cotton tee",
+"sand-colored board shorts",
+"shell necklace"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"analyst"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts"
+],
+"colour": [
+"red-pink"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "after-school program director",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room with the tiniest smile, one enamel-pinned hoodie pocket under her hand, eyes steady on the camera, the one who already knows the ending.",
+"wardrobe": [
+"oversized lavender hoodie with a kangaroo pocket",
+"plain charcoal wide-leg cargo pants",
+"worn white high-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"director"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers",
+"sneakers"
+],
+"colour": [
+"bright"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "stunt performer",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with her weight on one hip, cord bracelet catching the light, hands loose at her sides, and looks straight into the camera with a calm half-smile \u2014 the one who has landed harder falls.",
+"wardrobe": [
+"a rust-colored corduroy jacket with wooden buttons",
+"a cream retro knit cardigan",
+"straight-leg dark denim"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"performer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"sweater",
+"jeans"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "wildland firefighter paramedic",
+"physicalCharacteristics": {
+"onCamera": "She leans against the kitchen island, arms folded, eyes straight to camera, a slow confident smirk. The one who hums before the storm.",
+"wardrobe": [
+"oversized cream hoodie",
+"black cargo pants",
+"white sneakers with rose accents"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "banquet captain",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his hands in his pockets, head tipped back a little, eyes on the camera and a wide open grin, the one who makes a room feel easy.",
+"wardrobe": [
+"black crewneck tee under an open charcoal work shirt",
+"relaxed dark denim jeans with a clean hem",
+"navy ribbed beanie"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"captain"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"tee",
+"jeans"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "youth soccer and fitness coach",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with arms folded, feet planted like she is waiting for a whistle, looking straight into the lens with a bright open smile \u2014 the one who keeps the whole team onside.",
+"wardrobe": [
+"crisp navy cardigan buttoned over a white collared shirt",
+"slim tan chinos",
+"clean white low-profile sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"prop": [
+"tool"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "heavy-equipment operator",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with her arms folded loosely, weight on one hip, eyes level on the camera with a broad closed-mouth grin. The one who takes the long way home.",
+"wardrobe": [
+"charcoal straight-leg scrub pants",
+"fitted navy zip-front jacket",
+"dark walking clogs"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"operator"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "actuarial analyst",
+"physicalCharacteristics": {
+"onCamera": "He stands in the kitchen with his back to the counter, hands loose in his pockets, chin lifted and eyes straight into the lens, mouth open in a broad laugh at his own expense \u2014 the one who prices the worst case.",
+"wardrobe": [
+"navy soft-shoulder blazer",
+"light blue button-down shirt",
+"grey flat-front slacks"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"analyst"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "used-car sales manager",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard, hands relaxed at his sides, looking directly into the lens with a calm, knowing half-smile. The one who puts you at ease.",
+"wardrobe": [
+"A fitted charcoal track jacket with a subtle sheen",
+"Slim black joggers with a clean taper",
+"Fresh white low-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "tree service climber",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room with her hands laced behind her back, chin lifted, eyes straight to the camera and a small sharp smile \u2014 the one who dares you to finish the thought.",
+"wardrobe": [
+"charcoal tweed blazer with elbow patches",
+"cream cable-knit sweater vest over a collared shirt",
+"dark straight-leg trousers and lace-up boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"climber"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"vest",
+"sweater",
+"trousers",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "He leans against the lounge doorway with his hands in his hoodie pockets, chin tipped down and eyes up at the camera, wearing a wide, easy grin \u2014 the one who can go from calm to chaos.",
+"wardrobe": [
+"an oversized cobalt hoodie over a white tee",
+"slim charcoal joggers",
+"a clean white-and-red statement sneaker"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"tee",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "farm equipment parts manager",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen counter, hands in his pockets, looking straight at the camera with a wry half-smile\u2014the one who calculates every move.",
+"wardrobe": [
+"fitted black henley shirt",
+"dark gray slim-fit jeans",
+"black leather belt with silver buckle"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"jeans"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "graveyard-shift diner cook",
+"physicalCharacteristics": {
+"onCamera": "She leans against the kitchen counter, one hand resting on the countertop, looking directly at the camera with a subtle, knowing smile, the one who sizes up the room in a glance.",
+"wardrobe": [
+"navy blazer over a white button-down shirt",
+"charcoal slacks with a simple belt",
+"black lanyard with a blank name tag"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "paramedic",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard, hands in her corduroy pockets, shoulders square and easy, eyes on the camera with one dry half-smile, the one who stays calm while everything burns.",
+"wardrobe": [
+"auburn-toned corduroy blazer over a cream retro knit",
+"high-waisted dark denim jeans",
+"scuffed brown leather ankle boots"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"sweater",
+"jeans",
+"boots"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "\u4e61\u6751\u6025\u6551\u533b\u7597\u6280\u672f\u5458",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room with one hand planted on the table edge, rings catching light, chin level and eyes straight into the lens, mouth flat but not cold. The one who stays calm when it matters.",
+"wardrobe": [
+"olive linen shirt with rolled cuffs and a fringed hem",
+"stacked thin silver rings, three per hand",
+"fringed suede shoulder bag worn crossbody"
+]
+}
+},
+"tags": {
+"sector": [
+"other"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "car dealership sales manager",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with her arms folded, weight on one hip, eyes straight into the lens and a wide gap-toothed grin \u2014 the one who sells you before you notice.",
+"wardrobe": [
+"fitted black quarter-zip pullover",
+"charcoal tapered joggers",
+"crisp white running shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "hospice nurse",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen island, arms loosely crossed, eyes on the camera with a wide open laugh, the one who makes hard rooms feel lighter.",
+"wardrobe": [
+"wisconsin-badge-free cream crew sweatshirt",
+"navy team-color basketball shorts",
+"gray slide sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"shorts",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "commercial real estate leasing agent",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room, hands tucked into her hoodie pocket, looking straight at the camera with a knowing half-smile. The one who's always game.",
+"wardrobe": [
+"oversized mint-green hoodie with enamel pins",
+"dark wash jeans, relaxed fit",
+"white canvas sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"agent"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "location scout",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his hands loose at his sides, shoulders squared toward the camera, chin lifted and a bright wide grin breaking across his face, the one who makes any room feel like a party.",
+"wardrobe": [
+"a deep teal silk shirt with a large palm-leaf print",
+"pressed cream trousers with a sharp front crease",
+"clean white leather sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"scout"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"trousers",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "spin class instructor",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room with one hand on her hip and the other holding a folded resistance band, chin lifted, eyes on the camera, mouth closed in a knowing half-smile \u2014 the one who never stops moving.",
+"wardrobe": [
+"a fitted navy cardigan buttoned to the top",
+"crisp white oxford shirt with sleeves rolled once",
+"slim khaki chinos with a leather belt"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"instructor"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "fence installer",
+"physicalCharacteristics": {
+"onCamera": "He stands easy in the backyard with his hands in his pockets, chin lifted, eyes on the camera and a slow closed-lip smile \u2014 the one who works a room without trying.",
+"wardrobe": [
+"slim navy tailored blazer",
+"crisp white crew-neck tee",
+"dark tailored chinos"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"installer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"tee",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "middle-school theater teacher",
+"physicalCharacteristics": {
+"onCamera": "She leans against the backyard fence rail with her shell necklace between two fingers, chin lifted, eyes on the camera and a wide open grin, the one who turns everything into a stage.",
+"wardrobe": [
+"sun-faded peach cotton tee with a rolled sleeve",
+"loose drawstring board shorts in a washed teal",
+"thin gold shell necklace chain"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"teacher"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "craft cocktail bartender",
+"physicalCharacteristics": {
+"onCamera": "They stand behind the kitchen island with a rocks glass in one hand, shoulders squared and chin lifted, looking straight into the camera with a knowing half-smile \u2014 the one who has heard every secret already.",
+"wardrobe": [
+"olive-and-brown camo zip-up jacket over a plain tee",
+"dark indigo jeans with a leather belt",
+"worn-in brown leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"bartender"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"hoodie",
+"tee",
+"jeans",
+"boots"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "lineman for a rural electric cooperative",
+"physicalCharacteristics": {
+"onCamera": "He leans back against the living room mantel with his arms folded, visor pushed up, dark eyes on the camera and that broad grin just breaking open. The one who stays calm and hears everything.",
+"wardrobe": [
+"navy quarter-zip pullover over a pale-blue polo",
+"well-pressed khaki golf shorts with a woven belt",
+"clean white golf shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"cooperative"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"button-down",
+"shorts"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "community center director",
+"physicalCharacteristics": {
+"onCamera": "Standing at the kitchen counter with a chipped enamel mug, shoulders square, eyes on the camera and a small knowing grin \u2014 the one who mothers the whole room.",
+"wardrobe": [
+"retro cream knit cardigan with wooden buttons",
+"high-waisted corduroy trousers",
+"canvas work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"director"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"boots"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "firefighter-paramedic",
+"physicalCharacteristics": {
+"onCamera": "He stands at the backyard fence line, shoulders square and hands loose at his sides, eyes straight down the lens with one brow lifted in a half-smile \u2014 the one who already knows the score.",
+"wardrobe": [
+"teal-and-black printed silk button-up, sleeves rolled",
+"slim black trousers with a clean hem",
+"pristine white low-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "stone-mason apprentice",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard with her hands loose at her sides, chin lifted toward the camera, mouth open in one big laugh, the one who treats a yard like a stage.",
+"wardrobe": [
+"floor-length fringed cardigan in rust and cream",
+"scoop-neck cotton top in deep mustard",
+"wide-leg canvas trousers with a woven belt"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"apprentice"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "community-theater director and choreographer",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room, arms folded, chin lifted, eyes on the camera with a knowing half-smile. The one who has already blocked this scene.",
+"wardrobe": [
+"navy blazer with rolled sleeves",
+"crisp ivory button-down",
+"charcoal slacks with a lanyard"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"choreographer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"trousers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "RV and boat dealership sales manager",
+"physicalCharacteristics": {
+"onCamera": "He stands in the lounge, hands in his hoodie pocket, eyes on the camera, with a gentle crinkle-eyed smile \u2014 the one who never rushes a deal.",
+"wardrobe": [
+"oversized pastel hoodie with a small enamel pin",
+"dark straight-leg jeans",
+"clean white sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"warm-easy"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "emergency room nurse",
+"physicalCharacteristics": {
+"onCamera": "She leans a hip against the kitchen counter, arms loosely folded, mug at one elbow and eyes straight at the camera, mouth closed in a slow knowing smile \u2014 the one who reads the room first.",
+"wardrobe": [
+"fitted black ringer tee",
+"team-color athletic shorts",
+"clean white slide sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "fine-dining server",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard, hands in his hoodie pocket, weight on one hip, eyes meeting the lens with a faint, knowing smirk, the one who sees the whole table",
+"wardrobe": [
+"an oversized charcoal hoodie with a clean front",
+"slim dark jeans with a relaxed taper",
+"high-contrast low-top sneakers with a crisp white sole"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"server"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "funeral director",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room doorway with a mug held in both hands, chin lifted, eyes on the camera, grin already forming; the one who greets every room.",
+"wardrobe": [
+"black dress with lace-trimmed collar and cuffs",
+"fitted black cardigan",
+"silver chain necklace with a small plain pendant"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"director"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"dress-skirt"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook",
+"physicalCharacteristics": {
+"onCamera": "She leans against the lounge doorway, arms folded, chin tipped down but eyes up on the lens, one eyebrow arched in a small closed-mouth smile \u2014 the one who plans three moves ahead.",
+"wardrobe": [
+"a dark plaid flannel buttoned over a plain black tee",
+"fitted black straight-leg jeans",
+"scuffed heavyweight lace-up boots"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "community college grants director",
+"physicalCharacteristics": {
+"onCamera": "She leans against the lounge doorway with her hands in her pockets, eyes straight into the lens, one easy smile \u2014 the one who has already filed it away.",
+"wardrobe": [
+"a cream tailored track jacket with zip pockets",
+"high-waisted navy track trousers",
+"fresh white low-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"director"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"warm-easy"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "dredge boat captain",
+"physicalCharacteristics": {
+"onCamera": "She stands at the kitchen counter with one hand curled around a chipped mug, shoulders squared, eyes straight into the lens, mouth flat and unimpressed, the one who has already decided.",
+"wardrobe": [
+"a faded canvas work jacket over a plain white tee",
+"worn carpenter pants with a loop of rope on the hip",
+"scuffed leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"captain"
+],
+"prop": [
+"mug"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"trousers",
+"boots"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "youth track and field coach",
+"physicalCharacteristics": {
+"onCamera": "She stands in the backyard in her smocked linen blouse, one hand loose at her side, chin lifted toward the lens with a closed, steady smile \u2014 the one who has already decided.",
+"wardrobe": [
+"cream smocked linen blouse",
+"chunky oatmeal knit cardigan",
+"worn-in canvas garden clogs"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"button-down",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "basketball skills coach",
+"physicalCharacteristics": {
+"onCamera": "He stands at the kitchen counter with both palms flat on the stone, shoulders loose, eyes on the lens, mouth closed in a slow half-smile, the one who keeps the peace and keeps the ledger.",
+"wardrobe": [
+"navy cotton quarter-zip pullover",
+"light gray pleated chinos",
+"white leather sneakers with a clean sole"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "local cable-access talk show host",
+"physicalCharacteristics": {
+"onCamera": "He stands in the living room with hands in his jogger pockets, shoulders loose, eyes straight down the lens and one open laugh breaking through \u2014 the one who treats every room like a broadcast.",
+"wardrobe": [
+"fitted charcoal quarter-zip pullover",
+"slim black joggers with tapered cuffs",
+"clean white running shoes"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"host"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "corporate recruiter",
+"physicalCharacteristics": {
+"onCamera": "He stands in the living room with one hand in his blazer pocket, chin slightly lifted, eyes on the camera, mouth in a small closed smile \u2014 the one who has already read the room.",
+"wardrobe": [
+"crisp light-blue button-down shirt",
+"cream seersucker blazer",
+"tan leather loafers"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"recruiter"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"button-down",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "commercial crab fisherman",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his hands in his pockets, chin lifted, eyes on the camera and a wide easy smile \u2014 the one who's already read the room.",
+"wardrobe": [
+"cream smocked linen shirt",
+"chunky oatmeal knit sweater",
+"worn leather work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"fisherman"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"boots"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "food-safety data analyst",
+"physicalCharacteristics": {
+"onCamera": "He stands in the dining room with one hand resting on a chair back, pocket square tucked, eyes level on the camera and his mouth in a slow, knowing half-smile \u2014 the one who measures you before the greeting.",
+"wardrobe": [
+"pressured seersucker blazer in pale blue",
+"crisp white spread-collar shirt",
+"dark leather loafers"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"analyst"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "catering company owner and lead line cook",
+"physicalCharacteristics": {
+"onCamera": "She leans against the kitchen counter with a mug in one hand, glasses catching the light, chin lifted and eyes straight on the camera with a small knowing grin \u2014 the one who tastes everything first.",
+"wardrobe": [
+"faded graphic cropped tee under an unbuttoned denim jacket",
+"low-rise dark bootcut jeans with a studded belt",
+"thin oval tinted glasses and small hoop earrings"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"jeans"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "touring production stage manager",
+"physicalCharacteristics": {
+"onCamera": "She stands easy in the backyard against the fence line, hands in her cardigan pockets, chin lifted and eyes straight to the camera with a slow, knowing half-smile \u2014 the one who counts everything.",
+"wardrobe": [
+"long fringe-trimmed cardigan over a plain cotton top",
+"stacked silver rings and a beaded pendant",
+"wide-leg dark trousers and worn leather boots"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"manager"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"boots"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "home-health aide",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen counter, hands in his hoodie pocket, eyes on the camera with a lopsided grin \u2014 the one who remembers everything.",
+"wardrobe": [
+"oversized grey hoodie",
+"straight-leg dark denim jeans",
+"white-and-red high-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"aide"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"jeans",
+"sneakers"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"red-pink"
+]
+}
+},
+{
+"card": {
+"vocation": "community outreach coordinator",
+"physicalCharacteristics": {
+"onCamera": "She stands at the kitchen island with a mug held in both hands, shoulders easy, eyes to the lens with a closed-lip smile, the one who is already taking your measure.",
+"wardrobe": [
+"crisp striped oxford button-down tucked in",
+"slim navy chinos with a leather belt",
+"cream V-neck cardigan buttoned to the middle"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"coordinator"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"button-down",
+"trousers"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "soul-food line cook",
+"physicalCharacteristics": {
+"onCamera": "He stands in the kitchen, one hand resting on the counter, eyes on the camera with a sly half-smile\u2014the one who stirs the pot.",
+"wardrobe": [
+"loose linen shirt in oatmeal",
+"wide-leg cotton trousers",
+"leather sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "Head Start family advocate",
+"physicalCharacteristics": {
+"onCamera": "She stands in the lounge with her arms loosely folded, glasses catching the light, chin lifted toward the camera with a small knowing half-smile, the one who laughs last and loudest.",
+"wardrobe": [
+"retro mustard-yellow knit cardigan",
+"high-waisted dark corduroy trousers",
+"oxblood leather ankle boots"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"advocate"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"boots"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "car dealership finance manager",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room doorway, weight on one hip, dark nails resting on a black mug, chin lifted and eyes straight to the camera with a sharp half-smile \u2014 the one who clocks you first.",
+"wardrobe": [
+"black lace-trimmed blouse",
+"slim black trousers",
+"studded black ankle boots"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"manager"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "used-car sales closer",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room with her arms folded and chin tipped up, eyes on the camera, mouth pulled into a closed knowing grin, the one who already signed the deal.",
+"wardrobe": [
+"faded gray cotton tee",
+"navy board shorts",
+"shell necklace and rubber-strap watch"
+]
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"closer"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts"
+],
+"colour": [
+"grey"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "corporate events coordinator",
+"physicalCharacteristics": {
+"onCamera": "They stand in the living room near the window, hands in their pockets, shoulders square to the lens, a small closed-mouth smile and bright eyes on the camera \u2014 the one who is always selling something.",
+"wardrobe": [
+"a crisp white crew-neck tee under an unbuttoned oxford",
+"baggy dark-wash jeans with a clean break",
+"a soft knit beanie"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"coordinator"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"button-down",
+"tee",
+"jeans"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "paramedic",
+"physicalCharacteristics": {
+"onCamera": "He leans back against the dining room wall, gold chain catching light, one hand tucked in a pocket, chin lifted with a closed-mouth smirk for the lens \u2014 the one who performs calm.",
+"wardrobe": [
+"black silk shirt with a bold palm-leaf print",
+"slim black trousers",
+"crisp white low-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"paramedic"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"patterned"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "theme-park show performer",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room doorway, one elbow propped on the frame, head tilted toward the camera with a small ready smile, the one who watches from the wings.",
+"wardrobe": [
+"pearl-snap western shirt with stitched yoke",
+"dark straight-leg jeans",
+"worn leather boots"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"performer"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"jeans",
+"boots"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "insurance claims adjuster",
+"physicalCharacteristics": {
+"onCamera": "She stands in the dining room with her hands folded loose at her waist, chin level, eyes on the camera and one eyebrow a half-beat raised \u2014 the one who lets the silence do the talking.",
+"wardrobe": [
+"crisp ivory tailored blazer over a fitted black top",
+"slim black trousers with a clean straight crease",
+"small gold stud earrings"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"adjuster"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"dining-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"trousers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "genomics lab technician",
+"physicalCharacteristics": {
+"onCamera": "She leans against the kitchen counter with a mug held in both hands, eyes on the camera and a wide open smile, the one who turns any room into a welcome party.",
+"wardrobe": [
+"cropped baby tee in pale butter yellow",
+"low-rise medium-wash jeans with a slim belt",
+"tinted rectangular glasses"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"technician"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"jeans"
+],
+"colour": [
+"bright"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"bright"
+]
+}
+},
+{
+"card": {
+"vocation": "hospice nurse",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with one hand in his cardigan pocket, chin lifted, a serene half-smile aimed straight down the lens, the one who forgives every sin but writes it down.",
+"wardrobe": [
+"ivory smocked linen shirt",
+"mustard chunky knit cardigan",
+"wheat straw Panama hat with a black band"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "journeyman lineman",
+"physicalCharacteristics": {
+"onCamera": "He leans back against the living room doorway, hands in his pockets, eyes on the camera with a slow half-smile, the one who already knows the answer.",
+"wardrobe": [
+"charcoal technical fleece jacket",
+"navy quilted puffer vest over a plain tee",
+"worn brown hiking boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"lineman"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"vest",
+"tee",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "wildland firefighter sawyer",
+"physicalCharacteristics": {
+"onCamera": "She stands in the kitchen doorway, lanyard flat against her blazer, one hand resting on the counter edge, eyes straight into the lens with a wide open smile \u2014 the one who reads the room first.",
+"wardrobe": [
+"charcoal knit blazer over a white button-down",
+"straight navy slacks with a plain belt",
+"short tan ankle boots with a clean sole"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"sawyer"
+],
+"prop": [
+"keys"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"sweater",
+"button-down",
+"trousers",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook",
+"physicalCharacteristics": {
+"onCamera": "He stands at the kitchen island, hands wrapped around a mug he brought from home, eyes on the lens, one corner of his mouth lifting; the one who settles everything quietly.",
+"wardrobe": [
+"a cream knit crewneck sweater",
+"relaxed straight-leg dark jeans",
+"canvas high-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"cook"
+],
+"prop": [
+"mug"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"jeans",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "strength and conditioning coach",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with arms folded, weight on one hip, eyes straight into the lens and a closed, sure smile, the one who already knows the next lift.",
+"wardrobe": [
+"charcoal cashmere crewneck sweater",
+"dark tailored trousers with a clean crease",
+"a fine leather-strap watch"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "hotel front-desk supervisor",
+"physicalCharacteristics": {
+"onCamera": "She stands in the living room with one hand on the back of a chair, glasses catching the light, chin lifted toward the camera with a broad closed-mouth grin \u2014 the one who keeps the score.",
+"wardrobe": [
+"faded navy crew-neck tee",
+"sand-colored board shorts",
+"worn leather flip-flops"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"supervisor"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"seated"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"tee",
+"shorts"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "licensed master electrician",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his arms folded and his chin tipped down, eyes straight into the camera, a slow closed-mouth grin spreading \u2014 the one who already knows the ending.",
+"wardrobe": [
+"fitted black leather jacket",
+"plain black crew-neck tee",
+"dark slim jeans and black boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"electrician"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"jeans",
+"boots"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "group fitness instructor",
+"physicalCharacteristics": {
+"onCamera": "She stands at the edge of a bedroom, weight on one hip, hands folded at rest, eyes on the camera with a small closed-mouth smile \u2014 the one who reads the whole room.",
+"wardrobe": [
+"sage linen button-up shirt, sleeves rolled",
+"wide-leg natural cotton trousers",
+"simple beaded anklet above flat leather sandals"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"instructor"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"bedroom"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers",
+"sneakers"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "marina boat-rental and jet-ski concession owner",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen island with his visor tipped up and his arms folded, eyes straight on the camera, mouth in an easy half-smile \u2014 the one who works the room before it knows it.",
+"wardrobe": [
+"faded navy short-sleeve polo",
+"light gray quarter-zip pullover draped over the shoulders",
+"clean white visor"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"owner"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"button-down"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"patterned"
+]
+}
+},
+{
+"card": {
+"vocation": "community theater director",
+"physicalCharacteristics": {
+"onCamera": "They stand in the living room with a chipped ceramic mug in one hand, chin lifted and eyes on the camera, one closed-mouth smile held: the one who warms the whole room.",
+"wardrobe": [
+"rust-colored corduroy blazer with patches at the elbows",
+"cream retro knit vest over a plain collar",
+"dark-wash straight jeans rolled at the ankle"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"director"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"blazer",
+"vest",
+"sweater",
+"jeans"
+],
+"colour": [
+"brown-tan"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "swim coach",
+"physicalCharacteristics": {
+"onCamera": "She stands at the kitchen island with a mug in one hand, weight on one hip, chin lifted, eyes straight to the camera with a closed, knowing smile \u2014 the one who has already named you.",
+"wardrobe": [
+"fitted designer track jacket zipped to the chest",
+"cropped track trousers with a clean taper",
+"fresh white low-profile sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"coaching-fitness"
+],
+"role": [
+"coach"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"trousers",
+"sneakers"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "youth center program coordinator",
+"physicalCharacteristics": {
+"onCamera": "She leans against the lounge doorway with her arms folded, chin tilted down, dark eyes straight into the lens, mouth caught in one wide closed grin \u2014 the one who dares the camera to blink.",
+"wardrobe": [
+"black lace-trimmed button-up blouse",
+"black high-waisted trousers",
+"silver chain necklaces and stacked rings"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"coordinator"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"wide"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"lounge"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"button-down",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "line cook at a campus breakfast diner",
+"physicalCharacteristics": {
+"onCamera": "He leans against the kitchen counter with a mug in one hand and his gaze straight into the lens, crinkle-eyed and faintly grinning. The one who never lets the surface show.",
+"wardrobe": [
+"black leather jacket over a plain charcoal tee",
+"slim black jeans with a worn leather belt",
+"black canvas sneakers and a dark beanie"
+]
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"diner"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"leaning"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"tee",
+"jeans",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "medical billing specialist",
+"physicalCharacteristics": {
+"onCamera": "He stands in the backyard with his hands loose at his sides, square to the camera, chin level and eyes direct, mouth easing into a small closed smile, the one who stays steady when things shake.",
+"wardrobe": [
+"charcoal quarter-zip pullover with a structured collar",
+"navy joggers with a clean tapered leg",
+"gray running shoes in near-new condition"
+]
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"specialist"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"closed-mouth"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"backyard"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"trousers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "aerospace systems analyst",
+"physicalCharacteristics": {
+"onCamera": "He stands at the kitchen island with his hands in his hoodie pockets, shoulders loose, eyes on the camera and a lopsided grin just forming \u2014 the one who is already running the numbers.",
+"wardrobe": [
+"navy compression tee under an unzipped gray hoodie",
+"khaki shorts with a relaxed fit",
+"white low-top sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"analyst"
+],
+"expression": [
+"smile"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"hoodie",
+"tee",
+"shorts",
+"sneakers"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "youth program coordinator",
+"physicalCharacteristics": {
+"onCamera": "She stands in the doorway of the living room, arms folded, chin lifted, eyes straight down the lens with a flat half-smile. The one who already knows the ending.",
+"wardrobe": [
+"fitted black crewneck top",
+"charcoal wide-leg trousers",
+"simple low black sneakers"
+]
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"coordinator"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"arms-crossed"
+],
+"room": [
+"living-room"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"black-charcoal"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "ICU nurse",
+"physicalCharacteristics": {
+"onCamera": "She stands in the kitchen with one hand wrapped around a chipped mug, chin level, eyes straight to camera and mouth in a flat half-smile \u2014 the one who never flinches.",
+"wardrobe": [
+"cream ribbed-knit zip-front jacket",
+"charcoal straight-leg joggers",
+"pale gray slip-on clogs"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"prop": [
+"mug"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"half"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"jacket",
+"sweater",
+"trousers",
+"sneakers"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "touring spoken-word artist and stagehand",
+"physicalCharacteristics": {
+"onCamera": "He stands in the kitchen doorway, hands in his pockets, hat tipped back, eyes on the lens, mouth closed in a slow knowing half-smile \u2014 the one who feels a room before it speaks.",
+"wardrobe": [
+"cream smocked linen shirt",
+"moss-green chunky knit sweater",
+"worn straw hat with a wide brim"
+]
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"stagehand"
+],
+"expression": [
+"smile"
+],
+"smile-kind": [
+"knowing"
+],
+"gaze": [
+"lens"
+],
+"pose": [
+"standing"
+],
+"room": [
+"kitchen"
+],
+"closing-read": [
+"the-one-who"
+],
+"garment": [
+"sweater"
+],
+"colour": [
+"white-cream"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "tree-service climber and sawyer",
+"physicalCharacteristics": {
+"onCamera": "He sits on the porch steps with a tea, looking away toward the window.",
+"wardrobe": [
+"flannel shirt",
+"work boots"
+]
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"sawyer"
+],
+"prop": [
+"mug"
+],
+"gaze": [
+"away"
+],
+"pose": [
+"seated"
+],
+"garment": [
+"button-down",
+"boots"
+],
+"pattern": [
+"plain"
+]
+}
+},
+{
+"card": {
+"vocation": "home-health aide",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": [
+"olive linen button-down shirt"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"aide"
+],
+"garment": [
+"button-down"
+],
+"colour": [
+"green"
+],
+"pattern": [
+"plain"
+],
+"colour-any": [
+"green"
+]
+}
+},
+{
+"card": {
+"vocation": "loan officer",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"officer"
+]
+}
+},
+{
+"card": {
+"vocation": "compliance officer",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"office-admin"
+],
+"role": [
+"officer"
+]
+}
+},
+{
+"card": {
+"vocation": "marine biologist",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"tech-science"
+],
+"role": [
+"biologist"
+]
+}
+},
+{
+"card": {
+"vocation": "tree surgeon",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"trades-labor"
+],
+"role": [
+"surgeon"
+]
+}
+},
+{
+"card": {
+"vocation": "pharmaceutical sales rep",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"rep"
+]
+}
+},
+{
+"card": {
+"vocation": "Coach handbag designer",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"creative-media"
+],
+"role": [
+"designer"
+]
+}
+},
+{
+"card": {
+"vocation": "fire captain",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"captain"
+]
+}
+},
+{
+"card": {
+"vocation": "home-health aide",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"aide"
+]
+}
+},
+{
+"card": {
+"vocation": "postal carrier",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"carrier"
+]
+}
+},
+{
+"card": {
+"vocation": "funeral director",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"director"
+]
+}
+},
+{
+"card": {
+"vocation": "school cafeteria manager",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"food-hospitality"
+],
+"role": [
+"manager"
+]
+}
+},
+{
+"card": {
+"vocation": "middle-school theater teacher",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"teacher"
+]
+}
+},
+{
+"card": {
+"vocation": "youth outreach coordinator",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"education-youth"
+],
+"role": [
+"coordinator"
+]
+}
+},
+{
+"card": {
+"vocation": "used-car salesperson",
+"physicalCharacteristics": {
+"onCamera": "",
+"wardrobe": []
+}
+},
+"tags": {
+"sector": [
+"sales-business"
+],
+"role": [
+"salesperson"
+]
+}
+},
+{
+"card": {
+"vocation": "nurse",
+"physicalCharacteristics": {
+"onCamera": "He has tinted glasses and a ball cap, a glass of water in hand.",
+"wardrobe": [
+"blue jeans"
+]
+}
+},
+"tags": {
+"sector": [
+"care-and-public-service"
+],
+"role": [
+"nurse"
+],
+"prop": [
+"drink"
+],
+"garment": [
+"jeans"
+],
+"colour": [
+"navy-blue"
+],
+"pattern": [
+"plain"
+]
+}
+}
+],
+"unreal": [
+[
+"a thin silver lanyard with a badge holder",
+[
+"lanyard",
+"badge"
+]
+],
+[
+"quiet luxury worn like a uniform",
+[
+"worn like a uniform",
+"like a uniform"
+]
+],
+[
+"cream cashmere crewneck sweater",
+[]
+],
+[
+"black denim vest with hand-sewn patches",
+[
+"hand-sewn"
+]
+]
+],
+"garments": [
+[
+"cream cashmere crewneck sweater",
+true
+],
+[
+"quiet luxury",
+false
+],
+[
+"a thin silver lanyard",
+false
+],
+[
+"worn brown hiking boots",
+true
+]
+]
+}

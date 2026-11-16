@@ -417,6 +417,15 @@ export interface JuryHouseView {
   jurors: JuryHouseJurorView[];
 }
 
+/** 0156: what the narrator may voice of a house meeting: who called it, who was accused, the claim made and how the accused answered. Names only (Vault-free). */
+export interface HouseMeetingView {
+  caller: string;
+  accused: string;
+  claim: { kind: string; subject: string; object?: string };
+  answer: "deny" | "admit" | "redirect";
+  redirectTo?: string;
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -564,6 +573,8 @@ export interface GameStateView {
   beds?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
+  /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
+  houseMeeting?: HouseMeetingView;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -1156,8 +1167,12 @@ export interface RecordLookExtrasReq {
   onCamera?: string;
   /** ORW-380: shoot-day hair, at most 90 chars. */
   photoHair?: string;
-  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
-  clear?: Array<"wardrobe" | "onCamera" | "photoHair">;
+  /** ORW-480: the one memorable thing about how this person looks or dresses (authored), at most 90 chars. */
+  lookSignature?: string;
+  /** ORW-480: the style line that describes the clothes, rewritten with the wardrobe (at most 200 chars). */
+  style?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`, `lookSignature`) when the writer left them out. */
+  clear?: Array<"wardrobe" | "onCamera" | "photoHair" | "lookSignature">;
 }
 
 export interface RecordLookExtrasResult {
@@ -2277,7 +2292,7 @@ export interface PresentKnowledgeView {
    * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
    * it is true, never why they are telling, never a claim id. Names, not ids.
    */
-  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**
