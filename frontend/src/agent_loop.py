@@ -9030,6 +9030,9 @@ async def _stream_agent_loop_impl(
                     _candidate_choice = _forced_tool_choice_for_beat(
                         _framed_key, _turn_tool_names_force, pending_open=_pending_open,
                         required_lever=_framed_required_lever)
+                    from routes import chat_helpers as _ch_draw
+                    if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
+                        _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
                     if _candidate_choice is not None and _model_honors_forced_tool_choice(model):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
@@ -9108,7 +9111,7 @@ async def _stream_agent_loop_impl(
                 and bool(get_setting("force_tool_choice_at_beats", True))):
             try:
                 from routes import chat_helpers as _ch_esc
-                if _ch_esc.advance_escalation_armed(owner):
+                if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
                     if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
@@ -11313,6 +11316,9 @@ async def _stream_agent_loop_impl(
                             # double-advance silently skips a beat). The per-turn cap still holds (one force).
                             _force_ok = True
                             try:
+                                from routes import chat_helpers as _ch_hold
+                                if _ch_hold.veto_draw_holds_force(owner or ""):
+                                    _force_ok = False  # ORW-505: the veto draw was voiced this turn; the stall force waits for a later one
                                 _gs_now = await _oe.get_game_state(owner)
                                 _beat_now = ((_gs_now or {}).get("week"),
                                              (_gs_now or {}).get("phase"),

@@ -57,6 +57,7 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
     expect(block).toContain(`BALLOTS (all ${ev.votesRevealed.length}, in the order read`);
     for (const b of ev.votesRevealed) expect(block).toContain(`a vote to evict ${b.votedFor.name}`);
     expect(block).toMatch(/result has not been committed yet/i);
+    expect(block).not.toContain("TALLY (engine-counted"); // a partial reveal is no count
     expect(block).not.toMatch(/\bvoted\b|\bvoter\b:/i);
     s.advanceGame(); // the result beat
     const after = s.getGameState().eviction!;

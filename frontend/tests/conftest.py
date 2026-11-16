@@ -358,6 +358,20 @@ def _reset_scene_cut_streak():
 
 
 @pytest.fixture(autouse=True)
+def _reset_veto_draw_holds():
+    """ORW-515: the ORW-505 veto-draw hold (`chat_helpers._VETO_DRAW_HOLDS`) is process-global, keyed per owner, and only cleared when that
+    owner's next framed turn begins. A test that commits a draw for the auth-off owner (None/"") left the hold set, so a later owner=None
+    test in the same xdist worker lost its forced advanceGame (`test_tool_choice_force::test_loop_forces_under_no_auth_owner_none`). Reset it per test."""
+    ch = sys.modules.get("routes.chat_helpers")
+    if ch is not None and hasattr(ch, "_VETO_DRAW_HOLDS"):
+        ch._VETO_DRAW_HOLDS.clear()
+    yield
+    ch = sys.modules.get("routes.chat_helpers")
+    if ch is not None and hasattr(ch, "_VETO_DRAW_HOLDS"):
+        ch._VETO_DRAW_HOLDS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _join_stray_capability_probe_threads(monkeypatch):
     """T0-4 (#1821): ``capability_probe.probe_endpoint_background`` fires a REAL daemon thread
     (real network calls, real settings writes) whenever a test POSTs to
