@@ -9319,7 +9319,9 @@ async def _stream_agent_loop_impl(
         # Primary target + any configured fallback models. stream_llm_with_fallback
         # only switches on a pre-content failure, so streamed output is never
         # duplicated; the dead-host cooldown keeps repeat primary attempts cheap.
-        _candidates = [(endpoint_url, model, headers)] + list(fallbacks or [])
+        # ORW-502 (review 4535342398): the ORW-133 ruling is NO switch to another model. In a live game the narrator stays on the selected model, so the failure reaches the outage pause + account alert below instead of a
+        # configured fallback quietly answering in a different voice.
+        _candidates = [(endpoint_url, model, headers)] + ([] if game_mode in (True, "game") else list(fallbacks or []))
         # stream_llm enforces a per-read INACTIVITY timeout (httpx read=timeout),
         # which kills a wedged/silent endpoint. This wall-clock deadline is the
         # complementary cap for the rare stream that trickles bytes forever and
@@ -10587,6 +10589,16 @@ async def _stream_agent_loop_impl(
                         except Exception as _rc_e:  # failsoft-ok: room-canon-hook (after_turn records its own failures RED; this guards the import and the call itself)
                             logger.debug(f"[room-canon] skipped: {_rc_e}")
 
+                    async def _narration_use_after_turn() -> None:
+                        # ORW-510 (live season memory): the visible narration is handed back to the engine, which checks it against its
+                        # rolling record of what the narration already used (counted) and folds it in. No model call; fail-soft; one INFO
+                        # season line carries the counts. Gated like the other side records (the brief is where the record shows).
+                        try:
+                            from src import orwell_narration_use as _nu
+                            await _nu.after_turn(_turn_narration_visible, owner)
+                        except Exception as _nu_e:  # failsoft-ok: narration-use-hook (after_turn records its own failures; this guards the import and the call itself)
+                            logger.debug(f"[narration-repetition] skipped: {_nu_e}")
+
                     async def _open_ledger_after_turn() -> None:
                         # ORW-407 (open ledger): commitments/claims made to or by the player in this narration are kept as
                         # free text (engine-validated; fail-soft; same gating as the room canon above).
@@ -10693,10 +10705,12 @@ async def _stream_agent_loop_impl(
                                 or _is_nondiegetic_scene_text(_turn_narration)):
                             if _post_turn_parallel_enabled():
                                 _side = [asyncio.ensure_future(_room_canon_after_turn()),
-                                         asyncio.ensure_future(_open_ledger_after_turn())]
+                                         asyncio.ensure_future(_open_ledger_after_turn()),
+                                         asyncio.ensure_future(_narration_use_after_turn())]
                             else:
                                 await _room_canon_after_turn()
                                 await _open_ledger_after_turn()
+                                await _narration_use_after_turn()
                         try:
                             await _bank_belt_chain()
                         except asyncio.CancelledError:

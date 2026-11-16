@@ -1,7 +1,7 @@
 import { liveHouseEvent } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
-  GameSession, CreateCharacterReq, GameStateView, MomentPromptReq, MomentPromptView,
+  GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
@@ -223,7 +223,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, clipCodePoints } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, cleanStyleLine, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -247,6 +247,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
 import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
@@ -279,7 +280,7 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
-import { recordRumorClaim, recordClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -328,8 +329,10 @@ import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
+import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
@@ -599,6 +602,8 @@ const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRIT
 const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
 /** ORW-407: the open ledger (commitments and claims made to or by the player, kept as free text). ON by default; `ORWELL_OPEN_LEDGER=0` turns it off. */
 const OPEN_LEDGER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_OPEN_LEDGER");
+/** ORW-510: the live narration-use record (the `recordNarrationUse` write-back + the Show Brief "ALREADY USED" section). ON by default; `ORWELL_NARRATION_USAGE=0` turns it off. */
+const NARRATION_USAGE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NARRATION_USAGE");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1263,6 +1268,9 @@ export class GameSessionAdapter implements GameSession {
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
   private openLedgerEnabled = OPEN_LEDGER_ENABLED_DEFAULT;
+  private narrationUsageEnabled = NARRATION_USAGE_ENABLED_DEFAULT;
+  /** ORW-510: the rolling record of what the narration already used. Persisted in `SessionCore.narrationUse`; absent from the save until a turn is recorded. */
+  private narrationUse: NarrationUse = emptyNarrationUse();
   /** ORW-407: the open ledger. Persisted in `SessionCore.openLedger`; absent from the save until something is kept. */
   private openLedger: OpenLedger = emptyOpenLedger();
   /** A loaded `openLedger` that failed the shape check: saved back exactly as loaded; nothing may write while set. */
@@ -1464,6 +1472,91 @@ export class GameSessionAdapter implements GameSession {
       case "lying-about": return (live.claims?.items ?? []).some((c) => !c.isTrue && c.speaker === b.subject && c.listener === b.object);
       case "talking-about": return b.object !== undefined && this.rel.edge(b.subject, b.object).trust < 0.4;
       default: return false;
+    }
+  }
+  /**
+   * 0156 / ORW-330 (theme 2, slice 7a) - HOUSE MEETINGS (`houseMeeting.ts` holds the rules). `caller` accuses `accused` (an NPC; the claim is about them) in front of the awake house: the accusation is `tellClaim`ed from the
+   * caller to EACH NPC attendee, the accused answers (deny / admit / redirect, from the engine's own truth check), and each NPC listener settles from their trust in each side (an admission confirms; whoever they trust more
+   * wins them; a listener who comes out doubting has the belief the accusation planted refuted). The player is an attendee only when awake and in the house, and gets no belief. A refused call allocates nothing.
+   * Draws come from the `${seed}:house-meeting` side stream. OFF unless `ORWELL_HOUSE_MEETINGS` is on; needs the belief layer and a played game.
+   */
+  private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
+  setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
+  private meetingCallDecided = new Set<string>();
+  holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
+    const live = this.live;
+    if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || !this.house) return undefined;
+    const { caller, accused, claim } = input;
+    const who: MeetingCaller = caller === PLAYER ? "player" : "npc";
+    const awake = this.awakeNow();
+    const living = this.livingIds();
+    const here = (id: EntityId): boolean => living.includes(id) && (!awake || awake.has(id));
+    if (!canCallMeeting(who) || accused === PLAYER || accused === caller || claim.subject !== accused || !MEETING_CLAIM_KINDS.includes(claim.kind)) return undefined;
+    if (!here(caller) || !here(accused) || !living.includes(accused)) return undefined;
+    if (claim.object !== undefined && !living.includes(claim.object)) return undefined;
+    const attendees = living.filter(here);
+    const listeners = attendees.filter((id) => id !== PLAYER && id !== caller && id !== accused);
+    if (listeners.length === 0) return undefined;
+    const probe: ClaimInput = { speaker: caller, listener: listeners[0]!, kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), isTrue: false, intent: "warn" };
+    if (claimProblem(probe, living) !== undefined) return undefined; // a refused call allocates nothing
+    const meetings = (live.houseMeetings ??= []);
+    const day = live.dayNumber ?? 1;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:house-meeting:${live.week}:${day}:${meetings.length}`));
+    const sayable: SayableBelief = { beliefId: "", kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), confidence: 1, week: live.week };
+    const isTrue = this.believedThingIsTrue(sayable);
+    const lean = listeners.reduce((a, l) => a + this.rel.edge(l, caller).trust - this.rel.edge(l, accused).trust, 0) / listeners.length;
+    const answer = decideAnswer({ isTrue, candor: this.candorOf(accused), cunning: cunningOf(this.agendaCharacterOf(accused)?.archetype), roomLean: lean, roll: rng.next() });
+    const accusation = new Map<EntityId, SpokenClaim>();
+    for (const l of listeners) { const c = this.tellClaim({ ...probe, listener: l, isTrue, intent: isTrue ? "inform" : "mislead" }); if (c) accusation.set(l, c); }
+    const redirectClaims = new Map<EntityId, SpokenClaim>();
+    if (answer === "redirect") for (const l of listeners) { const c = this.tellClaim({ speaker: accused, listener: l, kind: "lying-about", subject: caller, isTrue: !isTrue, intent: "deflect" }); if (c) redirectClaims.set(l, c); }
+    const beliefs = (live.beliefs ??= {});
+    const find = (holder: EntityId, claimId: string) => (beliefs[holder] ?? []).find((b) => b.id.endsWith(`|${claimId}`));
+    for (const l of listeners) {
+      const acc = accusation.get(l); if (!acc) continue;
+      const out = listenerOutcome(this.rel.edge(l, caller).trust, this.rel.edge(l, accused).trust, answer);
+      const held = find(l, acc.id), red = redirectClaims.get(l) ? find(l, redirectClaims.get(l)!.id) : undefined;
+      if (!held) continue;
+      if (out === "holds-harder") {
+        recordClaim(beliefs, { ...held, confidence: clamp01(answer === "admit" ? Math.max(held.confidence, MEETING.admitConfidence) : held.confidence + MEETING.holdBump) });
+        if (red && !red.refuted) red.refuted = true;
+      } else if (out === "doubts") {
+        refuteClaim(beliefs, l, held.id, (h, s) => this.rel.edge(h, s));
+        if (!held.refuted) held.refuted = true; // the planted belief carries no edge impact, so refuteClaim alone leaves it standing: keep the id, mark it refuted
+      }
+    }
+    const first = [...accusation.values()][0];
+    if (!first) return undefined;
+    const meeting: HouseMeeting = {
+      id: `meeting:${meetings.length + 1}`, week: live.week, day, caller, accused, claim: { kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}) },
+      accuser: caller, claimId: first.id, claimIds: [...accusation.values()].map((c) => c.id), answer, ...(answer === "redirect" ? { redirect: { to: caller } } : {}),
+      attendees, playerPresent: attendees.includes(PLAYER) && !this.napAsleep,
+    };
+    meetings.push(meeting);
+    return meeting;
+  }
+  /** 0156 - the narrator seam (wired by slice 7b): the latest meeting the player was present for, as the speakers' words in names. Never the truth, intent, ids or any listener's outcome. */
+  houseMeetingThePlayerHeard(): HeardMeeting | undefined {
+    const m = [...(this.live?.houseMeetings ?? [])].reverse().find((x) => x.playerPresent);
+    return m ? heardMeeting(m, (id) => this.nameOf(id)) : undefined;
+  }
+  /** 0156 - the NPC call trigger: once per in-game day, at most one NPC with a strong grievance belief may call a meeting, at most one a week per house. Called from the calm off-screen tick (`whisperPairings`). */
+  private npcCallsHouseMeeting(): void {
+    const live = this.live;
+    if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || !this.house || live.playedGame !== true) return;
+    const day = live.dayNumber ?? 1;
+    const key = `${live.week}:${day}`;
+    if (this.meetingCallDecided.has(key)) return;
+    this.meetingCallDecided.add(key);
+    const calledThisWeek = (live.houseMeetings ?? []).some((m) => m.week === live.week);
+    if (calledThisWeek) return;
+    const awake = this.awakeNow();
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:house-meeting-call:${key}`));
+    for (const n of this.house.npcs) {
+      if (!this.livingIds().includes(n.id) || (awake && !awake.has(n.id))) continue;
+      const g = strongestGrievance(live.beliefs?.[n.id] ?? [], n.id, PLAYER);
+      if (!npcWouldCall(g, false, rng.next()) || !g) continue;
+      if (this.holdHouseMeeting({ caller: n.id, accused: g.subject, claim: { kind: g.kind, subject: g.subject, object: g.object } })) return;
     }
   }
   private candorOf(id: EntityId): number {
@@ -3521,22 +3614,25 @@ export class GameSessionAdapter implements GameSession {
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
     if (req.physicalCharacteristics !== undefined) {
-      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, ...rest } = req.physicalCharacteristics as
-        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown };
+      const { wardrobe: rawWardrobe, onCamera: rawOnCamera, photoHair: rawPhotoHair, lookSignature: rawLookSignature, ...rest } = req.physicalCharacteristics as
+        PhysicalCharacteristics & { wardrobe?: unknown; onCamera?: unknown; photoHair?: unknown; lookSignature?: unknown };
       const wardrobe = cleanWardrobe(rawWardrobe);
       const onCamera = cleanOnCamera(rawOnCamera);
       const photoHair = cleanPhotoHair(rawPhotoHair);
+      const lookSignature = cleanLookSignature(rawLookSignature);
       // ORW-437: a write-back that omits an optional look field keeps the one already stored (the whole facet is replaced
       // below, so without this a later profile would silently erase it); removal goes through recordLookExtras `clear`.
-      const prior = target.character.physicalCharacteristics as (PhysicalCharacteristics & { wardrobe?: string[]; onCamera?: string; photoHair?: string }) | undefined;
+      const prior = target.character.physicalCharacteristics as (PhysicalCharacteristics & { wardrobe?: string[]; onCamera?: string; photoHair?: string; lookSignature?: string }) | undefined;
       const keepWardrobe = wardrobe === undefined && prior?.wardrobe !== undefined ? prior.wardrobe : wardrobe;
       const keepOnCamera = onCamera === undefined && prior?.onCamera !== undefined ? prior.onCamera : onCamera;
       const keepPhotoHair = photoHair === undefined && prior?.photoHair !== undefined ? prior.photoHair : photoHair;
+      const keepLookSignature = lookSignature === undefined && prior?.lookSignature !== undefined ? prior.lookSignature : lookSignature;
       req = {
         ...req,
         physicalCharacteristics: {
           ...rest, ...(keepWardrobe !== undefined ? { wardrobe: keepWardrobe } : {}), ...(keepOnCamera !== undefined ? { onCamera: keepOnCamera } : {}),
           ...(keepPhotoHair !== undefined ? { photoHair: keepPhotoHair } : {}),
+          ...(keepLookSignature !== undefined ? { lookSignature: keepLookSignature } : {}),
         },
       };
     }
@@ -4650,6 +4746,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.openLedgerAsLoaded !== undefined
         ? { openLedger: cloneSession(this.openLedgerAsLoaded) as OpenLedger }
         : this.openLedger.entries.length > 0 ? { openLedger: cloneSession(this.openLedger) } : {}),
+      // ORW-510: the narration-use record. Absent until a turn is recorded (byte-identical saves); bounded by constants.
+      ...(this.narrationUse.turns > 0 ? { narrationUse: cloneSession(this.narrationUse) } : {}),
     };
   }
 
@@ -5038,6 +5136,8 @@ export class GameSessionAdapter implements GameSession {
     this.ledgerVetoFlaggedWeek = undefined;
     this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
     if (ol.problems > 0) console.warn(`[orwell] open ledger loaded with ${ol.problems} problem(s), kept exactly as saved`); // counts only, never a recorded word
+    // ORW-510: restore the narration-use record (absent on an older save => empty; a malformed one is bounded or emptied, never thrown on).
+    this.narrationUse = restoreNarrationUse(core.narrationUse);
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];
@@ -5594,6 +5694,7 @@ export class GameSessionAdapter implements GameSession {
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
+    if (this.resolvePlayerMeetingCall(String(req.text ?? ""))) this.persist(); // 0156 slice 7b: the player calls a house meeting in their own words, before the narrator writes (same seam)
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
@@ -5974,6 +6075,45 @@ export class GameSessionAdapter implements GameSession {
     }
     return false;
   }
+
+  /**
+   * 0156 slice 7b: the player calls a house meeting in their OWN words, resolved here before the narrator writes (the ORW-419 seam, called from `resolvePlayerMove`). A pure parse
+   * (`parsePlayerMeetingCall`); the ONE seam `canCallMeeting` decides whether the player may; the engine (`holdHouseMeeting`) decides the answer and each listener's belief. Needs a named
+   * claim (a bare "I call a house meeting" accuses nobody, so nothing is held). The narrator hears the result through `houseMeetingForNarrator`, never from here. Returns true when a meeting was held.
+   */
+  private resolvePlayerMeetingCall(text: string): boolean {
+    if (!this.house || this.live?.finished || this.live?.playedGame !== true || this.napAsleep) return false;
+    const living = new Set(this.livingIds());
+    const people = this.house.npcs.filter((n) => living.has(n.id)).map((n) => ({ id: n.id, names: [n.name, n.name.split(/\s+/)[0]!].filter((x) => x.length >= 2) }));
+    const call = parsePlayerMeetingCall(text, people);
+    if (!call?.claim || !call.accused) return false;
+    if (!canCallMeeting("player")) return false;
+    return this.holdHouseMeeting({ caller: PLAYER, accused: call.accused, claim: call.claim }) !== undefined;
+  }
+
+  /** One-shot memory for the narrator's HOUSE MEETING line: the last meeting shown (by content) and the player message it was shown on, so a retry of the same turn still carries it and the next turn does not. */
+  private meetingShown: { key: string; msg: string | undefined } | null = null;
+
+  /**
+   * 0156 slice 7b: the meeting the player heard, for the narrator: only when the player is awake and still in the game (a meeting held while they slept or were out is never handed over; the
+   * read itself only returns meetings the player was present for), and only on the turn it is new. Names, the claim kind, the answer: never `isTrue`, intent, ids or any listener outcome.
+   */
+  private houseMeetingForNarrator(): HouseMeetingView | undefined {
+    if (!this.house || this.napAsleep || (this.live?.evictionOrder ?? []).includes(this.house.player.id)) return undefined;
+    const heard = this.houseMeetingThePlayerHeard();
+    if (!heard) return undefined;
+    const view: HouseMeetingView = {
+      caller: heard.caller, accused: heard.accused,
+      claim: { kind: heard.claim.kind, subject: heard.claim.subject, ...(heard.claim.object !== undefined ? { object: heard.claim.object } : {}) },
+      answer: heard.answer, ...(heard.redirectTo !== undefined ? { redirectTo: heard.redirectTo } : {}),
+    };
+    const key = JSON.stringify(view);
+    const msg = this.lastNotedMessageId();
+    if (this.meetingShown && this.meetingShown.key === key && this.meetingShown.msg !== msg) return undefined;
+    this.meetingShown = { key, msg };
+    return view;
+  }
+
 
   /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
   private playerBedNote: string | null = null;
@@ -6655,6 +6795,7 @@ export class GameSessionAdapter implements GameSession {
    * this on or off. Reads the WEIGHTED player-facing occupancy (what the house observably looks like).
    */
   whisperPairings(knowledge: KnowledgeService): void {
+    this.npcCallsHouseMeeting();
     if (!this.house || !this.presence) return;
     const player = this.house.player.id;
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -9816,6 +9957,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
   setOpenLedgerEnabled(on: boolean): void { this.openLedgerEnabled = on; }
+  setNarrationUsageEnabled(on: boolean): void { this.narrationUsageEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -15563,7 +15705,9 @@ export class GameSessionAdapter implements GameSession {
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
     const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
-    const view = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
+    const view4 = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
+    const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
+    const view = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
@@ -15584,7 +15728,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -15807,28 +15951,36 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-369: look-only write-back (wardrobe + onCamera + photoHair for one existing houseguest); see the port. */
   recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
-    if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
-    const target = this.house.npcs.find((n) => n.id === req.houseguestId);
+    // ORW-480: a new cast is authored BEFORE the season starts, on the pre-warmed cast (the same store recordCastProfile writes to), so the look
+    // write-back (the photo-sheet de-duplication and the cast-level look pass) must reach that store too; before, it answered "no-game" and
+    // every pre-game look rewrite was silently dropped.
+    const npcs = this.house ? this.house.npcs : this.prewarm ? this.prewarm.npcs : null;
+    if (!npcs) return { accepted: false, fields: [], reason: "no-game" };
+    const target = npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, fields: [], reason: "unknown-houseguest" };
     const prior = target.character.physicalCharacteristics;
     if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
     const wardrobe = cleanWardrobe(req.wardrobe);
     const onCamera = cleanOnCamera(req.onCamera);
     const photoHair = cleanPhotoHair(req.photoHair);
-    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair"] as const;
+    const lookSignature = cleanLookSignature(req.lookSignature);
+    const style = cleanStyleLine(req.style);
+    const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair", "lookSignature"] as const;
     const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
-    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
-    const playerName = (this.house.player.name ?? "").trim();
-    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""}`.toLowerCase();
+    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && lookSignature === undefined && style === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
+    const playerName = (this.house ? (this.house.player.name ?? "") : (this.intake.playerName ?? "")).trim();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""} ${lookSignature ?? ""} ${style ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
-    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}) };
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}), ...(lookSignature !== undefined ? { lookSignature } : {}), ...(style !== undefined ? { style } : {}) };
     const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
     const fields: string[] = [];
     const next = { ...prior };
     if (wardrobe !== undefined && guarded.wardrobe !== undefined && guarded.wardrobe.join("|") === wardrobe.join("|")) { next.wardrobe = wardrobe; fields.push("wardrobe"); }
     if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
     if (photoHair !== undefined && guarded.photoHair === photoHair) { next.photoHair = photoHair; fields.push("photoHair"); }
+    if (lookSignature !== undefined && guarded.lookSignature === lookSignature) { next.lookSignature = lookSignature; fields.push("lookSignature"); }
+    if (style !== undefined && guarded.style === style) { next.style = style; fields.push("style"); }
     // ORW-380: `clear` removes an old field the new writer left out (a stale scene-like line must not ship in the v3 prompt).
     const cleared: string[] = [];
     for (const c of clear) {
@@ -15836,7 +15988,10 @@ export class GameSessionAdapter implements GameSession {
     }
     if (fields.length === 0 && cleared.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
     target.character.physicalCharacteristics = next; // only the look keys differ; appearance / every other field untouched
-    this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    // the live house: durable but NOT a board beat (no beatSeq bump); the pre-warmed cast: committed, like recordCastProfile's pre-game write
+    const ctx = { prewarm: !this.house };
+    if (ctx.prewarm) this.persist();
+    else this.backgroundPersist();
     return { accepted: true, fields, ...(cleared.length > 0 ? { cleared } : {}) };
   }
 
@@ -15868,6 +16023,23 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     }
     return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
+  }
+
+  /**
+   * ORW-510 - see the port doc. The roster is the engine's own (id and display name of every houseguest and the player); the text is
+   * the narration the player already saw, so nothing hidden can enter the record. No model call, no rng, no clock; durable through
+   * the background seam (no beatSeq bump). Counts only in the result.
+   */
+  recordNarrationUse(req: RecordNarrationUseReq): RecordNarrationUseResult {
+    if (!this.narrationUsageEnabled) return { recorded: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { recorded: false, reason: "no-game" };
+    if (typeof req?.text !== "string" || req.text.trim().length === 0) return { recorded: false, reason: "empty" };
+    const roster = [this.house.player, ...this.house.npcs].map((h) => ({ id: h.id as string, name: h.name }));
+    const out = recordNarration(this.narrationUse, req.text, roster);
+    if (out.record === this.narrationUse) return { recorded: false, reason: "no-sentences" };
+    this.narrationUse = out.record;
+    this.backgroundPersist();
+    return { recorded: true, sentences: out.check.sentences, repeated: out.check.repeated, seasonLine: narrationSeasonLine(this.narrationUse) };
   }
 
   /** ORW-448: the beat each deal with the player was made at (memory only; used to link an open-ledger entry to a deal made moments before it). */

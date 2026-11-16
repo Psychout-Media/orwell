@@ -6,230 +6,515 @@
    "field": "vocation",
    "multi": false,
    "cap": {
-    "share": 0.14,
+    "share": 0.13,
     "min": 2
    },
-   "note": "job sector; no sector on more than 2 of 15 (3 for the wide ones, see per-value caps)",
-   "values": {
-    "care-and-public-service": {
-     "words": [
+   "note": "job sector from the whole title: ordered rules, the first whose `any` words match (and none of whose `not` words do) wins; no match is 'other' (counted, never capped)",
+   "fallback": "other",
+   "rule": "rules",
+   "rules": [
+    {
+     "sector": "food-hospitality",
+     "any": [
+      "cafeteria"
+     ],
+     "not": []
+    },
+    {
+     "sector": "sales-business",
+     "any": [
+      "sales rep",
+      "salesperson",
+      "salesman",
+      "sales manager",
+      "sales closer",
+      "dealership",
+      "dealer",
+      "used car",
+      "used-car",
+      "pharmaceutical rep",
+      "medical device"
+     ],
+     "not": [
+      "casino"
+     ]
+    },
+    {
+     "sector": "creative-media",
+     "any": [
+      "audio engineer",
+      "sound engineer",
+      "tattoo",
+      "muralist",
+      "stagehand",
+      "stunt",
+      "mascot",
+      "emcee",
+      "film",
+      "video",
+      "photograph*",
+      "camera*",
+      "illustrat*",
+      "novelist",
+      "stylist",
+      "hairstylist",
+      "hair stylist",
+      "barber",
+      "nail tech*",
+      "florist",
+      "comedian",
+      "podcast",
+      "radio",
+      "theater",
+      "theatre",
+      "band",
+      "singer",
+      "musician",
+      "guitarist",
+      "drummer",
+      "actor",
+      "performer",
+      "entertainer",
+      "dancer",
+      "choreograph*",
+      "voice-over",
+      "streamer",
+      "balloon",
+      "ghost-tour",
+      "location scout",
+      "designer",
+      "artist",
+      "art-gallery",
+      "cuddler",
+      "poker",
+      "filmmaker",
+      "talk show",
+      "host",
+      "segment producer",
+      "morning-show",
+      "rodeo",
+      "clown",
+      "stage manager",
+      "production manager",
+      "competitive-eating",
+      "champ",
+      "frontman",
+      "frontwoman",
+      "bandleader"
+     ],
+     "not": [
+      "teacher",
+      "tutor"
+     ]
+    },
+    {
+     "sector": "trades-labor",
+     "any": [
+      "tree",
+      "arborist",
+      "lineman",
+      "line-crew",
+      "power-line",
+      "power line",
+      "line clearance",
+      "pile-driver",
+      "dock builder",
+      "welder",
+      "fabricator",
+      "fence",
+      "roofer",
+      "plumber",
+      "electrician",
+      "mason",
+      "masonry",
+      "carpenter",
+      "foreman",
+      "contractor",
+      "mechanic",
+      "machinist",
+      "hvac",
+      "installer",
+      "crane",
+      "heavy-equipment",
+      "heavy equipment",
+      "equipment operator",
+      "drone operator",
+      "landscap*",
+      "painter",
+      "farmer",
+      "rancher",
+      "cattle",
+      "vineyard",
+      "deckhand",
+      "trucker",
+      "truck driver",
+      "forklift",
+      "warehouse",
+      "fisher*",
+      "crabber",
+      "dredge",
+      "beekeeper",
+      "locksmith",
+      "septic",
+      "groundskeeper",
+      "quarry",
+      "diesel",
+      "pipefitter",
+      "laborer",
+      "logger",
+      "miner",
+      "oil rig",
+      "rigger",
+      "aerospace technician",
+      "stonemason",
+      "stone-mason",
+      "wind turbine",
+      "forestry",
+      "zookeeper",
+      "wildfire",
+      "turbine",
+      "flight",
+      "hotshot"
+     ],
+     "not": [
+      "manager",
+      "director",
+      "analyst"
+     ]
+    },
+    {
+     "sector": "coaching-fitness",
+     "any": [
+      "coach",
+      "trainer",
+      "fitness",
+      "gym",
+      "crossfit",
+      "powerlifting",
+      "kettlebell",
+      "swim",
+      "yoga",
+      "referee",
+      "athlete",
+      "softball",
+      "spin class",
+      "spin-class",
+      "climbing instructor",
+      "surf instructor",
+      "ski patrol",
+      "rock-gym",
+      "wrestling",
+      "basketball",
+      "gymnastics",
+      "boxing",
+      "dance instructor"
+     ],
+     "not": []
+    },
+    {
+     "sector": "care-and-public-service",
+     "any": [
       "nurse",
       "paramedic",
       "emt",
       "firefighter",
-      "fire fighter",
-      "medic",
-      "doctor",
-      "physician",
-      "hospice",
-      "caregiver",
-      "home health",
-      "cna",
-      "pharmac",
-      "dentist",
-      "dental",
+      "fire captain",
       "hygienist",
       "therapist",
-      "surgeon",
-      "veterinar",
-      "police",
-      "officer",
+      "pharmacist",
+      "pharmacy",
+      "phlebotomist",
+      "optometrist",
+      "optician",
+      "dental",
+      "hospice",
+      "home health",
+      "home-health",
+      "health aide",
+      "caregiver",
+      "veterinary",
+      "radiolog*",
+      "respiratory",
+      "medical lab",
       "deputy",
       "sheriff",
-      "detective",
-      "soldier",
-      "marine",
-      "veteran",
+      "police",
+      "bailiff",
+      "park ranger",
+      "dispatcher",
+      "customs",
+      "coast guard",
+      "national guard",
       "army",
       "navy",
-      "air force",
-      "corrections",
-      "border patrol",
-      "hospital",
-      "clinic",
+      "soldier",
+      "veteran",
+      "search-and-rescue",
+      "prison",
+      "parole",
+      "probation",
       "social worker",
-      "civil service",
+      "case manager",
+      "orderly",
+      "physician",
+      "doctor",
+      "surgeon",
+      "chaplain",
+      "head start",
+      "family advocate",
+      "child welfare",
+      "public health",
+      "hospital system",
+      "firefighter-paramedic",
+      "emergency room",
+      "er nurse",
+      "icu",
+      "funeral",
+      "embalmer",
+      "mortician",
+      "coroner",
+      "postal",
+      "mail carrier",
+      "letter carrier",
+      "public service",
+      "civil servant",
       "city hall",
-      "dispatcher",
-      "lifeguard"
+      "municipal"
+     ],
+     "not": [
+      "cafeteria",
+      "hotel"
      ]
     },
-    "office-admin": {
-     "words": [
-      "office manager",
-      "administrat",
-      "receptionist",
-      "secretary",
-      "clerk",
-      "accountant",
-      "bookkeep",
-      "paralegal",
-      "hr ",
-      "human resources",
-      "insurance",
-      "banker",
-      "bank teller",
-      "operations manager",
-      "executive assistant",
-      "office"
-     ]
-    },
-    "education-youth": {
-     "words": [
+    {
+     "sector": "education-youth",
+     "any": [
       "teacher",
-      "professor",
       "tutor",
       "school",
-      "after-school",
-      "counselor",
+      "adjunct",
       "librarian",
-      "daycare",
+      "museum educator",
+      "docent",
+      "after-school",
       "preschool",
-      "principal",
-      "education"
+      "special-education",
+      "academic advisor",
+      "dean of students",
+      "admissions",
+      "college",
+      "community-college",
+      "youth",
+      "literacy",
+      "culinary instructor",
+      "grad student",
+      "kids'",
+      "children's"
+     ],
+     "not": [
+      "strength and conditioning",
+      "coach"
      ]
     },
-    "coaching-fitness": {
-     "words": [
-      "coach",
-      "trainer",
-      "athlet",
-      "fitness",
-      "gym",
-      "yoga",
-      "pilates",
-      "conditioning",
-      "referee"
-     ]
-    },
-    "food-hospitality": {
-     "words": [
+    {
+     "sector": "food-hospitality",
+     "any": [
       "cook",
       "chef",
-      "server",
-      "bartender",
-      "barista",
-      "baker",
-      "restaurant",
-      "caterer",
       "cafeteria",
-      "waiter",
+      "baker",
+      "barista",
+      "bartender",
+      "server",
       "waitress",
+      "waiter",
       "sommelier",
+      "cheese",
+      "catering",
+      "caterer",
+      "banquet",
+      "diner",
+      "restaurant",
+      "pizzeria",
       "hotel",
-      "hostess",
+      "concierge",
+      "valet",
+      "casino",
+      "front-desk",
+      "concession",
+      "food-truck",
+      "pie",
+      "barbecue",
+      "short-order",
       "dishwasher",
-      "food truck"
-     ]
-    },
-    "trades-labor": {
-     "words": [
-      "electrician",
-      "plumber",
-      "welder",
-      "mechanic",
-      "carpenter",
-      "tree",
-      "landscap",
-      "construction",
-      "roofer",
-      "driver",
-      "trucker",
-      "warehouse",
-      "mason",
-      "farmer",
-      "rancher",
-      "fisher",
-      "lineman",
-      "contractor",
-      "painter",
-      "machinist",
-      "logger",
-      "oil",
-      "miner",
-      "dock",
-      "forklift",
-      "hvac",
-      "technician"
+      "ski-resort",
+      "resort"
      ],
-     "cap": {
-      "share": 0.2,
-      "min": 3
-     }
+     "not": []
     },
-    "creative-media": {
-     "words": [
-      "artist",
-      "musician",
-      "dj",
-      "photographer",
-      "designer",
-      "writer",
-      "editor",
-      "producer",
-      "podcast",
-      "actor",
-      "dancer",
-      "comedian",
-      "influencer",
-      "filmmaker",
-      "singer",
-      "journalist",
-      "radio",
-      "illustrator",
-      "tattoo",
-      "stylist",
-      "florist",
-      "barber"
-     ],
-     "cap": {
-      "share": 0.2,
-      "min": 3
-     }
-    },
-    "tech-science": {
-     "words": [
+    {
+     "sector": "tech-science",
+     "any": [
       "engineer",
       "developer",
-      "programmer",
-      "analyst",
-      "data ",
-      "scientist",
-      "researcher",
-      "it ",
-      "network",
       "software",
-      "chemist",
+      "data",
+      "analyst",
+      "scientist",
       "biologist",
-      "lab",
-      "statistic",
-      "geolog"
+      "chemist",
+      "lab technician",
+      "technologist",
+      "it support",
+      "help-desk",
+      "network",
+      "database",
+      "qa tester",
+      "robotics",
+      "gis",
+      "aerospace",
+      "genomics",
+      "environmental lab",
+      "food scientist",
+      "signals",
+      "forecaster",
+      "meteorolog*",
+      "robotics"
+     ],
+     "not": [
+      "compliance",
+      "risk",
+      "benefits",
+      "actuarial",
+      "supply-chain",
+      "supply chain",
+      "corporate"
      ]
     },
-    "sales-business": {
-     "words": [
+    {
+     "sector": "sales-business",
+     "any": [
       "sales",
+      "salesperson",
+      "salesman",
+      "sales rep",
       "realtor",
       "real estate",
-      "entrepreneur",
+      "real-estate",
+      "dealership",
+      "dealer",
+      "used car",
+      "used-car",
+      "auctioneer",
       "owner",
-      "marketing",
-      "consultant",
-      "broker",
+      "boutique",
       "store manager",
       "retail",
       "buyer",
-      "founder",
-      "promoter",
-      "shop"
+      "shop",
+      "vending",
+      "marketing",
+      "entrepreneur",
+      "consultant",
+      "pharmaceutical rep",
+      "rep",
+      "account executive",
+      "distributor",
+      "wholesale",
+      "parts manager"
      ],
+     "not": [
+      "compliance",
+      "office",
+      "analyst"
+     ]
+    },
+    {
+     "sector": "office-admin",
+     "any": [
+      "compliance",
+      "loan officer",
+      "risk",
+      "benefits",
+      "actuarial",
+      "supply-chain",
+      "supply chain",
+      "payroll",
+      "tax",
+      "title-company",
+      "accounts-payable",
+      "hr ",
+      "human resources",
+      "mediator",
+      "recruiter",
+      "office",
+      "bank",
+      "banker",
+      "mortgage",
+      "financial",
+      "court reporter",
+      "paralegal",
+      "insurance",
+      "claims",
+      "adjuster",
+      "corporate",
+      "administrat*",
+      "admin",
+      "clerk",
+      "teller",
+      "receptionist",
+      "secretary",
+      "accountant",
+      "bookkeep*",
+      "grants",
+      "manager",
+      "director",
+      "coordinator",
+      "specialist",
+      "assistant",
+      "supervisor",
+      "lead",
+      "advisor",
+      "analyst",
+      "officer",
+      "agent",
+      "closer",
+      "organizer",
+      "planner",
+      "captain",
+      "operations",
+      "biller",
+      "billing"
+     ],
+     "not": []
+    }
+   ],
+   "values": {
+    "creative-media": {
      "cap": {
       "share": 0.2,
       "min": 3
      }
-    }
-   },
-   "fallback": "other"
+    },
+    "trades-labor": {
+     "cap": {
+      "share": 0.2,
+      "min": 3
+     }
+    },
+    "coaching-fitness": {},
+    "care-and-public-service": {},
+    "education-youth": {},
+    "food-hospitality": {},
+    "tech-science": {},
+    "sales-business": {
+     "cap": {
+      "share": 0.2,
+      "min": 3
+     }
+    },
+    "office-admin": {}
+   }
   },
   "role": {
    "field": "vocation",
@@ -239,7 +524,40 @@
     "min": 1
    },
    "rule": "head-noun",
-   "note": "the last word of the job title (manager, coach, nurse ...): no two cards share one"
+   "note": "the last word of the job title: a distinctive one (nurse, welder, barista) is on one card; a generic one (manager, director, analyst, coach) on at most two",
+   "generic": [
+    "manager",
+    "director",
+    "coordinator",
+    "specialist",
+    "analyst",
+    "assistant",
+    "supervisor",
+    "lead",
+    "officer",
+    "representative",
+    "rep",
+    "associate",
+    "technician",
+    "operator",
+    "owner",
+    "aide",
+    "worker",
+    "instructor",
+    "engineer",
+    "agent",
+    "advisor",
+    "administrator",
+    "consultant",
+    "producer",
+    "teacher",
+    "coach",
+    "trainer"
+   ],
+   "generic-cap": {
+    "share": 0.0,
+    "min": 2
+   }
   },
   "prop": {
    "field": "onCamera",
@@ -286,6 +604,8 @@
       "laptop",
       "headphones",
       "earbuds",
+      "film camera",
+      "polaroid",
       "camera"
      ]
     },
@@ -300,7 +620,6 @@
     },
     "drink": {
      "words": [
-      "glass",
       "bottle",
       "beer",
       "soda",
@@ -308,7 +627,14 @@
       "juice",
       "smoothie",
       "cocktail",
-      "lemonade"
+      "lemonade",
+      "glass of",
+      "wine glass",
+      "water glass",
+      "pint glass",
+      "drinking glass",
+      "tumbler",
+      "glass"
      ]
     },
     "tool": {
@@ -339,11 +665,16 @@
     },
     "ball": {
      "words": [
-      "ball",
       "football",
       "basketball",
       "frisbee",
-      "racket"
+      "racket",
+      "tennis ball",
+      "soccer ball",
+      "baseball glove",
+      "volleyball",
+      "softball",
+      "ball"
      ]
     },
     "keys": {
@@ -381,12 +712,15 @@
      "words": [
       "smile",
       "smiling",
-      "grin",
+      "grin*",
       "grinning",
       "smirk",
+      "laugh*",
+      "beam*",
+      "half-smile",
+      "grin",
       "laugh",
-      "beam",
-      "half-smile"
+      "beam"
      ]
     },
     "serious": {
@@ -556,11 +890,12 @@
     },
     "leaning": {
      "words": [
-      "lean",
+      "lean*",
       "leaning",
       "against the",
       "propped",
-      "braced"
+      "braced",
+      "lean"
      ]
     },
     "seated": {
@@ -664,10 +999,10 @@
    "field": "wardrobe",
    "multi": true,
    "cap": {
-    "share": 0.27,
-    "min": 2
+    "share": 0.4,
+    "min": 3
    },
-   "note": "the kind of piece: the same piece on more than about 4 of 15 reads as one wardrobe",
+   "note": "the kind of piece: the same piece on more than about 6 of 15 reads as one wardrobe (blazer 3, vest 2, jeans 6 have their own)",
    "values": {
     "blazer": {
      "words": [
@@ -762,7 +1097,11 @@
       "joggers",
       "sweatpants",
       "cargo"
-     ]
+     ],
+     "cap": {
+      "share": 0.5,
+      "min": 3
+     }
     },
     "shorts": {
      "words": [
@@ -803,10 +1142,10 @@
    "field": "wardrobe",
    "multi": false,
    "cap": {
-    "share": 0.4,
+    "share": 0.2,
     "min": 3
    },
-   "note": "the first colour word of the main piece: no one colour family on more than 40 percent of the cast",
+   "note": "the first colour word of the main piece: no one colour family on more than 3 of 15 (a fifth of the cast); colour-any below counts every piece",
    "values": {
     "black-charcoal": {
      "words": [
@@ -814,7 +1153,8 @@
       "charcoal",
       "jet",
       "onyx"
-     ]
+     ],
+     "plain": "black or charcoal"
     },
     "white-cream": {
      "words": [
@@ -824,7 +1164,8 @@
       "ecru",
       "oatmeal",
       "off-white"
-     ]
+     ],
+     "plain": "white or cream"
     },
     "grey": {
      "words": [
@@ -833,17 +1174,18 @@
       "heather",
       "slate",
       "silver"
-     ]
+     ],
+     "plain": "grey"
     },
     "navy-blue": {
      "words": [
       "navy",
       "blue",
-      "denim",
       "indigo",
       "cobalt",
       "teal"
-     ]
+     ],
+     "plain": "navy or blue"
     },
     "brown-tan": {
      "words": [
@@ -852,12 +1194,18 @@
       "khaki",
       "camel",
       "tweed",
-      "olive",
       "taupe",
       "rust",
       "mustard",
-      "sand"
-     ]
+      "sand",
+      "cognac",
+      "chestnut",
+      "coffee",
+      "mocha",
+      "earth tone",
+      "earth-tone"
+     ],
+     "plain": "brown or tan"
     },
     "green": {
      "words": [
@@ -865,8 +1213,16 @@
       "sage",
       "moss",
       "forest",
-      "emerald"
-     ]
+      "emerald",
+      "olive",
+      "hunter",
+      "army",
+      "fern",
+      "camo",
+      "camouflage",
+      "mint"
+     ],
+     "plain": "green"
     },
     "red-pink": {
      "words": [
@@ -877,7 +1233,8 @@
       "coral",
       "magenta",
       "crimson"
-     ]
+     ],
+     "plain": "red or pink"
     },
     "bright": {
      "words": [
@@ -891,7 +1248,399 @@
       "neon",
       "print",
       "floral"
+     ],
+     "plain": "a bright colour"
+    }
+   },
+   "scope": "first-item",
+   "rule": "earliest"
+  },
+  "mark": {
+   "field": "distinguishingMark",
+   "multi": false,
+   "cap": {
+    "share": 0.0,
+    "min": 2
+   },
+   "note": "the distinguishing mark by category; a cast carries about 3 or 4 marks in all and no category on more than 2 (the engine deal gives each named mark to one card at most)",
+   "values": {
+    "glasses": {
+     "words": [
+      "glasses"
      ]
+    },
+    "ear-piercing": {
+     "words": [
+      "earring",
+      "stud earring",
+      "hoop",
+      "studs",
+      "stud in one ear",
+      "stud earring",
+      "cartilage",
+      "pearl stud",
+      "huggie",
+      "studs"
+     ]
+    },
+    "nose-piercing": {
+     "words": [
+      "nose stud",
+      "nose ring",
+      "nostril",
+      "eyebrow piercing"
+     ]
+    },
+    "freckles": {
+     "words": [
+      "freckle*"
+     ]
+    },
+    "dimples": {
+     "words": [
+      "dimple*"
+     ]
+    },
+    "beauty-mark": {
+     "words": [
+      "beauty mark"
+     ]
+    },
+    "tattoo": {
+     "words": [
+      "tattoo*"
+     ],
+     "cap": {
+      "share": 0.0,
+      "min": 1
+     }
+    }
+   }
+  },
+  "pattern": {
+   "field": "wardrobe",
+   "multi": false,
+   "cap": {
+    "share": 0.66,
+    "min": 3
+   },
+   "fallback": "plain",
+   "note": "at least a third of the cast (5 of 15) wears something with a pattern, a plain graphic, or visible wear; 'plain' is capped at two thirds. Team and place names are never a pattern (the no-visible-words rule stands).",
+   "values": {
+    "patterned": {
+     "words": [
+      "stripe*",
+      "plaid",
+      "check*",
+      "gingham",
+      "floral",
+      "flower*",
+      "polka",
+      "print*",
+      "graphic",
+      "tie-dye",
+      "paisley",
+      "camo*",
+      "herringbone",
+      "houndstooth",
+      "leopard",
+      "patterned",
+      "faded",
+      "worn-in",
+      "worn in",
+      "frayed",
+      "distressed",
+      "washed-out",
+      "speckled",
+      "marled",
+      "colour-block*",
+      "color-block*"
+     ]
+    }
+   }
+  },
+  "signature": {
+   "field": "lookSignature",
+   "multi": false,
+   "cap": {
+    "share": 0.0,
+    "min": 2
+   },
+   "fallback": "other",
+   "note": "the one memorable thing about how this person looks or dresses (authored, never dealt), tagged by the FIRST category word in the line (a braided leather anklet is jewellery, not hair); at most 2 cards share a category (12 categories for a cast of 15, so one each is impossible); the writer is told the kinds still free in plain words. Every value has a plain-words label (`plain`) for prompts: the internal category names never go to the writer or into a card.",
+   "values": {
+    "hair": {
+     "words": [
+      "buzz*",
+      "bleached",
+      "dyed",
+      "curls",
+      "curly",
+      "afro",
+      "loc",
+      "locs",
+      "dreadlock*",
+      "bun",
+      "ponytail",
+      "mohawk",
+      "undercut",
+      "bangs",
+      "fringe",
+      "pixie",
+      "bob",
+      "crop",
+      "cropped",
+      "shaved",
+      "pompadour",
+      "mullet",
+      "topknot",
+      "waves",
+      "fade",
+      "twist*",
+      "cornrow*",
+      "hair",
+      "haircut",
+      "hairstyle",
+      "hairdo",
+      "braid",
+      "braids",
+      "plait",
+      "plaits",
+      "braided hair",
+      "braided ponytail",
+      "braided crown",
+      "crown braid",
+      "pigtails",
+      "dreadlocks"
+     ],
+     "plain": "hair"
+    },
+    "jewellery": {
+     "words": [
+      "earring*",
+      "hoop*",
+      "necklace*",
+      "chain",
+      "pendant",
+      "bracelet*",
+      "ring",
+      "rings",
+      "shell",
+      "bead*",
+      "cuff*",
+      "stud*",
+      "anklet*",
+      "watch",
+      "pearl*",
+      "choker",
+      "locket",
+      "charm*"
+     ],
+     "plain": "jewellery"
+    },
+    "glasses": {
+     "words": [
+      "glasses",
+      "spectacles",
+      "frames",
+      "sunglasses",
+      "shades"
+     ],
+     "plain": "glasses"
+    },
+    "facial-hair": {
+     "words": [
+      "beard*",
+      "mustache*",
+      "moustache*",
+      "stubble",
+      "goatee",
+      "sideburns",
+      "soul patch"
+     ],
+     "plain": "facial hair"
+    },
+    "headwear": {
+     "words": [
+      "hat",
+      "cap",
+      "beanie",
+      "bandana",
+      "headscarf",
+      "turban",
+      "visor",
+      "headband",
+      "hijab",
+      "durag",
+      "bonnet"
+     ],
+     "plain": "a hat or headwear"
+    },
+    "outerwear": {
+     "words": [
+      "jacket",
+      "coat",
+      "parka",
+      "windbreaker",
+      "vest",
+      "cardigan",
+      "hoodie",
+      "bomber",
+      "poncho",
+      "blazer",
+      "fleece"
+     ],
+     "plain": "a jacket or coat"
+    },
+    "footwear": {
+     "words": [
+      "boots",
+      "sneakers",
+      "clogs",
+      "sandals",
+      "heels",
+      "loafers",
+      "shoes",
+      "trainers",
+      "slippers"
+     ],
+     "plain": "shoes or boots"
+    },
+    "top": {
+     "words": [
+      "shirt",
+      "tee",
+      "t-shirt",
+      "sweater",
+      "polo",
+      "blouse",
+      "flannel",
+      "sweatshirt",
+      "jersey",
+      "tank",
+      "henley",
+      "sweater vest"
+     ],
+     "plain": "a shirt or top"
+    },
+    "bottom": {
+     "words": [
+      "jeans",
+      "overalls",
+      "skirt",
+      "shorts",
+      "trousers",
+      "pants",
+      "leggings",
+      "kilt",
+      "cargo",
+      "slacks",
+      "dress"
+     ],
+     "plain": "trousers or a skirt"
+    },
+    "bag": {
+     "words": [
+      "bag",
+      "backpack",
+      "tote",
+      "satchel",
+      "messenger",
+      "lunchbox",
+      "fanny pack",
+      "purse"
+     ],
+     "plain": "a bag"
+    },
+    "nails-makeup": {
+     "words": [
+      "nails",
+      "lipstick",
+      "eyeliner",
+      "makeup",
+      "manicure",
+      "lip colour",
+      "lip color",
+      "eyeshadow"
+     ],
+     "plain": "nails or makeup"
+    },
+    "scarf-tie": {
+     "words": [
+      "scarf",
+      "shawl",
+      "wrap",
+      "tie",
+      "bowtie",
+      "bow tie",
+      "suspenders",
+      "bolo",
+      "lanyard"
+     ],
+     "plain": "a scarf or tie"
+    },
+    "other": {
+     "words": [],
+     "cap": {
+      "share": 0.0,
+      "min": 15
+     }
+    }
+   },
+   "rule": "earliest"
+  },
+  "colour-any": {
+   "field": "wardrobe",
+   "multi": true,
+   "cap": {
+    "share": 0.25,
+    "min": 3
+   },
+   "note": "a distinctive colour family (green, red or pink, a bright) in ANY wardrobe piece, not only the main one: no family in the clothes of more than 4 of 15 cards (olive had converged on 5 cards across jackets, hoodie and cargos). Neutrals, browns and blue denim are not counted: boots and jeans are never the problem.",
+   "values": {
+    "green": {
+     "words": [
+      "green",
+      "sage",
+      "moss",
+      "forest",
+      "emerald",
+      "olive",
+      "hunter",
+      "army",
+      "fern",
+      "camo",
+      "camouflage",
+      "mint"
+     ],
+     "plain": "green"
+    },
+    "red-pink": {
+     "words": [
+      "red",
+      "burgundy",
+      "maroon",
+      "pink",
+      "coral",
+      "magenta",
+      "crimson"
+     ],
+     "plain": "red or pink"
+    },
+    "bright": {
+     "words": [
+      "yellow",
+      "orange",
+      "purple",
+      "lavender",
+      "lilac",
+      "gold",
+      "bold",
+      "neon",
+      "print",
+      "floral"
+     ],
+     "plain": "a bright colour"
     }
    }
   },
@@ -1061,6 +1810,618 @@
   "oxford",
   "gown",
   "bodysuit",
-  "cargos"
- ]
+  "cargos",
+  "undershirt",
+  "button-up",
+  "snapback",
+  "visor",
+  "hoops",
+  "chain",
+  "anklet",
+  "fleece",
+  "quarter-zip",
+  "overshirt",
+  "knit",
+  "rash guard",
+  "sneaker",
+  "denim",
+  "camisole",
+  "bralette",
+  "hoodie",
+  "sandal",
+  "slipper",
+  "slippers",
+  "mittens",
+  "bag",
+  "crossbody",
+  "backpack",
+  "wallet",
+  "pendant",
+  "studs",
+  "stud",
+  "choker",
+  "bangle",
+  "cuff",
+  "headband",
+  "sunhat",
+  "bucket hat",
+  "fedora",
+  "bolero",
+  "shacket",
+  "kimono",
+  "gilet",
+  "tights",
+  "stockings",
+  "wrap",
+  "shawl",
+  "sarong",
+  "jean",
+  "khakis",
+  "cords",
+  "corduroys",
+  "trunks",
+  "swimsuit",
+  "bikini",
+  "hair clip",
+  "flip-flops",
+  "flip flops",
+  "wristwatch",
+  "pocket square",
+  "strap",
+  "runners",
+  "running shoes",
+  "shoes",
+  "kicks",
+  "waders",
+  "overalls",
+  "scrubs"
+ ],
+ "_matching": "A word matches as a whole word (an optional plural s/es allowed) anywhere in the field text, case-insensitive; a word ending in * is a stem (matches the start of a word). single kinds take the first value in table order that matches, else 'fallback'; multi kinds take every value that matches; colour (scope first-item, rule earliest) reads only the first wardrobe item and takes the value whose word comes earliest; role (rule head-noun) is the last word of the job title. A value's own cap overrides the kind cap; cap(n) = max(min, ceil(share*n)).",
+ "_photo-kinds-note": "Four kinds the photo track deals (shot place, framing, light, face) have no entry here: the taggers read card text, and those values live in the shot card, not in the card text; this table does not gate them.",
+ "garment-groups": {
+  "top": [
+   "shirt",
+   "tee",
+   "t-shirt",
+   "blouse",
+   "tank",
+   "polo",
+   "henley",
+   "button-down",
+   "button-up",
+   "flannel",
+   "oxford",
+   "camisole",
+   "bralette",
+   "undershirt",
+   "tunic",
+   "tank top",
+   "blouse"
+  ],
+  "knit": [
+   "sweater",
+   "cardigan",
+   "jumper",
+   "pullover",
+   "knit",
+   "hoodie",
+   "sweatshirt",
+   "fleece",
+   "quarter-zip",
+   "shacket"
+  ],
+  "outer": [
+   "jacket",
+   "coat",
+   "blazer",
+   "vest",
+   "parka",
+   "windbreaker",
+   "puffer",
+   "bomber",
+   "overshirt",
+   "cape",
+   "poncho",
+   "gilet",
+   "kimono",
+   "bolero"
+  ],
+  "bottom": [
+   "jeans",
+   "trousers",
+   "slacks",
+   "chinos",
+   "pants",
+   "shorts",
+   "joggers",
+   "sweatpants",
+   "leggings",
+   "overalls",
+   "coveralls",
+   "skirt",
+   "khakis",
+   "cords",
+   "corduroys",
+   "trunks"
+  ],
+  "dress": [
+   "dress",
+   "jumpsuit",
+   "romper",
+   "gown",
+   "sundress",
+   "bodysuit"
+  ],
+  "shoes": [
+   "boots",
+   "boot",
+   "sneakers",
+   "sneaker",
+   "trainers",
+   "loafers",
+   "flats",
+   "heels",
+   "sandals",
+   "slides",
+   "oxfords",
+   "clogs",
+   "shoes",
+   "runners",
+   "flip-flops",
+   "slippers"
+  ],
+  "hat": [
+   "hat",
+   "cap",
+   "beanie",
+   "visor",
+   "snapback",
+   "fedora",
+   "headband",
+   "bandana",
+   "sunhat"
+  ],
+  "jewelry": [
+   "necklace",
+   "chain",
+   "earrings",
+   "hoops",
+   "bracelet",
+   "ring",
+   "rings",
+   "anklet",
+   "pendant",
+   "choker",
+   "studs",
+   "stud",
+   "watch",
+   "wristwatch"
+  ],
+  "eyewear": [
+   "glasses",
+   "sunglasses"
+  ],
+  "belt-scarf": [
+   "belt",
+   "scarf",
+   "tie",
+   "pocket square",
+   "socks",
+   "gloves",
+   "apron",
+   "bag",
+   "backpack",
+   "crossbody",
+   "tote"
+  ]
+ },
+ "_garment-groups-note": "wardrobe-multi: a piece that names garments from two different groups AND joins them ('a vest over a polo', 'sneakers with a gold chain', 'jeans and a scarf') is two things, not one. A belt-or-scarf-group word alone with a garment (jeans with a plain belt) is allowed.",
+ "garment-joiners": [
+  "over",
+  "with",
+  "and",
+  "under",
+  "plus",
+  "paired with",
+  "layered",
+  "tucked into",
+  "beneath",
+  "atop"
+ ],
+ "look-fit": {
+  "_note": "ORW-480: a look must be plausible for the life. Family affluence 0 (modest) to 2 (polished/expensive); a person's affluence comes from the job sector. Weight = fit of the family to the life: used by the engine deal (src/domain/styleFit.ts) and by the look-fits-life check (frontend/src/orwell_cast_realism.py). Not a costume of the job: no uniforms, no work gear.",
+  "family-affluence": {
+   "rocker": 1,
+   "punk": 0,
+   "goth": 1,
+   "preppy": 2,
+   "southern": 2,
+   "country-club": 2,
+   "quiet-luxury": 2,
+   "corporate": 1.5,
+   "minimalist": 2,
+   "streetwear": 1,
+   "luxury-streetwear": 2,
+   "athleisure": 1,
+   "college-athlete": 0,
+   "skater": 0,
+   "y2k": 0,
+   "glam": 2,
+   "bohemian": 1,
+   "crunchy": 0,
+   "cottagecore": 1,
+   "vintage": 0,
+   "beachy": 1,
+   "western": 1,
+   "workwear": 0,
+   "outdoorsy": 1,
+   "camo": 0,
+   "military": 1,
+   "academic": 1.5,
+   "gamer": 0,
+   "miami": 2,
+   "healthcare": 1
+  },
+  "family-age": {
+   "y2k": [
+    16,
+    34
+   ],
+   "skater": [
+    16,
+    32
+   ],
+   "gamer": [
+    16,
+    38
+   ],
+   "college-athlete": [
+    18,
+    27
+   ],
+   "streetwear": [
+    18,
+    42
+   ],
+   "luxury-streetwear": [
+    18,
+    42
+   ],
+   "glam": [
+    18,
+    48
+   ],
+   "miami": [
+    20,
+    48
+   ],
+   "country-club": [
+    28,
+    80
+   ],
+   "quiet-luxury": [
+    30,
+    80
+   ],
+   "academic": [
+    25,
+    80
+   ],
+   "corporate": [
+    24,
+    68
+   ],
+   "preppy": [
+    18,
+    80
+   ],
+   "cottagecore": [
+    18,
+    60
+   ],
+   "punk": [
+    16,
+    50
+   ],
+   "goth": [
+    16,
+    55
+   ]
+  },
+  "family-town": {
+   "western": "small",
+   "camo": "small",
+   "workwear": "small",
+   "crunchy": "small",
+   "luxury-streetwear": "big",
+   "miami": "big",
+   "glam": "big",
+   "quiet-luxury": "big",
+   "minimalist": "big",
+   "skater": "any"
+  },
+  "sector-affluence": {
+   "care-and-public-service": 1,
+   "coaching-fitness": 0.5,
+   "food-hospitality": 0,
+   "trades-labor": 0,
+   "education-youth": 1,
+   "office-admin": 1.5,
+   "tech-science": 1.5,
+   "sales-business": 1.5,
+   "creative-media": 1,
+   "other": 1
+  },
+  "sector-families": {
+   "trades-labor": [
+    "workwear",
+    "outdoorsy",
+    "camo",
+    "western",
+    "skater",
+    "athleisure"
+   ],
+   "food-hospitality": [
+    "skater",
+    "streetwear",
+    "athleisure",
+    "vintage",
+    "punk",
+    "gamer"
+   ],
+   "care-and-public-service": [
+    "athleisure",
+    "outdoorsy",
+    "healthcare",
+    "crunchy"
+   ],
+   "coaching-fitness": [
+    "athleisure",
+    "college-athlete",
+    "outdoorsy",
+    "streetwear"
+   ],
+   "education-youth": [
+    "academic",
+    "cottagecore",
+    "bohemian",
+    "preppy",
+    "crunchy"
+   ],
+   "creative-media": [
+    "vintage",
+    "bohemian",
+    "goth",
+    "punk",
+    "rocker",
+    "gamer"
+   ],
+   "tech-science": [
+    "gamer",
+    "outdoorsy",
+    "academic",
+    "minimalist"
+   ],
+   "office-admin": [
+    "corporate",
+    "preppy",
+    "minimalist",
+    "academic"
+   ],
+   "sales-business": [
+    "corporate",
+    "miami",
+    "southern",
+    "preppy"
+   ]
+  },
+  "big-cities": [
+   "New York",
+   "Los Angeles",
+   "Chicago",
+   "Houston",
+   "Phoenix",
+   "Philadelphia",
+   "San Antonio",
+   "San Diego",
+   "Dallas",
+   "San Jose",
+   "Austin",
+   "Jacksonville",
+   "San Francisco",
+   "Seattle",
+   "Denver",
+   "Washington",
+   "Boston",
+   "Atlanta",
+   "Miami",
+   "Minneapolis",
+   "Portland",
+   "Las Vegas",
+   "Detroit",
+   "Nashville",
+   "Baltimore",
+   "Charlotte",
+   "Tampa",
+   "Orlando",
+   "Pittsburgh",
+   "St. Louis",
+   "Cleveland",
+   "Cincinnati",
+   "Kansas City",
+   "Sacramento",
+   "Oakland",
+   "Brooklyn",
+   "Honolulu"
+  ],
+  "upscale-words": [
+   "cashmere",
+   "silk",
+   "tailored",
+   "designer",
+   "seersucker",
+   "tweed",
+   "pressed",
+   "monogram",
+   "loafers",
+   "pearl",
+   "leather flats",
+   "trench",
+   "wool coat",
+   "merino",
+   "fine-knit",
+   "bespoke",
+   "one tone",
+   "head to toe",
+   "monochrome",
+   "clean lines",
+   "no accessories",
+   "capsule",
+   "pristine",
+   "crisp"
+  ],
+  "min-weight": 0.5,
+  "climate": {
+   "hot-states": [
+    "Arizona",
+    "Texas",
+    "Florida",
+    "Hawaii",
+    "Louisiana",
+    "Nevada",
+    "New Mexico",
+    "Mississippi"
+   ],
+   "hot-forbid": [
+    "fleece",
+    "puffer",
+    "parka",
+    "down jacket",
+    "wool coat",
+    "sherpa",
+    "insulated",
+    "thermal",
+    "winter coat"
+   ],
+   "cold-states": [
+    "Maine",
+    "Wyoming",
+    "Minnesota",
+    "Alaska",
+    "Montana",
+    "North Dakota",
+    "South Dakota",
+    "Vermont",
+    "New Hampshire"
+   ],
+   "cold-forbid": [
+    "board shorts",
+    "tropical",
+    "shell necklace",
+    "flip-flops",
+    "aloha",
+    "tank top",
+    "sundress",
+    "straw sun hat"
+   ],
+   "inland-states": [
+    "Arizona",
+    "Nevada",
+    "Utah",
+    "Colorado",
+    "Wyoming",
+    "Montana",
+    "Idaho",
+    "New Mexico",
+    "Kansas",
+    "Nebraska",
+    "Oklahoma",
+    "Iowa",
+    "Missouri",
+    "Arkansas",
+    "Kentucky",
+    "Tennessee",
+    "West Virginia",
+    "Ohio",
+    "Indiana",
+    "Illinois",
+    "Minnesota",
+    "North Dakota",
+    "South Dakota",
+    "Vermont",
+    "Pennsylvania",
+    "Wisconsin",
+    "Michigan"
+   ],
+   "texas-coastal-cities": [
+    "Houston",
+    "Galveston",
+    "Corpus Christi",
+    "Port Arthur",
+    "Brownsville",
+    "South Padre Island",
+    "Beaumont"
+   ],
+   "coastal-words": [
+    "board shorts",
+    "shell necklace",
+    "wetsuit",
+    "surf",
+    "reef",
+    "puka",
+    "aloha"
+   ]
+  }
+ },
+ "_climate-note": "climate and place: a hot state does not dress in winter layers and a cold one does not dress for the beach; coastal words need a coast (a Texas hometown is inland unless the city is on the coast list)",
+ "hair-vocab": {
+  "_note": "stems of the cut, style and texture words a hair signature may name; every one the signature uses must also be in the card's own hair or photoHair line (a signature about a tapered fade on a card whose hair is loose waves is a contradiction). Matched as whole words, a trailing * is a stem. Python only (no TS reader).",
+  "words": [
+   "fade*",
+   "taper*",
+   "pixie*",
+   "bob*",
+   "crop*",
+   "buzz*",
+   "shav*",
+   "bald*",
+   "mohawk*",
+   "undercut*",
+   "bang*",
+   "fringe*",
+   "pompadour*",
+   "mullet*",
+   "topknot*",
+   "bun",
+   "buns",
+   "ponytail*",
+   "pigtail*",
+   "afro*",
+   "twist*",
+   "cornrow*",
+   "braid*",
+   "plait*",
+   "loc",
+   "locs",
+   "dreadlock*",
+   "edge-up",
+   "line-up",
+   "coil*",
+   "curl*",
+   "wav*",
+   "straight",
+   "kink*",
+   "perm*",
+   "bleach*",
+   "dyed",
+   "streak*",
+   "highlight*",
+   "mustache*",
+   "moustache*",
+   "beard*",
+   "stubble",
+   "goatee",
+   "sideburn*"
+  ]
+ }
 }

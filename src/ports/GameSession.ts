@@ -417,6 +417,15 @@ export interface JuryHouseView {
   jurors: JuryHouseJurorView[];
 }
 
+/** 0156: what the narrator may voice of a house meeting: who called it, who was accused, the claim made and how the accused answered. Names only (Vault-free). */
+export interface HouseMeetingView {
+  caller: string;
+  accused: string;
+  claim: { kind: string; subject: string; object?: string };
+  answer: "deny" | "admit" | "redirect";
+  redirectTo?: string;
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -564,6 +573,8 @@ export interface GameStateView {
   beds?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
+  /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
+  houseMeeting?: HouseMeetingView;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -1156,8 +1167,12 @@ export interface RecordLookExtrasReq {
   onCamera?: string;
   /** ORW-380: shoot-day hair, at most 90 chars. */
   photoHair?: string;
-  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`) when the writer left them out. */
-  clear?: Array<"wardrobe" | "onCamera" | "photoHair">;
+  /** ORW-480: the one memorable thing about how this person looks or dresses (authored), at most 90 chars. */
+  lookSignature?: string;
+  /** ORW-480: the style line that describes the clothes, rewritten with the wardrobe (at most 200 chars). */
+  style?: string;
+  /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`, `lookSignature`) when the writer left them out. */
+  clear?: Array<"wardrobe" | "onCamera" | "photoHair" | "lookSignature">;
 }
 
 export interface RecordLookExtrasResult {
@@ -1201,6 +1216,24 @@ export interface RecordOpenLedgerResult {
   duplicate?: boolean;
 }
 
+/** ORW-510: the narration-use write-back request. Exactly one field; the text is the narration the player already saw. */
+export interface RecordNarrationUseReq {
+  /** The visible narration of one finished turn (out-of-character asides removed). The engine cuts it at 6000 characters. */
+  text: string;
+}
+
+/** ORW-510: counts only. Never an echo of the text or of any recorded phrase. */
+export interface RecordNarrationUseResult {
+  recorded: boolean;
+  /** Present when `recorded` is false: a code. */
+  reason?: string;
+  sentences?: number;
+  /** What the check found repeated against the record as it stood before this turn. */
+  repeated?: { opener: number; closer: number; gesture: number; line: number };
+  /** The season line, counts only (turns, sentences, repeats per kind, repeats per 1,000 sentences). */
+  seasonLine?: string;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -1215,7 +1248,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open" | "used"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -3406,6 +3439,14 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+  /**
+   * ORW-510 - the live counterpart of season memory. The FE hands the narration of a finished turn back; the engine reads it
+   * (no model call: string work), checks it against a short bounded rolling record of what the narrator already used (sentence
+   * openings, scene closers, each houseguest's gestures and lines), counts the repeats, and folds it into the record. The Show
+   * Brief then lists the record as "ALREADY USED". Accepts only `{ text }`; the record is persisted in the session core, bounded
+   * by constants. A played game only; no rng; no Vault handle; the result is counts only.
+   */
+  recordNarrationUse(req: RecordNarrationUseReq): RecordNarrationUseResult;
   /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. Bounds the ENGINE enforces: per-field length caps, up to OPEN_LEDGER_MAX_ENTRIES (200) entries in total. The per-turn limits (3 entries, 2 resolutions) live only in the front-end extractor; the engine does not count writes per turn. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
   /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */

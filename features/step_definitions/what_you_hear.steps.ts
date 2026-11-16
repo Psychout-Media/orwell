@@ -1,3 +1,4 @@
+import { meetingNothingAboutIt } from "./house_meetings_player.steps";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -159,6 +160,7 @@ Given("an NPC tells a third NPC a claim while the player is elsewhere", function
   b.s!.noteMessage({ messageId: `hear0151-${n}-elsewhere` });
 });
 Then("the narrator is handed nothing about it", function () {
+  if ((this as { meetings0156p?: { s?: unknown } }).meetings0156p?.s) return meetingNothingAboutIt(this); // 0156 scenario 6 shares this wording
   const s = bag(this).s!;
   assert.equal(s.claimsThePlayerHeard().length, 0);
   const view = JSON.stringify(s.getMomentPrompt({}));
