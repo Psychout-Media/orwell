@@ -103,12 +103,25 @@ def test_a_missing_widget_is_recorded_not_skipped_silently():
 
 def test_the_coverage_list_follows_whether_the_crossover_ran():
     plain = ls.not_covered([{"id": "G1-x"}])
-    cross = ls.not_covered([{"id": "G1-x"}, {"id": "X0-reached-eviction-night"}])
+    cross = ls.not_covered([{"id": "G1-x"}, {"id": "X0-reached-eviction-night", "ok": True}])
     assert any("stops at the Week 1 veto morning" in x for x in plain)
     assert not any("stops at the Week 1 veto morning" in x for x in cross) and any("Week 2" in x for x in cross)
     # a --rescore keeps only the turns (the live X0 check is gone): the crossover turns still say the run went past the veto morning (review of #2795)
-    assert ls.not_covered([{"id": "G1-x"}], [{"label": "veto-morning-1"}, {"label": "cross-bed"}]) == cross
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "veto-morning-1"}, {"label": "cross-bed", "x0_ok": True}]) == cross
     assert ls.not_covered([{"id": "G1-x"}], [{"label": "veto-morning-1"}]) == plain
+    # review of #2854: the crossover turns are played even when X0 failed; a failed X0 (live, or saved with the turns) or a turn without the flag is not Week 2
+    assert ls.not_covered([{"id": "G1-x"}, {"id": "X0-reached-eviction-night", "ok": False}], [{"label": "cross-bed", "x0_ok": False}]) == plain
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "cross-bed", "x0_ok": False}]) == plain
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "cross-bed"}]) == plain
+
+
+def test_a_rescore_restores_the_saved_x0_verdict():
+    checks = []
+    rec = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity})
+    ls.rescore_x0([{"label": "veto-morning-1"}, {"label": "cross-bed", "x0_ok": False}], rec)
+    assert checks == [{"id": "X0-reached-eviction-night", "ok": False, "severity": "fail"}]
+    checks.clear(); ls.rescore_x0([{"label": "veto-morning-1"}], rec)
+    assert checks == []
 
 
 # ── scripts/rehearsal-kit/stage2.sh ────────────────────────────────────────────────────────────────────────────────────
@@ -126,6 +139,12 @@ def test_a_bad_env_override_entry_fails_loudly():
             r = _sh(f'. "{KIT}/env_override.sh"; {fn} "{bad}"')
             assert r.returncode == 1 and "FATAL" in r.stderr, (fn, bad)
     assert _sh(f'. "{KIT}/env_override.sh"; rig_validate_env_override "ORWELL_A=a,b ORWELL_B=0"').returncode == 0, "a comma that is not followed by another ORWELL_ assignment is a value"
+    # review of #2854: a multiline override is checked on every line, and every line is applied
+    for fn in ("rig_validate_env_override", "rig_apply_env_override"):
+        r = _sh(f'. "{KIT}/env_override.sh"; {fn} "ORWELL_A=1' + "\n" + 'BAD"')
+        assert r.returncode == 1 and "FATAL" in r.stderr and "BAD" in r.stderr, (fn, r.stdout, r.stderr)
+    two = _sh(f'. "{KIT}/env_override.sh"; rig_apply_env_override "ORWELL_A=1' + "\n" + 'ORWELL_B=2"; echo "[$ORWELL_A][$ORWELL_B]"')
+    assert two.returncode == 0 and two.stdout.strip() == "[1][2]", (two.stdout, two.stderr)
     src = (KIT / "stage2.sh").read_text()
     # the validation runs before anything is checked out or built
     assert src.index('rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1') < src.index('git -C "$RIG_HOME/orwell" fetch') < src.index("npm run build")

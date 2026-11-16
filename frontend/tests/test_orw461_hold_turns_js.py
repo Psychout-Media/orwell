@@ -87,7 +87,7 @@ function turnsOn(s) { return s.sent.filter((f) => f.t === "turn"); }
     if (settled.length === 1) break;
     n++;
     const cid = turnsOn(lastSock)[n - 1].cid;
-    if (now - t0 < 400000) down({ t: "error", ch: "chat", cid: cid, d: { code: "update-holding", retryAfterMs: 5000, untilMs: t0 + 420000 } });
+    if (now - t0 < 450000) down({ t: "error", ch: "chat", cid: cid, d: { code: "update-holding", retryAfterMs: 5000, untilMs: t0 + 450000 } });
     else down({ t: "ack", ch: "chat", cid: cid, d: { accepted: true } });
   }
   assert(settled[0] === "ok", "a hold of the updater's longest length is waited out and the turn goes through: " + settled.join() + " after " + (now - t0) + " ms");

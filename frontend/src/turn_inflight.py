@@ -62,6 +62,10 @@ def hold_until(now: Optional[float] = None) -> Optional[float]:
 # "0 in flight" while a turn it did not refuse is about to start. Keyed by the turn's clientMsgId, one stamp per admission: the same clientMsgId admitted twice (a re-send queued
 # behind the first) counts twice, and each registration releases one (review of #2805).
 _admitting: Dict[str, List[float]] = {}
+# An admission that outlived the TTL before it registered (a turn queued behind a long run) no longer counts, but it is remembered here for a while: when it does register, its
+# admit_end releases THIS record, oldest first, never a newer admission's live stamp under the same clientMsgId (review of #2854).
+_expired: Dict[str, List[float]] = {}
+_EXPIRED_KEEP_S = 600.0
 _registry_size = 0
 _lock = threading.Lock()
 
@@ -70,10 +74,19 @@ def _total_locked() -> int:
     now = time.monotonic()
     for k in list(_admitting):
         live = [t for t in _admitting[k] if now - t <= _ADMIT_TTL_S]
+        dead = [t for t in _admitting[k] if now - t > _ADMIT_TTL_S]
+        if dead:
+            _expired.setdefault(k, []).extend(dead)
         if live:
             _admitting[k] = live
         else:
             del _admitting[k]
+    for k in list(_expired):
+        keep = [t for t in _expired[k] if now - t <= _EXPIRED_KEEP_S]
+        if keep:
+            _expired[k] = keep
+        else:
+            del _expired[k]
     return _registry_size + sum(len(v) for v in _admitting.values())
 
 
@@ -90,12 +103,31 @@ def admit_end(token: Optional[str]) -> None:
     if not token:
         return
     with _lock:
+        _total_locked()   # move any admission past the TTL into _expired first, so the release below is the OLDEST admission's own
+        old = _expired.get(token)
+        if old:
+            old.pop(0)
+            if not old:
+                del _expired[token]
+            publish_inflight(_total_locked())
+            return
         stamps = _admitting.get(token)
         if not stamps:
             return
         stamps.pop(0)
         if not stamps:
             del _admitting[token]
+        publish_inflight(_total_locked())
+
+
+def _admit_cancel(key: str) -> None:
+    """Withdraw the admission just made under `key` (refused by the second look at the hold): its own stamp, the newest, never an older one."""
+    with _lock:
+        stamps = _admitting.get(key)
+        if stamps:
+            stamps.pop()
+            if not stamps:
+                del _admitting[key]
         publish_inflight(_total_locked())
 
 
@@ -110,7 +142,7 @@ def check_and_admit(token: Optional[str]) -> Optional[float]:
     # the hold (refuse, nothing started) or the hold was written after the count, so the updater, which reads the count after writing the hold, sees this turn.
     until = hold_until()
     if until is not None:
-        admit_end(key)
+        _admit_cancel(key)
         return until
     return None
 

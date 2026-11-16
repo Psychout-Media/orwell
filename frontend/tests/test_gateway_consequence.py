@@ -251,7 +251,13 @@ class TestGatewayNoModelDeterministicFloor:
 
 class TestPrivateAsidesInAMixedTurn:
     """review of #2247: a mixed turn (a real action plus ((asides))) is a scene, but the asides are private. A houseguest named only
-    inside an aside must not become a witnessed participant, and the aside text must not be saved as the recorded content."""
+    inside an aside must not become a witnessed participant, and the aside text must not be saved as the recorded content.
+    Roles only (review of #2854): the houseguests here are opaque role tokens."""
+
+    _ROLE_HOUSE = [
+        {"id": "npc:1", "name": "NPC-A", "status": "active"},
+        {"id": "npc:2", "name": "NPC-B", "status": "active"},
+    ]
 
     def _no_model(self, monkeypatch):
         async def fake_resolve(owner):
@@ -263,8 +269,8 @@ class TestPrivateAsidesInAMixedTurn:
         _stub_reads(monkeypatch, present_ids={"npc:1", "npc:2"})
         calls = _capture_record_interaction(monkeypatch)
         self._no_model(monkeypatch)
-        ok = _run(gc.fold_gateway_turn("user_gw_aside", "((Alex is my secret target)) I wave. ((end note))",
-                                       "You wave at the empty kitchen.", _HOUSE))
+        ok = _run(gc.fold_gateway_turn("user_gw_aside", "((NPC-A is my secret target)) I wave. ((end note))",
+                                       "You wave at the empty kitchen.", self._ROLE_HOUSE))
         assert ok is False and calls == [], calls
 
     def test_the_real_action_is_recorded_without_the_aside(self, monkeypatch):
@@ -272,8 +278,18 @@ class TestPrivateAsidesInAMixedTurn:
         _stub_reads(monkeypatch, present_ids={"npc:1", "npc:2"})
         calls = _capture_record_interaction(monkeypatch)
         self._no_model(monkeypatch)
-        ok = _run(gc.fold_gateway_turn("user_gw_aside2", "((Alex is my secret target)) I ask Jordan about the vote.",
-                                       "Jordan shrugs.", _HOUSE))
+        ok = _run(gc.fold_gateway_turn("user_gw_aside2", "((NPC-A is my secret target)) I ask NPC-B about the vote.",
+                                       "NPC-B shrugs.", self._ROLE_HOUSE))
         assert ok is True and len(calls) == 1
         assert calls[0]["with_ids"] == ["npc:2"]
-        assert "secret target" not in calls[0]["content"] and "Jordan" in calls[0]["content"]
+        assert "secret target" not in calls[0]["content"] and "NPC-B" in calls[0]["content"]
+
+    def test_a_name_after_a_nested_group_inside_an_aside_stays_private(self, monkeypatch):
+        # review of #2854: a nested `(...)` inside an aside used to end the aside at its first `))`, so a name after it leaked into the in-character text.
+        import gateway.consequence as gc
+        _stub_reads(monkeypatch, present_ids={"npc:1", "npc:2"})
+        calls = _capture_record_interaction(monkeypatch)
+        self._no_model(monkeypatch)
+        ok = _run(gc.fold_gateway_turn("user_gw_aside3", "((day 12 (HOH: NPC-B)) NPC-A is my secret target)) I wave.",
+                                       "You wave at the empty kitchen.", self._ROLE_HOUSE))
+        assert ok is False and calls == [], calls

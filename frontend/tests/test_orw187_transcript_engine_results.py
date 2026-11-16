@@ -173,32 +173,37 @@ def test_update_last_meta_cannot_touch_the_server_owned_tool_events(monkeypatch)
         db.add(DbChatMessage(id=uuid.uuid4().hex, session_id=sid, role="assistant", content="reply", seq=1,
                              meta_data=json.dumps({"tool_events": stored_events, "model": "m"})))
         db.commit()
+    try:
+        def _row_meta():
+            with SessionLocal() as db:
+                return json.loads(db.query(DbChatMessage).filter(DbChatMessage.session_id == sid).one().meta_data)
 
-    def _row_meta():
+        class SM:
+            def get_session(self, sid_):
+                return session
+
+            def save_sessions(self):
+                pass
+
+        monkeypatch.setattr(hist, "_verify_session_owner", lambda *a, **k: None)  # restored after the test (a bare assignment leaked it into later tests)
+        app = FastAPI()
+        app.include_router(hist.setup_history_routes(SM()))
+        c = TestClient(app)
+        r = c.post(f"/api/session/{sid}/update-last-meta", json={"metadata": {"variants": ["v1"], "tool_events": [{"tool": "forged", "engine_result": "FORGED"}]}})
+        assert r.status_code == 200
+        for md in (session.history[0].metadata, _row_meta()):
+            assert md["variants"] == ["v1"]                                   # ordinary keys still merge
+            assert md["tool_events"][0]["engine_result"] == SECRET            # the server-written ledger is untouched
+            assert "FORGED" not in str(md)
+        r = c.post(f"/api/session/{sid}/update-last-meta", json={"metadata": {"tool_events": []}})  # nor can it be deleted
+        assert r.status_code == 200
+        assert session.history[0].metadata["tool_events"][0]["engine_result"] == SECRET
+        assert _row_meta()["tool_events"][0]["engine_result"] == SECRET
+    finally:  # review of #2854: the seeded rows never outlive the test in the shared test database
         with SessionLocal() as db:
-            return json.loads(db.query(DbChatMessage).filter(DbChatMessage.session_id == sid).one().meta_data)
-
-    class SM:
-        def get_session(self, sid_):
-            return session
-
-        def save_sessions(self):
-            pass
-
-    monkeypatch.setattr(hist, "_verify_session_owner", lambda *a, **k: None)  # restored after the test (a bare assignment leaked it into later tests)
-    app = FastAPI()
-    app.include_router(hist.setup_history_routes(SM()))
-    c = TestClient(app)
-    r = c.post(f"/api/session/{sid}/update-last-meta", json={"metadata": {"variants": ["v1"], "tool_events": [{"tool": "forged", "engine_result": "FORGED"}]}})
-    assert r.status_code == 200
-    for md in (session.history[0].metadata, _row_meta()):
-        assert md["variants"] == ["v1"]                                   # ordinary keys still merge
-        assert md["tool_events"][0]["engine_result"] == SECRET            # the server-written ledger is untouched
-        assert "FORGED" not in str(md)
-    r = c.post(f"/api/session/{sid}/update-last-meta", json={"metadata": {"tool_events": []}})  # nor can it be deleted
-    assert r.status_code == 200
-    assert session.history[0].metadata["tool_events"][0]["engine_result"] == SECRET
-    assert _row_meta()["tool_events"][0]["engine_result"] == SECRET
+            db.query(DbChatMessage).filter(DbChatMessage.session_id == sid).delete()
+            db.query(DbSession).filter(DbSession.id == sid).delete()
+            db.commit()
 
 
 def test_malformed_client_tool_events_never_pass_the_sanitizer():
@@ -220,4 +225,8 @@ def test_markdown_export_includes_the_admin_engine_results():
     md = atr._render_markdown(row, "owner", [node])
     assert SECRET in md and "`whereabouts` (round 2)" in md
     assert atr._render_markdown(row, "owner", [{"role": "user", "content": "x"}]).count("Engine results") == 0
+    # review of #2854: a legacy truthy non-list `tool_events` (a number, a dict, a string) renders without engine results, never a TypeError
+    for legacy in (1, {"tool": "t", "engine_result": SECRET}, "text"):
+        out = atr._render_markdown(row, "owner", [{"role": "assistant", "content": "reply", "metadata": {"tool_events": legacy}}])
+        assert "reply" in out and "Engine results" not in out
 

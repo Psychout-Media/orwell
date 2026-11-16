@@ -188,7 +188,7 @@ def _render_markdown(session_row, owner, nodes) -> str:
         # ORW-187 (review of #2248): the admin-only full engine results live on metadata.tool_events[].engine_result; the JSON export
         # carried them, the Markdown export did not.
         evs = (n.get("metadata") or {}).get("tool_events") if isinstance(n.get("metadata"), dict) else None
-        results = [e for e in (evs or []) if isinstance(e, dict) and isinstance(e.get("engine_result"), str) and e.get("engine_result")]
+        results = [e for e in (evs if isinstance(evs, list) else []) if isinstance(e, dict) and isinstance(e.get("engine_result"), str) and e.get("engine_result")]
         if results:
             lines.append("")
             lines.append("**Engine results (admin only):**")

@@ -4,7 +4,7 @@
 # stage a build without the flag you asked for. stage2.sh validates FIRST, before the checkout and the build.
 rig_validate_env_override() {
   local kv; local -a kvs=()
-  read -ra kvs <<<"$1"   # split on blanks with no pathname expansion: "ORWELL_A=*" stays "*" (review of #2795)
+  read -rd '' -a kvs <<<"$1" || true   # split on blanks AND newlines with no pathname expansion: "ORWELL_A=*" stays "*" (review of #2795); every line is checked (review of #2854)
   for kv in ${kvs[@]+"${kvs[@]}"}; do
     if ! [[ "$kv" =~ ^ORWELL_[A-Za-z0-9_]+=.*$ ]]; then
       echo "FATAL: RIG_ENV_OVERRIDE entry '$kv' is not ORWELL_<NAME>=<value>; not staging a build without the flag you asked for" >&2; return 1
@@ -18,6 +18,6 @@ rig_validate_env_override() {
 rig_apply_env_override() {
   local kv; local -a kvs=()
   rig_validate_env_override "$1" || return 1
-  read -ra kvs <<<"$1"
+  read -rd '' -a kvs <<<"$1" || true   # every line, as validated above
   for kv in ${kvs[@]+"${kvs[@]}"}; do export "$kv"; done
 }

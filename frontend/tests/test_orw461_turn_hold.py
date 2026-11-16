@@ -23,12 +23,14 @@ def _env(tmp_path, monkeypatch):
     monkeypatch.setattr(ogs, "GAME_SESSION_PATH", tmp_path / "orwell_game_session.json")
     monkeypatch.setattr(ws_routes, "_is_live", lambda sid: True)
     ti._admitting.clear()
+    ti._expired.clear()
     ti._registry_size = 0
     H.reset_runs()
     yield
     H.reset_runs()
     ws_routes.set_turn_stream_factory(None)
     ti._admitting.clear()
+    ti._expired.clear()
 
 
 def _hold(tmp_path, seconds):
@@ -106,6 +108,19 @@ def test_the_same_turn_admitted_twice_is_counted_twice(tmp_path):
     assert _inflight(tmp_path) == 1
     ti.admit_end("c-1")
     assert _inflight(tmp_path) == 0 and not ti._admitting
+
+
+def test_an_older_admission_past_the_ttl_releases_itself_not_a_newer_one(tmp_path):
+    # review of #2854: the first admission sat queued behind a long run past the TTL (it stopped counting); a re-send of the same clientMsgId is admitted. When the FIRST one
+    # finally registers, its admit_end must release the first, never the re-send's live stamp, or the updater reads 0 while the re-send is about to start.
+    assert ti.check_and_admit("c-1") is None
+    ti._admitting["c-1"][0] -= ti._ADMIT_TTL_S + 1
+    assert ti.check_and_admit("c-1") is None
+    assert _inflight(tmp_path) == 1                       # the re-send only: the first one is past the TTL
+    ti.admit_end("c-1")                                   # the FIRST admission registers
+    assert _inflight(tmp_path) == 1 and len(ti._admitting.get("c-1") or []) == 1, "the re-send is still counted"
+    ti.admit_end("c-1")                                   # the re-send registers
+    assert _inflight(tmp_path) == 0 and not ti._admitting and not ti._expired
 
 
 def test_a_refused_turn_is_not_counted(tmp_path):
