@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 
 _FALLBACK = (
     "kitchen", "living-room", "dining-room", "backyard", "hallway",
@@ -40,16 +41,65 @@ def room_id_list(rooms, room_names=None) -> str:
     return ", ".join(_one(r) for r in rooms)
 
 
+def fold_room_text(text) -> str:
+    """ORW-466: lowercase, accents dropped ("séance" -> "seance") and curly apostrophes made straight, so a themed name matches however it was typed."""
+    s = unicodedata.normalize("NFD", str(text or "")).replace("\u2018", "'").replace("\u2019", "'").replace("\u02bc", "'")
+    return re.sub(r"\s+", " ", "".join(c for c in s if not unicodedata.combining(c)).lower()).strip()
+
+
+# Generic last words a player may drop ("the coral reef" for "the Coral Reef Room"); the engine's `themedRoomAliases` (src/engine/roomLabels.ts) uses the same list.
+_GENERIC_TAIL = re.compile(r"\s+(room|cabin|pod|cave|chamber|suite|quarters)$")
+
+
+def _themed_forms(room_names):
+    """[(form, room id, prose_safe)] for each themed room: the full name, the name without "the", and (not for the Diary Room) the name without a generic last word, bare and
+    with "the". Folded (see `fold_room_text`). A form that would name two rooms is dropped, as the engine drops it."""
+    by: dict = {}
+    for rid, name in (room_names.items() if isinstance(room_names, dict) else ()):
+        if rid not in HOUSE_ROOMS or not isinstance(name, str) or not name.strip():
+            continue
+        full = fold_room_text(name)
+        bare = re.sub(r"^the\s+", "", full)
+        forms = [(full, True), (bare, False)]
+        short = bare if rid == "diary-room" else _GENERIC_TAIL.sub("", bare)
+        if short != bare:
+            forms += [(short, False), (f"the {short}", not short.endswith("'s"))]  # "the captain's" reads as a person, not a room, in prose
+        for form, prose in forms:
+            if len(form) >= 3:
+                rooms, was_prose = by.get(form, (set(), False))
+                by[form] = (rooms | {rid}, was_prose or prose)
+    return [(f, next(iter(rooms)), prose) for f, (rooms, prose) in by.items() if len(rooms) == 1]
+
+
+def themed_rooms_in(text, room_names) -> list:
+    """ORW-466: the room ids `text` names by this season's themed names, in the order they appear: the full name ("the Coral Reef Room", "Main Street") or its short form
+    with "the" ("the Coral Reef"), however accented or apostrophed. A bare one-word form ("hold" for "the Hold") is never looked for in prose. [] without a theme."""
+    forms = [(f, rid) for f, rid, prose in _themed_forms(room_names) if prose]
+    if not forms or not text:
+        return []
+    low = fold_room_text(str(text).replace("-", " "))
+    hits = []
+    for form, rid in forms:
+        m = re.search(r"(?<![\w'])" + re.escape(form) + r"(?![\w'])", low)
+        if m:
+            hits.append((m.start(), rid))
+    out: list = []
+    for _, rid in sorted(hits):
+        if rid not in out:
+            out.append(rid)
+    return out
+
+
 def room_id_of(value, room_names=None) -> str | None:
     """The room id a move extraction answered, or None. ORW-466: tolerates an echo of the themed listing ("bedroom-a (this season: the Coral Reef Room)") and, with a
-    house theme, the themed name itself ("the Coral Reef Room" / "Coral Reef Room")."""
+    house theme, the themed name itself or a form of it the engine also takes ("the Coral Reef Room" / "Coral Reef Room" / "the coral reef" / "Seance Room")."""
     if not isinstance(value, str):
         return None
     v = re.sub(r"\s*\(this season:[^)]*\)\s*$", "", value.strip(), flags=re.IGNORECASE).strip()
     if v in HOUSE_ROOMS:
         return v
-    low = v.lower()
-    for rid, name in (room_names.items() if isinstance(room_names, dict) else ()):
-        if rid in HOUSE_ROOMS and isinstance(name, str) and name.strip() and name.strip().lower() in (low, f"the {low}"):
+    low = fold_room_text(v)
+    for form, rid, _ in _themed_forms(room_names):
+        if low == form:
             return rid
     return None

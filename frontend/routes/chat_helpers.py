@@ -23,6 +23,7 @@ from routes.prefs_routes import _load_for_user as load_prefs_for_user
 
 from fastapi import HTTPException
 from src.log_rings import record_soft_failure
+from src.house_rooms import themed_rooms_in as _themed_rooms_in  # ORW-466: the season's themed room names in prose
 
 logger = logging.getLogger(__name__)
 
@@ -1346,8 +1347,9 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
     if (isinstance(player_move, dict) and not player_move.get("refused") and player_move.get("from") and player_move.get("to") and player_move.get("from") != player_move.get("to")
             and str(player_move.get("to")) == room):
         moved_now = True
-        move_line = (f"\nTHE PLAYER JUST MOVED: from the {str(player_move['from']).replace('-', ' ')} to the {str(player_move['to']).replace('-', ' ')} (the engine has already done it). Open this turn's scene in the {str(player_move['to']).replace('-', ' ')}, "
-                     f"with exactly the people listed above; never in the {str(player_move['from']).replace('-', ' ')}, and never re-describe the walk as still to come.")
+        _mf, _mt = room_ref(player_move['from'], names), room_ref(player_move['to'], names)  # ORW-466: the season's names (no theme: "the living room", as before)
+        move_line = (f"\nTHE PLAYER JUST MOVED: from {_mf} to {_mt} (the engine has already done it). Open this turn's scene in {_mt}, "
+                     f"with exactly the people listed above; never in {_mf}, and never re-describe the walk as still to come.")
     # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
     # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
     since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
@@ -3996,6 +3998,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
     room_present: set = set()
     adjacent: set = set()  # ORW-249: people in an ADJACENT room - legitimately glimpsed or overheard, never in the player's scene
     adjacent_rooms: set = set()
+    adjacent_room_ids: set = set()  # ORW-466: the themed adjacent rooms by id, so a short form ("the Coral Reef") frames a sentence there too
     room_names = room_names_of(wa)  # ORW-466: the narrator names rooms by this season's themed names
     for p in (wa.get("present") or []):
         if isinstance(p, dict) and p.get("name"):
@@ -4009,6 +4012,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
                 _themed = room_ref(nb.get("room"), room_names, article=False, plain="").strip().lower()
                 if _themed:
                     adjacent_rooms.add(_themed)  # "the lagoon" frames a sentence in that room as much as "living room" does
+                    adjacent_room_ids.add(str(nb.get("room")))
             for p in (nb.get("present") or []):
                 if isinstance(p, dict) and p.get("name"):
                     in_view.add(p["name"])
@@ -4050,7 +4054,8 @@ def _presence_facts(state: dict) -> Optional[dict]:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
-            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names}
+            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
+            **({"adjacent_room_ids": adjacent_room_ids} if adjacent_room_ids else {})}
 
 
 def _first_name_counts(names) -> dict:
@@ -4170,6 +4175,8 @@ def _sentence_frames_elsewhere(sentence: str, facts: dict) -> bool:
     adj = [r for r in (facts.get("adjacent_rooms") or ()) if r]
     if any(re.search(rf"\b{re.escape(r)}\b", low) for r in adj):
         return True
+    if facts.get("adjacent_room_ids") and set(_themed_rooms_in(sentence, facts.get("room_names"))) & set(facts["adjacent_room_ids"]):
+        return True  # ORW-466: a themed adjacent room by any of its forms ("the Coral Reef", "the Seance Room")
     # ORW-481 (review 4502876781): the narration may use an alias of the label ("the yard" for the backyard); compare canonical room keys too.
     return bool(_room_keys(sentence) & set().union(*(_room_keys(r) for r in adj))) if adj else False
 
@@ -4533,9 +4540,8 @@ def _room_keys(text: str, room_names=None) -> set:
     names its room too."""
     low = (text or "").lower().replace("-", " ")
     keys = {key for word, key in _ROOM_CANON if re.search(r"\b" + re.escape(word), low)}
-    for rid, name in (room_names.items() if isinstance(room_names, dict) else ()):
-        if isinstance(name, str) and name.strip() and re.search(r"\b" + re.escape(name.strip().lower().replace("-", " ")) + r"\b", low):
-            keys |= _room_keys(rid)
+    for rid in _themed_rooms_in(text, room_names):  # any form of the themed name ("the Coral Reef", "the Seance Room")
+        keys |= _room_keys(rid)
     return keys
 
 
@@ -6997,11 +7003,11 @@ def _headcount_claims(text: str) -> list:
     return claims
 
 
-def _sentence_has_headcount_claim(text: str) -> bool:
+def _sentence_has_headcount_claim(text: str, room_names=None) -> bool:
     """Cheap synchronous pre-filter (no engine read): does `text` state a headcount at all? Keeps the
     ORW-205 guard off every sentence that does not (mirrors `_sentence_has_met_everyone_claim`)."""
     try:
-        return bool(_headcount_claims(text)) or bool(_engine_count_claims(text))  # ORW-376: + the room/house/vote counts
+        return bool(_headcount_claims(text)) or bool(_engine_count_claims(text, room_names))  # ORW-376: + the room/house/vote counts
     except Exception:
         return False
 
@@ -7123,17 +7129,20 @@ _EC_ROOM_WORDS = (("kitchen", "kitchen"), ("living room", "living-room"), ("grea
                   ("storage room", "storage-room"), ("diary room", "diary-room"))
 
 
-def _ec_rooms_named(segment: str) -> list:
-    """The engine room ids named in `segment` (kitchen, living room, dining room, backyard, hallway), in order, once each."""
+def _ec_rooms_named(segment: str, room_names=None) -> list:
+    """The engine room ids named in `segment` (kitchen, living room, dining room, backyard, hallway), in order, once each. ORW-466: + a themed name of `room_names`."""
     low = (segment or "").lower()
     out: list = []
     for word, slug in _EC_ROOM_WORDS:
         if re.search(r"\b" + re.escape(word) + r"\b", low) and slug not in out:
             out.append(slug)
+    for slug in _themed_rooms_in(segment, room_names):
+        if slug not in out:
+            out.append(slug)
     return out
 
 
-def _empty_room_claims(text: str) -> list:
+def _empty_room_claims(text: str, room_names=None) -> list:
     """ORW-386: rooms a sentence calls EMPTY ('the kitchen is empty', 'the kitchen, the living room, the dining room - all of them empty', 'an empty kitchen'). The rooms named in the clause that leads to the
     empty word (cut at but/while/except/only/;) are the ones claimed empty. Skips ((asides)). Pure and engine-free."""
     out: list = []
@@ -7150,9 +7159,9 @@ def _empty_room_claims(text: str) -> list:
                 if _EC_COPULA_RE.search(seg[:cm.start()]):
                     seg = seg[cm.end():]
                     break
-            rooms = _ec_rooms_named(seg)
+            rooms = _ec_rooms_named(seg, room_names)
             if not rooms:  # "an empty kitchen": the room right after the word
-                rooms = _ec_rooms_named(re.match(r"\s*(?:\w+\s+)?\w+(?:\s+room)?", sentence[m.end():]).group(0)) if re.match(r"\s*(?:\w+\s+)?\w+", sentence[m.end():]) else []
+                rooms = _ec_rooms_named(re.match(r"\s*(?:\w+\s+)?\w+(?:\s+room)?", sentence[m.end():]).group(0), room_names) if re.match(r"\s*(?:\w+\s+)?\w+", sentence[m.end():]) else []
             if rooms:
                 out.append(_EcClaim("empty", 0, sentence.strip()[:100], tuple(rooms)))
     return out
@@ -7165,11 +7174,11 @@ def _ec_num(word: str) -> Optional[int]:
     return _HC_NUMBER_WORDS.get(w)
 
 
-def _engine_count_claims(text: str) -> list:
-    """Every ENGINE-checkable count STATEMENT in `text` (kinds room / others / house / votes). Pure and engine-free."""
+def _engine_count_claims(text: str, room_names=None) -> list:
+    """Every ENGINE-checkable count STATEMENT in `text` (kinds room / others / house / votes). Pure and engine-free. `room_names` (ORW-466): the season's themed room names."""
     if not text:
         return []
-    out = _empty_room_claims(text)
+    out = _empty_room_claims(text, room_names)
     if not _HC_NUM_RE.search(text):
         return out
     for m in _EC_ASLEEP_RE.finditer(text):
@@ -7257,7 +7266,7 @@ def _engine_count_ok(claim, c: dict) -> bool:
 def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
     if not c:
         return None
-    for claim in (_engine_count_claims(text) if claims is None else claims):
+    for claim in (_engine_count_claims(text, c.get("room_names")) if claims is None else claims):
         if not _engine_count_ok(claim, c):
             return claim
     return None
@@ -7307,12 +7316,13 @@ async def screen_headcount_wall(user, text: str) -> str:
     room / house / vote count against the engine's `whereabouts.counts` (ONE read, player included).
     Fail-open: any hiccup returns `text` unchanged."""
     try:
-        if not text or not text.strip() or not _sentence_has_headcount_claim(text):
+        _rn = turn_room_names(user)  # ORW-466: "the Galley is empty" is a room claim too (no engine read)
+        if not text or not text.strip() or not _sentence_has_headcount_claim(text, _rn):
             return text
         ent = await _live_headcount_entrance(user)
         counts = None
         if ent is None:
-            if not _engine_count_claims(text):
+            if not _engine_count_claims(text, _rn):
                 return text
             counts = await _live_engine_counts(user)
             if counts is None:
@@ -7342,7 +7352,7 @@ async def screen_streamed_headcount(user, sentence: str) -> bool:
     next-turn re-ground; else EMIT (True). Fail-open: no claim, no entrance view, or any hiccup emits."""
     try:
         claims = _headcount_claims(sentence)
-        eclaims = _engine_count_claims(sentence)  # ORW-376
+        eclaims = _engine_count_claims(sentence, turn_room_names(user))  # ORW-376; ORW-466: + the season's room names
         if not claims and not eclaims:
             return True
         ent = await _live_headcount_entrance(user)
@@ -7410,14 +7420,14 @@ _HOUSE_ROOM_WORDS_RE = re.compile(
 _EVICTED_BIND_WINDOW = 50
 
 
-def _sentence_places_evicted(sentence: str, evicted_names) -> Optional[str]:
+def _sentence_places_evicted(sentence: str, evicted_names, room_names=None) -> Optional[str]:
     """Return the out-of-house houseguest NAME this sentence places back in a house room, or None.
     The triple gate (a real house room in the sentence + an out-of-house name + that name bound within
     `_EVICTED_BIND_WINDOW` chars of present-tense presence/entrance language) keeps the legitimate
     cases — past-tense reference, departure to the jury house, mere mention — untouched."""
     if not sentence or not evicted_names:
         return None
-    if not _HOUSE_ROOM_WORDS_RE.search(sentence):
+    if not _HOUSE_ROOM_WORDS_RE.search(sentence) and not [r for r in _themed_rooms_in(sentence, room_names) if r != "diary-room"]:  # ORW-466: + a themed house room
         return None  # no in-house location named → not an "evicted person IN a room" claim
     for name in evicted_names:
         if not isinstance(name, str) or not name.strip():
@@ -7480,7 +7490,7 @@ async def screen_streamed_location(user, sentence: str) -> bool:
         evicted_names = sig.get("evictedNames") or []
         if not evicted_names:
             return True
-        who = _sentence_places_evicted(sentence, evicted_names)
+        who = _sentence_places_evicted(sentence, evicted_names, turn_room_names(user))
         if not who:
             return True
         _reground_enqueue(_dkey, (  # BL-004: bounded append (never clobber a prior distinct one)

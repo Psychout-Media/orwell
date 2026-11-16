@@ -3351,7 +3351,7 @@ _MOVE_TOOLS = {"moveTo"}
 _MAX_MOVE_NUDGES_PER_TURN = 1  # at most one auto-move per finishing turn
 # The canonical house floor plan (mirrors src/domain/house.ts HOUSE_ROOMS). The engine no-ops an
 # unknown room; matching here keeps the extraction honest and the pre-filter cheap.
-from src.house_rooms import HOUSE_ROOMS as _HOUSE_ROOMS, room_id_list as _room_id_list, room_id_of as _room_id_of  # ORW-418: the engine's own list (no copy here); ORW-466: + the season's names
+from src.house_rooms import HOUSE_ROOMS as _HOUSE_ROOMS, room_id_list as _room_id_list, room_id_of as _room_id_of, themed_rooms_in as _themed_rooms_in  # ORW-418: the engine's own list (no copy here); ORW-466: + the season's names
 # A deliberately BROAD pre-filter — movement language is varied ("I head to the kitchen", "let's go
 # out back", "I wander into the living room", "walk over to the bedroom", "step into the bathroom").
 # A missed signal means a lost move (the immersion bug); a false hit only costs a rare extraction
@@ -3480,6 +3480,11 @@ def _season_room_names(owner):
         return _ch.turn_room_names(owner)
     except Exception:  # failsoft-ok: expected-empty (no names => the plain room-id list, exactly as before)
         return None
+
+
+def _themed_move_signal(text: str, owner) -> bool:
+    """ORW-466: the movement pre-filter's second half - `text` names one of this season's themed rooms ("leaves for the Coral Reef Room"), which `_MOVE_SIGNAL_RE` cannot know. False without a theme."""
+    return bool(_themed_rooms_in(text, _season_room_names(owner)))
 
 
 def _themed_rooms_note(room_names) -> str:
@@ -10332,7 +10337,8 @@ async def _stream_agent_loop_impl(
                 # returns room:null when the PLAYER did not move — stays the gatekeeper.
                 _want_move = _gates.want_move(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
-                    signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)), signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
+                    signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
+                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
                 # room but the model never called moveHouseguest, so the engine's open presence still has
                 # them in their seeded room and the whereabouts gadget snaps them back. Gated on a cheap
@@ -10342,7 +10348,7 @@ async def _stream_agent_loop_impl(
                 # Model-driven moveHouseguest always wins (`_npc_moved` short-circuits).
                 _want_npc_move = _gates.want_npc_move(
                     npc_moved=_npc_moved, turn_npc_move_nudges=_turn_npc_move_nudges, max_npc_move_nudges=_MAX_NPC_MOVE_NUDGES_PER_TURN,
-                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)))
+                    signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
                 # NPC-approach nudge (0036/0049): the house lives between the player's beats — NPCs play
                 # THEIR game and come to the player, not only the other way around. With the "Wants a
                 # word" notification panel removed (owner ruling 2026-06-18 — that intent must never reach

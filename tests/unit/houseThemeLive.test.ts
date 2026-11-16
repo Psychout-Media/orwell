@@ -2,6 +2,9 @@ import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
+import { resolveRoom } from "../../src/domain/house";
+import { themedRoomAliases } from "../../src/engine/roomLabels";
+import { parsePlayerMoveIntent } from "../../src/engine/playerMoveIntent";
 
 /** ORW-466 (Ryne 2026-11-15: "Themes should be random"; "all rooms in the house to be themed as well"): the season's house theme in a live game. Roles only. A test-only seam on `live`. */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
@@ -41,6 +44,7 @@ describe("the season's house theme", () => {
     const prompt = s.getMomentPrompt({}).systemPrompt;
     expect(prompt).toContain(OCEAN.rooms[here].name);
     expect(prompt).toContain("the Captain's Quarters");
+    expect(prompt).toContain(`This season it looks like this (dress the scene with it; never read it out as a list): ${OCEAN.rooms[here].look}`); // review of #2856: no "this this season"
     expect(prompt).not.toMatch(/bedroom a\b/i);
     const r = s.resolvePlayerMove({ text: "I head to the coral reef" });
     expect(r.playerMove).toMatchObject({ to: "bedroom-a" });
@@ -59,5 +63,16 @@ describe("the season's house theme", () => {
     expect(liveOf(n).priorHouseThemes).toContain(first);
     n.noteMessage({ messageId: "m2" });
     expect(liveOf(n).houseTheme, "the same seed would draw the same theme; the recent one is skipped").not.toBe(first);
+  });
+});
+
+describe("a themed room name resolves however it is typed (review of #2856)", () => {
+  const ocean = themedRoomAliases(OCEAN.id);
+  it("a curly apostrophe is the straight one, in the room resolver and in the player's own move", () => {
+    expect(resolveRoom("the Captain\u2019s Quarters", null, ocean)).toEqual({ kind: "ok", room: "hoh-room" });
+    expect(parsePlayerMoveIntent("I head to the Captain\u2019s Quarters", "kitchen", ocean)).toBe("hoh-room");
+  });
+  it("a themed name that starts with an article the resolver drops still resolves by its own name", () => {
+    expect(resolveRoom("A Velvet Vault", null, [["a velvet vault", "lounge"]])).toEqual({ kind: "ok", room: "lounge" });
   });
 });
