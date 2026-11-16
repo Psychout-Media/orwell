@@ -1259,7 +1259,7 @@ export class GameSessionAdapter implements GameSession {
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
   private npcBeliefsEnabled = flagDefaultOn("ORWELL_NPC_BELIEFS");
-  /** 0161 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
+  /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
   private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
   setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
   /**
@@ -9820,7 +9820,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
-      // 0161 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
+      // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
       ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
@@ -14946,10 +14946,10 @@ export class GameSessionAdapter implements GameSession {
     return Math.max(-1, Math.min(1, -(mem + bel) + owed));
   }
 
-  /** 0161 / ORW-539: per holder, the bonding scenes they witnessed between each pair (cached until the event record grows). */
+  /** 0163 / ORW-539: per holder, the bonding scenes they witnessed between each pair (cached until the event record grows). */
   private seenBondsCache = new Map<EntityId, { n: number; pairs: Map<string, number> }>();
   /**
-   * 0161 / ORW-539 - the bond between two OTHER houseguests as `holder` can SEE it: the edge baseline, raised by the bonding / showmance scenes
+   * 0163 / ORW-539 - the bond between two OTHER houseguests as `holder` can SEE it: the edge baseline, raised by the bonding / showmance scenes
    * the holder witnessed between them (PERCEIVED_BOND.perScene each) and by the holder's allied-with belief about them (its confidence), up to
    * the full floater span. A pair that bonds only out of sight reads as strangers; a pair the holder watched, or was told about, reads tight.
    * Engine-only, deterministic, no rng. Symmetric: what the holder sees is the pair, not who leans on whom.

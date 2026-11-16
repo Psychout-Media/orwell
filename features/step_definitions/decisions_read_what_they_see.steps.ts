@@ -13,7 +13,7 @@ const BASE = RELATIONSHIP_CONSTANTS.baseline;
 const CLOSE = (BASE.trust + BASE.affinity) / 2 + 0.9 * DECISION.nomination.floaterBondSpan;
 
 /**
- * Feature 0161 - decisions read what the decider can see (ORW-539). Drives the REAL adapter through a registry sandbox: the bond the HOH sees
+ * Feature 0163 - decisions read what the decider can see (ORW-539). Drives the REAL adapter through a registry sandbox: the bond the HOH sees
  * is the adapter's own read (the one the live nomination plan is handed as `bondOf`), over the sandbox's real event store and relationship
  * model, fed to the real floater / duo reads. TEST-ONLY seams: the live season (beliefs, the week), the relationship model, the adapter's
  * private perceived-bond read and its flag. Roles only: the HOH, a pair, a floater.
@@ -25,12 +25,12 @@ type Seam = {
   perceivedBondsEnabled: boolean;
 };
 type Bag = { sb?: UserSandbox; hoh?: string; a?: string; b?: string; others?: string[] };
-const bag = (w: unknown): Bag => ((w as { see0161?: Bag }).see0161 ??= {});
+const bag = (w: unknown): Bag => ((w as { see0163?: Bag }).see0163 ??= {});
 const seam = (w: unknown) => bag(w).sb!.session as unknown as Seam;
 let n = 0;
 
 function played(w: unknown): void {
-  const sb = new GameSessionRegistry().sandboxFor(`see0161-${n++}`);
+  const sb = new GameSessionRegistry().sandboxFor(`see0163-${n++}`);
   sb.session.createCharacter({ playerName: "The Player", seed: 21 });
   (sb.session as unknown as Seam).live.playedGame = true;
   const b = bag(w);
@@ -50,7 +50,7 @@ function setPair(w: unknown, level: number): void {
 let seq = 0;
 function bondingScene(w: unknown, witnessSet: string[], seenBy: string[]): void {
   bag(w).sb!.engine.events.record({
-    id: `see0161-scene-${seq++}`, ts: 1000 + seq, type: "bonding", initiator: witnessSet[0]!, witnessSet, hidden: true, content: "they talk for an hour",
+    id: `see0163-scene-${seq++}`, ts: 1000 + seq, type: "bonding", initiator: witnessSet[0]!, witnessSet, hidden: true, content: "they talk for an hour",
     houseLife: { action: "bond", place: "kitchen", manner: "warm", truthful: true, stretch: 0, ...(seenBy.length ? { seenBy } : {}) },
   });
 }

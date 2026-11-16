@@ -1,4 +1,4 @@
-# Feature 0161 - decisions read what the decider can see, not the hidden truth (theme 2, slice 2b; ORW-539, from ORW-330).
+# Feature 0163 - decisions read what the decider can see, not the hidden truth (theme 2, slice 2b; ORW-539, from ORW-330).
 # Builds on 0150 (beliefs drive decisions) and 0153 (NPCs tell each other claims).
 # The HOH's floater and duo reads looked straight at OTHER houseguests' real relationships, which no houseguest can see. Now they read the
 # bond the HOH PERCEIVES between two others, half what the HOH could see and half the truth (a house reads more than its own scenes: tone,

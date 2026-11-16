@@ -20,7 +20,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
   it("no player or admin tool leaks a sentinel — across the whole game incl. the finale", async () => {
     let totalJurorsTold = 0;
     // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 keeps askJuror's output exercised.
-    for (const seed of [2, 5, 7]) {
+    for (const seed of (process.env.SENT_SEEDS ?? "2,5,7").split(",").map(Number)) {
       const reg = new GameSessionRegistry();
       const user = `u${seed}`;
       const player = reg.resolver()("player", user) as McpServer;

@@ -94,7 +94,7 @@ describe("0110 neutrality with the shipped config (reactive twists ON)", () => {
     const off = play(false), on = play(true);
     const a = off.evictionOrder as EntityId[], b = on.evictionOrder as EntityId[];
     expect(a.length).toBeGreaterThan(5);
-    // 0161 / ORW-539 (2026-11-16): with perceived bonds, the blocs a houseguest deduces from the count feed the bonds the HOH can see, so the
+    // 0163 / ORW-539 (2026-11-16): with perceived bonds, the blocs a houseguest deduces from the count feed the bonds the HOH can see, so the
     // order now parts at the 8th eviction (seed 7). Loosened to the first 7, per the rule above (never to nothing).
     const N = 7;
     expect(b.slice(0, N), `first ${N} evictions`).toEqual(a.slice(0, N));

@@ -102,7 +102,7 @@ export function politicalTemperature(active: readonly EntityId[], rel: Relations
   return { spread, runaway: spread > DECISION.nomination.runawaySpread };
 }
 
-/** 0161 / ORW-539: the bond between two OTHER houseguests as a decider can see it (absent = the hidden truth, `rel.bondStrength`). */
+/** 0163 / ORW-539: the bond between two OTHER houseguests as a decider can see it (absent = the hidden truth, `rel.bondStrength`). */
 export type BondReader = (from: EntityId, to: EntityId) => number;
 
 /**
@@ -182,7 +182,7 @@ export interface NominationRead {
    * B3 / #2017 — the HOH's BELIEF that `target` is targeting them (`targets-me` claims; can be wrong), as a bounded nomination tilt. Reads claims only, never the edge. Absent ⇒ +0, byte-identical.
    */
   beliefPush?: (target: EntityId) => number;
-  /** 0161 / ORW-539: the bond between two OTHER houseguests as THIS HOH sees it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
+  /** 0163 / ORW-539: the bond between two OTHER houseguests as THIS HOH sees it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   bondOf?: BondReader;
   /** B7 M3 (ORWELL_DEAL_NOMS): the HOH's open PROTECTIVE deal (safety / final-two) with `target` lowers their nomination score (a bounded, negative push). Absent => +0, byte-identical. */
   dealPush?: (target: EntityId) => number;
