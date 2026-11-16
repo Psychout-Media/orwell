@@ -13,6 +13,7 @@ import {
   APPEARANCE_POOLS,
 } from "../../src/engine/characterFactory";
 import { VOCATIONS } from "../../src/engine/data/vocations";
+import { JOB_INDEX } from "../../src/engine/data/worldJobs";
 import { HOMETOWNS, HOMETOWN_REGIONS } from "../../src/engine/data/hometowns";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 
@@ -62,7 +63,7 @@ describe("L28/B — the cast carries concrete, DIVERSE backstories", () => {
     for (const n of npcs) {
       expect(n.character.vocation).toBeTruthy();
       expect(n.character.hometown).toBeTruthy();
-      expect(VOCATIONS).toContain(n.character.vocation);
+      expect(VOCATIONS.includes(n.character.vocation!) || JOB_INDEX.has(n.character.vocation!.toLowerCase())).toBe(true); // ORW-508: the corpus is the legacy list plus the world job table
       expect(HOMETOWNS.map((h) => h.city)).toContain(n.character.hometown);
     }
   });

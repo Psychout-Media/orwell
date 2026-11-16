@@ -54,11 +54,11 @@
   },
   "vocation": {
    "measured": {
-    "distinct": 124,
-    "topShare": 0.0123,
-    "castPresenceMax": 0.18,
-    "castPresenceMean": 0.115,
-    "sharedConsecutive": 1.58
+    "distinct": 430,
+    "topShare": 0.013,
+    "castPresenceMax": 0.17,
+    "castPresenceMean": 0.034,
+    "sharedConsecutive": 0.73
    },
    "before": {
     "distinct": 124,
@@ -66,12 +66,12 @@
     "castPresenceMax": 0.175,
     "sharedConsecutive": 1.54
    },
-   "floorDistinct": 124,
-   "maxTopShare": 0.0133,
-   "maxCastPresence": 0.185,
-   "maxSharedConsecutive": 1.63,
+   "floorDistinct": 430,
+   "maxTopShare": 0.014,
+   "maxCastPresence": 0.175,
+   "maxSharedConsecutive": 0.78,
    "target": {
-    "distinct": 300,
+    "distinct": 430,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
@@ -79,11 +79,11 @@
   },
   "hometown": {
    "measured": {
-    "distinct": 499,
-    "topShare": 0.0237,
-    "castPresenceMax": 0.355,
-    "castPresenceMean": 0.03,
-    "sharedConsecutive": 0.72
+    "distinct": 1965,
+    "topShare": 0.0117,
+    "castPresenceMax": 0.175,
+    "castPresenceMean": 0.008,
+    "sharedConsecutive": 0.15
    },
    "before": {
     "distinct": 105,
@@ -91,12 +91,12 @@
     "castPresenceMax": 0.295,
     "sharedConsecutive": 2.48
    },
-   "floorDistinct": 499,
-   "maxTopShare": 0.0247,
-   "maxCastPresence": 0.36,
-   "maxSharedConsecutive": 0.77,
+   "floorDistinct": 1965,
+   "maxTopShare": 0.0127,
+   "maxCastPresence": 0.18,
+   "maxSharedConsecutive": 0.2,
    "target": {
-    "distinct": 499,
+    "distinct": 1965,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
@@ -104,11 +104,11 @@
   },
   "hometown.state": {
    "measured": {
-    "distinct": 50,
-    "topShare": 0.1,
-    "castPresenceMax": 0.89,
-    "castPresenceMean": 0.251,
-    "sharedConsecutive": 4.75
+    "distinct": 51,
+    "topShare": 0.104,
+    "castPresenceMax": 0.91,
+    "castPresenceMean": 0.241,
+    "sharedConsecutive": 4.93
    },
    "before": {
     "distinct": 62,
@@ -116,10 +116,10 @@
     "castPresenceMax": 0.595,
     "sharedConsecutive": 3.94
    },
-   "floorDistinct": 50,
-   "maxTopShare": 0.101,
-   "maxCastPresence": 0.895,
-   "maxSharedConsecutive": 4.8,
+   "floorDistinct": 51,
+   "maxTopShare": 0.105,
+   "maxCastPresence": 0.915,
+   "maxSharedConsecutive": 4.98,
    "target": {
     "distinct": 300,
     "topShare": 0.02,

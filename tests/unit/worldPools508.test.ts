@@ -1,12 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
-import { generateHouse, generateBackstoryFacets, MAX_PER_REGION, MAX_PER_VOCATION } from "../../src/engine/characterFactory";
+import { generateHouse, generateBackstoryFacets, articleFor, MAX_PER_REGION, MAX_PER_VOCATION } from "../../src/engine/characterFactory";
 import { WORLD_PLACES, sizeClassOf } from "../../src/engine/data/worldPlaces";
 import { HOMETOWNS } from "../../src/engine/data/hometowns";
 import { buildTable, drawOne, drawConstrained } from "../../src/engine/data/worldSampler";
 import { dealWorldHometowns, MAX_PER_STATE } from "../../src/engine/data/worldHometowns";
 import { implausibleBecause, ageProblem, RULES, SAFE_VOCATIONS } from "../../src/engine/data/worldPlausibility";
 import { VOCATIONS } from "../../src/engine/data/vocations";
+import { JOB_INDEX, WORLD_JOBS } from "../../src/engine/data/worldJobs";
 import { emptyLedger, recordSeason, avoidSets, parseLedger, factsOfCast, LEDGER_WINDOW, NO_AVOID } from "../../src/domain/recentSeasons";
 
 // ORW-508: the world place table, its sampler, the acceptance rules and the recent-seasons memory.
@@ -16,10 +17,10 @@ const placeOf = new Map(WORLD_PLACES.map((p) => [p.city, p]));
 
 describe("ORW-508 world place table", () => {
   it("covers all fifty states, every size class, no duplicate city, and every hometown is in HOMETOWNS", () => {
-    expect(new Set(WORLD_PLACES.map((p) => p.state)).size).toBe(50);
+    expect(new Set(WORLD_PLACES.map((p) => p.state)).size).toBeGreaterThanOrEqual(50); // fifty states and DC
     expect(new Set(WORLD_PLACES.map((p) => p.size)).size).toBe(4);
     expect(new Set(WORLD_PLACES.map((p) => p.city)).size).toBe(WORLD_PLACES.length);
-    expect(WORLD_PLACES.length).toBeGreaterThanOrEqual(500);
+    expect(WORLD_PLACES.length).toBeGreaterThanOrEqual(9000);
     const all = new Set(HOMETOWNS.map((h) => h.city));
     for (const p of WORLD_PLACES) expect(all.has(p.city), p.city).toBe(true);
     expect(sizeClassOf(8800)).toBe("big-city");
@@ -66,8 +67,8 @@ describe("ORW-508 hometown deal", () => {
   it("seeded casts use a much wider range of towns than the old 106 and no town dominates", () => {
     const towns = new Map<string, number>();
     for (const seed of SEEDS) for (const n of generateHouse(new SeededRandom(seed)).npcs) towns.set(n.character.hometown!, (towns.get(n.character.hometown!) ?? 0) + 1);
-    expect(towns.size).toBeGreaterThanOrEqual(400);
-    expect(Math.max(...towns.values()) / 3000).toBeLessThan(0.04);
+    expect(towns.size).toBeGreaterThanOrEqual(1500);
+    expect(Math.max(...towns.values()) / 3000).toBeLessThan(0.03);
   });
 });
 
@@ -78,7 +79,7 @@ describe("ORW-508 acceptance: wide generation, narrow acceptance", () => {
     expect(implausibleBecause({ vocation: "surf instructor", age: 30, state: "NE", size: "city" })).toBe("needs-coast");
     expect(implausibleBecause({ vocation: "cattle rancher", age: 40, state: "TX", size: "big-city" })).toBe("not-big-city-farm");
     expect(implausibleBecause({ vocation: "barista", age: 22, state: "NE", size: "town" })).toBeNull();
-    for (const v of SAFE_VOCATIONS) { expect(VOCATIONS).toContain(v); for (const age of [21, 60]) for (const size of ["town", "big-city"] as const) expect(implausibleBecause({ vocation: v, age, state: "NE", size })).toBeNull(); }
+    for (const v of SAFE_VOCATIONS) { expect(VOCATIONS.includes(v) || JOB_INDEX.has(v), v).toBe(true); for (const age of [21, 60]) for (const size of ["town", "big-city"] as const) expect(implausibleBecause({ vocation: v, age, state: "NE", size })).toBeNull(); }
     expect(RULES.length).toBeGreaterThan(8);
   });
 
@@ -125,7 +126,7 @@ describe("ORW-508 acceptance: wide generation, narrow acceptance", () => {
     const total: Record<string, number> = {};
     for (const seed of SEEDS.slice(0, 50)) for (const [k, v] of Object.entries(generateHouse(new SeededRandom(seed)).acceptance.rejected)) total[k] = (total[k] ?? 0) + v;
     expect(Object.keys(total).length).toBeGreaterThan(0);
-    for (const k of Object.keys(total)) expect(RULES.map((r) => r.name)).toContain(k);
+    for (const k of Object.keys(total)) expect(RULES.map((r) => r.name).includes(k) || /^min-age-\d+$/.test(k), k).toBe(true);
   });
 });
 
@@ -157,5 +158,38 @@ describe("ORW-508 recent-seasons memory", () => {
     expect(again.filter((n) => first.some((f) => f.character.hometown === n.character.hometown))).toEqual([]);
     // and without a memory the same seed gives the same cast
     expect(generateHouse(new SeededRandom(seed)).npcs.map((n) => n.character.hometown)).toEqual(first.map((n) => n.character.hometown));
+  });
+});
+
+describe("ORW-508 world job table", () => {
+  it("has hundreds of real jobs with floors, a casting lean and a share for the hand-written curios", () => {
+    expect(WORLD_JOBS.length).toBeGreaterThanOrEqual(400);
+    expect(JOB_INDEX.get("registered nurse")!.minAge).toBeGreaterThanOrEqual(22);
+    expect(JOB_INDEX.get("farmer")?.maxSize ?? "small-city").toBe("small-city");
+    expect(WORLD_JOBS.some((j) => j.group === "legacy")).toBe(true);
+    for (const v of VOCATIONS) expect(JOB_INDEX.has(v.toLowerCase()), v).toBe(true);
+  });
+  it("no cast has two of one job, a cast of 15 spans many groups, and the memory is honoured", () => {
+    for (const seed of SEEDS.slice(0, 80)) {
+      const jobs = generateHouse(new SeededRandom(seed)).npcs.map((n) => n.character.vocation!);
+      expect(new Set(jobs).size).toBeGreaterThanOrEqual(13);
+    }
+    const first = generateHouse(new SeededRandom(31)).npcs.map((n) => n.character.vocation!);
+    const l = recordSeason(emptyLedger(), { vocations: first });
+    const again = generateHouse(new SeededRandom(31), undefined, avoidSets(l)).npcs.map((n) => n.character.vocation!);
+    expect(again.filter((v) => first.includes(v))).toEqual([]);
+  });
+  it("articles read right", () => {
+    expect(articleFor("EMT")).toBe("an"); expect(articleFor("HVAC technician")).toBe("an"); expect(articleFor("barista")).toBe("a"); expect(articleFor("electrician")).toBe("an");
+  });
+});
+
+describe("ORW-508 names in the memory", () => {
+  it("a cast dealt with the memory of a cast shares none of its full names or given names", () => {
+    const first = generateHouse(new SeededRandom(2468)).npcs.map((n) => n.name);
+    const l = recordSeason(emptyLedger(), { names: first });
+    const again = generateHouse(new SeededRandom(2468), undefined, avoidSets(l)).npcs.map((n) => n.name);
+    expect(again.filter((n) => first.includes(n))).toEqual([]);
+    expect(again.filter((n) => first.some((f) => f.split(" ")[0] === n.split(" ")[0]))).toEqual([]);
   });
 });

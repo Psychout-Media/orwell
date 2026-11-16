@@ -139,7 +139,7 @@ describe("ORW-381 no main-stream draw moved", () => {
     };
     expect(run(true)).toBe("6b4c9bc4457352234f04f04c779d7dec1444f587838e748c9ec12bb5fe076ea3"); // identical on main and on the ORW-508 branch with vocation, hometown, background and their derived text blanked
     // ORW-458 (on purpose): only the background text and the biography built from it moved. Before that, ORW-432: only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
-    expect(run(false)).toBe("5f43191e772c283668587a1b7449db0ed2489270e4e827f1dbc8183c1e2de188"); // re-pinned on purpose by ORW-508: hometown from the world table, a job the age rules out re-dealt on its own stream, and the text built from the job; the blanked hash above proves no other draw moved
+    expect(run(false)).toBe("871bf860839e462d9c158e2555797209b8d680cf18e61823f617a4ecabd5e2de"); // re-pinned on purpose by ORW-508: hometown from the Census place table and the job from the BLS job table, each on its own stream, and the text built from them; the blanked hash above proves no other draw moved
   });
 });
 

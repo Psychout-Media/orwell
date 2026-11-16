@@ -805,6 +805,7 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         args["interviewNotes"] = [str(n) for n in interview_notes if str(n).strip()]
     if seed is not None:
         args["seed"] = seed
+    args.update(_avoid_args(user, seed))
     if confirm_restart:
         args["confirmRestart"] = True
     if keep_character:
@@ -821,6 +822,8 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
     # casting-incomplete, …) leaves the live season untouched, so its per-season caches must survive.
     # Same success test as agent_loop's finalize check (started AND not refused).
     if isinstance(res, dict) and res.get("started") and not res.get("createRefused"):
+        if seed is None:  # an explicit seed is a test or a replay: not remembered
+            _record_recent_season(user, res)
         _notify_season_reset(user)
     return res
 
@@ -878,6 +881,16 @@ def on_season_reset(fn) -> None:
         _SEASON_RESET_LISTENERS.append(fn)
 
 
+def _record_recent_season(user: str | None, res: dict) -> None:
+    """ORW-508: remember the cast that just shipped (names, towns, jobs, marks) so the next cast avoids it. A season
+    started with an explicit seed is a test or a replay and is not remembered. Fail-soft."""
+    try:
+        from src import orwell_recent_seasons
+        orwell_recent_seasons.record_season(user, orwell_recent_seasons.facts_of_house(res.get("house")))
+    except Exception:
+        logger.warning("[orwell] recent-seasons record failed for user=%s", user, exc_info=True)
+
+
 def _notify_season_reset(user: str | None) -> None:
     for fn in list(_SEASON_RESET_LISTENERS):
         try:
@@ -885,6 +898,19 @@ def _notify_season_reset(user: str | None) -> None:
         except Exception:
             # Fail-soft (a listener must never break createCharacter), but never silent.
             logger.warning("[orwell] season-reset listener %r failed for user=%s", fn, user, exc_info=True)
+
+
+def _avoid_args(user: str | None, seed) -> dict:
+    """ORW-508: the recent-seasons ``avoid`` lists for a NEW cast, as an engine argument. Nothing for an explicit
+    seed (tests and replays stay deterministic) or when nothing is remembered. Fail-soft."""
+    if seed is not None:
+        return {}
+    try:
+        from src import orwell_recent_seasons
+        avoid = orwell_recent_seasons.avoid_for(user)
+    except Exception:
+        return {}
+    return {"avoid": avoid} if avoid else {}
 
 
 async def pre_seed_cast(seed: int | None = None, user: str | None = None) -> dict:
@@ -896,6 +922,7 @@ async def pre_seed_cast(seed: int | None = None, user: str | None = None) -> dic
     args: dict = {}
     if seed is not None:
         args["seed"] = seed
+    args.update(_avoid_args(user, seed))
     return await _call("preSeedCast", args, user=user)
 
 
@@ -913,6 +940,7 @@ async def pre_seed_next_season(seed: int | None = None, profile: dict | None = N
         args["seed"] = seed
     if profile is not None:
         args["profile"] = profile
+    args.update(_avoid_args(user, seed))
     return await _call("preSeedNextSeason", args, user=user)
 
 

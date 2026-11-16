@@ -330,6 +330,7 @@ import {
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
+import { avoidFromWire } from "../../domain/recentSeasons";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -7028,6 +7029,8 @@ export class GameSessionAdapter implements GameSession {
       ...(genderPresentation ? { genderPresentation } : {}),
       // NAME-1 (#547): the corpus-sampled cast avoids prior seasons' names (bounded, fail-soft).
       ...(effReq.priorCastNames && effReq.priorCastNames.length ? { priorCastNames: effReq.priorCastNames } : {}),
+      // ORW-508: the recent-seasons memory (towns, jobs); absent for seeded headless runs.
+      ...(() => { const avoid = avoidFromWire(effReq.avoid); return avoid ? { avoid } : {}; })(),
     });
     // 0065 — when adopting a pre-warmed cast, keep the freshly-built PLAYER but swap in the warmed NPCs
     // (which carry any FE-authored §3 depth). The warmed NPCs are byte-identical to the floor
@@ -7398,7 +7401,8 @@ export class GameSessionAdapter implements GameSession {
     // (which never consumes the rng), so these NPCs equal the ones `createCharacter` regenerates off the
     // same seed. The placeholder player is type-scaffolding ONLY — discarded below; `seedDiversity` /
     // `seedDeepProfiles` touch `npcs` exclusively, never the player.
-    const temp = startNewGame({ seed, playerName: PREWARM_PLAYER_NAME });
+    const warmAvoid = avoidFromWire(req.avoid); // ORW-508: the recent-seasons memory; absent for seeded headless runs
+    const temp = startNewGame({ seed, playerName: PREWARM_PLAYER_NAME, ...(warmAvoid ? { avoid: warmAvoid } : {}) });
     const npcs = temp.npcs;
     this.house = { player: temp.player, npcs };
     this.seedDiversity(seed);    // folds public diversity facets + seals private orientations to the Vault
@@ -7477,7 +7481,7 @@ export class GameSessionAdapter implements GameSession {
    * so the hidden layer simply rides in `this.prewarm` until the cutover re-seals it into the new sandbox).
    */
   warmNextSeasonScratch(req: PreSeedNextSeasonReq): PreSeedNextSeasonView {
-    const warm = this.preSeedCast({ ...(req.seed !== undefined ? { seed: req.seed } : {}) });
+    const warm = this.preSeedCast({ ...(req.seed !== undefined ? { seed: req.seed } : {}), ...(req.avoid ? { avoid: req.avoid } : {}) });
     if (!warm.warmed) {
       // A scratch adapter has no live house, so preSeedCast cannot refuse "in-progress"/"over" — this is
       // purely defensive (a future refusal would surface as a Vault-free decline, never a throw).

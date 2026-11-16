@@ -12,7 +12,8 @@ import { SURNAMES } from "./data/surnames";
 import { VOCATIONS } from "./data/vocations";
 import { LEGACY_HOMETOWNS } from "./data/hometowns";
 import { dealWorldHometowns } from "./data/worldHometowns";
-import { ageProblem, countRejection, newAcceptanceReport, SAFE_VOCATIONS, type AcceptanceReport } from "./data/worldPlausibility";
+import { newAcceptanceReport, type AcceptanceReport } from "./data/worldPlausibility";
+import { dealWorldVocations } from "./data/worldVocations";
 import type { AvoidSets } from "../domain/recentSeasons";
 import type { Hometown } from "./data/hometowns";
 import { TRIGGER, type EruptionKind } from "./triggerConstants";
@@ -421,6 +422,11 @@ export interface BackstoryFacets {
  * 15-cast; if a draw can't satisfy a cap within a guard budget it relaxes that one pick rather than
  * looping forever (never silently re-mirrors — it simply takes the next legal-ish draw).
  */
+/** "a" or "an" for a job name (an EMT, an HVAC technician, an electrician, a barista). */
+export function articleFor(job: string): "a" | "an" {
+  return /^([aeiou]|(EMT|ER|IT|HVAC|MRI|FBI|LPN|RN)\b)/.test(job) ? "an" : "a";
+}
+
 export function generateBackstoryFacets(
   rng: RandomnessSource, count: number,
   /** ORW-508: a side stream for the world hometown deal and the sets a recent-seasons memory asks to avoid. Absent: the legacy deal, byte for byte. */
@@ -466,30 +472,12 @@ export function generateBackstoryFacets(
   // ORW-508: the legacy hometown draws above are kept so the vocation stream does not move; the surfaced
   // hometown comes from the world place table on its own side stream.
   if (world) {
-    // Acceptance (wide generation, narrow acceptance): a job the person's age rules out is re-dealt on its own
-    // side stream, bounded, with a plain fallback; every rejection is counted by rule name.
+    // Layer 1 + acceptance: the job comes from the world job table (labour-market frequency with a casting lean),
+    // kept only when the person can be that age in it, on its own side stream; the legacy draws above are kept so
+    // no other seeded value moves. Every rejection is counted by rule name.
     if (world.ages && world.vocationRng) {
-      const uses = new Map<string, number>();
-      for (const f of out) uses.set(f.vocation, (uses.get(f.vocation) ?? 0) + 1);
-      out.forEach((f, i) => {
-        const age = world.ages![i];
-        if (age === undefined) return;
-        const why = ageProblem(f.vocation, age);
-        if (!why) return;
-        countRejection(world.report, why);
-        uses.set(f.vocation, (uses.get(f.vocation) ?? 1) - 1);
-        let next: string | undefined;
-        for (let t = 0; t < 80 && next === undefined; t++) {
-          const v = world.vocationRng!.pick(VOCATIONS);
-          const bad = ageProblem(v, age);
-          if (bad) { countRejection(world.report, bad); continue; }
-          if ((uses.get(v) ?? 0) >= MAX_PER_VOCATION || world.avoid?.vocations.has(v.toLowerCase())) continue;
-          next = v;
-        }
-        if (next === undefined) { next = SAFE_VOCATIONS[i % SAFE_VOCATIONS.length]!; if (world.report) world.report.fallbacks++; }
-        uses.set(next, (uses.get(next) ?? 0) + 1);
-        f.vocation = next;
-      });
+      const jobs = dealWorldVocations(world.vocationRng, world.ages, MAX_PER_VOCATION, world.avoid, world.report);
+      for (let i = 0; i < count; i++) out[i]!.vocation = jobs[i]!;
     }
     const people = world.ages ? out.map((f, i) => ({ vocation: f.vocation, age: world.ages![i] ?? 30 })) : undefined;
     const towns = dealWorldHometowns(world.hometownRng, count, MAX_PER_REGION, world.avoid, people, world.report);
@@ -871,7 +859,10 @@ export function generateHouse(
   // it cross-season the way `used`/`usedGiven` do.
   const usedSurnames = new Set<string>();
   // NAME-1 (#547): avoid names used by prior seasons in the same game (bounded, fail-soft).
-  seedPriorNames(priorNames, used, usedGiven);
+  // ORW-508: the recent-seasons memory adds its names to the same bounded, fail-soft exclusion (title-cased: the
+  // memory compares lower-cased, the corpus is Title Case).
+  const remembered = avoid ? [...avoid.names].map((n) => n.replace(/(^|\s)([a-z])/g, (_m, sp: string, c: string) => sp + c.toUpperCase())) : [];
+  seedPriorNames(remembered.length ? [...(priorNames ?? []), ...remembered] : priorNames, used, usedGiven);
   // Draw order on the MAIN stream (name, style, stats, background, volatility) is preserved exactly;
   // appearance is generated off a SIDE rng (hashed off the name) so the cosmetic 0004 amendment
   // never perturbs competition-relevant generation (keeps seeded house composition byte-stable).
@@ -957,7 +948,7 @@ export function generateHouse(
     // F10/#1021: recompose the surfaced background from the CAPPED vocation, replacing the clustered
     // legacy OCCUPATIONS job. The OCCUPATIONS draw above is untouched (byte-stability of the main
     // stream); only WHICH job appears in the prose changes — to the diverse, ≤MAX_PER_VOCATION one.
-    n.character.background = `a ${facets[i]!.vocation}`; // ORW-458: the archetype stays internal (n.character.archetype), never in the public background
+    n.character.background = `${articleFor(facets[i]!.vocation)} ${facets[i]!.vocation}`; // ORW-458: the archetype stays internal (n.character.archetype), never in the public background
     n.character.demeanor = demeanors[i]!;
     n.character.appearance = withBuild(n.character.appearance, builds[i]!);
     n.character.presentation = presentations[i]!;
