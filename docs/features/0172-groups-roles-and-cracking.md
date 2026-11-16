@@ -1,6 +1,6 @@
-# 0165 - Groups: roles, nesting, spies and cracking (Theme 3 slice 6) - DRAFT, not built
+# 0172 - Groups: roles, nesting, spies and cracking (Theme 3 slice 6) - DRAFT, not built
 
-Executable spec (drafted only): `0165-groups-roles-and-cracking.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
+Executable spec (drafted only): `0172-groups-roles-and-cracking.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
 
 ## What it adds
 Roles in an alliance (leader, strategist, shield, swing vote, glue, comp threat); inner circles (nested groups); shadow and counter-alliances; spies; a majority that privately plans the cut order; purpose shifts (survival, power, endgame); cracking when interests split.

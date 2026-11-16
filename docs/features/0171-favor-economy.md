@@ -1,6 +1,6 @@
-# 0164 - Counters, favors and the favor economy (Theme 3 slice 3) - DRAFT, not built
+# 0171 - Counters, favors and the favor economy (Theme 3 slice 3) - DRAFT, not built
 
-Executable spec (drafted only): `0164-favor-economy.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
+Executable spec (drafted only): `0171-favor-economy.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
 
 ## What it adds
 Counters come from the NPC's goal for the week and can run several rounds. A favor owed is a real debt on the bond; calling it in at a close vote and refusing it costs trust (with the caller and with witnesses). Favors become a house currency: owed, repaid, passed on, remembered.

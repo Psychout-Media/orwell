@@ -1,6 +1,6 @@
-# 0166 - Status, informal leaders and the HOH court (Theme 3 slice 11) - DRAFT, not built
+# 0173 - Status, informal leaders and the HOH court (Theme 3 slice 11) - DRAFT, not built
 
-Executable spec (drafted only): `0166-status-and-the-hoh-court.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
+Executable spec (drafted only): `0173-status-and-the-hoh-court.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
 
 ## What it adds
 A hidden pecking order (status from wins, allies, respect; challengeable), informal leaders with lieutenants, houseguests courting the HOH (the HOH room as a court), and a power vacuum with splits when a leader falls.

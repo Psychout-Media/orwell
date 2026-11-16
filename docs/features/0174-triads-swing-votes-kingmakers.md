@@ -1,6 +1,6 @@
-# 0167 - Triads, swing votes and kingmakers (Theme 3 slice 13) - DRAFT, not built
+# 0174 - Triads, swing votes and kingmakers (Theme 3 slice 13) - DRAFT, not built
 
-Executable spec (drafted only): `0167-triads-swing-votes-kingmakers.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
+Executable spec (drafted only): `0174-triads-swing-votes-kingmakers.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
 
 ## What it adds
 Structural balance: a shared enemy warms two houseguests; two friends of one drift together; an unbalanced triad strains. A houseguest whose vote decides an eviction is courted by both sides, knows it, and their price rises.

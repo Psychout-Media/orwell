@@ -1,6 +1,6 @@
-# 0163 - Deals between NPCs and the HOH deal (Theme 3 slice 2) - DRAFT, not built
+# 0170 - Deals between NPCs and the HOH deal (Theme 3 slice 2) - DRAFT, not built
 
-Executable spec (drafted only): `0163-npc-deals-and-hoh-deal.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
+Executable spec (drafted only): `0170-npc-deals-and-hoh-deal.feature`. Not in `cucumber.cjs`; no step definitions. Awaiting the owner's approval of the Theme 3 plan.
 
 ## What it adds
 NPCs strike deals with each other (not only with the player), each side with its own secret plan. A nervous houseguest can trade the HOH their vote for safety while planning to turn.

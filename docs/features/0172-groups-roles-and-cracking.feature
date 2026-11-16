@@ -1,6 +1,6 @@
 # spec-only: Theme 3 draft scenarios, not built and not wired into the BDD gate; they wait for the owner's approval of the Theme 3 plan (the vault "Theme 3 Slice Plan").
-# Feature 0165 - groups: roles, nesting, shadow alliances, spies, cracking (Theme 3 slice 6; Theme 3 Slice Plan, owner B). SCENARIOS DRAFTED, NOT BUILT.
-# Design note: 0165-groups-roles-and-cracking.md. Rests on the owner's 2026-11-16 rulings: Q1, Q4 (NPC to NPC from the start), Q5 (both sides can call meetings),
+# Feature 0172 - groups: roles, nesting, shadow alliances, spies, cracking (Theme 3 slice 6; Theme 3 Slice Plan, owner B). SCENARIOS DRAFTED, NOT BUILT.
+# Design note: 0172-groups-roles-and-cracking.md. Rests on the owner's 2026-11-16 rulings: Q1, Q4 (NPC to NPC from the start), Q5 (both sides can call meetings),
 # the culture leans (ORW-551: "majority bloc", "backstabbers", "paranoid" skew these dials) and the Theme 3 ruling. Alliance history (0161) is already kept; this
 # slice builds on it. Vault Wall: roles, nesting, spies, shadow groups and cut orders are Vault content until the post-season retrospective; never shown as a roster,
 # a chart or a number. Roles only, plain words.
