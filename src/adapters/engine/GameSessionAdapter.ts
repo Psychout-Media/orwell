@@ -2938,7 +2938,14 @@ export class GameSessionAdapter implements GameSession {
     const theirs = this.npcKnowledge?.known(this.house!.player.id) ?? [];
     const lineages = new Set(theirs.flatMap((f) => (f.factId !== undefined ? [f.factId] : [])));
     const contents = new Set(theirs.map((f) => f.content));
-    return mine.filter((f) => (f.factId !== undefined && lineages.has(f.factId)) || contents.has(f.content));
+    // A lineage match hands over the PLAYER'S copy, not the houseguest's: gossip can change severity or subject while the factId survives, so the holder's version may be a claim the player never learned.
+    const playerCopy = new Map(theirs.flatMap((f) => (f.factId !== undefined ? [[f.factId, f] as const] : [])));
+    const out: Array<{ content: string; factId?: string }> = [];
+    for (const f of mine) {
+      if (contents.has(f.content)) out.push(f);
+      else if (f.factId !== undefined && lineages.has(f.factId)) out.push(playerCopy.get(f.factId)!);
+    }
+    return out;
   }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
   /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
@@ -3119,8 +3126,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
-      // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Slice first so humanize runs on a bounded tail.
-      knows: dedupeKeepNewest(this.voiceKnownFacts(id).slice(-GameSessionAdapter.VOICE_KNOWS_CAP * 3).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
+      // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
+      knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {
@@ -15086,10 +15093,9 @@ export class GameSessionAdapter implements GameSession {
         // under-called tool. Each only when set (absent ⇒ the entry is byte-identical to before).
         // 0129: in the jury house a juror's block omits the engine-seeded vote-deduction beliefs (sealed ballot, E12).
         const knows = juryMode
-          ? (this.npcKnowledge?.known(p.id) ?? [])
+          ? dedupeKeepNewest((this.npcKnowledge?.known(p.id) ?? [])
               .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
-              .slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
-              .map((f) => this.humanizeTidy(f.content))
+              .map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
           : v.knows;
         const e: import("../../ports/GameSession").PresentKnowledgeView = {
           id: p.id,
@@ -15172,7 +15178,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

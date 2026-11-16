@@ -2953,7 +2953,11 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
   // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
-  if (s.playedGame === true) (s.voteQuestions ??= []).push(...questionsAfterVote({ week: s.week, evictee, nominees: s.nominees ?? [], voteOf: e.voteOf, player: ctx.player }, ctx.rel));
+  if (s.playedGame === true) {
+    // The FINAL eviction block (after the veto and any replacement), not the original nominees; one question per holder per week (a double eviction must not collide on the same ref).
+    const have = (s.voteQuestions ??= []);
+    for (const q of questionsAfterVote({ week: s.week, evictee, nominees: e.nominees, voteOf: e.voteOf, player: ctx.player }, ctx.rel)) if (!have.some((h) => h.ref === q.ref)) have.push(q);
+  }
   // 0025 reactive: track the lopsided-eviction streak (the secret-veto trigger's "steamroll" signal).
   // A near-unanimous eviction (all-but-≤1 of a meaningful vote) extends the streak; a close vote resets it.
   const totalVoters = Object.keys(e.voteOf).length;
