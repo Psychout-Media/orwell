@@ -40,16 +40,24 @@ def public_tool_events(events: Any) -> list:
     return [{k: v for k, v in e.items() if k in PUBLIC_TOOL_EVENT_FIELDS} for e in events if isinstance(e, dict)]
 
 
+# ORW-482 - admin-only metadata keys that are NOT tool events: `engine_ledger` holds the engine result of a start the front end forced itself (no model tool call, so no tool event; adding one would change
+# the in-turn tool_events set the belts and the sync ledger read). Private like `engine_result`: every public serializer drops it, a client can never write it.
+ADMIN_ONLY_METADATA_KEYS = frozenset({"engine_ledger"})
+
+
 def public_metadata(metadata: Any) -> Any:
     """A copy of message `metadata` that is safe for a non-admin reader: `tool_events` are whitelisted. The stored metadata is never mutated.
     Also the INBOUND sanitizer: a client-supplied `engine_result` can never be stored (`add_message`)."""
-    if not isinstance(metadata, dict) or "tool_events" not in metadata:
+    if not isinstance(metadata, dict) or not ("tool_events" in metadata or ADMIN_ONLY_METADATA_KEYS & metadata.keys()):
         return metadata
-    return {**metadata, "tool_events": public_tool_events(metadata.get("tool_events"))}
+    out = {k: v for k, v in metadata.items() if k not in ADMIN_ONLY_METADATA_KEYS}
+    if "tool_events" in out:
+        out["tool_events"] = public_tool_events(out.get("tool_events"))
+    return out
 
 
 # Server-owned metadata keys a CLIENT may never write (they feed the admin forensic ledger): dropped from any client-supplied metadata merge.
-SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events"})
+SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events"}) | ADMIN_ONLY_METADATA_KEYS
 
 
 def client_metadata_update(update: Any) -> dict:

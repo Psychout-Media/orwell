@@ -8630,6 +8630,7 @@ async def _stream_agent_loop_impl(
     time_to_first_token = None
     first_token_received = False
     tool_events = []   # Persist tool executions for history reload
+    _engine_ledger: list = []  # ORW-482: admin-only engine results of starts the FE forced itself; deliberately NOT tool_events (the belts, the sync ledger and finalize detection read that set)
     round_texts = []   # Cleaned text per round for history reload
     # F-2/F-4: owed chyron — announcements of a beat the FE pre-resolved this turn reach the client whatever
     # the model says (blank, skipped, or contradicting). Consumed once; the client dispatches `orwell:announcements`.
@@ -11641,6 +11642,9 @@ async def _stream_agent_loop_impl(
                                     _CASTING_STALL_LEVEL.pop(owner, None)
                                     _CASTING_SUBSTANCE_LEVEL.pop(owner, None)
                                     _turn_casting_force += 1  # FE forced the season start (finalize fallback)
+                                    _forced_er = _engine_result_for_transcript("createCharacter", _cres)  # ORW-482: leave the engine result in the admin transcript
+                                    if _forced_er is not None:
+                                        _engine_ledger.append({"round": round_num, "tool": "createCharacter", "forced": True, "engine_result": _forced_er})
                                     _note_belt(owner, "casting-finalize-force")  # gap #3 telemetry
                                     logger.info(f"[orwell] FORCED createCharacter (casting stall "
                                                 f"L{_clv}) round {round_num} user={owner}")
@@ -12791,6 +12795,8 @@ async def _stream_agent_loop_impl(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    if _engine_ledger:
+        metrics["engine_ledger"] = _engine_ledger
     if _casting_finalized_this_turn:
         metrics["casting_finalized"] = True  # ORW-481: this casting-stamped reply carries the premiere (the Show Brief may tail it)
     if _turn_owed_announcements:
