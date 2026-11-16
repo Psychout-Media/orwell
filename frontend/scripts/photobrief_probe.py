@@ -81,6 +81,7 @@ def canned_llm(cards):
                 "timeLight": f"{a.get('time', 'mid-morning')}, {a.get('weather', 'clear')}",
                 "expressionBody": CANNED_BODY[n % len(CANNED_BODY)],
                 "why": f'"{q}"',
+                "tie": f'"{thing}"',
             }
         return json.dumps(out)
     return fn
