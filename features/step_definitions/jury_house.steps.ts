@@ -281,7 +281,10 @@ Then("it never draws on another juror's private knowledge or any hidden house st
 
 Given("the house schemes off-screen and records confessionals after a juror's eviction", function (this: W) {
   // The orchestrated runtime: off-screen ticks run between the player's turns, recording hidden scenes + confessionals.
-  seat(this, { n: 2, orchestrated: true });
+  // 0163 (2026-11-16): the house must still be playing after these steps, so the seat is found with room left in the season (perceived bonds moved
+  // the first seed that seats the player to one twelve steps from the finale, where the jury house closes).
+  const got = findGame("seated:2:true:room", true, (sb, v) => seatedWith(2)(sb, v) && sb.session.livingIds().length >= 6);
+  this.jhSb = got.sb; this.jhSeatedAt = got.seatedAt; this.jhJurors = got.sb.session.getGameState().juryHouse!.jurors;
   const sb = this.jhSb!;
   // Let the still-playing house live on a while after the jurors were seated.
   for (let i = 0; i < 12; i++) {
