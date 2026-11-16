@@ -24,6 +24,7 @@ def _env(tmp_path, monkeypatch):
     monkeypatch.setattr(ws_routes, "_is_live", lambda sid: True)
     ti._admitting.clear()
     ti._expired.clear()
+    ti._queued.clear()
     ti._registry_size = 0
     H.reset_runs()
     yield
@@ -31,6 +32,7 @@ def _env(tmp_path, monkeypatch):
     ws_routes.set_turn_stream_factory(None)
     ti._admitting.clear()
     ti._expired.clear()
+    ti._queued.clear()
 
 
 def _hold(tmp_path, seconds):
@@ -123,6 +125,59 @@ def test_an_older_admission_past_the_ttl_releases_itself_not_a_newer_one(tmp_pat
     assert _inflight(tmp_path) == 0 and not ti._admitting and not ti._expired
 
 
+# ORW-491: a turn queued behind a long game turn stays counted past the TTL until its own stream registers (or its run ends without registering).
+def test_orw491_a_queued_turn_keeps_counting_past_the_ttl_until_it_registers(tmp_path):
+    reg = ti.InflightRegistry()
+    reg["first"] = {"status": "streaming"}                # the long turn that is running
+    assert ti.check_and_admit("c-2") is None
+    h = ti.pin_admission("c-2")                           # handed to the run queue behind it
+    assert h is not None and _inflight(tmp_path) == 2
+    time.sleep(0.01)
+    ti._ADMIT_TTL_S, old = 0.0, ti._ADMIT_TTL_S           # far past the TTL
+    try:
+        assert _inflight(tmp_path) == 2
+        del reg["first"]                                  # the first turn ends: the queued one must still count, or the updater reads 0 in the gap
+        assert _inflight(tmp_path) == 1
+    finally:
+        ti._ADMIT_TTL_S = old
+    reg["second"] = {"status": "streaming"}               # its producer registers ...
+    ti.admit_end("c-2")                                   # ... and the admission hands over
+    assert _inflight(tmp_path) == 1
+    ti.release_admission(h)                               # the run's done-callback after a normal finish is a no-op
+    assert _inflight(tmp_path) == 1
+    del reg["second"]
+    assert _inflight(tmp_path) == 0
+
+
+def test_orw491_a_queued_turn_whose_run_ends_unregistered_is_released(tmp_path):
+    assert ti.check_and_admit("c-3") is None
+    h = ti.pin_admission("c-3")
+    assert _inflight(tmp_path) == 1
+    ti.release_admission(h)                               # cancelled (Stop / session delete) or failed before registering
+    assert _inflight(tmp_path) == 0 and not ti._queued
+    ti.release_admission(h)                               # idempotent
+    assert _inflight(tmp_path) == 0
+
+
+def test_orw491_releasing_one_queued_turn_never_drops_another(tmp_path):
+    ti.check_and_admit("c-a"); ha = ti.pin_admission("c-a")
+    ti.check_and_admit("c-b"); hb = ti.pin_admission("c-b")
+    assert _inflight(tmp_path) == 2
+    ti.release_admission(ha)
+    assert _inflight(tmp_path) == 1 and list(ti._queued.values()) == ["c-b"]
+    ti.release_admission(ha)
+    assert _inflight(tmp_path) == 1
+    ti.release_admission(hb)
+    assert _inflight(tmp_path) == 0
+
+
+def test_orw491_the_socket_pins_the_queued_turn_and_releases_it_when_the_run_ends():
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "routes", "ws_routes.py"), encoding="utf-8").read()
+    i = src.index("agent_runs.start(sock[\"canonical\"], producer, queue=True)")
+    seg = src[i:i + 900]
+    assert "pin_admission(" in seg and "add_done_callback" in seg and "release_admission(" in seg
+
+
 def test_a_refused_turn_is_not_counted(tmp_path):
     _hold(tmp_path, 60)
     assert ti.check_and_admit("c-1") is not None
@@ -170,9 +225,12 @@ def test_a_turn_admitted_before_the_hold_is_counted_so_the_updater_waits_for_it(
     async def _state(user):
         return {"started": True, "beatSeq": 10}
     monkeypatch.setattr(ws_routes, "_engine_state", _state)
+    import asyncio
+    gate = asyncio.Event()
 
     def _factory(d, canonical, user):
         async def _agen():
+            await gate.wait()   # the run is still going (queued or starting); the stub never registers a stream
             yield H.sse_done()
         return _agen()
 
@@ -184,7 +242,14 @@ def test_a_turn_admitted_before_the_hold_is_counted_so_the_updater_waits_for_it(
         await H.hello(ws, canon)
         ws.client_send({"t": "turn", "ch": "chat", "cid": "c1", "d": {"message": "hello", "clientMsgId": "m-9", "expectedBeatSeq": 10}})
         await ws.recv_where(lambda f: f.get("t") == "ack" and f.get("cid") == "c1")
-        assert "m-9" in ti._admitting and _inflight(tmp_path) == 1   # admitted: in the count until its stream registers (the stub never registers one)
+        # admitted: in the count until its stream registers; ORW-491 holds it past the TTL while its run is alive, and releases it when the run ends without registering
+        assert "m-9" in ti._queued.values() and _inflight(tmp_path) == 1
+        gate.set()
+        for _ in range(50):
+            await asyncio.sleep(0.01)
+            if _inflight(tmp_path) == 0:
+                break
+        assert _inflight(tmp_path) == 0 and not ti._queued
         await H.stop(ws, t)
         await H.aclose_runs()
 
