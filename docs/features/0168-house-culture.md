@@ -54,9 +54,12 @@ Only thresholds, floors and weights move: never a number of draws, never a loop 
   only through `round(4 x dial)` clamped to +-1 (at the 1.35 clamp that is 3 to 5). The player's own join floor is left alone (a player-facing rule).
 - meeting frequency: `npcWouldCall(..., chanceMult)` moves the THRESHOLD `MEETING.callChancePerDay x dial`; the draw on the `${seed}:house-meeting` side stream is unchanged.
 
+- credulity (slice 5): the ONE seam is the adapter's private `credulityOf(id)` (0160, `beliefConviction.credulityOf`): the culture multiplier scales that listener's final per-owner
+  value and the result is clamped to 0..1. It scales the value, not a house baseline, because the per-owner value is already formed from the person's own sheet; so a
+  strongly credulous or skeptical individual still leans their own way (a x1.35 house cannot make a skeptic gullible, and a x1/1.35 house cannot make a believer a skeptic).
+  Every listener caller (`tellClaim` intake, gossip beliefs) reads it through that seam. Exactly 1 with no culture, so those games are byte-identical.
+
 Not wired, on purpose:
-- credulity: needs the conviction work that has not merged yet. Seam note: when it does, read `dialMult(culture, 'credulity')` at the single place a heard claim becomes a belief.
-  Left as a TODO (slice 5).
 - comp focus: there is no single constant, and a competition's outcome is the engine's alone (mandate 3). The dial stays unconsumed and no lean may ever bend a comp.
 - the trust baseline (`RELATIONSHIP_CONSTANTS.baseline.trust`): it is read in many places (move-in seeding, decay and overnight-drift targets, bond-above-neutral
   comparisons) with no single seam, and the move-in seeding happens before the culture is drawn. Shifting only some of them would make drift read as a bond. Bond speed
@@ -77,4 +80,4 @@ unchanged. The front-end retrospective window renders it as plain text; the host
 ## Later slices (not this spec)
 
 2: the house-life dials (built). 3: paranoia, loyalty, bond speed, alliance size, meeting frequency (built, above; the trust baseline deferred). 4: the house-mix guard rework (an across-seed average
-within a band plus a minimum between-season spread; numbers go to the owner). 5: credulity, after the conviction work merges.
+within a band plus a minimum between-season spread; numbers go to the owner). 5: credulity (built, above).
