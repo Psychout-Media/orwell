@@ -326,7 +326,9 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
+import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1438,6 +1440,59 @@ export class GameSessionAdapter implements GameSession {
   /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
   claimsThePlayerHeard(): HeardClaim[] {
     return claimsHeardBy(this.live?.claims, PLAYER);
+  }
+  /**
+   * 0151 / ORW-330 (theme 2, slice 4a) - WHAT THE PLAYER HEARS. For each houseguest in the player's room the engine decides (`claimsToPlayer.ts`, its own `${seed}:claims-to-player` side stream, no shared rng) whether they
+   * confide ONE belief this turn; if so it is recorded as a claim the player heard (`tellClaim`, listener = the player, `isTrue` = the engine's check below) and handed to the narrator as the speaker's words only
+   * (`tellsYou`: kind, names, certainty band; never the truth, the intent or the claim id). One decision per houseguest per player turn (cached on the disclosure epoch). OFF unless `ORWELL_CLAIMS_TO_PLAYER` is on
+   * (default ON; `=0` opts out); needs the belief layer and a played game. The prompt build records the claim, so it is persisted by the next committed mutation (a prompt read must not bump the beat).
+   */
+  private claimsToPlayerEnabled = flagDefaultOn("ORWELL_CLAIMS_TO_PLAYER");
+  setClaimsToPlayerEnabled(on: boolean): void { this.claimsToPlayerEnabled = on; }
+  private claimsToPlayerDecided = new Map<EntityId, { epoch: number; tells?: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> }>();
+  private claimsToPlayerAttempts = new Map<string, number>();
+  /** The engine's own check of whether a believed thing is TRUE (never handed outward). going-after / targets-me: the subject holds an active get-them-out goal on the object; final-two: an open final-two deal binds
+   *  both; lying: the claim log holds a lie from the subject to the object; talking-about: the cheapest honest read, the subject trusts the object little (< 0.4). */
+  private believedThingIsTrue(b: SayableBelief): boolean {
+    const live = this.live;
+    if (!live) return false;
+    switch (b.kind) {
+      case "going-after": return (live.agendas?.[b.subject]?.goals ?? []).some((g) => g.status === "active" && g.kind === "get-them-out" && g.target === b.object);
+      case "final-two-with": return this.deals.open().some((d) => d.kind === "final-two" && d.parties.includes(b.subject) && b.object !== undefined && d.parties.includes(b.object));
+      case "lying-about": return (live.claims?.items ?? []).some((c) => !c.isTrue && c.speaker === b.subject && c.listener === b.object);
+      case "talking-about": return b.object !== undefined && this.rel.edge(b.subject, b.object).trust < 0.4;
+      default: return false;
+    }
+  }
+  private candorOf(id: EntityId): number {
+    const c = this.agendaCharacterOf(id);
+    return c ? Math.max(0, Math.min(1, (REASONS.candorByArchetype[c.archetype] ?? 0.5) + (REASONS.candorByStyle[c.strategyStyle] ?? 0))) : 0.5;
+  }
+  private claimsToPlayerFor(id: EntityId): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const live = this.live;
+    if (!this.claimsToPlayerEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || id === PLAYER) return undefined;
+    const done = this.claimsToPlayerDecided.get(id);
+    if (done && done.epoch === this.disclosureEpoch) return done.tells;
+    const day = live.dayNumber ?? 0;
+    const log = live.claims?.items ?? [];
+    const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
+    const attemptKey = `${id}:${live.week}:${day}`;
+    const attempt = this.claimsToPlayerAttempts.get(attemptKey) ?? 0;
+    this.claimsToPlayerAttempts.set(attemptKey, attempt + 1);
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}:${attempt}`));
+    const decided = decideTellToPlayer(live.beliefs?.[id] ?? [], {
+      holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id),
+      toldToday: told.some((c) => c.week === live.week && c.day === day),
+      alreadyTold: new Set(told.map((c) => toPlayerKey(c.kind, c.subject, c.object))), roll: rng.next(),
+    });
+    let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
+    if (decided) {
+      const b = decided.belief;
+      const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
+      if (claim) tells = { kind: b.kind, subject: this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), certainty: decided.band };
+    }
+    this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
+    return tells;
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
@@ -5493,6 +5548,7 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
+    if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
@@ -5838,6 +5894,40 @@ export class GameSessionAdapter implements GameSession {
   /** The move-in pick itself: the premiere, or any time before the player owns a bed. The narrator's BEDS line runs every turn only here; after it, only on a turn the player's words touched a bed. */
   private moveInPickOpen(beds: BedsState): boolean {
     return this.phase === "premiere" || !beds.owner[PLAYER];
+  }
+
+  /** 0152: this turn's answer to "who told you that?", for the narrator (one engine-truth line). Memory-only, replaced by the next `resolvePlayerMove`. */
+  private claimSourceNote: string | null = null;
+
+  /**
+   * 0152 (theme 2 slice 4b): the player asks who told a houseguest what they just passed on. The rules live in `engine/claimSource.ts`; this is the thin hook. Only a claim TOLD TO the player by a houseguest
+   * in the player's room (and awake) can be asked about; the houseguest's recorded belief names the source (or says they saw it); the engine decides name / protect. A NAMED source reaches the player as
+   * `told-by:<houseguest>` knowledge (as askJuror does). Changes no relationship, belief or claim. Returns true when the player learned something new.
+   */
+  private resolveWhoToldYou(text: string): boolean {
+    this.claimSourceNote = null;
+    if (!this.house || !this.presence || !this.live?.claims || !parseWhoToldYou(text)) return false;
+    const here = this.presence.get(this.house.player.id);
+    if (here === undefined) return false;
+    const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
+    for (const claim of askableClaims(this.live.claims.items, present)) {
+      const held = heldBeliefFor(this.live.beliefs, claim);
+      if (!held) continue;
+      const answer = decideSourceAnswer({
+        seed: this.gameSeed ?? 0, holder: claim.speaker, claimId: claim.id, origin: held.origin, source: held.source,
+        sourceAffinity: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).affinity : 0.5,
+        sourceTrust: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).trust : 0.5,
+        playerTrust: this.rel.edge(claim.speaker, PLAYER).trust,
+      });
+      if (!answer) continue;
+      const holderName = this.nameOf(claim.speaker);
+      this.claimSourceNote = sourceNote(answer, holderName, held.source !== undefined ? this.nameOf(held.source) : undefined);
+      if (answer !== "name" || held.source === undefined || held.source === PLAYER || !this.onConfide) return false;
+      const content = namedSourceContent(holderName, this.nameOf(held.source), claimPhrase(claim, (id) => this.nameOf(id), this.nameOf(PLAYER)));
+      if ((this.playerKnowledgeReader?.() ?? []).some((k) => k.content === content)) return false; // already learned: asking again adds nothing
+      return this.onConfide(claim.speaker, content, 0.7);
+    }
+    return false;
   }
 
   /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
@@ -15380,13 +15470,14 @@ export class GameSessionAdapter implements GameSession {
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
+          ...(juryMode ? {} : (() => { const t = this.claimsToPlayerFor(p.id); return t ? { tellsYou: t } : {}; })()),
         };
         return e;
       })
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined),
       );
   }
 
@@ -15415,7 +15506,8 @@ export class GameSessionAdapter implements GameSession {
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
-    const view = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
