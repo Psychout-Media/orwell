@@ -50,7 +50,7 @@ def _fake_home():
 def test_week_sh_refuses_a_bad_cap_or_week_count_before_starting_anything():
     import subprocess
     here = os.path.dirname(os.path.abspath(__file__))
-    for env in ({"RIG_SPEND_CAP": "bogus"}, {"RIG_WEEKS": "x"}, {"RIG_WEEKS": "0"}):
+    for env in ({"RIG_SPEND_CAP": "bogus"}, {"RIG_SPEND_CAP": "inf"}, {"RIG_SPEND_CAP": "3", "RIG_WEEKS": "x"}, {"RIG_SPEND_CAP": "3", "RIG_WEEKS": "0"}, {"RIG_SPEND_CAP": "3", "RIG_WEEKS": "99999999999999999999"}):
         r = subprocess.run(["bash", os.path.join(here, "week.sh")], capture_output=True, text=True, env={**os.environ, **env, "ORWELL_RIG_HOME": _fake_home()})
         assert r.returncode == 2 and "COULD-NOT-RUN" in r.stdout, (env, r.stdout, r.stderr)
 

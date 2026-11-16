@@ -136,6 +136,21 @@ def test_ambiguous_shared_url_with_different_keys_is_refused_before_any_write(en
     with env.S() as s:
         s.add(d.ModelEndpoint(id="ep2", name="ep2", base_url=NEW_BASE, api_key="sk-other", is_enabled=True, owner=None))
         s.commit()
+    before = {s: _row(env.S, s) for s in ("a", "b", "c")}
+    mem_before = {s: (env.mem[s].model, env.mem[s].endpoint_url, dict(env.mem[s].headers)) for s in env.mem}
     r = _post(env, endpoint_id="ep", model="new-model", owner="u1")
     assert r.status_code == 409
-    assert _row(env.S, "a")[0] == "old" and _row(env.S, "b")[0] == "old"
+    assert {s: _row(env.S, s) for s in ("a", "b", "c")} == before   # model, endpoint_url and headers all unchanged
+    assert {s: (env.mem[s].model, env.mem[s].endpoint_url, dict(env.mem[s].headers)) for s in env.mem} == mem_before
+
+
+def test_unauthenticated_duplicate_url_is_not_a_competing_key(env):
+    with env.S() as s:
+        s.add(d.ModelEndpoint(id="ep3", name="ep3", base_url=NEW_BASE, api_key="", is_enabled=True, owner=None))
+        s.commit()
+    assert _post(env, endpoint_id="ep", model="new-model", owner="u1").status_code == 200
+
+
+def test_host_key_strips_userinfo_from_protocol_relative_url():
+    from src.llm_core import _host_key
+    assert "pw" not in _host_key("//user:pw@api.x.example/v1")

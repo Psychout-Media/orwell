@@ -40,6 +40,8 @@ def parse_items(seg_lines):
             sm = re.search(r"suspects[^:]*: (.*)$", rest)   # the terminal block emits the hunches beside the knows items: they count against the ceiling too
             if sm: out[cur] += [i.strip() for i in re.split(r"; (?=\(|[A-Za-z])", sm.group(1)) if i.strip()]
             continue
+        sm2 = re.match(r"\s+suspects[^:]*: (.*)$", ln)
+        if sm2 and cur: out[cur] += [i.strip() for i in re.split(r"; (?=\(|[A-Za-z])", sm2.group(1)) if i.strip()]
         km = re.match(r"\s+knows: (.*)$", ln)
         if km and cur: out[cur] += [i.strip() for i in re.split(r"; (?=\(|[A-Za-z])", km.group(1)) if i.strip()]
     return out

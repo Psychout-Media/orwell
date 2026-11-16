@@ -275,10 +275,10 @@ def seconds_since_model_activity(url: str, model: str) -> Optional[float]:
 def _host_key(url: str) -> str:
     from urllib.parse import urlsplit
     s = urlsplit(url)
-    if not (s.scheme and s.netloc):
+    if not s.netloc:
         return url
-    host = s.netloc.rsplit("@", 1)[-1]  # never the userinfo: this key is logged, and a URL may carry Basic Auth credentials
-    return f"{s.scheme}://{host}"
+    host = s.netloc.rsplit("@", 1)[-1]  # never the userinfo: this key is logged, and a URL may carry Basic Auth credentials (also in a scheme-less //user:pw@host)
+    return f"{s.scheme}://{host}" if s.scheme else f"//{host}"
 
 _LOG_REDACT_RES = (
     re.compile(r"(?i)authorization\s*[:=]\s*(?:bearer\s+)?[^\s,;\"']+"),
