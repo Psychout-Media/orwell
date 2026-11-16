@@ -40,6 +40,8 @@ export const OPEN_LEDGER_NOTE_LEFT = "left the house";
 /** The fixed note when the entry has more than one houseguest among its parties (a group pact): not everyone left. No names. */
 export const OPEN_LEDGER_NOTE_LEFT_GROUP = "one of them left the house";
 export const OPEN_LEDGER_NOTE_LAPSED = "not mentioned again";
+/** ORW-456: the fixed note when the linked deal ended with no verdict (its term ran out untested, or a renegotiation replaced it). */
+export const OPEN_LEDGER_NOTE_DEAL_LAPSED = "the linked deal lapsed or was replaced";
 export const openLedgerDealNote = (status: "kept" | "broken"): string => `the linked deal ended as ${status}`;
 
 export interface OpenLedgerEntry {
@@ -175,6 +177,16 @@ export function recordOpenEntry(
   return { ledger: { ...ledger, nextId: ledger.nextId + 1, entries: [...ledger.entries, entry] }, outcome: "recorded", id };
 }
 
+/** ORW-456: a spoken deal line and a deal recorded later are the same agreement when made the same in-game day (parties already match); with no day known, within `maxAge` beats. */
+const sameDealWindow = (e: OpenLedgerEntry, ctx: { beatSeq: number; day?: number; maxAge: number }): boolean =>
+  e.day !== undefined && ctx.day !== undefined ? e.day === ctx.day && ctx.beatSeq >= e.beatSeq : ctx.beatSeq >= e.beatSeq && ctx.beatSeq - e.beatSeq <= ctx.maxAge;
+
+/** ORW-456: the open engine line of a deal between the player and this houseguest made the same day (for a spoken deal said after it: a duplicate, not a second line). */
+export function openLedgerSameDayDealLine(ledger: OpenLedger, partner: string, ctx: { beatSeq: number; day?: number; maxAge: number }): OpenLedgerEntry | undefined {
+  return ledger.entries.find((e) => e.status === "open" && e.dealId !== undefined && !e.about && partiesOf(e).length === 2
+    && partiesOf(e).includes(OPEN_LEDGER_PLAYER) && partiesOf(e).includes(partner) && sameDealWindow(e, ctx));
+}
+
 /** ORW-456: is this free-text kind the deal kind (the whole kind, case-insensitive)? Only such a spoken entry is ever matched to a deal. */
 const isDealKind = (kind: string): boolean => normalizeCanonText(kind).toLowerCase() === OPEN_LEDGER_DEAL_KIND;
 
@@ -196,7 +208,7 @@ export function recordDealEntry(
   const spoken = [...ledger.entries].reverse().find((e) =>
     e.status === "open" && e.dealId === undefined && !e.about && isDealKind(e.kind)
     && partiesOf(e).length === 2 && partiesOf(e).includes(OPEN_LEDGER_PLAYER) && partiesOf(e).includes(d.partner)
-    && ctx.beatSeq >= e.beatSeq && ctx.beatSeq - e.beatSeq <= ctx.maxAge);
+    && sameDealWindow(e, ctx));
   if (spoken) {
     const entries = ledger.entries.map((e) => (e.id === spoken.id ? { ...e, dealId: d.dealId } : e));
     return { ledger: { ...ledger, entries }, outcome: "linked", id: spoken.id };
@@ -391,7 +403,7 @@ export function settleOpenEntryDue(ledger: OpenLedger, entryId: string, how: "of
  */
 export function syncOpenLedger(
   ledger: OpenLedger,
-  ctx: { turn: number; day?: number; gone: ReadonlySet<string>; dealEnd?: (dealId: string) => "kept" | "broken" | "open" | undefined },
+  ctx: { turn: number; day?: number; gone: ReadonlySet<string>; dealEnd?: (dealId: string) => "kept" | "broken" | "open" | "lapsed" | undefined },
 ): OpenLedger {
   let out = ledger;
   for (const e of ledger.entries) {
@@ -403,6 +415,10 @@ export function syncOpenLedger(
     }
     const end = e.dealId && ctx.dealEnd ? ctx.dealEnd(e.dealId) : undefined;
     if (end === "open") continue; // the linked deal is still open and binding (as the player sees it): the entry never lapses while it stands
+    if (end === "lapsed") { // ORW-456: no verdict (untested term ended, or replaced by a renegotiation): the line closes with the deal
+      out = closeOpenEntry(out, e.id, "lapsed", OPEN_LEDGER_NOTE_DEAL_LAPSED, ctx.turn);
+      continue;
+    }
     if (end) {
       out = closeOpenEntry(out, e.id, end, openLedgerDealNote(end), ctx.turn);
       continue;

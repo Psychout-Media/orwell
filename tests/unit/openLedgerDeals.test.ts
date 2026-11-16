@@ -110,6 +110,41 @@ describe("a struck deal is ONE linked line in the ledger (real engine)", () => {
   });
 });
 
+describe("a deal that lapses, a renegotiation, and a late record (real engine)", () => {
+  it("a lapsed deal closes its line (no verdict), and a renegotiation leaves ONE open line: the old closes, the new has its own", () => {
+    const { g } = startAtNominations();
+    const [who] = npcs(g);
+    const d1 = strike(g, who!);
+    const old = priv(g).deals.all.find((d) => d.id === d1.id)!;
+    old.status = "lapsed"; // what a renegotiation does to the deal it replaces
+    const d2 = strike(g, who!, "vote", "my vote instead");
+    priv(g).persist();
+    const open = lines(g).filter((e) => e.status === "open");
+    expect(open).toHaveLength(1);
+    expect(open[0]!.dealId).toBe(d2.id);
+    expect(lines(g).find((e) => e.dealId === d1.id)).toMatchObject({ status: "lapsed", note: "the linked deal lapsed or was replaced" });
+  });
+  it("a spoken deal is linked to the engine deal recorded LATER the same in-game day (past the 3-beat window), not doubled", () => {
+    const { g } = startAtNominations();
+    const [who] = meet(g);
+    const spoken = g.recordOpenLedger({ text: "Deal: we go to the end together", speaker: ME, addressedTo: [who!], kind: "deal" });
+    (g as unknown as { beatSeq: number }).beatSeq += 10; // the belt records the deal many beats later, same day
+    strike(g, who!, "final-two", "the end together");
+    expect(lines(g)).toHaveLength(1);
+    expect(lines(g)[0]).toMatchObject({ id: spoken.entryId });
+    expect(lines(g)[0]!.dealId).toBeDefined();
+  });
+  it("a spoken deal said AFTER the engine line, many beats later the same day, is a duplicate of it", () => {
+    const { g } = startAtNominations();
+    const [who] = meet(g);
+    strike(g, who!);
+    (g as unknown as { beatSeq: number }).beatSeq += 10;
+    const r = g.recordOpenLedger({ text: "So we have a deal", speaker: ME, addressedTo: [who!], kind: "deal" });
+    expect(r).toMatchObject({ accepted: true, duplicate: true });
+    expect(lines(g)).toHaveLength(1);
+  });
+});
+
 describe("a deal that is only spoken is kept, then linked (not doubled) when the engine records it (real engine)", () => {
   it("spoken only: one unlinked open line of kind deal", () => {
     const { g } = startAtNominations();
@@ -166,6 +201,14 @@ describe("pure: recordDealEntry, the deal link and old saves", () => {
     expect(recordDealEntry(group, { dealId: "deal:1", partner: "npc:a", text: "x" }, cx).outcome).toBe("recorded");
     const promise: OpenLedger = { nextId: 2, entries: [spokenEntry({ kind: "promise" })] };
     expect(recordDealEntry(promise, { dealId: "deal:1", partner: "npc:a", text: "x" }, cx).outcome).toBe("recorded");
+  });
+  it("with a day known the window is the same in-game day, not 3 beats; a lapsed deal closes its line with a fixed note", () => {
+    const base: OpenLedger = { nextId: 2, entries: [spokenEntry({ day: 2 })] };
+    expect(recordDealEntry(base, { dealId: "deal:1", partner: "npc:a", text: "x" }, { ...cx, beatSeq: 40 }).outcome).toBe("linked");
+    expect(recordDealEntry(base, { dealId: "deal:1", partner: "npc:a", text: "x" }, { ...cx, beatSeq: 40, day: 3 }).outcome).toBe("recorded");
+    const l = recordDealEntry(emptyOpenLedger(), { dealId: "deal:1", partner: "npc:a", text: "x" }, cx).ledger;
+    const out = syncOpenLedger(l, { turn: 9, day: 3, gone: new Set(), dealEnd: () => "lapsed" });
+    expect(out.entries[0]).toMatchObject({ status: "lapsed", note: "the linked deal lapsed or was replaced" });
   });
   it("a gaining-a-link change passes the integrity rule only once, and not for an entry already resolved", () => {
     const base: OpenLedger = { nextId: 2, entries: [spokenEntry()] };
