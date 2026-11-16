@@ -337,7 +337,7 @@ import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type H
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
-import { drawHouseLeans, describeHouseLeans, dialMult } from "../../engine/houseLeans";
+import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -1640,6 +1640,8 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-551 / spec 0168 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
   private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
   setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
+  /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
+  private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
   holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
@@ -1714,7 +1716,7 @@ export class GameSessionAdapter implements GameSession {
     for (const n of this.house.npcs) {
       if (!this.livingIds().includes(n.id) || (awake && !awake.has(n.id))) continue;
       const g = strongestGrievance(live.beliefs?.[n.id] ?? [], n.id, PLAYER);
-      if (!npcWouldCall(g, false, rng.next()) || !g) continue;
+      if (!npcWouldCall(g, false, rng.next(), this.cultureMult("meetings")) || !g) continue;
       if (this.holdHouseMeeting({ caller: n.id, accused: g.subject, claim: { kind: g.kind, subject: g.subject, object: g.object } })) return;
     }
   }
@@ -6093,9 +6095,11 @@ export class GameSessionAdapter implements GameSession {
    * IDENTICAL; the asymmetric fold fires only on the live clock-ON game. Pure — no rng, no number crosses.
    */
   socialFoldValence(id: EntityId): { warm: number; sore: number } {
-    if (!this.socialFatigueEnabled) return { warm: 1, sore: 1 };
-    const deficit = this.restDeficitOf(id);
-    return { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) };
+    // ORW-551 slice 3: the house culture's bonding dial scales how fast bonds form (warming folds x b) and how hard slights land (souring folds / b), on top of the fatigue valence. b === 1 (no culture) leaves the valence untouched.
+    const b = this.cultureMult("bonding");
+    let v = { warm: 1, sore: 1 };
+    if (this.socialFatigueEnabled) { const deficit = this.restDeficitOf(id); v = { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) }; }
+    return b === 1 ? v : { warm: v.warm * b, sore: v.sore / b };
   }
 
   /** The hidden rest deficit (0..1) a houseguest carries TODAY: tonight's immediate deficit (graded by how
@@ -9798,6 +9802,7 @@ export class GameSessionAdapter implements GameSession {
       // 0124 (part A): with soul-depth on, the COMPOSED read (confidence lifts, distress drags harder)
       // stands in for the single scalar — so "confident AND rattled" competes worse. Off ⇒ the plain state.
       emotionalOf: (id) => this.emotionalReadOf(id),
+      paranoiaMult: this.cultureMult("paranoia"), // ORW-551 slice 3: the house culture's paranoia dial (1 = none)
       // The hidden REST deficit (ADR 0006): the player's from how late THEY stayed up last night, an
       // NPC's from the latest phase they were ACTUALLY awake last night (ENG-NEW-1 — the earlier of
       // their character bedtime and how far the night ran, not a static aptitude tax). Feeds the comp
@@ -9814,7 +9819,7 @@ export class GameSessionAdapter implements GameSession {
           ? (this.house.player.id === id ? this.house.player : this.house.npcs.find((n) => n.id === id))
           : undefined;
         if (!hg) return 0.55;
-        return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id));
+        return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id), this.cultureMult("loyalty"));
       },
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
@@ -10935,7 +10940,7 @@ export class GameSessionAdapter implements GameSession {
         const goal = goals[0];
         if (!goal || !this.alliances.byId(al.id)) continue;
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
-        if (roll >= ALLIANCE.goalClashBreak) continue;
+        if (roll >= ALLIANCE.goalClashBreak / this.cultureMult("loyalty")) continue; // ORW-551 slice 3: a loyal house breaks over a goal clash less often (threshold only; the draw is unchanged)
         const target = goal.target!;
         this.alliances.stamp(this.beatSeqNow(), day);
         this.alliances.removeMember(al.id, m); // FIRST: the member is out before any side effect can re-enter the tick (recording the scene commits, and a commit runs the tick again)
@@ -10967,13 +10972,16 @@ export class GameSessionAdapter implements GameSession {
     const founders = npcs
       .filter((id) => (this.drives.get(id)?.motivation === "build" || (agendaOpen && buildsByAim(id))) && !this.alliances.all().some((a) => a.founder === id))
       .sort();
-    const npcFloor = { ...ALLIANCE, joinBondFloor: ALLIANCE.npcAllyFloor };
+    // ORW-551 slice 3: the culture's allianceSize dial lowers/raises the NPC ally FLOOR (a bigger-bloc house joins at a lower mutual bond), never a loop count; the integer cap moves by at most one, via a rounded dial.
+    const sizeMult = this.cultureMult("allianceSize");
+    const maxSize = ALLIANCE.maxNpcSize + Math.max(-1, Math.min(1, Math.round(ALLIANCE.maxNpcSize * sizeMult) - ALLIANCE.maxNpcSize));
+    const npcFloor = { ...ALLIANCE, joinBondFloor: ALLIANCE.npcAllyFloor / sizeMult };
     const holds = (ms: readonly EntityId[]): boolean => cohesionOf([...new Set(ms)], mutual) >= ALLIANCE.cohesionFloor;
     for (const founder of founders) {
       const proposed = npcs
         .filter((m) => m !== founder)
         .sort((a, b) => mutual(founder, b) - mutual(founder, a) || a.localeCompare(b))
-        .slice(0, ALLIANCE.maxNpcSize - 1);
+        .slice(0, maxSize - 1);
       const willing = willingMembers(founder, proposed, (m) => mutual(founder, m), npcFloor);
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
       if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
@@ -10997,14 +11005,14 @@ export class GameSessionAdapter implements GameSession {
         const warm = this.live!.pitched?.[`${holder}>${target}`] === week ? ALLIANCE.pitchedWarmth : 0;
         const bond = (m: EntityId): number => mutual(holder, m) + (m === target ? warm : 0);
         if (bond(target) < npcFloor.joinBondFloor) continue; // the target declines: an unwilling target never joins
-        const open = this.alliances.forMember(holder).filter((a) => a.members.length < ALLIANCE.maxNpcSize);
+        const open = this.alliances.forMember(holder).filter((a) => a.members.length < maxSize);
         // The join must hold too (ORW-353's not-hollow rule): a target cold to the other members would drag the alliance's cohesion under the floor and fade the WHOLE alliance, not just the newcomer.
         const mine = open.find((a) => holds([...a.members, target]));
         if (open.length > 0 && !mine) continue;
         if (mine) { this.alliances.join(mine.id, target); }
         else {
           if (this.alliances.all().some((x) => x.founder === holder)) continue; // ORW-507 (#2613): one foundership per NPC, as in the founder loop above
-          const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
+          const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, maxSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
           this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
@@ -11601,7 +11609,7 @@ export class GameSessionAdapter implements GameSession {
     const plans: PlannedAction[] = [];
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
-    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0159 slice 2): the culture's baseline multipliers; undefined = byte-identical
+    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0168 slice 2): the culture's baseline multipliers; undefined = byte-identical
     const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);

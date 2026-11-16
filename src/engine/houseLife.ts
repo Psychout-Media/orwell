@@ -181,7 +181,7 @@ export interface HourView {
   candor: number;
   /** ORW-337: this season's authored house rituals (spec 0146 lane 2); absent when the model wrote none (or the write-back has not landed). */
   rituals?: ReadonlyArray<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
-  /** ORW-551 (spec 0159 slice 2): the season's house culture as multipliers on the baseline of gossip / conflict / flirting / lying. Absent = all exactly 1 = byte-identical. */
+  /** ORW-551 (spec 0168 slice 2): the season's house culture as multipliers on the baseline of gossip / conflict / flirting / lying. Absent = all exactly 1 = byte-identical. */
   culture?: HouseCulture;
 }
 
