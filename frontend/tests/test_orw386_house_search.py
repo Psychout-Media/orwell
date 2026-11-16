@@ -242,3 +242,15 @@ def test_search_target_ordinary_word_first_names_need_a_capital():
         assert chat_helpers._search_target(text, gs) is None, text
     assert chat_helpers._search_target("Where is Wade?", gs) == "Wade Cole"
     assert chat_helpers._search_target("where is Penny", gs) == "Penny Marsh"
+
+
+def test_directive_voices_a_told_answer_in_the_speakers_voice_and_a_dodge_as_a_dodge():
+    sv = {"room": "backyard", "present": [], "nearby": [], "search": {"rooms": [], "houseguests": [
+        {"id": "npc:11", "name": "Jett Wooten", "status": "told", "room": "storage-room", "toldBy": {"id": "npc:15", "name": "Janelle Park"},
+         "fact": "Janelle Park says Jett Wooten was heading into the storage room a moment ago: in Janelle Park's own voice, as something said that may be out of date - the player can go and look"},
+        {"id": "npc:12", "name": "Marisol Vega", "status": "unknown", "toldBy": {"id": "npc:15", "name": "Janelle Park"},
+         "fact": "Janelle Park does not give a straight answer about where Marisol Vega is: say they dodge or change the subject; nothing is given away"}]}}
+    d = chat_helpers._house_search_directive(sv, "Where is everybody")
+    assert "Jett Wooten: Janelle Park says Jett Wooten was heading into the storage room" in d
+    voice = d.split("VOICE THIS")[1]
+    assert "TOLD" in voice and "in their own voice" in voice and "may be out of date" in voice and "does not give a straight answer" in voice

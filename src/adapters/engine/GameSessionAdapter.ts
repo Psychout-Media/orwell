@@ -55,6 +55,7 @@ import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
+import { askDisposition, askRoll } from "../../engine/askAround";
 import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
@@ -2921,6 +2922,35 @@ export class GameSessionAdapter implements GameSession {
    * and what is in view now. Written at persist time from what the player could see; never read from a closed room.
    */
   private lastSeenAt: Map<EntityId, { room: Room; tick: number; day: number; part: string }> | null = null;
+  /**
+   * ORW-475: each houseguest's OWN record of who they last saw where (their own line of sight, like the player's `lastSeenAt`): viewer -> subject -> room, tick, day, part, and `heading` when they watched the subject walk
+   * toward that room. Played games only; persisted beside the player's records; an older save loads empty. Never read by the player directly: only the answer an asked houseguest gives comes from it.
+   */
+  private npcSightings: Map<EntityId, Map<EntityId, { room: Room; tick: number; day: number; part: string; heading?: boolean }>> | null = null;
+  private noteNpcSighting(viewer: EntityId, subject: EntityId, room: Room, heading: boolean): void {
+    if (!this.live) return;
+    const day = this.live.dayNumber ?? 1;
+    const part = this.live.timeOfDay ?? "";
+    const mine = (this.npcSightings ??= new Map()).get(viewer) ?? new Map();
+    const cur = mine.get(subject);
+    if (cur && cur.room === room && cur.day === day && cur.part === part && !!cur.heading === heading) return;
+    mine.set(subject, { room, tick: this.presenceTickCount, day, part, ...(heading ? { heading: true } : {}) });
+    this.npcSightings.set(viewer, mine);
+  }
+  private captureNpcSightings(): void {
+    if (!this.presence) return;
+    const awake = this.awakeNow();
+    const ids = this.presenceActive().filter((id) => id !== this.house?.player.id && !(awake && !awake.has(id)));
+    for (const v of ids) {
+      const rv = this.presence.get(v);
+      if (rv === undefined) continue;
+      for (const sId of ids) {
+        if (sId === v) continue;
+        const rs = this.presence.get(sId);
+        if (rs !== undefined && (rs === rv || areVisible(rv, rs))) this.noteNpcSighting(v, sId, rs, false);
+      }
+    }
+  }
   private captureSeenWhereabouts(): void {
     if (this.live?.playedGame !== true || !this.house || !this.presence) return;
     const me = this.house.player.id;
@@ -2930,6 +2960,7 @@ export class GameSessionAdapter implements GameSession {
     const notHere = this.notYetArrived();
     const day = this.live.dayNumber ?? 1;
     const part = this.live.timeOfDay ?? "";
+    this.captureNpcSightings(); // ORW-475: what each houseguest could see now becomes their own last-known sighting
     for (const id of this.presenceActive()) {
       if (id === me || notHere?.has(id) || (awake && !awake.has(id))) continue;
       const room = this.presence.get(id);
@@ -4436,6 +4467,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.trackedSightings && this.trackedSightings.size > 0
          ? { trackedSightings: Object.fromEntries(this.trackedSightings) as Record<EntityId, TrackedSighting> }
          : {}),
+       // ORW-475: each houseguest's own last-known sightings (absent/empty => omitted, byte-identical to an older save).
+       ...(this.npcSightings && this.npcSightings.size > 0 ? { npcSightings: Object.fromEntries([...this.npcSightings].map(([v, m]) => [v, Object.fromEntries(m)])) as NonNullable<SessionCore["npcSightings"]> } : {}),
        // ORW-462: the player's last-known sightings in view (absent/empty => omitted, byte-identical to an older save).
        ...(this.lastSeenAt && this.lastSeenAt.size > 0 ? { lastSeenAt: Object.fromEntries(this.lastSeenAt) as Record<EntityId, { room: Room; tick: number; day: number; part: string }> } : {}),
        // ORW-343: the mood words the player last saw (absent/empty => omitted, byte-identical to a pre-feature save).
@@ -4770,6 +4803,8 @@ export class GameSessionAdapter implements GameSession {
     this.trackedSightings = core.trackedSightings
       ? new Map(Object.entries(core.trackedSightings) as [EntityId, TrackedSighting][])
       : null;
+    // ORW-475: restore each houseguest's own sightings (absent on older saves => none).
+    this.npcSightings = core.npcSightings ? new Map(Object.entries(core.npcSightings).map(([v, m]) => [v as EntityId, new Map(Object.entries(m) as [EntityId, { room: Room; tick: number; day: number; part: string; heading?: boolean }][])] as const)) : null;
     // ORW-462: restore the player's last-known sightings (absent on older saves => an empty record).
     this.lastSeenAt = core.lastSeenAt ? new Map(Object.entries(core.lastSeenAt) as [EntityId, { room: Room; tick: number; day: number; part: string }][]) : null;
     // ORW-343: restore the mood words the player last saw (absent on older saves => none yet).
@@ -5385,6 +5420,18 @@ export class GameSessionAdapter implements GameSession {
       for (const [id, room] of next) {
         const from = prev.get(id);
         if (from && from !== room) this.observeMoveIntoPrivate(id, from, room, meRoom);
+      }
+    }
+    // ORW-475: a houseguest who watched another walk out of their sight (the origin was in their eyeshot) remembers where they were heading. Played games only; draws no rng.
+    if (prev && this.live?.playedGame === true) {
+      const awake = this.awakeNow();
+      for (const [sId, dest] of next) {
+        const from = prev.get(sId);
+        if (!from || from === dest || sId === me) continue;
+        for (const [v, pv] of prev) {
+          if (v === me || v === sId || (awake && !awake.has(v))) continue;
+          if (pv === from || areVisible(pv, from)) this.noteNpcSighting(v, sId, dest, true);
+        }
       }
     }
   }
@@ -6050,6 +6097,12 @@ export class GameSessionAdapter implements GameSession {
     // 0077: forget a tracked sighting once its subject leaves the house (an evictee is nowhere).
     if (this.trackedSightings) for (const id of [...this.trackedSightings.keys()]) if (!active.has(id)) this.trackedSightings.delete(id);
     if (this.lastSeenAt) for (const id of [...this.lastSeenAt.keys()]) if (!active.has(id)) this.lastSeenAt.delete(id);
+    if (this.npcSightings) {
+      for (const v of [...this.npcSightings.keys()]) {
+        if (!active.has(v)) { this.npcSightings.delete(v); continue; }
+        for (const sId of [...this.npcSightings.get(v)!.keys()]) if (!active.has(sId)) this.npcSightings.get(v)!.delete(sId);
+      }
+    }
   }
 
   /**
@@ -6153,18 +6206,47 @@ export class GameSessionAdapter implements GameSession {
     const sharedFirst = (name: string): boolean => this.presenceActive().filter((x) => x !== me && firstOf(this.nameOf(x)) === firstOf(name)).length > 1;
     const isTarget = (id: EntityId, name: string): boolean => want !== undefined && want !== "" && (id.toLowerCase() === want || name.toLowerCase() === want || (firstOf(name) === want && !sharedFirst(name)));
     const tracked = new Map(this.trackedNow().map((t) => [t.id, t] as const));
+    // ORW-475: houseguests the player can ask: awake and in the player's view (their own room first)
+    const rankOf = (id: EntityId): number => (gathered || this.presence!.get(id) === myRoom ? 0 : areVisible(myRoom, this.presence!.get(id) as Room) ? 1 : 2);
+    const askable = (): EntityId[] => this.presenceActive().filter((x) => x !== me && rankOf(x) < 2 && (!awake || awake.has(x)) && !notHere?.has(x)).sort((a, b) => rankOf(a) - rankOf(b) || (a < b ? -1 : 1));
+    const ageWords = (r: { tick: number; day: number; part: string }): string => (r.day === (this.live?.dayNumber ?? 1) ? (this.presenceTickCount - r.tick <= 1 ? "a moment ago" : r.part ? `around the ${r.part}` : "earlier today") : `on day ${r.day}`);
+    const playerLeadTick = (id: EntityId): number => Math.max(tracked.get(id)?.sighting.tick ?? -1, this.lastSeenAt?.get(id)?.tick ?? -1);
+    /** The houseguests present answer from their OWN record; the one with the freshest sighting speaks, in their own voice, as tells / dodges / misleads from their sheet. */
+    const askAround = (id: EntityId, name: string): HouseSearchEntry | undefined => {
+      const known = askable().filter((v) => v !== id && this.npcSightings?.get(v)?.get(id) !== undefined);
+      if (known.length === 0) return undefined;
+      known.sort((a, b) => this.npcSightings!.get(b)!.get(id)!.tick - this.npcSightings!.get(a)!.get(id)!.tick || (a < b ? -1 : 1));
+      const v = known[0]!;
+      const rec = this.npcSightings!.get(v)!.get(id)!;
+      if (rec.tick <= playerLeadTick(id)) return undefined; // the player's own record is as fresh: it stands
+      const speaker: NamedRef = { id: v, name: this.nameOf(v) };
+      const character = this.agendaCharacterOf(v);
+      const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
+      const key = hashSeed(`${this.gameSeed ?? ""}:ask:${v}:${id}:${this.live?.dayNumber ?? 1}:${this.live?.timeOfDay ?? ""}`);
+      const outcome = askDisposition({ candor, affinityToPlayer: this.rel.edge(v, me).affinity, affinityToSubject: this.rel.edge(v, id).affinity }, askRoll(key));
+      if (outcome === "dodges") return { id, name, status: "unknown", toldBy: speaker, fact: `${speaker.name} does not give a straight answer about where ${name} is: say they dodge or change the subject; nothing is given away` };
+      let room = rec.room;
+      if (outcome === "misleads") {
+        const truth = this.presence?.get(id);
+        const pool = WALKABLE_ROOMS.filter((r) => r !== rec.room && r !== truth && r !== myRoom);
+        room = pool[askRoll(hashSeed(`${key}:room`)) * pool.length | 0] ?? rec.room;
+      }
+      return { id, name, status: "told", room, toldBy: speaker, fact: `${speaker.name} says ${name} ${rec.heading ? "was heading into" : "was in"} ${this.roomRefOf(room)} ${ageWords(rec)}: in ${speaker.name}'s own voice, as something said that may be out of date - the player can go and look` };
+    };
     const record = (id: EntityId, name: string): HouseSearchEntry => {
       const t = tracked.get(id);
+      let own: HouseSearchEntry | undefined;
       if (t) {
-        return { id, name, status: "lead", room: t.sighting.room, fact: `last seen heading into ${this.roomRefOf(t.sighting.room)} ${t.stale ? "a while ago" : "a moment ago"} - not confirmed: the player can go and look, or ask around` };
+                own = { id, name, status: "lead", room: t.sighting.room, fact: `last seen heading into ${this.roomRefOf(t.sighting.room)} ${t.stale ? "a while ago" : "a moment ago"} - not confirmed: the player can go and look, or ask around` };
+      } else {
+        const l = this.lastSeenAt?.get(id);
+        if (l) {
+          const sameDay = l.day === (this.live?.dayNumber ?? 1);
+          const when = sameDay ? (l.part ? `around the ${l.part}` : "earlier today") : `on day ${l.day}`;
+          own = { id, name, status: "lead", room: l.room, fact: `last seen in ${this.roomRefOf(l.room)} ${when} - not confirmed: the player can go and look, or ask around` };
+        }
       }
-      const l = this.lastSeenAt?.get(id);
-      if (l) {
-        const sameDay = l.day === (this.live?.dayNumber ?? 1);
-        const when = sameDay ? (l.part ? `around the ${l.part}` : "earlier today") : `on day ${l.day}`;
-        return { id, name, status: "lead", room: l.room, fact: `last seen in ${this.roomRefOf(l.room)} ${when} - not confirmed: the player can go and look, or ask around` };
-      }
-      return { id, name, status: "unknown", fact: "nobody here knows where they are: the player can look around the house or ask around" };
+      return askAround(id, name) ?? own ?? { id, name, status: "unknown", fact: "nobody here knows where they are: the player can look around the house or ask around" };
     };
     for (const id of this.presenceActive()) {
       if (id === me) continue;
