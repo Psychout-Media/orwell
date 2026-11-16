@@ -35,6 +35,7 @@ class Hit:
     line: int
     name: str       # list name, or a short stable label for text hits
     size: int = 0   # list length
+    ctx: str = ""   # a short stretch of the string around a text hit (for review; not part of the guard's key)
 
 
 # --------------------------------------------------------------------------- file discovery
@@ -126,9 +127,9 @@ def text_hits(lang: str, path: str, strings: list[tuple[int, str]]) -> list[Hit]
         if len(text) < 25 or " " not in text:
             continue
         for k, m in enumerate(EXAMPLE_RE.finditer(text)):
-            out.append(Hit("example", lang, path, line + text[:m.start()].count("\n"), f"example@{m.group(0).lower()}"))
+            out.append(Hit("example", lang, path, line + text[:m.start()].count("\n"), f"example@{m.group(0).lower()}", 0, " ".join(text[max(0, m.start() - 60):m.end() + 70].split())))
         for m in list(MENU_ONEOF_RE.finditer(text)) + list(MENU_PIPE_RE.finditer(text)):
-            out.append(Hit("menu", lang, path, line + text[:m.start()].count("\n"), "menu"))
+            out.append(Hit("menu", lang, path, line + text[:m.start()].count("\n"), "menu", 0, " ".join(text[max(0, m.start() - 40):m.end() + 40].split())))
     return out
 
 
