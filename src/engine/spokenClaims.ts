@@ -2,6 +2,7 @@ import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
 import { recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
 import { heardConfidence, tellerReliability } from "./heardAboutMe";
+import { convictionFor } from "./beliefConviction";
 
 /**
  * Feature 0149 / ORW-330 (theme 2, slice 1) - THE CLAIMS CORE. What one houseguest tells another about the house is an ENGINE decision,
@@ -88,6 +89,8 @@ export interface ClaimContext {
   trustOf: (listener: EntityId, speaker: EntityId) => number;
   /** Does the listener credit the speaker as someone who keeps their word (0121)? */
   credited?: (listener: EntityId, speaker: EntityId) => boolean;
+  /** 0160 (conviction): how readily the listener believes what they are told, 0..1 (0.5 = at the source's word). Absent = 0.5 (unchanged). */
+  credulity?: (listener: EntityId) => number;
 }
 
 /** Why a claim is refused (a programming error in the caller, never a game event). Undefined = valid. */
@@ -151,7 +154,8 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
   log.items.push(claim);
   if (beliefs && claim.listener !== PLAYER) {
     const b = beliefFor(claim);
-    const confidence = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
+    const fromSource = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
+    const confidence = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
     recordClaim(beliefs, {
       id: `${claim.listener}|${b.kind}|${b.subject}|${claim.id}`, holder: claim.listener, kind: b.kind, subject: b.subject,
       ...(b.object !== undefined ? { object: b.object } : {}), ...(b.nature !== undefined ? { nature: b.nature } : {}),
