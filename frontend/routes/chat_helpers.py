@@ -1233,9 +1233,10 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
     # ORW-478: the player's own move this turn (the engine already performed it, ORW-419). Without it the narrator saw only the new room name and could keep the scene where the player WAS ("head back to the kitchen" narrated in the living room).
     move_line = ""
     moved_now = False
-    # Only when the engine's recorded move ends in the room the player is in NOW and the player has just arrived (tenure 0 on the turn of the move): a failed `resolvePlayerMove` call leaves last turn's move in state, and that must not be voiced again.
+    # Only when the move ends in the room the player is in NOW. The engine hands over `playerMove` only on the message it was made for (it is stamped with that message and withheld from the state of any later message), so a
+    # failed `resolvePlayerMove` call on a later turn leaves nothing to voice here (ORW-478).
     if (isinstance(player_move, dict) and not player_move.get("refused") and player_move.get("from") and player_move.get("to") and player_move.get("from") != player_move.get("to")
-            and str(player_move.get("to")) == room and whereabouts.get("turnsHere") == 0):
+            and str(player_move.get("to")) == room):
         moved_now = True
         move_line = (f"\nTHE PLAYER JUST MOVED: from the {str(player_move['from']).replace('-', ' ')} to the {str(player_move['to']).replace('-', ' ')} (the engine has already done it). Open this turn's scene in the {str(player_move['to']).replace('-', ' ')}, "
                      f"with exactly the people listed above; never in the {str(player_move['from']).replace('-', ' ')}, and never re-describe the walk as still to come.")

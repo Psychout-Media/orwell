@@ -139,13 +139,9 @@ def test_a_player_move_this_turn_is_stated_in_the_directive():
     assert "Open this turn's scene in the kitchen" in d and "never in the living room" in d
 
 
-def test_a_stale_move_is_never_voiced_again():
-    mv = {"from": "kitchen", "to": "living-room"}
-    # a failed resolvePlayerMove call leaves last turn's move in state: the player is in the kitchen now
-    assert "JUST MOVED" not in chat_helpers._whereabouts_barrier_directive(_wa("kitchen", ["Role A"]), None, mv)
-    # the move ends in this room, but it was not made this turn (the player has been here a while)
-    assert "JUST MOVED" not in chat_helpers._whereabouts_barrier_directive(_wa("living-room", ["Role A"], turns=3), None, mv)
-    assert "JUST MOVED" in chat_helpers._whereabouts_barrier_directive(_wa("living-room", ["Role A"], turns=0), None, mv)
+def test_a_move_that_does_not_end_in_this_room_is_never_voiced():
+    # defence in depth: the engine withholds a move from any later turn's state, but a move to another room is never voiced here either
+    assert "JUST MOVED" not in chat_helpers._whereabouts_barrier_directive(_wa("kitchen", ["Role A"]), None, {"from": "kitchen", "to": "living-room"})
 
 
 def test_no_move_line_without_a_move_or_for_a_refused_or_same_room_move():
@@ -156,7 +152,7 @@ def test_no_move_line_without_a_move_or_for_a_refused_or_same_room_move():
 def test_the_vanish_line_comes_only_on_a_move_or_a_departure_and_never_over_the_asleep_rule():
     quiet = chat_helpers._whereabouts_barrier_directive(_wa("bedroom-a", [], turns=4))
     assert "do not make them vanish" not in quiet  # an ordinary alone turn: no extra instruction
-    after_move = chat_helpers._whereabouts_barrier_directive(_wa("bedroom-a", [], turns=0), None, {"from": "kitchen", "to": "bedroom-a"})
+    after_move = chat_helpers._whereabouts_barrier_directive(_wa("bedroom-a", [], turns=1), None, {"from": "kitchen", "to": "bedroom-a"})
     assert "do not make them vanish" in after_move and "unless they are on the asleep list: then only mentioned" in after_move
     left = chat_helpers._whereabouts_barrier_directive(_wa("kitchen", [], turns=2, sinceSend={"arrived": [], "departed": ["Role A"]}))
     assert "do not make them vanish" in left
