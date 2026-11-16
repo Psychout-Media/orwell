@@ -1,12 +1,12 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # BUILT 2026-07-05 as the REDESIGNED daily recap (#884, PO ruling 2026-06-27); the original WEEKLY design was superseded before it shipped.
-# ORW-285: the scenarios below are now the DAILY ones (fired at the player's own bedtime, `turnIn`); each names the Vitest case in
-# `tests/unit/dailyRecap0102.test.ts` that is its executable gate. This file stays unwired from cucumber.cjs.
+# ORW-285: the scenarios below are the DAILY ones (fired at the player's own bedtime, `turnIn`). ORW-385: wired into the BDD gate
+# (cucumber.cjs; steps in features/step_definitions/daily_recap.steps.ts, driving the real adapter). Each scenario still names the
+# Vitest case in `tests/unit/dailyRecap0102.test.ts` that gates the same behaviour at the unit level.
 Feature: 0102 - Daily recap + cliffhanger (the day in review, fired at the player's own bedtime)
   When the player turns in for the night, the game stitches a short, Vault-safe digest of the day that just
   closed - from their WITNESSED events plus gossip that has ALREADY surfaced to them - and ends it on a
   non-committal hook anchored to a thread already in motion. The recap is the record recalled, never narrator
-  memory. Each scenario below points at the Vitest case that is its executable gate (this file stays unwired from cucumber.cjs).
+  memory. Each scenario below also points at the Vitest case that gates it at the unit level.
 
   # Role-only (testing rule): the-player, a houseguest, the admin.
 
