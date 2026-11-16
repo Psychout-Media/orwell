@@ -7,12 +7,12 @@ Inputs (fetched once by hand, not by the build; pass the paths):
   --oews    Bureau of Labor Statistics Occupational Employment and Wage Statistics, national, May 2023:
             https://www.bls.gov/oes/special-requests/oesm23nat.zip   (the xlsx inside)
   --names   SSA national baby-name counts by year of birth, sex and name (the yearly yobYYYY.txt files combined into one
-            name,year,sex,count CSV), as mirrored by the jsvine/babynames repository (data/name-counts.csv, births 1880
+            name,year,sex,count CSV), as mirrored by the jsvine/babynames repository (data/name-counts.csv at commit aaf1f67350f5d2ce6ddcadb2612cbf5442433278, 2013-09-02, births 1880
             to 2012; the SSA site itself refused a generic client with 403). Public domain. Checked against the SSA's own
             published 2012 top names (Sophia, Emma, Isabella, Olivia, Ava; Jacob, Mason, Ethan, Noah, William) and the 1990
             count for Michael (65,270).
   --surnames US Census Bureau 2010 Census surnames (names.zip, Names_2010Census.csv), fetched once from
-            https://www2.census.gov/topics/genealogy/2010surnames/names.zip . Public domain. Smith is 2,442,977 as published.
+            https://www2.census.gov/topics/genealogy/2010surnames/names.zip . Public domain. Smith is 2,442,977 as published. Also keeps the race and Hispanic-origin shares of each surname.
 Outputs (committed): src/engine/data/world/places.json, jobs.json, given-names.json, surnames.json
 Only the standard library is used (the xlsx is read as zip plus xml).
 """
@@ -72,7 +72,10 @@ def surnames(path):
             if not re.fullmatch(r"[A-Z]{3,12}", n) or _ODD.match(n): continue  # one plain word: no apostrophes, hyphens or spaces
             t = n.title()
             if re.match(r"^Mc[a-z]{3,}$", t): t = "Mc" + t[2:].capitalize()
-            out.append([t, int(r["count"])])
+            def pct(k):
+                try: return round(float(r[k]))
+                except ValueError: return 0  # "(S)": suppressed by the Census Bureau for a small cell
+            out.append([t, int(r["count"]), pct("pctwhite"), pct("pctblack"), pct("pctapi"), pct("pctaian"), pct("pcthispanic")])
     return out
 
 def xlsx_rows(zpath):
@@ -118,7 +121,8 @@ NAMED = {
 SKIP_CODES = {"11-1011","11-1031","23-1023","23-1021","11-1021x"}  # chief executives, legislators, judges: real people's offices, not a casting pool
 CASTABILITY = {"11":0.5,"13":0.8,"15":1.0,"17":0.8,"19":0.6,"21":1.0,"23":0.4,"25":1.0,"27":2.5,"29":1.0,"31":1.0,"33":0.8,"35":1.5,"37":0.5,"39":1.8,"41":1.2,"43":0.5,"45":0.8,"47":1.0,"49":1.0,"51":0.4,"53":0.7}
 MIN_AGE_GROUP = {"11":27,"13":24,"15":22,"17":23,"19":24,"21":24,"23":26,"25":23,"29":23}
-MIN_AGE_CODE = {"29-12":27,"29-1051":27,"29-1021":27,"29-1131":26,"29-1171":27,"53-2":23,"23-1011":26}
+# Physicians and surgeons finish residency about 29 to 31, fellowships and surgical subspecialties about 32 to 34.
+MIN_AGE_CODE = {"29-12":30,"29-1215":29,"29-1212":32,"29-124":33,"29-1243":34,"29-1051":27,"29-1021":27,"29-1131":26,"29-1171":27,"29-1151":28,"53-2":23,"23-1011":26}
 FARM = re.compile(r"farm|ranch|agricultur|logging|forest|fishing|hunting|crop|animal breeder", re.I)
 
 def singular(word):
@@ -166,8 +170,8 @@ if __name__ == "__main__":
     json.dump({"source": "US Census Bureau Population Estimates, cities and towns, vintage 2023 (SUMLEV 162, incorporated places with 1,000 or more residents). Public domain.", "columns": ["name", "state", "population"], "rows": p}, open(a.out + "/places.json", "w"), separators=(",", ":"), ensure_ascii=False)
     json.dump({"source": "US Bureau of Labor Statistics, Occupational Employment and Wage Statistics, national, May 2023, detailed occupations. Weight is employment in thousands times an authored castability lean per major group. Public domain.", "columns": ["job", "weightK", "socCode", "minAge", "maxSize"], "rows": j}, open(a.out + "/jobs.json", "w"), separators=(",", ":"), ensure_ascii=False)
     g = given_names(a.names)
-    json.dump({"source": "US Social Security Administration national baby-name counts (births 1966 to 2005 in four decade buckets), via the jsvine/babynames mirror of the SSA yob files. Public domain.", "decades": [list(d) for d in DECADES], "columns": ["name", "count per decade bucket"], "F": g["F"], "M": g["M"]}, open(a.out + "/given-names.json", "w"), separators=(",", ":"))
+    json.dump({"source": "US Social Security Administration national baby-name counts (births 1966 to 2005 in four decade buckets), via the jsvine/babynames mirror of the SSA yob files (commit aaf1f67350f5d2ce6ddcadb2612cbf5442433278). Public domain.", "decades": [list(d) for d in DECADES], "columns": ["name", "count per decade bucket"], "F": g["F"], "M": g["M"]}, open(a.out + "/given-names.json", "w"), separators=(",", ":"))
     sn = surnames(a.surnames)
-    json.dump({"source": "US Census Bureau 2010 Census surnames (names with 7,000 or more people, one plain word), about 60 percent of residents. Public domain.", "columns": ["name", "people"], "rows": sn}, open(a.out + "/surnames.json", "w"), separators=(",", ":"))
+    json.dump({"source": "US Census Bureau 2010 Census surnames (names with 7,000 or more people, one plain word), about 60 percent of residents. Public domain.", "columns": ["name", "people", "pctWhite", "pctBlack", "pctAsianPacific", "pctNativeAmerican", "pctHispanic"], "rows": sn}, open(a.out + "/surnames.json", "w"), separators=(",", ":"))
     print(len(sn), "surnames;", end=" ", file=sys.stderr)
     print(len(p), "places;", len(j), "jobs;", len(g["F"]), "female and", len(g["M"]), "male names", file=sys.stderr)

@@ -25,7 +25,7 @@ export interface WorldJob {
 /** Share of all draw weight held by the hand-written jobs. */
 export const LEGACY_JOB_SHARE = 0.1;
 /** Exponent on the weight: 1 is the labour market's own frequency; lower lifts rarer jobs so a cast shows variety. */
-export const JOB_FLATTEN = 0.3;
+export const JOB_FLATTEN = 0.4;
 
 export const WORLD_JOBS: readonly WorldJob[] = (() => {
   const rows = (jobsJson.rows as unknown as ReadonlyArray<readonly [string, number, string, number, string]>).map(

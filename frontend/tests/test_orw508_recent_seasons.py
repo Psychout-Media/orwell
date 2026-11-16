@@ -67,3 +67,9 @@ def test_engine_calls_carry_avoid_unless_seeded_and_the_started_cast_is_recorded
     n = len(ledger.seasons_for("u"))
     asyncio.run(orwell_engine.create_character("P", seed=9, user="u"))               # a seeded start is not
     assert len(ledger.seasons_for("u")) == n
+
+
+def test_the_default_store_is_redirected_per_test():
+    """The autouse fixture in conftest points the ledger at a per-test temp file, never the real data dir."""
+    assert "orwell_recent_seasons.json" in str(ledger.LEDGER_PATH)
+    assert "pytest" in str(ledger.LEDGER_PATH)

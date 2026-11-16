@@ -199,7 +199,7 @@ describe("ORW-432 what moved and what did not", () => {
       return createHash("sha256").update(all).digest("hex");
     };
     expect(run(true)).toBe("654f5b8859d93923260d80f075c916fe4dee4dc9ffc50279e096e2c3dc99d845"); // identical on main and on the ORW-508 branch with vocation, hometown, background and their derived text blanked: no random draw moved
-    expect(run(false)).toBe("572dec9183f3a787c4df59444cef7172a8a6d3bf3d1297225059a3c402b8f677"); // re-pinned on purpose by ORW-508: hometown from the Census place table and the job from the BLS job table, each on its own stream (the blanked hash above is unchanged from the previous ORW-508 pin and equals main) (with the background, biography, secrets, goals, weakness and thread premises built from the job); earlier: ORW-458 background text
+    expect(run(false)).toBe("c79b0492907be20e8dd8178a438c453f8acbab6cf1e0986a30c1ba6adebcf69f"); // re-pinned on purpose by ORW-508: hometown from the Census place table and the job from the BLS job table, each on its own stream (the blanked hash above is unchanged from the previous ORW-508 pin and equals main) (with the background, biography, secrets, goals, weakness and thread premises built from the job); earlier: ORW-458 background text
   });
 });
 

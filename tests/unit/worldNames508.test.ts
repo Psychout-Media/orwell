@@ -65,8 +65,9 @@ describe("ORW-508 name deal", () => {
       prev = new Set(got);
     }
     expect(count.size).toBeGreaterThan(1200);
-    expect(Math.max(...count.values()) / 3000).toBeLessThan(0.0043);
-    expect(Math.max(...inCast.values()) / 200).toBeLessThan(0.065);
+    // real frequency leans toward common names (exponent 0.6): a little more top-name share than a flat list, far fewer repeats
+    expect(Math.max(...count.values()) / 3000).toBeLessThan(0.0065);
+    expect(Math.max(...inCast.values()) / 200).toBeLessThan(0.09);
     expect(shared / 199).toBeLessThan(0.44);
   });
 });
@@ -104,7 +105,7 @@ describe("ORW-508 surnames at Census frequency", () => {
   it("the table is the Census 2010 surnames: about five thousand names, the published Smith count, plain single words", () => {
     const rows = surnamesJson.rows as unknown as Array<[string, number]>;
     expect(rows.length).toBeGreaterThan(4500);
-    expect(rows[0]).toEqual(["Smith", 2442977]);
+    expect(rows[0]!.slice(0, 2)).toEqual(["Smith", 2442977]);
     for (const [n] of rows) expect(n, n).toMatch(/^[A-Z][a-zA-Z]{2,11}$/);
     expect(rows.some(([n]) => n === "McDonald")).toBe(true);
   });
@@ -122,8 +123,8 @@ describe("ORW-508 surnames at Census frequency", () => {
       prev = new Set(a);
     }
     expect(count.size).toBeGreaterThan(1500);
-    expect(Math.max(...count.values()) / 3000).toBeLessThan(0.004);
-    expect(Math.max(...inCast.values()) / 200).toBeLessThan(0.06);
+    expect(Math.max(...count.values()) / 3000).toBeLessThan(0.005);
+    expect(Math.max(...inCast.values()) / 200).toBeLessThan(0.07);
     expect(shared / 199).toBeLessThan(0.29);
   });
   it("a played season's surnames are Census names, unique, and off the last season", () => {
@@ -133,5 +134,75 @@ describe("ORW-508 surnames at Census frequency", () => {
     expect(new Set(first.map((n) => n.split(" ").slice(1).join(" "))).size).toBe(first.length);
     const again = new GameSessionAdapter().preSeedCast({ avoid: { names: first } }).house.map((c) => c.name);
     expect(again.filter((n) => first.some((f) => f.split(" ").slice(1).join(" ") === n.split(" ").slice(1).join(" ")))).toEqual([]);
+  });
+});
+
+import { censusGroupOfHeritage } from "../../src/engine/data/worldNames";
+import { JOB_INDEX } from "../../src/engine/data/worldJobs";
+
+describe("ORW-508 surnames fit the person's heritage (Census race and origin shares)", () => {
+  const rows = surnamesJson.rows as unknown as Array<[string, number, number, number, number, number, number]>;
+  const share = (n: string, col: number) => rows.find((r) => r[0] === n)![col] as number;
+  it("maps each heritage label to a Census group, or none", () => {
+    expect(censusGroupOfHeritage("Korean American")).toBe("api");
+    expect(censusGroupOfHeritage("Mexican American")).toBe("hispanic");
+    expect(censusGroupOfHeritage("Black American")).toBe("black");
+    expect(censusGroupOfHeritage("German American")).toBe("white");
+    expect(censusGroupOfHeritage("multiracial")).toBeUndefined();
+    expect(censusGroupOfHeritage(undefined)).toBeUndefined();
+  });
+  it("a Vietnamese or Mexican American is dealt a surname that group actually carries", () => {
+    const draw = (g: "api" | "hispanic" | "black" | "white", col: number) => {
+      let fit = 0, total = 0;
+      for (let seed = 0; seed < 80; seed++) for (const s of dealSurnames(new SeededRandom(seed), 15, new Set(), undefined, Array(15).fill(g))) { total++; if (share(s, col) >= 30) fit++; }
+      return fit / total;
+    };
+    // against about 3 percent (api) and 10 to 20 percent (hispanic, black) from the national table, which ignores heritage
+    expect(draw("api", 4)).toBeGreaterThan(0.6);
+    expect(draw("hispanic", 6)).toBeGreaterThan(0.8);
+    expect(draw("black", 3)).toBeGreaterThan(0.3);
+    expect(draw("white", 2)).toBeGreaterThan(0.9);
+  });
+  it("a played season's cast has surnames that fit each houseguest's ethnicity facet", () => {
+    let fit = 0, total = 0;
+    for (let i = 0; i < 20; i++) {
+      for (const c of new GameSessionAdapter().preSeedCast({}).house as unknown as Array<{ name: string; ethnicity?: string }>) {
+        const g = censusGroupOfHeritage(c.ethnicity); if (!g) continue;
+        const col = { white: 2, black: 3, api: 4, aian: 5, hispanic: 6 }[g];
+        const r = rows.find((x) => x[0] === c.name.split(" ").slice(1).join(" "))!; total++;
+        if ((r[col] as number) >= 20) fit++;
+      }
+    }
+    expect(fit / total).toBeGreaterThan(0.8);
+  });
+});
+
+describe("ORW-508 an adopted warm cast never shares the player's name", () => {
+  it("a player named after a houseguest (given name or surname) leaves no houseguest with it", () => {
+    for (let i = 0; i < 6; i++) {
+      const s = new GameSessionAdapter();
+      const warm = s.preSeedCast({}).house as unknown as Array<{ name: string }>;
+      const [g, ...rest] = warm[i]!.name.split(" ");
+      const player = i % 2 === 0 ? `${g} Zzyzx` : `Zzyzxa ${rest.join(" ")}`;
+      s.createCharacter({ playerName: player });
+      const house = s.getGameState().house.filter((h) => h.status === "active");
+      expect(house.length).toBe(15);
+      const [pg, ...pr] = player.split(" ");
+      for (const h of house) {
+        const [hg, ...hr] = h.name.split(" ");
+        expect(hg.toLowerCase(), `${h.name} vs ${player}`).not.toBe(pg!.toLowerCase());
+        expect(hr.join(" ").toLowerCase()).not.toBe(pr.join(" ").toLowerCase());
+      }
+    }
+  });
+});
+
+describe("ORW-508 physicians and surgeons are not in their twenties", () => {
+  it("floors follow residency and fellowship", () => {
+    expect(JOB_INDEX.get("family medicine physician")!.minAge).toBeGreaterThanOrEqual(29);
+    expect(JOB_INDEX.get("cardiologist")!.minAge).toBeGreaterThanOrEqual(32);
+    expect(JOB_INDEX.get("pediatric surgeon")!.minAge).toBeGreaterThanOrEqual(33);
+    expect(JOB_INDEX.get("lawyer")!.minAge).toBeGreaterThanOrEqual(26);
+    for (const [job, row] of JOB_INDEX) if (row.group === "29" && /physician|surgeon|cardiolog|psychiatr|radiolog|anesthesiolog|dermatolog|neurolog|pediatrician|obstetric/.test(job) && !/nurse|assistant|technolog|technician/.test(job)) expect(row.minAge, job).toBeGreaterThanOrEqual(29);
   });
 });

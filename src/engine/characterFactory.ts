@@ -827,6 +827,12 @@ export function generateHiddenElements(
  * cap the carried-over given-name exclusion to leave at least `NAME_HEADROOM` fresh given names.
  */
 const NAME_HEADROOM = NPC_COUNT * 4;
+let CASE_LOOKUP: Map<string, string> | undefined;
+/** A remembered name (any case) in the spelling the corpora use, word by word; a word the corpora lack is title-cased. */
+function corpusCase(name: string): string {
+  if (!CASE_LOOKUP) CASE_LOOKUP = new Map([...GIVEN_NAMES, ...SURNAMES].map((w) => [w.toLowerCase(), w]));
+  return name.trim().split(/\s+/).map((w) => CASE_LOOKUP!.get(w.toLowerCase()) ?? w.replace(/(^|[-'])([a-z])/g, (_m, p: string, c: string) => p + c.toUpperCase())).join(" ");
+}
 function seedPriorNames(
   priorNames: readonly string[] | undefined,
   used: Set<string>,
@@ -859,9 +865,9 @@ export function generateHouse(
   // it cross-season the way `used`/`usedGiven` do.
   const usedSurnames = new Set<string>();
   // NAME-1 (#547): avoid names used by prior seasons in the same game (bounded, fail-soft).
-  // ORW-508: the recent-seasons memory adds its names to the same bounded, fail-soft exclusion (title-cased: the
-  // memory compares lower-cased, the corpus is Title Case).
-  const remembered = avoid ? [...avoid.names].map((n) => n.replace(/(^|\s)([a-z])/g, (_m, sp: string, c: string) => sp + c.toUpperCase())) : [];
+  // ORW-508: the recent-seasons memory adds its names to the same bounded, fail-soft exclusion. The memory compares
+  // lower-cased; each name is mapped back to the corpus's own spelling (McDonald, Mary-Ann) by a case-insensitive lookup.
+  const remembered = avoid ? [...avoid.names].map(corpusCase) : [];
   seedPriorNames(remembered.length ? [...(priorNames ?? []), ...remembered] : priorNames, used, usedGiven);
   // Draw order on the MAIN stream (name, style, stats, background, volatility) is preserved exactly;
   // appearance is generated off a SIDE rng (hashed off the name) so the cosmetic 0004 amendment

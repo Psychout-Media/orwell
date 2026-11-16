@@ -8,7 +8,7 @@ import { dealWorldHometowns, MAX_PER_STATE } from "../../src/engine/data/worldHo
 import { implausibleBecause, ageProblem, RULES, SAFE_VOCATIONS } from "../../src/engine/data/worldPlausibility";
 import { VOCATIONS } from "../../src/engine/data/vocations";
 import { JOB_INDEX, WORLD_JOBS } from "../../src/engine/data/worldJobs";
-import { emptyLedger, recordSeason, avoidSets, parseLedger, factsOfCast, LEDGER_WINDOW, NO_AVOID } from "../../src/domain/recentSeasons";
+import { emptyLedger, recordSeason, avoidSets, avoidFromWire, parseLedger, factsOfCast, LEDGER_WINDOW, NO_AVOID } from "../../src/domain/recentSeasons";
 
 // ORW-508: the world place table, its sampler, the acceptance rules and the recent-seasons memory.
 
@@ -191,5 +191,22 @@ describe("ORW-508 names in the memory", () => {
     const again = generateHouse(new SeededRandom(2468), undefined, avoidSets(l)).npcs.map((n) => n.name);
     expect(again.filter((n) => first.includes(n))).toEqual([]);
     expect(again.filter((n) => first.some((f) => f.split(" ")[0] === n.split(" ")[0]))).toEqual([]);
+  });
+});
+
+describe("ORW-508 review fixes", () => {
+  it("the memory sent over the wire keeps the newest season when six full seasons are merged (no cut at 80)", () => {
+    const merged: string[] = [];
+    for (let s = 0; s < 6; s++) for (let i = 0; i < 15; i++) merged.push(`Town${s}x${i}, OH`);
+    const a = avoidFromWire({ hometowns: merged })!;
+    expect(a.hometowns.size).toBe(90);
+    expect(a.hometowns.has("town5x14, oh")).toBe(true);
+    expect(a.hometowns.has("town0x0, oh")).toBe(true);
+  });
+  it("a remembered name in any case or spelling excludes the corpus name (McDonald, Mary-Ann)", () => {
+    const first = generateHouse(new SeededRandom(99)).npcs.map((n) => n.name);
+    const lowered = recordSeason(emptyLedger(), { names: first.map((n) => n.toLowerCase()) });
+    const again = generateHouse(new SeededRandom(99), undefined, avoidSets(lowered)).npcs.map((n) => n.name);
+    expect(again.filter((n) => first.includes(n))).toEqual([]);
   });
 });

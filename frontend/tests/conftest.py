@@ -323,6 +323,19 @@ def _isolate_sync_ledger_store(tmp_path, monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_recent_seasons_store(tmp_path, monkeypatch) -> None:
+    """ORW-508: the recent-seasons ledger (`orwell_recent_seasons.LEDGER_PATH`, under the non-overridable `DATA_DIR`) is read on every cast warm and
+    written when a season starts, so without a redirect a test that fakes `createCharacter` with a `house` would write the real data dir and feed
+    `avoid` into the next test (and xdist workers would share one file). Redirect it per test, like the stores above; a test that needs a specific
+    path monkeypatches it itself (its patch runs after this fixture and wins)."""
+    try:
+        import src.orwell_recent_seasons as _rs
+    except Exception:
+        return
+    monkeypatch.setattr(_rs, "LEDGER_PATH", tmp_path / "orwell_recent_seasons.json")
+
+
+@pytest.fixture(autouse=True)
 def _reset_cast_authoring_ledger() -> None:
     mod = sys.modules.get("src.orwell_cast_authoring")
     if mod is not None:

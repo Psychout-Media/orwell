@@ -33,7 +33,7 @@ const MAX_ITEM_CHARS = 120;
 
 export const emptyLedger = (): RecentSeasonsLedger => ({ version: 1, seasons: [] });
 
-const cleanList = (xs: unknown): string[] => {
+const cleanList = (xs: unknown, max = MAX_ITEMS_PER_KIND): string[] => {
   if (!Array.isArray(xs)) return [];
   const out: string[] = [];
   const seen = new Set<string>();
@@ -43,7 +43,7 @@ const cleanList = (xs: unknown): string[] => {
     if (!v || seen.has(v.toLowerCase())) continue;
     seen.add(v.toLowerCase());
     out.push(v);
-    if (out.length >= MAX_ITEMS_PER_KIND) break;
+    if (out.length >= max) break;
   }
   return out;
 };
@@ -105,7 +105,8 @@ export type AvoidWire = { readonly [K in FactKind]?: readonly string[] };
 export function avoidFromWire(raw: unknown): AvoidSets | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const o = raw as Record<string, unknown>;
-  const set = (k: FactKind): Set<string> => new Set(cleanList(o[k]).map((v) => v.toLowerCase()));
+  // the wire list is every remembered season merged (up to LEDGER_WINDOW x the per-season cap): never cut the newest
+  const set = (k: FactKind): Set<string> => new Set(cleanList(o[k], LEDGER_WINDOW * MAX_ITEMS_PER_KIND).map((v) => v.toLowerCase()));
   const out: AvoidSets = { names: set("names"), hometowns: set("hometowns"), vocations: set("vocations"), marks: set("marks"), phrases: set("phrases") };
   return FACT_KINDS.some((k) => out[k].size > 0) ? out : undefined;
 }

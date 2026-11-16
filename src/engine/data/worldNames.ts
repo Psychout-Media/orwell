@@ -17,7 +17,7 @@ import { buildTable, drawConstrained, type WeightedTable } from "./worldSampler"
 
 /** The year a season's ages are counted from. */
 export const NAMES_REFERENCE_YEAR = 2026;
-export const NAME_FLATTEN = 0.5;
+export const NAME_FLATTEN = 0.6;
 /** Names the show never uses (the old fixed sample names). */
 const DENIED = new Set(["Ryne", "Marcus", "Felix"]);
 
@@ -74,28 +74,57 @@ export function dealEraGivenNames(
 }
 
 /**
- * Surnames at real frequency: the US Census Bureau 2010 surnames (public domain), the roughly 5,000 names carried by
- * 7,000 or more people (about 60 percent of residents), reduced to `world/surnames.json` (about 85 KB). Softened by
- * `SURNAME_FLATTEN` so Smith is not in one cast in six and rarer real names (Whitfield, Kessler) still turn up.
+ * Surnames at real frequency, conditioned on the person's heritage: the US Census Bureau 2010 surnames (public
+ * domain), the roughly 5,000 names carried by 7,000 or more people (about 60 percent of residents), with the
+ * file's own race and Hispanic-origin share for each surname, reduced to `world/surnames.json` (about 130 KB).
+ * For a person whose heritage maps to a Census group the weight is people-with-the-surname x that group's share
+ * (the share is not softened, only the count is, so Nguyen is dealt to Vietnamese and Chinese Americans and almost never
+ * to anyone else, Garcia to Mexican Americans); for the rest the national count. Heritage within the white group (Irish, Italian, ...) is not
+ * conditioned: the Census file does not carry ancestry. Softened by `SURNAME_FLATTEN`.
  */
-export const SURNAME_FLATTEN = 0.5;
-const SURNAME_TABLE: WeightedTable<readonly [string, number]> = buildTable(
-  surnamesJson.rows as unknown as ReadonlyArray<readonly [string, number]>, (r) => r[1], SURNAME_FLATTEN,
-);
+export const SURNAME_FLATTEN = 0.6;
+export type CensusGroup = "white" | "black" | "api" | "aian" | "hispanic";
+type SurnameRow = readonly [string, number, number, number, number, number, number];
+const GROUP_COLUMN: Readonly<Record<CensusGroup, number>> = { white: 2, black: 3, api: 4, aian: 5, hispanic: 6 };
+const SURNAME_ROWS = surnamesJson.rows as unknown as ReadonlyArray<SurnameRow>;
+const surnameTables = new Map<string, WeightedTable<SurnameRow>>();
+function surnameTable(group: CensusGroup | undefined): WeightedTable<SurnameRow> {
+  const k = group ?? "all";
+  let t = surnameTables.get(k);
+  if (!t) {
+    t = group === undefined
+      ? buildTable(SURNAME_ROWS, (r) => r[1], SURNAME_FLATTEN)
+      : buildTable(SURNAME_ROWS, (r) => Math.pow(r[1], SURNAME_FLATTEN) * Math.max(r[GROUP_COLUMN[group]] as number, 0.5) / 100);
+    surnameTables.set(k, t);
+  }
+  return t;
+}
 
-/** One surname per slot: not in `taken` (the rest of the cast), not on the recent-seasons memory, one `rng.next()` per attempt. */
+/** The Census group a heritage label belongs to, or undefined when the file has no group for it (the national table is used). */
+export function censusGroupOfHeritage(heritage: string | undefined): CensusGroup | undefined {
+  const h = (heritage ?? "").toLowerCase();
+  if (/^(irish|italian|polish|german|greek|scandinavian)\b/.test(h)) return "white";
+  if (/^(black|nigerian|caribbean)\b/.test(h)) return "black";
+  if (/^(mexican|puerto rican|dominican)\b/.test(h)) return "hispanic";
+  if (/^(chinese|filipino|korean|south asian|vietnamese)\b/.test(h)) return "api";
+  if (/^native\b/.test(h)) return "aian";
+  return undefined; // multiracial, Middle Eastern, unknown
+}
+
+/** One surname per slot (conditioned on `groups[i]` when given): not in `taken`, not on the recent-seasons memory, one `rng.next()` per attempt. */
 export function dealSurnames(
-  rng: RandomnessSource, count: number, taken: ReadonlySet<string>, avoid?: AvoidSets,
+  rng: RandomnessSource, count: number, taken: ReadonlySet<string>, avoid?: AvoidSets, groups?: ReadonlyArray<CensusGroup | undefined>,
 ): string[] {
   const used = new Set([...taken].map((t) => t.toLowerCase()));
   const avoided = new Set<string>();
-  if (avoid) for (const n of avoid.names) { const parts = n.split(" "); if (parts.length > 1) avoided.add(parts[parts.length - 1]!.toLowerCase()); }
+  if (avoid) for (const n of avoid.names) { const parts = n.split(" "); if (parts.length > 1) avoided.add(parts.slice(1).join(" ").toLowerCase()); }
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
-    const fresh = (r: readonly [string, number]): boolean => !used.has(r[0].toLowerCase());
-    const row = drawConstrained(rng, SURNAME_TABLE, [(r) => fresh(r) && !avoided.has(r[0].toLowerCase()), fresh], 80);
+    const table = surnameTable(groups?.[i]);
+    const fresh = (r: SurnameRow): boolean => !used.has(r[0].toLowerCase());
+    const row = drawConstrained(rng, table, [(r) => fresh(r) && !avoided.has(r[0].toLowerCase()), fresh], 80);
     let name = row[0];
-    if (used.has(name.toLowerCase())) name = SURNAME_TABLE.rows.find((r) => !used.has(r[0].toLowerCase()))![0];
+    if (used.has(name.toLowerCase())) name = table.rows.find((r) => !used.has(r[0].toLowerCase()))![0];
     used.add(name.toLowerCase());
     out.push(name);
   }

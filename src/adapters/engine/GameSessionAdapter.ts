@@ -331,7 +331,7 @@ import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
-import { dealEraGivenNames, dealSurnames } from "../../engine/data/worldNames";
+import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -7163,6 +7163,7 @@ export class GameSessionAdapter implements GameSession {
     // given name AND the warm-cast/plain-restart casts stay byte-identical (the diversity-layer rename is
     // prior-season-UNAWARE on purpose; this is where cross-season memory is restored). No-op without priors.
     this.decollidePriorNames(seed, effReq.priorCastNames);
+    if (effReq.seed === undefined) this.avoidPlayerNameCollisions(seed, avoidFromWire(effReq.avoid)); // ORW-508: an adopted warm cast met the player only now
     // Seed first impressions so NPC decisions are differentiated from move-in (without this,
     // empty relationships make every HOH nominate the same first-in-roster houseguests). These
     // are starting beliefs; the consequence fold (0023) evolves them as the player acts.
@@ -7747,13 +7748,43 @@ export class GameSessionAdapter implements GameSession {
       npcs.map((n) => ({ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) })),
       taken, avoid,
     );
-    const family = dealSurnames(new SeededRandom(hashSeed(`${seed}:era-surnames`)), npcs.length, new Set([this.house.player.name.split(" ").slice(1).join(" ")].filter(Boolean)), avoid);
+    const family = dealSurnames(new SeededRandom(hashSeed(`${seed}:era-surnames`)), npcs.length, new Set([this.house.player.name.split(" ").slice(1).join(" ")].filter(Boolean)), avoid,
+      npcs.map((n) => censusGroupOfHeritage(n.character.ethnicity)));
     npcs.forEach((n, i) => {
-      const parts = n.name.split(" ");
       const next = [given[i]!, family[i]!].join(" ");
       if (n.name === next) return;
       this.renameHouseguest(n, next);
     });
+  }
+
+  /**
+   * ORW-508: a warmed cast is dealt before the player's real name exists (the pre-warm uses a placeholder), so on adoption
+   * a houseguest can share the player's given name or surname. Re-deal that part for that houseguest (a played season only),
+   * unique against the rest of the cast and the player, on its own `:era-collide` sub-stream.
+   */
+  private avoidPlayerNameCollisions(seed: number, avoid?: AvoidSets): void {
+    if (!this.house) return;
+    const [pGiven = "", ...pRest] = this.house.player.name.trim().split(/\s+/);
+    const pFamily = pRest.join(" ").toLowerCase();
+    const rng = new SeededRandom(hashSeed(`${seed}:era-collide`));
+    const npcs = this.house.npcs;
+    for (const n of npcs) {
+      const [given = "", ...rest] = n.name.split(" ");
+      const family = rest.join(" ");
+      const clashGiven = given.toLowerCase() === pGiven.toLowerCase();
+      const clashFamily = pFamily !== "" && family.toLowerCase() === pFamily;
+      if (!clashGiven && !clashFamily) continue;
+      const others = npcs.filter((m) => m !== n);
+      let nextGiven = given, nextFamily = family;
+      if (clashGiven) {
+        nextGiven = dealEraGivenNames(rng, [{ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) }],
+          new Set([pGiven, ...others.map((m) => m.name.split(" ")[0]!)]), avoid)[0]!;
+      }
+      if (clashFamily) {
+        nextFamily = dealSurnames(rng, 1, new Set([pFamily, ...others.map((m) => m.name.split(" ").slice(1).join(" "))]), avoid, [censusGroupOfHeritage(n.character.ethnicity)])[0]!;
+      }
+      this.renameHouseguest(n, `${nextGiven} ${nextFamily}`.trim());
+    }
   }
 
   private applyDiversityRenames(): void {
