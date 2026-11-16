@@ -1,4 +1,4 @@
-"""A82 - tests for post_session_analyzer.py (it feeds every playtest report and had none). Tiny fixtures, offline. Run: python3 -m pytest rehearsal-kit/test_post_session_analyzer.py
+"""A82 - tests for post_session_analyzer.py (it feeds every playtest report and had none). Tiny fixtures, offline. Run: python3 -m pytest scripts/rehearsal-kit/test_post_session_analyzer.py
 Mutations that must go red: flip the sign of the timezone offset in parse_fe; swap the since-window comparison (an event or turn exactly AT `since` is included). Roles only."""
 import datetime as dt
 import json
@@ -131,3 +131,36 @@ def test_clock_metrics_counts_accepted_vs_duplicate_notes_and_reads_the_save(tmp
     assert C["save"]["hangouts"] == 2 and C["save"]["hangout_minutes"] == 75 and C["save"]["hour"] == 12.5
     assert dict(C["save"]["stops"]) == {"event-due": 1, "npc-approach": 1}
     assert psa.clock_metrics(events, [], None)["save"] is None
+
+
+def test_ssh_pull_refuses_option_like_hosts_and_non_exact_dates():
+    """ORW-481 (retro review of #2620): a crafted --ssh host or --since/--until value never reaches ssh."""
+    import pytest
+    for bad_host in ("-oProxyCommand=evil", "host; rm", ""):
+        with pytest.raises(SystemExit):
+            psa.ssh_read(bad_host, "cat /x")
+    for bad_when in ('2026-11-05 10:00" --since "x', "2026-11-05", "-1"):
+        with pytest.raises(SystemExit):
+            psa.pull("root@box", bad_when, "", "/nonexistent-dest-never-created")
+
+
+def test_find_save_is_bounded_by_the_window_end(tmp_path):
+    import datetime as dt, os
+    d = tmp_path / "engine-data" / "saves" / "u"; d.mkdir(parents=True)
+    old, new = d / "v1.json", d / "v2.json"
+    old.write_text("{}"); new.write_text("{}")
+    os.utime(old, (1_700_000_000, 1_700_000_000)); os.utime(new, (1_700_100_000, 1_700_100_000))
+    until = dt.datetime.utcfromtimestamp(1_700_050_000)
+    assert psa.find_save(str(tmp_path), until) == str(old)   # a later save is not the state at the end of the window
+    assert psa.find_save(str(tmp_path)) == str(new)
+    assert psa.find_save(str(tmp_path), dt.datetime.utcfromtimestamp(1_600_000_000)) is None
+
+
+def test_load_dump_replays_one_consistent_snapshot(tmp_path):
+    import sqlite3
+    src = sqlite3.connect(":memory:"); src.execute("create table t(a)"); src.execute("insert into t values (7)"); src.commit()
+    text = "\n".join(src.iterdump())
+    dest = tmp_path / "app.db"
+    assert psa.load_dump(text, str(dest)) and sqlite3.connect(dest).execute("select a from t").fetchone() == (7,)
+    assert psa.load_dump("not sql at all;", str(tmp_path / "bad.db")) is False
+    assert "sqlite3 -readonly " in psa.READ_ONLY_PREFIXES

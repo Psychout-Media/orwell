@@ -118,3 +118,53 @@ def test_classic_script_observers_coalesce_to_a_frame():
 def test_no_new_gamechanged_dispatcher_was_added():
     # g15: exactly one dispatcher (platform.js); the batching helpers must not dispatch it
     assert "orwell:gamechanged" not in _read("js", "frameBatch.js")
+
+
+# review of #2261: the classic-script observers must cancel the leftover half of the frame/timer pair, as frameBatched does. Otherwise
+# the first batch's 120 ms timer, still armed after its frame ran, flushes the NEXT batch between frames (a second scan per frame).
+_SCROLLBARS_PROGRAM = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[1], 'utf8');
+const frames = new Map(); let nextFrame = 1;
+const timers = new Map(); let nextTimer = 1;
+globalThis.requestAnimationFrame = (f) => { const id = nextFrame++; frames.set(id, f); return id; };
+globalThis.cancelAnimationFrame = (id) => { frames.delete(id); };
+globalThis.setTimeout = (f) => { const id = nextTimer++; timers.set(id, f); return id; };
+globalThis.clearTimeout = (id) => { timers.delete(id); };
+const fire = (m, id) => { const f = m.get(id); m.delete(id); if (f) f(); };
+let observerCb = null;
+globalThis.MutationObserver = function (cb) { observerCb = cb; this.observe = () => {}; };
+let scans = 0;
+const node = () => ({ nodeType: 1, isConnected: true, querySelectorAll: () => { scans++; return []; }, matches: () => false });
+globalThis.document = { readyState: 'complete', querySelectorAll: () => [], body: {}, addEventListener: () => {} };
+globalThis.window = {};
+new Function(src)();
+const before = scans;
+observerCb([{ addedNodes: [node()] }]);   // batch 1: arms frame 1 + timer 1
+fire(frames, 1);                           // frame 1 runs batch 1
+const afterFrame1 = scans - before;
+observerCb([{ addedNodes: [node()] }]);   // batch 2: arms frame 2 + timer 2
+fire(timers, 1);                           // batch 1's old timer fires between frames: must NOT flush batch 2
+const afterOldTimer = scans - before;
+fire(frames, 2);                           // frame 2 delivers batch 2
+const afterFrame2 = scans - before;
+console.log(JSON.stringify({ afterFrame1, afterOldTimer, afterFrame2, timersLeft: timers.size }));
+"""
+
+
+def test_scrollbars_observer_old_timer_does_not_flush_the_next_batch_between_frames():
+    if not _NODE:
+        pytest.skip("node not available")
+    p = subprocess.run([_NODE, "-e", _SCROLLBARS_PROGRAM, os.path.join(JS, "orwellScrollbars.js")], capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0, p.stderr[-1500:]
+    got = json.loads(p.stdout.strip().splitlines()[-1])
+    assert got["afterFrame1"] == 1
+    assert got["afterOldTimer"] == 1, f"the first batch's leftover timer flushed the second batch between frames: {got}"
+    assert got["afterFrame2"] == 2 and got["timersLeft"] == 0, got
+
+
+def test_scroll_bottom_observer_cancels_its_leftover_timer_too():
+    sb = _read("js", "orwellScrollBottom.js")
+    assert "_wnRaf = requestAnimationFrame(_wnRun)" in sb and "_wnTimer = setTimeout(_wnRun, 120)" in sb
+    run = sb[sb.index("var _wnRun = function"):sb.index("if (!_wnPending) return;")]
+    assert "cancelAnimationFrame(_wnRaf)" in run and "clearTimeout(_wnTimer)" in run

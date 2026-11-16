@@ -2474,7 +2474,7 @@ export function tickPremiereClock(s: LiveSeasonState, hours: number): void {
   s.nightDepth = Math.min(s.nightDepth + hours, DAY_END_HOUR - 0.0001);
   s.timeOfDay = phaseForHour(s.nightDepth);
 }
-/** ORW-116: the houseguests ENTER in the afternoon - the in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
+/** ORW-116: the houseguests ENTER at 4pm - the evening band starts at this same hour (`CLOCK.phaseStartsHour.evening`), so the premiere and the toast are the EVENING. The in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
 export const PREMIERE_ENTRY_HOUR = 16;
 /** Hours each premiere entrance / toast release costs (time passing, not a skip): 16 entrances put the toast in the evening. */
 export const PREMIERE_STEP_HOURS = 0.15;

@@ -208,6 +208,15 @@ Then("the hook never asserts a future result", function () {
   }
 });
 
+// ORW-517 (Ryne, card 29: "entirely first person"): the hint is the player's own thought - "I", never "you" or "the player".
+function isFirstPerson(text: string): boolean {
+  return /\b(I|my|me)\b/.test(text) && !/\b(you|your|yours|the player)\b/i.test(text);
+}
+Then("the hook is in the player's own first person", function () {
+  const hook = bag(this).recap!.hook!;
+  assert.ok(isFirstPerson(hook.framing), `the hook is not in the player's first person: ${hook.framing}`);
+});
+
 // ---- Scenario: the recap augments play and is reproducible ----
 
 When("the daily recap is materialized and then re-read", function () {

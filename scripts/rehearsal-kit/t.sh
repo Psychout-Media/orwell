@@ -5,8 +5,13 @@ RUN=$(cat $RIG_RUN_PTR); N=$1; T=$2; C=${3:-null}
 python3 - "$RUN" "$N" "$T" "$C" <<'P'
 import json,sys
 run,n,t,c=sys.argv[1:5]
-json.dump({"n":int(n),"text":t or None,"card":json.loads(c)},open(f"{run}/req.json","w"))
+card=json.loads(c)
+if card is not None:   # a malformed card would crash the daemon and take the mailbox offline for every later turn
+    ok=isinstance(card,dict) and isinstance(card.get("pick",[]),list) and all(isinstance(i,int) and not isinstance(i,bool) for i in card.get("pick",[])) and isinstance(card.get("text",""),str)
+    if not ok: sys.exit("bad card: expected an object like {\"pick\":[0],\"text\":\"..\"}")
+json.dump({"n":int(n),"text":t or None,"card":card},open(f"{run}/req.json","w"))
 P
+[ $? -eq 0 ] || exit 2
 for i in $(seq 1 130); do sleep 3; python3 - "$RUN" "$N" <<'P' && exit 0
 import json,sys
 try: r=json.load(open(f"{sys.argv[1]}/resp.json"))

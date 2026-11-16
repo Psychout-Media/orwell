@@ -1,0 +1,62 @@
+import { describe, it, expect } from "vitest";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { resolvePending } from "../../features/support/answerPending";
+import { roomOfBed, type BedsState } from "../../src/engine/beds";
+import { freeBedIn } from "../../src/engine/bedClaims";
+import { roomDisplayName, type Room } from "../../src/domain/house";
+
+/**
+ * ORW-522 (live sweep): claiming a bed is going to it. The player claimed a bed in their own words, the story put them in the bedroom, but the engine
+ * kept them in the living room (no room was named as a move, and the front end's fallback move was pinned by the gathered house without a word).
+ * Now a fresh claim is a move to that bedroom through the normal move seam: the engine moves the player, or - gathered for an event - tells the
+ * narrator the player stays with the house. Roles only.
+ */
+type Live = { playedGame?: boolean; beds?: BedsState; premiereEntrance?: { arrived: number; playerPos: number } };
+const liveOf = (s: GameSessionAdapter) => (s as unknown as { live: Live }).live;
+const step = (s: GameSessionAdapter) => { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); };
+
+function inside(): GameSessionAdapter {
+  const s = new GameSessionRegistry().sandboxFor(`orw522-${Math.random()}`).session as GameSessionAdapter;
+  s.setPremiereEntrancesEnabled(true);
+  s.createCharacter({ playerName: "P", seed: 11 });
+  liveOf(s).playedGame = true;
+  for (let i = 0; i < 20 && liveOf(s).premiereEntrance!.arrived <= liveOf(s).premiereEntrance!.playerPos; i++) step(s);
+  return s;
+}
+/** A bedroom the player is not standing in that still has a free spot (the engine's own rule). */
+const freeBedroom = (s: GameSessionAdapter, not: string | null | undefined): Room => {
+  const room = (["bedroom-a", "bedroom-b", "bedroom-c"] as Room[]).find((r) => r !== not && freeBedIn(liveOf(s).beds ?? { owner: {}, claims: [] }, r, new Set(s.livingIds())) !== undefined);
+  expect(room, "a bedroom with a free spot").toBeDefined();
+  return room!;
+};
+
+describe("ORW-522: a bed claim moves the player to the bedroom, or the narrator is told why not", () => {
+  it("with the house not gathered, the engine walks the player to the bedroom they claimed a bed in, before the narrator writes", () => {
+    const s = inside();
+    for (let i = 0; i < 60 && s.whereabouts()?.houseEvent; i++) step(s);
+    expect(s.whereabouts()?.houseEvent, "the house is no longer gathered").toBeFalsy();
+    const before = s.whereabouts()!.room;
+    const room = freeBedroom(s, before);
+    const r = s.resolvePlayerMove({ text: `I'll take the bed by the window in ${roomDisplayName(room)}.` });
+    expect(roomOfBed(liveOf(s).beds!.owner["player"]!)).toBe(room);
+    expect(r.playerMove).toMatchObject({ from: before, to: room });
+    expect(s.whereabouts()!.room).toBe(room);
+  });
+
+  it("gathered for an event, the player stays with the house and the narrator is handed the refusal, never a silent no-op", () => {
+    const s = inside();
+    const gathered = s.whereabouts()?.houseEvent;
+    const before = s.whereabouts()!.room;
+    const room = freeBedroom(s, before);
+    const r = s.resolvePlayerMove({ text: `I'll take the bed by the window in ${roomDisplayName(room)}.` });
+    expect(roomOfBed(liveOf(s).beds!.owner["player"]!)).toBe(room);
+    if (gathered) {
+      expect(r.playerMove).toMatchObject({ refused: true, to: room });
+      expect(s.whereabouts()!.room).toBe(before);
+    } else {
+      expect(r.playerMove).toMatchObject({ from: before, to: room });
+      expect(s.whereabouts()!.room).toBe(room);
+    }
+  });
+});

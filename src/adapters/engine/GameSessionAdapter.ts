@@ -4936,6 +4936,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-247: the ceremony hold is memory-only. A save taken mid-ceremony has the player seated in the ceremony room on the player-facing map while the base still holds the room they really
     // had; rebuild the hold from that so a resumed tick keeps the base exactly as uninterrupted play would.
     this.ceremonyHeld = null; this.ceremonyBasePlayerRoom = null;
+    this.ceremonyBeat = null; // memory-only: a restore into a live adapter must not read the previous game's scene
     const meId = this.house?.player.id;
     const seated = meId ? this.presence?.get(meId) : undefined, real = meId ? this.presenceBase?.get(meId) : undefined;
     const held = this.houseEventInSession()?.kind;
@@ -5416,7 +5417,10 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here);
+    // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
+    // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
+    const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here) ?? (claimedBed ? roomOfBed(claimedBed) : null);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     let result: ResolvePlayerMoveResult;
@@ -6592,7 +6596,8 @@ export class GameSessionAdapter implements GameSession {
     } else if (pe) {
       remaining.length = 0;
     }
-    const everyoneMet = remaining.length === 0;
+    // review of ORW-196: with the player LAST in the entrance order every NPC can be inside while the player has not walked in yet - the roll-call is not complete until they have.
+    const everyoneMet = remaining.length === 0 && !(pe && pe.stage === "entrances" && pe.arrived <= pe.playerPos);
     // +1 on both counts for the player (they ARE met — they're playing). total = the whole cast.
     return {
       complete: everyoneMet,
@@ -8112,6 +8117,8 @@ export class GameSessionAdapter implements GameSession {
     this.pacingDripWeek = 0;
     this.pacingDripCount = 0;
     this.pacingTickCount = 0;
+    this.confideRoutes.clear(); // review of ORW-261: a restarted season must not replay the old season's cached disclosure decisions (keyed by npc:week:phase)
+    this.orientationRoutes.clear();
     this.pacingLastDrippedWeek = {};
   }
 
@@ -10913,6 +10920,15 @@ export class GameSessionAdapter implements GameSession {
     const s = this.seededRels.showmances.find((x) => x.stage !== "resolved" && (x.a === id || x.b === id) && !evicted.has(x.a) && !evicted.has(x.b));
     return s ? (s.a === id ? s.b : s.a) : undefined;
   }
+  /** ORW-466 slice 4: the bed facts a houseguest's hour reads - their sleep room, their AWAKE roommates among this stretch's actors, the one sharing their double. Empty without beds. */
+  private roommateView(beds: BedsState | undefined, id: EntityId, inHouse: ReadonlySet<EntityId>, awake: ReadonlyMap<EntityId, Room>): { bedroom?: Room; roommates?: EntityId[]; bedPartner?: EntityId } {
+    if (!beds) return {};
+    const bedroom = sleepRoomOf(beds, id, this.live?.hoh);
+    if (!bedroom) return {};
+    const roommates = roommatesIn(beds, bedroom, inHouse).filter((x) => x !== id && awake.has(x)).sort();
+    const partner = bedPartner(beds, id, inHouse);
+    return { bedroom, ...(roommates.length ? { roommates } : {}), ...(partner && awake.has(partner) ? { bedPartner: partner } : {}) };
+  }
   /**
    * One stretch of house life: every AWAKE NPC who is not in the player's room (those are in the player's own scene, which the narrator voices)
    * takes ONE action (`houseLife.chooseHourAction`) from their agenda's next step, habits (model-authored when ORW-319 wrote them), mood and who
@@ -10934,6 +10950,8 @@ export class GameSessionAdapter implements GameSession {
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     const authored = s.npcMindsAuthored?.traits ?? {};
     const plans: PlannedAction[] = [];
+    const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
+    const inHouse = new Set(this.livingIds());
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -10949,6 +10967,7 @@ export class GameSessionAdapter implements GameSession {
         threat: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
+        ...this.roommateView(bedsNow, id, inHouse, where),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
@@ -11977,14 +11996,14 @@ export class GameSessionAdapter implements GameSession {
       if (d.vague || nearingExpiry) {
         candidates.push({
           thread: `deal:${d.id}`,
-          framing: `what you and ${this.nameOf(other)} agreed to feels like it's on borrowed time`,
+          framing: `what I agreed to with ${this.nameOf(other)} feels like it's on borrowed time`, // ORW-517: the player's own first person (Ryne, card 29)
         });
       }
     }
     if (surfacedToday.length > 0) {
       candidates.push({
         thread: `surfaced:${day}`,
-        framing: "what you heard today doesn't feel finished playing out",
+        framing: "what I heard today doesn't feel finished playing out",
       });
     }
     if (candidates.length === 0) return undefined;
@@ -12761,7 +12780,8 @@ export class GameSessionAdapter implements GameSession {
     const named = (id: EntityId): boolean => {
       const full = this.nameOf(id).toLowerCase();
       const first = full.split(/\s+/)[0] ?? full;
-      return [full, first].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
+      const firstIsUnique = this.livingIds().filter((x) => (this.nameOf(x).toLowerCase().split(/\s+/)[0] ?? "") === first).length <= 1; // two houseguests sharing a first name: a bare first name names neither
+      return [full, ...(firstIsUnique ? [first] : [])].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
     };
     for (const w of this.awakeAmong(witnesses.filter((id) => id !== PLAYER && id !== a && id !== b))) {
       const targetsMe = deal.kind === "target-other" && (named(w) || this.livingIds().some((x) => x !== w && x !== a && x !== b && named(x) && isAlly(w, x)));

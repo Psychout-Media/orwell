@@ -45,7 +45,7 @@ def test_whereabouts_route_fails_open(monkeypatch):
     monkeypatch.setattr(orwell_engine, "whereabouts", boom)
     r = _client().get("/api/orwell/whereabouts")
     assert r.status_code == 200
-    assert r.json() == {"whereabouts": None}  # no strip on error — never a blocked page
+    assert r.json() == {"whereabouts": None, "unavailable": True}  # fails open (200, never a blocked page); the flag tells the strip it is a failed read
 
 
 def test_whereabouts_route_pregame_is_null(monkeypatch):

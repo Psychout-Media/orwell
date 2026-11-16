@@ -111,7 +111,11 @@ let _failedAt = 0;         // a FAILED probe (no WebGL / threw) is never memoise
 /** Decide (pure of the DOM: no class is touched). The WebGL probe is memoised only when it succeeded. */
 export function decideLowPower(env) {
   env = env || {};
-  const storage = env.storage || (typeof localStorage !== 'undefined' ? localStorage : null);
+  // Reading `localStorage` itself throws where the browser blocks storage (review of #2262): fall back to null like the Storage helpers do.
+  let storage = env.storage || null;
+  if (!storage) {
+    try { storage = typeof localStorage !== 'undefined' ? localStorage : null; } catch (_) { storage = null; }
+  }
   const search = env.search !== undefined ? env.search : (typeof location !== 'undefined' ? location.search : '');
   const automated = env.automated !== undefined ? env.automated : (typeof navigator !== 'undefined' && navigator.webdriver === true);
   const detect = env.detect || detectSoftwareRenderer;

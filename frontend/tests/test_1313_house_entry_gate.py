@@ -105,6 +105,30 @@ def test_gate_holds_start_when_cast_underauthored(monkeypatch, run):
     ca.clear_house_entry_gate_block("bob")
 
 
+def test_held_start_still_reports_a_strategy_style_substitution(monkeypatch, run):
+    """ORW-208 (review of #2252): the holding return skips the normal result, so it must carry the engine's strategy-style
+    substitution itself (health note + narrator line), or the substitution goes silent for a held start."""
+    monkeypatch.delenv("ORWELL_ALLOW_FLOOR_START", raising=False)
+    adj = {"requested": "strategic", "applied": "emotional", "archetype": "wildcard"}
+
+    async def fake_create(*a, **k):
+        return {**_started_res(), "strategyStyleAdjusted": adj}
+    monkeypatch.setattr(oe, "create_character", fake_create)
+    monkeypatch.setattr(ca, "house_entry_gate_active", _async_true)
+    monkeypatch.setattr(ca, "await_house_ready", _make_ready(ready=False, authored=3))
+    monkeypatch.setattr(ca, "kickoff_house_ready_watch", lambda owner, on_ready=None, **k: True)
+    ep = importlib.import_module("src.enrichment_policy")
+    notes = []
+    monkeypatch.setattr(ep, "record_runtime_failure", lambda *a, **k: notes.append(a))
+    res = run(ti.do_create_character('{"playerName":"P"}', owner="orw208-hold"))
+    out = json.loads(res["output"])
+    assert out.get("started") is False and (out.get("castingHouse") or {}).get("state") == "authoring"
+    assert out.get("strategyStyleAdjusted") == adj
+    assert 'stored strategy style is "emotional"' in out.get("strategyStyleNote", "")
+    assert any(a[1] == "casting-strategy-style" for a in notes)
+    ca.clear_house_entry_gate_block("orw208-hold")
+
+
 def test_gate_allows_start_when_cast_authored(monkeypatch, run):
     """Gate ON + the FULL cast authored ⇒ the game STARTS (normal started result)."""
     monkeypatch.delenv("ORWELL_ALLOW_FLOOR_START", raising=False)

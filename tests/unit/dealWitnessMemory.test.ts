@@ -39,6 +39,15 @@ function table(seed = 7, played = true) {
 const kinds = (g: Internals, holder: string, subject: string): string[] => (g.live.npcMemory?.[holder]?.[subject] ?? []).map((e) => e.kind);
 
 describe("a witnessed deal is remembered", () => {
+  it("a shared first name does not make the other houseguest the deal's target (review of ORW-85)", () => {
+    const t = table();
+    const house = (t.g as unknown as { house: { npcs: { id: string; name: string }[] } }).house;
+    const target = house.npcs.find((n) => n.id === t.w1)!; const other = house.npcs.find((n) => n.id === t.w2)!;
+    other.name = `${target.name.split(/\s+/)[0]} Elsewhere`; // same first name, different person
+    t.s.makeDeal({ with: t.partner, kind: "target-other", terms: `we go after ${target.name} together` });
+    expect(kinds(t.g, t.w1, PLAYER)).toContain("deal-resented");
+    expect(kinds(t.g, t.w2, PLAYER)).toEqual(["deal-witnessed"]);
+  });
   it("an unconnected witness keeps a recall-only entry toward both dealmakers; an absent one remembers nothing", () => {
     const t = table();
     t.s.makeDeal({ with: t.partner, kind: "safety", terms: "we keep each other safe this week" });

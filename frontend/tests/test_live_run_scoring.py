@@ -90,11 +90,15 @@ def test_k3_a_due_evening_ceremony_unfired_for_more_than_two_messages_fails():
 
 def _load(name):
     import sys
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run"))
-    p = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run" / f"{name}.py"
+    d = str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run")
+    p = pathlib.Path(d) / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, p)
     m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
+    sys.path.insert(0, d)
+    try:
+        spec.loader.exec_module(m)
+    finally:
+        sys.path.remove(d)  # review of ORW-109: the path edit never leaks into other tests
     return m
 
 
@@ -132,7 +136,7 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
     # ORW-281: the veto chip draw is a mini ceremony (about 1h of felt time), so its reply may move the clock about an hour on the veto morning.
     turns = [_turn("veto-morning-1", "x", phase="veto-competition", phase_before="veto-competition", clock="8:00am, Day 4"),
              # the sanctioned hour needs a reply that actually voices the draw (review of #2777); a quiet reply with the same jump still fails (tests/test_live_run_tooling.py)
-             _turn("veto-morning-2", "The veto chips are drawn and Dana pulls hers: everyone is playing for the veto.", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
+             _turn("veto-morning-2", "The veto chips are drawn and the nominee pulls theirs: everyone is playing for the veto.", phase="veto-competition", phase_before="veto-competition", clock="9:10am, Day 4", msg="I listen to the draw.")]
     got = _score(turns)
     assert "K1-no-skipped-time[veto-morning-2]" not in got and got["K1-clock-jump-veto-draw[veto-morning-2]"]["ok"]
 
@@ -140,6 +144,41 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
 def test_a_raw_tool_tag_reply_is_machinery():
     # ORW-440: a whole reply of "</tool_use>" reached the player; the short tier must flag it.
     assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]
+
+
+def _t16(text, house=16, room=4):
+    got = _score([_turn("t1", text, counts={"room": room, "others": room - 1, "house": house})])
+    return got.get("T16-headcount-includes-the-player[t1]")
+
+
+def test_t16_a_house_headcount_that_leaves_the_player_out_fails():
+    # ORW-376 (Ryne): the narrator counted the OTHER houseguests' names and said "us" one short. The engine's counts.house includes the player.
+    bad = _t16("All 14 of us are crammed into this house for one more week.")
+    assert bad and not bad["ok"] and bad["severity"] == "fail", bad
+    left = _t16("There are fifteen houseguests left in the house now.")
+    assert left and not left["ok"] and left["severity"] == "fail", left
+    loose = _t16("Fifteen of us and only one key.")
+    assert loose and not loose["ok"] and loose["severity"] == "warn", "an unqualified 'N of us' may be the room: a warning, not a fail"
+
+
+def test_t16_the_right_house_count_and_a_room_count_are_not_flagged():
+    assert _t16("16 of us, and nobody trusts anybody yet.") is None
+    assert _t16("Sixteen houseguests remain in the house.") is None
+    assert _t16("The four of us at the table go quiet.") is None, "a room count is not a house total"
+    assert _t16("The four of us go quiet.", room=4) is None, "'N of us' that is the room's own count"
+    assert _t16("Twelve houseguests walked through those doors on night one.") is None, "a houseguest count with no house word may be the season's cast"
+    assert _t16("She has three wins and two of us owe her.", room=6) is None, "a small 'N of us' is a pair or a huddle"
+    assert _score([_turn("t1", "All 14 of us are here.")]).get("T16-headcount-includes-the-player[t1]") is None, "no engine counts recorded: nothing to compare"
+
+
+# review follow-ups (ORW-481): one case per fixed scoring bug
+def test_review_followups_scoring_regexes_and_clock():
+    assert ls.LEAK_RE.search("The Vault holds the secrets") and not ls.LEAK_RE.search("the vault door was open") and not ls.LEAK_RE.search("a vault wall of safe-deposit boxes")  # a sentence-start "The Vault" is machinery too
+    assert not ls.PHANTOM_CER_RE.search("The nomination ceremony is tomorrow, and the house is nervous.")  # speculation about a later ceremony is not a ceremony voiced
+    assert ls.PHANTOM_CER_RE.search("The nomination ceremony begins.")
+    bad = _score([_turn("c", "The nominees are Aa Bb and then everyone left.", phase="hoh-competition", nominees=["Aa Bb", "Cc Dd"])])
+    assert not [k for k in bad if k.startswith("C5-")], "a lowercase word after 'and' is not a second nominee name"
+    assert ls.abs_hours("2:00am, Day 1") - ls.abs_hours("11:00pm, Day 1") == 3  # a night across midnight keeps one day number
 
 
 def test_orw503_alone_is_still_checked_and_the_messages_own_skip_is_not_excused_by_runner_moves():
@@ -159,3 +198,16 @@ def test_review_2839_player_out_matches_whole_first_names_and_legacy_rooms_skip(
     legacy = _turn("legacy", "ABSomeone Name — hello there.", room_end=[], phase="hoh-competition")
     legacy.pop("rooms_known", None)
     assert not [k for k in _score([legacy]) if k.startswith("C6-")], "an older report without rooms_known is not read as an empty room"
+
+
+def test_review_k2_boundary_and_k3_eviction_allowance():
+    a = _turn("t1", "x", clock="4:05pm, Day 1")
+    ok = _score([a, _turn("t2", "x", clock="5:35pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert not [k for k in ok if k.startswith("K2-")], "the crown's 1.5h share is the allowed edge"
+    over = _score([a, _turn("t2", "x", clock="5:41pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert not [c for k, c in over.items() if k.startswith("K2-")][0]["ok"], "just above 1.5h is a competition in one message"
+    due = {"next": "eviction", "phase": "evening", "due": True, "minutesUntil": 0}
+    eight = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 9)]
+    assert not [k for k in _score(eight) if k.startswith("K3-")], "an eviction night gets 8 replies"
+    nine = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 10)]
+    assert [k for k in _score(nine) if k.startswith("K3-")], "the 9th reply of an unfired eviction night fails"

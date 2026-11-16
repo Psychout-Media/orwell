@@ -141,7 +141,8 @@ describe("whereabouts.counts after the player is evicted (ORW-447)", () => {
     const core = JSON.parse(JSON.stringify(s.snapshot())) as { live: { evictionOrder: string[]; active: string[] }; presence?: Record<string, string> };
     core.live.evictionOrder.push(PLAYER);
     core.live.active = core.live.active.filter((id) => id !== PLAYER);
-    if (core.presence) delete core.presence[PLAYER];
+    expect(core.presence, "the snapshot carries a presence map").toBeDefined();
+    delete core.presence![PLAYER];
     const resumed = new GameSessionRegistry().sandboxFor(`hc376-resume-${n++}`).session; // a resumed process: no in-memory ceremony hold
     resumed.restore(core as never);
     expect(resumed.whereabouts()).toBeNull();

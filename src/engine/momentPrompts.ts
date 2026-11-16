@@ -570,7 +570,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    day that just closed); this same tool re-fetches it. `highlights`/`surfaced` are facts straight",
   "    from the record — voice them as a short in-fiction 'day in review' beat (never a list, never a",
   "    dashboard), then move straight into the new morning. If it carries a `hook`, tease its `framing`",
-  "    as a possibility ('feels like...', 'you can't shake the sense that...') — NEVER state it as a",
+  "    as a possibility ('feels like...', 'I can't shake the sense that...') — NEVER state it as a",
   "    coming fact, NEVER name who wins the next HOH or who goes up or who goes home, and NEVER surface",
   "    anything beyond what `highlights`/`yourDay`/`surfaced`/`hook` contain. No `dailyRecap` present ⇒ no",
   "    recap beat — just narrate the player turning in; never invent one.",

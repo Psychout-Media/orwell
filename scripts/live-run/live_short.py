@@ -39,14 +39,14 @@ PREMIERE_MINGLE = [
     "I compliment the latest arrival on their outfit.",
 ]
 # a nominations ceremony voiced before the engine committed one (ritual cues only - 'nominations' in general talk is fine)
-PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\bon the block\b")
+PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony (?:begins|starts|opens|is (?:now )?(?:starting|beginning|under ?way))\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\b(?:are|is|were) (?:now )?on the block\b|\b(?:you|they|we)[\u2019']re (?:now )?on the block\b|\b(?:he|she|it)[\u2019']s (?:now )?on the block\b")
 # one dialogue line: the chip initials, then the full name, then a dash ("TBTerrance Boyd — ...")
 SPEAKER_RE = re.compile(r"(?m)^[A-Z]{1,3}([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)+)\s*[\u2014-]")
-PAIR_AFTER_RE = re.compile(r"(?i)nominees?\W+(?:are|were|is)\W+([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
+PAIR_AFTER_RE = re.compile(r"(?i:nominees?\W+(?:are|were|is)\W+)([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
 PAIR_BEFORE_RE = re.compile(r"([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?),? (?:are|were)(?: both)? (?:the )?(?:nominees|nominated|on the block|up for eviction)")
 
 # machinery that must never reach a player-facing reply
-LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\bthe Vault\b|\bVault Wall\b)", re.I)
+LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\b[Tt]he Vault\b|\bVault Wall\b)", re.I)
 # a guard's replacement shell is not a scene
 SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again\?|Responding\W*$", re.I)
 # competition play that must not be narrated before the engine has run the competition
@@ -57,6 +57,17 @@ BUSY_JS = "!!document.querySelector('.send-btn[data-mode=\"streaming\"]')"
 BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el => { const c = el.cloneNode(true);
   c.querySelectorAll('.thinking-content,.thinking,[class*=thinking],.msg-footer').forEach(n=>n.remove());
   return {txt:(c.innerText||'').trim(), done:!!el.querySelector('.msg-footer')}; })"""
+
+
+def slot_default(run_dir, key, fallback):
+    """The rig URL for a run: the run's own slot.env wins (a staged slot-2 run), else an inherited environment value, else the slot-1 default."""
+    try:
+        import shlex
+        for ln in open(os.path.join(run_dir, "slot.env")):
+            k, _, v = ln.strip().partition("=")
+            if k == key and v: return shlex.split(v)[0]   # the run's own slot.env wins over a stale inherited variable
+    except OSError: pass
+    return os.environ.get(key) or fallback
 
 
 class Engine:
@@ -85,7 +96,18 @@ class Engine:
             h, _ = self.hour()
             if h is None or h >= 24 or n > 700: break
             self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
-        self.call("turnIn"); self.call("noteMessage", {"messageId": f"{tag}-wake"})
+        # ORW-446: a goodnight is HELD while a staged ceremony is open (reason "ceremony"): finish the ceremony (advance its watch steps, answer its card) and go to bed again.
+        for k in range(30):
+            r = self.call("turnIn") or {}
+            h = r.get("held")
+            if not (isinstance(h, dict) and h.get("reason") == "ceremony"): break
+            a = self.call("advanceGame") or {}
+            p = a.get("pending")
+            if p and p.get("kind") != "ceremony-step":
+                o = [x.get("id") for x in (p.get("options") or [])]
+                try: self.call("submitDecision", {"kind": p.get("kind"), "choice": o[:2] if p.get("kind") == "nominations" else (o[0] if o else None), "use": False, "intent": "compete", "vote": o[0] if o else "a"})
+                except RuntimeError: pass
+        self.call("noteMessage", {"messageId": f"{tag}-wake"})
 
     def tick_to_night(self, tag):
         """Let the evening pass with the engine's own message ticks until the NIGHT period (a player may not go to bed earlier)."""
@@ -157,7 +179,8 @@ class Chat:
             self.page.wait_for_timeout(2000)
             bs = self.page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
             busy = self.page.evaluate(BUSY_JS)
-            stable = stable + 1 if (sig == prev and not busy) else 0
+            arrived = len(bs) > before  # a reply that has not started yet (the casting finalize builds the whole season first) is not "settled"
+            stable = stable + 1 if (sig == prev and not busy and arrived) else 0
             prev = sig
             if stable >= 3: break
         bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
@@ -181,7 +204,13 @@ def crossover(eng, play, check, chat):
     morning" ask that must not reach morning, the player's own goodnight, and the Week 2 morning. Checks map to the Auditor's ORW-433 lines."""
     eng.play_pendings_until("hoh-competition", "x1", max_steps=80)
     st = eng.call("getGameState"); wk0, day0 = st.get("week"), st.get("dayNumber")
-    check("X0-reached-eviction-night", st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh"), f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    x0 = st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh")
+    check("X0-reached-eviction-night", x0, f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    _play = play
+
+    def play(label, line):
+        # review of #2854: every crossover turn carries whether X0 held, so a --rescore (which keeps only the turns) knows whether Week 2 was really reached
+        t = _play(label, line); t["x0_ok"] = bool(x0); return t
     evicted = [h.get("name") for h in (st.get("house") or []) if isinstance(h, dict) and h.get("status") not in (None, "active")]
     for i, line in enumerate(CROSS_EVENING): play(f"cross-evening-{i + 1}", line)
     st = eng.call("getGameState")
@@ -193,7 +222,23 @@ def crossover(eng, play, check, chat):
     check("W2-week-chapter-at-the-bed", chat.page.evaluate("!!document.querySelector('.ow-week-card')"), "a Week recap card is on the page after the bed after eviction")
     last = evicted[-1] if evicted else None
     check("N4-the-bed-voices-the-day", bool(last) and last.split()[0] in bed["text"], f"the bed reply names the evicted houseguest ({last}) as part of the day in review", "warn")
+    # T17 (0102 / ORW-382): the turnIn the narrator made at the bed closed the day and materialized its day-in-review; the engine re-reads it with dailyRecap.
+    # Eviction night is a day the player witnessed (the vote, the goodbye, the evening turns above), so an empty recap is a FAIL.
+    rec = eng.call("dailyRecap") or {}
+    items = [x for k in ("highlights", "surfaced", "yourDay") for x in (rec.get(k) or [])] if isinstance(rec, dict) else []
+    check("T17-a-recap-every-bedtime", bool(items), f"dailyRecap after the bed: day {rec.get('day') if isinstance(rec, dict) else None}, {len(items)} item(s) (highlights / surfaced / yourDay); the closed day was Day {day0}, with the eviction and {len(CROSS_EVENING)} evening scenes witnessed")
+    if isinstance(rec, dict) and rec.get("day") is not None and rec.get("day") != day0: check("T17-the-recap-is-the-closed-day", False, f"dailyRecap is for Day {rec.get('day')}, the bed closed Day {day0}", "warn")
+    bed["recap"] = rec
     for i, line in enumerate(CROSS_MORNING): play(f"cross-morning-{i + 1}", line)
+    # T19 (ORW-418/419): the engine moves the player FIRST, from the player's own words, before the narrator runs. Walk somewhere the player is not.
+    here = (eng.call("getGameState").get("whereabouts") or {}).get("room")
+    dest, words = ("living-room", "I walk to the living room.") if here == "kitchen" else ("kitchen", "I walk to the kitchen.")
+    play("cross-walk", words)
+    st = eng.call("getGameState"); w = st.get("whereabouts") or {}; mv = st.get("playerMove") or {}
+    if w.get("room") != dest and isinstance(mv, dict) and mv.get("refused"):
+        check("T19-the-engine-moves-the-player-first", False, f"{words!r}: the engine refused the move ({mv.get('reason')!r}); player in {w.get('room')!r}", "warn")
+    else:
+        check("T19-the-engine-moves-the-player-first", w.get("room") == dest and (not isinstance(mv, dict) or not mv or (mv.get("from") in (None, here) and mv.get("to") in (None, dest))), f"{words!r} from {here!r}: engine has the player in {w.get('room')!r} (playerMove {mv!r})")
     st = eng.call("getGameState"); ds = st.get("daySchedule") or {}
     check("W3-hoh-next-in-the-afternoon", ds.get("next") == "hoh-competition" and ds.get("phase") == "afternoon", f"schedule next {ds.get('next')!r} at {ds.get('phase')!r} on {st.get('clockLabel')}")
     hdr = chat.page.evaluate("(() => { const s = [...document.querySelectorAll('#chat-history .role-timestamp-moment')].pop(); return s ? s.textContent : ''; })()")
@@ -244,15 +289,17 @@ def widgets(eng, check, chat, where):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
-    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=None)
+    ap.add_argument("--engine", default=None); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
     ap.add_argument("--crossover", action="store_true", help="ORW-433: after the veto morning, play on to eviction night and cross into Week 2 through the real chat bed")
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
-    a = ap.parse_args()
+    a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     if a.rescore:
         turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
-        score(turns, checks, lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail}), a.turn_limit_secs)
+        _rc = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
+        rescore_x0(turns, _rc)
+        score(turns, checks, _rc, a.turn_limit_secs)
         write(a.run_dir, turns, checks, None); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
         print("RESULT:", "FAIL" if hard else "PASS"); sys.exit(1 if hard else 0)
     from playwright.sync_api import sync_playwright
@@ -275,8 +322,10 @@ def main():
         ent = (eng.call("premiereIntros") or {}).get("entrance") or {} if st.get("phase") == "premiere" else {}
         t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"], "finalized": r.get("finalized"),
              "room_start": room_of(st0), "room_end": sorted(set(room_of(st)) | set(ent.get("arrivedNames") or [])), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
-             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
-             "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
+             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "part_before": (st0.get("daySchedule") or {}).get("finalHohPart"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
+             "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder"),
+             # T16 (ORW-376): the engine's headcounts, the player included, at the start and end of the turn (an eviction inside a reply changes the house)
+             "counts_start": (st0.get("whereabouts") or {}).get("counts"), "counts": (st.get("whereabouts") or {}).get("counts")}
         t["harness_jump"] = eng.jumps; eng.jumps = 0
         t["clock_pre_send"] = st0.get("clockLabel")  # ORW-503: the clock just before THIS message, so the runner's own moves are excused only up to here
         t["rooms_known"] = isinstance(st.get("whereabouts"), dict) and "present" in st["whereabouts"]  # ORW-503: an empty room list is only "alone" when the engine actually sent whereabouts
@@ -330,14 +379,49 @@ NAP_MSG_RE = re.compile(r"(?i)\b(?:take|taking|have|grab) (?:a |an )?(?:nap|lie[
 BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
 
 
+_NUMW = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
+_NUM = r"(\d{1,2}|" + "|".join(sorted(_NUMW, key=len, reverse=True)) + r")"
+# the whole house named outright: "N of us left / still in the house", "N houseguests remain", "all N of us"
+_HC_HOUSE_RE = re.compile(r"(?i)\b(all\s+(?:the\s+)?)?" + _NUM + r"\s+(of us|of you|houseguests|people|players)\b(?=(\s+(?:are\s+|were\s+)?(?:left(?!\s+(?:the|a|an|their|his|her|its|to|for|at|with|through|by|on|and)\b)|remain\w*|still\s+(?:here|standing|in\s+(?:the|this)\s+(?:house|game))|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)\b)?)")
+# a place right after the number is a ROOM count ("the four of us at the table"), never a house total
+_HC_PLACE_RE = re.compile(r"(?i)^\s*(?:at|around|on|by|near|in|inside|out|outside|over|crammed|squeezed|huddled|sitting|sat|left\s+(?:at|in|on|by))\b")
+_HC_WORLD_RE = re.compile(r"(?i)^\s*(?:left|remain\w*|still|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)")
+
+
+def headcount_claims(text):
+    """T16: the house-total claims in a reply as (severity, number, the words, named-the-house-outright). FAIL when the claim names the whole house ("all N of us", "N houseguests left",
+    "N of us in the house"); WARN for an unqualified "N of us" (it may be the room); nothing for a room count ("the four of us at the table"), a houseguest
+    count without a house word ("16 houseguests walked in" may be the season's cast), or any other number."""
+    out = []
+    for m in _HC_HOUSE_RE.finditer(text or ""):
+        raw, noun, house_words = m.group(2).lower(), m.group(3).lower(), m.group(4)
+        n = int(raw) if raw.isdigit() else _NUMW[raw]
+        rest = text[m.end():m.end() + 30]
+        if house_words: sev = "fail"
+        elif _HC_PLACE_RE.match(rest) and not _HC_WORLD_RE.match(rest): continue
+        elif m.group(1) and noun in ("of us", "of you", "houseguests", "people", "players"): sev = "fail"
+        elif noun in ("of us", "of you") and n >= 5: sev = "warn"  # "the two of us" / "the three of us" is a pair or a huddle, never a house total
+        else: continue
+        out.append((sev, n, m.group(0).strip() + (house_words or ""), bool(house_words or m.group(1))))  # "all N of us" names the whole house outright
+    return out
+
+
 def draw_voiced(text):
     """The reply voices the veto chip draw (the ceremony that sanctions about an hour of clock, and the C2 check)."""
     return bool(re.search(r"(?i)veto", text or "") and re.search(r"(?i)draw|chip|pull|playing for", text or ""))
 
 
+def eviction_voiced(text):
+    """The reply plays eviction-night steps (ballots read, a vote tally, the evictee's exit): the evidence the K1 ceremony allowance needs beyond the phase name (ORW-506)."""
+    t = text or ""
+    return bool(re.search(r"(?i)\bvotes?\b|ballots?|\bevict", t) and re.search(r"(?i)ballots?|tally|goodbye|walks? out|leaves the house|by a vote|evicted", t))
+
+
 def abs_hours(label):
     m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", label or "")
-    return None if not m else (int(m.group(4)) - 1) * 24 + int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+    if not m: return None
+    h = int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+    return (int(m.group(4)) - 1) * 24 + h + (24 if h < 8 else 0)  # the engine keeps the day number until the 8am wake, so 2am belongs to the night that began the evening before
 
 
 def clock_hour(label):
@@ -348,13 +432,14 @@ def clock_hour(label):
 def score(turns, checks, check, turn_limit):
     for t in turns:
         lab = t["label"]
-        if lab.endswith("-card"): continue  # a decision-card click (live_week) is not a chat turn: no bubble, no scene, by design
-        check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
-        if t.get("finalized") is False and t["settled"]: check(f"T1c-finalized[{lab}]", False, "the reply arrived but its bubble never got its footer (copy / retry actions): an unfinalized live holder", "warn")
+        is_card = lab.endswith("-card")  # a decision-card click (live_week) is not a chat turn: no bubble and no scene is REQUIRED of it, but anything it did narrate is still scored (machinery, clocks)
+        if is_card and not t["text"] and not t["new_bubbles"]: continue
+        if not is_card: check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
+        if not is_card and t.get("finalized") is False and t["settled"]: check(f"T1c-finalized[{lab}]", False, "the reply arrived but its bubble never got its footer (copy / retry actions): an unfinalized live holder", "warn")
         short_ok = lab.startswith("early-ask")  # a one-line deflection of an out-of-schedule request is legitimate; still reported
         shell = SHELL_RE.search(t["text"])
-        check(f"T2-real-scene[{lab}]", not shell and (len(t["text"]) >= 200 or short_ok), f"{len(t['text'])} chars" + (" (guard shell text)" if shell else ""))
-        if short_ok and len(t["text"]) < 200: check(f"T2b-thin-reply[{lab}]", False, f"only {len(t['text'])} chars for a player request - a thin answer, not a scene", "warn")
+        if not is_card: check(f"T2-real-scene[{lab}]", not shell and (len(t["text"]) >= 200 or short_ok), f"{len(t['text'])} chars" + (" (guard shell text)" if shell else ""))
+        if not is_card and short_ok and len(t["text"]) < 200: check(f"T2b-thin-reply[{lab}]", False, f"only {len(t['text'])} chars for a player request - a thin answer, not a scene", "warn")
         m = LEAK_RE.search(t["text"]); check(f"T3-no-machinery[{lab}]", not m, f"leak: {m.group(0)!r}" if m else "clean")
         check(f"T4-latency[{lab}]", t["secs"] <= turn_limit, f"{t['secs']}s (warn > {turn_limit}s)", "warn")
         check(f"T5-latency-hard[{lab}]", t["secs"] <= 240, f"{t['secs']}s (fail > 240s)")
@@ -369,8 +454,11 @@ def score(turns, checks, check, turn_limit):
         if cm:
             nh = int(cm.group(1)) + int(cm.group(2)) / 60
             pm_word = re.search(re.escape(cm.group(0)) + r"\s+(?:at night|in the (?:evening|afternoon)|tonight)", body, flags=re.I)  # "8:10 at night" is 8:10pm
-            nh = nh + 12 if (nh < 12 and eh >= 12 and (nh < 8 or pm_word)) else nh
-            check(f"C3-clock-claim[{lab}]", abs(nh - eh) <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
+            if pm_word:   # the reply's own words decide: "8:10 at night" is 20:10, and "12:10 at night" is just after midnight
+                nh = nh % 12 + (0 if (int(cm.group(1)) == 12 and re.search(r"at night|tonight", pm_word.group(0), flags=re.I)) else 12)
+            elif nh < 8 and eh >= 12: nh += 12
+            d_ = abs(nh - eh); d_ = min(d_, 24 - d_)
+            check(f"C3-clock-claim[{lab}]", d_ <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
     # NO SKIPPED TIME (Ryne: "It shouldn't ever skip time"): between two consecutive player turns the clock may not move more than ~1 hour unless the
     # player went to bed (a bed message) or the night reached 8am. Jumps the RUNNER made itself (night sleeps, tick-to-due, entrance advances) are tagged
     # `harness_jump` and listed separately, never blamed on the game. A competition played inside one message moves the clock by its own length: reported as a note.
@@ -388,13 +476,15 @@ def score(turns, checks, check, turn_limit):
                 # which also moves the clock by hours spent its hours inside ONE reply.
                 if gap <= 1.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: the crown's share on top of the spread rounds (a competition that spans several messages)", "note")
                 else: check(f"K2-competition-in-one-message[{t['label']}]", False, f"{t.get('phase_before')} was crowned in a single message and the clock jumped +{gap:.1f}h ({t.get('msg')!r})")
-            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5:
+            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5 and eviction_voiced(t.get("text")):
                 # ORW-347: a staged eviction night reads its ballots one per engine step (5 minutes each, up to 15 voters ~ 75 min, more when the reply also plays the goodbye steps) and a reply may play several steps. Same phase, same evening, never across a night: the scheduled ceremony playing out, not skipped time.
                 check(f"K1-clock-jump-ceremony[{t['label']}]", True, f"+{gap:.1f}h: the eviction night's ballots read inside one reply (5 min per staged step)", "note")
             elif t.get("phase_before") == t.get("phase") == "veto-competition" and gap <= 1.5 and draw_voiced(t.get("text")):
                 # ORW-281: the veto chip draw is its own morning mini ceremony and costs a ceremony's felt hours (~1h, daySchedule DURATION_CATEGORY "veto-draw": "ceremony"),
                 # so the reply that voices the draw moves the clock about an hour. Sanctioned, not skipped time.
                 check(f"K1-clock-jump-veto-draw[{t['label']}]", True, f"+{gap:.1f}h: the veto draw ceremony (ORW-281, about 1h)", "note")
+            elif t.get("phase_before") == t.get("phase") == "hoh-competition" and gap <= 4.5 and t.get("part_before") and t.get("part_before") != (t.get("ds") or {}).get("finalHohPart"):
+                check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: one part of the Final HOH played inside one message", "note")
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_
@@ -438,6 +528,14 @@ def score(turns, checks, check, turn_limit):
         ok_names = {n.lower() for n in (t.get("room_start") or []) + (t.get("room_end") or [])}
         bad = sorted({n for n in SPEAKER_RE.findall(t["text"]) if n.lower() not in ok_names and not any(n.lower() == x or n.split()[0].lower() == x.split()[0] for x in ok_names)})
         check(f"C6-speakers-in-room[{t['label']}]", not bad, f"spoke in the player's room but the engine has them elsewhere: {bad}" if bad else "every speaker is in the room")
+    # T16 (Ryne, ORW-376): a stated house total counts the player.
+    for t in turns:
+        for sev, n, said, explicit in headcount_claims(t["text"]):
+            truth = {c.get("house") for c in (t.get("counts_start"), t.get("counts")) if isinstance(c, dict) and isinstance(c.get("house"), int)}
+            if not truth: continue
+            rooms = {c.get("room") for c in (t.get("counts_start"), t.get("counts")) if isinstance(c, dict)}
+            if n in truth or (not explicit and n in rooms): continue  # "all N of us" / "N of us" said in a room of N is the room's own "all of us" (headcountLines)
+            check(f"T16-headcount-includes-the-player[{t['label']}]", False, f"reply says {said!r}; the engine has {sorted(truth)} in the house (the player included), {sorted(r for r in rooms if r is not None)} in the room", sev)
     held = [t for t in turns if t["label"].startswith("veto-morning") and t["phase"] == "veto-competition" and (t["ds"] or {}).get("due") is False]
     for t in held:
         m = COMP_PLAY_RE.search(t["text"])
@@ -448,17 +546,34 @@ def score(turns, checks, check, turn_limit):
 
 # The vault note "Live Run Pass Bar" (the Auditor's) numbers the checks; the short tier's own ids map onto it here.
 BAR_MAP = [("T1 real scene", {"T2", "T2b"}), ("T5 message answered", {"T1"}), ("T6 no machinery", {"T3"}), ("T9 time is honest", {"K1", "D1", "C3"}),
-           ("T12 every houseguest toasts", {"T12"}), ("T13 zero clocks", {"T13"}), ("run level: reaches its end", {"G1", "G2"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
+           ("T12 every houseguest toasts", {"T12"}), ("T13 zero clocks", {"T13"}), ("T16 headcounts include the player", {"T16"}),
+           ("T17 a recap every bedtime (crossover)", {"T17", "N4"}), ("T19 the engine moves the player first (crossover)", {"T19"}), ("run level: reaches its end", {"G1", "G2"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
 NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden information, T8 choices through the card, T10 invented confession: read by hand from the transcript",
                "T15 the awake list, T18 naps, T20 early sleepers wake alone: need the full week or the widget",
-               "T16 headcounts, T17 a recap every bedtime, T19 the engine moves the player first: not automated in the short tier yet",
+               "T17 and T19 run only with --crossover",
                "eviction night and the finale: the short tier stops at the Week 1 veto morning"]
 NOT_COVERED_CROSSOVER = "the finale and everything after Week 2's start: a `--crossover` run plays on through Week 1's eviction night into Week 2, no further"
 
 
-def not_covered(checks):
-    """The coverage list for THIS run: a run that drove the crossover (it left X0 checks) did cover eviction night and Week 2's start."""
-    if any(str(c.get("id", "")).startswith("X0-") for c in checks):
+def crossed_into_week_two(checks, turns=()):
+    """True when the crossover really reached Week 2: its X0 check passed, or - for a `--rescore`, which keeps only the turns - its `cross-` turns were recorded with
+    X0 holding (review of #2854: `cross-` turns are played even when X0 failed, so their labels alone prove nothing; older reports without the flag do not count)."""
+    x0 = [c for c in checks if str(c.get("id", "")).startswith("X0-")]
+    if x0:
+        return all(c.get("ok") for c in x0)
+    return any(str(t.get("label", "")).startswith("cross-") and t.get("x0_ok") is True for t in turns)
+
+
+def rescore_x0(turns, check):
+    """A `--rescore` restores the X0 verdict the crossover saved with its turns, so a run that never reached Week 2 cannot rescore as a pass."""
+    flags = [t["x0_ok"] for t in turns if str(t.get("label", "")).startswith("cross-") and "x0_ok" in t]
+    if flags:
+        check("X0-reached-eviction-night", all(flags), "from the saved crossover turns (the live check's verdict)")
+
+
+def not_covered(checks, turns=()):
+    """The coverage list for THIS run: a run whose crossover reached Week 2 did cover eviction night and Week 2's start."""
+    if crossed_into_week_two(checks, turns):
         return NOT_COVERED[:-1] + [NOT_COVERED_CROSSOVER]
     return list(NOT_COVERED)
 
@@ -486,7 +601,7 @@ def write(run_dir, turns, checks, error):
     json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
     L = [f"# Live run (short tier) - {verdict}", ""] + _header(run_dir, turns) + [f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
     L += ["## Checked against the Live Run Pass Bar", ""] + [f"- {bar}: {', '.join(sorted({c['id'].split('[')[0] for c in checks if c['id'].split('[')[0].split('-')[0] in ids})) or '-'}" for bar, ids in BAR_MAP] + [""]
-    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks)] + [""]
+    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks, turns)] + [""]
     if hard or warn:
         L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
     L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]
