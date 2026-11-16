@@ -6,7 +6,7 @@ import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer } from "../../src/engine/deepProfile";
 import { buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
 import {
-  placeFit, ANGLES, dealShotCards, dealFaceCards, shotCaps, capOf, bucketOf, propFor, momentFit, buildClassOf, FACE_MIN_DISTANCE, MOMENTS, PLACES, LIGHTS, FRAMINGS, type ShotSheet,
+  placeFit, placeText, regionOf, ANGLES, dealShotCards, dealFaceCards, shotCaps, capOf, bucketOf, propFor, momentFit, buildClassOf, FACE_MIN_DISTANCE, MOMENTS, PLACES, LIGHTS, FRAMINGS, type ShotSheet,
 } from "../../src/engine/shotCards";
 
 // ORW-480: the shot card and the face card, dealt across the cast on their own seeded stream.
@@ -17,6 +17,8 @@ const sheetsOf = (seed: number): ShotSheet[] => {
   return npcs.map((n) => ({
     id: n.id, name: n.name, age: n.character.age,
     ...(n.character.demeanor ? { demeanor: n.character.demeanor } : {}),
+    ...(n.character.hometown ? { hometown: n.character.hometown } : {}),
+    ...(n.character.biography ? { biography: n.character.biography } : {}),
     ...(n.character.castingType ? { castingRead: n.character.castingType.read, castingLabel: n.character.castingType.label } : {}),
     ...(n.character.voice ? { energy: n.character.voice.energy } : {}),
     ...(n.character.physicalCharacteristics ? { clothes: [...(n.character.physicalCharacteristics.wardrobe ?? []), n.character.physicalCharacteristics.style].join(" ; ") } : {}),
@@ -43,12 +45,15 @@ describe("ORW-480 shot cards", () => {
       expect(tally(cards.map((c) => c.placeId)), `place ${seed}`).toBeLessThanOrEqual(caps.place);
       expect(tally(cards.map((c) => c.framingId)), `framing ${seed}`).toBeLessThanOrEqual(caps.framing);
       expect(cards.filter((c) => c.framingId === "three-quarter").length, `3/4 ${seed}`).toBeLessThanOrEqual(3);
-      for (const c of cards) { expect(["close", "half", "three-quarter"]).toContain(c.framingId); expect(c.placeId).not.toMatch(/laundry|driveway|hallway/); }
+      for (const c of cards) { expect(["close", "half", "three-quarter"]).toContain(c.framingId); expect(c.placeId).not.toMatch(/laundry|driveway|hallway|gym|pool|stair|lounge/); expect(c.place).not.toMatch(/Orwell house/); }
       expect(tally(cards.map((c) => c.lightId)), `light ${seed}`).toBeLessThanOrEqual(caps.light);
       expect(cards.filter((c) => c.prop !== undefined).length, `prop ${seed}`).toBeLessThanOrEqual(caps.prop);
       expect(cards.filter((c) => c.gaze === "lens").length, `gaze ${seed}`).toBeLessThanOrEqual(caps.lensGaze);
       expect(new Set(cards.map((c) => c.momentId)).size, `moments ${seed}`).toBe(15);
       expect(cards.filter((c) => c.outdoor).length, `outdoors ${seed}`).toBeGreaterThanOrEqual(4);
+      expect(cards.filter((c) => !c.outdoor).length, `indoors ${seed}`).toBeGreaterThanOrEqual(3);
+      expect(cards.filter((c) => c.placeKind === "work-adjacent").length, `work ${seed}`).toBeLessThanOrEqual(capOf("place-work", 15));
+      for (const kind of ["home-interior", "home-exterior", "town", "nature"]) expect(cards.filter((c) => c.placeKind === kind).length, `${kind} ${seed}`).toBeLessThanOrEqual(capOf("place-kind", 15));
       expect(new Set(cards.map((c) => c.placeId)).size, `places ${seed}`).toBeGreaterThanOrEqual(6);
       expect(cards.filter((c) => /stride|crouch|hiding/.test(c.moment)).length >= 0).toBe(true);
     }
@@ -77,22 +82,29 @@ describe("ORW-480 shot cards", () => {
     expect(FRAMINGS.map((f) => `${f.id}:${f.lens}`)).toEqual(["close:an 85mm lens", "half:a 50mm lens", "three-quarter:a 35mm lens"]);
   });
 
-  it("the place fits the person and their clothes: the gym is for athletes and not in a blazer; a cook may take the kitchen", () => {
-    const gym = PLACES.find((p) => p.id === "gym")!, kitchen = PLACES.find((p) => p.id === "kitchen")!, lounge = PLACES.find((p) => p.id === "lounge")!;
-    const elena: ShotSheet = { id: "e", age: 42, castingLabel: "the underdog", vocation: "restaurant supply sales rep", clothes: "brown tweed blazer, green sweater vest ; classic", heightBuild: "average" };
-    const jock: ShotSheet = { id: "j", age: 25, castingLabel: "the jock", vocation: "firefighter paramedic", clothes: "cream sweater, trousers" };
-    const lifter: ShotSheet = { id: "l", age: 25, castingLabel: "the charmer", vocation: "strength coach", clothes: "waxed canvas chore jacket ; workwear" };
-    expect(placeFit(gym, elena)).toBeUndefined();
-    expect(placeFit(gym, lifter)).toBeDefined();
-    expect(placeFit(gym, { ...lifter, clothes: "tailored blazer" })).toBeUndefined();
-    expect(placeFit(kitchen, { id: "c", age: 30, vocation: "line cook" })!.score).toBeGreaterThan(placeFit(kitchen, { id: "c", age: 30, vocation: "accountant" })!.score);
-    expect(placeFit(lounge, { id: "b", age: 30, castingLabel: "the brain", vocation: "librarian" })!.score).toBeGreaterThan(0);
-    void jock;
+  it("the place is from the person's ordinary day, looks like where they live, and the job does not define the photo", () => {
+    const by = (id: string) => PLACES.find((p) => p.id === id)!;
+    const hiker: ShotSheet = { id: "h", age: 21, castingLabel: "the rebel", vocation: "hospice night nurse", hometown: "Grand Junction, Colorado", biography: "Off the clock she hikes Colorado mesa trails alone." };
+    expect(placeFit(by("trail"), hiker)!.score).toBeGreaterThan(placeFit(by("diner-booth"), hiker)!.score);
+    expect(placeFit(by("trail"), hiker)!.why).toMatch(/hik/);
+    expect(placeFit(by("trail"), hiker)!.why).toMatch(/hometown Grand Junction, Colorado \(mountain-west\)/);
+    // a job word does not send a nurse to a hospital, a cook to a kitchen line or a firefighter to a station: no such place exists
+    expect(PLACES.map((p) => p.id).join(",")).not.toMatch(/hospital|station|restaurant-kitchen|clinic/);
+    const cook: ShotSheet = { id: "c", age: 36, vocation: "line cook", hometown: "Sidney, Nebraska", biography: "She grew up eating at the family table and the town diner." };
+    expect(placeFit(by("family-table"), cook)!.score).toBeGreaterThan(0);
+    expect(placeFit(by("work-plaza"), { id: "x", age: 30 })).toBeUndefined();   // no job, nothing near work
+    // the setting looks like where they live
+    expect(placeText(by("front-porch"), "Starkville, Mississippi")).toMatch(/Starkville, Mississippi, live oaks, humid green/);
+    expect(placeText(by("main-street"), "Sidney, Nebraska")).toMatch(/Sidney, Nebraska.*flat farmland, a grain elevator/);
+    expect(placeText(by("back-yard"), "Los Angeles, California")).toMatch(/palms, stucco/);
+    expect(placeText(by("home-kitchen"), undefined)).toMatch(/their home town/);
+    expect(regionOf("Atlanta, Georgia")).toBe("southeast");
     for (const seed of SEEDS) {
       const sheets = sheetsOf(seed);
       for (const [id, c] of dealShotCards(sheets)) {
-        const sh = sheets.find((x) => x.id === id)!;
-        expect(placeFit(PLACES.find((p) => p.id === c.placeId)!, sh), `${seed} ${id} ${c.placeId}`).toBeDefined();
+        expect(placeFit(PLACES.find((p) => p.id === c.placeId)!, sheets.find((x) => x.id === id)!), `${seed} ${id} ${c.placeId}`).toBeDefined();
+        expect(c.why).toMatch(/place \S+ \(/);
+        if (c.placeKind === "work-adjacent") expect(c.place).toMatch(/own everyday clothes/);
       }
     }
   });

@@ -16,7 +16,7 @@ const cast = cards.map((c) => ({
   ...(c.physicalCharacteristics ? { physicalCharacteristics: c.physicalCharacteristics } : {}),
   ...(c.ethnicity ? { ethnicity: c.ethnicity } : {}), ...(c.genderPresentation ? { genderPresentation: c.genderPresentation } : {}),
   ...(c.demeanor ? { demeanor: c.demeanor } : {}), ...(c.identityConcept ? { identityConcept: c.identityConcept } : {}),
-  ...(c.vocation ? { vocation: c.vocation } : {}), ...(c.castingType ? { castingType: c.castingType } : {}),
+  ...(c.vocation ? { vocation: c.vocation } : {}), ...(c.hometown ? { hometown: c.hometown } : {}), ...(c.biography ? { biography: c.biography } : {}), ...(c.castingType ? { castingType: c.castingType } : {}),
   ...(c.voice ? { voiceEnergy: typeof c.voice === "string" ? c.voice : (c.voice.energy ?? "") } : {}),
 }));
 const all = buildCastPortraitPrompts(cast, "anchor");

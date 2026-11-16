@@ -7229,6 +7229,9 @@ export class GameSessionAdapter implements GameSession {
       // ORW-480: the public casting read and the voice's energy dial (both on the public card).
       ...(h.character.castingType !== undefined ? { castingType: { label: h.character.castingType.label, read: h.character.castingType.read } } : {}),
       ...(h.character.voice?.energy !== undefined ? { voiceEnergy: h.character.voice.energy } : {}),
+      // ORW-480: the public hometown and biography: the place is somewhere from the person's ordinary day.
+      ...(h.character.hometown !== undefined ? { hometown: h.character.hometown } : {}),
+      ...(h.character.biography !== undefined ? { biography: h.character.biography } : {}),
     };
   }
 

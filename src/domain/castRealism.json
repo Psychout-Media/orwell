@@ -903,7 +903,7 @@
     "min": 3
    },
    "dealt": true,
-   "note": "ORW-480 photo: where the photo is taken (rooms of the house and outdoors); dealt by src/engine/shotCards.ts, no spot on more than 3 of 15"
+   "note": "ORW-480 photo: where the photo is taken: somewhere from the person's ordinary day (their home, their town, a place they spend time), looking like where they live; no spot on more than 3 of 15"
   },
   "framing": {
    "field": "shotCard",
@@ -934,6 +934,26 @@
    },
    "dealt": true,
    "note": "ORW-480 photo: any one face-structure value (shape, nose, eyes, brows, jaw, mouth) on at most 3 of 15; quirks never repeat; any two faces differ on 4 of 7 axes"
+  },
+  "place-kind": {
+   "field": "shotCard",
+   "multi": false,
+   "cap": {
+    "share": 0.34,
+    "min": 3
+   },
+   "dealt": true,
+   "note": "ORW-480 photo: the kind of place (home interior, home exterior, town, outdoors/nature); none on more than 5 of 15"
+  },
+  "place-work": {
+   "field": "shotCard",
+   "multi": false,
+   "cap": {
+    "share": 0.2,
+    "min": 3
+   },
+   "dealt": true,
+   "note": "ORW-480 photo: at or near the person's work (never in uniform or work gear): at most 3 of 15; the job does not define the photo"
   }
  },
  "unreal-clothes": {

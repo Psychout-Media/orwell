@@ -14,7 +14,7 @@ import { dealPortraitPlans, dealFaceCards, MOMENTS, shotCaps } from "../src/engi
 
 interface Card {
   id: string; name: string; age: number; presentation: string; vocation?: string; demeanor?: string; identityConcept?: string;
-  ethnicity?: string; genderPresentation?: "man" | "woman" | "nonbinary"; castingType?: { label?: string; read?: string };
+  hometown?: string; biography?: string; ethnicity?: string; genderPresentation?: "man" | "woman" | "nonbinary"; castingType?: { label?: string; read?: string };
   voice?: string | { energy?: string }; physicalCharacteristics?: never; appearance?: string;
 }
 const [cardsPath, oldPath] = process.argv.slice(2);
@@ -29,7 +29,7 @@ const cast = cards.map((c) => ({
   ...(c.physicalCharacteristics ? { physicalCharacteristics: c.physicalCharacteristics } : {}),
   ...(c.ethnicity ? { ethnicity: c.ethnicity } : {}), ...(c.genderPresentation ? { genderPresentation: c.genderPresentation } : {}),
   ...(c.demeanor ? { demeanor: c.demeanor } : {}), ...(c.identityConcept ? { identityConcept: c.identityConcept } : {}),
-  ...(c.vocation ? { vocation: c.vocation } : {}), ...(c.castingType ? { castingType: c.castingType } : {}),
+  ...(c.vocation ? { vocation: c.vocation } : {}), ...(c.hometown ? { hometown: c.hometown } : {}), ...(c.biography ? { biography: c.biography } : {}), ...(c.castingType ? { castingType: c.castingType } : {}),
   ...(c.voice ? { voiceEnergy: typeof c.voice === "string" ? c.voice : (c.voice.energy ?? "") } : {}),
 }));
 const fresh = buildCastPortraitPrompts(cast, "anchor");
@@ -62,6 +62,7 @@ const oldGaze = oldP.map((p) => (/(?:into|down|at) the (?:lens|camera)|eyes (?:f
 const sh = [...plans.values()].map((x) => x.shot);
 log("\n==== COUNTS (before -> after) over", cards.length, "cards ====");
 log("places  OLD:", tally(oldPlace), "\n        NEW:", tally(sh.map((s) => s.placeId)));
+log("kinds  NEW:", tally(sh.map((s) => s.placeKind)));
 log("framing OLD:", tally(oldFraming), "\n        NEW:", tally(sh.map((s) => s.framingId)));
 log("light   OLD:", tally(oldLight), "\n        NEW:", tally(sh.map((s) => s.lightId)));
 log("props   OLD:", tally(oldProp), "\n        NEW:", tally(sh.map((s) => s.prop ?? "none")));
@@ -100,6 +101,7 @@ const caps = shotCaps(cards.length);
 const cnt = (xs: string[], x: string): number => xs.filter((y) => y === x).length;
 const placesAll = [...plans.values()].map((p) => p.shot.placeId), lightsAll = [...plans.values()].map((p) => p.shot.lightId);
 const rows: string[] = [];
+const placeKindsAll = [...plans.values()].map((p) => p.shot.placeKind);
 const CHECK = [
   "R1 official cast photo by the production's photographer: the person knows and is presented well (not paparazzi, not surveillance)",
   "R2 the face is large and clear: close-up / half-length / three-quarter only, face size stated, clear in a square crop",
@@ -109,6 +111,8 @@ const CHECK = [
   "R6 a distinct face: differs from every other card on >= 4 of 8 face axes",
   "R7 no repeated props, no work props, nothing held unless the sheet gives a reason",
   "R8 consistent set: framing, place and moment agree (no body pose in a close-up, nothing held with both hands busy)",
+  "R9 pre-season cast photo on location: the place is from the person's own ordinary day (home, town, a place they spend time), looks like their region, and the reason is traced to their sheet (hometown, biography, type)",
+  "R10 the job does not define the photo: at most 3 of 15 near work, none in uniform or work gear, no work props",
 ];
 let allOk = true;
 for (const c of cards) {
@@ -116,7 +120,7 @@ for (const c of cards) {
   const m = MOMENTS.find((x) => x.id === sh.momentId)!;
   const dist = Math.min(...[...faces].filter(([id]) => id !== c.id).map(([, g]) => AX.filter((a) => g[a] !== f[a]).length));
   const r = [
-    /official cast photo/.test(pr) && /presented well/.test(pr) && !/hid|crouch|sneak|whisper|creep/.test(sh.moment),
+    /official (?:pre-season )?cast photo/.test(pr) && /presented well/.test(pr) && !/hid|crouch|sneak|whisper|creep/.test(sh.moment),
     ["close", "half", "three-quarter"].includes(sh.framingId) && /face/.test(sh.framing) && /square crop/.test(pr),
     /type|read|demeanor/.test(sh.why) && !/^no line/.test(sh.why),
     /Natural skin texture/.test(pr) && /groomed/.test(pr) && !/fine lines|creased|no retouching|flash|tilted, caught|tilted angle/.test(pr) && /ordinary real garments/.test(pr) && /readable/.test(pr),
@@ -124,6 +128,8 @@ for (const c of cards) {
     dist >= 4,
     (sh.prop === undefined || /paperback|coffee cup|guitar|camera/.test(sh.prop)) && !/clipboard|glove|keys|dish towel|pencil|mug/.test(pr),
     !(sh.framingId === "close" && m.body === true) && !(sh.prop !== undefined && m.hands === true),
+    /place \S+ \(/.test(sh.why) && /hometown/.test(sh.why) && /pre-season cast photo/.test(pr) && /where the person lives/.test(pr) && (c.hometown ? pr.includes(c.hometown.trim()) : true),
+    placeKindsAll.filter((x) => x === "work-adjacent").length <= 3 && !/\b(?:scrubs|turnout gear|apron|badge|lanyard|uniform|hard hat|stethoscope)\b/i.test(pr.replace("never a uniform, scrubs, apron, badge or work gear", "")),
   ];
   if (r.includes(false)) allOk = false;
   rows.push(`${c.id} ${c.name.padEnd(24)} ${r.map((x, i) => `R${i + 1}:${x ? "ok" : "NO"}`).join(" ")}  (${sh.framingId}, ${sh.placeId}, ${sh.lightId}, ${sh.momentId}, face distance ${dist})`);
@@ -132,5 +138,6 @@ console.log("==== CHECKLIST (Kevin 2026-11-15) ====");
 for (const x of CHECK) console.log(x);
 console.log("\nMarked per prompt (automatic checks on the built prompt and its cards; R3 and R1's tone still need Kevin's eye on the photo):");
 for (const x of rows) console.log(x);
+console.log("Note: an R10 NO means the CARD's own wardrobe or style names a badge, lanyard or uniform (the text builder owns that: the photo builder only passes it through).");
 console.log(allOk ? "ALL 15 PASS R1-R8\n" : "SOME FAIL\n");
 console.log(out.join("\n"));

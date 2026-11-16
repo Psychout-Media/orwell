@@ -72,7 +72,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     for (const pp of view.portraitPrompts!) {
       expect(pp.houseguestId).toBeTruthy();
       expect(pp.name).toBeTruthy();
-      expect(pp.prompt).toContain("An official cast photo for a reality show");
+      expect(pp.prompt).toContain("An official pre-season cast photo for a reality show");
     }
     // The player is NOT in the cast portrait set.
     expect(view.portraitPrompts!.some((p) => p.houseguestId === PLAYER)).toBe(false);
@@ -101,7 +101,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     expect(got).not.toBeNull();
     expect(got!.houseguestId).toBe(someNpc.id);
     expect(got!.name).toBe(someNpc.name);
-    expect(got!.prompt).toContain("An official cast photo for a reality show");
+    expect(got!.prompt).toContain("An official pre-season cast photo for a reality show");
 
     expect(adapter.getPortraitPrompt("npc:does-not-exist" as EntityId)).toBeNull();
   });
@@ -120,7 +120,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     const before = adapter.getPortraitPrompt(npc.id as EntityId);
     expect(before).not.toBeNull();
     expect(before!.houseguestId).toBe(npc.id);
-    expect(before!.prompt).toContain("An official cast photo for a reality show");
+    expect(before!.prompt).toContain("An official pre-season cast photo for a reality show");
     // A pre-game authoring write-back MUTATES the warm store — the served prompt must reflect the
     // store AS IT STANDS (the per-NPC authored shoot fetches at shoot time, never a stale snapshot).
     adapter.recordCastProfile({
@@ -265,13 +265,16 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   const legacy = buildPortraitPrompt(ID, "Fixture One", base, anchor).prompt;
 
   it("full photo sheet: the sentences in order, the old studio recipe gone", () => {
-    const order = ["An official cast photo for a reality show, made by the production's unit photographer", "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks their age, crisp and youthful.",
+    const order = ["An official pre-season cast photo for a reality show, made by the production's unit photographer", "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks his age, well-kept.",
       "Face: ", "Hair: short dark curls, shaped and neat.", "A tattoo half-sleeve on the left forearm, dimples.", "Wearing a faded grey hoodie, dark jeans.",
       "Setting: ", "Light: ", "The moment: ", "Keep the stated age and build exactly: the person reads as that age", "The only person in the frame; no text or logos."];
     let at = -1;
     for (const o of order) { const i = full.indexOf(o); expect(i, o).toBeGreaterThan(at); at = i; }
     expect(full).not.toMatch(/Waist-up|softly out of focus|shallow depth|soft flattering|Official cast portrait|camera-ready/);
     expect(full).toMatch(/unit photographer/);
+    expect(full).toMatch(/where the person lives, on an ordinary day of their own life/);
+    expect(full).toMatch(/never a uniform, scrubs, apron, badge or work gear/);
+    expect(full).not.toMatch(/laugh lines|distinguished|forties ease|crisp and youthful/);
     expect(full).toMatch(/Natural skin texture, not plastic and not airbrushed/);
     expect(full).toMatch(/reads as that age and looks their best on the day, groomed, with hair and makeup done for the shoot/);
     expect(full).not.toMatch(/fine lines|creased|no retouching|visible pores|flash|tilted/);
@@ -341,18 +344,18 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     for (const w of ["weathered and sun-creased", "a worn look", "tired around the eyes", "haggard", "a lived-in face"]) {
       const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: w } }, anchor).prompt;
       expect(p).not.toContain(w);
-      expect(p).toContain("tall and lean.");
+      expect(p).toContain("tall and lean, looks his age, well-kept.");   // the card's ageing text is never sent: the age is exact and the look is "well-kept"
     }
   });
 
-  it("every built prompt is free of the banned words and is at most 300 words", () => {
+  it("every built prompt is free of the banned words and is at most 320 words", () => {
     // ORW-480 on purpose: "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (Kevin then wanted a polished look);
     // Kevin's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
     const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|unretouched|blemishes|tired|\brough\b|Big Brother/i;
     const hairy = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired and weathered" } }, anchor).prompt;
     for (const p of [full, none, legacy, hairy]) {
       expect(p).not.toMatch(BANNED);
-      expect(p.split(/\s+/).length).toBeLessThanOrEqual(300);
+      expect(p.split(/\s+/).length).toBeLessThanOrEqual(320);
     }
     for (const a of STYLE_ANCHOR_VARIANTS) expect(a).not.toMatch(BANNED);
   });

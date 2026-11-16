@@ -14,9 +14,9 @@ C = importlib.import_module("src.orwell_portrait_check")
 t362 = importlib.import_module("test_orw362_gpt_image_route")
 
 NEW_PROMPT = (
-    "An official cast photo for a reality show, made by the production's unit photographer, taken during the season: half-length, framed at the waist, at eye level, "
+    "An official pre-season cast photo for a reality show, made by the production's unit photographer, on location: half-length, framed at the waist, at eye level, "
     "on a 35mm lens. The subject is a 31-year-old multiracial man with warm skin. Face: an oval face, a straight nose. "
-    "Hair: dark curls, neatly styled. Wearing black button-down, fitted jeans. Setting: the backyard, lawn and fence behind. "
+    "Hair: dark curls, neatly styled. Wearing black button-down, fitted jeans. Setting: the back yard of the person's home in Sidney, Nebraska, a fence and trees behind. "
     "Light: low golden-hour sun. The moment: caught mid-laugh at something off-camera, head tipped back. "
     "The only person in the frame; no text or logos.")
 
@@ -27,7 +27,7 @@ def _run(c):
 
 def test_a_candid_brief_is_read_for_its_facts_and_asks_the_realism_codes():
     f = C.facts_from_prompt(NEW_PROMPT)
-    assert f["candid"] is True and f["age"] == 31 and f["gender"] == "man" and f["spot"] == "the backyard"
+    assert f["candid"] is True and f["age"] == 31 and f["gender"] == "man" and f["spot"] == "the back yard of the person's home in Sidney"
     assert not f.get("eyes_on_camera")                       # the moment looks off-camera: eyes-off must not be judged
     lens = C.facts_from_prompt(NEW_PROMPT.replace("caught mid-laugh at something off-camera", "arms wide, looking into the lens"))
     assert lens["eyes_on_camera"] is True

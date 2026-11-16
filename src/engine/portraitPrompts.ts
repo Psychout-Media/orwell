@@ -63,6 +63,9 @@ export interface PublicAppearanceFacets {
   /** ORW-480: the casting type (label and read) and the voice's energy line: the PUBLIC sheet reads the shot card's moment comes from. */
   castingType?: { label?: string; read?: string };
   voiceEnergy?: string;
+  /** ORW-480: the PUBLIC hometown ("City, State") and biography: the place is somewhere from the person's ordinary day, looking like where they live. */
+  hometown?: string;
+  biography?: string;
 }
 
 /**
@@ -160,8 +163,9 @@ export function signatureMarkClause(mark: string | undefined): string {
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }
 
-const SHOT_OPENER = "An official cast photo for a reality show, made by the production's unit photographer during the season: "
-  + "the person knows they are being photographed and is presented well, and it is a real photograph, not a stock headshot or a snapshot";
+const SHOT_OPENER = "An official pre-season cast photo for a reality show, made by the production's unit photographer on location, where the person "
+  + "lives, on an ordinary day of their own life: the person knows they are being photographed and is presented well, "
+  + "and it is a real photograph, not a stock headshot or a snapshot";
 /**
  * The shared closing asks (ORW-480). They replace the old studio recipe (shallow depth of field, "softly out of focus behind"):
  * a production's cast photo: the person reads as their stated age, groomed and at their best, natural (not plastic) skin, a readable
@@ -169,7 +173,7 @@ const SHOT_OPENER = "An official cast photo for a reality show, made by the prod
  */
 const REAL_PHOTO_TAIL =
   "Keep the stated age and build exactly: the person reads as that age and looks their best on the day, groomed, with hair and makeup done for the shoot, "
-  + "flattering but real. Natural skin texture, not plastic and not airbrushed. The face stays large, sharp and clear, also in a square crop. "
+  + "flattering but real, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear. Natural skin texture, not plastic and not airbrushed. The face stays large, sharp and clear, also in a square crop. "
   + "The place behind stays readable but is never the subject. Natural hands "
   + "with five fingers, ordinary real garments with proper seams and fit, nothing held beyond what is stated. "
   + "The only person in the frame; no text or logos.";
@@ -207,9 +211,9 @@ export function buildPortraitPrompt(
   let withClause: string;
   let faceLine = "";
   if (look) {
-    const ageLook = clean(look.ageLook);
     const bits = [look.skinTone, look.heightBuild].map((x) => stripWornWords(clean(x))).filter((x) => x !== "");
-    if (ageLook !== "" && !AGE_LOOK_BLOCK_RE.test(ageLook)) bits.push(ageLook);
+    // ORW-480: the age is exact in the sentence; no ageing descriptor (laugh lines, "distinguished", "forties ease") reaches the image model
+    bits.push(`looks ${genderPresentation === "man" ? "his" : genderPresentation === "woman" ? "her" : "their"} age, well-kept`);
     withClause = bits.length > 0 ? ` with ${bits.join(", ")}` : "";
     faceLine = faceSentence(face);
   } else {
@@ -261,6 +265,8 @@ function sheetOf(id: string, name: string, f: PublicAppearanceFacets): ShotSheet
     ...(f.castingType?.label !== undefined ? { castingLabel: f.castingType.label } : {}),
     ...(f.voiceEnergy !== undefined ? { energy: f.voiceEnergy } : {}),
     ...(f.vocation !== undefined ? { vocation: f.vocation } : {}),
+    ...(f.hometown !== undefined ? { hometown: f.hometown } : {}),
+    ...(f.biography !== undefined ? { biography: f.biography } : {}),
     ...(f.identityConcept !== undefined ? { identityConcept: f.identityConcept } : {}),
     ...(look?.facialFeatures !== undefined ? { facialFeatures: look.facialFeatures } : {}),
     ...(look?.heightBuild !== undefined ? { heightBuild: look.heightBuild } : {}),
@@ -280,6 +286,8 @@ export function castSheetOf(hg: CastEntry): ShotSheet {
     ...(hg.vocation !== undefined ? { vocation: hg.vocation } : {}),
     ...(hg.castingType !== undefined ? { castingType: hg.castingType } : {}),
     ...(hg.voiceEnergy !== undefined ? { voiceEnergy: hg.voiceEnergy } : {}),
+    ...(hg.hometown !== undefined ? { hometown: hg.hometown } : {}),
+    ...(hg.biography !== undefined ? { biography: hg.biography } : {}),
   });
 }
 
@@ -305,6 +313,8 @@ export function buildCastPortraitPrompts(
     vocation?: string;
     castingType?: { label?: string; read?: string };
     voiceEnergy?: string;
+    hometown?: string;
+    biography?: string;
   }>,
   styleAnchor: string,
 ): PortraitPromptResult[] {
@@ -328,6 +338,8 @@ export function buildCastPortraitPrompts(
           ...(hg.vocation !== undefined ? { vocation: hg.vocation } : {}),
           ...(hg.castingType !== undefined ? { castingType: hg.castingType } : {}),
           ...(hg.voiceEnergy !== undefined ? { voiceEnergy: hg.voiceEnergy } : {}),
+          ...(hg.hometown !== undefined ? { hometown: hg.hometown } : {}),
+          ...(hg.biography !== undefined ? { biography: hg.biography } : {}),
         },
         styleAnchor,
         plans.get(hg.id),
