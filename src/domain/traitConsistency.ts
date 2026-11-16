@@ -73,10 +73,45 @@ export const CASTING_TYPE_FIT: Readonly<Record<string, TypeFit>> = {
   "gentle-giant": F(["peacemaker", "loyalist", "underdog", "comp-beast", "floater", "analyst"], ["loud", "hard"], ["aggressive"]),
   "competitor": F(["comp-beast", "hothead", "villain", "wildcard", "mastermind", "analyst", "loyalist"]),
   "natural": F(ALL_ARCH),
+  // ORW-467: the wider run of types. Same rule: the archetype must be listed, no forbidden temper, no forbidden style.
+  "villain": F(["villain", "mastermind", "hothead", "comp-beast", "wildcard", "flirt", "analyst"], ["warm"]),
+  "floater": F(["floater", "peacemaker", "underdog", "loyalist", "social-butterfly", "analyst"], [], ["aggressive"]),
+  "superfan": F(["social-butterfly", "underdog", "floater", "flirt", "loyalist", "wildcard"], ["quiet", "hard"]),
+  "showmance-seeker": F(["flirt", "social-butterfly", "underdog", "loyalist", "floater", "wildcard"], ["hard"]),
+  "schemer": F(["mastermind", "villain", "analyst", "social-butterfly", "flirt", "wildcard"], ["loud"]),
+  "hothead": F(["hothead", "comp-beast", "villain", "wildcard", "underdog", "loyalist"], ["quiet", "warm"]),
+  "wallflower": F(["underdog", "floater", "analyst", "peacemaker", "loyalist"], ["loud", "hard"], ["aggressive"]),
+  "comp-beast": F(["comp-beast", "hothead", "villain", "wildcard", "loyalist", "mastermind"], ["quiet"]),
+  "old-school-player": F(["mastermind", "analyst", "villain", "loyalist", "comp-beast", "floater"], ["loud"]),
+  "influencer": F(["social-butterfly", "flirt", "wildcard", "villain", "floater", "underdog"], ["quiet"]),
+  "country-kid": F(["loyalist", "peacemaker", "underdog", "floater", "comp-beast", "social-butterfly"], ["hard"], ["aggressive"]),
+  "know-it-all": F(["analyst", "mastermind", "comp-beast", "hothead", "villain", "wildcard"], ["quiet"]),
+  "bombshell": F(["flirt", "social-butterfly", "villain", "wildcard", "floater", "comp-beast"]),
+  "queen-bee": F(["villain", "social-butterfly", "flirt", "mastermind", "hothead", "wildcard"], ["quiet"]),
+  "heartbreaker": F(["flirt", "villain", "social-butterfly", "wildcard", "mastermind", "floater"], ["hard"]),
+  "good-sport": F(["loyalist", "peacemaker", "social-butterfly", "floater", "comp-beast", "underdog"], ["hard"], ["aggressive"]),
+  "cool-relative": F(["social-butterfly", "floater", "wildcard", "peacemaker", "flirt", "loyalist"], ["hard"], ["aggressive"]),
+  "drama-magnet": F(["hothead", "wildcard", "villain", "flirt", "social-butterfly", "underdog"], ["quiet"]),
+  "tough-nut": F(["comp-beast", "hothead", "villain", "loyalist", "wildcard", "underdog"], ["warm", "loud"]),
+  "puzzle-head": F(["analyst", "underdog", "floater", "mastermind", "peacemaker", "loyalist"], ["loud"]),
+  "hopeless-romantic": F(["flirt", "loyalist", "underdog", "social-butterfly", "peacemaker", "floater"], ["hard"], ["aggressive"]),
+  "trash-talker": F(["hothead", "villain", "comp-beast", "wildcard", "social-butterfly", "flirt"], ["quiet"]),
+  "cheerleader": F(["social-butterfly", "loyalist", "peacemaker", "floater", "underdog", "flirt"], ["hard", "quiet"], ["aggressive"]),
+  "sleeper": F(["mastermind", "comp-beast", "analyst", "underdog", "floater", "villain"], ["loud"]),
+  "gym-rat": F(["comp-beast", "flirt", "hothead", "social-butterfly", "wildcard", "loyalist"], ["quiet"]),
+  "sophisticate": F(["mastermind", "flirt", "villain", "social-butterfly", "analyst", "peacemaker"], ["loud"]),
+  "sidekick": F(["loyalist", "floater", "underdog", "social-butterfly", "peacemaker"], ["hard"]),
+  "loose-cannon": F(["wildcard", "hothead", "villain", "underdog", "comp-beast"], ["quiet"]),
+  "grinder": F(["comp-beast", "loyalist", "underdog", "analyst", "peacemaker", "floater"]),
+  "fan-favorite": F(["social-butterfly", "underdog", "loyalist", "peacemaker", "floater", "flirt"], ["hard"]),
+  "enigma": F(["mastermind", "analyst", "wildcard", "villain", "underdog", "floater"], ["loud"]),
+  "baby-of-the-house": F(["underdog", "floater", "social-butterfly", "flirt", "peacemaker", "wildcard"], ["hard"]),
+  "elder-statesperson": F(["peacemaker", "mastermind", "analyst", "loyalist", "floater", "villain"], ["loud"]),
+  "loudmouth": F(["hothead", "social-butterfly", "wildcard", "villain", "comp-beast", "flirt"], ["quiet"]),
 };
 
 /** What a houseguest presents, for the fit test. Any field may be absent (then it cannot conflict). */
-export interface FitTraits { archetype?: string; strategyStyle?: string; demeanor?: string }
+export interface FitTraits { archetype?: string; strategyStyle?: string; demeanor?: string; genderPresentation?: "man" | "woman" | "nonbinary" }
 
 /** How many of the three tests (archetype, demeanor temper, strategy style) a type fails for these traits. */
 export function castingConflict(typeId: string, t: FitTraits): number {
@@ -197,8 +232,17 @@ export interface CardTraits {
   voice?: string;
 }
 
-/** Gender-neutral labels (review of #2666) whose id kept its old name, so a saved card's id and seeded deals do not move. */
-const LABEL_TO_ID: Readonly<Record<string, string>> = { "showstopper": "diva", "distinguished-one": "silver-fox" };
+/** Labels whose slug is not their type's id (earlier neutral labels, gendered variants), so a card's label reads back to its type. */
+const LABEL_TO_ID: Readonly<Record<string, string>> = {
+  // ORW-466/467: the neutral labels of the earlier change (a season saved with one keeps it), and every label a type wears whose slug is not its id.
+  "showstopper": "diva", "distinguished-one": "silver-fox", "silver-vixen": "silver-fox",
+  "mom-of-the-house": "parent-of-the-house", "dad-of-the-house": "parent-of-the-house",
+  "country-girl": "country-kid", "country-boy": "country-kid",
+  "stunner": "bombshell", "hunk": "bombshell", "ringleader": "queen-bee", "top-dog": "queen-bee",
+  "girls-girl": "good-sport", "guys-guy": "good-sport",
+  "cool-aunt": "cool-relative", "cool-uncle": "cool-relative",
+  "grande-dame": "elder-statesperson", "elder-statesman": "elder-statesperson",
+};
 
 const idOfLabel = (label: string): string | undefined => {
   const norm = label.trim().toLowerCase().replace(/^the\s+/, "").replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "");
