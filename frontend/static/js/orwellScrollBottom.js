@@ -252,7 +252,13 @@
     try { _lastMsgCount = box.querySelectorAll(".msg").length; } catch (_) { _lastMsgCount = 0; }
     // ORW-157: the `.msg` recount is O(messages); do it once per animation frame, not on every streamed token.
     var _wnPending = false;
+    var _wnRaf = 0, _wnTimer = 0;
     var _wnRun = function () {
+      // Cancel whichever of the pair has not fired (as frameBatched does): a leftover 120 ms timer would otherwise flush the
+      // NEXT batch between frames (review of #2261).
+      if (_wnRaf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(_wnRaf);
+      if (_wnTimer) clearTimeout(_wnTimer);
+      _wnRaf = 0; _wnTimer = 0;
       if (!_wnPending) return;
       _wnPending = false;
       var count;
@@ -267,8 +273,8 @@
     var mo = new MutationObserver(function () {
       if (_wnPending) return;
       _wnPending = true;
-      if (typeof requestAnimationFrame === "function") requestAnimationFrame(_wnRun);
-      setTimeout(_wnRun, 120);
+      if (typeof requestAnimationFrame === "function") _wnRaf = requestAnimationFrame(_wnRun);
+      _wnTimer = setTimeout(_wnRun, 120);
     });
     mo.observe(box, { childList: true, subtree: true });
   }

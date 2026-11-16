@@ -2857,16 +2857,35 @@ window.orwellShellStale = function (shell, live, store, now) {
     .then(function (d) {
       if (timer) clearTimeout(timer);
       // Never yank a page out from under the player: skip when they have typed something or a reply is streaming.
-      var box = document.getElementById('message');
-      if ((box && box.value) || document.querySelector('.send-btn[data-mode="streaming"]')) return;
-      if (!window.orwellShellStale(shell, d && d.build, window.sessionStorage)) return;
+      var busy = function () {
+        var box = document.getElementById('message');
+        return !!((box && box.value) || document.querySelector('.send-btn[data-mode="streaming"]'));
+      };
+      if (busy()) return;
+      var store = window.sessionStorage, saved = null;
+      try { saved = [store.getItem('orwell-shell-reload'), store.getItem('orwell-shell-reload-log')]; } catch (e) { saved = null; }
+      if (!window.orwellShellStale(shell, d && d.build, store)) return;
       var purge = window.caches && caches.keys
         ? caches.keys().then(function (ks) {
             return Promise.all(ks.filter(function (k) { return k.indexOf('orwell-') === 0; })
               .map(function (k) { return caches.open(k).then(function (c) { return c.delete('/'); }); }));
           })
         : Promise.resolve();
-      purge.catch(function () {}).then(function () { window.location.reload(); });
+      purge.catch(function () {}).then(function () {
+        // The player may have started typing or a reply while the cache calls ran: check again right before reloading, and give the
+        // reload guard back when we do not reload (it is only spent on a real reload; review of #2237).
+        if (busy()) {
+          try {
+            if (saved) {
+              [['orwell-shell-reload', saved[0]], ['orwell-shell-reload-log', saved[1]]].forEach(function (kv) {
+                if (kv[1] === null) store.removeItem(kv[0]); else store.setItem(kv[0], kv[1]);
+              });
+            }
+          } catch (e) { /* storage blocked: the guard simply stays spent */ }
+          return;
+        }
+        window.location.reload();
+      });
     })
     .catch(function () {});
 })();

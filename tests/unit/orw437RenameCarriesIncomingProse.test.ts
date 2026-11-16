@@ -17,7 +17,9 @@ describe("ORW-437 recordCastProfile: the incoming story follows the rename", () 
     expect(res.accepted).toBe(true);
     const out = s.snapshot().prewarm!.npcs[0]!.character.identityConcept!;
     expect(out).toContain(longGiven);
-    expect(Array.from(out).length).toBeLessThanOrEqual(300);
+    // the renamed story is longer than the cap (each of the six names grew), so the clip lands exactly on 300 code points: a smaller cap would fail here (review of #2794)
+    expect(oldGiven.length).toBeLessThan(longGiven.length);
+    expect(Array.from(out).length).toBe(300);
   });
   it("renames at the name field and the biography and identity that arrive with the old given name use the new one", () => {
     const s = new GameSessionAdapter();
