@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { buildCastPortraitPrompts, castSheetOf } from "../src/engine/portraitPrompts";
 import { dealPortraitPlans, dealFaceCards, shotCaps, PORTRAIT_FORMAT } from "../src/engine/shotCards";
-import { POSTURES } from "../src/engine/performance";
+import { POSTURES, gestureFamily } from "../src/engine/performance";
 
 interface Card {
   id: string; name: string; age: number; presentation: string; vocation?: string; demeanor?: string; identityConcept?: string;
@@ -163,6 +163,12 @@ for (const d of cardDefects) console.log("  " + d);
 console.log("Note: an R10 NO means the CARD's own wardrobe or style names a badge, lanyard or uniform (the text builder owns that: the photo builder only passes it through).");
 console.log(allOk ? "ALL 15 PASS R1-R8\n" : "SOME FAIL\n");
 {
+  const exs = [...plans.values()].map((p) => p.shot.momentId.split("+")[0]!);
+  const hs = [...plans.values()].map((p) => p.shot.hands).filter((h) => h !== "");
+  const fams = [...plans.values()].flatMap((p) => [p.shot.posture, p.shot.hands].map((t) => gestureFamily(t))).filter((f): f is string => f !== undefined);
+  const over = (xs: string[], max: number): string => [...new Set(xs)].filter((x) => xs.filter((y) => y === x).length > max).map((x) => `${x} x${xs.filter((y) => y === x).length}`).join("; ") || "none";
+  console.log(`Repeats over 1 per cast: expressions: ${over(exs, 1)} | hands: ${over(hs, 1)} | gesture families: ${over(fams, 1)} | places over 2: ${over(placesAll, 2)} | postures over 1: ${over([...plans.values()].map((p) => p.shot.momentId.split("+")[1]!), 1)}`);
+  console.log(`Eyes shut: ${[...plans.values()].filter((p) => /eyes (?:squeezed|crinkled nearly) shut|shut/.test(p.shot.moment)).length} cards`);
   const stripped = [...plans.values()].map((p, i) => p.shot.place.replace(new RegExp((cards[i]!.hometown ?? "@@").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "TOWN"));
   console.log(`Setting sentences with the town removed: ${new Set(stripped).size} distinct of ${stripped.length} (two prompts with the same one would be the same place AND region)`);
   console.log("Stage directions (read each as an instruction to a person being photographed):");

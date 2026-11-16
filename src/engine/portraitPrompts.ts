@@ -183,9 +183,12 @@ const TAIL: Record<RealismVariant, string> = {
 /** Words from the cards that push a glossy, catalogue look: never passed on (the person is ordinary, not polished). */
 /** A clothing item that is work gear or a badge is never passed on (a lanyard, scrubs, an apron: the job does not define the photo). */
 const WORK_GEAR_RE = /\b(?:lanyard|badge|name ?tag|scrubs|uniform|apron|stethoscope|hard hat|turnout|high-vis)\b/i;
+/** Accessories follow the place: never sunglasses (the eyes must show); hats, scarves, gloves and heavy outerwear only outdoors. */
+const ALWAYS_OUT_RE = /\b(?:sunglasses|shades|goggles)\b/i;
+const INDOOR_OUT_RE = /\b(?:hat|cap|beanie|fedora|visor|bonnet|scarf|gloves?|coat|parka|puffer|trench|anorak|poncho|windbreaker)\b/i;
 const GLOSS_WORD_RE = /\b(?:glossy|sleek|polished|immaculate|pristine|flawless|perfect|perfectly|stunning|gorgeous|glamorous|glam|camera-ready|airbrushed|designer|sharp|neat|neatly|crisp)\b/gi;
 export function stripGlossWords(t: string): string {
-  return stripWornWords(t.replace(GLOSS_WORD_RE, "").replace(/[\s,]+(?:and|or)\s*(?=[,;.]|$)/gi, "").replace(/^\s*(?:and|or)\s+/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").replace(/\s{2,}/g, " ").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ").replace(/^[\s,;]+|[\s,;]+$/g, "").trim());
+  return stripWornWords(t.replace(GLOSS_WORD_RE, "").replace(/[\s,]+(?:and|or)\s*(?=[,;.]|$)/gi, "").replace(/^\s*(?:and|or)\s+/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").replace(/\s{2,}/g, " ").replace(/\b(?:a|an|the)\s*(?=[,;.])/gi, "").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ").replace(/^[\s,;]+|[\s,;]+$/g, "").trim());
 }
 
 /**
@@ -245,7 +248,7 @@ export function buildPortraitPrompt(
 
   // Clothes: what the card says they wear (as worn).
   const wardrobe = Array.isArray(look?.wardrobe)
-    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripGlossWords(w.trim())).filter((w) => w !== "" && !WORK_GEAR_RE.test(w))
+    ? look!.wardrobe!.filter((w): w is string => typeof w === "string").map((w) => stripGlossWords(w.trim())).filter((w) => w !== "" && !WORK_GEAR_RE.test(w) && !ALWAYS_OUT_RE.test(w) && (shot.outdoor || !INDOOR_OUT_RE.test(w)))
     : [];
   const styleText = stripGlossWords(clean(look?.style) !== "" ? clean(look?.style) : facets.presentation.trim());
   const clothesLine = wardrobe.length > 0 ? sentence(`Wearing ${wardrobe.join(", ")}, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear`)

@@ -4,11 +4,11 @@ import { readFileSync } from "node:fs";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer } from "../../src/engine/deepProfile";
-import { buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
+import { buildCastPortraitPrompts, buildPortraitPrompt } from "../../src/engine/portraitPrompts";
 import {
-  placeFit, placeText, regionOf, dealShotCards, dealFaceCards, shotCaps, capOf, propFor, buildClassOf, FACE_MIN_DISTANCE, PLACES, LIGHTS, PORTRAIT_FORMAT, type ShotSheet,
+  dealPortraitPlans, placeFit, placeText, regionOf, dealShotCards, dealFaceCards, shotCaps, capOf, propFor, buildClassOf, FACE_MIN_DISTANCE, PLACES, LIGHTS, PORTRAIT_FORMAT, type ShotSheet,
 } from "../../src/engine/shotCards";
-import { POSTURES, EXPRESSIONS, TRAITS, traitScores, perfCaps, dealPerformances, type PerfSheet } from "../../src/engine/performance";
+import { POSTURES, EXPRESSIONS, TRAITS, gestureFamily, traitScores, perfCaps, dealPerformances, type PerfSheet } from "../../src/engine/performance";
 
 // ORW-480: the shot card and the face card, dealt across the cast on their own seeded stream.
 
@@ -30,8 +30,8 @@ const sheetsOf = (seed: number): ShotSheet[] => {
 const tally = (xs: string[]): number => Math.max(0, ...[...new Set(xs)].map((x) => xs.filter((y) => y === x).length));
 
 describe("ORW-480 the caps come from the shared casting-director table", () => {
-  it("a cast of 15: place 3, light 4, prop 2, face value 3; closed half-smile 3, at least 4 not smiling", () => {
-    expect(shotCaps(15)).toMatchObject({ place: 3, light: 4, prop: 2, faceValue: 3 });
+  it("a cast of 15: place 2, light 4, prop 2, face value 3; closed half-smile 3, at least 4 not smiling", () => {
+    expect(shotCaps(15)).toMatchObject({ place: 2, light: 4, prop: 2, faceValue: 3 });
     expect(capOf("prop", 15)).toBe(2);
     expect(perfCaps(15, 9)).toMatchObject({ closedHalf: 3, minNonSmiling: 4, perExpression: 2, perPosture: 2 });
   });
@@ -142,6 +142,45 @@ describe("ORW-480 shot cards", () => {
     }
   });
 
+  it("no gesture, expression or hands entry is repeated across a cast where the tables are big enough; no eyes shut; nothing seated low", () => {
+    const ps = [...EXPRESSIONS, ...POSTURES.map((p) => ({ text: p.text }))];
+    for (const e of ps) expect(e.text).not.toMatch(/eyes (?:squeezed|crinkled nearly) shut|eyes closed|squeezed shut/);
+    for (const seed of SEEDS) {
+      const cards = [...dealShotCards(sheetsOf(seed)).values()];
+      const count = (xs: string[]): number => tally(xs);
+      expect(count(cards.map((c) => c.momentId.split("+")[0]!)), `expression ${seed}`).toBeLessThanOrEqual(2);
+      expect(count(cards.map((c) => c.hands).filter((h) => h !== "")), `hands ${seed}`).toBeLessThanOrEqual(2);
+      const fam = (t: string): string | undefined => gestureFamily(t);
+      for (const f of ["arms-crossed", "hand-to-head", "open-palm", "hips"]) {
+        const n = cards.filter((c) => fam(c.posture) === f || fam(c.hands) === f).length;
+        expect(n, `${f} ${seed}`).toBeLessThanOrEqual(2);
+      }
+      for (const c of cards) { expect(c.hands).not.toMatch(/palm up|open and relaxed|back of the neck/); expect(c.moment).not.toMatch(/(?:seated|perched|sitting|sprawled)[^;]*\b(?:dock|steps|stoop|bleachers|log|ground)\b|cross-legged/); }
+      // on most casts every expression is used once
+      expect(new Set(cards.map((c) => c.momentId.split("+")[0])).size, `distinct expressions ${seed}`).toBeGreaterThanOrEqual(11);
+    }
+    // the low places do not seat anyone: the seated head stays at the standing height
+    for (const id of ["lakeside", "front-porch", "stoop", "ball-field", "trail"]) expect(PLACES.find((p) => p.id === id)!.seat, id).toBeUndefined();
+    expect(PLACES.find((p) => p.id === "lakeside")!.perch).toBeUndefined();
+    expect(gestureFamily("arms crossed, leaning back against the fence")).toBe("arms-crossed");
+    expect(gestureFamily("one hand lightly touching the hair")).toBe("hand-to-head");
+    expect(gestureFamily("turned toward someone off-camera, mid-sentence, one hand open")).toBe("open-palm");
+  });
+
+  it("accessories follow the place: no hat, scarf or coat indoors, never sunglasses; outdoors a hat stays", () => {
+    const sheet = sheetsOf(5)[0]!;
+    const plan = dealPortraitPlans([sheet]).get(sheet.id)!;
+    const facets = { appearance: "card", age: 40, presentation: "plain", hometown: "Sidney, Nebraska",
+      physicalCharacteristics: { heightBuild: "average", skinTone: "fair", hair: "short hair", facialFeatures: "x", distinguishingMark: "none notable", ageLook: "x", style: "plain",
+        wardrobe: ["a woven straw sun hat", "oatmeal linen shirt", "tinted sunglasses", "a wool coat"] } };
+    const inside = buildPortraitPrompt(sheet.id, "N", facets, "x", { ...plan, shot: { ...plan.shot, outdoor: false } }).prompt;
+    const outside = buildPortraitPrompt(sheet.id, "N", facets, "x", { ...plan, shot: { ...plan.shot, outdoor: true } }).prompt;
+    expect(inside).not.toMatch(/sun hat|wool coat|sunglasses/);
+    expect(inside).toMatch(/Wearing oatmeal linen shirt/);
+    expect(outside).toMatch(/sun hat/); expect(outside).toMatch(/wool coat/);
+    expect(outside).not.toMatch(/sunglasses/);
+  });
+
   it("a prop only when the sheet gives a reason", () => {
     expect(propFor({ id: "a", age: 30, vocation: "line cook" })).toBeUndefined();            // no work props in cast photos
     expect(propFor({ id: "a", age: 30, vocation: "strength coach" })).toBeUndefined();
@@ -168,7 +207,12 @@ describe("ORW-480 shot cards", () => {
     // the setting looks like where they live
     expect(placeText(by("front-porch"), "Starkville, Mississippi")).toMatch(/Starkville, Mississippi, .*(?:live oaks and humid green|tin roofs and a gravel lane|a pecan tree and cicadas)/);
     expect(placeText(by("main-street"), "Sidney, Nebraska")).toMatch(/Sidney, Nebraska.*(?:flat farmland and a grain elevator|a huge sky and a gravel road|a water tower|wind-bent cottonwoods)/);
-    expect(placeText(by("back-yard"), "Los Angeles, California")).toMatch(/palms and stucco|hazy hillside|bougainvillea/);
+    // when the state rule does not fit the town the regional phrase is left out, never guessed
+    for (const town of ["Cedar Key, Florida", "Los Angeles, California", "Kapaʻa, Hawaii", "Houston, Texas", "Asheville, North Carolina", "Biloxi, Mississippi", "Seattle, Washington"]) {
+      expect(regionOf(town), town).toBeUndefined();
+      expect(placeText(by("back-yard"), town), town).not.toMatch(/pines|red clay|magnolia|palms|stucco|live oaks|grain elevator|firs|, $/);
+    }
+    expect(placeText(by("back-yard"), "Cedar Key, Florida")).toMatch(/^the back yard of the person's home in Cedar Key, Florida, [^,]+$/);
     expect(placeText(by("home-kitchen"), undefined)).toMatch(/their home town/);
     expect(regionOf("Atlanta, Georgia")).toBe("southeast");
     for (const seed of SEEDS) {

@@ -35,10 +35,9 @@ interface Expression { id: string; text: string; smiles: boolean; closedHalf?: b
  * stare, a shy look away. No performed or stock expressions (no snarls, bared teeth, mugging, comic disbelief).
  */
 export const EXPRESSIONS: readonly Expression[] = [
-  { id: "open-laugh", smiles: true, gaze: "off", text: "a big real laugh, eyes crinkled nearly shut, looking off to one side at someone" },
+  { id: "open-laugh", smiles: true, gaze: "off", text: "a big real laugh, eyes crinkled but open, looking off to one side at someone" },
   { id: "wide-grin", smiles: true, gaze: "lens", text: "a broad, genuine grin, bright eyes, looking straight into the lens" },
   { id: "lopsided-grin", smiles: true, gaze: "lens", text: "a cheeky lopsided grin, one cheek high, looking into the lens" },
-  { id: "squint-laugh", smiles: true, gaze: "down", text: "laughing hard, eyes squeezed shut, looking down and away" },
   { id: "confident-half-grin", smiles: true, closedHalf: true, gaze: "lens", text: "a tight, confident half-grin, chin slightly down, eyes steady on the lens" },
   { id: "warm-smile", smiles: true, gaze: "lens", text: "a warm, easy smile with crinkled eyes and relaxed brows, looking into the lens" },
   { id: "soft-smile-away", smiles: true, gaze: "off", text: "a soft smile, eyes just past the lens, relaxed" },
@@ -58,6 +57,22 @@ export const EXPRESSIONS: readonly Expression[] = [
   { id: "poised-away", smiles: false, gaze: "off", text: "a serene look off to one side, chin lifted, mouth neutral" },
   { id: "focus-off", smiles: false, gaze: "off", text: "eyes on something off to the side, jaw set, mouth firm" },
   { id: "chin-up-cool", smiles: false, gaze: "lens", text: "chin lifted, a cool level gaze, mouth neutral" },
+  { id: "laugh-down", smiles: true, gaze: "down", text: "laughing, looking down and to the side, eyes open" },
+  { id: "grin-aside", smiles: true, gaze: "off", text: "a big grin, turned toward someone off-camera" },
+  { id: "teasing-grin", smiles: true, gaze: "lens", text: "a teasing grin, head tilted, looking into the lens" },
+  { id: "easy-grin", smiles: true, gaze: "lens", text: "an easy, relaxed grin, eyes on the lens" },
+  { id: "amused", smiles: true, closedHalf: true, gaze: "lens", text: "a barely held-back smile, lips pressed, amused eyes on the lens" },
+  { id: "wry", smiles: true, closedHalf: true, gaze: "lens", text: "a dry, wry half-smile, one brow slightly raised" },
+  { id: "kind-smile", smiles: true, gaze: "lens", text: "a kind, gentle smile, head slightly tilted, eyes on the lens" },
+  { id: "bright-smile", smiles: true, gaze: "lens", text: "a bright, open smile, eyes on the lens" },
+  { id: "nervous-smile", smiles: true, gaze: "off", text: "a small nervous smile, eyes flicking away" },
+  { id: "small-private-smile", smiles: true, closedHalf: true, gaze: "down", text: "eyes lowered, a small private smile" },
+  { id: "steady-gaze", smiles: false, gaze: "lens", text: "a steady, level gaze, brows slightly lowered, mouth firm" },
+  { id: "chin-down-stare", smiles: false, gaze: "lens", text: "chin down, eyes up and steady on the lens, mouth firm" },
+  { id: "side-glance", smiles: false, gaze: "off", text: "a glance off to the side, jaw tight, lips pressed" },
+  { id: "patient", smiles: false, gaze: "lens", text: "a patient, attentive look, lips together, eyes on the lens" },
+  { id: "curious", smiles: false, gaze: "lens", text: "a curious look, head tilted, lips slightly parted" },
+  { id: "distant", smiles: false, gaze: "off", text: "a distant, preoccupied look to one side" },
 ];
 
 type Needs = "any" | "perch" | "lean" | "seat" | "table";
@@ -81,9 +96,12 @@ export const POSTURES: readonly Posture[] = [
   { id: "relaxed-cross", needs: "seat", fixedHands: false, text: "seated {seat}, shoulders loose, one leg crossed over the other" },
   { id: "pockets", needs: "any", fixedHands: true, text: "standing loose, thumbs hooked in the pockets, weight on one leg" },
   { id: "fidget", needs: "any", fixedHands: true, text: "standing upright, shoulders a little drawn in, one hand holding the other forearm" },
-  { id: "talking", needs: "any", fixedHands: false, text: "turned toward someone off-camera, caught mid-conversation" },
+  { id: "talking", needs: "any", fixedHands: true, text: "turned toward someone off-camera, mid-sentence, one hand open" },
   { id: "hand-chest", needs: "any", fixedHands: true, text: "one hand pressed to the chest, head tilted" },
   { id: "hair-touch", needs: "any", fixedHands: true, text: "upright, one hand lightly touching the hair" },
+  { id: "clasped-low", needs: "any", fixedHands: true, text: "standing relaxed, hands clasped low in front" },
+  { id: "weight-one-leg", needs: "any", fixedHands: true, text: "standing with the weight on one leg, arms loose at the sides" },
+  { id: "one-pocket", needs: "any", fixedHands: true, text: "standing easy, one hand in a pocket, the other at the side" },
   { id: "hand-on-surface", needs: "lean", fixedHands: true, text: "leaning lightly on {lean}, one hand resting on it" },
   { id: "arms-crossed-lean", needs: "lean", fixedHands: true, text: "arms crossed, leaning back against {lean}" },
 ];
@@ -92,72 +110,72 @@ const T: Record<TraitId, TraitDef> = {
   loud: {
     labels: ["life of the party", "loudmouth", "superfan", "cheerleader", "class clown", "sidekick", "good sport", "country kid", "cool relative", "showstopper"],
     words: /\b(?:loud\w*|big laugh|animated|boisterous|shout\w*|bubbly|exuberant|goofy|wide grin|manic|talkative|lit up|chatty|bouncy|explosive|unfiltered)\b/i,
-    expressions: ["open-laugh", "wide-grin", "squint-laugh", "lopsided-grin"],
-    postures: ["lean-in-table", "talking", "perched", "relaxed-seat", "slight-lean"],
-    hands: ["one hand open mid-sentence, the other resting", "both hands open as if mid-sentence"],
+    expressions: ["open-laugh", "wide-grin", "lopsided-grin", "grin-aside", "laugh-down", "easy-grin", "teasing-grin"],
+    postures: ["lean-in-table", "talking", "perched", "relaxed-seat", "slight-lean", "weight-one-leg"],
+    hands: ["hands loosely folded in front", "one hand resting on the other wrist", "fingers hooked in a pocket", "one hand in a pocket, the other relaxed at the side", "thumbs hooked in the belt loops"],
   },
   sly: {
     labels: ["schemer", "villain", "mastermind in plain sight", "old school player", "enigma"],
     words: /\b(?:sly|scheming|calculat\w*|knowing|smirk\w*|unreadable|gives nothing away|plan|private smile|flicker)\b/i,
-    expressions: ["sly-side", "smirk", "brow-raise", "closed-half"],
-    postures: ["turned-shoulder", "shoulder-lean", "arms-crossed-lean", "pockets", "arms-folded-tight"],
-    hands: ["one hand resting loosely on the other wrist", "fingers hooked in a pocket"],
+    expressions: ["sly-side", "smirk", "brow-raise", "wry", "closed-half", "side-glance", "amused"],
+    postures: ["turned-shoulder", "shoulder-lean", "arms-crossed-lean", "pockets", "arms-folded-tight", "one-pocket"],
+    hands: ["one hand resting loosely on the other wrist", "fingers hooked in a pocket", "fingers loosely laced", "hands resting flat and still"],
   },
   shy: {
     labels: ["wallflower", "underdog", "baby of the house", "showmance seeker", "puzzle head"],
     words: /\b(?:shy|hopeful|tentative|earnest|timid|gentle|sweet|eager|awkward|drawn in)\b/i,
-    expressions: ["shy-down", "shy-smile", "thoughtful-away", "serious-calm"],
-    postures: ["fidget", "seated-upright", "hand-chest", "turned-shoulder", "hair-touch"],
-    hands: ["one hand holding the other wrist", "one hand holding the opposite forearm"],
+    expressions: ["shy-down", "shy-smile", "thoughtful-away", "nervous-smile", "small-private-smile", "serious-calm", "kind-smile"],
+    postures: ["fidget", "seated-upright", "hand-chest", "turned-shoulder", "clasped-low", "hair-touch"],
+    hands: ["one hand holding the other wrist", "one hand holding the opposite forearm", "fingers loosely laced", "hands loosely folded in front"],
   },
   intense: {
     labels: ["competitor", "comp beast", "grinder", "hothead", "gym rat", "jock"],
     words: /\b(?:focused|set jaw|intense|ready|competitive|fierce|determined|locked|blunt|coiled|athletic|ready stance|tight jaw)\b/i,
-    expressions: ["hard-stare", "confident-half-grin", "focus-off", "flat-stare", "serious-calm"],
-    postures: ["slight-lean", "hands-on-hips", "hand-on-surface", "lean-in-table", "arms-folded-tight", "arms-crossed-lean", "upright", "seated-upright"],
-    hands: ["hands resting still and relaxed", "fingers laced and still"],
+    expressions: ["hard-stare", "confident-half-grin", "focus-off", "flat-stare", "steady-gaze", "chin-down-stare", "side-glance", "serious-calm"],
+    postures: ["slight-lean", "hands-on-hips", "hand-on-surface", "lean-in-table", "arms-folded-tight", "arms-crossed-lean", "upright", "seated-upright", "weight-one-leg"],
+    hands: ["hands resting still and relaxed", "fingers loosely laced", "arms relaxed at the sides", "one hand resting on the other wrist"],
   },
   warm: {
     labels: ["sweetheart", "natural", "parent of the house", "gentle giant", "fan favorite"],
     words: /\b(?:warm|kind|soft|open|gentle|patient|easy|unforced|steady|calm|relaxed|folksy)\b/i,
-    expressions: ["warm-smile", "soft-smile-away", "closed-half", "serious-calm"],
-    postures: ["relaxed-seat", "shoulder-lean", "hand-on-surface", "relaxed-cross", "pockets", "hand-chest", "hair-touch", "perched"],
-    hands: ["one hand open and relaxed, palm up", "hands loosely folded"],
+    expressions: ["warm-smile", "kind-smile", "soft-smile-away", "bright-smile", "easy-grin", "patient", "closed-half"],
+    postures: ["relaxed-seat", "shoulder-lean", "hand-on-surface", "relaxed-cross", "pockets", "hand-chest", "clasped-low", "perched", "one-pocket"],
+    hands: ["hands loosely folded in front", "one hand resting on the other wrist", "fingers hooked in a pocket", "hands resting flat and still"],
   },
   guarded: {
     labels: ["tough nut", "quiet storm", "brain", "straight shooter", "rebel", "sleeper", "wise head"],
     words: /\b(?:guarded|wary|watchful|reserved|still|composed|measured|clipped|dry|deadpan|cool|stare|observant|private|surgical|unbothered|level)\b/i,
-    expressions: ["flat-stare", "brow-raise", "serious-calm", "closed-half", "thoughtful-away"],
-    postures: ["arms-folded-tight", "shoulder-lean", "arms-crossed-lean", "seated-upright", "relaxed-cross", "upright"],
-    hands: ["one hand rubbing the back of the neck", "hands resting flat and still"],
+    expressions: ["flat-stare", "brow-raise", "serious-calm", "closed-half", "thoughtful-away", "curious", "distant", "chin-down-stare", "patient"],
+    postures: ["arms-folded-tight", "shoulder-lean", "arms-crossed-lean", "seated-upright", "relaxed-cross", "upright", "weight-one-leg", "one-pocket"],
+    hands: ["hands resting flat and still", "one hand resting on the other wrist", "fingers hooked in a pocket", "hands loosely folded in front"],
   },
   cocky: {
     labels: ["trash talker", "influencer", "queen bee", "know it all", "diva", "bombshell", "hustler", "charmer", "firecracker"],
     words: /\b(?:cocky|smug|chin (?:up|lifted|jutted)|polished|practiced|confident|salesman|posed|owns|forward-leaning|assured|sharp)\b/i,
-    expressions: ["smirk", "smug", "cool-away", "chin-up-cool", "brow-raise"],
-    postures: ["hands-on-hips", "upright", "arms-crossed-lean", "relaxed-seat", "turned-shoulder", "shoulder-lean"],
-    hands: ["one hand resting in a pocket", "one hand loosely on the hip"],
+    expressions: ["smirk", "smug", "cool-away", "chin-up-cool", "brow-raise", "wry", "teasing-grin"],
+    postures: ["hands-on-hips", "upright", "arms-crossed-lean", "relaxed-seat", "turned-shoulder", "shoulder-lean", "one-pocket"],
+    hands: ["one hand resting in a pocket", "thumbs hooked in the belt loops", "one hand in a pocket, the other relaxed at the side"],
   },
   dreamy: {
     labels: ["dreamer", "free spirit", "hopeless romantic", "floater"],
     words: /\b(?:dreamy|drifting|sunny|loose|soft gaze|hopeful|far-off|wandering|unfocused)\b/i,
-    expressions: ["dreamy-smile", "thoughtful-away", "soft-smile-away", "warm-smile"],
-    postures: ["relaxed-cross", "shoulder-lean", "hair-touch", "hand-chest", "pockets"],
-    hands: ["one hand twirling a strand of hair", "fingers trailing idly"],
+    expressions: ["dreamy-smile", "thoughtful-away", "soft-smile-away", "warm-smile", "distant", "small-private-smile"],
+    postures: ["relaxed-cross", "shoulder-lean", "hair-touch", "hand-chest", "pockets", "clasped-low", "weight-one-leg"],
+    hands: ["fingers trailing idly at the side", "hands loosely folded in front", "one hand resting on the other wrist", "fingers hooked in a pocket"],
   },
   playful: {
     labels: ["flirt", "wildcard", "loose cannon", "heartbreaker", "drama magnet"],
     words: /\b(?:playful|flirt\w*|mischief|spark|restless|lopsided|teasing|head tilt|twitchy|unpredictable|wired)\b/i,
-    expressions: ["lopsided-grin", "smirk", "squint-laugh", "brow-raise", "wide-grin"],
-    postures: ["hair-touch", "shoulder-lean", "turned-shoulder", "lean-in-table", "talking", "perched", "relaxed-seat"],
-    hands: ["one hand in a pocket, the other loosely open", "hands loosely clasped in front, a restless shift"],
+    expressions: ["lopsided-grin", "smirk", "teasing-grin", "grin-aside", "laugh-down", "brow-raise", "wide-grin", "curious"],
+    postures: ["hair-touch", "shoulder-lean", "turned-shoulder", "lean-in-table", "talking", "perched", "relaxed-seat", "one-pocket"],
+    hands: ["one hand in a pocket, the other relaxed at the side", "hands loosely clasped in front", "fingers hooked in a pocket", "thumbs hooked in the belt loops"],
   },
   poised: {
     labels: ["sophisticate", "elder statesperson", "silver fox"],
     words: /\b(?:poised|regal|distinguished|upright|serene|gracious|elegant|formal)\b/i,
-    expressions: ["closed-half", "chin-up-cool", "poised-away", "serious-calm", "warm-smile"],
-    postures: ["upright", "turned-shoulder", "arms-crossed-lean", "shoulder-lean", "hand-chest"],
-    hands: ["hands clasped lightly at the waist", "one hand resting on the opposite wrist"],
+    expressions: ["closed-half", "chin-up-cool", "poised-away", "serious-calm", "warm-smile", "patient", "wry"],
+    postures: ["upright", "turned-shoulder", "arms-crossed-lean", "shoulder-lean", "hand-chest", "clasped-low"],
+    hands: ["hands clasped lightly at the waist", "one hand resting on the opposite wrist", "hands loosely folded in front"],
   },
 };
 
@@ -194,16 +212,34 @@ const poss = (g: PerfSheet["genderPresentation"]): string => (g === "man" ? "his
 const count = (m: Map<string, number>, k: string): number => m.get(k) ?? 0;
 const bump = (m: Map<string, number>, k: string): void => { m.set(k, count(m, k) + 1); };
 
-export interface PerfCaps { lensGaze: number; closedHalf: number; minNonSmiling: number; perExpression: number; perPosture: number }
-/** The caps for a cast of `n`: closed half-smile on at most 3 of 15, at least 4 of 15 not smiling, any one expression or posture on at most 2. */
+export interface PerfCaps { lensGaze: number; closedHalf: number; minNonSmiling: number; perExpression: number; perPosture: number; softEach: number }
+/**
+ * The caps for a cast of `n`: closed half-smile on at most 3 of 15, at least 4 of 15 not smiling; any one expression, posture, hands entry or
+ * gesture family (arms crossed, hand to the hair or neck, hands on hips, open palm ...) on ONE person while the table is big enough (`softEach`),
+ * on at most 2 when it is not (`perExpression`, `perPosture`).
+ */
 export function perfCaps(n: number, lensGaze: number): PerfCaps {
   const k = Math.max(1, Math.ceil(n / 15));
-  return { lensGaze, closedHalf: 3 * k, minNonSmiling: Math.min(4 * k, Math.floor(n / 3)), perExpression: 2 * k, perPosture: 2 * k };
+  return { lensGaze, closedHalf: 3 * k, minNonSmiling: Math.min(4 * k, Math.floor(n / 3)), perExpression: 2 * k, perPosture: 2 * k, softEach: k };
+}
+
+/** A gesture family: the same kind of gesture counts once however it is worded. */
+export function gestureFamily(text: string): string | undefined {
+  if (/arms (?:folded|crossed)/i.test(text)) return "arms-crossed";
+  if (/(?:back of the neck|the hair)\b/i.test(text)) return "hand-to-head";
+  if (/(?:both hands|hand) on the hips?|hand on the hip/i.test(text)) return "hips";
+  if (/hand open|palms? (?:up|open)|hands open/i.test(text)) return "open-palm";
+  if (/pockets?\b/i.test(text)) return "pockets";
+  if (/holding the (?:other|opposite)/i.test(text)) return "hold-arm";
+  if (/pressed to the chest/i.test(text)) return "hand-chest";
+  if (/hands clasped|hands loosely (?:folded|clasped)|fingers (?:loosely )?laced/i.test(text)) return "clasped";
+  return undefined;
 }
 
 /**
- * Deal a performance to every sheet. `order` is the seeded order; `flags` the place each person is in; `rnd` the seeded stream.
+ * Deal a performance to every sheet. `flags` is the place each person is in; `rnd` the seeded stream.
  * The strongest traits are placed first so a loud type gets the loud expression and posture, then the caps and the non-smiling minimum are kept.
+ * An entry nobody has used yet is preferred; a repeat is allowed only when the person's own table has nothing unused.
  */
 export function dealPerformances(
   sheets: readonly PerfSheet[], flags: ReadonlyMap<string, PlaceFlags>, rnd: () => number, caps: PerfCaps,
@@ -220,34 +256,46 @@ export function dealPerformances(
     return { s, trait: chosen.trait, score: chosen.score, why: chosen.why, tie: rnd() };
   }).sort((a, b) => b.score - a.score || a.tie - b.tie);
 
-  const exUsed = new Map<string, number>(), poUsed = new Map<string, number>();
+  const exUsed = new Map<string, number>(), poUsed = new Map<string, number>(), handUsed = new Map<string, number>(), famUsed = new Map<string, number>();
   let closedHalf = 0, lens = 0;
-  const out = new Map<string, { trait: TraitId; ex: Expression; po: Posture; score: number; why: string[]; s: PerfSheet }>();
+  const out = new Map<string, { trait: TraitId; ex: Expression; po: Posture; hands: string; score: number; why: string[]; s: PerfSheet }>();
   const exOkSoft = (e: Expression): boolean => count(exUsed, e.id) < caps.perExpression && !(e.closedHalf && closedHalf >= caps.closedHalf);
   const exOk = (e: Expression): boolean => exOkSoft(e) && !(e.gaze === "lens" && lens >= caps.lensGaze);
-  const poOk = (p: Posture, s: PerfSheet): boolean => {
+  const compat = (p: Posture, s: PerfSheet): boolean => {
     const f = flags.get(s.id) ?? {};
-    if (p.needs !== "any" && f[p.needs] === undefined) return false;
-    if (s.prop !== undefined && p.fixedHands) return false;                // a held thing leaves a hand free
-    return count(poUsed, p.id) < caps.perPosture;
+    return (p.needs === "any" || f[p.needs] !== undefined) && !(s.prop !== undefined && p.fixedHands);
   };
+  /** The first `soft` pass takes an entry used by nobody (and, for gestures, a family used by nobody); the second allows the hard cap. */
+  const choose = <X>(xs: readonly X[], uses: (x: X) => number, hard: number): X | undefined => {
+    for (const lim of [caps.softEach, hard]) { const ok = xs.filter((x) => uses(x) < lim); if (ok.length > 0) return pick(ok.slice(0, 3)); }
+    return undefined;
+  };
+  const famOf = (t: string): number => { const f = gestureFamily(t); return f === undefined ? 0 : count(famUsed, f); };
   for (const x of info) {
     const def = T[x.trait];
     // the person's own bank first (the eyes-on-the-lens cap is soft here and enforced afterwards by moving the weakest matches), then any expression within the other caps
     const own = def.expressions.map((id) => byEx.get(id)!);
-    const exs = own.filter(exOk).length > 0 ? own.filter(exOk) : own.filter(exOkSoft);
-    const cand = exs.length > 0 ? exs.slice(0, 2) : EXPRESSIONS.filter(exOk);
-    const ex = cand.length > 0 ? pick(cand) : EXPRESSIONS[0]!;
-    const compat = (p: Posture): boolean => {
-      const f = flags.get(x.s.id) ?? {};
-      return (p.needs === "any" || f[p.needs] !== undefined) && !(x.s.prop !== undefined && p.fixedHands);
-    };
-    const pos = def.postures.map((id) => byPo.get(id)!).filter((p) => poOk(p, x.s));
-    const po = pos.length > 0 ? pick(pos.slice(0, 3)) : pick(POSTURES.filter((p) => poOk(p, x.s)).length > 0 ? POSTURES.filter((p) => poOk(p, x.s)) : POSTURES.filter(compat));
+    const bank = own.filter(exOk).length > 0 ? own.filter(exOk) : own.filter(exOkSoft);
+    const ex = (bank.length > 0 ? choose(bank, (e) => count(exUsed, e.id), caps.perExpression) : undefined)
+      ?? choose(EXPRESSIONS.filter(exOk), (e) => count(exUsed, e.id), caps.perExpression) ?? EXPRESSIONS[0]!;
+    const bankP = def.postures.map((id) => byPo.get(id)!).filter((p) => compat(p, x.s) && count(poUsed, p.id) < caps.perPosture);
+    const rest = POSTURES.filter((p) => compat(p, x.s) && count(poUsed, p.id) < caps.perPosture);
+    const uses = (p: Posture): number => Math.max(count(poUsed, p.id), famOf(p.text));
+    const po = (bankP.length > 0 ? choose(bankP, uses, caps.perPosture) : undefined) ?? choose(rest, uses, caps.perPosture) ?? pick(POSTURES.filter((p) => compat(p, x.s)));
+    // the hands: a held prop, or what the posture says, or an entry of the person's own table nobody (and no gesture family) has used yet
+    let hands = "";
+    if (x.s.prop !== undefined) hands = x.s.prop;
+    else if (!po.fixedHands) {
+      const pool = [...def.hands, ...Object.values(T).flatMap((d) => d.hands)].filter((h, i, a) => a.indexOf(h) === i);
+      const handUses = (h: string): number => Math.max(count(handUsed, h), famOf(h));
+      hands = choose(def.hands, handUses, caps.perPosture) ?? choose(pool, handUses, caps.perPosture) ?? pick(def.hands);
+    }
     bump(exUsed, ex.id); bump(poUsed, po.id);
+    for (const t of [po.text, hands]) { const f = gestureFamily(t); if (f !== undefined) bump(famUsed, f); }
+    if (hands !== "") bump(handUsed, hands);
     if (ex.closedHalf) closedHalf++;
     if (ex.gaze === "lens") lens++;
-    out.set(x.s.id, { trait: x.trait, ex, po, score: x.score, why: x.why, s: x.s });
+    out.set(x.s.id, { trait: x.trait, ex, po, hands, score: x.score, why: x.why, s: x.s });
   }
   // eyes on the lens within the cap: the weakest-matched lens-gazers move to a non-lens expression of their own bank
   if (lens > caps.lensGaze) {
@@ -283,7 +331,7 @@ export function dealPerformances(
   for (const [id, v] of out) {
     const f = flags.get(id) ?? {};
     const fill = (t: string): string => t.replace(/\{perch\}/g, f.perch ?? "").replace(/\{lean\}/g, f.lean ?? "").replace(/\{seat\}/g, f.seat ?? "").replace(/\{table\}/g, f.table ?? "").replace(/\{poss\}/g, poss(v.s.genderPresentation));
-    const hands = v.s.prop !== undefined ? `${v.s.prop}` : v.po.fixedHands ? "" : pick(T[v.trait].hands);
+    const hands = v.hands;
     const posture = fill(v.po.text);
     res.set(id, {
       trait: v.trait, expressionId: v.ex.id, postureId: v.po.id, expression: v.ex.text, posture, hands,

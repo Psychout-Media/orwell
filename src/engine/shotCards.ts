@@ -147,18 +147,18 @@ export const PLACES: readonly Place[] = [
   { id: "home-living-room", kind: "home-interior", outdoor: false, phrase: "the person's own living room in {town}, {home}, {detail} behind", details: ["a sofa, shelves and family photos", "a TV, a lamp and a bookcase", "a worn armchair and a window with curtains", "framed photos and a crowded side table"], perch: "the arm of the sofa", lean: "the bookshelf", seat: "on the sofa" },
   { id: "family-table", kind: "home-interior", outdoor: false, phrase: "a family dining table in {town}, {home}, {detail} behind", table: "the dining table", details: ["a window and a sideboard", "a china cabinet and patterned wallpaper", "a doorway into the kitchen", "a wall of family photos"], lean: "the sideboard", seat: "in a dining chair" },
   { id: "window-seat", kind: "home-interior", outdoor: false, phrase: "a bright window seat in the person's apartment in {town}, {detail}", details: ["the street visible outside", "a radiator and a shelf of plants beside it", "a stack of books and a view over rooftops"], lean: "the window frame", seat: "on the window seat" },
-  { id: "front-porch", kind: "home-exterior", outdoor: true, phrase: "the front porch of the person's home in {town}, {detail}, {out}", details: ["a screen door and a hanging plant", "a worn railing and a doormat", "a swing at one end and a pile of shoes by the door", "wooden steps down to a short front walk"], lean: "the porch post", seat: "on the porch steps" },
+  { id: "front-porch", kind: "home-exterior", outdoor: true, phrase: "the front porch of the person's home in {town}, {detail}, {out}", details: ["a screen door and a hanging plant", "a worn railing and a doormat", "a swing at one end and a pile of shoes by the door", "wooden steps down to a short front walk"], lean: "the porch post" },
   { id: "back-yard", kind: "home-exterior", outdoor: true, phrase: "the back yard of the person's home in {town}, {detail}, {out}", details: ["a chain-link fence and a shed behind", "a clothesline and a single big tree", "a patchy lawn, a hose and a neighbor's fence", "a garden bed along a wooden fence"], lean: "the fence", seat: "in a lawn chair", walk: true },
-  { id: "balcony", kind: "home-exterior", outdoor: true, phrase: "an apartment balcony in {town}, {detail}", details: ["rooftops and open sky behind", "potted plants and a folding chair", "a neighbor's balcony across the gap and a string of laundry"], lean: "the balcony railing", seat: "in a balcony chair" },
-  { id: "stoop", kind: "home-exterior", outdoor: true, phrase: "the stoop of the person's building in {town}, {detail}", details: ["a brick wall and the street behind", "a row of mailboxes and a parked car", "a metal railing and the next building's stoop"], lean: "the stoop railing", seat: "on the stoop" },
+  { id: "balcony", kind: "home-exterior", outdoor: true, phrase: "an apartment balcony in {town}, {detail}", details: ["rooftops and open sky behind", "potted plants and a folding chair", "a neighbor's balcony across the way and a string of laundry"], lean: "the balcony railing", seat: "in a balcony chair" },
+  { id: "stoop", kind: "home-exterior", outdoor: true, phrase: "the stoop of the person's building in {town}, {detail}", details: ["a brick wall and the street behind", "a row of mailboxes and a parked car", "a metal railing and the next building's stoop"], lean: "the stoop railing" },
   { id: "diner-booth", kind: "town", outdoor: false, phrase: "a corner booth in a local diner in {town}, {detail} behind", table: "the booth table", details: ["a window and a counter", "a pie case and a row of stools", "a wall of faded photos and a menu board"], seat: "in the booth" },
   { id: "main-street", kind: "town", outdoor: true, phrase: "the main street of {town}, {detail}, {out}", details: ["shopfronts behind", "a hardware store and a bank clock behind", "angled parking and a crosswalk behind"], lean: "a shopfront wall", walk: true },
   { id: "park-bench", kind: "town", outdoor: true, phrase: "a park bench in {town}, {detail}, {out}", details: ["trees and a path behind", "a playground in the distance", "a duck pond and a gravel walk behind"], seat: "on the bench", walk: true },
-  { id: "ball-field", kind: "town", outdoor: true, phrase: "the fence of a local ball field in {town}, {detail}, {out}", details: ["bleachers behind", "a scoreboard and a dugout behind", "a concession stand and the outfield behind"], lean: "the fence", seat: "on the bleachers" },
+  { id: "ball-field", kind: "town", outdoor: true, phrase: "the fence of a local ball field in {town}, {detail}, {out}", details: ["bleachers behind", "a scoreboard and a dugout behind", "a concession stand and the outfield behind"], lean: "the fence" },
   { id: "farmers-market", kind: "town", outdoor: true, phrase: "a farmers market in {town}, {detail}, {out}", details: ["stalls and awnings behind", "crates of produce and a chalkboard sign behind", "a flower stall and folding tables behind"], lean: "a stall table", walk: true },
   { id: "coffee-shop", kind: "town", outdoor: false, phrase: "a neighborhood coffee shop in {town}, {detail} behind", table: "a small café table", details: ["a window and the street", "a pastry case and a chalkboard menu", "mismatched chairs and a shelf of mugs"], seat: "on a window stool", lean: "the counter" },
-  { id: "lakeside", kind: "nature", outdoor: true, phrase: "a lakeside dock near {town}, {detail}, {out}", details: ["still water and trees behind", "a rowboat tied up and reeds behind", "a far shore and a few other docks behind"], seat: "on the dock", perch: "the end of the dock", walk: true },
-  { id: "trail", kind: "nature", outdoor: true, phrase: "a trail near {town}, {detail}, {out}", details: ["trees and open sky behind", "a trail marker and a slope behind", "rocks and low scrub beside the path"], lean: "a tree", seat: "on a log", walk: true },
+  { id: "lakeside", kind: "nature", outdoor: true, phrase: "a lakeside dock near {town}, {detail}, {out}", details: ["still water and trees behind", "a rowboat tied up and reeds behind", "a far shore and a few other docks behind"], walk: true },
+  { id: "trail", kind: "nature", outdoor: true, phrase: "a trail near {town}, {detail}, {out}", details: ["trees and open sky behind", "a trail marker and a slope behind", "rocks and low scrub beside the path"], lean: "a tree", walk: true },
   { id: "open-field", kind: "nature", outdoor: true, phrase: "an open field near {town}, {detail}, {out}", details: ["tall grass and a long horizon", "a fence line and a lone tree", "a dirt track and bales in the distance"], lean: "a fence post", walk: true },
   { id: "work-plaza", kind: "work-adjacent", outdoor: true, phrase: "a bench in a plaza near where the person works in {town}, in their own everyday clothes, {detail}, {out}", details: ["office windows behind", "a fountain behind", "a row of bikes behind"], seat: "on the bench", walk: true },
   { id: "work-cafe", kind: "work-adjacent", outdoor: false, phrase: "a café table across from where the person works in {town}, in their own everyday clothes, {detail} behind", table: "the café table", details: ["a window", "a menu board", "a wall of local flyers"], seat: "in a café chair" },
@@ -171,15 +171,12 @@ const STATE_REGION: Record<string, Region> = {};
 for (const [r, names] of Object.entries({
   "new-england": "Maine,New Hampshire,Vermont,Massachusetts,Rhode Island,Connecticut",
   "mid-atlantic": "New York,New Jersey,Pennsylvania,Delaware,Maryland,District of Columbia,Washington DC",
-  southeast: "Virginia,North Carolina,South Carolina,Georgia,Florida,Tennessee,Kentucky,West Virginia",
+  southeast: "Virginia,North Carolina,South Carolina,Georgia,Tennessee,Kentucky,West Virginia",
   "deep-south": "Alabama,Mississippi,Louisiana,Arkansas",
   "great-lakes": "Ohio,Michigan,Indiana,Illinois,Wisconsin,Minnesota",
   plains: "Iowa,Missouri,Kansas,Nebraska,North Dakota,South Dakota,Oklahoma",
-  texas: "Texas",
   southwest: "Arizona,New Mexico,Nevada",
-  "mountain-west": "Colorado,Utah,Idaho,Montana,Wyoming,Alaska",
-  pacific: "California,Hawaii",
-  "pacific-nw": "Oregon,Washington",
+  "mountain-west": "Colorado,Utah,Idaho,Montana,Wyoming",
 } as Record<Region, string>)) for (const n of names.split(",")) STATE_REGION[n.toLowerCase()] = r as Region;
 const REGION_FLAVOR: Record<Region | "none", { out: readonly string[]; home: readonly string[] }> = {
   "new-england": { out: ["white clapboard houses and maples", "stone walls and bare-branched trees", "a church steeple and shingled houses"], home: ["an older wood-floored home", "a narrow house with low ceilings"] },
@@ -193,11 +190,18 @@ const REGION_FLAVOR: Record<Region | "none", { out: readonly string[]; home: rea
   "mountain-west": { out: ["mountains on the horizon and sage", "pines and a dirt road", "a pickup and a snow fence"], home: ["a log-trimmed home", "a small house with a woodpile"] },
   pacific: { out: ["palms and stucco in bright dry light", "a hazy hillside and low hedges", "a bougainvillea wall and parked cars"], home: ["a stucco bungalow", "a small apartment with a window unit"] },
   "pacific-nw": { out: ["tall firs and wet green", "soft grey light and moss on the fence", "a cedar fence and fern beds"], home: ["a wood-shingled home", "a small house with a covered porch"] },
-  none: { out: ["ordinary houses and trees"], home: ["an ordinary home"] },
+  none: { out: [], home: [] },
 };
-/** The state of a "City, State" hometown, as a region. */
+/**
+ * Towns whose look the state rule would get wrong (a Gulf island, a mountain town in a pine state, a coast): the regional phrase is left out
+ * rather than guessed.
+ */
+const TOWN_NO_REGION_RE = /\b(?:Key|Keys|Island|Isle|Beach|Bay|Harbou?r|Coast|Cape|Port|Gulf|Shores|Sound|Landing|Savannah|Charleston|Biloxi|Gulfport|Mobile|New Orleans|Galveston|Wilmington|Hilton Head|Beaufort|Brunswick|Norfolk|Provincetown|Nantucket|Newport|Mystic|Asheville|Boone|Gatlinburg|Blue Ridge|Dahlonega|Pigeon Forge|Tahoe|Reno|Duluth|Marquette)\b/i;
+/** The region of a "City, State" hometown whose look the state rule fits, else undefined (the regional phrase is then left out). */
 export function regionOf(hometown: string | undefined): Region | undefined {
-  const st = (hometown ?? "").split(",").pop()?.trim().toLowerCase() ?? "";
+  const parts = (hometown ?? "").split(",");
+  const st = parts.pop()?.trim().toLowerCase() ?? "";
+  if (TOWN_NO_REGION_RE.test(parts.join(","))) return undefined;
   return STATE_REGION[st];
 }
 /**
@@ -209,8 +213,9 @@ export function placeText(place: Place, hometown: string | undefined, k = 0): st
   const town = (hometown ?? "").trim() !== "" ? hometown!.trim() : "their home town";
   const h = fnv1a(town);
   const pickAt = <X>(xs: readonly X[], i: number): X => xs[i % xs.length]!;
+  const out = f.out.length > 0 ? pickAt(f.out, k + (h % 5)) : "", home = f.home.length > 0 ? pickAt(f.home, k + (h % 3)) : "";
   return place.phrase.replace(/\{town\}/g, town).replace(/\{detail\}/g, pickAt(place.details ?? [""], k + (h % 7)))
-    .replace(/\{out\}/g, pickAt(f.out, k + (h % 5))).replace(/\{home\}/g, pickAt(f.home, k + (h % 3)));
+    .replace(/,\s*\{out\}/g, out !== "" ? `, ${out}` : "").replace(/,\s*\{home\}/g, home !== "" ? `, ${home}` : "");
 }
 
 // ---------------------------------------------------------------------------------------------------- light, framing, angle
@@ -328,7 +333,7 @@ export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCar
     const leastKind = Math.min(...pool.map((p) => count(kindUsed, p.kind)));
     // never two people in the same place AND the same region when another place will do
     const prKey = (p: Place): string => `${p.id}|${regionOf(s.hometown) ?? "none"}`;
-    const scored = pool.map((p) => ({ p, v: (placeFit(p, s)?.score ?? 0) + (count(kindUsed, p.kind) === leastKind ? 1 : 0) - (placeRegionUsed.has(prKey(p)) ? 8 : 0) }));
+    const scored = pool.map((p) => ({ p, v: (placeFit(p, s)?.score ?? 0) + (count(kindUsed, p.kind) === leastKind ? 1 : 0) + (count(placeUsed, p.id) === 0 ? 5 : 0) - (placeRegionUsed.has(prKey(p)) ? 8 : 0) }));
     const top = Math.max(...scored.map((x) => x.v));
     const place = pickFrom(rnd, scored.filter((x) => x.v === top)).p;
     placeWhy.set(s.id, `place ${place.id} (${place.kind}): ${placeFit(place, s)?.why || "no line of the sheet matched: dealt"}`);
@@ -437,7 +442,7 @@ const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw
     { v: "ears that stand out a little" }, { v: "a slightly lopsided smile" }, { v: "one eye a touch larger than the other" },
     { v: "a prominent, high forehead" }, { v: "a long upper lip" }, { v: "a slight overbite" },
     { v: "a faint crease between the brows" }, { v: "a dimple in the chin" }, { v: "a slightly crooked nose bridge" },
-    { v: "cheeks that flush easily" }, { v: "a strong, visible jaw muscle when relaxed" }, { v: "a wide gap between brow and eyelid" },
+    { v: "cheeks that flush easily" }, { v: "a strong, visible jaw muscle when relaxed" }, { v: "a lot of lid space below the brow" },
     { v: "deep smile lines around the mouth" }, { v: "a prominent philtrum" }, { v: "small, tight ears set close to the head" },
     { v: "a slightly deviated septum that tilts the nose" }, { v: "a heavy brow ridge" }, { v: "full, round cheeks that lift when the mouth moves" },
     { v: "a wide forehead with a widow's peak" }, { v: "a slight asymmetry between the two sides of the face" },
@@ -452,7 +457,7 @@ export const FACE_MIN_DISTANCE = 4;
 /** A quirk that would contradict a feature already dealt to the same face is not offered. */
 const QUIRK_CONFLICTS: ReadonlyArray<readonly [RegExp, RegExp]> = [
   [/dimple in the chin/, /cleft chin/], [/jaw muscle/, /narrow|pointed|small|soft|round/i], [/heavy brow ridge/, /sparse|thin|light/i],
-  [/gap between brow and eyelid/, /hooded|deep-set|heavy lids/], [/high forehead|widow's peak/, /low, flat brows/],
+  [/lid space below the brow/, /hooded|deep-set|heavy lids/], [/high forehead|widow's peak/, /low, flat brows/],
   [/crooked nose|deviated/, /straight nose/], [/lopsided smile/, /sits slightly higher on one side/], [/one eye a touch larger/, /close-set|wide-set/],
   [/flush easily/, /deep brown/i], [/cheeks that lift|full, round cheeks/, /diamond|long, narrow|heart/], [/ears that stand out|small, tight ears/, /^$/],
 ];

@@ -899,11 +899,11 @@
    "field": "shotCard",
    "multi": false,
    "cap": {
-    "share": 0.2,
-    "min": 3
+    "share": 0.14,
+    "min": 2
    },
    "dealt": true,
-   "note": "ORW-480 photo: where the photo is taken: somewhere from the person's ordinary day (their home, their town, a place they spend time), looking like where they live; no spot on more than 3 of 15"
+   "note": "ORW-480 photo: where the photo is taken: somewhere from the person's ordinary day, looking like where they live; no spot on more than 2 of 15, unused spots first"
   },
   "light": {
    "field": "shotCard",
