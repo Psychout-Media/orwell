@@ -63,6 +63,20 @@ describe("ceremony gathering (ORW-247)", () => {
     const later = npcs.filter((id) => s.presence.get(id) === "living-room").length;
     expect(later).toBeLessThan(npcs.length); // they drift apart over time
   });
+  it("a game saved mid-ceremony and resumed keeps the player's real room in the base, exactly as uninterrupted play", () => {
+    const { sb, s } = setup();
+    (s as unknown as { presenceBase: Map<string, string> }).presenceBase?.set(PLAYER, "kitchen");
+    startCeremony(s, "nominations");
+    sb.session.whereabouts(); // gathered: the player is seated in the living room, the base keeps the kitchen
+    const core = sb.session.snapshot();
+    const resumed = new GameSessionRegistry().sandboxFor(`ceremony-resume-${Math.random()}`).session;
+    resumed.restore(core);
+    resumed.presenceTick(); // the off-screen tick runs before any gathering read
+    sb.session.presenceTick();
+    const baseOf = (x: unknown) => (x as { presenceBase: Map<string, string> }).presenceBase.get(PLAYER);
+    expect(baseOf(sb.session)).toBe("kitchen");
+    expect(baseOf(resumed)).toBe(baseOf(sb.session));
+  });
   it("does not re-gather a house that has already dispersed for the same ceremony", () => {
     const { sb, s, npcs } = setup();
     startCeremony(s, "nominations");
@@ -99,6 +113,8 @@ describe("a ceremony an NPC runs (no player pending) still gathers the house (OR
     resolved(sb, "veto-ceremony");
     expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("veto-ceremony");
     resolved(sb, "eviction");
+    expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("eviction");
+    resolved(sb, "eviction-reveal"); // the NPC-run vote reveals precede the evictee's own beat and are the same scene
     expect(sb.session.whereabouts()?.houseEvent?.kind).toBe("eviction");
     resolved(sb, "hoh-competition");
     expect(sb.session.whereabouts()?.houseEvent).toBeUndefined();

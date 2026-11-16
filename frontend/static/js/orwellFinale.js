@@ -167,6 +167,8 @@ import * as modalManager from "./modalManager.js";
              tap away (the header expands again the moment the card is answered or dismissed) but nothing sits on top of the card. Pure CSS - the card element is the signal, like the
              retro's rule - so no poll and no state to drift. A docked panel is rail-flow and never overlaps, so it is untouched. */
           body:has(#orwell-decision-card) #orwell-finale:not(.ow-docked) .ow-body { display: none !important; }
+          /* ORW-481 (review 4535347447): hiding the body is not enough - the sheet keeps its detent height, so a tall empty panel still covers the card. Shrink it to its header. */
+          body:has(#orwell-decision-card) #orwell-finale:not(.ow-docked) { height: auto !important; min-height: 0 !important; }
         }
         /* #725: soften the inner var(--border) strokes (finalist cards, move buttons) to the
            low-opacity WHITE hairline on the light glass — Apple defines glass by lensing, not a
