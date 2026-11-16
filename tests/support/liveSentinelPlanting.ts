@@ -221,6 +221,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "recordHouseCulture": return { spots: [{ room: "backyard", nickname: "the Deck" }], runningJoke: "the missing spatula" };
     case "recordDaySummary": return { day: 1, text: "A quiet day in the house." };
     case "recordLookExtras": return { houseguestId: npc(1), wardrobe: ["a plain grey cardigan", "dark jeans"], onCamera: "Laughs easily in the kitchen." };
+    case "recordNarrationUse": return { text: "You walk to the kitchen. Maya tucks her hair behind an ear." };
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
     case "resolveOpenLedger": return { entryId: "open:1", status: "kept", note: "she did" };
     case "openLedgerHere": return {};
