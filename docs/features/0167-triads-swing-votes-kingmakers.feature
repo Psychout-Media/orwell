@@ -1,3 +1,4 @@
+# spec-only: Theme 3 draft scenarios, not built and not wired into the BDD gate; they wait for the owner's approval of the Theme 3 plan (the vault "Theme 3 Slice Plan").
 # Feature 0167 - triads, swing votes, kingmakers (Theme 3 slice 13; Theme 3 Slice Plan, owner B). SCENARIOS DRAFTED, NOT BUILT.
 # Design note: 0167-triads-swing-votes-kingmakers.md. Rests on the owner's 2026-11-16 Theme 3 ruling, Q1 (engine decides, narrator voices) and the belief-centred
 # decisions ruling (2026-11-03: votes come from what each NPC believes). A swing houseguest KNOWS they decide it, as a read the engine holds; the player never

@@ -1,3 +1,4 @@
+# spec-only: Theme 3 draft scenarios, not built and not wired into the BDD gate; they wait for the owner's approval of the Theme 3 plan (the vault "Theme 3 Slice Plan").
 # Feature 0164 - counters, favors both ways, a favor economy (Theme 3 slice 3; Theme 3 Slice Plan, owner B). SCENARIOS DRAFTED, NOT BUILT.
 # Design note: 0164-favor-economy.md. Rests on the owner's 2026-11-16 rulings: Q1 (engine decides substance, narrator keeps the words), Q3 (low-trust deals weigh less),
 # Q6 (improvised promises bind through the open ledger) and the Theme 3 ruling. A favor owed is a debt on the bond (social core). Vault Wall: debts, counters and

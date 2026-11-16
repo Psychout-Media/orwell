@@ -1,3 +1,4 @@
+# spec-only: Theme 3 draft scenarios, not built and not wired into the BDD gate; they wait for the owner's approval of the Theme 3 plan (the vault "Theme 3 Slice Plan").
 # Feature 0166 - status, informal leaders, courting the HOH, power vacuums (Theme 3 slice 11; Theme 3 Slice Plan, owner B). SCENARIOS DRAFTED, NOT BUILT.
 # Design note: 0166-status-and-the-hoh-court.md. Rests on the owner's 2026-11-16 Theme 3 ruling, Q4 and the culture leans (ORW-551: "majority bloc" skews
 # leaders and lieutenants). The pecking order is HIDDEN: status is never shown as a rank, a score or a list; the player reads it from who courts whom.
