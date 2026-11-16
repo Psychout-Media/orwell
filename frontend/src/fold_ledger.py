@@ -449,4 +449,5 @@ def clear_all() -> None:
     """Test-only reset."""
     _PENDING.clear()
     _BELT_DECLINED.clear()
+    _SCENE_NOBODY.clear()
     _WALKED_OUT.clear()

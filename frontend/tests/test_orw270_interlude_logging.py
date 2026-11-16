@@ -144,3 +144,12 @@ def test_whereabouts_route_marks_a_failed_read_unavailable(monkeypatch):
     app.include_router(orwell_routes.setup_orwell_routes())
     r = TestClient(app).get("/api/orwell/whereabouts")
     assert r.json() == {"whereabouts": None, "unavailable": True}
+
+
+def test_the_stream_error_beacon_names_the_chat_whose_stream_failed():
+    """ORW-481 (retro review of #2346): switching chats mid-stream must not make the beacon name the OTHER chat."""
+    import re
+    src = _read("static", "js", "chat.js")
+    calls = re.findall(r"_beaconStreamError\([^\n]*\)", src)
+    calls = [c for c in calls if not c.startswith("_beaconStreamError(status")]
+    assert calls and all(c.rstrip(");").endswith("streamSessionId") for c in calls), calls
