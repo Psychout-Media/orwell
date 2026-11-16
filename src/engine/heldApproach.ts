@@ -3,6 +3,8 @@
  * next from their OWN sheet, not one rule for everyone: come straight back (keep the want), wait out the normal cooldown, or give up for a longer while. Pure and deterministic (a seeded jitter only separates near ties);
  * no rng, no Vault.
  */
+import { clamp01 } from "../domain/num";
+
 export type HeldReaction = "comes-straight-back" | "waits" | "gives-up";
 export const HELD_REACTIONS: readonly HeldReaction[] = ["comes-straight-back", "waits", "gives-up"];
 
@@ -28,7 +30,6 @@ export function heldSheetOf(archetype: string | undefined, affinityToPlayer: num
   return { ...a, affinityToPlayer };
 }
 
-const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 /** What a held-back houseguest does next: the highest score for THIS sheet. `jitter` (0..0.05, seeded) only separates near ties. */
 export function heldApproachReaction(s: HeldSheet, jitter = 0): HeldReaction {

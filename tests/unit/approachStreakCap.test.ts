@@ -56,6 +56,13 @@ describe("ORW-423 pure cap", () => {
 
 /** ORW-452 point 2: what a held-back houseguest does next now comes from THEIR sheet. These tests pin the ORW-423 behaviour for a houseguest whose sheet WAITS (spent want, the normal 3-hour cooldown): every houseguest gets a patient sheet. */
 const everyoneWaits = (s: unknown): void => { (s as { agendaCharacterOf: unknown }).agendaCharacterOf = () => ({ archetype: "analyst", strategyStyle: "social" }); };
+/** The other extreme: every houseguest is a persistent hothead who likes the player (always "comes straight back": no cooldown is stamped). The cap must hold for them too. */
+const everyoneComesBack = (s: unknown): void => {
+  const p = s as { agendaCharacterOf: unknown; rel: { edge: (a: string, b: string) => unknown } };
+  p.agendaCharacterOf = () => ({ archetype: "hothead", strategyStyle: "emotional" });
+  const real = p.rel.edge.bind(p.rel);
+  p.rel = Object.assign(Object.create(p.rel as object), { edge: (a: string, b: string) => ({ ...(real(a, b) as object), affinity: 0.9 }) });
+};
 
 describe("ORW-423 live", () => {
   it("played game: never more than the cap in a row, the cap releases after a quiet stretch, and a held houseguest's desire is spent (normal 3-hour cooldown), not kept", () => {
@@ -63,6 +70,18 @@ describe("ORW-423 live", () => {
     for (const seed of [3, 5, 8, 11, 13]) {
       const s = parked(seed, `cap${seed}`); if (!s) continue;
       everyoneWaits(s);
+      liveRef(s).playedGame = true;
+      const r = run(s, 120);
+      expect(r.maxRun, `seed ${seed} ${r.seen.join(",")}`).toBeLessThanOrEqual(DESIRE.streakCap);
+      if (r.seen.length > 0) checked++;
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
+  it("persistent sheets: with every houseguest a hothead at high affinity (nobody's want is ever spent) the cap still holds: never more than the cap in a row", () => {
+    let checked = 0;
+    for (const seed of [3, 5, 8, 11, 13]) {
+      const s = parked(seed, `capH${seed}`); if (!s) continue;
+      everyoneComesBack(s);
       liveRef(s).playedGame = true;
       const r = run(s, 120);
       expect(r.maxRun, `seed ${seed} ${r.seen.join(",")}`).toBeLessThanOrEqual(DESIRE.streakCap);
