@@ -37,9 +37,15 @@ res.append(("message right after hang-out (10) = -5, NOT 0", ok(10, 5) or (mu[8:
 res.append(("deal offer (11) = -5", ok(11, 5), deltas.get(11)))
 res.append(("nothing due early", all(d is False for d, m in zip(due, mu) if m is not None and m > 0), None))   # a missing `due` is failed telemetry, not "not due"
 fe = f"{run}/fe.log" if len(sys.argv) < 3 else sys.argv[2]
-try: n409 = len(re.findall(r"stale-beat", open(fe, errors="replace").read()))
-except Exception: n409 = None
-res.append(("no stale-beat 409", n409 == 0, n409))
+def stale_beat_verdict(log_text, handful=5):
+    """The card's rule (ORW-506): zero stale-beat 409s passes; a handful passes only when EVERY one was reconciled by the front end (a 'reconciled a stale-beat 409' line each) - an unreconciled one can lose a reply."""
+    reconciled = len(re.findall(r"reconciled a stale-beat 409", log_text))
+    total = len(re.findall(r"stale-beat", log_text))
+    raw = max(total - reconciled, 0)   # every reconcile line itself mentions stale-beat once
+    return (raw == 0 and reconciled <= handful), {"409s": raw, "reconciled": reconciled}
+try: ok409, n409 = stale_beat_verdict(open(fe, errors="replace").read())
+except Exception: ok409, n409 = False, None
+res.append(("no unreconciled stale-beat 409 (a handful reconciled is fine)", ok409, n409))
 print()
 for name, passed, detail in res:
     print(("PASS" if passed else "FAIL"), "-", name, "" if passed or detail in (None, []) else f"(detail: {detail})")

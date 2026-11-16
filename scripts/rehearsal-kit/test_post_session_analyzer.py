@@ -142,3 +142,25 @@ def test_ssh_pull_refuses_option_like_hosts_and_non_exact_dates():
     for bad_when in ('2026-11-05 10:00" --since "x', "2026-11-05", "-1"):
         with pytest.raises(SystemExit):
             psa.pull("root@box", bad_when, "", "/nonexistent-dest-never-created")
+
+
+def test_find_save_is_bounded_by_the_window_end(tmp_path):
+    import datetime as dt, os
+    d = tmp_path / "engine-data" / "saves" / "u"; d.mkdir(parents=True)
+    old, new = d / "v1.json", d / "v2.json"
+    old.write_text("{}"); new.write_text("{}")
+    os.utime(old, (1_700_000_000, 1_700_000_000)); os.utime(new, (1_700_100_000, 1_700_100_000))
+    until = dt.datetime.utcfromtimestamp(1_700_050_000)
+    assert psa.find_save(str(tmp_path), until) == str(old)   # a later save is not the state at the end of the window
+    assert psa.find_save(str(tmp_path)) == str(new)
+    assert psa.find_save(str(tmp_path), dt.datetime.utcfromtimestamp(1_600_000_000)) is None
+
+
+def test_load_dump_replays_one_consistent_snapshot(tmp_path):
+    import sqlite3
+    src = sqlite3.connect(":memory:"); src.execute("create table t(a)"); src.execute("insert into t values (7)"); src.commit()
+    text = "\n".join(src.iterdump())
+    dest = tmp_path / "app.db"
+    assert psa.load_dump(text, str(dest)) and sqlite3.connect(dest).execute("select a from t").fetchone() == (7,)
+    assert psa.load_dump("not sql at all;", str(tmp_path / "bad.db")) is False
+    assert "sqlite3 -readonly " in psa.READ_ONLY_PREFIXES

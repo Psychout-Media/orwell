@@ -31,7 +31,13 @@ sed -i "s#\$WT#$WT#g" $RUN/last.sh; chmod +x $RUN/*.sh
   # RIG_ENV_OVERRIDE="ORWELL_X=0 ORWELL_Y=1": applied AFTER the deploy defaults, so a proof run can stage a known-bad build with one flag flipped (ORW-109).
   rig_apply_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1
   export ORWELL_ENGINE_PORT=$RIG_ENGINE_PORT ORWELL_DATA_DIR=$RUN/engine-data/saves ORWELL_ENGINE_TOKEN=rehlocal ORWELL_ENGINE_ADMIN_TOKEN=rehadminlocal
-  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
+  # ORW-506: slot 2 gets its OWN copy of the model cache (seeded once from slot 1's), so a download or a half-written model in one slot can never corrupt the other's.
+  EMBED_CACHE="$RIG_HOME/orwell/.orwell-data/models"
+  if [ "$RIG_SLOT" != 1 ]; then
+    EMBED_CACHE="$RIG_HOME/orwell-slot2-embed-cache"
+    [ -d "$EMBED_CACHE" ] || { if [ -d "$RIG_HOME/orwell/.orwell-data/models" ]; then cp -a "$RIG_HOME/orwell/.orwell-data/models" "$EMBED_CACHE.tmp" && mv "$EMBED_CACHE.tmp" "$EMBED_CACHE"; else mkdir -p "$EMBED_CACHE"; fi; }
+  fi
+  export ORWELL_EMBEDDINGS=fastembed ORWELL_EMBED_CACHE="$EMBED_CACHE"
   nohup node dist/main.js > $RUN/engine.log 2>&1 & echo $! > $RUN/engine.pid
   cd frontend
   [ "$RIG_SLOT" = 1 ] || export PYTHONDONTWRITEBYTECODE=1   # a shared venv is never written to
