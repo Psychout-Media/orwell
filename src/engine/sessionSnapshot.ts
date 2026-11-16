@@ -388,7 +388,7 @@ export interface SessionCore {
   showrunnerNoteCount?: number;
   /**
    * Feature 0101 (#1401) Phase-2 (#1455) — the monotonic per-season count of off-screen ticks on which the
-   * OUTCOME-AFFECTING reweight (behind `ORWELL_SHOWRUNNER_REWEIGHT`, default off) actually RE-ORDERED the
+   * OUTCOME-AFFECTING reweight (behind `ORWELL_SHOWRUNNER_REWEIGHT`, default on) actually RE-ORDERED the
    * scheduler (the producer's shortlist jumped a thread ahead of the derive order). A `SessionCoreCounts`
    * dimension (++ only, reset only at a season boundary), so a resumed game keeps the count durable and the
    * ON calibration run can prove the layer is non-vacuous. Absent on a pre-Phase-2 save / when the reweight

@@ -96,7 +96,7 @@ export const APPEAL = {
   discreditLoyaltyThreshold: 0.6,
 } as const;
 
-/** B26 (flag ORWELL_JURY_MEMORY, off by default): how much a juror's MEMORY of a finalist sways their lean. Added to the lean as a signed term (a grudge lowers, a favor raises), clamped to +-`max`. ASSUMED, pending Ryne. */
+/** B26 (flag ORWELL_JURY_MEMORY, ON by default): how much a juror's MEMORY of a finalist sways their lean. Added to the lean as a signed term (a grudge lowers, a favor raises), clamped to +-`max`. ASSUMED, pending Ryne. */
 export const JURY_MEMORY = { scale: 1, max: 0.15 } as const;
 
 /**
