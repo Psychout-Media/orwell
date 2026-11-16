@@ -30,32 +30,13 @@ import { hashSeed } from "./characterFactory";
  * None references a person, a pairing, a secret, a target, or an outcome — so each is safe on any
  * player OR admin surface. Keep them this way: a needle that names a specific is a Vault leak.
  */
-/** Truthful, generic openers (each stands alone as a claim the engine guarantees for every cast). */
-const NEEDLE_OPENERS: readonly string[] = [
-  "this cast wasn't thrown together — every one of them was picked to rub against the others",
-  "nobody walks through that door as simple as they look",
-  "the game starts the second the doors open",
-  "not one of them is only what they're showing you",
-  "they were cast to collide",
-  "this house was filled on purpose, not by accident",
-  "every one of them arrives with a side the cameras haven't found yet",
-  "none of them is playing quite the game you think they are",
+export const CURIOSITY_NEEDLES: readonly string[] = [
+  "this cast wasn't thrown together — every one of them was picked to rub against the others; the friction is the point",
+  "nobody walks through that door as simple as they look; everyone in there is carrying something the cameras haven't found yet",
+  "the game starts the second the doors open — reads are already forming, sides are already being sized up, long before the first competition",
+  "not one of them is only what they're showing you; the house is full of people playing a game you can't see the whole of yet",
+  "they were cast to collide — a room built for alliances and grudges, and it's already quietly in motion",
 ];
-
-/** Truthful, generic closers (a promise of depth; never a person, pairing, secret, target or outcome). */
-const NEEDLE_CLOSERS: readonly string[] = [
-  "the friction is the point",
-  "reads are already forming and sides are already being sized up, long before the first competition",
-  "there is more going on in there than any one hour of footage will ever show you",
-  "it is already quietly in motion",
-  "the house is full of people playing a game you can't see the whole of yet",
-  "what looks calm on day one never stays that way",
-  "the real story is the one nobody has said out loud yet",
-  "you will want to keep watching to see who they turn out to be",
-];
-
-/** The needle pool: every opener with every closer (64 lines, each generic and Vault-free), so a returning install meets a new line far more often than one in five. */
-export const CURIOSITY_NEEDLES: readonly string[] = NEEDLE_OPENERS.flatMap((o) => NEEDLE_CLOSERS.map((c) => `${o} — ${c}`));
 
 /**
  * Pick exactly ONE curiosity needle for a season, deterministically off the game seed (a dedicated

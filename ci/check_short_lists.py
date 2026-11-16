@@ -27,7 +27,7 @@ OWNER_RULES = [
     (r"^frontend/src/orwell_facet_ledger\.py$", "*", "ORW-508", "front-end facet ledger menu (ORW-508 audit C27)"),
     (r"^frontend/src/orwell_(cast_authoring|cast_genesis)\.py$", "*", "ORW-480", "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"),
     (r"^frontend/src/orwell_portrait|^src/engine/(portraitPrompts|imageConstants)\.ts$", "*", "ORW-480", "photo track: portrait prompt tables and shot brief"),
-    (r"^src/engine/(alliances|confessionals|zeitgeist|reserveTwists)\.ts$", "*", "ORW-509", "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"),
+    (r"^src/engine/(alliances|confessionals|zeitgeist|reserveTwists|curiosityNeedle|offscreen)\.ts$|^frontend/routes/chat_helpers\.py$", "*", "ORW-509", "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"),
     (r"^src/engine/momentPrompts\.ts$|^frontend/src/agent_loop\.py$", "*", "ORW-510", "live narrator / moment prompt text"),
     (r"^src/engine/producerPersona\.ts$", "list", "ORW-511", "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"),
     (r"^src/engine/(dealConsent|juryMinds)\.ts$", "list", "ORW-511", "mechanics: internal key order or archetype keys, never shown to a player"),

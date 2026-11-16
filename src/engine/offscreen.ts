@@ -9,15 +9,6 @@ import { hashSeed, type HiddenElement } from "./characterFactory";
 import { hiddenSurfaces } from "../domain/temperatureConstants";
 import { tiltNatureWeights, type Trajectory } from "./trajectory";
 
-/** ORW-511: the plain off-screen scene verbs, composed from a lead and an object phrase (4 x 12 = 48) so the floor is not four phrases; the live texture pass rewrites them anyway. */
-const OFFSCREEN_LEADS: readonly string[] = ["schemed with", "gossiped with", "bonded with", "argued with"];
-const OFFSCREEN_ABOUTS: readonly string[] = [
-  "about the house", "about last night", "about who is safe", "about the next competition", "about the way the votes have been going",
-  "about who is being watched", "about a rumor going around", "about what they heard through the wall", "about the kitchen schedule",
-  "about who is being left out", "about the diary room", "about a promise that may not hold",
-];
-const OFFSCREEN_VERBS: readonly { lead: string; about: string }[] = OFFSCREEN_LEADS.flatMap((lead) => OFFSCREEN_ABOUTS.map((about) => ({ lead, about })));
-
 /**
  * Minimal off-screen life: records NPC-to-NPC interactions the player is not
  * present for (witness sets exclude the player; hidden until surfaced). Feature
@@ -31,6 +22,7 @@ export function simulateOffscreenStretch(deps: {
   interactions: number;
 }): GameEvent[] {
   const { events, rng, npcs, interactions } = deps;
+  const verbs = ["schemed with", "gossiped about the house with", "bonded with", "argued with"];
   const produced: GameEvent[] = [];
 
   for (let i = 0; i < interactions; i++) {
@@ -39,16 +31,14 @@ export function simulateOffscreenStretch(deps: {
     let guard = 0;
     while (b === a && guard++ < 16) b = rng.pick(npcs);
 
-    const idRand = rng.int(1_000_000_000);
-    const verb = rng.pick(OFFSCREEN_VERBS);
     const event: GameEvent = {
-      id: `offscreen:${events.count()}:${idRand}`,
+      id: `offscreen:${events.count()}:${rng.int(1_000_000_000)}`,
       ts: i,
       type: "conversation",
       initiator: a,
       witnessSet: [a, b],
       hidden: true,
-      content: `${a} ${verb.lead} ${b} ${verb.about}`,
+      content: `${a} ${rng.pick(verbs)} ${b}`,
     };
     events.record(event);
     produced.push(event);

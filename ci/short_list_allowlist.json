@@ -91,6 +91,14 @@
    ]
   },
   {
+   "path": "frontend/routes/chat_helpers.py",
+   "kind": "list",
+   "name": "_CONFESSION_DEFLECTIONS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+  },
+  {
    "path": "frontend/routes/chat_routes.py",
    "kind": "example",
    "name": "text",
@@ -385,12 +393,12 @@
     },
     {
      "line": 1521,
-     "anchor": "kles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num ",
+     "anchor": "=#RRGGBB, bgEffectIntensity=<num e.g. 1>, bgEffectSize=<num ",
      "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
     },
     {
      "line": 1521,
-     "anchor": "=#RRGGBB, bgEffectIntensity=<num e.g. 1>, bgEffectSize=<num ",
+     "anchor": "kles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num ",
      "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
     }
    ]
@@ -1288,7 +1296,7 @@
    "name": "ALLIANCE_NAMES",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
   },
   {
    "path": "src/engine/castGenesis.ts",
@@ -1384,7 +1392,15 @@
    "name": "GRUDGE_LINES",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+  },
+  {
+   "path": "src/engine/curiosityNeedle.ts",
+   "kind": "list",
+   "name": "CURIOSITY_NEEDLES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
   },
   {
    "path": "src/engine/dealConsent.ts",
@@ -1565,6 +1581,14 @@
    "reason": "live narrator / moment prompt text"
   },
   {
+   "path": "src/engine/offscreen.ts",
+   "kind": "list",
+   "name": "verbs",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+  },
+  {
    "path": "src/engine/portraitPrompts.ts",
    "kind": "list",
    "name": "FALLBACK_ROOMS",
@@ -1650,7 +1674,7 @@
    "name": "RESERVE_POOL",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
   },
   {
    "path": "src/engine/seededRelationships.ts",
@@ -1666,7 +1690,7 @@
    "name": "MOOD_POOL",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
   },
   {
    "path": "src/engine/zeitgeist.ts",
@@ -1674,7 +1698,7 @@
    "name": "lines",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional fallbacks, world snapshot, twist pool)"
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
   }
  ]
 }
