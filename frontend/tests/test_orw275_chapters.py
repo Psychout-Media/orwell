@@ -103,11 +103,26 @@ from test_p0h_day1_clock_e2e import _session  # noqa: E402
 pytestmark_browser = pytest.mark.browser
 
 
+def _game_chat(stack, name):
+    """The chat a test drives. ORW-375 ROOT CAUSE (reproduced, sequence logged): the first chat created in the shared stack becomes the CANONICAL game session (ADR 0008/0012), and
+    the page force-selects it - over the hash and over whatever the test just selected - every time `loadSessions` runs (boot, any refresh). A test that drove a LATER, non-canonical
+    chat was therefore repainted by the canonical chat's own current week at an arbitrary moment (bar "Week 2 / Past weeks", rows of week 2, the live guard silent, setView never
+    called for the displayed chat) - or timed out waiting for its chat to be the current one. A real player has exactly one game chat, so this is a test-isolation race, not a product
+    bug. Drive the bound chat when there is one (the mocked /api/history answers for any id), else the one just created."""
+    import urllib.request
+    sid = _session(stack, name)
+    try:
+        bound = json.loads(urllib.request.urlopen(stack["fe"] + "/api/orwell/game-session", timeout=10).read()).get("sessionId")
+    except Exception:  # noqa: BLE001
+        bound = None
+    return bound or sid
+
+
 def _select(page, sid):
     """Open a chat the way the sidebar does, without awaiting selectSession's promise in page.evaluate and without starting a redundant selection.
     What is verified: under CI load an awaited `selectSession` promise did not settle in these tests (they mock /api/history with page.route), so the promise is held on
     window and a flag is waited on instead; and the page's own boot selection usually opens this same chat already, so a second un-awaited selectSession can repaint the
-    current week after the test picked a past week. The underlying hang is NOT root-caused (open issue, ORW-375); this helper only avoids both patterns.
+    current week after the test picked a past week. ORW-375 ROOT CAUSE (reproduced): the tests now open the page at `/#<sid>` (the hash wins the boot ladder), because without it the page's own boot/refresh selection (`loadSessions`: canonical > hash > current > saved > most-recent, here a DIFFERENT chat once an earlier test in the file has created one) lands AFTER the test's selectSession and repaints that other chat's current week over the picked past week (bar "Week 2 / Past weeks", guard silent, no setView): a test-isolation race, not a product bug (a real player has one game chat).
     So: select only when the page is not already on this chat, then wait until the chat has stopped changing (`_settled`)."""
     page.wait_for_function("() => !!(window.sessionModule && window.sessionModule.getCurrentSessionId)", timeout=15000)
     # When we DO select, the promise is held on window (so it can never be collected) and we wait for it to settle via a flag, never by awaiting it here.
@@ -126,7 +141,7 @@ def _settled(page, quiet_ms=800, timeout=15000):
 @pytest.mark.browser
 def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
-    sid = _session(_stack, "ch275")
+    sid = _game_chat(_stack, "ch275")
     hist = [dict(m, id=f"id{i}", seq=i + 1) for i, m in enumerate(HIST)]
     with sync_playwright() as pw:
         try:
@@ -135,7 +150,7 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
-        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.goto(_stack["fe"] + "/#" + sid, wait_until="load")  # ORW-375: open THIS chat at boot (see _select)
         app_ready(page, names=("chatModule", "sessionModule"))
         _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
@@ -157,15 +172,13 @@ def test_the_bar_shows_the_current_week_and_a_past_week_is_one_tap_away(_stack):
         browser.close()
 
 
-@pytest.mark.skip(reason="ORW-375: red on CI only (a week picked while the chat reloads snaps back to the current week; the live guard trips on a bubble without the history tag). Skipped so main is green while the race is fixed properly; the guard records the node in window.__guardTrigger.")
 @pytest.mark.browser
-@pytest.mark.quarantine(card="ORW-375", added="2026-11-15")  # red on main in fe-browser-tests (3/5) on unrelated PRs; __guardTrigger was None, so the live guard is not what snaps the view back
 def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  # noqa: F811
     """ORW-293 (main red at d1dbc361): selectSession chose the week's rows when the history ARRIVED, then waited out a 120 ms fade before painting them. A week
     picked inside that fade was painted over by the rows chosen before the pick (Week 2 drawn back over Week 1). Forced deterministically here: reopen the chat,
     wait until the fade has started (the history is in hand), pick Week 1, and after everything settles Week 1 must be what is shown."""
     from playwright.sync_api import sync_playwright
-    sid = _session(_stack, "ch275-race")
+    sid = _game_chat(_stack, "ch275-race")
     hist = [dict(m, id=f"rid{i}", seq=i + 1) for i, m in enumerate(HIST)]
     with sync_playwright() as pw:
         try:
@@ -174,23 +187,20 @@ def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  #
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
-        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.goto(_stack["fe"] + "/#" + sid, wait_until="load")  # ORW-375: open THIS chat at boot (see _select)
         _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar select", timeout=15000)
         page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('w2 a')", timeout=15000)
         _settled(page)
-        page.evaluate("""(id) => { window.__raceDone = false;
+        # The pick is armed and the reload started in ONE evaluate (a MutationObserver fires in the same task that sets the fade's opacity:0, so the pick can neither miss the 120 ms
+        # fade nor land outside it, whatever the CPU load - a rAF poll started after a Python round trip did, ORW-375).
+        page.evaluate("""(id) => { window.__raceDone = false; window.__pickedInFade = false;
+          const box = document.getElementById('chat-history');
+          const mo = new MutationObserver(() => { if (box.style.opacity === '0' && !window.__pickedInFade) { mo.disconnect();
+            const sel = document.querySelector('#orwell-chapter-bar select'); sel.value = '1'; sel.dispatchEvent(new Event('change', {bubbles: true})); window.__pickedInFade = true; } });
+          mo.observe(box, {attributes: true, attributeFilter: ['style']});
           window.__raceP = Promise.resolve(window.sessionModule.selectSession(id)).finally(() => { window.__raceDone = true; }); }""", sid)
-        # the fade has started: the reload's history is in hand. The pick happens INSIDE the page, in the same task as the opacity poll (review of #2651: a
-        # Python round trip after the poll could land after the 120 ms fade and the race would never be exercised).
-        page.evaluate("""() => new Promise((resolve, reject) => {
-          const sel = document.querySelector('#orwell-chapter-bar select'); const t0 = performance.now();
-          (function poll() {
-            if (document.getElementById('chat-history').style.opacity === '0') {
-              sel.value = '1'; sel.dispatchEvent(new Event('change', {bubbles: true})); window.__pickedInFade = true; resolve(true);
-            } else if (performance.now() - t0 > 15000) { reject(new Error('the fade never started')); } else { requestAnimationFrame(poll); }
-          })();
-        })""")
+        page.wait_for_function("() => window.__pickedInFade === true", timeout=15000)
         assert page.evaluate("() => window.__pickedInFade === true")
         page.wait_for_function("() => window.__raceDone === true", timeout=15000)
         _settled(page)
@@ -205,7 +215,7 @@ def test_a_week_picked_while_the_chat_reloads_is_the_week_that_stays(_stack):  #
 @pytest.mark.browser
 def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
-    sid = _session(_stack, "ch275b")
+    sid = _game_chat(_stack, "ch275b")
     h = [_row("assistant", "w1 a", week=1),
          _row("assistant", "Week 2. Out: X.", kind="week-chapter", week=2, recap={"evicted": ["Xavier"], "hoh": None, "standing": "You are still in the game. 5 houseguests remain."}),
          _row("assistant", "goodnight", week=1),
@@ -218,7 +228,7 @@ def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack)
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
-        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.goto(_stack["fe"] + "/#" + sid, wait_until="load")  # ORW-375: open THIS chat at boot (see _select)
         app_ready(page, names=("chatModule", "sessionModule"))
         _select(page, sid)
         page.wait_for_selector("#orwell-chapter-bar", timeout=15000)
@@ -275,7 +285,7 @@ process.stdout.write(JSON.stringify({{a,b,d,eSame:e===l,eLen:e.length}}));""")
 @pytest.mark.browser
 def test_orw161_a_long_chat_renders_its_newest_rows_and_reveals_earlier_ones_on_tap(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
-    sid = _session(_stack, "ch161")
+    sid = _game_chat(_stack, "ch161")
     hist = [dict(_row("assistant" if i % 2 else "user", f"line{i:03d}"), id=f"id{i}", seq=i + 1) for i in range(200)]
     with sync_playwright() as pw:
         try:
@@ -284,7 +294,7 @@ def test_orw161_a_long_chat_renders_its_newest_rows_and_reveals_earlier_ones_on_
             pytest.skip(f"chromium unavailable: {e}")
         page = browser.new_context().new_page()
         page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
-        page.goto(_stack["fe"] + "/", wait_until="load")
+        page.goto(_stack["fe"] + "/#" + sid, wait_until="load")  # ORW-375: open THIS chat at boot (see _select)
         app_ready(page, names=("chatModule", "sessionModule"))
         _select(page, sid)
         page.wait_for_selector("#orwell-history-more", timeout=15000)
