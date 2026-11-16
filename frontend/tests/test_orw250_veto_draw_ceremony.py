@@ -32,6 +32,9 @@ def test_a_houseguests_choice_is_voiced_as_given():
 
 def _rig(monkeypatch, user, beats):
     ch.clear_social_runway(user)
+    # ORW-515: the draw hold is process-global and keyed per owner; an auth-off (None) draw left it set for every later
+    # owner=None test in the worker (the agent loop then dropped its forced advanceGame). Give each test its own dict.
+    monkeypatch.setattr(ch, "_VETO_DRAW_HOLDS", {})
     ch._SCHEDULE_STEER.pop(ch._runway_key(user), None)
     seq = list(beats)
     base = {"phase": "veto-competition", "week": 1, "beatSeq": 1}
