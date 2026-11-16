@@ -42,6 +42,19 @@ describe("ORW-467 the list", () => {
     }
   });
 
+  it("no label or read carries a Vault-wall word (the player-visible roster is scanned for these), and no read needs a second person or a scene", () => {
+    // The Vault-wall scans (tests/unit/lifecycleMoments.test.ts, the BDD "no hidden-layer key" scenarios) forbid these on any player surface.
+    const vault = /trust|threat|affinity|soul|hiddenElement|opinion|secret|alliance|vote/i;
+    // The on-camera writer's banned words (frontend/src/orwell_cast_authoring.py _ONCAMERA_BANNED_WORDS) plus other-people words: the read is how ONE person looks alone in a still photo.
+    const scene = /\b(then|says|said|narrates|narrating|jokes?|story|monologue|answers|answering|asks|humming|calling out|mid-sentence|mid-story|mid-joke|everyone|everybody|someone|whoever|anyone|stranger|the group|the others|others|houseguests|friends?|crowd|people|them|room|house|scrubbing|cooking|washing|counting|gesturing|paces|pacing)\b/i;
+    for (const t of CASTING_TYPES) {
+      for (const label of castingLabelsOf(t)) expect(label, `${t.id} label`).not.toMatch(vault);
+      expect(t.read, `${t.id} read`).not.toMatch(vault);
+      expect(t.read, `${t.id} read`).not.toMatch(scene);
+      expect(t.read.split(/\s+/).length, t.id).toBeLessThanOrEqual(10);
+    }
+  });
+
   it("the nonbinary label carries no gendered word", () => {
     for (const t of CASTING_TYPES) {
       expect(castingLabelFor(t, "nonbinary"), t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|guys|girl|girls|boy|queen|king|lady|gentleman|vixen|mom|dad|aunt|uncle|hunk|bombshell|dame)\b/i);
