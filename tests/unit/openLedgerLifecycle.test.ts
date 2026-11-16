@@ -484,9 +484,13 @@ describe("part 2 (real engine): an entry linked to an engine deal closes with th
     deal.status = "broken"; deal.sealedBallot = true;
     priv(g).persist();
     expect(entryOf(g, id).status).toBe("open");
-    deal.status = "lapsed"; // a lapsed (untested) deal is never shown to the player either
+  });
+  it("ORW-456: a deal that LAPSES (an untested term ran out, or a renegotiation replaced it) is not a verdict, but its line closes with it", () => {
+    const { g, id, deal } = withDeal();
     priv(g).persist();
-    expect(entryOf(g, id).status).toBe("open");
+    deal.status = "lapsed";
+    priv(g).persist();
+    expect(entryOf(g, id)).toMatchObject({ status: "lapsed", note: "the linked deal lapsed or was replaced" });
   });
   it("an unlinked entry is untouched by any deal ending", () => {
     const { g, deal } = withDeal();
