@@ -231,17 +231,57 @@ def _upscale_words(text: str) -> list:
     return [w for w in _fit()["upscale-words"] if re.search(r"\b" + re.escape(w), text or "", re.I)]
 
 
+_STATE_ABBR = {"AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+               "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
+               "LA": "Louisiana", "ME": "Maine", "MD": "Maryland", "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi", "MO": "Missouri",
+               "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York", "NC": "North Carolina",
+               "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+               "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming"}
+
+
+def hometown_state(hometown) -> str:
+    parts = [p_.strip() for p_ in str(hometown or "").split(",")]
+    last = parts[-1] if len(parts) > 1 else ""
+    return _STATE_ABBR.get(last.upper(), last)
+
+
+def climate_misfit(card: dict) -> list:
+    """Words that do not fit the hometown's weather or coast: winter layers in a hot state, beach clothes in a cold or inland one."""
+    cl = _fit()["climate"]
+    state = hometown_state(card.get("hometown"))
+    city = str(card.get("hometown") or "").split(",")[0].strip()
+    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    text = field_text(card, "wardrobe") + " | " + str(phys.get("style") or "")
+    bad = []
+    if state in cl["hot-states"]:
+        bad += [w for w in cl["hot-forbid"] if re.search(r"\b" + re.escape(w), text, re.I)]
+    if state in cl["cold-states"]:
+        bad += [w for w in cl["cold-forbid"] if re.search(r"\b" + re.escape(w), text, re.I)]
+    inland = state in cl["inland-states"] or (state == "Texas" and city not in cl["texas-coastal-cities"])
+    if inland:
+        bad += [w for w in cl["coastal-words"] if re.search(r"\b" + re.escape(w), text, re.I) and w not in bad]
+    return bad
+
+
 def look_fits_life(card: dict) -> list:
-    """Why a card's look does not fit its life: [] when it does. "family": the dealt style family is a poor fit for the job sector, hometown
-    and age (reported; only the engine deal can change it). "upscale": two or more expensive-look words in the wardrobe or style line on a
-    modest life (what a rewrite of the wardrobe can fix)."""
-    from src.orwell_style_families import family_for_label
+    """Why a card's look does not fit its life: [] when it does.
+    "family": the dealt style family is a poor fit for the job sector, hometown and age (reported).
+    "family-worn": ... and the wardrobe or style line really follows that family (a rewrite from the person fixes it).
+    "upscale": two or more expensive-look words on a modest life. "climate": winter layers in a hot state, beach clothes inland or in a cold state.
+    "missing": no wardrobe at all."""
+    from src.orwell_style_families import family_for_label, families_mentioned
     out = []
+    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    text = field_text(card, "wardrobe") + " | " + str(phys.get("style") or "")
     fam = family_for_label(str(card.get("presentation") or ""))
     if fam is not None and style_fit_weight(fam["id"], card.get("vocation"), card.get("hometown"), card.get("age")) < _fit()["min-weight"]:
         out.append("family")
-    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
-    text = field_text(card, "wardrobe") + " | " + str(phys.get("style") or "")
+        if fam["id"] in families_mentioned(text):
+            out.append("family-worn")
     if life_affluence(card.get("vocation")) <= 0.5 and len(set(_upscale_words(text))) >= 2:
         out.append("upscale")
+    if climate_misfit(card):
+        out.append("climate")
+    if not field_text(card, "wardrobe").strip():
+        out.append("missing")
     return out

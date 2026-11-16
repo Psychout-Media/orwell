@@ -130,9 +130,9 @@ _SYSTEM = (
     "your own words but keep it the SAME person. THE INK BUDGET IS FIXED: if the brief's "
     "distinguishingMark carries no tattoo, this houseguest has NO visible tattoos anywhere (not in the "
     "mark, the style, or the biography) — only a small minority of a real cast is visibly inked, and "
-    "the casting office already decided who. A distinguishingMark is usually minor or absent: freckles, "
-    "glasses, jewelry, dimples (no scars, birthmarks or tooth gaps: the portrait cannot hold them) — or plain \"none notable\"; never "
-    "default to a tattoo, "
+    "the casting office already decided who. THE MARK IS DEALT: copy the skeleton's distinguishingMark exactly as it stands "
+    "(\"none notable\" stays \"none notable\"); never add a mark of your own or swap it, and never default to a tattoo (a real cast "
+    "has about four marks in all, dealt so none repeats; the portrait cannot hold them as scars: no scars, birthmarks or tooth gaps), "
     "THE MARK LIVES IN distinguishingMark ONLY: never repeat it in facialFeatures, the biography or any other field (no gap-toothed grin in "
     "the face line when the mark says so), and keep the face line to bone structure and expression, "
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
@@ -1321,8 +1321,14 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             else:
                 pc.pop("wardrobe", None)
         elif code in ("wardrobe-unreal", "wardrobe-not-garment"):
-            # ORW-480: clothes a shop does not sell never reach the photo: the wardrobe is omitted and an unreal style line falls back to the family sample
-            pc.pop("wardrobe", None)
+            # ORW-480: clothes a shop does not sell never reach the photo. The pieces that ARE real garments stay when two or more are left; only
+            # otherwise is the wardrobe omitted (the casting director then asks for one). An unreal style line falls back to the family sample.
+            from src import orwell_cast_realism as _R0
+            kept = [str(x) for x in (pc.get("wardrobe") or []) if _R0.is_garment(str(x)) and not _R0.unreal_clothes(str(x))]
+            if len(kept) >= 2:
+                pc["wardrobe"] = kept[:3]
+            else:
+                pc.pop("wardrobe", None)
             from src import orwell_cast_realism as _R
             if _R.unreal_clothes(str(pc.get("style") or "")):
                 fam = family_for_label(str((npc or {}).get("presentation") or ""))

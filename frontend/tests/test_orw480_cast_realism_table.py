@@ -244,7 +244,7 @@ def test_the_realism_rewrites_are_bounded_per_cast():
         calls.append(npc["id"])
         return None
     g, out = _run_cast(cams, rw)
-    assert len(calls) == gate.REALISM_REWRITE_BUDGET and g.realism_rewrites == gate.REALISM_REWRITE_BUDGET
+    assert len(calls) == gate.REALISM_LOWPRIO_BUDGET and g.realism_rewrites == gate.REALISM_LOWPRIO_BUDGET  # a prop is a low-priority ask: the look-fits-life ones have the rest of the budget
     assert all("mug" in o["physicalCharacteristics"]["onCamera"] for o in out)
 
 
@@ -348,7 +348,7 @@ def _lf_card(**kw):
 
 
 def test_the_live_season_line_cook_in_monochrome_minimalism_fails_and_a_plausible_look_does_not():
-    assert R.look_fits_life(_lf_card()) == ["family", "upscale"]  # a polished big-city family and a model-like styling line, on a line cook from a small town
+    assert R.look_fits_life(_lf_card()) == ["family", "family-worn", "upscale"]  # a polished big-city family and a model-like styling line, on a line cook from a small town
     ok = _lf_card(presentation="skater", age=24, physicalCharacteristics={"style": "baggy jeans and a faded tee", "wardrobe": ["faded grey tee", "baggy jeans", "canvas sneakers"]})
     assert R.look_fits_life(ok) == []
     rich = _lf_card(presentation="skater", age=24, physicalCharacteristics={"style": "baggy jeans", "wardrobe": ["silk shirt", "tailored trousers", "leather loafers"]})
@@ -388,3 +388,84 @@ def test_the_python_style_weight_matches_the_shared_cases_the_typescript_half_ch
     assert len(cases) > 60
     for fam, vocation, hometown, age, want in cases:
         assert abs(R.style_fit_weight(fam, vocation, hometown, age) - want) < 1e-5, (fam, vocation)
+
+
+# ---- ages (a real cast: 12 of 15 at 21 to 28) ----------------------------------------------------------------
+def test_the_final_ages_follow_the_cast_age_curve_whatever_the_writer_proposes():
+    from src import orwell_cast_identity as I
+    for seed in range(40):
+        import random
+        rng = random.Random(seed)
+        cast = [{"id": f"npc:{i}", "age": rng.randint(21, 52)} for i in range(1, 16)]
+        facets = {c["id"]: {"age": rng.choice([21, 22, 22, 23, 24, 25, 26, 28])} for c in cast}   # the writer's favourite twenties
+        out = I.spread_ages(facets, cast)
+        ages = [out[c["id"]]["age"] for c in cast]
+        assert sum(a <= 26 for a in ages) == 4 and sum(27 <= a <= 33 for a in ages) == 5, ages
+        assert sum(34 <= a <= 45 for a in ages) == 4 and sum(a >= 46 for a in ages) == 2, ages
+        assert min(ages) >= 21 and max(ages) <= 60
+
+
+def test_a_proposal_that_fits_the_curve_is_kept_and_no_proposal_changes_nothing():
+    from src import orwell_cast_identity as I
+    cast = [{"id": f"npc:{i}", "age": 30} for i in range(1, 16)]
+    assert I.spread_ages({}, cast) == {}
+    out = I.spread_ages({"npc:1": {"age": 24, "ethnicity": "x"}}, cast)
+    assert out["npc:1"]["age"] == 24 and out["npc:1"]["ethnicity"] == "x"
+
+
+# ---- the dealt mark is authoritative (a real cast: "deep dimples" on three cards) ----------------------------
+def test_the_dealt_mark_wins_over_the_writers_own_and_no_category_exceeds_two_on_the_finished_cast():
+    cast = []
+    for i in range(1, 16):
+        n, _ = _card(i, "He sits with his arms folded.")
+        n["physicalCharacteristics"] = {"distinguishingMark": "none notable"}
+        cast.append(n)
+    cast[1]["physicalCharacteristics"]["distinguishingMark"] = "a single dimple on the left cheek"
+    cast[4]["physicalCharacteristics"]["distinguishingMark"] = "round tortoiseshell glasses"
+    g = gate.SeasonGate("t")
+    out = []
+    for n in cast:
+        _, prof = _card(int(n["id"].split(":")[1]), "He sits with his arms folded.")
+        prof["physicalCharacteristics"]["distinguishingMark"] = "deep dimples when she grins"   # the writer's favourite, on every card
+        got, _ = _go(gate.run_gate(g, prof, n, cast, None))
+        out.append(got["physicalCharacteristics"]["distinguishingMark"])
+    assert out[1] == "a single dimple on the left cheek" and out[4] == "round tortoiseshell glasses"
+    assert out.count("none notable") == 13 and not any("deep dimples" in m for m in out)
+    kinds = [R.tag_kind("mark", {"distinguishingMark": m})[0] for m in out if m != "none notable"]
+    assert max(kinds.count(k) for k in set(kinds)) <= 2 and g.marks_dealt() == "2[dimples,glasses]"
+    assert "THE MARK IS DEALT" in __import__("src.orwell_cast_authoring", fromlist=["x"])._SYSTEM
+
+
+def test_the_six_looks_a_real_cast_got_wrong_are_all_caught_with_the_reason():
+    cases = [("county sheriff's deputy", "Hilo, Hawaii", 32, "skater", ["a plain charcoal zip hoodie", "baggy dark-wash jeans", "low-top canvas sneakers"], ["family-worn"]),
+             ("line cook", "Crockett, Texas", 21, "beachy surf", ["a faded navy cotton tee", "loose-fitting khaki board shorts", "a simple shell necklace"], ["family-worn", "climate"]),
+             ("warehouse forklift driver", "Stockbridge, Georgia", 28, "cottagecore", ["a loose oatmeal linen button-up shirt", "straight-leg olive khaki trousers", "a woven straw sun hat"], ["family"]),
+             ("ballroom dance instructor", "Sun City, Arizona", 22, "outdoorsy technical", ["a fitted olive fleece pullover", "a black puffer vest", "brown leather hiking boots"], ["climate"]),
+             ("casino dealer", "Pinedale, Wyoming", 24, "Miami flashy", ["a navy silk button-down shirt with a large tropical print", "slim black trousers", "white leather sneakers"], ["family", "climate"]),
+             ("high-school track and field coach", "Exeter, Rhode Island", 26, "corporate business casual", ["navy single-breasted blazer", "checked button-down shirt", "slim grey trousers"], ["family-worn"])]
+    for job, town, age, fam, wardrobe, want in cases:
+        card = {"vocation": job, "hometown": town, "age": age, "presentation": fam, "physicalCharacteristics": {"wardrobe": wardrobe, "style": ""}}
+        got = R.look_fits_life(card)
+        assert all(w in got for w in want), (job, got)
+    ok = {"vocation": "line cook", "hometown": "Crockett, Texas", "age": 24, "presentation": "skater",
+          "physicalCharacteristics": {"wardrobe": ["grey cotton tee", "dark work jeans", "scuffed sneakers"], "style": "plain tees and jeans"}}
+    assert R.look_fits_life(ok) == []
+    assert R.look_fits_life({**ok, "physicalCharacteristics": {"wardrobe": []}}) == ["missing"]
+
+
+def test_a_card_with_no_wardrobe_and_a_poor_fit_look_get_one_compact_rewrite_each_inside_the_budget():
+    g = gate.SeasonGate("t")
+    cast = [_card(i, "He sits with his arms folded.")[0] for i in (1, 2)]
+    for n in cast:
+        n.update(vocation="line cook", hometown="Crockett, Texas", presentation="skater", age=24)
+    asked = []
+
+    async def rw(npc, codes, message=None):
+        asked.append(message)
+        p = _card(2, "He sits with his arms folded.")[1]
+        p["physicalCharacteristics"]["wardrobe"] = ["grey cotton tee", "dark work jeans", "scuffed sneakers"]
+        return p
+    _, prof = _card(2, "He sits with his arms folded.")
+    prof["physicalCharacteristics"].pop("wardrobe")
+    got, _ = _go(gate.run_gate(g, prof, cast[1], cast, rw))
+    assert asked and got["physicalCharacteristics"]["wardrobe"][0] == "grey cotton tee" and g.realism_fixed == 1

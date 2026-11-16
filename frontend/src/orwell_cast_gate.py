@@ -17,7 +17,8 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
-REALISM_REWRITE_BUDGET = 5  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
+REALISM_LOWPRIO_BUDGET = 4  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
+REALISM_REWRITE_BUDGET = 10  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
 _SENT_END = re.compile(r"[.!?][\"'”’)\]]*(?=\s|$)")
@@ -96,6 +97,8 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
     done = list(A.repair_story(profile, npc, cast))
+    if _dealt_mark(profile, npc):
+        done.append("mark-dealt")
     if _dedupe_mark(profile, npc):
         done.append("mark-duplicated")
     if _drop_name_from_oncamera(profile, npc):
@@ -138,6 +141,20 @@ _COMMON_WORD_NAMES = frozenset((
     "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
 # Words after which a name is the subject of a new clause ("... and Namea stands").
 _SUBJECT_INTRODUCERS = frozenset("and but while as then when because so if that where though until".split())
+
+
+def _dealt_mark(profile: dict, npc: dict) -> bool:
+    """The engine DEALS each houseguest's distinguishing mark (a pool of 44, each at most once per cast, about four per cast), and the
+    dealt one is authoritative: a writer's own mark (it favoured "deep dimples" on three cards of one cast), or a rewrite that failed
+    to differ, is put back to what was dealt. A card with no dealt mark on its roster entry is left as the writer wrote it."""
+    dealt = ((npc or {}).get("physicalCharacteristics") or {}).get("distinguishingMark") if isinstance((npc or {}).get("physicalCharacteristics"), dict) else None
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not (isinstance(dealt, str) and dealt.strip() and isinstance(phys, dict)):
+        return False
+    if " ".join(str(phys.get("distinguishingMark") or "").split()) == " ".join(dealt.split()):
+        return False
+    phys["distinguishingMark"] = dealt
+    return True
 
 
 def _dedupe_mark(profile: dict, npc: dict) -> bool:
@@ -295,8 +312,9 @@ def _look_fit_failures(card: dict) -> list:
 
 
 _REALISM_ASK = {
-    "look-fit": lambda v: ("clothes this person could really own and buy where they live on an ordinary income: nothing expensive-looking "
-                           "(no silk, cashmere, tailoring, designer pieces or one-tone head-to-toe styling)"),
+    "look-fit": lambda v: ("clothes this person could really own and buy where they live on their own income, for their job, age and the "
+                           "weather and coast of their hometown (nothing expensive-looking, no costume of a style family, no winter layers in a hot "
+                           "state or beach clothes inland)"),
     "prop": lambda v: f"nothing in hand that reads as a {v} prop (no {v})",
     "expression": lambda v: "no smile, grin or smirk: a serious, wry, guarded, thoughtful or amused-without-smiling face",
     "smile-kind": lambda v: f"no {v} smile",
@@ -321,6 +339,7 @@ class SeasonGate:
         self.checked = self.repaired = self.rewritten = self.failing = self.accepted_soft = 0
         self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
         self.realism_rewrites = 0  # casting-director rewrites asked this run (bounded by REALISM_REWRITE_BUDGET)
+        self.wardrobe_asked: set = set()  # cards whose wardrobe has been sent for a casting-director rewrite
         self.realism_demand = 0  # cards that WANTED a casting-director rewrite (offenders found), budget or not
         self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
         self.n = 0  # the cast size, from the first card gated
@@ -347,8 +366,8 @@ class SeasonGate:
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
             if rec[key] and any(r.get(key) == rec[key] for o, r in self.registry.items() if o != hid):
                 self.count([code])
-        if "family" in _look_fit_failures(card):
-            self.count(["realism-look-fit:family"])  # the dealt style family is a poor fit for this life (only the engine deal changes it)
+        for x in _look_fit_failures(card):
+            self.count([f"realism-look-fit:{x}"])  # family (a poor-fit dealt family), family-worn, upscale, climate, missing
         for kind, vals in self.realism_offenders(hid, card).items():
             for v in vals:
                 self.count([f"realism-{kind}:{v}"])  # what the casting director found on this card, whether or not a rewrite cleared it
@@ -379,8 +398,12 @@ class SeasonGate:
         off = self.realism_offenders(hid, card)
         cam = {k: v for k, v in off.items() if k in _REALISM_ONCAMERA_KINDS}
         wd = {k: v for k, v in off.items() if k in _REALISM_WARDROBE_KINDS}
-        if "upscale" in _look_fit_failures(card):  # ORW-480: expensive-looking clothes on a modest life: the wardrobe is rewritten
-            wd["look-fit"] = ["upscale"]
+        # a poor-fit dealt family alone also asks for a wardrobe from the person (the label cannot change, so it is asked once per card and
+        # is not held against the rewrite afterwards)
+        want = ("family-worn", "upscale", "climate", "missing") + (() if hid in self.wardrobe_asked else ("family",))
+        lf = [x for x in _look_fit_failures(card) if x in want]
+        if lf:  # ORW-480: clothes that do not fit this life (a poor-fit family worn, expensive looks, the wrong weather, none at all): rewritten from the person
+            wd["look-fit"] = lf
         if cam:
             out["realism-oncamera"] = cam
         if wd:
@@ -490,13 +513,15 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     rep = gate.repeats(hid, profile, npc, cast)
     if any(k.startswith("realism-") for k in rep):
         gate.realism_demand += 1
-    if gate.realism_rewrites >= REALISM_REWRITE_BUDGET:
-        rep = {k: v for k, v in rep.items() if not k.startswith("realism-")}  # the budget is spent: report only, the card ships as it is
+    if gate.realism_rewrites >= REALISM_REWRITE_BUDGET or (gate.realism_rewrites >= REALISM_LOWPRIO_BUDGET and not rep.get("realism-wardrobe", {}).get("look-fit")):
+        rep = {k: v for k, v in rep.items() if not k.startswith("realism-")}  # the budget is spent (the look-fits-life ones have the larger share): report only
     if not rep:
         return
     if any(k.startswith("realism-") for k in rep):
         gate.realism_rewrites += 1
     gate.rep_rewritten += 1
+    if "realism-wardrobe" in rep:
+        gate.wardrobe_asked.add(hid)
     try:
         fresh = await rewrite_fn(npc, ["rep"], message=repetition_message(rep, gate.taken_phrases(hid)))
     except Exception as e:  # failsoft-ok: a failed re-write leaves the card as it is

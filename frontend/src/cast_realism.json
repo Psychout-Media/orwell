@@ -1863,6 +1863,98 @@
    "pristine",
    "crisp"
   ],
-  "min-weight": 0.3
- }
+  "min-weight": 0.5,
+  "climate": {
+   "hot-states": [
+    "Arizona",
+    "Texas",
+    "Florida",
+    "Hawaii",
+    "Louisiana",
+    "Nevada",
+    "New Mexico",
+    "Mississippi"
+   ],
+   "hot-forbid": [
+    "fleece",
+    "puffer",
+    "parka",
+    "down jacket",
+    "wool coat",
+    "sherpa",
+    "insulated",
+    "thermal",
+    "winter coat"
+   ],
+   "cold-states": [
+    "Maine",
+    "Wyoming",
+    "Minnesota",
+    "Alaska",
+    "Montana",
+    "North Dakota",
+    "South Dakota",
+    "Vermont",
+    "New Hampshire"
+   ],
+   "cold-forbid": [
+    "board shorts",
+    "tropical",
+    "shell necklace",
+    "flip-flops",
+    "aloha",
+    "tank top",
+    "sundress",
+    "straw sun hat"
+   ],
+   "inland-states": [
+    "Arizona",
+    "Nevada",
+    "Utah",
+    "Colorado",
+    "Wyoming",
+    "Montana",
+    "Idaho",
+    "New Mexico",
+    "Kansas",
+    "Nebraska",
+    "Oklahoma",
+    "Iowa",
+    "Missouri",
+    "Arkansas",
+    "Kentucky",
+    "Tennessee",
+    "West Virginia",
+    "Ohio",
+    "Indiana",
+    "Illinois",
+    "Minnesota",
+    "North Dakota",
+    "South Dakota",
+    "Vermont",
+    "Pennsylvania",
+    "Wisconsin",
+    "Michigan"
+   ],
+   "texas-coastal-cities": [
+    "Houston",
+    "Galveston",
+    "Corpus Christi",
+    "Port Arthur",
+    "Brownsville",
+    "South Padre Island",
+    "Beaumont"
+   ],
+   "coastal-words": [
+    "board shorts",
+    "shell necklace",
+    "wetsuit",
+    "surf",
+    "reef",
+    "puka",
+    "aloha"
+   ]
+  }
+ },
+ "_climate-note": "climate and place: a hot state does not dress in winter layers and a cold one does not dress for the beach; coastal words need a coast (a Texas hometown is inland unless the city is on the coast list)"
 }

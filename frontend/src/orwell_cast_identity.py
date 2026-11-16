@@ -183,6 +183,57 @@ def parse_identity_facets(text: str, valid_ids: set[str]) -> dict:
     return out
 
 
+# ORW-480: the writer's favourite ages crowd the early twenties (12 of 15 houseguests at 21 to 28 in a real cast). The identity step may propose
+# an age, but the cast's FINAL ages follow the real-world curve the genesis deal already uses (GENESIS_AGE_BANDS: four at 21-26, five at
+# 27-33, four at 34-45, two at 46-60 for a cast of 15): a proposal stays when its band has room; otherwise the houseguest takes a
+# deterministic age in the emptiest band. Ages of houseguests with no proposal count at their seeded age.
+_AGE_CURVE = ((21, 26, 4), (27, 33, 5), (34, 45, 4), (46, 60, 2))
+
+
+def spread_ages(facets: dict, cast: list) -> dict:
+    """Return `facets` with every age made to fit the cast's age curve (see `_AGE_CURVE`). Pure and deterministic."""
+    ids = [str(n.get("id")) for n in (cast or []) if n.get("id") and n.get("id") != "player"]
+    if not ids or not facets:
+        return facets
+    n = len(ids)
+    total = sum(c for _, _, c in _AGE_CURVE)
+    caps = [max(0, round(c / total * n)) for _, _, c in _AGE_CURVE]
+    while sum(caps) < n:
+        caps[1] += 1
+    while sum(caps) > n:
+        caps[caps.index(max(caps))] -= 1
+    floor = {str(x.get("id")): x.get("age") for x in cast if isinstance(x.get("age"), (int, float))}
+
+    def band(a: int) -> int:
+        for i, (lo, hi, _) in enumerate(_AGE_CURVE):
+            if a <= hi:
+                return i
+        return len(_AGE_CURVE) - 1
+    want = {h: int((facets.get(h) or {}).get("age") or floor.get(h) or 0) for h in ids}
+    fill = [0] * len(_AGE_CURVE)
+    final: dict = {}
+    for h in ids:  # keep what fits, in roster order
+        a = want[h]
+        if a >= _AGE_CURVE[0][0] and fill[band(a)] < caps[band(a)]:
+            fill[band(a)] += 1
+            final[h] = a
+    for h in ids:  # the rest go to the emptiest band, at a deterministic age inside it
+        if h in final:
+            continue
+        if h not in facets and want[h]:
+            continue  # a houseguest with no proposal keeps the seeded age (it still counts toward its band above)
+        room = [i for i in range(len(caps)) if fill[i] < caps[i]] or list(range(len(caps)))
+        i = max(room, key=lambda k: (caps[k] - fill[k], -k))
+        lo, hi, _ = _AGE_CURVE[i]
+        final[h] = lo + (sum(ord(c) for c in h) % (hi - lo + 1))
+        fill[i] += 1
+    out = {h: dict(v) for h, v in facets.items()}
+    for h, a in final.items():
+        if h in out and (a != want[h] or "age" in out[h]):
+            out[h]["age"] = a
+    return out
+
+
 # ── the orchestrator (injectable — fully unit-testable) ────────────────────────
 
 LlmFn = Callable[[list[dict]], Awaitable[str]]
@@ -206,6 +257,7 @@ async def seed_cast_identity(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn)
         logger.warning(f"[cast-identity] llm failed: {e}")
         return 0
     facets = parse_identity_facets(text or "", valid_ids)
+    facets = spread_ages(facets, cast)  # ORW-480: the final ages follow the cast age curve, not the writer's favourite twenties
     if not facets:
         logger.debug("[cast-identity] nothing usable proposed — keeping the seeded floor")
         return 0
