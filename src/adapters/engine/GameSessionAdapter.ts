@@ -10880,6 +10880,15 @@ export class GameSessionAdapter implements GameSession {
     const s = this.seededRels.showmances.find((x) => x.stage !== "resolved" && (x.a === id || x.b === id) && !evicted.has(x.a) && !evicted.has(x.b));
     return s ? (s.a === id ? s.b : s.a) : undefined;
   }
+  /** ORW-466 slice 4: the bed facts a houseguest's hour reads - their sleep room, their AWAKE roommates among this stretch's actors, the one sharing their double. Empty without beds. */
+  private roommateView(beds: BedsState | undefined, id: EntityId, inHouse: ReadonlySet<EntityId>, awake: ReadonlyMap<EntityId, Room>): { bedroom?: Room; roommates?: EntityId[]; bedPartner?: EntityId } {
+    if (!beds) return {};
+    const bedroom = sleepRoomOf(beds, id, this.live?.hoh);
+    if (!bedroom) return {};
+    const roommates = roommatesIn(beds, bedroom, inHouse).filter((x) => x !== id && awake.has(x)).sort();
+    const partner = bedPartner(beds, id, inHouse);
+    return { bedroom, ...(roommates.length ? { roommates } : {}), ...(partner && awake.has(partner) ? { bedPartner: partner } : {}) };
+  }
   /**
    * One stretch of house life: every AWAKE NPC who is not in the player's room (those are in the player's own scene, which the narrator voices)
    * takes ONE action (`houseLife.chooseHourAction`) from their agenda's next step, habits (model-authored when ORW-319 wrote them), mood and who
@@ -10901,6 +10910,8 @@ export class GameSessionAdapter implements GameSession {
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     const authored = s.npcMindsAuthored?.traits ?? {};
     const plans: PlannedAction[] = [];
+    const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
+    const inHouse = new Set(this.livingIds());
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -10916,6 +10927,7 @@ export class GameSessionAdapter implements GameSession {
         threat: new Map(others.map((o) => [o, this.rel.edge(id, o).threat] as const)),
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
+        ...this.roommateView(bedsNow, id, inHouse, where),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
