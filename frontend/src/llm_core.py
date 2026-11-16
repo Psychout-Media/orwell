@@ -1783,6 +1783,8 @@ async def _llm_call_async_traced(
                 # ADR 0010 #3: the cap sent on the wire for this utility call + its terminal stop reason.
                 applied_max_tokens=max_tokens, finish_reason=_meta.get("finish_reason"),
                 cost=float(_usage.get("cost") or 0), provider=_usage.get("provider"),
+                cost_estimated=bool(_usage.get("cost_estimated")), model=_usage.get("model") or model,
+                cache_miss_tokens=_usage.get("cache_miss_tokens"),
             )
         except Exception:
             pass
@@ -1998,9 +2000,12 @@ async def _llm_call_async_impl(
                         "input_tokens": _u.get("prompt_tokens", 0),
                         "output_tokens": _u.get("completion_tokens", 0),
                         "cached_tokens": _cached or 0,
+                        # ORW-554: DeepSeek reports the uncached share of the prompt itself.
+                        "cache_miss_tokens": _u.get("prompt_cache_miss_tokens"),
                         "reasoning_tokens": _ctd.get("reasoning_tokens", 0) or 0,
                         "cost": _cost,
                         "provider": provider,
+                        "model": model,
                     })
                     if _estimated:
                         usage_sink["cost_estimated"] = True
@@ -2579,6 +2584,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                         _usage_data["cached_tokens"] = _ptd.get("cached_tokens")
                                     elif u.get("prompt_cache_hit_tokens") is not None:  # DeepSeek's own field
                                         _usage_data["cached_tokens"] = u.get("prompt_cache_hit_tokens")
+                                    if u.get("prompt_cache_miss_tokens") is not None:  # ORW-554: DeepSeek's uncached prompt share
+                                        _usage_data["cache_miss_tokens"] = u.get("prompt_cache_miss_tokens")
                                     if _ctd.get("reasoning_tokens") is not None:
                                         _usage_data["reasoning_tokens"] = _ctd.get("reasoning_tokens")
                                     if u.get("cost") is not None:

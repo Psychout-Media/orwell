@@ -38,9 +38,12 @@ Boundaries (mirrors the sync ledger)
 
 from __future__ import annotations
 
+import contextvars
+import datetime as _dt
 import json
 import logging
 import math
+import sys
 import threading
 import time
 from pathlib import Path
@@ -79,6 +82,31 @@ def _load() -> dict:
         return {}
     except Exception:
         # A corrupt store must never break the game: fall back to "no ledger".
+        return {}
+
+
+def _write_fast(path: Path, data: dict) -> None:
+    """Atomic (temp file + rename) but WITHOUT fsync: this is telemetry written on every model call, on the event loop.
+    A power cut can lose the last few entries; it can never leave a torn file, and it costs no disk flush per call."""
+    import os
+
+    os.makedirs(str(path.parent), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, separators=(",", ":")))  # dumps uses the C encoder; dump(f) streams through the pure-Python one
+    os.replace(tmp, str(path))
+
+
+def _rollup_path() -> Path:
+    """The roll-up's own file, beside the ledger (derived at call time, so a test that points LEDGER_PATH at a tmp dir moves both)."""
+    return LEDGER_PATH.with_name(LEDGER_PATH.stem + "_rollup.json")
+
+
+def _load_rollup() -> dict:
+    try:
+        data = json.loads(_rollup_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
         return {}
 
 
@@ -132,9 +160,18 @@ def _entry(
     context_percent: Any,
     provider: Any,
     cost_estimated: Any = False,
+    call_site: Any = None,
+    model: Any = None,
+    cache_miss_tokens: Any = None,
+    calls: Any = 1,
+    day: Any = 0,
 ) -> dict:
     """Build the bounded, Vault-free entry. Every field is coerced to a number / id /
     known token; there is no path for a free-form body to land in the stored shape."""
+    in_t = _clean_int(input_tokens)
+    hit_t = _clean_int(cached_tokens)
+    # ORW-554: DeepSeek reports prompt_cache_miss_tokens itself; when a caller has only input + hit, miss is the rest.
+    miss_t = _clean_int(cache_miss_tokens) if cache_miss_tokens is not None else max(0, in_t - hit_t)
     return {
         "ts": int(time.time() * 1000),
         "turnId": _clean_id(turn_id),
@@ -154,7 +191,185 @@ def _entry(
         "costEstimated": bool(cost_estimated),
         "contextPercent": _clean_float(context_percent),
         "provider": _clean_id(provider),
+        # ORW-554 (token-cost telemetry): WHICH site spent it, on WHICH model, how much of the prompt missed the cache,
+        # how many provider calls the entry folds together (a narrator turn is several tool rounds), and the in-game day.
+        # All short ids / counts; still no free-form text.
+        "callSite": _clean_id(call_site) or _clean_id(call_class),
+        "model": _clean_id(model),
+        "cacheMissTokens": miss_t,
+        "calls": max(1, _clean_int(calls)),
+        "day": _clean_int(day),
     }
+
+
+
+# ── ORW-554: call site, in-game day, and the daily roll-up ───────────────────────────
+#
+# The 500-entry ring above holds a few hours of traffic, far too little for a daily cost report. So every
+# entry is ALSO folded into a small per-user roll-up (numbers only, keyed by UTC date + call site + model, and by
+# played day). It lives in its OWN file (``_rollup_path()``), keyed by user, so a user name can never collide with
+# it and the per-call ledger write stays small. Same lock, same atomic write.
+
+_ROLLUP_DAYS = 90          # keep this many UTC dates per user
+_ROLLUP_GAME_DAYS = 600    # keep this many (session, played day) rows per user
+
+# The call site of the model call in progress. Explicit callers may set it (``call_site_scope``); otherwise
+# ``infer_call_site`` reads it off the call stack.
+_SITE: contextvars.ContextVar = contextvars.ContextVar("orwell_call_site", default="")
+
+
+def current_call_site() -> str:
+    try:
+        return _SITE.get() or ""
+    except Exception:  # pragma: no cover
+        return ""
+
+
+class call_site_scope:
+    """``with call_site_scope("npc-minds"):`` tags every ledger entry recorded inside the block."""
+
+    def __init__(self, site: str):
+        self._site = _clean_id(site)
+        self._tok = None
+
+    def __enter__(self):
+        self._tok = _SITE.set(self._site)
+        return self
+
+    def __exit__(self, *_exc):
+        if self._tok is not None:
+            _SITE.reset(self._tok)
+        return False
+
+
+# Module (file stem) -> call-site label, for the model-calling modules of the game. Modules not listed fall back to
+# ``module.function`` for the big shared ones, so a new caller still shows up.
+_SITE_BY_MODULE = {
+    "orwell_day_condense": "day-condense",
+    "orwell_cast_genesis": "cast-genesis",
+    "orwell_cast_identity": "cast-identity",
+    "orwell_gen_competitions": "competitions",
+    "orwell_npc_minds_words": "npc-minds",
+    "orwell_house_reflections": "house-reflections",
+    "orwell_offscreen_texture": "offscreen-texture",
+    "orwell_zeitgeist": "zeitgeist",
+    "orwell_producer_authoring": "producer-authoring",
+    "orwell_tagline": "tagline",
+    "orwell_room_canon": "room-canon",
+    "orwell_open_ledger": "open-ledger",
+    "orwell_portrait_check": "photo-check",
+    "orwell_portrait_upgrade": "portrait-upgrade",
+    "orwell_portraits": "portrait",
+    "orwell_cast_authoring": "cast-authoring",
+    "faithfulness": "faithfulness",
+}
+# Frames that are plumbing, not a call site.
+_SITE_SKIP_MODULES = {"llm_core", "orwell_token_ledger", "llm_trace", "asyncio", "contextlib", "threading",
+                      "base_events", "events", "tasks", "futures", "runners"}
+_SITE_SKIP_FUNCS = {"_once", "_fn", "_bounded_stream", "_llm_call_async_traced", "_meter", "llm_call_async",
+                    "_bounded_impl_call", "_attempt", "_call", "record_turn", "infer_call_site"}
+
+
+def infer_call_site(depth: int = 60) -> str:
+    """Name the model call's site from the call stack (a coroutine's frames chain through its awaiters).
+    ``""`` when nothing useful is found. Pure bookkeeping; never raises."""
+    try:
+        f = sys._getframe(1)
+        n = 0
+        while f is not None and n < depth:
+            mod = (f.f_globals.get("__name__") or "").rsplit(".", 1)[-1]
+            fn = f.f_code.co_name
+            if mod and mod not in _SITE_SKIP_MODULES and fn not in _SITE_SKIP_FUNCS and not mod.startswith("test_"):
+                label = _SITE_BY_MODULE.get(mod)
+                if label:
+                    return label
+                if mod in ("agent_loop", "ai_interaction", "tool_execution", "tool_implementations"):
+                    return _clean_id(f"{mod}.{fn.lstrip('_')}")
+            f = f.f_back
+            n += 1
+    except Exception:  # pragma: no cover
+        pass
+    return ""
+
+
+# The in-game day each user is on (set from the engine's day ledger / a turn-in); 0 when unknown.
+_GAME_DAY: dict = {}
+
+
+def note_game_day(user: str | None, day: Any) -> None:
+    """Remember the played day ``user``'s game is on, so later entries carry it. Ignores junk."""
+    d = _clean_int(day)
+    if d > 0:
+        _GAME_DAY[_key(user)] = d
+
+
+def current_game_day(user: str | None) -> int:
+    return _GAME_DAY.get(_key(user), 0)
+
+
+def _utc_date(ts_ms: Any) -> str:
+    try:
+        return _dt.datetime.fromtimestamp(int(ts_ms) / 1000.0, _dt.timezone.utc).strftime("%Y-%m-%d")
+    except Exception:
+        return "unknown"
+
+
+def _bump(row: dict, entry: dict) -> None:
+    row["calls"] = row.get("calls", 0) + _clean_int(entry.get("calls") or 1)
+    row["inputTokens"] = row.get("inputTokens", 0) + _clean_int(entry.get("inputTokens"))
+    row["cacheHitTokens"] = row.get("cacheHitTokens", 0) + _clean_int(entry.get("cachedTokens"))
+    row["cacheMissTokens"] = row.get("cacheMissTokens", 0) + _clean_int(entry.get("cacheMissTokens"))
+    row["reasoningTokens"] = row.get("reasoningTokens", 0) + _clean_int(entry.get("reasoningTokens"))
+    row["outputTokens"] = row.get("outputTokens", 0) + _clean_int(entry.get("outputTokens"))
+    row["cost"] = round(row.get("cost", 0.0) + _clean_float(entry.get("cost")), 8)
+
+
+def _row_part(v: Any) -> str:
+    """One half of a roll-up row key: ``|`` separates site from model, so it can never appear inside either half."""
+    return (str(v or "") or "-").replace("|", "/")
+
+
+def _roll_up(roll: dict, user_key: str, entry: dict) -> None:
+    """Fold one entry into ``roll`` (the roll-up file's dict; caller holds the lock and writes the file)."""
+    u = roll.get(user_key)
+    if not isinstance(u, dict):
+        u = {}
+    daily = u.get("daily") if isinstance(u.get("daily"), dict) else {}
+    date = _utc_date(entry.get("ts"))
+    day_rows = daily.get(date) if isinstance(daily.get(date), dict) else {}
+    rk = f"{_row_part(entry.get('callSite'))}|{_row_part(entry.get('model'))}"
+    row = day_rows.get(rk) if isinstance(day_rows.get(rk), dict) else {}
+    _bump(row, entry)
+    day_rows[rk] = row
+    daily[date] = day_rows
+    if len(daily) > _ROLLUP_DAYS:
+        for old in sorted(daily)[: len(daily) - _ROLLUP_DAYS]:
+            del daily[old]
+    u["daily"] = daily
+    if entry.get("day"):
+        gd = u.get("gameDays") if isinstance(u.get("gameDays"), dict) else {}
+        gk = f"{entry.get('session') or '-'}:{entry['day']}"
+        grow = gd.get(gk) if isinstance(gd.get(gk), dict) else {}
+        _bump(grow, entry)
+        gd[gk] = grow
+        while len(gd) > _ROLLUP_GAME_DAYS:
+            del gd[next(iter(gd))]
+        u["gameDays"] = gd
+    roll[user_key] = u
+
+
+def get_rollup(user: str | None) -> dict:
+    """The user's roll-up ``{"daily": {date: {"site|model": counters}}, "gameDays": {"session:day": counters}}``."""
+    with _LOCK:
+        roll = _load_rollup()
+    u = roll.get(_key(user))
+    return u if isinstance(u, dict) else {}
+
+
+def cache_hit_rate(hit: Any, miss: Any) -> float | None:
+    """Share of prompt tokens served from the provider's cache; None when there were no prompt tokens."""
+    h, m = _clean_int(hit), _clean_int(miss)
+    return (h / (h + m)) if (h + m) > 0 else None
 
 
 # ── public API ───────────────────────────────────────────────────────────────────
@@ -176,6 +391,11 @@ def record_turn(
     context_percent: Any = None,
     provider: Any = None,
     cost_estimated: Any = False,
+    call_site: Any = None,
+    model: Any = None,
+    cache_miss_tokens: Any = None,
+    calls: Any = 1,
+    day: Any = None,
 ) -> None:
     """Append one Vault-free per-turn token/cost record for ``user`` (per-user scoped),
     bounded by a per-user ring, and emit one structured ``[orwell]`` log line.
@@ -199,6 +419,11 @@ def record_turn(
             context_percent=context_percent,
             provider=provider,
             cost_estimated=cost_estimated,
+            call_site=call_site or current_call_site() or infer_call_site(),
+            model=model,
+            cache_miss_tokens=cache_miss_tokens,
+            calls=calls,
+            day=day if day is not None else current_game_day(user),
         )
         k = _key(user)
         with _LOCK:
@@ -210,7 +435,11 @@ def record_turn(
             if len(bucket) > _MAX_PER_USER:
                 bucket = bucket[-_MAX_PER_USER:]  # bounded — drop oldest
             data[k] = bucket
-            atomic_write_json(str(LEDGER_PATH), data, indent=2)
+            # Runs on every model call: compact JSON, no fsync (see _write_fast).
+            _write_fast(LEDGER_PATH, data)
+            roll = _load_rollup()
+            _roll_up(roll, k, entry)
+            _write_fast(_rollup_path(), roll)
         _log_line(k, entry)
     except Exception as e:  # pragma: no cover - defence in depth
         try:
@@ -268,9 +497,11 @@ def clear(user: str | None) -> None:
     k = _key(user)
     with _LOCK:
         data = _load()
-        if k in data:
-            del data[k]
+        if data.pop(k, None) is not None:
             atomic_write_json(str(LEDGER_PATH), data, indent=2)
+        roll = _load_rollup()
+        if roll.pop(k, None) is not None:
+            atomic_write_json(str(_rollup_path()), roll, indent=None)
 
 
 # ORW-198: a turn whose model spent more than this many REASONING tokens is a slow-turn suspect (the DeepSeek route thinks on every round even with narration reasoning "off"; slow turns showed 4.3k-10k
@@ -293,13 +524,14 @@ def _log_line(user_key: str, entry: dict) -> None:
         ctx = entry.get("contextPercent")
         (logger.warning if reasoning_alarm(entry) else logger.info)(
             "[orwell] token-ledger turn user=%s session=%s turn=%s class=%s "
-            "in=%s cached=%s reasoning=%s out=%s cap=%s finish=%s cost=%.6f ctx=%s%% provider=%s",
+            "in=%s cached=%s miss=%s reasoning=%s out=%s cap=%s finish=%s cost=%.6f ctx=%s%% provider=%s site=%s model=%s",
             user_key,
             entry.get("session") or "-",
             entry.get("turnId") or "-",
             entry.get("callClass") or "-",
             entry.get("inputTokens"),
             entry.get("cachedTokens"),
+            entry.get("cacheMissTokens"),
             entry.get("reasoningTokens"),
             entry.get("outputTokens"),
             entry.get("appliedMaxTokens"),
@@ -307,6 +539,8 @@ def _log_line(user_key: str, entry: dict) -> None:
             entry.get("cost") or 0.0,
             ("%.1f" % ctx) if isinstance(ctx, (int, float)) else "-",
             entry.get("provider") or "-",
+            entry.get("callSite") or "-",
+            entry.get("model") or "-",
         )
     except Exception:  # pragma: no cover
         pass
