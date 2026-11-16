@@ -29,11 +29,10 @@ def fe_guard_log_strings():
     out = []
     for rel in FE_FILES:
         path = os.path.join(REPO, rel)
-        if not os.path.exists(path):
-            continue
+        assert os.path.exists(path), f"configured FE source {path} not found under {REPO} (wrong ORWELL_REPO or checkout): the drift check would silently cover half the guards"
         tree = ast.parse(open(path, encoding="utf-8").read())
         for n in ast.walk(tree):
-            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("warning", "info", "error") and n.args:
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("warning", "info", "error", "debug") and n.args:
                 lit = _literal(n.args[0])
                 if lit and lit.startswith("[orwell]") and GUARDISH.search(lit):
                     out.append((rel, n.lineno, lit))
@@ -77,6 +76,13 @@ def test_the_report_shows_the_new_guard_section_with_down_first_and_class_tags()
     assert "N-16 x1" in section and "A-9 x1" in section
 
 
-def test_a_renamed_fe_log_string_would_be_caught_by_the_drift_test():
+def test_a_guard_log_line_with_no_analyzer_marker_is_reported_by_the_scan(tmp_path, monkeypatch):
+    """The scan itself (not a restated predicate) flags a new guard-like FE log literal that has no analyzer class."""
+    for rel in FE_FILES:
+        f = tmp_path / rel; f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("import logging\nlogger = logging.getLogger('x')\n")
+    (tmp_path / FE_FILES[0]).write_text("logger.warning('[orwell] shiny new guard line fired for user=%s', u)\n")
+    monkeypatch.setattr(sys.modules[__name__], "REPO", str(tmp_path))
+    found = fe_guard_log_strings()
     markers = [m for m, _, _ in psa.GUARD_LINES] + list(LEGACY)
-    assert not any(m in "[orwell] shiny new guard line fired for user=u" for m in markers)
+    assert found and not any(m in found[0][2] for m in markers)

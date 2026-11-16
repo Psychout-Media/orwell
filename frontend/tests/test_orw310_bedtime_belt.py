@@ -581,3 +581,72 @@ def test_direct_turn_in_narrator_gets_the_recap_first_and_the_morning_context(mo
     blob = "\n".join(str(m.get("content")) for m in first if m.get("role") == "system")
     assert "Time of day: night" not in blob and "Time of day: morning" in blob and "Still asleep (1): Sleeper One" in blob  # (#2683)
     assert belts.get("bedtime-context-rebuilt") == 1
+
+
+# ── ORW-520: the engine held the bed / never committed a sleep, yet the narrator wrote the night and a morning. ──
+UNCOMMITTED_SLEEP_CLAIMS = [
+    "Production's voice cuts in: \"Good morning, houseguests.\"",
+    "You slept through the whole afternoon.",
+    "The light through the blinds has gone gray and then gold.",
+]
+
+
+@pytest.mark.parametrize("text", UNCOMMITTED_SLEEP_CLAIMS)
+@pytest.mark.parametrize("tod,clock", [("evening", "9:09pm, Day 1"), ("evening", "6:10pm, Day 2"), ("afternoon", "3:00pm, Day 2")])
+def test_screen_holds_a_night_that_never_happened(monkeypatch, text, tod, clock):
+    ok, stashed = _screen(monkeypatch, text, tod, clock)
+    assert ok is False and stashed and clock in stashed[0]
+
+
+@pytest.mark.parametrize("text", UNCOMMITTED_SLEEP_CLAIMS)
+def test_screen_keeps_them_once_the_engine_moved_to_morning(monkeypatch, text):
+    ok, stashed = _screen(monkeypatch, text, "morning", "8:00am, Day 2")
+    assert ok is True and not stashed
+
+
+def test_screen_holds_the_dead_of_night_only_in_the_daytime_bands(monkeypatch):
+    s = "It is the dead middle of the night and the house has finally quit."
+    ok, stashed = _screen(monkeypatch, s, "evening", "9:09pm, Day 1")
+    assert ok is False and stashed
+    ok, stashed = _screen(monkeypatch, s, "late-night", "2:10am, Day 1")
+    assert ok is True and not stashed
+
+
+def test_the_pre_emission_guard_drops_only_the_invented_night(monkeypatch):
+    from src import agent_loop as al
+    from src import orwell_engine as oe
+    from routes import chat_helpers as ch
+
+    async def fake_status(user=None):
+        return {"timeOfDay": "evening", "clockLabel": "9:09pm, Day 1"}
+
+    monkeypatch.setattr(oe, "game_status", fake_status)
+    monkeypatch.setattr(ch, "_stash_overclaim_reground", lambda u, d: None)
+    text = "You lie back and close your eyes. You slept through the whole afternoon. The hall is still loud."
+    out = asyncio.get_event_loop().run_until_complete(al._pre_emission_outcome_guard(text, "u"))
+    assert "slept through" not in out
+    assert "You lie back" in out and "The hall is still loud." in out
+
+
+# ── review of #2870 (Cubic P2s on the ORW-520 screen) ──
+@pytest.mark.parametrize("text", [
+    "You slept through the night; now it is the afternoon.",   # A: an accurate recollection of a committed night
+    "You slept through the whole night last night.",
+    "The pale hands then turned golden in the lamplight.",     # B: a colour change is not dawn
+    "It wasn't the dead middle of the night, just late.",      # C: negated
+    "It is not the dead of night yet.",
+])
+def test_orw520_screen_does_not_hold_recollection_colour_or_negation(monkeypatch, text):
+    ok, stashed = _screen(monkeypatch, text, "evening", "6:15pm, Day 2")
+    assert ok is True and not stashed, text
+
+
+@pytest.mark.parametrize("text", [
+    "You slept through the whole afternoon.",
+    "The light through the blinds has gone gray and then gold.",
+    "The sky went pale, then golden light spilled in.",
+    "It is the dead middle of the night.",
+])
+def test_orw520_real_phrasings_still_held(monkeypatch, text):
+    ok, stashed = _screen(monkeypatch, text, "evening", "6:15pm, Day 2")
+    assert ok is False and stashed, text
