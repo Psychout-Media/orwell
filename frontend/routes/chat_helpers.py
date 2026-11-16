@@ -785,7 +785,7 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     if shown:
         line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
     cut = ""
-    if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins + 5 < asked_minutes:
+    if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins < asked_minutes:
         cut = ("The wait was CUT SHORT: the player asked to wait about %d minutes but only about %d passed. Say plainly that the wait was interrupted; do NOT claim the full time went by. " % (asked_minutes, mins))
     return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. " % mins
             + cut + "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % line)
@@ -6483,28 +6483,21 @@ _UNBACKED_MORNING_RE = re.compile(
     r"\b(?:the\s+)?next\s+(?:morning|day)\s+(?:comes|came|arrives|arrived|dawns|dawned|breaks|broke)\b"
     r"|\bmorning\s+(?:has\s+|had\s+)?(?:comes?|came|arrives?|arrived|breaks?|broke|dawns?|dawned)\b"
     r"|\bit(?:'s|\u2019s|\s+is|\s+was)\s+(?:now\s+|already\s+)*(?:the\s+)?(?:next\s+)?(?:morning|day\s+(?:2|two|3|three))\b"
-    r"|\b(?:wak\w+|woke|rous\w+|awaken\w*)\b[^.!?\n]{0,40}\b(?:next\s+morning|morning\s+(?:light|sun|sunlight)|in\s+the\s+morning)\b"
-    # ORW-520: a night that never happened (the engine held the bed / never committed a sleep): production's morning call, "slept through the afternoon", a grey-then-gold dawn
-    r"|\bgood\s+morning,?\s+(?:house\s?guests|house)\b"
-    r"|\bslept\s+(?:right\s+)?through\s+(?:the\s+)?(?:whole\s+|entire\s+|rest\s+of\s+the\s+)?(?:afternoon|night|day)\b"
-    r"|\b(?:gr[ae]y|pale)\b[^.!?\n]{0,25}\b(?:and\s+)?then\s+(?:gold|golden)\b",
+    r"|\b(?:wak\w+|woke|rous\w+|awaken\w*)\b[^.!?\n]{0,40}\b(?:next\s+morning|morning\s+(?:light|sun|sunlight)|in\s+the\s+morning)\b",
     re.IGNORECASE,
 )
-# ORW-520: "the dead middle of the night" is a clock claim too; held only while the engine clock reads afternoon/evening (it is true at night / late-night).
-_UNBACKED_NIGHT_RE = re.compile(r"\b(?:dead\s+(?:middle\s+)?of\s+(?:the\s+)?night|(?:dead\s+)?middle\s+of\s+the\s+night|dead\s+of\s+night)\b", re.IGNORECASE)
-_UNBACKED_NIGHT_BOARD_TIMES = frozenset({"afternoon", "evening"})
 _UNBACKED_MORNING_EXEMPT_RE = re.compile(
     r"\b(?:will|would|could|might|going\s+to|about\s+to|if|imagine|suppose|tomorrow|until|till|before|when|whenever|dream\w*|hope|wish|"
     r"see\s+you|wake\s+you\s+(?:up\s+)?(?:in|at|early|tomorrow)|'ll|\u2019ll)\b",
     re.IGNORECASE,
 )
-_UNBACKED_MORNING_BOARD_TIMES = frozenset({"afternoon", "evening", "night", "late-night"})  # ORW-520: afternoon too (a bed held at 6pm; "Good morning, houseguests" is no truer at 3pm)
+_UNBACKED_MORNING_BOARD_TIMES = frozenset({"evening", "night", "late-night"})
 
 
 def _sentence_has_unbacked_morning_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the morning / next day has arrived (and is not a
     future / hypothetical / dream sentence)? Keeps the ORW-310 guard off every other sentence."""
-    if not text or not (_UNBACKED_MORNING_RE.search(text) or _UNBACKED_NIGHT_RE.search(text)):
+    if not text or not _UNBACKED_MORNING_RE.search(text):
         return False
     return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
 
@@ -6539,16 +6532,6 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         lab = status.get("clockLabel")
         # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
         # pre-dawn small hours, so "morning comes in bright and early" is just as unbacked as it is at night.
-        _night_only = bool(_UNBACKED_NIGHT_RE.search(sentence)) and not _UNBACKED_MORNING_RE.search(sentence)
-        if _night_only:  # ORW-520: "the dead middle of the night" is false only in the daytime/evening bands
-            if tod not in _UNBACKED_NIGHT_BOARD_TIMES:
-                return True
-            _stash_overclaim_reground(
-                user,
-                "RE-GROUND ON THE CLOCK - you narrated the dead of night, but the engine clock reads " + (_zc_narrator_clock(lab) if lab else tod) + " (" + tod + "). "
-                "No night has passed; the player is still awake and the house is still up. Do not write them asleep or time passing.")
-            logger.warning("[orwell] pre-emission guard HELD an unbacked night claim for user=%s - engine clock still %s", user, tod)
-            return False
         if tod not in _UNBACKED_MORNING_BOARD_TIMES and not _clock_is_predawn(lab):
             return True
         _stash_overclaim_reground(
