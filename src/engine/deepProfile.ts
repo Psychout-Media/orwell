@@ -3,6 +3,7 @@ import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics"
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed, spreadFacet, dealPresentationFamilies } from "./characterFactory";
+import { tagKind } from "../domain/castRealism";
 import { STYLE_FAMILIES, familyForLabel } from "../domain/styleFamilies";
 import { dealCastingTypes, type CastingType } from "../domain/castingTypes";
 import type { Archetype, Character, Houseguest } from "./characterFactory";
@@ -246,22 +247,43 @@ const HAIR_GRAY = /\b(gray|grey|silver|salt-and-pepper)\b/i;
 /** True when a hair entry is a gray/silver/salt-and-pepper one (only dealt at 40+). */
 export function isGrayHair(desc: string): boolean { return HAIR_GRAY.test(desc); }
 
+// ORW-480: forty plain, specific face descriptions (never a mark: no glasses, freckles, dimples, piercings, scars or a tooth gap), dealt
+// at most once per cast, so no one description turns up in most casts (the writer sharpens it on the card).
 const FACIAL = [
-  "strong cheekbones", "a square jaw and deep-set eyes", "round soft features",
-  "a sharp angular face", "an open friendly face", "heavy expressive eyebrows",
-  "a narrow refined face", "a warm crinkle-eyed smile", "an even symmetrical face",
-  "a broad expressive grin",
+  "strong cheekbones", "a square jaw and deep-set eyes", "round soft features", "a sharp angular face", "an open friendly face",
+  "heavy expressive eyebrows", "a narrow refined face", "a warm crinkle-eyed smile", "an even symmetrical face", "a broad expressive grin",
+  "a long face with a prominent nose", "wide-set eyes and a soft chin", "a heart-shaped face", "a strong brow and a straight nose",
+  "full cheeks and small eyes", "an oval face with a high forehead", "a broad nose and a wide smile", "narrow eyes and a firm mouth",
+  "a pointed chin and arched brows", "a rounded jaw and big dark eyes", "a defined jaw and a slightly upturned nose", "soft eyes and a gentle mouth",
+  "a high forehead and thin lips", "a wide face with a short nose", "a long jaw and a thoughtful gaze", "large expressive eyes and a small mouth",
+  "a strong nose and sculpted cheeks", "a pronounced chin and thick lashes", "a flat-planed face with a calm expression", "a broad forehead and a quick smile",
+  "a slim face with a prominent jaw", "deep-set eyes and a wry mouth", "round cheeks and a short chin", "a roman nose and a steady look",
+  "a petite face with bright eyes", "a wide jaw and a flat brow", "angular brows and a lean face", "a soft round chin and wide cheekbones",
+  "a squarish face with a ready grin", "hooded eyes and a full mouth",
 ];
-// ORW-381: marks are SIGNATURES, not flaws (no scars, birthmarks or chipped teeth). Each named mark is dealt
-// at most once per cast; about 60% of a cast gets "none notable". Two tattoo entries remain (the ink budget).
+// ORW-480: marks are SIGNATURES a portrait can hold (glasses, ear and nose piercings, freckles, dimples, beauty marks, three tattoos): no scars,
+// birthmarks, tooth gaps or smiles. FORTY-FOUR of them, each dealt at most once per cast, and about 3 or 4 of a 15-cast carry one, so no
+// single mark turns up in more than about one cast in ten (the old pool of eleven put each one in about every other season).
 const MARKS = [
-  "deep dimples", "freckles across the nose", "a beauty mark on one cheek", "wire-rimmed glasses",
-  "a small nose stud", "a stud earring", "a small wrist tattoo", "a half-sleeve tattoo",
-  "a gap-toothed grin", "strong dark eyebrows", "a bright wide smile",
+  "round tortoiseshell glasses", "thin gold-rimmed glasses", "black rectangular glasses", "clear-framed glasses", "aviator-style glasses",
+  "wire-rimmed glasses", "oversized round glasses", "cat-eye glasses", "tinted round glasses", "browline glasses",
+  "a stud earring", "two small studs in one ear", "small gold hoops", "a single pearl stud", "a cartilage piercing in one ear",
+  "a row of small hoops up one ear", "tiny diamond studs", "a small silver hoop in one ear", "a gold stud and a small hoop in one ear", "drop earrings",
+  "a small stud in the upper ear", "simple gold huggie earrings",
+  "a small nose stud", "a thin nose ring", "a small stud in one nostril", "a tiny eyebrow piercing",
+  "freckles across the nose", "a dusting of freckles across the cheeks", "heavy freckles on the nose and cheeks", "a few freckles under one eye",
+  "freckled shoulders", "freckles across the bridge of the nose and forehead",
+  "deep dimples", "a single dimple on the left cheek", "a single dimple on the right cheek", "faint dimples when talking", "a dimpled chin",
+  "a beauty mark on one cheek", "a beauty mark above the lip", "a beauty mark near one eye", "a beauty mark on the chin",
+  "a small wrist tattoo", "a half-sleeve tattoo", "a small tattoo behind one ear",
   "none notable",
 ];
-/** Share of a cast dealt "none notable" (rounded to a whole count per cast). */
-const MARK_NONE_SHARE = 0.6;
+/** The mark's category (glasses, ear-piercing, freckles ...) from the shared casting-director table. */
+const markKind = (m: string): string => tagKind("mark", { distinguishingMark: m } as never)[0] ?? "other";
+/** No category of mark on more than this many cards of a cast. */
+const MAX_MARKS_PER_KIND = 2;
+/** Share of a cast dealt "none notable" (rounded to a whole count per cast): 11 of 15, so 4 carry a mark. */
+const MARK_NONE_SHARE = 0.76;
 // ORW-360: the seeded style is no longer dealt from a second list. It is the `sample` of the houseguest's
 // OWN presentation family (src/domain/styleFamilies.ts), so the brief and the label always agree. The
 // rocker vibe stays ink-free; visible ink is the distinguishing-mark budget's alone (2026-07-21 audit).
@@ -272,7 +294,7 @@ const MARK_NONE_SHARE = 0.6;
 // skinTone/build/ethnicity already use via `spreadFacet`/`MAX_PER_*`): the cast is DEALT each facet with
 // each value used at most this many times, instead of independent per-NPC picks.
 export const MAX_PER_HAIR = 1;
-export const MAX_PER_FACIAL = 2;
+export const MAX_PER_FACIAL = 1;
 // #1317 (cast portraits converge, root cause 2): `heightBuild`/`skinTone` were drawn with a BARE
 // per-NPC `rng.pick()` — no cast-wide spread cap — while hair/facial/style already got the L28-style
 // cap above. Same discipline, same pool sizes (10 each): capped at 2 so a 15-cast comfortably spreads
@@ -321,16 +343,20 @@ export function dealMarksSpread(rng: RandomnessSource, count: number, maxEach: n
   const named = MARKS.filter((m) => !/^none\b/i.test(m));
   const none = MARKS.find((m) => /^none\b/i.test(m))!;
   const uses = new Map<string, number>();
+  const kindUses = new Map<string, number>();
   let noneLeft = Math.round(MARK_NONE_SHARE * count);
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
     const r = rng.int(1_000_000);
     const remaining = count - i;
     if (noneLeft > 0 && r * remaining < noneLeft * 1_000_000) { noneLeft--; out.push(none); continue; }
-    const open = named.filter((m) => (uses.get(m) ?? 0) < maxEach);
+    const open = named.filter((m) => (uses.get(m) ?? 0) < maxEach && (kindUses.get(markKind(m)) ?? 0) < MAX_MARKS_PER_KIND);
     if (open.length === 0) { out.push(none); continue; }
-    const v = open[Math.floor((r / 1_000_000) * open.length) % open.length]!;
+    // the same draw already decided "named"; spread what is left of it evenly over the open marks (using it raw leaned on the end of the list)
+    const u = Math.min(0.999999, Math.max(0, (r * remaining - noneLeft * 1_000_000) / (Math.max(1, remaining - noneLeft) * 1_000_000)));
+    const v = open[Math.floor(u * open.length)]!;
     uses.set(v, (uses.get(v) ?? 0) + 1);
+    kindUses.set(markKind(v), (kindUses.get(markKind(v)) ?? 0) + 1);
     out.push(v);
   }
   return out;

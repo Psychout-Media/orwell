@@ -315,3 +315,23 @@ def test_the_finished_cast_holds_the_sector_and_job_word_caps_over_200_seeded_fl
         assert not over.get("role"), (seed, jobs, over)
         after_bad += bool(over.get("sector"))
     assert before_bad > 40 and after_bad == 0 and replaced > 0
+
+
+# ---- marks (Kevin: "so many people with tooth gaps") ---------------------------------------------------------
+def test_the_mark_lives_in_distinguishing_mark_only_and_the_season_line_names_the_marks_dealt():
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "woman", "age": 30}
+    prof = {"physicalCharacteristics": {"distinguishingMark": "round tortoiseshell glasses", "facialFeatures": "strong cheekbones, round glasses over soft eyes"}}
+    codes = gate.mend(prof, npc, [npc])
+    assert "mark-duplicated" in codes and prof["physicalCharacteristics"]["facialFeatures"] == "strong cheekbones"
+    assert gate.mend({"physicalCharacteristics": {"distinguishingMark": "none notable", "facialFeatures": "a square jaw"}}, npc, [npc]) == []
+    g = gate.SeasonGate("t")
+    for i, mark in enumerate(["round tortoiseshell glasses", "a single dimple on the left cheek", "none notable"]):
+        n, p = _card(i + 1, "He sits with his arms folded.")
+        p["physicalCharacteristics"]["distinguishingMark"] = mark
+        _go(gate.run_gate(g, p, n, [n], None))
+    assert g.marks_dealt() == "2[dimples,glasses]" and "marks=2[dimples,glasses]" in g.summary_line()
+
+
+def test_the_writer_prompt_keeps_the_mark_out_of_the_face_line():
+    from src import orwell_cast_authoring as ca
+    assert "THE MARK LIVES IN distinguishingMark ONLY" in ca._SYSTEM

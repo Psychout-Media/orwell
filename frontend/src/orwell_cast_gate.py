@@ -96,6 +96,8 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
     the biography and identityConcept) and . Returns codes."""
     from src import orwell_cast_authoring as A
     done = list(A.repair_story(profile, npc, cast))
+    if _dedupe_mark(profile, npc):
+        done.append("mark-duplicated")
     if _drop_name_from_oncamera(profile, npc):
         done.append("oncamera-name")
     return done
@@ -136,6 +138,28 @@ _COMMON_WORD_NAMES = frozenset((
     "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
 # Words after which a name is the subject of a new clause ("... and Namea stands").
 _SUBJECT_INTRODUCERS = frozenset("and but while as then when because so if that where though until".split())
+
+
+def _dedupe_mark(profile: dict, npc: dict) -> bool:
+    """The distinguishing mark lives in distinguishingMark only: a clause of facialFeatures that restates it (a gap-toothed grin, the same
+    freckles or glasses) is dropped. Clauses are cut at commas and "and"; nothing is dropped when it would leave the line empty."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(phys, dict):
+        return False
+    mark = _norm(phys.get("distinguishingMark") or ((npc or {}).get("physicalCharacteristics") or {}).get("distinguishingMark"))
+    face = phys.get("facialFeatures")
+    if not mark or mark.startswith("none") or not isinstance(face, str):
+        return False
+    stop = {"a", "an", "the", "of", "on", "in", "one", "small", "with", "and", "to", "at"}
+    key = {w for w in mark.split() if w not in stop and len(w) > 3}
+    if not key:
+        return False
+    parts = [p_ for p_ in re.split(r",\s*|\s+and\s+", face) if p_.strip()]
+    kept = [p_ for p_ in parts if len({w for w in _norm(p_).split()} & key) < 1]
+    if len(kept) == len(parts) or not kept:
+        return False
+    phys["facialFeatures"] = ", ".join(kept)
+    return True
 
 
 def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
@@ -364,12 +388,17 @@ class SeasonGate:
                     out[k].append(r[key])
         return {k: v for k, v in out.items() if v}
 
+    def marks_dealt(self) -> str:
+        """The distinguishing marks this cast carries, by category: "3[glasses,freckles,tattoo]" (the cross-season note, ORW-480)."""
+        kinds = [t["mark"][0] for t in (r.get("tags") or {} for r in self.registry.values()) if t.get("mark")]
+        return f"{len(kinds)}[{','.join(sorted(kinds))}]"
+
     def summary_line(self) -> str:
         per = ",".join(f"{k}={v}" for k, v in sorted(self.codes.items())) or "none"
         return (f"[cast-gate] season line: checked={self.checked} repaired={self.repaired} "
                 f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
                 f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-demand={self.realism_demand} "
-                f"realism-asked={self.realism_rewrites}/{REALISM_REWRITE_BUDGET} realism-fixed={self.realism_fixed}")
+                f"realism-asked={self.realism_rewrites}/{REALISM_REWRITE_BUDGET} realism-fixed={self.realism_fixed} marks={self.marks_dealt()}")
 
     def log_summary(self) -> None:
         if self.checked:

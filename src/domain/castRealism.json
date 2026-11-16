@@ -1225,6 +1225,68 @@
    },
    "scope": "first-item",
    "rule": "earliest"
+  },
+  "mark": {
+   "field": "distinguishingMark",
+   "multi": false,
+   "cap": {
+    "share": 0.0,
+    "min": 2
+   },
+   "note": "the distinguishing mark by category; a cast carries about 3 or 4 marks in all and no category on more than 2 (the engine deal gives each named mark to one card at most)",
+   "values": {
+    "glasses": {
+     "words": [
+      "glasses"
+     ]
+    },
+    "ear-piercing": {
+     "words": [
+      "earring",
+      "stud earring",
+      "hoop",
+      "studs",
+      "stud in one ear",
+      "stud earring",
+      "cartilage",
+      "pearl stud",
+      "huggie",
+      "studs"
+     ]
+    },
+    "nose-piercing": {
+     "words": [
+      "nose stud",
+      "nose ring",
+      "nostril",
+      "eyebrow piercing"
+     ]
+    },
+    "freckles": {
+     "words": [
+      "freckle*"
+     ]
+    },
+    "dimples": {
+     "words": [
+      "dimple*"
+     ]
+    },
+    "beauty-mark": {
+     "words": [
+      "beauty mark"
+     ]
+    },
+    "tattoo": {
+     "words": [
+      "tattoo*"
+     ],
+     "cap": {
+      "share": 0.0,
+      "min": 1
+     }
+    }
+   }
   }
  },
  "unreal-clothes": {
@@ -1548,5 +1610,251 @@
   "tucked into",
   "beneath",
   "atop"
- ]
+ ],
+ "look-fit": {
+  "_note": "ORW-480: a look must be plausible for the life. Family affluence 0 (modest) to 2 (polished/expensive); a person's affluence comes from the job sector. Weight = fit of the family to the life: used by the engine deal (src/domain/styleFit.ts) and by the look-fits-life check (frontend/src/orwell_cast_realism.py). Not a costume of the job: no uniforms, no work gear.",
+  "family-affluence": {
+   "rocker": 1,
+   "punk": 0,
+   "goth": 1,
+   "preppy": 2,
+   "southern": 2,
+   "country-club": 2,
+   "quiet-luxury": 2,
+   "corporate": 1.5,
+   "minimalist": 2,
+   "streetwear": 1,
+   "luxury-streetwear": 2,
+   "athleisure": 1,
+   "college-athlete": 0,
+   "skater": 0,
+   "y2k": 0,
+   "glam": 2,
+   "bohemian": 1,
+   "crunchy": 0,
+   "cottagecore": 1,
+   "vintage": 0,
+   "beachy": 1,
+   "western": 1,
+   "workwear": 0,
+   "outdoorsy": 1,
+   "camo": 0,
+   "military": 1,
+   "academic": 1.5,
+   "gamer": 0,
+   "miami": 2,
+   "healthcare": 1
+  },
+  "family-age": {
+   "y2k": [
+    16,
+    34
+   ],
+   "skater": [
+    16,
+    32
+   ],
+   "gamer": [
+    16,
+    38
+   ],
+   "college-athlete": [
+    18,
+    27
+   ],
+   "streetwear": [
+    18,
+    42
+   ],
+   "luxury-streetwear": [
+    18,
+    42
+   ],
+   "glam": [
+    18,
+    48
+   ],
+   "miami": [
+    20,
+    48
+   ],
+   "country-club": [
+    28,
+    80
+   ],
+   "quiet-luxury": [
+    30,
+    80
+   ],
+   "academic": [
+    25,
+    80
+   ],
+   "corporate": [
+    24,
+    68
+   ],
+   "preppy": [
+    18,
+    80
+   ],
+   "cottagecore": [
+    18,
+    60
+   ],
+   "punk": [
+    16,
+    50
+   ],
+   "goth": [
+    16,
+    55
+   ]
+  },
+  "family-town": {
+   "western": "small",
+   "camo": "small",
+   "workwear": "small",
+   "crunchy": "small",
+   "luxury-streetwear": "big",
+   "miami": "big",
+   "glam": "big",
+   "quiet-luxury": "big",
+   "minimalist": "big",
+   "skater": "any"
+  },
+  "sector-affluence": {
+   "care-and-public-service": 1,
+   "coaching-fitness": 0.5,
+   "food-hospitality": 0,
+   "trades-labor": 0,
+   "education-youth": 1,
+   "office-admin": 1.5,
+   "tech-science": 1.5,
+   "sales-business": 1.5,
+   "creative-media": 1,
+   "other": 1
+  },
+  "sector-families": {
+   "trades-labor": [
+    "workwear",
+    "outdoorsy",
+    "camo",
+    "western",
+    "skater",
+    "athleisure"
+   ],
+   "food-hospitality": [
+    "skater",
+    "streetwear",
+    "athleisure",
+    "vintage",
+    "punk",
+    "gamer"
+   ],
+   "care-and-public-service": [
+    "athleisure",
+    "outdoorsy",
+    "healthcare",
+    "crunchy"
+   ],
+   "coaching-fitness": [
+    "athleisure",
+    "college-athlete",
+    "outdoorsy",
+    "streetwear"
+   ],
+   "education-youth": [
+    "academic",
+    "cottagecore",
+    "bohemian",
+    "preppy",
+    "crunchy"
+   ],
+   "creative-media": [
+    "vintage",
+    "bohemian",
+    "goth",
+    "punk",
+    "rocker",
+    "gamer"
+   ],
+   "tech-science": [
+    "gamer",
+    "outdoorsy",
+    "academic",
+    "minimalist"
+   ],
+   "office-admin": [
+    "corporate",
+    "preppy",
+    "minimalist",
+    "academic"
+   ],
+   "sales-business": [
+    "corporate",
+    "miami",
+    "southern",
+    "preppy"
+   ]
+  },
+  "big-cities": [
+   "New York",
+   "Los Angeles",
+   "Chicago",
+   "Houston",
+   "Phoenix",
+   "Philadelphia",
+   "San Antonio",
+   "San Diego",
+   "Dallas",
+   "San Jose",
+   "Austin",
+   "Jacksonville",
+   "San Francisco",
+   "Seattle",
+   "Denver",
+   "Washington",
+   "Boston",
+   "Atlanta",
+   "Miami",
+   "Minneapolis",
+   "Portland",
+   "Las Vegas",
+   "Detroit",
+   "Nashville",
+   "Baltimore",
+   "Charlotte",
+   "Tampa",
+   "Orlando",
+   "Pittsburgh",
+   "St. Louis",
+   "Cleveland",
+   "Cincinnati",
+   "Kansas City",
+   "Sacramento",
+   "Oakland",
+   "Brooklyn",
+   "Honolulu"
+  ],
+  "upscale-words": [
+   "cashmere",
+   "silk",
+   "tailored",
+   "designer",
+   "seersucker",
+   "tweed",
+   "pressed",
+   "monogram",
+   "loafers",
+   "pearl",
+   "leather flats",
+   "trench",
+   "wool coat",
+   "merino",
+   "fine-knit",
+   "bespoke"
+  ],
+  "min-weight": 0.3
+ }
 }

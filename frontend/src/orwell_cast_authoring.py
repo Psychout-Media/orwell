@@ -133,6 +133,8 @@ _SYSTEM = (
     "the casting office already decided who. A distinguishingMark is usually minor or absent: freckles, "
     "glasses, jewelry, dimples (no scars, birthmarks or tooth gaps: the portrait cannot hold them) — or plain \"none notable\"; never "
     "default to a tattoo, "
+    "THE MARK LIVES IN distinguishingMark ONLY: never repeat it in facialFeatures, the biography or any other field (no gap-toothed grin in "
+    "the face line when the mark says so), and keep the face line to bone structure and expression, "
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
     "personality, would really own and wear to be photographed for TV, and write that. The skeleton's presentation is only a "
     "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "

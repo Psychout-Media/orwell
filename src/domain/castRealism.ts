@@ -18,7 +18,8 @@ export const CAST_REALISM = table as unknown as { kinds: Record<string, KindDef>
 /** The public card text the kinds read (a subset of the house card). */
 export interface RealismCard {
   vocation?: string;
-  physicalCharacteristics?: { onCamera?: string; wardrobe?: readonly string[] } | undefined;
+  distinguishingMark?: string;
+  physicalCharacteristics?: { onCamera?: string; wardrobe?: readonly string[]; distinguishingMark?: string } | undefined;
 }
 
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -46,6 +47,7 @@ function earliest(def: ValueDef, text: string): number | undefined {
 function fieldText(card: RealismCard, field: string, firstItem: boolean): string {
   const phys = card.physicalCharacteristics ?? {};
   if (field === "vocation") return String(card.vocation ?? "");
+  if (field === "distinguishingMark") return String(card.distinguishingMark ?? phys.distinguishingMark ?? "");
   if (field === "onCamera") return String(phys.onCamera ?? "");
   if (field === "wardrobe") {
     const items = Array.isArray(phys.wardrobe) ? phys.wardrobe.map(String) : [];
