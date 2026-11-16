@@ -1751,7 +1751,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "factId": {"type": "string", "description": "The id of a secret the player has actually LEARNED about a THIRD party. Omit only for a bluff."},
                     "bluff": {"type": "boolean", "description": "Set true to offer a secret the player does NOT hold; then 'subject' is required."},
                     "subject": {"type": "string", "description": "For a bluff: the houseguest id the invented secret is about."},
-                    "askKind": {"type": "string", "description": "A short label for what the player asked for in return, as spoken in the scene (e.g. 'safety this week', 'a comp throw'). Never an outcome lever — the engine still decides whether the recipient bites."},
+                    "askKind": {"type": "string", "description": "A short label, in the player's own words from this scene, for what they asked for in return (name the concrete thing asked, never a stock phrase). Never an outcome lever — the engine still decides whether the recipient bites."},
                 },
                 "required": ["toNpcId"],
             },

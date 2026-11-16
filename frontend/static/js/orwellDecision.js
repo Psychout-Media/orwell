@@ -637,7 +637,7 @@
     // the backstop poll). Each one rebuilt the card from scratch, so a player who had already picked a name (or a tone, or a nominee) saw their pick cleared and Confirm go grey under their cursor. A card already
     // mounted for the SAME decision (same kind, options and prompt) is left exactly as it is; a different decision (or none) still replaces it.
     const mounted = document.getElementById(CARD_ID);
-    if (mounted && pending && pending.kind && pending.kind !== "ceremony-step" && !mounted.classList.contains("odec-done") && mounted.dataset.sig === _sig(pending)) return;
+    if (mounted && pending && pending.kind && pending.kind !== "ceremony-step" && !mounted.classList.contains("odec-done") && mounted.dataset.sig === _sig(pending) && (mounted.dataset.brief || "") === _briefSig(pending)) return; // ORW-507: new juror-brief content on the same pending rebuilds the card (the brief is rendered content, not decision identity, so it stays out of _sig)
     // ORW-471: the same goes for a ceremony WATCH step. Every re-dispatch of the same step (the boot rearm, a socket state frame, the backstop poll) used to tear the watch card down and
     // rebuild it; the teardown dismisses its anchored sheet, and on a slow machine that teardown could land after the new sheet was created and take the new card with it - the Continue
     // button vanished under the player's (and CI's) click and nothing re-mounted it. A watch card already showing this ceremony's step is left exactly as it is.
@@ -694,6 +694,7 @@
     // (flavor over an already-decided result) is inspectable/testable — not only distinguishable
     // via the confirm label. `pending.binding === false` ⇒ "false"; everything else binds ⇒ "true".
     card.dataset.binding = String(pending.binding !== false);
+    card.dataset.brief = _briefSig(pending);
     card.dataset.sig = _sig(pending); // ORW-359: which decision this card is for (a repeat of the same one must not rebuild it)
 
     const head = document.createElement("div");
@@ -1298,6 +1299,8 @@
   let _dismissedSig = null;
   // ORW-293: a ceremony WATCH step has no options and often no prompt, so every step used to share ONE signature; it now carries its ceremony kind and step
   // number, so "this step is done" never hides the NEXT step.
+  // ORW-507: the rendered juror brief of a jury-vote card, as a string. Kept OUT of _sig (that is the decision's identity: idempotency key, dismissal, step-done).
+  const _briefSig = (p) => (p && p.kind === "juror-vote" && Array.isArray(p.jurorBrief)) ? JSON.stringify(p.jurorBrief) : "";
   const _sig = (p) => (p && p.kind)
     ? p.kind + "|" + ((p.options || []).map((o) => o && o.id).join(",")) + "|" + (p.prompt || "")
       + (p.ceremony ? "|" + String(p.ceremony.kind || "") + ":" + String(p.ceremony.step || "") : "")

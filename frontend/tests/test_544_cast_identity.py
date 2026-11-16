@@ -148,7 +148,9 @@ def test_seed_writes_the_proposal_back_and_returns_applied():
 
     n = _run(I.seed_cast_identity(_CAST, llm, write))
     assert n == 1
-    assert captured["facets"] == {"npc:1": {"ethnicity": "Mexican American", "age": 38}}
+    # ORW-480: ages are dealt from the real distribution for every houseguest; the writer's 38 is not used
+    assert captured["facets"]["npc:1"]["ethnicity"] == "Mexican American"
+    assert set(captured["facets"]) == {"npc:1", "npc:2"} and all(21 <= f["age"] <= 70 for f in captured["facets"].values())
     assert "player" not in captured["facets"]
 
 

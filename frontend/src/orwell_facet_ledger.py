@@ -100,6 +100,20 @@ VOCATION_FAMILIES = (
     ("sales / small-business / hustle", 1, False),
     ("tech / science / analytical", 1, False),
 )
+#: ORW-480: ordinary jobs inside each family, so the writer is not left to its favourites (nurse, paramedic, coach, office manager).
+#: Each slot is shown three of them, dealt on its own side stream and distinct across the cast. Steering only.
+FAMILY_JOBS = {
+    "athletic / coaching / fitness": ("high-school track coach", "personal trainer", "minor-league groundskeeper", "swim instructor", "rock-gym manager", "bike-shop mechanic", "semi-pro softball player", "ski patrol volunteer", "boxing gym owner", "recreation league referee"),
+    "first-responder / military / uniformed service": ("wildland firefighter", "county sheriff's deputy", "Coast Guard petty officer", "911 dispatcher", "park ranger", "Army National Guard sergeant", "airport firefighter", "court bailiff", "search-and-rescue volunteer", "prison chaplain"),
+    "trades / manual / outdoor work": ("tree trimmer", "union electrician", "commercial fisherman", "long-haul trucker", "HVAC installer", "roofer", "welder", "landscape crew lead", "stonemason", "warehouse forklift driver"),
+    "service / hospitality / food": ("line cook", "wedding-venue bartender", "barista and shop owner", "hotel night auditor", "food-truck owner", "sommelier", "pastry cook", "casino dealer", "pizzeria manager", "valet supervisor"),
+    "creative / performing arts / media": ("wedding photographer", "community-theater actor", "session guitarist", "radio morning host", "tattoo artist", "freelance illustrator", "local news cameraman", "podcast producer", "hair stylist", "dance instructor"),
+    "office / corporate / professional": ("insurance claims adjuster", "bank branch manager", "paralegal", "payroll specialist", "title-company closer", "city planner", "HR generalist", "supply-chain buyer", "tax preparer", "court reporter"),
+    "medical / care / wellness": ("dental hygienist", "pharmacy technician", "massage therapist", "veterinary technician", "home-health aide", "respiratory therapist", "medical biller", "optician", "radiology technologist", "hospice night nurse"),
+    "education / community / nonprofit": ("middle-school science teacher", "food-bank director", "librarian", "church youth pastor", "adult-literacy tutor", "community-college adjunct", "museum educator", "campus chaplain", "after-school program lead", "union organizer"),
+    "sales / small-business / hustle": ("used-car salesman", "real-estate agent", "boutique owner", "farm-equipment salesperson", "insurance agent", "vending-route owner", "jewelry store manager", "auctioneer", "mattress-store owner", "wedding-cake baker"),
+    "tech / science / analytical": ("network engineer", "data analyst", "water-treatment chemist", "wildlife biologist", "game developer", "IT help-desk lead", "lab technician", "GIS mapper", "audio engineer", "weather forecaster"),
+}
 #: Rare-outlier vocation families — at most one lands per cast, on a seeded minority of seasons.
 OUTLIER_VOCATIONS = (
     "funeral / death-care services",
@@ -310,6 +324,19 @@ def mint_facet_ledger(seed, count: int, physical: Optional[list] = None) -> list
     regions = _deal_budgeted(r_rng, count, US_REGIONS)
     town_sizes = _deal_budgeted(r_rng, count, TOWN_SIZES)
 
+    j_rng = _Mulberry32(_hash_seed(f"{seed}:ledger:jobs"))
+    used_jobs: set = set()
+    job_examples: list = []
+    for fam in families:
+        pool = [x for x in FAMILY_JOBS.get(fam, ()) if x not in used_jobs]
+        _shuffle(pool, j_rng)
+        picks = pool[:3]
+        if len(picks) < 3 and FAMILY_JOBS.get(fam):  # a family dealt four or more times has run out of fresh jobs: reuse rather than offer none
+            again = [x for x in FAMILY_JOBS[fam] if x not in picks]
+            _shuffle(again, j_rng)
+            picks += again[:3 - len(picks)]
+        used_jobs.update(picks)
+        job_examples.append(picks)
     # ORW-464: a state inside each slot's region, distinct across the cast. Its OWN side stream, so no other dealt value moves.
     st_rng = _Mulberry32(_hash_seed(f"{seed}:ledger:state"))
     states: list = []
@@ -345,6 +372,7 @@ def mint_facet_ledger(seed, count: int, physical: Optional[list] = None) -> list
         "vocationFamily": families[i],
         "region": regions[i],
         "townSize": town_sizes[i],
+        "jobExamples": job_examples[i],
         "state": states[i],
         "heightBuild": builds[i],
         "skinToneCue": skins[i],
@@ -372,7 +400,9 @@ def render_hand(hand: dict, hometown: bool = True) -> str:
     if not isinstance(hand, dict):
         return ""
     return (
-        f"vocation family: {hand.get('vocationFamily')} (pick a specific job inside it); "
+        f"vocation family: {hand.get('vocationFamily')} (pick a specific job inside it"
+        + (f", for example {', '.join(hand['jobExamples'])}, or another ordinary job of this kind" if hand.get("jobExamples") else "")
+        + "); "
         + (f"hometown: {hand.get('townSize')} in {hand.get('state') + ' (' + str(hand.get('region')) + ')' if hand.get('state') else hand.get('region')}; "
            if hometown else "") +
         f"height/build: {hand.get('heightBuild')}; "

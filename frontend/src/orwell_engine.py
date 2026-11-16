@@ -1686,11 +1686,11 @@ async def record_look_extras(houseguest_id: str, look: dict, user: str | None = 
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
     narrator's appearance string. ``look["clear"]`` (a list of those three field names) clears stale fields. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
-    for k in ("wardrobe", "onCamera", "photoHair"):
+    for k in ("wardrobe", "onCamera", "photoHair", "lookSignature", "style"):
         if look.get(k):
             args[k] = look[k]
     if look.get("clear"):
-        args["clear"] = [c for c in look["clear"] if c in ("wardrobe", "onCamera", "photoHair")]
+        args["clear"] = [c for c in look["clear"] if c in ("wardrobe", "onCamera", "photoHair", "lookSignature")]
     return await _call("recordLookExtras", args, user=user)
 
 
