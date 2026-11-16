@@ -9,7 +9,7 @@ import math
 import os
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.constants import DATA_DIR
 
@@ -59,34 +59,44 @@ def hold_until(now: Optional[float] = None) -> Optional[float]:
 
 
 # A turn that passed the hold check is counted as in flight from that moment until its stream registers in the registry below, so there is no gap in which the updater reads
-# "0 in flight" while a turn it did not refuse is about to start. Keyed by the turn's clientMsgId.
-_admitting: Dict[str, float] = {}
+# "0 in flight" while a turn it did not refuse is about to start. Keyed by the turn's clientMsgId, one stamp per admission: the same clientMsgId admitted twice (a re-send queued
+# behind the first) counts twice, and each registration releases one (review of #2805).
+_admitting: Dict[str, List[float]] = {}
 _registry_size = 0
 _lock = threading.Lock()
 
 
 def _total_locked() -> int:
     now = time.monotonic()
-    for k in [k for k, t in _admitting.items() if now - t > _ADMIT_TTL_S]:
-        del _admitting[k]
-    return _registry_size + len(_admitting)
+    for k in list(_admitting):
+        live = [t for t in _admitting[k] if now - t <= _ADMIT_TTL_S]
+        if live:
+            _admitting[k] = live
+        else:
+            del _admitting[k]
+    return _registry_size + sum(len(v) for v in _admitting.values())
 
 
-def admit_begin(token: Optional[str]) -> None:
+def admit_begin(token: Optional[str]) -> str:
+    """Count one admission under `token` (an anonymous key when there is none) and publish the new total. Returns the key the admission is held under."""
+    key = token or f"anon-{time.monotonic()}"
     with _lock:
-        _admitting[token or f"anon-{time.monotonic()}"] = time.monotonic()
-        total = _total_locked()
-    publish_inflight(total)
+        _admitting.setdefault(key, []).append(time.monotonic())
+        publish_inflight(_total_locked())   # under the lock: a concurrent publish can never overwrite this count with an older total
+    return key
 
 
 def admit_end(token: Optional[str]) -> None:
     if not token:
         return
     with _lock:
-        had = _admitting.pop(token, None) is not None
-        total = _total_locked()
-    if had:
-        publish_inflight(total)
+        stamps = _admitting.get(token)
+        if not stamps:
+            return
+        stamps.pop(0)
+        if not stamps:
+            del _admitting[token]
+        publish_inflight(_total_locked())
 
 
 def check_and_admit(token: Optional[str]) -> Optional[float]:
@@ -95,7 +105,13 @@ def check_and_admit(token: Optional[str]) -> Optional[float]:
     until = hold_until()
     if until is not None:
         return until
-    admit_begin(token)
+    key = admit_begin(token)
+    # Review of #2805: the hold may have been written between the check above and the count being published. Read it again AFTER the count is on disk: either this read sees
+    # the hold (refuse, nothing started) or the hold was written after the count, so the updater, which reads the count after writing the hold, sees this turn.
+    until = hold_until()
+    if until is not None:
+        admit_end(key)
+        return until
     return None
 
 
@@ -120,8 +136,7 @@ class InflightRegistry(dict):
         global _registry_size
         with _lock:
             _registry_size = len(self)
-            total = _total_locked()
-        publish_inflight(total)
+            publish_inflight(_total_locked())
 
     def __setitem__(self, key: Any, value: Any) -> None:
         super().__setitem__(key, value)

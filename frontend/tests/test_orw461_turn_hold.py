@@ -85,9 +85,27 @@ def test_an_admitted_turn_counts_as_in_flight_until_it_registers_with_no_gap(tmp
 def test_a_turn_that_never_registers_stops_counting_after_the_ttl(tmp_path):
     assert ti.check_and_admit("c-lost") is None
     assert _inflight(tmp_path) == 1
-    ti._admitting["c-lost"] -= ti._ADMIT_TTL_S + 1      # it failed before registering: long past the TTL
+    ti._admitting["c-lost"][0] -= ti._ADMIT_TTL_S + 1      # it failed before registering: long past the TTL
     ti.admit_begin("c-next")                              # any later publish recounts
     assert list(ti._admitting) == ["c-next"] and _inflight(tmp_path) == 1
+
+
+def test_a_hold_written_while_the_turn_is_being_counted_still_refuses_it(tmp_path, monkeypatch):
+    # review of #2805: the updater writes the hold between this turn's first look and its count reaching disk. The second look, after the count is published, refuses it.
+    reads = iter([None, time.time() + 60])
+    monkeypatch.setattr(ti, "hold_until", lambda now=None: next(reads))
+    assert ti.check_and_admit("c-race") is not None
+    assert not ti._admitting and _inflight(tmp_path) == 0
+
+
+def test_the_same_turn_admitted_twice_is_counted_twice(tmp_path):
+    # review of #2805: a re-send of the same clientMsgId queued behind the first; the first stream's registration must not drop the second from the count.
+    assert ti.check_and_admit("c-1") is None and ti.check_and_admit("c-1") is None
+    assert _inflight(tmp_path) == 2
+    ti.admit_end("c-1")
+    assert _inflight(tmp_path) == 1
+    ti.admit_end("c-1")
+    assert _inflight(tmp_path) == 0 and not ti._admitting
 
 
 def test_a_refused_turn_is_not_counted(tmp_path):

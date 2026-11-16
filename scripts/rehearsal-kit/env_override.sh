@@ -3,8 +3,9 @@
 # ORWELL_<NAME>= inside it (a comma or other separator between entries: "ORWELL_A=0,ORWELL_B=1" would set A to "0,ORWELL_B=1" and never set B): a typo must never
 # stage a build without the flag you asked for. stage2.sh validates FIRST, before the checkout and the build.
 rig_validate_env_override() {
-  local kv
-  for kv in $1; do
+  local kv; local -a kvs=()
+  read -ra kvs <<<"$1"   # split on blanks with no pathname expansion: "ORWELL_A=*" stays "*" (review of #2795)
+  for kv in ${kvs[@]+"${kvs[@]}"}; do
     if ! [[ "$kv" =~ ^ORWELL_[A-Za-z0-9_]+=.*$ ]]; then
       echo "FATAL: RIG_ENV_OVERRIDE entry '$kv' is not ORWELL_<NAME>=<value>; not staging a build without the flag you asked for" >&2; return 1
     fi
@@ -15,7 +16,8 @@ rig_validate_env_override() {
 }
 # Validates, then exports each entry in the current shell.
 rig_apply_env_override() {
-  local kv
+  local kv; local -a kvs=()
   rig_validate_env_override "$1" || return 1
-  for kv in $1; do export "$kv"; done
+  read -ra kvs <<<"$1"
+  for kv in ${kvs[@]+"${kvs[@]}"}; do export "$kv"; done
 }

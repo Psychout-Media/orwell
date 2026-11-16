@@ -453,9 +453,10 @@ NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden 
 NOT_COVERED_CROSSOVER = "the finale and everything after Week 2's start: a `--crossover` run plays on through Week 1's eviction night into Week 2, no further"
 
 
-def not_covered(checks):
-    """The coverage list for THIS run: a run that drove the crossover (it left X0 checks) did cover eviction night and Week 2's start."""
-    if any(str(c.get("id", "")).startswith("X0-") for c in checks):
+def not_covered(checks, turns=()):
+    """The coverage list for THIS run: a run that drove the crossover (it left X0 checks, or - for a `--rescore`, which keeps only the turns - played `cross-` turns)
+    did cover eviction night and Week 2's start."""
+    if any(str(c.get("id", "")).startswith("X0-") for c in checks) or any(str(t.get("label", "")).startswith("cross-") for t in turns):
         return NOT_COVERED[:-1] + [NOT_COVERED_CROSSOVER]
     return list(NOT_COVERED)
 
@@ -483,7 +484,7 @@ def write(run_dir, turns, checks, error):
     json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
     L = [f"# Live run (short tier) - {verdict}", ""] + _header(run_dir, turns) + [f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
     L += ["## Checked against the Live Run Pass Bar", ""] + [f"- {bar}: {', '.join(sorted({c['id'].split('[')[0] for c in checks if c['id'].split('[')[0].split('-')[0] in ids})) or '-'}" for bar, ids in BAR_MAP] + [""]
-    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks)] + [""]
+    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks, turns)] + [""]
     if hard or warn:
         L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
     L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]
