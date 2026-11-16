@@ -115,7 +115,9 @@ def _play_fns():
 def _build(d, fp, src=None):
     d.mkdir(parents=True)
     (d / "index.html").write_text("x")
-    (d / ".stamp").write_text(fp + "\n" + (src + "\n" if src else ""))
+    (d / ".stamp").write_text(fp + "\n")
+    if src:
+        (d / ".stamp.src").write_text(src + "\n")
     d.chmod(0o755)
     for f in d.iterdir():
         f.chmod(0o644)

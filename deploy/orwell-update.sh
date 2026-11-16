@@ -655,9 +655,10 @@ play_build_fp() {   # the inputs fingerprint a /play build dir was made from; ""
   _owned_by_us "$1" && _owned_by_us "${1}/${PLAY_STAMP}" || return 0
   head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
 }
-play_build_src_fp() {   # ORW-498: the SOURCE part of the stamp (2nd line; no updater text in it), under the same trust rule; "" for a build without one
-  [[ -n "$(play_build_fp "$1")" ]] || return 0
-  sed -n 2p "${1}/${PLAY_STAMP}" | head -c 64 | tr -cd '0-9a-f'
+play_build_src_fp() {   # ORW-498: the SOURCE fingerprint kept beside the stamp (no updater text in it), under the same trust rule; "" for a build without one
+  [[ -n "$(play_build_fp "$1")" && -f "${1}/${PLAY_STAMP}.src" ]] || return 0
+  _owned_by_us "${1}/${PLAY_STAMP}.src" || return 0
+  head -c 64 "${1}/${PLAY_STAMP}.src" | tr -cd '0-9a-f'
 }
 # Copy a finished /play build to dist.next. dist.next must not exist when the copy starts (removed, then
 # checked), so a leftover — or anything planted there — is never merged into or nested under. A build is plain
@@ -727,7 +728,8 @@ build_play_app() {
      && _play_run_build "$out" \
      && [[ -f "${out}/dist/index.html" && ! -L "${out}/dist" ]] \
      && rm -f "${out}/dist/${PLAY_STAMP}" \
-     && printf '%s\n%s\n' "$fp" "$(play_source_fp)" > "${out}/dist/${PLAY_STAMP}" \
+     && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
+     && printf '%s\n' "$(play_source_fp)" > "${out}/dist/${PLAY_STAMP}.src" \
      && _stage_play_build "${out}/dist"; then
     echo "==> /play built — it goes live when the update commits"
   else
@@ -759,7 +761,7 @@ swap_play_app() {
 play_follow_rollback() {
   local fp
   [[ -f "${PLAY_DIR}/package.json" ]] || return 0
-  fp="$(play_source_fp)"   # ORW-498: source only; a build stamped by an older updater (no 2nd line) matches on its full fingerprint instead
+  fp="$(play_source_fp)"   # ORW-498: source only; a build stamped by an older updater (no .src file) matches on its full fingerprint instead
   _play_src_match() { _same "$(play_build_src_fp "$1")" "$fp" || _same "$(play_build_fp "$1")" "$(play_inputs_fp)"; }
   if _play_src_match "$PLAY_DIST"; then return 0; fi
   if _play_src_match "$PLAY_PREV" && _stage_play_build "$PLAY_PREV"; then
@@ -1150,7 +1152,7 @@ _svc_cleanup_mcp_rows_py() {
     fi
   fi
   # `cd /`: the service user may not be able to enter the directory the updater was started in. ORW-496: so the path is made absolute first.
-  db="$(_update_abs_path "$db")"
+  ! declare -F _update_abs_path >/dev/null || db="$(_update_abs_path "$db")"
   ( cd / && timeout 20 "${runner[@]}" python3 -I -c "$_CRUFT_MCP_PY" "$db" "$_CRUFT_MCP_WHERE" )
 }
 
@@ -1333,7 +1335,7 @@ cleanup_inherited_cruft() {
   # unprivileged FE hit "readonly database" / "database is locked"; the DELETE is the same hazard.
   # Running as the DB's owner keeps every sidecar owned by that user. python3's sqlite3 module first
   # (the production box has no sqlite3 CLI); the CLI path only on a box without python3.
-  local db; db="$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db")"   # the FE store (frontend/data, or its DATABASE_URL), not engine data/
+  local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"; ! declare -F update_fe_db_path >/dev/null || db="$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "$db")"   # the FE store (frontend/data, or its DATABASE_URL), not engine data/
   local removed="" rc=0 errf="" why=""
   if [[ -f "$db" ]]; then
     # Keep the writer's stderr so a failure note can say WHY (locked, corrupt, permission): its first line,
