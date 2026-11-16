@@ -350,6 +350,8 @@ import {
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
+import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
+import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -7787,6 +7789,8 @@ export class GameSessionAdapter implements GameSession {
       ...(genderPresentation ? { genderPresentation } : {}),
       // NAME-1 (#547): the corpus-sampled cast avoids prior seasons' names (bounded, fail-soft).
       ...(effReq.priorCastNames && effReq.priorCastNames.length ? { priorCastNames: effReq.priorCastNames } : {}),
+      // ORW-508: the recent-seasons memory (towns, jobs); absent for seeded headless runs.
+      ...(() => { const avoid = avoidFromWire(effReq.avoid); return avoid ? { avoid } : {}; })(),
     });
     // 0065 — when adopting a pre-warmed cast, keep the freshly-built PLAYER but swap in the warmed NPCs
     // (which carry any FE-authored §3 depth). The warmed NPCs are byte-identical to the floor
@@ -7906,6 +7910,9 @@ export class GameSessionAdapter implements GameSession {
       // #1140 — NOW the name-keyed deep layer is fixed off the original names; apply the deferred gender-
       // coherent renames onto the byte-stable Character (no-op when nothing was renamed).
       this.applyDiversityRenames();
+      // ORW-508: a played season (no explicit seed) deals given names from the real birth-decade table; an explicit seed
+      // (tests, replays) keeps the seeded floor names.
+      if (effReq.seed === undefined) this.applyEraNames(seed, avoidFromWire(effReq.avoid));
       // 0116 — a plain (non-adopted) start has no model-authored genesis: the floor tie draw stands.
       this.genesisTies = null;
       this.seasonBrief = null;
@@ -7918,6 +7925,7 @@ export class GameSessionAdapter implements GameSession {
     // given name AND the warm-cast/plain-restart casts stay byte-identical (the diversity-layer rename is
     // prior-season-UNAWARE on purpose; this is where cross-season memory is restored). No-op without priors.
     this.decollidePriorNames(seed, effReq.priorCastNames);
+    if (effReq.seed === undefined) this.avoidPlayerNameCollisions(seed, avoidFromWire(effReq.avoid)); // ORW-508: an adopted warm cast met the player only now
     // Seed first impressions so NPC decisions are differentiated from move-in (without this,
     // empty relationships make every HOH nominate the same first-in-roster houseguests). These
     // are starting beliefs; the consequence fold (0023) evolves them as the player acts.
@@ -8160,12 +8168,14 @@ export class GameSessionAdapter implements GameSession {
     // (which never consumes the rng), so these NPCs equal the ones `createCharacter` regenerates off the
     // same seed. The placeholder player is type-scaffolding ONLY — discarded below; `seedDiversity` /
     // `seedDeepProfiles` touch `npcs` exclusively, never the player.
-    const temp = startNewGame({ seed, playerName: PREWARM_PLAYER_NAME });
+    const warmAvoid = avoidFromWire(req.avoid); // ORW-508: the recent-seasons memory; absent for seeded headless runs
+    const temp = startNewGame({ seed, playerName: PREWARM_PLAYER_NAME, ...(warmAvoid ? { avoid: warmAvoid } : {}) });
     const npcs = temp.npcs;
     this.house = { player: temp.player, npcs };
     this.seedDiversity(seed);    // folds public diversity facets + seals private orientations to the Vault
     this.seedDeepProfiles(seed); // folds the §3 deep layer + seals the hidden profile/threads to the Vault
     this.applyDiversityRenames(); // #1140 — apply gender-coherent renames AFTER the name-keyed deep layer
+    if (req.seed === undefined) this.applyEraNames(seed, warmAvoid); // ORW-508: a played season's given names, by birth decade; an explicit seed keeps the floor
     // Capture the finished cast into the holding store, then RESET back to a clean pre-game state (the
     // cast lives in `prewarm` from here; the live house does not exist until `createCharacter`).
     this.prewarm = {
@@ -8239,7 +8249,7 @@ export class GameSessionAdapter implements GameSession {
    * so the hidden layer simply rides in `this.prewarm` until the cutover re-seals it into the new sandbox).
    */
   warmNextSeasonScratch(req: PreSeedNextSeasonReq): PreSeedNextSeasonView {
-    const warm = this.preSeedCast({ ...(req.seed !== undefined ? { seed: req.seed } : {}) });
+    const warm = this.preSeedCast({ ...(req.seed !== undefined ? { seed: req.seed } : {}), ...(req.avoid ? { avoid: req.avoid } : {}) });
     if (!warm.warmed) {
       // A scratch adapter has no live house, so preSeedCast cannot refuse "in-progress"/"over" — this is
       // purely defensive (a future refusal would surface as a Vault-free decline, never a throw).
@@ -8485,6 +8495,60 @@ export class GameSessionAdapter implements GameSession {
    * byte-identical with the rename on vs. off). From here the renamed name is the houseguest's stable
    * public name. A no-op when no draft was renamed (the common case). Mirrors at both seed sites.
    */
+  /**
+   * ORW-508 Layer 1: re-deal every houseguest's GIVEN name from the real baby-name table for their birth decade and
+   * presented gender, and the SURNAME from the Census 2010 surnames (both unique in the cast, off the recent-seasons memory). Runs AFTER the name-keyed
+   * deep layer is fixed, through the same `renameHouseguest` the gender-coherence rename uses (so prose follows), on its own
+   * `:era-names` sub-stream. Only for a played season: an explicit seed keeps the seeded floor names.
+   */
+  private applyEraNames(seed: number, avoid?: AvoidSets): void {
+    if (!this.house) return;
+    const npcs = this.house.npcs;
+    const taken = new Set<string>([this.house.player.name.split(" ")[0]!]);
+    const given = dealEraGivenNames(
+      new SeededRandom(hashSeed(`${seed}:era-names`)),
+      npcs.map((n) => ({ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) })),
+      taken, avoid,
+    );
+    const family = dealSurnames(new SeededRandom(hashSeed(`${seed}:era-surnames`)), npcs.length, new Set([this.house.player.name.split(" ").slice(1).join(" ")].filter(Boolean)), avoid,
+      npcs.map((n) => censusGroupOfHeritage(n.character.ethnicity)));
+    npcs.forEach((n, i) => {
+      const next = [given[i]!, family[i]!].join(" ");
+      if (n.name === next) return;
+      this.renameHouseguest(n, next);
+    });
+  }
+
+  /**
+   * ORW-508: a warmed cast is dealt before the player's real name exists (the pre-warm uses a placeholder), so on adoption
+   * a houseguest can share the player's given name or surname. Re-deal that part for that houseguest (a played season only),
+   * unique against the rest of the cast and the player, on its own `:era-collide` sub-stream.
+   */
+  private avoidPlayerNameCollisions(seed: number, avoid?: AvoidSets): void {
+    if (!this.house) return;
+    const [pGiven = "", ...pRest] = this.house.player.name.trim().split(/\s+/);
+    const pFamily = pRest.join(" ").toLowerCase();
+    const rng = new SeededRandom(hashSeed(`${seed}:era-collide`));
+    const npcs = this.house.npcs;
+    for (const n of npcs) {
+      const [given = "", ...rest] = n.name.split(" ");
+      const family = rest.join(" ");
+      const clashGiven = given.toLowerCase() === pGiven.toLowerCase();
+      const clashFamily = pFamily !== "" && family.toLowerCase() === pFamily;
+      if (!clashGiven && !clashFamily) continue;
+      const others = npcs.filter((m) => m !== n);
+      let nextGiven = given, nextFamily = family;
+      if (clashGiven) {
+        nextGiven = dealEraGivenNames(rng, [{ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) }],
+          new Set([pGiven, ...others.map((m) => m.name.split(" ")[0]!)]), avoid)[0]!;
+      }
+      if (clashFamily) {
+        nextFamily = dealSurnames(rng, 1, new Set([pFamily, ...others.map((m) => m.name.split(" ").slice(1).join(" "))]), avoid, [censusGroupOfHeritage(n.character.ethnicity)])[0]!;
+      }
+      this.renameHouseguest(n, `${nextGiven} ${nextFamily}`.trim());
+    }
+  }
+
   private applyDiversityRenames(): void {
     if (!this.house) return;
     for (const n of this.house.npcs) {
