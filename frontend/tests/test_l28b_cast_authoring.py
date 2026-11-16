@@ -463,12 +463,13 @@ def test_2026_07_21_seeded_physical_characteristics_thread_into_the_skeleton_as_
 
 def test_2026_07_21_system_prompt_fixes_the_ink_budget_and_widens_the_mark_menu():
     """The system prompt must state the ink budget is FIXED (no tattoo in the brief => none authored)
-    and steer the distinguishing mark toward the realistic wide menu (scar/birthmark/glasses/none) —
+    and keep the distinguishing mark as dealt (ORW-480; it used to steer toward a wide menu) —
     never a default tattoo."""
     system = A.build_authoring_messages({"id": "npc:1", "vocation": "welder"})[0]["content"]
     low = system.lower()
     assert "ink budget is fixed" in low
     assert "no visible tattoos" in low
     assert "never" in low and "default to a tattoo" in low
-    for menu_word in ("scar", "birthmark", "glasses", "none notable"):
-        assert menu_word in low, menu_word
+    # ORW-480: the mark is DEALT by the engine (a pool of 44, each at most once per cast); the writer copies it and never adds its own
+    for word in ("the mark is dealt", "none notable", "no scars, birthmarks or tooth gaps"):
+        assert word in low, word

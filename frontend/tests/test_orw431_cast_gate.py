@@ -204,7 +204,7 @@ def test_cast_repetition_is_reported_and_the_next_writer_is_told_what_is_taken(c
         n["physicalCharacteristics"].update(onCamera="eyes down, the one who watches", distinguishingMark="a pale knuckle scar")
         n["identityConcept"] = f"A restless {n['name']} who is ahead of the game."
         g.accept(n["id"], {}, n, cast)
-    assert g.codes == {"rep-oncamera-end": 2, "rep-ident-open": 2, "rep-mark": 2}
+    assert {k: v for k, v in g.codes.items() if not k.startswith("realism-")} == {"rep-oncamera-end": 2, "rep-ident-open": 2, "rep-mark": 2}  # ORW-480: the casting-director counts ride beside these
     t = g.taken_phrases("npc:9")
     user = ca.build_authoring_messages(cast[0], taken={"phrases": t})[1]["content"]
     assert "every mark is unique" in user and "pale knuckle scar" in user
@@ -244,9 +244,10 @@ def test_worst_case_a_stub_that_never_returns_oncamera_or_a_biography_for_one_ca
     caplog.set_level(logging.DEBUG)
     n, w, calls = _go(run(cast, reply))
     assert n == 2 and set(w) == {"npc:0", "npc:2"}                   # the other cards are accepted despite no onCamera
-    assert calls <= 3 + 3 + gate.GATE_REWRITE_BOUND + 4              # bounded: no loop
+    assert calls <= 3 + 3 + gate.GATE_REWRITE_BOUND + 4 + 1 + 6              # bounded: no loop (the cast-level look pass adds one audit call and at most six rewrites)
     assert any("npc:1" in r.message and "tier=blocking" in r.message for r in caplog.records)
-    assert any("npc:0" in r.message and "tier=non-blocking" in r.message and "look-missing-onCamera" in r.message for r in caplog.records)
+    # ORW-480: no room is asked of the writer, so an on-camera line with no spot is a valid line and the card carries no look-missing code
+    assert any(r.message == "[cast-gate] npc:0 tier=clean codes=- rewrites=0" for r in caplog.records)  # no code at all, not merely no look-missing
     # what the wait is: the unauthored card is the only thing readiness sees, never the look code
     cards = [{"id": c["id"], "authored": c["id"] != bad, "biography": "x" * 90, "identityConcept": "y" * 40,
               "physicalCharacteristics": c["physicalCharacteristics"]} for c in cast]

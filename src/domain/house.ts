@@ -300,6 +300,8 @@ export type RoomResolution =
  * Resolve a FREE-TEXT room name (whatever the narrator/player typed) to a canonical room id —
  * forgiving by design so a guessed "bedroom" or "living room" never silently fails into a retry
  * loop (the real-log bug). Pure + deterministic + Vault-free (rooms are public):
+ *   0. this season's themed names (`themed`, ORW-466), before the built-in aliases: accents and curly apostrophes never matter, and the
+ *      same leading article/possessive is dropped from both sides ("the coral reef", "captain’s quarters", "seance room");
  *   1. exact room id / known alias (case/space/hyphen-insensitive);
  *   2. the bare word "bedroom" / "bed" / "room" → AMBIGUOUS across the two bedrooms, but
  *      DISAMBIGUATED to a single room when context allows: the player's CURRENT bedroom if they
@@ -309,11 +311,19 @@ export type RoomResolution =
  * `currentRoom` (where the player stands) only sharpens the bedroom/loose disambiguation; omit it
  * and a bare "bedroom" simply reports both bedrooms as candidates.
  */
-export function resolveRoom(name: string, currentRoom?: Room | null): RoomResolution {
+export function resolveRoom(name: string, currentRoom?: Room | null, themed?: ReadonlyArray<readonly [alias: string, room: Room]>): RoomResolution {
   // Strip a leading article/possessive the narrator may write ("the kitchen", "my bedroom") before
   // keying — a robustness nicety so "the Living Room" resolves like "living room".
-  const key = normalizeRoomName(name).replace(/^(the|a|an|my|our|your|to|into|go-to|head-to|over-to)-/, "");
+  const LEAD = /^(the|a|an|my|our|your|to|into|go-to|head-to|over-to)-/;
+  const key = normalizeRoomName(name).replace(LEAD, "");
   if (key === "") return { kind: "unknown" };
+  // 0. ORW-466: this season's themed names first ("the coral reef", "captain's quarters"); accents and curly apostrophes never matter ("seance room", "captain’s quarters"),
+  //    and the alias loses the same leading article the key lost.
+  if (themed && themed.length) {
+    const flat = (s: string): string => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\u2018\u2019\u02BC]/g, "'");
+    const k = flat(key);
+    for (const [alias, room] of themed) if (flat(normalizeRoomName(alias).replace(LEAD, "")) === k) return { kind: "ok", room };
+  }
   // 1. exact alias / room id.
   const alias = ROOM_ALIASES.get(key);
   if (alias) return { kind: "ok", room: alias };

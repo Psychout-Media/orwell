@@ -75,7 +75,7 @@ describe("facetDiff — the generic closed-facet-diff validator", () => {
       // ORW-360: wardrobe + onCamera are guarded too (the portrait prompt reads them via ORW-361) even though
       // physicalFacetToAppearance (the narrator string) ignores them.
       ["heightBuild", "skinTone", "hair", "facialFeatures", "distinguishingMark", "ageLook", "style",
-        "wardrobe", "onCamera", "photoHair"],
+        "wardrobe", "onCamera", "photoHair", "lookSignature"],
     );
   });
 

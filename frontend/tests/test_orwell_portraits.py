@@ -204,7 +204,7 @@ def _hermetic_create_character(monkeypatch):
     async def _no_model_bool(*a, **k):
         return False
 
-    def _identity_inline(cast, owner, then=None, write=None):
+    def _identity_inline(cast, owner, then=None, write=None, seed=None):
         if then is not None:
             then()
 
