@@ -134,7 +134,7 @@ describe("ORW-381 no main-stream draw moved", () => {
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("b0407245a1433ac4d9e5c8368891d3dee0552b016763aafd7eecc70ce50d0144"); // identical on main and on this branch (the presentation and the look blanked as well) // identical on main and on the ORW-458 branch
+    expect(run(true)).toBe("b0407245a1433ac4d9e5c8368891d3dee0552b016763aafd7eecc70ce50d0144"); // identical on main and on this branch. NOTE (ORW-480): this blanked pin now also blanks the presentation and the whole look, so a change to the presentation, mark or face-line DRAWS is no longer covered by it; those draws have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts, styleFit)
     // ORW-458 (on purpose): only the background text and the biography built from it moved. Before that, ORW-432: only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
     expect(run(false)).toBe("a1579dbb2f4a0947e3e6d12d3db2a462548ead966414f53a20631d2ec77ec698"); // re-pinned on purpose by ORW-480: the presentation family is weighted by job, hometown and age
   });

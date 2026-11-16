@@ -114,6 +114,18 @@ def scrub_labels(text: str) -> str:
     return text
 
 
+def hair_signature_conflict(signature: str, hair_text: str) -> list:
+    """The hair words (cut, style, texture) a hair signature names that the card's own hair and photoHair lines do not carry: [] when they
+    agree. A signature about "a tapered low fade with a twist-out top" on a card whose hair is loose waves, or "an auburn pixie" on tight coils,
+    contradicts the card (the hair line is engine-dealt from the person's heritage, so the signature is what gets re-asked)."""
+    words = table().get("hair-vocab", {}).get("words", [])
+    out = []
+    for w in words:
+        if _word_re(w).search(signature or "") and not _word_re(w).search(hair_text or ""):
+            out.append(w.rstrip("*"))
+    return out
+
+
 def signature_categories() -> list:
     """The signature categories of the table (everything but the open "other" bucket), in table order."""
     return [v for v in table()["kinds"]["signature"]["values"] if v != "other"]

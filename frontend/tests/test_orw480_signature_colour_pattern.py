@@ -71,7 +71,7 @@ def test_signature_shape_is_a_look_problem_and_the_fallback_drops_only_the_signa
         assert "signature-shape" in probs, bad
         A.apply_look_fallbacks(prof, npc, probs)
         assert "lookSignature" not in prof["physicalCharacteristics"] and prof["physicalCharacteristics"]["wardrobe"]
-    good = {"physicalCharacteristics": {"wardrobe": ["grey sweatshirt", "jeans"], "lookSignature": "a long single braid"}}
+    good = {"physicalCharacteristics": {"wardrobe": ["grey sweatshirt", "jeans"], "lookSignature": "a long single braid", "hair": "long brown hair worn in a braid"}}
     assert A.look_problems(good, npc) == []
 
 
@@ -212,7 +212,7 @@ def test_the_audit_gives_a_card_with_no_signature_and_no_wardrobe_one_rewrite_ea
         written.append((hid, sorted(fields)))
         return {"accepted": True}
     assert asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, llm, write)) == 2
-    assert ("npc:1", ["lookSignature", "wardrobe"]) in written and ("npc:2", ["lookSignature"]) in written
+    assert ("npc:1", ["lookSignature", "style", "wardrobe"]) in written and ("npc:2", ["lookSignature"]) in written
 
 
 def test_family_worn_is_read_from_the_style_line_and_a_look_fit_rewrite_replaces_that_line():
@@ -273,3 +273,72 @@ def test_a_signature_is_classified_by_its_first_category_word():
     assert tag("a thin braided leather anklet worn with his boat shoes") == ["jewellery"]
     assert tag("A bright knit beanie pulled low over her fade") == ["headwear"]
     assert tag("long straight jet-black hair worn down") == ["hair"] and tag("a long single braid") == ["hair"]
+
+
+def test_a_hair_signature_must_agree_with_the_cards_own_hair_lines_two_real_misfits():
+    npc = {"id": "npc:1", "genderPresentation": "woman", "age": 30}
+    luna = {"physicalCharacteristics": {"wardrobe": ["grey sweatshirt", "jeans"], "hair": "loose dark waves", "photoHair": "loose dark waves over one shoulder",
+                                        "lookSignature": "Tapered low fade with a twist-out top."}}
+    angelo = {"physicalCharacteristics": {"wardrobe": ["grey sweatshirt", "jeans"], "hair": "tight dark coils", "photoHair": "tight coils with a crisp edge-up",
+                                          "lookSignature": "a rich auburn pixie cut, kept neat and close at the sides"}}
+    for prof in (luna, angelo):
+        assert "signature-hair" in A.look_problems(prof, npc)
+        A.apply_look_fallbacks(prof, npc, ["signature-hair"])
+        assert "lookSignature" not in prof["physicalCharacteristics"] and prof["physicalCharacteristics"]["wardrobe"]
+    assert R.hair_signature_conflict("Tapered low fade with a twist-out top.", "loose dark waves") == ["fade", "taper", "twist"]
+    ok = {"physicalCharacteristics": {"wardrobe": ["grey sweatshirt", "jeans"], "hair": "tight dark coils", "photoHair": "tight coils with a crisp edge-up",
+                                      "lookSignature": "a crisp edge-up on tight coils"}}
+    assert "signature-hair" not in A.look_problems(ok, npc)
+
+
+def test_a_signature_is_one_thing_not_a_whole_outfit():
+    npc = {"id": "npc:1", "genderPresentation": "woman", "age": 30}
+    prof = {"physicalCharacteristics": {"wardrobe": ["grey sweatshirt", "jeans"], "lookSignature": "a soft knit polo tucked into dark jeans with leather clogs"}}
+    assert "signature-shape" in A.look_problems(prof, npc)
+
+
+GARMENTS = ("cardigan", "vest", "blazer", "sweater", "jacket", "tee", "skirt", "pants", "trousers", "boots", "sneakers", "hoodie", "sweatshirt", "overshirt", "polo", "jeans")
+
+
+def test_the_audit_rewrites_the_style_line_with_the_wardrobe_so_it_names_no_garment_that_is_gone_and_re_audits_its_own_rewrite_once():
+    cards = [{"id": f"npc:{i}", "vocation": "pharmacy technician" if i == 1 else "welder", "age": 30, "hometown": "Macon, Georgia",
+              "physicalCharacteristics": {"wardrobe": ["crewneck sweatshirt", "carpenter pants"] if i == 1 else ["grey work shirt", "dark jeans"],
+                                          "style": "a canvas work jacket, carpenter pants" if i == 1 else "work shirt and jeans", "lookSignature": f"sig{i} {'wire glasses' if i == 2 else 'a shell necklace'}"}}
+             for i in (1, 2)]
+    calls, written = [], []
+    replies = ['{"misfits": [{"id": "npc:1", "piece": "carpenter pants", "why": "a trade"}]}',
+               '{"wardrobe": ["navy cardigan", "grey trousers", "white sneakers"]}',          # first rewrite
+               '{"misfits": [{"id": "npc:1", "piece": "navy cardigan", "why": "still wrong"}]}',  # the re-audit flags it again
+               '{"wardrobe": ["pale blue oxford shirt", "grey trousers"]}']                    # the one more attempt
+
+    async def llm(messages):
+        calls.append(messages)
+        return replies[len(calls) - 1]
+
+    async def write(hid, fields):
+        written.append((hid, fields))
+        return {"accepted": True}
+    n = asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, llm, write))
+    assert n == 1 and len(calls) == 4 and written[0][0] == "npc:1"
+    stored = written[0][1]
+    assert stored["wardrobe"] == ["pale blue oxford shirt", "grey trousers"] and stored["style"] == "pale blue oxford shirt, grey trousers"
+    named = {g for g in GARMENTS if g in stored["style"]}
+    assert named and all(any(g in piece for piece in stored["wardrobe"]) for g in named)  # no garment in the style line is missing from the wardrobe
+
+
+def test_a_card_with_no_signature_outranks_a_repeated_kind_when_the_limit_would_leave_it_with_none():
+    cards = [{"id": f"npc:{i}", "vocation": "welder", "age": 30, "physicalCharacteristics": {"wardrobe": ["grey work shirt", "dark jeans"],
+             **({"lookSignature": "a long single braid", "hair": "long braid"} if i <= 3 else {})}} for i in range(1, 6)]
+    asked = []
+
+    async def llm(messages):
+        text = messages[-1]["content"]
+        if "casting director of a reality show" in messages[0]["content"]:
+            return '{"misfits": []}'
+        asked.append(text)
+        return '{"lookSignature": "a wire-rimmed pair of glasses"}'
+
+    async def write(hid, fields):
+        return {"accepted": True}
+    asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, llm, write, limit=2))
+    assert asked and all("no lookSignature" in a for a in asked)  # the two cards without one come first

@@ -183,6 +183,8 @@ describe("ORW-432 what moved and what did not", () => {
   it("stats, names, ages, hidden profiles, threads and every look field are byte-identical to main for the blanked draws (the background text and the biographies built from it are re-pinned by ORW-458)", () => {
     // `blankText` also blanks what ORW-458 changed (the public background line and the floor biography built from it),
     // so the first hash proves NO DRAW MOVED: it equals main's hash with the same blanking. The second pins the full text.
+    // NOTE (ORW-480): the blanking also covers the presentation, the mark and the face line, so a change to THOSE draws is not covered by this
+    // pin; they have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts and the style-fit parity cases).
     const run = (blankText: boolean) => {
       let all = "";
       for (const seed of SEEDS6) {

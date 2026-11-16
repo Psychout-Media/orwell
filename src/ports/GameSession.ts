@@ -1156,6 +1156,8 @@ export interface RecordLookExtrasReq {
   photoHair?: string;
   /** ORW-480: the one memorable thing about how this person looks or dresses (authored), at most 90 chars. */
   lookSignature?: string;
+  /** ORW-480: the style line that describes the clothes, rewritten with the wardrobe (at most 200 chars). */
+  style?: string;
   /** ORW-380: look fields to remove (`wardrobe`, `onCamera`, `photoHair`, `lookSignature`) when the writer left them out. */
   clear?: Array<"wardrobe" | "onCamera" | "photoHair" | "lookSignature">;
 }

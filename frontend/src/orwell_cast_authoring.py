@@ -91,7 +91,8 @@ PHOTO_SHEET_RULES = (
     "they could really buy or do where they live on their own money, and is something nobody else in the cast has: a different kind of thing "
     "from every signature in taken.signatures. It is a real, ordinary choice (a hairstyle, jewellery, glasses, a garment worn a certain way, "
     "facial hair, nails), never a costume, a uniform, a prop, a tattoo or anything with words on it, and the wardrobe carries it (the pieces and "
-    "this line agree). Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
+    "this line agree). It is ONE thing, never a whole outfit. When it is about hair it names only the cut, length and texture that this card's own "
+    "hair and photoHair lines already carry. Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
     "and about a third of the cast wears a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear (faded, worn-in). "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
@@ -1267,6 +1268,14 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
         if (not isinstance(sg, str) or not sg.strip() or len(sg) > 90 or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
                 or _INK_RE.search(sg)):
             out.append("signature-shape")
+        else:
+            from src import orwell_cast_realism as _RH
+            seeded_hair = ((npc or {}).get("physicalCharacteristics") or {}).get("hair") if isinstance((npc or {}).get("physicalCharacteristics"), dict) else ""
+            hair_text = f"{pc.get('hair') or seeded_hair or ''} {pc.get('photoHair') or ''}"
+            if _RH.tag_card({"physicalCharacteristics": {"lookSignature": sg}}).get("signature") == ["hair"] and _RH.hair_signature_conflict(sg, hair_text):
+                out.append("signature-hair")  # a hair signature that names a cut or texture the card's own hair does not carry
+            elif _RH.is_multi_garment(sg):
+                out.append("signature-shape")  # ONE thing, not a whole outfit ("a polo tucked into jeans with clogs")
     if "onCamera" in pc:
         oc = str(pc.get("onCamera") or "")
         if oncamera_is_scene(oc):
@@ -1317,8 +1326,8 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             # writer's pieces (real garments are checked on their own) instead of blanking the wardrobe
         elif code == "wardrobe-shape":
             pc.pop("wardrobe", None)
-        elif code == "signature-shape":
-            pc.pop("lookSignature", None)
+        elif code in ("signature-shape", "signature-hair"):
+            pc.pop("lookSignature", None)  # the casting-director pass asks for another (it is shown the card's hair lines)
         elif code == "label-leak":
             from src import orwell_cast_realism as _RS
             for _f in ("wardrobe", "style", "lookSignature", "onCamera", "photoHair"):
@@ -2040,9 +2049,11 @@ def fit_audit_messages(cards: list) -> list[dict]:
 
 async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int = 6) -> int:
     """The cast-level look pass (ORW-480). ONE model call over the finished cast applies the fit rule to every person and names the cards with a
-    piece that does not fit the life. Those cards, plus cards left with NO wardrobe, a signature that repeats a category another card holds, or
-    NO signature, get ONE field-only rewrite each (at most `limit`, in that order of importance) that must pass the look checks and the table's
-    look-fit check before it is stored with `write_look_fn`. A failure at any step leaves the original look. Returns how many cards changed.
+    piece that does not fit the life. Those cards, plus cards left with NO wardrobe, NO signature, or a signature whose category is full, get ONE
+    field-only rewrite each (at most `limit`, in that order of importance) that must pass the look checks and the table's look-fit check. A
+    rewritten wardrobe also rewrites the style line (so no style names a garment that is gone), and the rewrites are re-audited ONCE together (one
+    more call): a rewrite the audit flags again gets one more attempt with that reason, then whatever passes the checks is stored with
+    `write_look_fn`. A failure at any step leaves the original look. The audit is advisory: it can miss a misfit. Returns how many cards changed.
     Logs counts only."""
     by_id = {str(c["id"]): c for c in (cards or []) if isinstance(c, dict) and c.get("id")}
     if len(by_id) < 2:
@@ -2061,18 +2072,24 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
         if hid in by_id and hid not in seen and len(jobs) < limit:
             seen.add(hid)
             jobs.append((hid, reason))
+
+    def _pc(c):
+        return c.get("physicalCharacteristics") if isinstance(c.get("physicalCharacteristics"), dict) else {}
+
     def _wd(c):
-        pc = c.get("physicalCharacteristics") if isinstance(c.get("physicalCharacteristics"), dict) else {}
-        return pc.get("wardrobe")
+        return _pc(c).get("wardrobe")
+
     def _sig(c):
-        pc = c.get("physicalCharacteristics") if isinstance(c.get("physicalCharacteristics"), dict) else {}
-        return str(pc.get("lookSignature") or "").strip()
+        return str(_pc(c).get("lookSignature") or "").strip()
     for hid, c in by_id.items():
         if not _wd(c):
             add(hid, "it has no wardrobe at all")
     for item in flagged:
         if isinstance(item, dict):
             add(str(item.get("id")), f'"{str(item.get("piece") or "")[:80]}" does not fit this life ({str(item.get("why") or "")[:120]})')
+    for hid, c in by_id.items():  # a card with NO signature outranks a card whose signature merely repeats a kind
+        if not _sig(c):
+            add(hid, "it has no lookSignature")
     held: dict = {}  # category -> the cards holding it
     cap = _R.cap_for("signature", "hair", len(by_id))
     for hid, c in by_id.items():
@@ -2080,57 +2097,91 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
             for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": _sig(c)}}).get("signature", []):
                 if cat != "other":
                     if len(held.get(cat, [])) >= cap:
-                        add(hid, f"its signature is about {cat}, which {cap} other cards already have")
+                        add(hid, f"its signature is about {_R.plain_label('signature', cat)}, which {cap} other cards already have")
                     held.setdefault(cat, []).append(hid)
-    for hid, c in by_id.items():
-        if not _sig(c):
-            add(hid, "it has no lookSignature")
     logger.info(f"[fit-audit] audit flagged={len(flagged)} rewrites-planned={len(jobs)}")
-    done = 0
-    for hid, reason in jobs:
+
+    async def propose(hid, reason):
+        """One field-only rewrite for a card: {wardrobe, style, lookSignature} that passes the look checks, or None."""
         card = by_id[hid]
-        phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
-        free = [c for c in _R.signature_categories() if len([h for h in held.get(c, []) if h != hid]) < cap]
+        phys = _pc(card)
+        free = [_R.plain_label("signature", c) for c in _R.signature_categories() if len([h for h in held.get(c, []) if h != hid]) < cap]
         ask = (f"A casting director found a problem with this look: {reason}. " + FIT_AUDIT_RULE
                + " Rewrite the wardrobe (2-3 pieces, one garment each; keep the current one when it is fine) and the lookSignature (ONE memorable thing about "
-               f"how they look or dress, from their own life; its kind must be one of: {', '.join(free)}). "
+               f"how they look or dress, from their own life, never a whole outfit; its kind must be one of: {', '.join(free)}; when it is about hair it names "
+               "only the cut, length and texture that the card's own hair lines already carry). "
                'Reply with ONLY {"wardrobe": [...], "lookSignature": "..."}.')
+        fresh = _extract_json(await llm_fn(compact_rewrite_messages(card, ask))) or {}
+        wd = fresh.get("wardrobe")
+        wd = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()] if isinstance(wd, list) else []
+        new: dict = {}
+        if 2 <= len(wd) <= 3 and (not _wd(card) or "wardrobe" in reason.lower() or "fit" in reason.lower()):
+            new["wardrobe"] = wd
+            new["style"] = ", ".join(x.lower() for x in wd)  # the style line is the new pieces in plain words: it can never name a garment that is gone
+        sig = fresh.get("lookSignature")
+        if isinstance(sig, str) and sig.strip() and ("signature" in reason.lower() or "wardrobe" in new):
+            cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
+            if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
+                new["lookSignature"] = " ".join(sig.split())[:90]
+        new = {k: ([_R.scrub_labels(x) for x in v] if isinstance(v, list) else _R.scrub_labels(v)) for k, v in new.items()}
+        if not new:
+            logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, wardrobe pieces={len(wd)}, "
+                        f"signature kinds={[c for c in _R.tag_card({'physicalCharacteristics': {'lookSignature': str(fresh.get('lookSignature') or '')}}).get('signature', []) if c != 'other']}, "
+                        f"reason={reason.split(',')[0][:40]})")
+            return None
+        cand = {**card, "physicalCharacteristics": {**phys, **new}}
+        bad = [c for c in look_problems(cand, card) if c != "style-wrong-family"]
+        fit = [x for x in _R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]  # "family" and "family-worn" are about the dealt label, which this write-back cannot change
+        if bad or fit:
+            logger.info(f"[fit-audit] rewrite for {hid} rejected: {','.join(bad + fit)}")
+            if "signature-hair" in bad or "signature-shape" in bad:
+                new.pop("lookSignature", None)  # keep the clothes the checks passed; the signature is re-asked later, never stored contradicting the hair
+                cand = {**card, "physicalCharacteristics": {**phys, **new}}
+                if new and not [c for c in look_problems(cand, card) if c != "style-wrong-family"] and not [x for x in _R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]:
+                    return new
+            return None
+        return new
+
+    cands: dict = {}
+    for hid, reason in jobs:
         try:
-            fresh = _extract_json(await llm_fn(compact_rewrite_messages(card, ask))) or {}
-            wd = fresh.get("wardrobe")
-            wd = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()] if isinstance(wd, list) else []
-            new: dict = {}
-            if 2 <= len(wd) <= 3 and (not _wd(card) or "wardrobe" in reason.lower() or "fit" in reason.lower()):
-                new["wardrobe"] = wd
-            sig = fresh.get("lookSignature")
-            if isinstance(sig, str) and sig.strip() and ("signature" in reason.lower() or "wardrobe" in new):
-                cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
-                if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
-                    new["lookSignature"] = " ".join(sig.split())[:90]
-            from src import orwell_cast_realism as _RS2
-            new = {k: ([_RS2.scrub_labels(x) for x in v] if isinstance(v, list) else _RS2.scrub_labels(v)) for k, v in new.items()}
-            if not new:
-                logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, "
-                            f"wardrobe pieces={len(wd)}, signature kinds={[c for c in _R.tag_card({'physicalCharacteristics': {'lookSignature': str(fresh.get('lookSignature') or '')}}).get('signature', []) if c != 'other']}, "
-                            f"reason={reason.split(',')[0][:40]})")
-                continue
-            cand = {**card, "physicalCharacteristics": {**phys, **new}}
-            bad = [c for c in look_problems(cand, card) if c != "style-wrong-family"]
-            fit = [x for x in _R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]  # "family"/"family-worn" are about the dealt style line, which this write-back cannot change
-            if bad or fit:
-                logger.info(f"[fit-audit] rewrite for {hid} rejected: {','.join(bad + fit)}")
-                continue
-            res = await write_look_fn(hid, new)
-            if not (isinstance(res, dict) and res.get("accepted")):
-                logger.info(f"[fit-audit] write for {hid} not accepted: {(res or {}).get('reason') if isinstance(res, dict) else type(res).__name__}")
-            if isinstance(res, dict) and res.get("accepted"):
-                card["physicalCharacteristics"] = cand["physicalCharacteristics"]
-                for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": new.get("lookSignature", "")}}).get("signature", []):
-                    held.setdefault(cat, []).append(hid)
-                done += 1
-                logger.info(f"[fit-audit] look rewritten for {hid} ({','.join(new)})")
+            new = await propose(hid, reason)
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original look stands)
             logger.info(f"[fit-audit] rewrite skipped for {hid}: {type(e).__name__}")
+            continue
+        if new:
+            cands[hid] = (reason, new)
+            for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": new.get("lookSignature", "")}}).get("signature", []):
+                held.setdefault(cat, []).append(hid)
+    # the audit's own rewrites are audited once (a rewrite can introduce a new misfit): the cards whose wardrobe was rewritten, in one call
+    changed = [{**by_id[h], "physicalCharacteristics": {**_pc(by_id[h]), **n}} for h, (_, n) in cands.items() if "wardrobe" in n]
+    if len(changed) >= 1:
+        try:
+            again = _extract_json(await llm_fn(fit_audit_messages(changed))) or {}
+            for item in (again.get("misfits") if isinstance(again.get("misfits"), list) else []):
+                hid = str(item.get("id")) if isinstance(item, dict) else ""
+                if hid in cands:
+                    logger.info(f"[fit-audit] re-audit flagged the rewrite for {hid}: one more attempt")
+                    retry = await propose(hid, f'"{str(item.get("piece") or "")[:80]}" does not fit this life ({str(item.get("why") or "")[:120]})')
+                    if retry and "wardrobe" in retry:
+                        cands[hid] = (cands[hid][0], retry)
+                    else:
+                        del cands[hid]  # the original look stands rather than a second misfit
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the first rewrites stand)
+            logger.info(f"[fit-audit] re-audit skipped: {type(e).__name__}")
+    done = 0
+    for hid, (_, new) in cands.items():
+        try:
+            res = await write_look_fn(hid, new)
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the original look stands)
+            logger.info(f"[fit-audit] write skipped for {hid}: {type(e).__name__}")
+            continue
+        if isinstance(res, dict) and res.get("accepted"):
+            by_id[hid]["physicalCharacteristics"] = {**_pc(by_id[hid]), **new}
+            done += 1
+            logger.info(f"[fit-audit] look rewritten for {hid} ({','.join(new)})")
+        else:
+            logger.info(f"[fit-audit] write for {hid} not accepted: {(res or {}).get('reason') if isinstance(res, dict) else type(res).__name__}")
     logger.info(f"[fit-audit] rewritten={done} of {len(jobs)}")
     return done
 
@@ -2168,7 +2219,7 @@ def compact_rewrite_messages(npc: dict, ask: str) -> list[dict]:
     regeneration, so it adds seconds, not tens of seconds."""
     pc = npc.get("physicalCharacteristics") if isinstance(npc.get("physicalCharacteristics"), dict) else {}
     facts = {k: npc.get(k) for k in ("genderPresentation", "age", "vocation", "hometown", "demeanor", "identityConcept", "presentation") if npc.get(k)}
-    facts["look"] = {k: pc.get(k) for k in ("hair", "heightBuild", "facialFeatures", "distinguishingMark", "style", "wardrobe", "lookSignature", "onCamera") if pc.get(k)}
+    facts["look"] = {k: pc.get(k) for k in ("hair", "heightBuild", "facialFeatures", "distinguishingMark", "style", "wardrobe", "lookSignature", "photoHair", "onCamera") if pc.get(k)}
     if npc.get("biography"):
         facts["biography"] = " ".join(str(npc["biography"]).split())[:420]  # the signature is drawn from their life
     system = ("You fix one or two PUBLIC text fields of a reality-show houseguest card. Output STRICT JSON only. "

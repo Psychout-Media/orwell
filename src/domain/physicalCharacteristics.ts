@@ -91,6 +91,13 @@ export function cleanPhotoHair(v: unknown): string | undefined {
   return cleanLine(v, PHOTO_HAIR_MAX);
 }
 
+export const STYLE_LINE_MAX = 200;
+
+/** ORW-480: clean + clamp a rewritten `style` line (the line that describes the clothes: it is rewritten with the wardrobe it describes). */
+export function cleanStyleLine(v: unknown): string | undefined {
+  return cleanLine(v, STYLE_LINE_MAX);
+}
+
 /** ORW-480: clean + clamp the authored `lookSignature` line. */
 export function cleanLookSignature(v: unknown): string | undefined {
   return cleanLine(v, LOOK_SIGNATURE_MAX);

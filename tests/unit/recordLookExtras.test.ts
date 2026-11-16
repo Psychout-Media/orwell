@@ -191,4 +191,11 @@ describe("ORW-437 recordCastProfile keeps what it omits, and renames the prose w
     expect(a.recordLookExtras({ houseguestId: "npc:999", wardrobe: ["a shirt", "jeans"] })).toEqual({ accepted: false, fields: [], reason: "unknown-houseguest" });
     expect(new GameSessionAdapter().recordLookExtras({ houseguestId: id, wardrobe: ["a shirt", "jeans"] })).toEqual({ accepted: false, fields: [], reason: "no-game" });
   });
+
+  it("ORW-480: the style line is rewritten with the wardrobe it describes (a style naming a garment that is gone would reach the card and the portrait brief)", () => {
+    const { sb, id, npc } = setup();
+    expect(sb.session.recordLookExtras({ houseguestId: id, wardrobe: ["a navy cardigan", "grey trousers"], style: "  a navy cardigan, grey trousers  " }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "style"] });
+    expect(npc().character.physicalCharacteristics!.style).toBe("a navy cardigan, grey trousers");
+  });
 });

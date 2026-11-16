@@ -222,7 +222,7 @@ function isUsableTagline(s: string): boolean {
   return s.length > 0 && s.length <= 120 && !/[{}]/.test(s) && !/forEntity|visibleEvents|systemPrompt/i.test(s);
 }
 import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristics";
-import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, clipCodePoints } from "../../domain/physicalCharacteristics";
+import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, cleanStyleLine, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
@@ -15767,14 +15767,15 @@ export class GameSessionAdapter implements GameSession {
     const onCamera = cleanOnCamera(req.onCamera);
     const photoHair = cleanPhotoHair(req.photoHair);
     const lookSignature = cleanLookSignature(req.lookSignature);
+    const style = cleanStyleLine(req.style);
     const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair", "lookSignature"] as const;
     const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
-    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && lookSignature === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
+    if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && lookSignature === undefined && style === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
     const playerName = (this.house ? (this.house.player.name ?? "") : (this.intake.playerName ?? "")).trim();
-    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""} ${lookSignature ?? ""}`.toLowerCase();
+    const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""} ${lookSignature ?? ""} ${style ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
-    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}), ...(lookSignature !== undefined ? { lookSignature } : {}) };
+    const merged = { ...prior, ...(wardrobe !== undefined ? { wardrobe } : {}), ...(onCamera !== undefined ? { onCamera } : {}), ...(photoHair !== undefined ? { photoHair } : {}), ...(lookSignature !== undefined ? { lookSignature } : {}), ...(style !== undefined ? { style } : {}) };
     const guarded = applyClosedFacetGuard(prior, merged, undefined).physicalCharacteristics as typeof prior;
     const fields: string[] = [];
     const next = { ...prior };
@@ -15782,6 +15783,7 @@ export class GameSessionAdapter implements GameSession {
     if (onCamera !== undefined && guarded.onCamera === onCamera) { next.onCamera = onCamera; fields.push("onCamera"); }
     if (photoHair !== undefined && guarded.photoHair === photoHair) { next.photoHair = photoHair; fields.push("photoHair"); }
     if (lookSignature !== undefined && guarded.lookSignature === lookSignature) { next.lookSignature = lookSignature; fields.push("lookSignature"); }
+    if (style !== undefined && guarded.style === style) { next.style = style; fields.push("style"); }
     // ORW-380: `clear` removes an old field the new writer left out (a stale scene-like line must not ship in the v3 prompt).
     const cleared: string[] = [];
     for (const c of clear) {
