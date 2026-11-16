@@ -118,12 +118,14 @@ describe("0118 — the telegraphed schedule rides the view + primes the narrator
     const { sb } = harness({ clockOn: true, seed: 7, user: "u-sched-443" });
     toLiveClock(sb);
     const view = sb.session.getGameState();
-    for (const todaysEvent of [undefined, "hoh-comp" as never]) {
+    for (const todaysEvent of [undefined, "hoh-competition" as const]) {
       const ctx = renderGameContext({ ...view, daySchedule: { ...view.daySchedule!, due: false, ...(todaysEvent ? { todaysEvent } : {}) } });
       const line = ctx.split("\n").find((l) => l.includes("COMING UP")) ?? "";
       expect(line).toContain(milestoneLabel(view.daySchedule!.next, view.daySchedule!.finalHohPart));
       expect(line).toContain(view.daySchedule!.phase);
       expect(line).not.toMatch(/pitch|last-minute|scheme/i);
+      expect(line, "no unresolved placeholder").not.toContain("undefined");
+      if (todaysEvent) { expect(line).toContain("TOMORROW"); expect(line).toContain(`today is the ${MILESTONE_LABEL[todaysEvent]}'s day`); }
     }
   });
 

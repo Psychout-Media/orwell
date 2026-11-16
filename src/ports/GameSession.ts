@@ -2603,6 +2603,7 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
+/** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
 export interface HangOutView {
   /** false = nothing happened (no state change): see `reason`. */
@@ -3203,7 +3204,8 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null;
+  /** `lookingFor` only means something on a search: it is typed so a named lookup cannot be passed without `search: true` (review of #2804). */
+  whereabouts(opts?: { search?: boolean; lookingFor?: undefined } | { search: true; lookingFor?: string }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;

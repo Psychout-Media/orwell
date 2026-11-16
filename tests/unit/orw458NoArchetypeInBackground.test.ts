@@ -10,7 +10,9 @@ describe("ORW-458 the public background carries no archetype label", () => {
       const live = new GameSessionAdapter().createCharacter({ playerName: "The Player", seed });
       for (const h of [...warm.house, ...live.house]) {
         expect(h.background ?? "", h.id).not.toMatch(/plays as|who plays/i);
-        if (h.archetype) expect(h.background ?? "", h.id).not.toContain(`as a ${String(h.archetype)}`);
+        expect(h.archetype, `${h.id} carries an archetype to check against`).toBeTruthy(); // fail loudly rather than skip (review of #2788)
+        // the bare label never appears either, unless it is the houseguest's real job (an "analyst" archetype and an "analyst" occupation are different words that collide)
+        if (!String(h.vocation ?? "").toLowerCase().includes(String(h.archetype).toLowerCase())) expect((h.background ?? "").toLowerCase(), h.id).not.toContain(String(h.archetype).toLowerCase());
         expect(h.background, h.id).toMatch(/^a /);
       }
     });
