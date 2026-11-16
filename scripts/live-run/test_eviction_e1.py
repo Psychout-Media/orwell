@@ -116,8 +116,11 @@ class _ClockEng:
     """minutesUntil falls 5 per message tick; the hour jumps to 24 at one point so the bed path runs."""
     def __init__(self, start, night_at=None):
         self.mu, self.ticks, self.slept, self.night_at, self.tomorrow = start, 0, 0, night_at, False
+    hang = False
     def call(self, name, args=None):
         if name == "getGameState": return {"daySchedule": {"minutesUntil": self.mu, "due": self.mu <= 0, "tomorrow": self.tomorrow}}
+        if name == "hangOut" and self.hang: self.hangs = getattr(self, "hangs", 0) + 1; self.mu -= 180; return {}
+        if name == "hangOut": raise RuntimeError("refused")
         if name == "noteMessage": self.ticks += 1; self.mu -= 5
         return {}
     def hour(self): return (24, 0) if self.night_at is not None and self.ticks == self.night_at and not self.slept else (14, 0)
@@ -146,3 +149,11 @@ def test_a_near_clock_does_not_count_while_the_ceremony_is_still_tomorrow():
     assert ev.advance_to_due(e, max_ticks=10) is False     # 20 minutes away but still behind the night
     e.tomorrow = False
     assert ev.advance_to_due(e) is True
+
+
+def test_the_clock_moves_in_big_hang_out_steps_and_falls_back_to_ticks_when_it_is_refused():
+    e = _ClockEng(1290); e.hang = True
+    assert ev.advance_to_due(e) is True
+    assert e.hangs >= 6 and e.ticks <= 6 and 0 < e.mu <= 30      # ~3 hours a call, never 258 five-minute saves
+    r = _ClockEng(120)                                           # hangOut refused: ticks still get there
+    assert ev.advance_to_due(r) is True and r.ticks > 0

@@ -61,19 +61,31 @@ MAX_ADVANCE_TICKS = 500
 
 
 def advance_to_due(eng, minutes_before=NEAR_DUE_MINUTES, max_ticks=MAX_ADVANCE_TICKS):
-    """Tick the engine's clock (noteMessage = one message tick, no model call) until the next ceremony is `minutes_before` or fewer minutes away, going to bed through the night the way the crossover tier does.
-    True once the clock is that close (or the event is already due); False if the bound ran out."""
+    """Move the engine's clock until the next ceremony is `minutes_before` or fewer minutes away AND the night before it has passed (ORW-258: the eviction waits behind the night; `daySchedule.tomorrow` is cleared).
+    The clock moves in BIG steps: `hangOut` (a bounded run of 15-30 minute beats, up to ~3 hours per call, clamped at the due event, no model call); a refusal or a call that does not move the clock falls back to one message tick
+    (`noteMessage`, 5 minutes and a save each: a live run that used ticks alone spent over an hour of save latency); bed at the night. True once the clock is that close (or the event is due); False if the bound ran out."""
+    def minutes(ds):
+        v = ds.get("minutesUntil")
+        return v if isinstance(v, (int, float)) else None
     for n in range(max_ticks):
         ds = (eng.call("getGameState") or {}).get("daySchedule") or {}
-        mu = ds.get("minutesUntil")
+        mu = minutes(ds)
         # the eviction waits BEHIND the night (ORW-258): it only counts as night-of-eviction once the night has passed (`tomorrow` cleared), however few minutes the schedule reads
-        if not ds.get("tomorrow") and (ds.get("due") or (isinstance(mu, (int, float)) and mu <= minutes_before)):
+        if not ds.get("tomorrow") and (ds.get("due") or (mu is not None and mu <= minutes_before)):
             return True
         h, _ = eng.hour()
         if h is not None and h >= 24:
             eng.sleep_through_night(f"e1s{n}")
             continue
-        eng.call("noteMessage", {"messageId": f"e1-adv-{n}"})
+        moved = False
+        try:
+            r = eng.call("hangOut", {"maxMinutes": 180}) or {}
+            after = minutes((eng.call("getGameState") or {}).get("daySchedule") or {})
+            moved = mu is not None and after is not None and after < mu and not (isinstance(r, dict) and r.get("refused"))
+        except RuntimeError:
+            moved = False
+        if not moved:
+            eng.call("noteMessage", {"messageId": f"e1-adv-{n}"})
     return False
 
 
