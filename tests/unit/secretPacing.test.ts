@@ -324,6 +324,8 @@ describe("0092 — a drip only commits when its pathway can actually DELIVER (no
       for (let i = 0; i < 30; i++) session.pacingDrip();
       expect(thread.status).toBe("active");
       expect(internals.pacingDripCount).toBe(0);
+      expect(internals.pacingLastDrippedWeek[thread.id]).toBeUndefined(); // the anti-spam state is untouched too
+      expect(internals.surfacedThreadCount).toBe(0); // and the season cap
     } finally {
       GameSessionAdapter.setSecretPacingEnabled(null);
     }

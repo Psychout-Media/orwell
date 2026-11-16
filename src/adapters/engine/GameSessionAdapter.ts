@@ -8387,12 +8387,12 @@ export class GameSessionAdapter implements GameSession {
     return (this.live?.owedFavors ?? []).filter((f) => f.n > 0).map((f) => ({ from: this.named(f.debtor)!, n: f.n }));
   }
 
+  private static readonly FAVOR_ASK_KINDS: ReadonlySet<string> = new Set(["safety", "vote", "final-two", "target-other", "comp-throw", "veto-save", "protect-third", "conditional", "information"]);
   /**
    * 0142 (ORW-88 idea 2) - call in a favor. The houseguest's consent read prices the ask like a normal deal plus the called-favor bonus, so a marginal ask can be honored but a
    * distrusted or feared player is still refused. Honored => an ordinary deal binds (the NPC is the promisor of an active kind); ignored => the favor is spent and the player's own
    * read of them takes a betrayal-grade drop (hidden, seeded by the shared key, never narrated as a number). No new rng stream: the consent jitter is keyed as for any ask.
    */
-  private static readonly FAVOR_ASK_KINDS: ReadonlySet<string> = new Set(["safety", "vote", "final-two", "target-other", "comp-throw", "veto-save", "protect-third", "conditional", "information"]);
   callInFavor(npcId: EntityId, ask: DealReqKind = "vote", expectedBeatSeq?: number): CallInFavorResult | null {
     this.guardBeatSeq(expectedBeatSeq);
     const s = this.live;
@@ -11816,8 +11816,13 @@ export class GameSessionAdapter implements GameSession {
       // this chained call honors the SAME gate a separate `advanceGame` call would: if a deal is due at
       // the post-resolution lull, it sets `live.dealOffer` and the beat does NOT advance here either —
       // byte-identical to the un-chained two-call path, never bypassed by going straight to a beat draw.
-      if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step" && !this.scheduleHoldsAdvance()) this.advanceOneBeat(); // ORW-281 4a: a ceremony watch step waits for the player's own Continue
-      return this.advanceView(ev);
+      let chainHeld = false;
+      if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") { // ORW-281 4a: a ceremony watch step waits for the player's own Continue
+        if (this.scheduleHoldsAdvance()) chainHeld = true; else this.advanceOneBeat();
+      }
+      const m = chainHeld ? nextMilestone(this.live!) : null;
+      // the schedule held the chained advance: say so exactly as advanceGame does (typed `held`), so the caller does not read the quiet as a stall
+      return m ? { ...this.advanceView(ev), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live!) ?? 0, reason: "schedule" as const } } : this.advanceView(ev);
     }));
   }
 

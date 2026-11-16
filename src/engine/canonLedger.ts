@@ -418,7 +418,7 @@ function entryProblem(e: unknown): string | undefined {
  * a load that would lose canon, mandate #4). Entries that fail the shape check are excluded from the returned
  * ledger and listed in `problems`.
  */
-export function restoreCanon(raw: unknown): { ledger: CanonLedger; problems: string[] } {
+export function restoreCanon(raw: unknown): { ledger: CanonLedger; problems: string[]; notes?: string[] } {
   if (raw === undefined || raw === null) return { ledger: emptyCanonLedger(), problems: [] };
   if (typeof raw !== "object") return { ledger: emptyCanonLedger(), problems: ["canon: not an object"] };
   const r = raw as Record<string, unknown>;
@@ -439,13 +439,17 @@ export function restoreCanon(raw: unknown): { ledger: CanonLedger; problems: str
   const nextIdOk = typeof r.nextId === "number" && Number.isInteger(r.nextId) && r.nextId > maxId;
   const nextId = nextIdOk ? (r.nextId as number) : maxId + 1;
   if (!nextIdOk) problems.push("canon: nextId repaired past the highest id");
-  if (r.recent !== undefined && !Array.isArray(r.recent)) problems.push("canon: recent is not a list");
+  // Idempotency-cache trouble is reported in `notes`, NEVER in `problems`: a problem locks canon recording for the session (canonAsLoaded), and a stale idempotency key must not stop canon accruing.
+  const notes: string[] = [];
+  if (r.recent !== undefined && !Array.isArray(r.recent)) notes.push("canon: recent is not a list");
   const recentRaw = Array.isArray(r.recent) ? r.recent : [];
-  const recent = recentRaw
-    .filter((x): x is PersistedCanon["recent"][number] => !!x && typeof (x as { key?: unknown }).key === "string" && typeof (x as { result?: unknown }).result === "object")
-    .slice(-CANON_IDEMPOTENCY_KEEP);
-  if (recent.length < Math.min(recentRaw.length, CANON_IDEMPOTENCY_KEEP)) problems.push("canon: a malformed recent entry was dropped"); // never silently (review of the canon ledger)
-  return { ledger: JSON.parse(JSON.stringify({ schemaVersion: 1, nextId, entries, recent })) as CanonLedger, problems };
+  const recentValid = recentRaw.filter((x): x is PersistedCanon["recent"][number] => {
+    const k = x as { key?: unknown; result?: unknown } | null;
+    return !!k && typeof k.key === "string" && typeof k.result === "object" && k.result !== null && !Array.isArray(k.result);
+  });
+  if (recentValid.length < recentRaw.length) notes.push("canon: a malformed recent entry was dropped"); // never silently
+  const recent = recentValid.slice(-CANON_IDEMPOTENCY_KEEP);
+  return { ledger: JSON.parse(JSON.stringify({ schemaVersion: 1, nextId, entries, recent })) as CanonLedger, problems, notes };
 }
 
 const ALLOWED_STATUS_MOVES: Readonly<Record<CanonStatus, readonly CanonStatus[]>> = {
