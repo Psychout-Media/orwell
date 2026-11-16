@@ -164,3 +164,41 @@ def test_load_dump_replays_one_consistent_snapshot(tmp_path):
     assert psa.load_dump(text, str(dest)) and sqlite3.connect(dest).execute("select a from t").fetchone() == (7,)
     assert psa.load_dump("not sql at all;", str(tmp_path / "bad.db")) is False
     assert "sqlite3 -readonly " in psa.READ_ONLY_PREFIXES
+
+
+# ── ORW-506 follow-ups: session selector, engine.log, narrator classification ───────────────────────────
+def _two_sessions(tmp_path):
+    rows = []
+    for sid, n in (("side", 1), ("game", 3)):
+        for k in range(n):
+            rows += [(sid, "user", f"{sid} u{k}", "{}", f"2026-11-05 10:{k:02d}:00", 2 * k + 1), (sid, "assistant", f"{sid} a{k}", "{}", f"2026-11-05 10:{k:02d}:05", 2 * k + 2)]
+    return _db(tmp_path, rows)
+
+
+def test_session_selector_filters_one_session_or_picks_the_game_automatically(tmp_path):
+    db = _two_sessions(tmp_path)
+    assert len(psa.load_turns(db, SINCE, None)[0]) == 4                       # default: everything, as before
+    assert {t["session"] for t in psa.load_turns(db, SINCE, None, "side")[0]} == {"side"}
+    assert {t["session"] for t in psa.load_turns(db, SINCE, None, "auto")[0]} == {"game"}
+    assert psa.load_turns(db, SINCE, None, "nope")[0] == []
+    assert psa.pick_session([]) is None
+
+
+def test_engine_log_is_parsed_and_errors_are_escalated(tmp_path):
+    p = _w(tmp_path / "engine.log",
+           "2026-11-05T10:00:00+0000 host node[1]: listening on the engine port\n"
+           "2026-11-05T10:00:05+0000 host node[1]: Uncaught exception in a save write\n")
+    ev = psa.parse_engine(p)
+    assert [e[1] for e in ev] == ["INFO", "ERROR"] and all(e[2] == "engine" and e[3].startswith("[engine] ") for e in ev)
+    assert psa.parse_engine(str(tmp_path / "missing.log")) == []
+    R = psa.analyze(ev, [], [], SINCE, None)
+    assert sum(R["errors"].values()) == 1
+
+
+def test_narrator_calls_are_classified_apart_from_the_utility_calls():
+    ts = int(SINCE.replace(tzinfo=dt.timezone.utc).timestamp() * 1000)
+    llm = [{"ts": ts, "ok": True, "model": "m", "durationMs": 4000, "callClass": "narration"},
+           {"ts": ts, "ok": True, "model": "u", "durationMs": 1000, "callClass": "utility-extraction"},
+           {"ts": ts, "ok": True, "model": "u", "durationMs": 1000}]
+    L = psa.analyze([], [], llm, SINCE, None)["llm"]
+    assert dict(L["by_call_class"]) == {"narration": 1, "utility-extraction": 1, "unclassified": 1} and L["narr"] == [4.0]
