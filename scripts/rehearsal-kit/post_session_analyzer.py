@@ -133,12 +133,21 @@ def parse_fe(path, offset_hours_default=0.0):
     return out
 
 
-def load_turns(db_path, since, until):
-    """One turn = a game-phase user message + the assistant message that answers it. Casting turns are excluded."""
+def pick_session(turns):
+    """ORW-506 'auto': the session with the most game turns (the game, not a side chat). None when there are no turns; ties go to the lexically smaller id so a rerun is stable."""
+    n = collections.Counter(t["session"] for t in turns)
+    return min(n, key=lambda k: (-n[k], str(k))) if n else None
+
+
+def load_turns(db_path, since, until, session=None):
+    """One turn = a game-phase user message + the assistant message that answers it. Casting turns are excluded.
+    ORW-506: `session` restricts to ONE chat session id (a playtest box holds side chats and earlier games), or "auto" = the session with the most game turns."""
     if not os.path.exists(db_path):
         return [], 0
     c = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     rows = c.execute("select session_id, role, content, metadata, timestamp, seq from chat_messages order by session_id, seq").fetchall()
+    if session not in (None, "all", "auto"):
+        rows = [r for r in rows if str(r[0]) == str(session)]
     turns, casting, pend = [], 0, {}
     for sid, role, content, md, ts, seq in rows:
         try:
@@ -158,11 +167,27 @@ def load_turns(db_path, since, until):
                 continue
             if t0 < since or (until and t0 > until):
                 continue
-            turns.append({"start": t0, "end": t, "user": utext, "text": content or "", "md": md,
+            turns.append({"session": sid, "start": t0, "end": t, "user": utext, "text": content or "", "md": md,
                           "latency": md.get("response_time") if isinstance(md.get("response_time"), (int, float)) else (t - t0).total_seconds(),
                           "ttft": md.get("time_to_first_token"), "model": md.get("model"), "out_tokens": md.get("output_tokens"),
                           "ann": [a.get("kind") for a in (md.get("announcements") or []) if isinstance(a, dict)]})
+    if session == "auto":
+        sid_ = pick_session(turns)
+        turns = [t for t in turns if t["session"] == sid_]
     return turns, casting
+
+
+def parse_engine(path):
+    """ORW-506: the ENGINE journal as events: the same time handling as the front-end log (journald offsets to UTC), logger "engine"; a line that reads as an error or a crash
+    is escalated to ERROR so it lands in the errors table instead of being dropped (engine.log was pulled but never read)."""
+    out = []
+    for ts, lvl, lg, m in parse_fe(path):
+        bad = ENGINE_ERR_RE.search(m) is not None
+        out.append((ts, "ERROR" if bad else lvl, "engine", "[engine] " + m))
+    return out
+
+
+ENGINE_ERR_RE = re.compile(r"(?i)\b(error|fatal|uncaught|unhandled|exception|ECONN\w*|EADDRINUSE|out of memory|integrity (?:fault|refus)\w*|fail-closed)\b")
 
 
 STRIP_CLASSES = (("veto", "veto winner/holder"), ("HOH", "head of household"), ("evictee", "evictee"), ("ballot", "ballot/tally before reveal"),
@@ -330,7 +355,7 @@ def analyze(events, turns, llm_rows, since, until):
             errs[re.sub(r"\d+", "N", m)[:90]] += 1
     R["errors"] = errs
     # llm-io
-    L = {"calls": 0, "failed": 0, "by_class": collections.Counter(), "dur": collections.defaultdict(list), "cost": 0.0, "tok_in": 0, "tok_out": 0}
+    L = {"calls": 0, "failed": 0, "by_class": collections.Counter(), "dur": collections.defaultdict(list), "cost": 0.0, "tok_in": 0, "tok_out": 0, "by_call_class": collections.Counter(), "narr": []}
     for r in llm_rows:
         ts = dt.datetime.fromtimestamp(r.get("ts", 0) / 1000, dt.timezone.utc).replace(tzinfo=None)
         if ts < since or (until and ts > until):
@@ -339,6 +364,10 @@ def analyze(events, turns, llm_rows, since, until):
         if r.get("ok") is False:
             L["failed"] += 1
             L["by_class"][str(r.get("failClass"))] += 1
+        cc = r.get("callClass") or "unclassified"
+        L["by_call_class"][cc] += 1
+        if cc == "narration" and r.get("durationMs"):
+            L["narr"].append(r["durationMs"] / 1000)   # ORW-506: the narrator's own calls, apart from the utility / authoring / judge calls
         if r.get("durationMs"):
             L["dur"][r.get("model")].append(r["durationMs"] / 1000)
         u = (r.get("response") or {}).get("usage") if isinstance(r.get("response"), dict) else None
@@ -483,6 +512,8 @@ def fmt(R, window, sources, casting):
     for model, ds in L["dur"].items():
         ds.sort()
         A(f"- model `{model}`: {len(ds)} streamed calls, median {statistics.median(ds):.1f}s, p90 {ds[int(0.9 * (len(ds) - 1))]:.1f}s")
+    if L["by_call_class"]:
+        A("- calls by class: " + ", ".join(f"{k} x{v}" for k, v in L["by_call_class"].most_common()) + (f"; narrator (`narration`) median {statistics.median(L['narr']):.1f}s over {len(L['narr'])} calls" if L["narr"] else "; no narrator-class calls recorded") + ".")
     A("\n## Failed calls, errors, stalls")
     A(f"- Model calls: {L['calls']} recorded, **{L['failed']} failed**" + (f" ({dict(L['by_class'])})" if L["failed"] else "") + (f"; est. cost ${L['cost']:.2f}, {L['tok_in']} in / {L['tok_out']} out tokens." if L["calls"] else " (no llm-io file found - not measurable)."))
     for k, v in R["errors"].most_common(8):
@@ -509,6 +540,7 @@ def main():
     ap.add_argument("--ssh"); ap.add_argument("--dir"); ap.add_argument("--app", default=APP)
     ap.add_argument("--since", default="2000-01-01 00:00"); ap.add_argument("--until", default="")
     ap.add_argument("--out", default="-")
+    ap.add_argument("--session", default="all", help="ORW-506: one chat session id, 'auto' (the session with the most game turns) or 'all' (default)")
     a = ap.parse_args()
     since = dt.datetime.strptime(a.since[:16], "%Y-%m-%d %H:%M")
     until = dt.datetime.strptime(a.until[:16], "%Y-%m-%d %H:%M") if a.until else None
@@ -520,8 +552,8 @@ def main():
         sources = {f: os.path.getsize(os.path.join(d, f)) for f in ("fe.log", "engine.log", "app.db", "llm-io.jsonl", "engine-save.json") if os.path.exists(os.path.join(d, f))}
     else:
         raise SystemExit("give --ssh user@host or --dir")
-    events = parse_fe(os.path.join(d, "fe.log"))
-    turns, casting = load_turns(os.path.join(d, "app.db"), since, until)
+    events = parse_fe(os.path.join(d, "fe.log")) + parse_engine(os.path.join(d, "engine.log"))
+    turns, casting = load_turns(os.path.join(d, "app.db"), since, until, a.session)
     llm = []
     p = os.path.join(d, "llm-io.jsonl")
     if os.path.exists(p):
