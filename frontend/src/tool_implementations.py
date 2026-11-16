@@ -5670,6 +5670,7 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
         # ORW-320: "the house you never saw" is the retrospective WINDOW's per-houseguest story (long); it stays off the host model's context.
         if isinstance(res, dict):
             res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
+            res.pop("rumorMill", None)  # ORW-525: the rumor mill is the retrospective WINDOW's too, off the host model's context
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
