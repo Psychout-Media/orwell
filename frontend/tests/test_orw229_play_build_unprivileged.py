@@ -56,7 +56,8 @@ class Rig:
 case "$1" in
   ci) rm -rf node_modules; mkdir node_modules ;;
   run) rm -rf dist; mkdir -p dist/assets; cat src/app.txt > dist/index.html; cp dist/index.html dist/assets/app.js
-       if grep -q PLANT_SYMLINK src/app.txt; then ln -s /etc/hostname dist/assets/evil.js; fi ;;
+       if grep -q PLANT_SYMLINK src/app.txt; then ln -s /etc/hostname dist/assets/evil.js; fi
+       if grep -q PLANT_STAMP_LINK src/app.txt; then ln -s "$VICTIM" dist/.orwell-web-inputs; fi ;;
 esac
 exit 0
 """)
@@ -165,7 +166,12 @@ def test_a_build_with_a_symlink_in_it_is_refused(rig):
     assert "other than files and directories" in out
 
 
-def test_review_followup_the_stamp_is_written_over_a_removed_path_never_through_a_planted_link():
-    src = UPDATE.read_text()
-    assert '! -L "${out}/dist"' in src and 'rm -f "${out}/dist/${PLAY_STAMP}"' in src
-    assert src.index('rm -f "${out}/dist/${PLAY_STAMP}"') < src.index("""printf '%s\\n' "$fp" > "${out}/dist/${PLAY_STAMP}\"""")
+@not_root
+def test_review_followup_a_planted_link_at_the_stamp_path_is_never_written_through(rig, tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("untouched\n")
+    rig.set_app("APP-3 PLANT_STAMP_LINK")
+    rig.build({"VICTIM": str(victim)})
+    assert victim.read_text() == "untouched\n", "the stamp is never written through a link the build planted"
+    stamp = rig.app / "frontend" / "web" / "dist.next" / ".orwell-web-inputs"
+    assert stamp.is_file() and not stamp.is_symlink(), "the planted link is replaced by a plain stamp file"

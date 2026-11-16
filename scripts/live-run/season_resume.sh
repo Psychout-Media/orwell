@@ -3,8 +3,12 @@
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"; RUN=$(cat $RIG_RUN_PTR)
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SEASON BUSY (rig slot $RIG_SLOT)"; exit 3; }   # one run at a time, like run_short.sh / season.sh
+PY=""
+cleanup() { [ -n "$PY" ] && { kill "$PY" 2>/dev/null; wait "$PY" 2>/dev/null; }; "$KIT/stop.sh" >/dev/null 2>&1; }   # the lock is held to the end, so a cancelled resume ends its driver and stops the rig BEFORE the lock is released
+trap cleanup EXIT; trap 'exit 143' TERM; trap 'exit 130' INT
 export TMPDIR=${TMPDIR:-$RIG_HOME/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"
-"$RIG_HOME/orwell/frontend/.venv/bin/python3" "$HERE/live_week.py" --season --resume --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --max-turns-total ${MAX_TURNS:-800} --run-dir "$RUN" > "$RUN/live_season_resume.out" 2>&1; RC=$?
+"$RIG_HOME/orwell/frontend/.venv/bin/python3" "$HERE/live_week.py" --season --resume --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --max-turns-total ${MAX_TURNS:-800} --run-dir "$RUN" > "$RUN/live_season_resume.out" 2>&1 & PY=$!
+wait "$PY"; RC=$?; PY=""
 "$KIT/stop.sh" >/dev/null 2>&1
 case $RC in 0) V=PASS;; 1) V=FAIL;; *) V=COULD-NOT-RUN;; esac
 echo "LIVE-SEASON $V $(git -C "$RIG_HOME/orwell" rev-parse --short=8 origin/main) $RUN/report.md"; exit $RC

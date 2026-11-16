@@ -65,6 +65,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: build the engine (unit tests and the real-stack browser tests use dist/)
+        id: build
         run: |
           npm ci
           npm run build
@@ -72,25 +73,27 @@ jobs:
       # that lane (ORW-229 review).
       - name: quarantine guard (engine)
         run: npx vitest run tests/unit/ciQuarantineGuard.test.ts
-      - if: ${{ !cancelled() && steps.which.outputs.engine != '' }}
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' && steps.which.outputs.engine != '' }}
         name: engine quarantined tests (no retry)
         env:
           FILES: ${{ steps.which.outputs.engine }}
         run: npx vitest run $FILES
-      # `!cancelled()` on every step below: one expected failure (a quarantine past its 7 days) must not skip the rest of the night.
-      - if: ${{ !cancelled() }}
+      # `!cancelled()` on every step below: one expected failure (a quarantine past its 7 days) must not skip the rest of the night; each step also needs the setup it depends on (build, python, pip) to have succeeded, so a broken setup is one red, not a pile of misleading ones.
+      - if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        id: py
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && steps.py.outcome == 'success' }}
+        id: pip
         run: pip install -r frontend/requirements.lock.txt
-      - if: ${{ !cancelled() }}
+      - if: ${{ !cancelled() && steps.pip.outcome == 'success' }}
         name: quarantine guard (front end)
         run: cd frontend && python3 -m pytest tests/test_ci_quarantine_guard.py -q
-      - if: ${{ !cancelled() && steps.which.outputs.frontend != '' }}
+      - if: ${{ !cancelled() && steps.pip.outcome == 'success' && steps.which.outputs.frontend != '' }}
         uses: ./.github/actions/setup-playwright
-      - if: ${{ !cancelled() && steps.which.outputs.frontend != '' }}
+      - if: ${{ !cancelled() && steps.pip.outcome == 'success' && steps.which.outputs.frontend != '' }}
         name: front-end quarantined tests, browser and non-browser (serial, no rerun)
         run: |
           cd frontend
