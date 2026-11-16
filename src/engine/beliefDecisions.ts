@@ -23,8 +23,12 @@ export const BELIEF_PULL = {
   halfLifeWeeks: 4,
   /** How much each kind of believed grievance counts (a lie told to you, or a rumor that someone is after you, a little less than a direct threat or a vote). */
   kindWeight: { "targets-me": 1, "voted-against-me": 1, "lied-to-me": 0.8, "going-after-me": 0.8 } as const,
-  /** The goal-forming bar: a believed grievance this strong (weight x confidence, after decay) can become a revenge goal - the same bar as a remembered grudge (AGENDA.revengeGrudge). */
-  revengeBar: 0.6,
+  /**
+   * The goal-forming bar: a believed grievance this strong (weight x confidence, after decay) can become a revenge goal. 0150 used the remembered
+   * grudge's bar (0.6); 0153 (slice 3) raised it to 0.75 to keep the agreed week-1 house mix once NPCs tell each other claims (houseMixGuard,
+   * ORW-330: bonding 37.4 at 0.6, 41.1 at 0.75, 42.4 at 0.9; reference 44 +-5). One trusted tell (~0.77) still clears it; a doubted one does not.
+   */
+  revengeBar: 0.75,
 };
 
 type GrievanceKind = keyof typeof BELIEF_PULL.kindWeight;
