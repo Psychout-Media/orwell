@@ -151,7 +151,7 @@ def main():
     ap.add_argument("--fe-data", default=None)
     ap.add_argument("--resolve-as", default="rhino")
     ap.add_argument("--max-usd", type=float, default=0.05)
-    ap.add_argument("--max-calls", type=int, default=4)
+    ap.add_argument("--max-calls", type=int, default=6)
     args = ap.parse_args()
     # relative paths mean the directory the probe was launched from, whatever it chdirs into later
     for attr in ("cards", "floor", "out", "briefs", "fe_data", "app"):
