@@ -2592,6 +2592,8 @@ export interface NapView {
   slept: number;
   /** Why the nap ended before the asked-for length, when it did. */
   wokenBy?: "event" | "evening";
+  /** ORW-477: the length asked for (rounded to the nap's half-hour steps), in-game hours; present when the nap ended before it (`wokenBy`). */
+  asked?: number;
   /** Vault-free: where the player slept and who is in the room (the open presence read). */
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
