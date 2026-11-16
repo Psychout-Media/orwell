@@ -196,16 +196,30 @@ def build_messages(cards: list, anchors: dict, used: Optional[dict] = None) -> l
 
 # ---------------------------------------------------------------------------------------------------- the checks (narrow, deterministic)
 ACTED_RE = re.compile(
-    r"hunch|slump|sprawl|lung(?:e|ing)|crouch|elbows? on (?:the |his |her |their )?knees|between (?:the |his |her |their )?knees|hanging|behind (?:the |his |her |their )?head|"
+    r"hunch|slump|sprawl|lung(?:e|ing)|crouch|elbows? on (?:the |his |her |their )?knees|between (?:the |his |her |their )?knees|behind (?:the |his |her |their )?head|"
     r"chin resting|\bfists?\b|point\w* at|thumbs.?up|flex|jazz|snarl|bared|fierce|mugg|comic|disbelief|startled|wiggl|slapping|stretched out|"
     r"eyes (?:shut|closed|squeezed)|squeezed shut|eyes closed|dejected|on all fours|doubled over|cross-legged on the (?:ground|steps)|"
     r"\b(?:swinging|throwing|hurling|tossing|jumping|leaping|twirling|casting (?:a|the|his|her|their)|punching|kicking|lunging|whipping|slinging)\b|"
-    r"mid-(?:swing|throw|jump|leap|spin|cast|kick|toss|motion|action|air)|arms? (?:raised|up|overhead|above)|overhead|above (?:the |his |her |their )?head|in the air", re.I)
+    r"mid-(?:swing|throw|jump|leap|spin|cast|kick|toss|motion|action|air)|(?:arms?|hands?) (?:raised|thrown|held|stretched) (?:up|high|overhead|above)|arms? (?:raised|up) |hands? (?:in|up in) the air", re.I)
 OPEN_PALM_RE = re.compile(r"palms? (?:up|open|out)|open (?:hand|palm)|hand open|hands open|palm facing up", re.I)
 TALKING_RE = re.compile(r"mid-sentence|talking to|telling (?:a|the) story|speaking to|laughing with|in conversation|chatting", re.I)
 WORK_GEAR_RE = re.compile(r"\b(?:scrubs|uniform|apron|badge|lanyard|hard hat|turnout gear|stethoscope|name ?tag|high-vis|hi-vis|chef'?s? (?:coat|jacket|whites))\b", re.I)
 TEXT_RE = re.compile(r"\b(?:logo|brand|sign (?:reading|that says)|reads? ['\"]|lettering|slogan|printed words|text on|written on|banner reading)\b|[A-Z][a-z]+(?:'s)? (?:Pizza|Diner|Market|Bar|Cafe|Café)\b(?= sign)", re.I)
-BRAND_RE = re.compile(r"\b(?:nike|adidas|puma|coca[- ]cola|pepsi|starbucks|mcdonald'?s|walmart|target|ford|chevy|chevrolet|toyota|honda|harley|carhartt|patagonia|north face|levi'?s|vans|converse|apple|samsung|budweiser|corona|yeti)\b", re.I)
+_BRAND_STRONG = re.compile(r"\b(?:nike|adidas|coca[- ]cola|pepsi|starbucks|mcdonald'?s|walmart|harley|carhartt|patagonia|north face|levi'?s|budweiser|yeti|samsung|toyota|chevrolet)\b", re.I)
+_BRAND_CAPITAL = re.compile(r"\b(?:Target|Ford|Apple|Honda|Vans|Converse|Puma|Corona|Chevy)\b")      # ordinary words in lower case (a target, a ford, vans): brands only when capitalised
+
+
+class _Brand:
+    """One search over the strong brands (any case) and the ambiguous ones (capitalised only)."""
+    pattern = _BRAND_STRONG.pattern + "|" + _BRAND_CAPITAL.pattern
+
+    @staticmethod
+    def search(text):
+        t = str(text or "")
+        return _BRAND_STRONG.search(t) or _BRAND_CAPITAL.search(t)
+
+
+BRAND_RE = _Brand()
 HAT_RE = re.compile(r"\b(?:hat|cap|beanie|fedora|visor|bonnet)\b", re.I)
 SUNGLASSES_RE = re.compile(r"\b(?:sunglasses|shades|goggles)\b", re.I)
 INDOOR_RE = re.compile(r"\b(?:indoors?|inside|kitchen|living room|bedroom|dining|diner|booth|café|cafe|studio|shop(?! (?:window|front))|church (?:hall|basement|kitchen)|garage|hallway|stairwell|apartment|bar|kitchenette|bathroom|office|classroom|gym|locker|barn)\b", re.I)
@@ -242,6 +256,14 @@ DARK_MAX = 4
 
 def _norm(t: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", str(t or "").lower()).strip()
+
+
+FUNCTION_WORDS = frozenset("with over from that this them they then were have into onto near down very just also like upon each both such same only more some than what when much many your their there where while about after under onto its his her".split())
+
+
+def _cw(text: str) -> set:
+    """Content words (4+ letters, no function words or common adjectives): what two phrases really share, so 'with' and 'over' never count as an overlap."""
+    return {w for w in _norm(text).split() if len(w) >= 4 and w not in FUNCTION_WORDS and w not in OBJ_STOP}
 
 
 def _quote_in_sheet(quote: str, sheet_norm: str) -> bool:
@@ -344,7 +366,11 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
             out[k] = fix(out[k])
     if isinstance(out.get("inFrame"), list):
         out["inFrame"] = [fix(x) for x in out["inFrame"] if isinstance(x, str)]
-    bad_rx = re.compile("|".join(r.pattern for r in (WORK_GEAR_RE, TEXT_RE, BRAND_RE, SUNGLASSES_RE)), re.I)
+    class _Bad:
+        @staticmethod
+        def search(t):
+            return WORK_GEAR_RE.search(t) or TEXT_RE.search(t) or BRAND_RE.search(t) or SUNGLASSES_RE.search(t)
+    bad_rx = _Bad()
     for k in ("where", "doing", "wear", "signature", "expressionBody"):
         if isinstance(out.get(k), str) and bad_rx.search(out[k]):
             out[k] = _drop_clauses(out[k], bad_rx) or out[k]
@@ -364,11 +390,11 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         else:
             out.pop("expressionBody", None)
     wear = str(out.get("wear") or "")
-    wear_words = {w for w in _norm(wear).split() if len(w) >= 4}
+    wear_words = _cw(wear)
     # the signature: gone (not refilled by guessing) when it only repeats what is worn
     sig = str(out.get("signature") or "")
     if sig:
-        sw = {w for w in _norm(sig).split() if len(w) >= 4}
+        sw = _cw(sig)
         if CLOTHING_RE.search(sig) and sw & wear_words and not out.get("_look"):
             sig = ""
     # the objects: a worn accessory joins the clothes; a garment, a repeat of the clothes or of the signature is dropped
@@ -376,7 +402,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for item in (out.get("inFrame") or []):
         if bad_rx.search(item):
             continue
-        iw = {w for w in _norm(item).split() if len(w) >= 4}
+        iw = _cw(item)
         if ACCESSORY_RE.search(item) and not (iw & wear_words):
             moved.append(item)
         elif ACCESSORY_RE.search(item) or CLOTHING_RE.search(item) or (iw & wear_words) or (sig and _obj_tokens(item) & _obj_tokens(sig)):
@@ -386,7 +412,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     if moved:
         wear = f"{wear}, " + ", ".join(m.rstrip(". ") for m in moved) if wear else ", ".join(moved)
     # a worn signature is part of the clothes (compose says it once): it is not an object either
-    if sig and CLOTHING_RE.search(sig) and not ({w for w in _norm(sig).split() if len(w) >= 4} & wear_words):
+    if sig and CLOTHING_RE.search(sig) and not (_cw(sig) & wear_words):
         pass
     out["wear"] = wear
     out["inFrame"] = objects[:2]
@@ -460,8 +486,8 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("body-in-wear")
     if BODY_RE.search(brief["signature"]) and not look:
         codes.append("body-in-signature")
-    wear_words = {w for w in _norm(brief["wear"]).split() if len(w) >= 4}
-    sig_words = {w for w in _norm(brief["signature"]).split() if len(w) >= 4}
+    wear_words = _cw(brief["wear"])
+    sig_words = _cw(brief["signature"])
     if sig_words and CLOTHING_RE.search(brief["signature"]) and (sig_words & wear_words) and not look:
         codes.append("signature-repeats-wear")
     if _needs_layer(anchors) and not LAYER_RE.search(brief["wear"]):
@@ -470,7 +496,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     worn = _tokens(brief["wear"]) | wear_words
     sig = _tokens(brief["signature"])
     for item in brief["inFrame"]:
-        it = _tokens(item) | {w for w in _norm(item).split() if len(w) >= 4}
+        it = _tokens(item) | _cw(item)
         if (it & worn) or (_tokens(item) & sig) or CLOTHING_RE.search(item) or ACCESSORY_RE.search(item):
             codes.append("inframe-worn-or-signature")
             break
@@ -478,7 +504,8 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     job = str(card.get("vocation") or "")
     if job and anchors.get("facet") != NEAR_WORK:
         job_words = {w for w in _norm(job).split() if len(w) >= 5 and w not in ("night", "head", "manager", "assistant", "senior", "junior", "small", "local", "county", "commercial", "league", "community", "college", "academic", "recreation", "family", "service", "services", "general", "associate", "assistant", "director", "specialist", "coordinator")}
-        if job_words and (job_words & _tokens(brief["where"] + " " + brief["doing"])):
+        head = re.split(r"\b(?:near|beside|across|next to|down the street|outside|by|behind|from|along|close to)\b", brief["where"], 1)[0]
+        if job_words and (job_words & _tokens(head + " " + brief["doing"])):        # the place IS the workplace, or the action is the job: a home or a park near it is fine
             codes.append("job-caption")
     # the trace: a quoted phrase that really is in the sheet
     quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{5,})[\"\u201d]", brief["why"]) if q.strip()]
@@ -607,6 +634,39 @@ async def _call(llm_fn: LlmFn, messages: list, ledger: list, kind: str) -> dict:
     return obj if isinstance(obj, dict) else {}
 
 
+def _objects_of(raw: dict, i: str) -> list:
+    """The object phrases the objects ask returned for `i`, whatever the shape: a list of strings, a list of {object/name/item} dicts, or an {inFrame|objects: [...]} dict."""
+    got = _find_any(raw, i)
+    if isinstance(got, dict):
+        for k in ("inFrame", "objects", "items", "needObjects"):
+            if isinstance(got.get(k), list):
+                got = got[k]
+                break
+    if isinstance(got, str):
+        got = [x.strip() for x in re.split(r"[;\n]", got) if x.strip()]
+    if not isinstance(got, list):
+        return []
+    out = []
+    for x in got:
+        if isinstance(x, dict):
+            x = next((x[k] for k in ("object", "name", "item", "phrase", "text") if isinstance(x.get(k), str)), "")
+        if isinstance(x, str) and x.strip():
+            out.append(x.strip())
+    return out
+
+
+def _find_any(obj, i: str):
+    """Like `_find` but returns lists and strings too, and looks under 'needObjects' / 'objects' wrappers."""
+    if not isinstance(obj, dict):
+        return None
+    num = re.sub(r"\D", "", i)
+    for layer in (obj, *[obj.get(k) for k in ("needObjects", "objects", "rewrite", "briefs", "results") if isinstance(obj.get(k), dict)]):
+        for key in (i, i.replace(":", "_"), num, f"npc{num}", f"npc-{num}"):
+            if key in layer and layer[key] is not None:
+                return layer[key]
+    return None
+
+
 def _find(obj: dict, i: str):
     """The brief of `i` in a writer or editor reply, whatever the wrapping or id spelling (npc:3, npc_3, 3, under rewrite / briefs / cast / results)."""
     if not isinstance(obj, dict):
@@ -636,6 +696,16 @@ def _prepare(card: dict, raw, anchors: dict) -> Optional[dict]:
     return repair_brief(card, b, anchors)
 
 
+CALM_DOING = "paused from what they were doing, standing upright with their hands at rest"
+
+
+def calm_brief(brief: dict) -> dict:
+    """The deterministic last repair for an acted or odd pose: the person pauses from the activity and stands with hands at rest; the face line stays."""
+    out = dict(brief)
+    out["doing"] = CALM_DOING
+    return out
+
+
 def _drop_used(brief: dict, seen: set) -> dict:
     """Drop the objects and the signature that another person already has (never the last thing standing, never the place)."""
     out = dict(brief)
@@ -658,7 +728,7 @@ OBJECTS_SYSTEM = (
 )
 
 
-async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmFn, ledger: list) -> int:
+async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmFn, ledger: list, diag: Optional[dict] = None) -> int:
     """One targeted ask for the people left with fewer than two objects: 'give a different object, not any of: ...'. Returns how many objects landed."""
     by_id = {str(c["id"]): c for c in cards}
     need = {i: 2 - len(b.get("inFrame") or []) for i, b in accepted.items() if len(b.get("inFrame") or []) < 2}
@@ -669,15 +739,17 @@ async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmF
     payload = {i: {**sheet_of(by_id[i]), "anchors": anchors.get(i, {}), "alreadyInFrame": accepted[i].get("inFrame") or [], "needCount": n,
                    "notAnyOf": avoid + [accepted[i].get("wear", ""), str(accepted[i].get("signature") or "")]} for i, n in need.items() if i in by_id}
     raw = await _call(llm_fn, [{"role": "system", "content": OBJECTS_SYSTEM}, {"role": "user", "content": json.dumps({"needObjects": payload}, ensure_ascii=False)}], ledger, "objects")
+    if diag is not None:
+        diag["raw"] = raw
     landed = 0
     for i in need:
-        got = raw.get(i) if isinstance(raw, dict) else None
-        if not isinstance(got, list):
-            got = (_find(raw, i) or {}).get("inFrame") if isinstance(_find(raw, i), dict) else None
-        if not isinstance(got, list):
+        got = _objects_of(raw, i)
+        if not got:
+            if diag is not None:
+                diag.setdefault("why", {})[i] = "no-usable-reply"
             continue
         b = accepted[i]
-        wear_words = {w for w in _norm(b.get("wear") or "").split() if len(w) >= 4}
+        wear_words = _cw(b.get("wear") or "")
         seen = set()
         for j, bj in accepted.items():
             if j != i:
@@ -687,9 +759,13 @@ async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmF
         for item in got:
             item = _trim(re.sub(r"\s+", " ", str(item)).strip(), IN_FRAME_ITEM_MAX)
             toks = _obj_tokens(item)
-            iw = {w for w in _norm(item).split() if len(w) >= 4}
-            if not item or len(objs) >= 2 or CLOTHING_RE.search(item) or ACCESSORY_RE.search(item) or (iw & wear_words) or WORK_GEAR_RE.search(item) \
-                    or TEXT_RE.search(item) or BRAND_RE.search(item) or not toks or (toks & seen) or (toks & _obj_tokens(" ".join(objs))):
+            iw = _cw(item)
+            why = ("empty" if not item else "full" if len(objs) >= 2 else "clothing" if CLOTHING_RE.search(item) else "worn-accessory" if ACCESSORY_RE.search(item)
+                   else "repeats-the-clothes" if iw & wear_words else "work-gear" if WORK_GEAR_RE.search(item) else "text-or-brand" if (TEXT_RE.search(item) or BRAND_RE.search(item))
+                   else "no-noun" if not toks else "used-by-another" if toks & seen else "repeats-own" if toks & _obj_tokens(" ".join(objs)) else "")
+            if why:
+                if diag is not None:
+                    diag.setdefault("why", {}).setdefault(i, []).append(f"{why}: {item[:40]}")
                 continue
             objs.append(item)
             seen |= toks
@@ -739,6 +815,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
     last_codes: dict = {i: list(c) for i, c in failures.items()}
     complete = {i: missing_parts(b) for i, b in accepted.items() if missing_parts(b)}
     rewritten = 0
+    calmed = 0
     fixed: dict = {}
     if failures or complete:
         fixed = await _call(llm_fn, build_editor_messages(cards, anchors, {**{i: b for i, b in briefs.items() if b}, **accepted}, failures, complete), ledger, "editor")
@@ -762,6 +839,19 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
             else:
                 tally({i: codes})
                 last_codes[i] = [c for c in (last_codes.get(i) or []) if not c.startswith("editor")] + [f"editor:{c}" for c in codes]
+        # the editor failed the same acted-pose code again: the person pauses from the activity (deterministic), the rest of the brief is kept
+        for i in list(failures):
+            if i in accepted or set(last_codes.get(i, [])) - {"acted-or-odd-pose", "editor:acted-or-odd-pose"}:
+                continue
+            base = _prepare(by_id[i], _find(fixed, i), anchors[i]) or briefs.get(i)
+            if not base:
+                continue
+            cb = calm_brief(base)
+            codes = check_brief(by_id[i], anchors[i], cb) or check_cast(cards, anchors, {**accepted, i: cb}).get(i, [])
+            if not codes:
+                accepted[i] = cb
+                rewritten += 1
+                calmed += 1
         for i in complete:                                          # a top-up: only an improvement is kept, an accepted brief is never lost
             nb = _prepare(by_id[i], _find(fixed, i), anchors[i])
             if nb and len(missing_parts(nb)) < len(missing_parts(accepted[i])) and not check_brief(by_id[i], anchors[i], nb) \
@@ -769,15 +859,17 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
                 accepted[i] = nb
     # one targeted ask for everyone left with fewer than two objects (a repeat dropped, a garment dropped)
     objects_landed = 0
+    obj_diag: dict = {}
     if accepted and any(len(b.get("inFrame") or []) < 2 for b in accepted.values()):
-        objects_landed = await _objects_pass(cards, anchors, accepted, llm_fn, ledger)
+        objects_landed = await _objects_pass(cards, anchors, accepted, llm_fn, ledger, obj_diag)
     floor = [i for i in ids if i not in accepted]
     floor_reasons = {i: (last_codes.get(i) or ["no-reply"]) for i in floor}
     one_object = [i for i, b in accepted.items() if len(b.get("inFrame") or []) < 2]
     logger.info(f"[photo-brief] {len(ids)} briefs: accepted {len(ids) - len(floor) - rewritten}, rewritten {rewritten}, floor {len(floor)} {json.dumps(floor_reasons, sort_keys=True)}; "
-                f"rejected by code {json.dumps(rejected, sort_keys=True)}; objects landed {objects_landed}, one object left on {len(one_object)}; writer calls {len(ledger)}")
+                f"rejected by code {json.dumps(rejected, sort_keys=True)}; calmed {calmed}; objects landed {objects_landed}, one object left on {len(one_object)} {json.dumps(obj_diag.get('why') or {}, sort_keys=True)}; writer calls {len(ledger)}")
     return {"briefs": accepted, "floor": floor, "floorReasons": floor_reasons, "anchors": anchors, "rejected": rejected, "calls": len(ledger), "rewritten": rewritten,
-            "objectsLanded": objects_landed, "oneObject": one_object, "raw": {"writer": raws, "editor": fixed or None}}
+            "objectsLanded": objects_landed, "oneObject": one_object, "calmed": calmed, "objectsWhy": obj_diag.get("why"),
+            "raw": {"writer": raws, "editor": fixed or None, "objects": obj_diag.get("raw")}}
 
 
 # ---------------------------------------------------------------------------------------------------- the prompt
@@ -817,7 +909,7 @@ def brief_sentences(brief: dict, proper: Optional[set] = None) -> str:
         pass
     elif CLOTHING_RE.search(sig):
         # a worn signature (earrings, a patched sleeve) is part of the clothes, said once; anything else is one of their objects
-        if brief.get("_look") or not ({w for w in _norm(sig).split() if len(w) >= 4} & {w for w in _norm(wear).split() if len(w) >= 4}):
+        if brief.get("_look") or not (_cw(sig) & _cw(wear)):
             wear = f"{wear}, and {lc(sig)}"
     else:
         objs.append(sig)

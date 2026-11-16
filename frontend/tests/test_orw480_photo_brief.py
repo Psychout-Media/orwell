@@ -586,3 +586,64 @@ def test_o4_the_floor_reasons_say_which_codes_put_each_person_on_the_floor():
     async def dead(messages):
         raise RuntimeError("x")
     assert all("missing" in v for v in run(B.author_briefs(cs, dead, seed=1))["floorReasons"].values())
+
+
+# ---------------------------------------------------------------------------------------------------- round 11 (cast 0309, run at fdfa1dd8)
+def test_p1_acted_pose_is_real_mid_action_only_and_a_failing_editor_is_repaired_not_floored():
+    cs = cards()
+    c = cs[0]
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    ok = good_brief(c, 0)
+    for fine in ("standing at the rail with one thumb hooked in a belt loop, weight settled, paused for the photo", "one hand shoved in a jacket pocket and the other hanging easy, paused and looking straight back",
+                 "stands with arms folded low, one thumb tapping slowly against her sleeve", "beside a kite line with the kite high in the air behind her, paused", "a lamp overhead, a warm pool of light on the table"):
+        assert "acted-or-odd-pose" not in B.check_brief(c, an, {**ok, "doing": fine}), fine
+    for acted in ("swinging a lasso overhead at a roping dummy", "arms raised overhead, cheering", "mid-jump off the dock", "hands raised high above the head", "hunched forward, hands hanging between the knees"):
+        assert "acted-or-odd-pose" in B.check_brief(c, an, {**ok, "doing": acted}), acted
+    # the writer and the editor both stage the person: the pose is replaced deterministically, the rest of the brief stands, nobody goes to the floor
+    bad = {f"npc:{i}": (lambda b: {**b, "doing": "swinging a rope overhead at the target"}) for i in (2, 10, 13)}
+    res = run(B.author_briefs(cs, writer(bad=bad, editor=lambda c2, n: {**good_brief(c2, n), "doing": "mid-jump over the fence"}), seed=1))
+    assert res["floor"] == [] and res["calmed"] == 3
+    for i in bad:
+        assert res["briefs"][i]["doing"] == B.CALM_DOING and res["briefs"][i]["where"] == good_brief(cs[int(i.split(":")[1]) - 1], int(i.split(":")[1]) - 1)["where"]
+    assert "paused from what they were doing" in B.compose_prompt(FLOOR, res["briefs"]["npc:2"])
+
+
+def test_p2_the_objects_ask_lands_when_the_wear_has_a_layer_and_in_any_reply_shape():
+    cs = cards()
+    # function words ('with', 'over') in the clothes never make an object 'repeat the clothes'
+    one = lambda b: {**b, "inFrame": [b["inFrame"][0]], "wear": b["wear"] + ", with a plain overshirt over it"}   # noqa: E731
+    shapes = {
+        "list": lambda i: [f"a gizmo{i}a with a tray over it", f"a widget{i}b"],
+        "dicts": lambda i: [{"object": f"a gizmo{i}a with a tray over it"}, {"name": f"a widget{i}b"}],
+        "wrapped": lambda i: {"inFrame": [f"a gizmo{i}a with a tray over it", f"a widget{i}b"]},
+        "string": lambda i: f"a gizmo{i}a with a tray over it; a widget{i}b",
+    }
+    for name, mk in shapes.items():
+        async def fn(messages, mk=mk):
+            user = json.loads(messages[-1]["content"])
+            if "needObjects" in user:
+                return json.dumps({"needObjects": {i: mk(i.split(":")[1]) for i in user["needObjects"]}} if name == "wrapped" else {i: mk(i.split(":")[1]) for i in user["needObjects"]})
+            return await writer(bad={f"npc:{k}": one for k in (4, 11, 14, 15)}, editor=lambda c2, n: one(good_brief(c2, n)))(messages)
+        res = run(B.author_briefs(cs, fn, seed=1))
+        assert res["objectsLanded"] >= 4 and res["oneObject"] == [], (name, res["objectsWhy"], res["oneObject"])
+        assert all(len(res["briefs"][f"npc:{k}"]["inFrame"]) == 2 for k in (4, 11, 14, 15))
+    # when it does not land, the reason is recorded per person and the reply is kept
+    async def clothes(messages):
+        user = json.loads(messages[-1]["content"])
+        if "needObjects" in user:
+            return json.dumps({i: ["a denim jacket", "a fishing rod"] for i in user["needObjects"]})
+        return await writer(bad={f"npc:{k}": one for k in (4, 11)}, editor=lambda c2, n: one(good_brief(c2, n)))(messages)
+    res2 = run(B.author_briefs(cs, clothes, seed=1))
+    assert res2["objectsLanded"] >= 0 and res2["objectsWhy"] and any("clothing" in " ".join(v) for v in res2["objectsWhy"].values()) and res2["raw"]["objects"]
+
+
+def test_p3_job_caption_only_when_the_place_is_the_workplace_or_the_action_is_the_job():
+    cs = cards()
+    c = {**cs[0], "vocation": "community-theater actor", "biography": cs[0]["biography"] + " She works toward the next production at the community theater in Lake Havasu City."}
+    an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": "their own street or block"}
+    ok = {**good_brief(cs[0], 0), "where": "a lakeside park near the community theater in Lake Havasu City, wet picnic tables and a low lawn, the water beyond", "tie": '"community theater in Lake Havasu City"'}
+    assert "job-caption" not in B.check_brief(c, an, ok)
+    own = {**ok, "where": "the apartment she rents above the old dry-cleaner in Lake Havasu City, a script lying open on the windowsill", "tie": '"Lake Havasu City"'}
+    assert "job-caption" not in B.check_brief(c, an, own)
+    assert "job-caption" in B.check_brief(c, an, {**ok, "where": "the stage of the community theater in Lake Havasu City, the wings behind her"})
+    assert "job-caption" in B.check_brief(c, an, {**ok, "doing": "running lines as the actor she is, a script in hand"})
