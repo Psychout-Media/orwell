@@ -7784,12 +7784,14 @@ export class GameSessionAdapter implements GameSession {
       new SeededRandom(hashSeed(`${seed}:casting-type`)),
       npcs.map((n) => n.character.castingType),
       npcs.map((n) => n.character.age),
-      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor, genderPresentation: n.character.genderPresentation })),
     );
     const changed: EntityId[] = [];
     npcs.forEach((n, i) => {
       const t = types[i]!;
       if (n.character.castingType?.id !== t.id) { n.character.castingType = { id: t.id, label: t.label, read: t.read }; changed.push(n.id); }
+      // ORW-467: the same type, but the person's presentation changed before the season: the label follows (not a repair).
+      else if (n.character.castingType.label !== t.label) n.character.castingType = { id: t.id, label: t.label, read: t.read };
     });
     return changed;
   }
