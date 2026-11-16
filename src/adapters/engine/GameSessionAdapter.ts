@@ -10815,10 +10815,12 @@ export class GameSessionAdapter implements GameSession {
       if (e.kind === "joined" || e.kind === "left") { this.alliances.markRecorded(e.seq, "none"); continue; }
       if (e.kind === "betrayed" || (e.kind === "formed" && e.founder === PLAYER)) { this.alliances.markRecorded(e.seq, "existing"); continue; }
       const who = e.members.map((m) => this.nameOf(m)).join(", ");
-      const content = e.kind === "formed" ? `The alliance "${e.name}" formed: ${who}`
-        : e.kind === "faded" ? `The alliance "${e.name}" faded apart: ${who}`
-        : `The alliance "${e.name}" dissolved (${e.why ?? "ended"}): ${who}`;
       const witnesses = e.playerKnew && !e.members.includes(PLAYER) ? [...e.members, PLAYER] : [...e.members];
+      // A DISSOLUTION the player witnesses never lists the roster that ended it: the member who left (a sealed eviction ballot, E12 / A7) would be named by elimination. The Vault-side copy keeps the full roster.
+      const roster = e.kind === "dissolved" && witnesses.includes(PLAYER) ? "" : `: ${who}`;
+      const content = e.kind === "formed" ? `The alliance "${e.name}" formed${roster}`
+        : e.kind === "faded" ? `The alliance "${e.name}" faded apart${roster}`
+        : `The alliance "${e.name}" dissolved (${e.why ?? "ended"})${roster}`;
       const id = this.onPlayerEvent(content, witnesses, `alliance-${e.kind}`);
       this.alliances.markRecorded(e.seq, id ?? "recorded");
     }
