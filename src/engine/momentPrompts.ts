@@ -1793,7 +1793,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
       if (ev?.evictee) lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
-        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
+        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee and state no count or tally (the engine hands you none until the result is committed).");
     }
   }
   return lines;

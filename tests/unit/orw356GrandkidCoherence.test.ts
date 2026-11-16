@@ -31,6 +31,7 @@ describe("ORW-356 — a houseguest who IS the grandparent still fails (negative 
     "spoils his only grandkid every weekend",
     "has a grandkid on the way and works as a data analyst",
     "a grandfather of three who runs the church bake sale",
+    "his role as grandfather to three children defines him",
   ])("fails: %s", (text) => {
     const res = dossier(text, 25);
     expect(res.ok).toBe(false);

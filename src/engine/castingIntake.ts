@@ -430,7 +430,7 @@ function sentenceYearSpans(sentence: string, vocation?: string): number[] {
  * "grandkids" / "grandchildren" always make the houseguest the grandparent.
  */
 const GRANDPARENT_WORD_RE =
-  /\b((?:her|his|their|my|our|your)\s+(?:(?:late|beloved|own|dear)\s+|great-)*(?:[a-z'-]+\s+){0,2})?grand(mother|father|ma|pa|parent|kids?|children)\b/gi;
+  /\b((?:her|his|their|my|our|your)\s+(?:(?:late|beloved|own|dear)\s+|great-)*(?:(?!(?:as|of|to|and|for|with|a|an|the|is|was)\b)[a-z'-]+\s+){0,2})?grand(mother|father|ma|pa|parent|kids?|children)\b/gi;
 function grandparentSelfReference(text: string): boolean {
   for (const m of text.matchAll(GRANDPARENT_WORD_RE)) {
     const kind = m[2]!.toLowerCase();

@@ -497,6 +497,8 @@ export class Orchestrator {
     // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
     const sess = this.registry.sandboxFor(user).session;
     if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) {
+      const hourComp = sess.inGameHour();
+      if (hourComp !== undefined) this.lastSocietyTickHour.set(user, hourComp); // the social-turn debounce reads this one: the comp's hours are not elapsed time either
       this.noteTickAbs(user, sess); // review of ORW-256: the time inside the comp is covered by it, so the next tick must not count it again as elapsed
       return;
     }
