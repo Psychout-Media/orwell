@@ -2232,6 +2232,11 @@ export interface PresentKnowledgeView {
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
   rememberedAboutOthers?: string[];
+  /**
+   * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
+   * it is true, never why they are telling, never a claim id. Names, not ids.
+   */
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**

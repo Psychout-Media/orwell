@@ -17,10 +17,17 @@ Feature: What a houseguest tells the player
     And the narrator is never told whether it is true or why the NPC is telling
 
   Scenario: A wrong belief is shared like any other
-    Given an NPC wrongly believes a second NPC voted against them, and trusts the player
+    Given an NPC wrongly believes a second NPC is going after them, and trusts the player
     When they are in a scene together
     Then the NPC can tell the player, and the claim is recorded as untrue
     And nothing the narrator is handed says it is untrue
+
+  Scenario: A lie told to the player carries the same kind of certainty band as a true claim
+    Given a started season with claims on
+    When the engine presents certainty for a claim the speaker does not hold, across seeds
+    Then the bands it presents are spread like the bands of claims the speaker does hold
+    And the certainty band function never takes whether the claim is true
+    And a claim told as untrue reaches the narrator with only its kind, names and certainty band
 
   Scenario: A houseguest does not confide in someone they do not trust, or in front of a crowd
     Given an NPC holds a belief about a second NPC
