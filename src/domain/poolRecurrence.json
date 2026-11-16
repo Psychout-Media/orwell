@@ -1,0 +1,656 @@
+{
+ "_about": "ORW-508 ratchet. Over 200 seeded casts (seeds 1000 + 7919 i) of 15: the measured value is today's; a field that gets worse than its ceiling fails. A fix lowers the ceiling in the same PR. Excluded because another PR owns the list: distinguishingMark, facialFeatures, style families (PR 2828); shot cards and portrait prompts (PR 2821).",
+ "casts": 200,
+ "fields": {
+  "name.given": {
+   "measured": {
+    "distinct": 499,
+    "topShare": 0.0043,
+    "castPresenceMax": 0.065,
+    "castPresenceMean": 0.03,
+    "sharedConsecutive": 0.44
+   },
+   "before": {
+    "distinct": 499,
+    "topShare": 0.0043,
+    "castPresenceMax": 0.065,
+    "sharedConsecutive": 0.44
+   },
+   "floorDistinct": 499,
+   "maxTopShare": 0.0053,
+   "maxCastPresence": 0.07,
+   "maxSharedConsecutive": 0.49,
+   "target": {
+    "distinct": 499,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "name.surname": {
+   "measured": {
+    "distinct": 788,
+    "topShare": 0.004,
+    "castPresenceMax": 0.06,
+    "castPresenceMean": 0.019,
+    "sharedConsecutive": 0.29
+   },
+   "before": {
+    "distinct": 788,
+    "topShare": 0.004,
+    "castPresenceMax": 0.06,
+    "sharedConsecutive": 0.29
+   },
+   "floorDistinct": 788,
+   "maxTopShare": 0.005,
+   "maxCastPresence": 0.065,
+   "maxSharedConsecutive": 0.34,
+   "target": {
+    "distinct": 788,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "vocation": {
+   "measured": {
+    "distinct": 124,
+    "topShare": 0.0123,
+    "castPresenceMax": 0.18,
+    "castPresenceMean": 0.115,
+    "sharedConsecutive": 1.58
+   },
+   "before": {
+    "distinct": 124,
+    "topShare": 0.0123,
+    "castPresenceMax": 0.175,
+    "sharedConsecutive": 1.54
+   },
+   "floorDistinct": 124,
+   "maxTopShare": 0.0133,
+   "maxCastPresence": 0.185,
+   "maxSharedConsecutive": 1.63,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "hometown": {
+   "measured": {
+    "distinct": 499,
+    "topShare": 0.0237,
+    "castPresenceMax": 0.355,
+    "castPresenceMean": 0.03,
+    "sharedConsecutive": 0.72
+   },
+   "before": {
+    "distinct": 105,
+    "topShare": 0.0197,
+    "castPresenceMax": 0.295,
+    "sharedConsecutive": 2.48
+   },
+   "floorDistinct": 499,
+   "maxTopShare": 0.0247,
+   "maxCastPresence": 0.36,
+   "maxSharedConsecutive": 0.77,
+   "target": {
+    "distinct": 499,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "hometown.state": {
+   "measured": {
+    "distinct": 50,
+    "topShare": 0.1,
+    "castPresenceMax": 0.89,
+    "castPresenceMean": 0.251,
+    "sharedConsecutive": 4.75
+   },
+   "before": {
+    "distinct": 62,
+    "topShare": 0.055,
+    "castPresenceMax": 0.595,
+    "sharedConsecutive": 3.94
+   },
+   "floorDistinct": 50,
+   "maxTopShare": 0.101,
+   "maxCastPresence": 0.895,
+   "maxSharedConsecutive": 4.8,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "demeanor": {
+   "measured": {
+    "distinct": 20,
+    "topShare": 0.0573,
+    "castPresenceMax": 0.645,
+    "castPresenceMean": 0.568,
+    "sharedConsecutive": 6.46
+   },
+   "before": {
+    "distinct": 20,
+    "topShare": 0.0573,
+    "castPresenceMax": 0.645,
+    "sharedConsecutive": 6.46
+   },
+   "floorDistinct": 20,
+   "maxTopShare": 0.0583,
+   "maxCastPresence": 0.65,
+   "maxSharedConsecutive": 6.51,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.register": {
+   "measured": {
+    "distinct": 5,
+    "topShare": 0.3077,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.956,
+    "sharedConsecutive": 4.58
+   },
+   "before": {
+    "distinct": 5,
+    "topShare": 0.3077,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 4.58
+   },
+   "floorDistinct": 5,
+   "maxTopShare": 0.3087,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 4.63,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.rhythm": {
+   "measured": {
+    "distinct": 4,
+    "topShare": 0.3483,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.975,
+    "sharedConsecutive": 3.8
+   },
+   "before": {
+    "distinct": 4,
+    "topShare": 0.3483,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 3.8
+   },
+   "floorDistinct": 4,
+   "maxTopShare": 0.3493,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 3.85,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.energy": {
+   "measured": {
+    "distinct": 5,
+    "topShare": 0.44,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.883,
+    "sharedConsecutive": 3.93
+   },
+   "before": {
+    "distinct": 5,
+    "topShare": 0.44,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 3.93
+   },
+   "floorDistinct": 5,
+   "maxTopShare": 0.441,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 3.98,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.directness": {
+   "measured": {
+    "distinct": 4,
+    "topShare": 0.3567,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.994,
+    "sharedConsecutive": 3.95
+   },
+   "before": {
+    "distinct": 4,
+    "topShare": 0.3567,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 3.95
+   },
+   "floorDistinct": 4,
+   "maxTopShare": 0.3577,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 4.0,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.humor": {
+   "measured": {
+    "distinct": 5,
+    "topShare": 0.265,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.96,
+    "sharedConsecutive": 4.62
+   },
+   "before": {
+    "distinct": 5,
+    "topShare": 0.265,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 4.62
+   },
+   "floorDistinct": 5,
+   "maxTopShare": 0.266,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 4.67,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.stressTell": {
+   "measured": {
+    "distinct": 5,
+    "topShare": 0.2,
+    "castPresenceMax": 1,
+    "castPresenceMean": 1,
+    "sharedConsecutive": 5
+   },
+   "before": {
+    "distinct": 5,
+    "topShare": 0.2,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 5
+   },
+   "floorDistinct": 5,
+   "maxTopShare": 0.201,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 5.05,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.signature": {
+   "measured": {
+    "distinct": 52,
+    "topShare": 0.0307,
+    "castPresenceMax": 0.405,
+    "castPresenceMean": 0.264,
+    "sharedConsecutive": 3.78
+   },
+   "before": {
+    "distinct": 52,
+    "topShare": 0.0307,
+    "castPresenceMax": 0.405,
+    "sharedConsecutive": 3.78
+   },
+   "floorDistinct": 52,
+   "maxTopShare": 0.0317,
+   "maxCastPresence": 0.41,
+   "maxSharedConsecutive": 3.83,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.lexicon": {
+   "measured": {
+    "distinct": 51,
+    "topShare": 0.0571,
+    "castPresenceMax": 0.85,
+    "castPresenceMean": 0.434,
+    "sharedConsecutive": 10.45
+   },
+   "before": {
+    "distinct": 51,
+    "topShare": 0.0571,
+    "castPresenceMax": 0.85,
+    "sharedConsecutive": 10.45
+   },
+   "floorDistinct": 51,
+   "maxTopShare": 0.0581,
+   "maxCastPresence": 0.855,
+   "maxSharedConsecutive": 10.5,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "castingType.label": {
+   "measured": {
+    "distinct": 57,
+    "topShare": 0.0467,
+    "castPresenceMax": 0.7,
+    "castPresenceMean": 0.263,
+    "sharedConsecutive": 4.79
+   },
+   "before": {
+    "distinct": 24,
+    "topShare": 0.0633,
+    "castPresenceMax": 0.95,
+    "sharedConsecutive": 10.46
+   },
+   "floorDistinct": 57,
+   "maxTopShare": 0.0477,
+   "maxCastPresence": 0.705,
+   "maxSharedConsecutive": 4.84,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "hidden.dayOnePerception": {
+   "measured": {
+    "distinct": 9,
+    "topShare": 0.1227,
+    "castPresenceMax": 0.9,
+    "castPresenceMean": 0.861,
+    "sharedConsecutive": 6.67
+   },
+   "before": {
+    "distinct": 9,
+    "topShare": 0.1227,
+    "castPresenceMax": 0.9,
+    "sharedConsecutive": 6.67
+   },
+   "floorDistinct": 9,
+   "maxTopShare": 0.1237,
+   "maxCastPresence": 0.905,
+   "maxSharedConsecutive": 6.72,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "hiddenElement.detail": {
+   "measured": {
+    "distinct": 17,
+    "topShare": 0.0829,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.9,
+    "sharedConsecutive": 14.59
+   },
+   "before": {
+    "distinct": 17,
+    "topShare": 0.0829,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 14.59
+   },
+   "floorDistinct": 17,
+   "maxTopShare": 0.0839,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 14.64,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "ethnicity": {
+   "measured": {
+    "distinct": 20,
+    "topShare": 0.1207,
+    "castPresenceMax": 0.965,
+    "castPresenceMean": 0.499,
+    "sharedConsecutive": 6.9
+   },
+   "before": {
+    "distinct": 20,
+    "topShare": 0.1207,
+    "castPresenceMax": 0.965,
+    "sharedConsecutive": 6.9
+   },
+   "floorDistinct": 20,
+   "maxTopShare": 0.1217,
+   "maxCastPresence": 0.97,
+   "maxSharedConsecutive": 6.95,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.skinTone": {
+   "measured": {
+    "distinct": 10,
+    "topShare": 0.104,
+    "castPresenceMax": 0.92,
+    "castPresenceMean": 0.9,
+    "sharedConsecutive": 8.11
+   },
+   "before": {
+    "distinct": 10,
+    "topShare": 0.104,
+    "castPresenceMax": 0.92,
+    "sharedConsecutive": 8.11
+   },
+   "floorDistinct": 10,
+   "maxTopShare": 0.105,
+   "maxCastPresence": 0.925,
+   "maxSharedConsecutive": 8.16,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.heightBuild": {
+   "measured": {
+    "distinct": 16,
+    "topShare": 0.091,
+    "castPresenceMax": 0.87,
+    "castPresenceMean": 0.65,
+    "sharedConsecutive": 7.11
+   },
+   "before": {
+    "distinct": 16,
+    "topShare": 0.091,
+    "castPresenceMax": 0.87,
+    "sharedConsecutive": 7.11
+   },
+   "floorDistinct": 16,
+   "maxTopShare": 0.092,
+   "maxCastPresence": 0.875,
+   "maxSharedConsecutive": 7.16,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.hair": {
+   "measured": {
+    "distinct": 30,
+    "topShare": 0.043,
+    "castPresenceMax": 0.645,
+    "castPresenceMean": 0.5,
+    "sharedConsecutive": 8.25
+   },
+   "before": {
+    "distinct": 30,
+    "topShare": 0.043,
+    "castPresenceMax": 0.645,
+    "sharedConsecutive": 8.25
+   },
+   "floorDistinct": 30,
+   "maxTopShare": 0.044,
+   "maxCastPresence": 0.65,
+   "maxSharedConsecutive": 8.3,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.ageLook": {
+   "measured": {
+    "distinct": 5,
+    "topShare": 0.3547,
+    "castPresenceMax": 1,
+    "castPresenceMean": 0.801,
+    "sharedConsecutive": 3.77
+   },
+   "before": {
+    "distinct": 5,
+    "topShare": 0.3547,
+    "castPresenceMax": 1,
+    "sharedConsecutive": 3.77
+   },
+   "floorDistinct": 5,
+   "maxTopShare": 0.3557,
+   "maxCastPresence": 1.005,
+   "maxSharedConsecutive": 3.82,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "bio.root": {
+   "measured": {
+    "distinct": 8,
+    "topShare": 0.133,
+    "castPresenceMax": 0.915,
+    "castPresenceMean": 0.87,
+    "sharedConsecutive": 6.07
+   },
+   "before": {
+    "distinct": 8,
+    "topShare": 0.133,
+    "castPresenceMax": 0.915,
+    "sharedConsecutive": 6.07
+   },
+   "floorDistinct": 8,
+   "maxTopShare": 0.134,
+   "maxCastPresence": 0.92,
+   "maxSharedConsecutive": 6.12,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "bio.drive": {
+   "measured": {
+    "distinct": 12,
+    "topShare": 0.1553,
+    "castPresenceMax": 0.94,
+    "castPresenceMean": 0.585,
+    "sharedConsecutive": 5.3
+   },
+   "before": {
+    "distinct": 12,
+    "topShare": 0.1553,
+    "castPresenceMax": 0.94,
+    "sharedConsecutive": 5.3
+   },
+   "floorDistinct": 12,
+   "maxTopShare": 0.1563,
+   "maxCastPresence": 0.945,
+   "maxSharedConsecutive": 5.35,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "bio.closer": {
+   "measured": {
+    "distinct": 6,
+    "topShare": 0.176,
+    "castPresenceMax": 0.95,
+    "castPresenceMean": 0.917,
+    "sharedConsecutive": 5.06
+   },
+   "before": {
+    "distinct": 6,
+    "topShare": 0.176,
+    "castPresenceMax": 0.95,
+    "sharedConsecutive": 5.06
+   },
+   "floorDistinct": 6,
+   "maxTopShare": 0.177,
+   "maxCastPresence": 0.955,
+   "maxSharedConsecutive": 5.11,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "age": {
+   "measured": {
+    "distinct": 32,
+    "topShare": 0.0627,
+    "castPresenceMax": 0.655,
+    "castPresenceMean": 0.357,
+    "sharedConsecutive": 5.16
+   },
+   "before": {
+    "distinct": 32,
+    "topShare": 0.0627,
+    "castPresenceMax": 0.655,
+    "sharedConsecutive": 5.16
+   },
+   "floorDistinct": 32,
+   "maxTopShare": 0.0637,
+   "maxCastPresence": 0.66,
+   "maxSharedConsecutive": 5.21,
+   "target": {
+    "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  }
+ }
+}
