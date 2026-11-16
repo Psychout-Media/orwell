@@ -60,7 +60,7 @@ PHOTO_SHEET_RULES = (
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
     "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
-    "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). The FIRST piece is the MAIN piece (the jacket, "
+    "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). Test every piece with one question: would this person, with this job, age, income and the weather of their hometown, really wear it on an ordinary day, at work or off it (not another trade's work gear, not the wrong season for the job, not above their money, not a costume)? The FIRST piece is the MAIN piece (the jacket, "
     "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
     "the garment, for example \"leather jacket\" or \"flannel shirt\"). "
     "(2) photoHair: at most 90 characters: the SAME cut, length and colour as their written hair, "
@@ -2004,6 +2004,77 @@ async def dedupe_photo_sheets(cards: list, llm_fn: LlmFn, write_look_fn) -> int:
     return rewritten
 
 
+FIT_AUDIT_RULE = (
+    "One rule, applied to each person on their own terms: would THIS person, with this job, this age, this income and the weather of this "
+    "hometown, plausibly wear each piece and carry the signature on an ordinary day, at work or off it? Flag a piece only when it clearly "
+    "does not make sense for who they are: gear or clothes that belong to a different trade or life, clothes for the wrong season or climate "
+    "for the job they do, something far above what they could pay, or a get-up that reads as a costume. Taste is not a fault. Every person "
+    "gets the same question; there is no list of jobs or garments."
+)
+
+
+def fit_audit_messages(cards: list) -> list[dict]:
+    """The one batched casting-director question for the whole cast: which cards carry a piece that does not fit the life."""
+    people = []
+    for c in cards:
+        pc = c.get("physicalCharacteristics") if isinstance(c.get("physicalCharacteristics"), dict) else {}
+        people.append({"id": c.get("id"), "age": c.get("age"), "job": c.get("vocation"), "hometown": c.get("hometown"),
+                       "wardrobe": pc.get("wardrobe"), "lookSignature": pc.get("lookSignature")})
+    system = ("You are the casting director of a reality show checking that every person looks like a real person with a real life. "
+              + FIT_AUDIT_RULE + ' Reply with STRICT JSON only: {"misfits": [{"id": "...", "piece": "the exact piece", "why": "one short reason"}]}, '
+              "at most 4, the clearest first, or an empty list.")
+    return [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(people, ensure_ascii=False)}]
+
+
+async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int = 4) -> int:
+    """The cast-level look-fits-life audit (ORW-480): ONE model call over the finished cast applies the fit rule to every person; each card it
+    names gets ONE field-only wardrobe (and signature) rewrite that must pass the look checks and the table's look-fit check, and is stored
+    with `write_look_fn`. At most `limit` rewrites; a failure at any step leaves the original look. Returns how many cards were rewritten."""
+    by_id = {str(c["id"]): c for c in (cards or []) if isinstance(c, dict) and c.get("id")}
+    if len(by_id) < 2:
+        return 0
+    try:
+        got = _extract_json(await llm_fn(fit_audit_messages(list(by_id.values())))) or {}
+    except Exception as e:  # failsoft-ok: best-effort-enrichment (the looks stand)
+        logger.info(f"[fit-audit] audit call failed: {type(e).__name__}")
+        return 0
+    flagged = got.get("misfits") if isinstance(got.get("misfits"), list) else []
+    done = 0
+    seen: set = set()
+    for item in flagged:
+        hid = str(item.get("id")) if isinstance(item, dict) else ""
+        if hid not in by_id or hid in seen or len(seen) >= limit:
+            continue
+        seen.add(hid)
+        card = by_id[hid]
+        phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+        ask = (f'A casting director found a look that does not fit this life: "{str(item.get("piece") or "")[:80]}" ({str(item.get("why") or "")[:120]}). '
+               + FIT_AUDIT_RULE + " Rewrite ONLY the wardrobe (2-3 pieces, one garment each) and, if the signature is the problem, the lookSignature, "
+               'so every piece fits. Reply with ONLY {"wardrobe": [...], "lookSignature": "..."}.')
+        try:
+            fresh = _extract_json(await llm_fn(compact_rewrite_messages(card, ask))) or {}
+            wd = fresh.get("wardrobe")
+            wd = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()] if isinstance(wd, list) else []
+            if not 2 <= len(wd) <= 3:
+                continue
+            new = {"wardrobe": wd}
+            sig = fresh.get("lookSignature")
+            if isinstance(sig, str) and sig.strip():
+                new["lookSignature"] = " ".join(sig.split())[:90]
+            cand = {**card, "physicalCharacteristics": {**phys, **new}}
+            from src import orwell_cast_realism as _R
+            if look_problems(cand, card) or any(x in ("upscale", "climate", "missing", "family-worn") for x in _R.look_fits_life(cand)):
+                continue
+            res = await write_look_fn(hid, new)
+            if isinstance(res, dict) and res.get("accepted"):
+                card["physicalCharacteristics"] = cand["physicalCharacteristics"]
+                done += 1
+                logger.info(f"[fit-audit] wardrobe rewritten for {hid}")
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the original look stands)
+            logger.info(f"[fit-audit] rewrite skipped for {hid}: {type(e).__name__}")
+    return done
+
+
 # Opening patterns, dealt by the card's slot in the cast (modulo the list), so cards written in parallel do not converge on
 # "A <age>-year-old ..." or "He stands ...". Steering text only; the checks and the gate are unchanged.
 IDENTITY_OPENINGS = ("the occupation", "what they care about most", "where they come from", "a trait people notice first",
@@ -3044,6 +3115,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     return await orwell_engine.record_look_extras(h, fields, user=user)
             if look_write_fn is not None:
                 await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
+                await fit_audit_pass(list(authored_cards.values()), llm_fn, look_write_fn)  # ORW-480: the cast-level look-fits-life audit
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
     for _hid, _card in authored_cards.items():

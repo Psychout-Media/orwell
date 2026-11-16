@@ -1181,11 +1181,14 @@
       "khaki",
       "camel",
       "tweed",
-      "olive",
       "taupe",
       "rust",
       "mustard",
-      "sand"
+      "sand",
+      "cognac",
+      "chestnut",
+      "coffee",
+      "mocha"
      ]
     },
     "green": {
@@ -1194,7 +1197,11 @@
       "sage",
       "moss",
       "forest",
-      "emerald"
+      "emerald",
+      "olive",
+      "hunter",
+      "army",
+      "fern"
      ]
     },
     "red-pink": {

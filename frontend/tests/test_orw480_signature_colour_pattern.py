@@ -100,7 +100,7 @@ def _npc(i, first):
     return {"id": f"npc:{i}", "name": f"{first} Surnamea", "genderPresentation": "man", "age": 30, "vocation": "welder", "hometown": "Macon, Georgia"}
 
 
-def _run(second_sig, rewrite):
+def _run(second_sig, rewrite, second_wardrobe=None):
     g = G.SeasonGate("t"); g.want_signature = True
     a, b = _npc(1, "Namea"), _npc(2, "Nameb")
     cast = [a, b]
@@ -110,7 +110,7 @@ def _run(second_sig, rewrite):
     async def rw(npc, codes, message=None):
         return rewrite
 
-    got, _ = loop.run_until_complete(G.run_gate(g, _profile("Nameb", "A man who reads a room before speaking.", second_sig, ["rust flannel", "dark jeans"]), b, cast, rw))
+    got, _ = loop.run_until_complete(G.run_gate(g, _profile("Nameb", "A man who reads a room before speaking.", second_sig, second_wardrobe or ["rust flannel", "dark jeans"]), b, cast, rw))
     return got["physicalCharacteristics"]
 
 
@@ -120,7 +120,7 @@ def test_the_rewrite_carries_the_signature_with_the_wardrobe():
 
 
 def test_a_writer_that_leaves_the_signature_out_still_ships_the_clothes_it_fixed():
-    pc = _run(None, {"physicalCharacteristics": {"wardrobe": ["mustard corduroy overshirt", "faded black jeans"]}})
+    pc = _run(None, {"physicalCharacteristics": {"wardrobe": ["mustard corduroy overshirt", "faded black jeans"]}}, ["silk blouse", "cashmere cardigan", "tailored trousers"])
     assert pc["wardrobe"][0].startswith("mustard") and "lookSignature" not in pc
 
 
@@ -133,3 +133,50 @@ def test_a_face_mark_word_in_the_oncamera_or_face_line_of_a_card_not_dealt_it_is
     assert prof["physicalCharacteristics"]["onCamera"].startswith("Hands folded")
     own = {"physicalCharacteristics": {**phys, "distinguishingMark": "deep dimples"}}
     assert not G._drop_foreign_mark_words(own, {"id": "npc:1"})
+
+
+def test_a_rewrite_that_fixes_the_look_fit_is_kept_even_with_a_colour_cap_still_over():
+    """The acceptance rule: the weighted offenders must drop and no new look-fit offender may appear; perfection is not demanded."""
+    taken = [_card(i, ["navy fleece pullover", "dark jeans"], f"sig{i}") for i in range(1, 5)]
+    cast = taken + [_card(5, ["seersucker blazer", "loafers"], None, job="roofer")]
+    g = G.SeasonGate("u"); g.n = 5
+    for c in taken:
+        g.accept(c["id"], {}, c, cast)
+    assert G._wardrobe_score({"look-fit": ["upscale"], "colour": ["navy-blue"]}) > G._wardrobe_score({"colour": ["navy-blue"]})
+    prof = {"physicalCharacteristics": dict(cast[4]["physicalCharacteristics"]), **{k: v for k, v in _profile("Nameb", "A roofer who reads a room first.").items() if k != "physicalCharacteristics"}}
+    prof["physicalCharacteristics"] = {**LOOK, "wardrobe": ["seersucker blazer", "silk pocket square", "loafers"]}
+    npc = {**_npc(5, "Nameb"), "vocation": "roofer", "age": 30}
+    rep = g.repeats("npc:5", prof, npc, cast)
+    assert "upscale" in rep["realism-wardrobe"].get("look-fit", [])
+
+    async def rw(n, codes, message=None):  # fixes the fit but is still navy, which is already over the cap
+        return {"physicalCharacteristics": {"wardrobe": ["navy work shirt", "canvas work pants"]}}
+    asyncio.new_event_loop().run_until_complete(G._repetition_rewrite(g, prof, npc, cast, rw, "npc:5"))
+    assert prof["physicalCharacteristics"]["wardrobe"][0] == "navy work shirt"
+
+
+def test_the_fit_audit_asks_the_model_once_for_the_cast_and_rewrites_only_the_cards_it_names():
+    cards = [{"id": f"npc:{i}", "name": f"P{i}", "vocation": "court reporter" if i == 1 else "welder", "age": 34, "hometown": "Macon, Georgia",
+              "physicalCharacteristics": {"wardrobe": ["indigo scrub pants", "white clogs"] if i == 1 else ["grey work shirt", "dark jeans"]}} for i in range(1, 4)]
+    calls, written = [], []
+
+    async def llm(messages):
+        calls.append(messages)
+        if len(calls) == 1:
+            return '{"misfits": [{"id": "npc:1", "piece": "indigo scrub pants", "why": "a clinical uniform for a courtroom job"}, {"id": "npc:9", "piece": "x", "why": "unknown id"}]}'
+        return '{"wardrobe": ["grey wool trousers", "ivory blouse", "low black flats"], "lookSignature": "a silver watch"}'
+
+    async def write(hid, fields):
+        written.append((hid, fields))
+        return {"accepted": True}
+    n = asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, llm, write))
+    assert n == 1 and len(calls) == 2 and [w[0] for w in written] == ["npc:1"]
+    assert "no list of jobs or garments" in calls[0][0]["content"] and "scrub" not in calls[0][0]["content"].lower()
+    assert cards[0]["physicalCharacteristics"]["wardrobe"][0] == "grey wool trousers"
+    # a clean audit costs one call and changes nothing
+    calls.clear(); written.clear()
+
+    async def clean(messages):
+        calls.append(messages)
+        return '{"misfits": []}'
+    assert asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, clean, write)) == 0 and len(calls) == 1 and not written

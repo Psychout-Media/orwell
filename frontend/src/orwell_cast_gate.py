@@ -17,7 +17,7 @@ from typing import Awaitable, Callable, Optional
 logger = logging.getLogger(__name__)
 
 BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
-REALISM_LOWPRIO_BUDGET = 8  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
+REALISM_LOWPRIO_BUDGET = 6  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
 REALISM_REWRITE_BUDGET = 12  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
 _ENDS = re.compile(r"[.!?][\"'”’)\]]*$")
@@ -555,6 +555,15 @@ def _identity_ok(text: str) -> bool:
     return isinstance(text, str) and 12 <= len(" ".join(text.split())) <= 250  # the same bounds a first-pass identity gets
 
 
+_WARDROBE_WEIGHT = {"look-fit": 5, "garment": 1, "colour": 1, "pattern": 1, "signature": 1}
+
+
+def _wardrobe_score(wd) -> int:
+    """How much a wardrobe still asks for: a look-fit offender weighs 5, any other offender 1 (the dealt-family flag weighs 2: it is asked once
+    per card, so a later check never carries it)."""
+    return sum((2 if (k == "look-fit" and x == "family") else _WARDROBE_WEIGHT.get(k, 1)) for k, v in (wd or {}).items() for x in v)
+
+
 async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn, hid: str) -> None:
     """At most ONE re-write of the repeated field(s) of a LATER card (the first card to use a phrasing keeps it), inside the
     gate's budget. Only identityConcept and physicalCharacteristics.onCamera can change, and only when the new text passes
@@ -621,13 +630,12 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         if key == "realism-wardrobe" and not _wardrobe_ok(cand, npc):
             continue
         still = gate.repeats(hid, cand, npc, cast)
-        if key == "realism-wardrobe" and "realism-wardrobe" in still:  # a writer that left the signature out still ships the clothes it fixed
-            sw = {k: ([x for x in v if x != "missing"] if k == "signature" else v) for k, v in still["realism-wardrobe"].items()}
-            sw = {k: v for k, v in sw.items() if v}
-            if sw:
-                still["realism-wardrobe"] = sw
-            else:
-                del still["realism-wardrobe"]
+        if key == "realism-wardrobe":
+            # a rewrite that IMPROVES the card is kept; perfection is not demanded (a fixed look-fit is not thrown away because a colour or
+            # signature cap is already over for the whole cast): the weighted offenders must drop and no new look-fit offender may appear
+            if _wardrobe_score(still.get("realism-wardrobe")) < _wardrobe_score(rep.get("realism-wardrobe")) and not (
+                    set((still.get("realism-wardrobe") or {}).get("look-fit", [])) - set((rep.get("realism-wardrobe") or {}).get("look-fit", []))):
+                still.pop("realism-wardrobe", None)
         if key.startswith("identity"):
             asked = [k for k in rep if k.startswith("identity")]
         elif key == "oncamera":
