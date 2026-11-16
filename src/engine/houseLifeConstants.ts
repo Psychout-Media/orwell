@@ -40,7 +40,7 @@ export const HOUSE_LIFE = {
     "social-butterfly": 0.2, underdog: 0.3, loyalist: 0.35, peacemaker: 0.08,
   } as Readonly<Record<Archetype, number>>,
   /** ORW-324: chance a free hour with company turns to gossip about someone not in the room (the house's ordinary talk). */
-  gossipChance: 0.5,
+  gossipChance: 0.58,
   /** Chance a light free hour with company is a prank. */
   prankChance: 0.15,
   /** Scheming speech (a long con, a frame, a plant) is false this much more often than the holder's normal candor. */
