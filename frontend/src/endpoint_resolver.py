@@ -125,6 +125,19 @@ def _resolve_tailscale_host(hostname: str) -> Optional[str]:
         pass
 
     # DNS failed — try tailscale
+    addrs = _tailscale_peer_ips(hostname)
+    if addrs:
+        ip = addrs[0]
+        logger.info(f"Resolved '{hostname}' via Tailscale → {ip}")
+        _tailscale_cache[hostname] = ip
+        return ip
+
+    _tailscale_cache[hostname] = None
+    return None
+
+
+def _tailscale_peer_ips(hostname: str) -> list:
+    """The Tailscale IPs of the peer named ``hostname`` (from 'tailscale status'), or []."""
     try:
         result = subprocess.run(
             ["tailscale", "status", "--json"],
@@ -140,15 +153,27 @@ def _resolve_tailscale_host(hostname: str) -> Optional[str]:
                 if peer_name == hostname.lower() or dns_name == hostname.lower():
                     addrs = peer.get("TailscaleIPs", [])
                     if addrs:
-                        ip = addrs[0]
-                        logger.info(f"Resolved '{hostname}' via Tailscale → {ip}")
-                        _tailscale_cache[hostname] = ip
-                        return ip
+                        return list(addrs)
     except Exception as e:
         logger.debug(f"Tailscale resolution failed for '{hostname}': {e}")
+    return []
 
-    _tailscale_cache[hostname] = None
-    return None
+
+# hostname -> the Tailscale IPs `resolve_url` could have put in its place (ORW-483)
+_tailscale_ips_cache: Dict[str, frozenset] = {}
+
+
+def _resolved_ips_for(hostname: str) -> frozenset:
+    """Every IP that `resolve_url` may have substituted for ``hostname``: the one cached when DNS
+    failed in this process, plus the Tailscale peer's IPs (looked up once per process, even if DNS
+    works now). Same resolver as `resolve_url`; no plain DNS lookup."""
+    key = (hostname or "").lower()
+    if not key:
+        return frozenset()
+    if key not in _tailscale_ips_cache:
+        _tailscale_ips_cache[key] = frozenset(_tailscale_peer_ips(key))
+    cached = _tailscale_cache.get(hostname) or _tailscale_cache.get(key)
+    return _tailscale_ips_cache[key] | ({cached} if cached else set())
 
 
 def resolve_url(url: str) -> str:
@@ -282,18 +307,50 @@ def _owner_scoped(query, owner: Optional[str]):
 AUTH_HEADER_NAMES = frozenset({"authorization", "x-api-key"})
 
 
+def _is_ip_literal(host: str) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address((host or "").strip("[]"))
+        return True
+    except ValueError:
+        return False
+
+
+def _hostname_form(session_url: str, endpoint_base: str) -> Optional[str]:
+    """ORW-483: a session created while DNS failed stores the IP form `build_chat_url` produced
+    (via `resolve_url`). When that IP is one the same resolver gives for the endpoint's hostname,
+    return the session URL rewritten to the endpoint's hostname form; otherwise None."""
+    try:
+        s = urlparse(session_url)
+        b = urlparse(normalize_base(endpoint_base))
+        if not s.hostname or not b.hostname or s.hostname == b.hostname:
+            return None
+        if not _is_ip_literal(s.hostname) or _is_ip_literal(b.hostname):
+            return None
+        if (s.scheme, s.port) != (b.scheme, b.port):
+            return None
+        if s.hostname not in _resolved_ips_for(b.hostname):
+            return None
+        return urlunparse(s._replace(netloc=b.netloc))
+    except Exception:
+        return None
+
+
+def _url_matches_base(sess: str, base: str, exact: bool) -> bool:
+    variants = {base, base + "/chat/completions", build_chat_url(base).rstrip("/")}
+    return sess in variants or (not exact and sess.startswith(base + "/"))
+
+
 def session_url_matches_endpoint(session_url: str, endpoint_base: str) -> bool:
-    """True when a session's stored URL is (a path under) the endpoint's base URL."""
+    """True when a session's stored URL is (a path under) the endpoint's base URL, in its hostname
+    form or the IP form `resolve_url` gave it (ORW-483)."""
     if not session_url or not endpoint_base:
         return False
-    sess = session_url.rstrip("/")
     base = normalize_base(endpoint_base).rstrip("/")
-    variants = {
-        base,
-        base + "/chat/completions",
-        build_chat_url(base).rstrip("/"),
-    }
-    return sess in variants or sess.startswith(base + "/")
+    if _url_matches_base(session_url.rstrip("/"), base, exact=False):
+        return True
+    alt = _hostname_form(session_url, endpoint_base)
+    return bool(alt) and _url_matches_base(alt.rstrip("/"), base, exact=False)
 
 
 def _stored_headers_dict(headers) -> Dict[str, str]:
@@ -314,7 +371,10 @@ def _session_url_exact(session_url: str, endpoint_base: str) -> bool:
     base = normalize_base(endpoint_base or "").rstrip("/")
     if not session_url or not base:
         return False
-    return session_url.rstrip("/") in {base, base + "/chat/completions", build_chat_url(base).rstrip("/")}
+    if _url_matches_base(session_url.rstrip("/"), base, exact=True):
+        return True
+    alt = _hostname_form(session_url, endpoint_base)
+    return bool(alt) and _url_matches_base(alt.rstrip("/"), base, exact=True)
 
 
 def _supplies_auth(ep) -> bool:
@@ -328,14 +388,60 @@ def _supplies_auth(ep) -> bool:
     return any(str(k).lower() in AUTH_HEADER_NAMES for k in hdrs)
 
 
-def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str]):
+def _serves_model_for_tie(ep, m) -> bool:
+    """ORW-483 tie-break only: like `_model_available`, but an admin-PINNED model (which may never appear in the
+    provider's cached /v1/models list) counts as served unless it is hidden. Kept local so the narrator/utility
+    fallback's own availability rule is unchanged."""
+    if _model_available(ep, m):
+        return True
+    if m in _endpoint_hidden_models(ep):
+        return False
+    try:
+        pinned = json.loads(getattr(ep, "pinned_models", None) or "[]")
+    except (TypeError, ValueError):
+        pinned = []
+    return m in (pinned if isinstance(pinned, list) else [])
+
+
+def _break_session_endpoint_tie(matches: list, model: str, owner: Optional[str]) -> list:
+    """ORW-483: narrow same-URL candidates that carry different keys using what IS known — a
+    session row records no endpoint id, only its URL and model. First drop endpoints that
+    demonstrably do not serve the session's model (`_model_available`); then, if the configured
+    default chat endpoint (`default_endpoint_id`, per-user then global) is still a candidate, it
+    wins. Returns the narrowed list (unchanged when nothing narrows)."""
+    if model:
+        # #2845 review: a candidate that demonstrably cannot serve the model is never used, even through the default endpoint below;
+        # when NONE can serve it, nothing is chosen (the session keeps its stored headers, as before ORW-483).
+        matches = [ep for ep in matches if _serves_model_for_tie(ep, model)]
+        if not matches:
+            return []
+    if len({(ep.api_key or "").strip() for ep in matches}) <= 1:
+        return matches
+    try:
+        from src.settings import get_user_setting, load_settings
+        default_id = (get_user_setting("default_endpoint_id", owner or "",
+                                       load_settings().get("default_endpoint_id", "")) or "")
+        default_id = str(default_id).strip()
+    except Exception:
+        default_id = ""
+    if default_id:
+        chosen = [ep for ep in matches if str(ep.id) == default_id]
+        if chosen:
+            return chosen
+    return matches
+
+
+def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str], model: Optional[str] = None,
+                           break_ties: bool = False):
     """The enabled endpoint that unambiguously supplies auth for a session URL, or None.
 
     Owner scoping is STRICT (no admin bypass): own rows + shared/null-owner rows only, so a
     session never receives another user's key. With no owner, only shared rows are eligible.
     An exact base match beats a prefix match. If the remaining candidates carry more than one
     distinct key the answer is ambiguous and None is returned (callers keep the stored headers
-    rather than guess or strip)."""
+    rather than guess or strip) — unless ``break_ties`` is set (ORW-483: the stored headers carry
+    no key, so keeping them cannot work), in which case the session's model and the configured
+    default endpoint narrow the candidates first."""
     if not endpoint_url:
         return None
     q = db.query(ModelEndpoint).filter(ModelEndpoint.is_enabled == True)  # noqa: E712
@@ -353,6 +459,8 @@ def _find_session_endpoint(db, endpoint_url: str, owner: Optional[str]):
     matches = exact or matches
     if not matches:
         return None
+    if break_ties and len({(ep.api_key or "").strip() for ep in matches}) > 1:
+        matches = _break_session_endpoint_tie(matches, (model or "").strip(), owner)
     if len({(ep.api_key or "").strip() for ep in matches}) > 1:
         logger.debug("session endpoint match is ambiguous (%d distinct keys); keeping stored headers",
                      len(matches))
@@ -407,7 +515,11 @@ def resolve_session_headers(sess, owner: Optional[str] = None):
         owner = owner or getattr(sess, "owner", None) or None
         db = SessionLocal()
         try:
-            ep = _find_session_endpoint(db, url, owner)
+            # ORW-483: a row whose stored headers carry no key cannot fall back to them, so a
+            # same-URL / different-key tie is broken by the session's model + the default endpoint.
+            stored_has_auth = any(str(k).lower() in AUTH_HEADER_NAMES for k in _stored_headers_dict(stored))
+            ep = _find_session_endpoint(db, url, owner, model=getattr(sess, "model", None),
+                                        break_ties=not stored_has_auth)
             if ep is None:
                 env = _server_env_headers(url)
                 if env:

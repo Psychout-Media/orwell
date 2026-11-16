@@ -1,5 +1,5 @@
 import { toDayTwoMorning } from "../support/dayTwoMorning";
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 
@@ -54,6 +54,26 @@ describe("A65 - the engine schedule gate", () => {
     const v = s.advanceGame();
     expect(v.held).toBeUndefined();
     expect(v.pending?.kind ?? v.event?.beat).toBeTruthy();
+  });
+  it("the chain after a resolved decision asks the same schedule question as advanceGame (review of T0-2)", () => {
+    const holds = (s: GameSessionAdapter) => (s as unknown as { scheduleHoldsAdvance(): boolean }).scheduleHoldsAdvance();
+    expect(holds(runningDay(false))).toBe(false);
+    const on = runningDay(true);
+    expect(holds(on)).toBe(true);
+    for (let i = 0; i < 60 && !sched(on).due; i++) on.advanceClockPerConversation();
+    expect(holds(on)).toBe(false);
+  });
+  it("a resolved decision's chained advance is refused before the milestone, and the view says held/schedule (review of T0-2)", () => {
+    for (const gate of [false, true]) {
+      const s = runningDay(false);
+      const v = s.advanceGame(); // a staged comp round: a pending whose resolution chains one more beat
+      expect(v.pending?.kind).toBe("comp-round");
+      s.setAdvanceGateEnabled(gate);
+      const spy = vi.spyOn(s as unknown as { advanceOneBeat(): unknown }, "advanceOneBeat");
+      const r = s.submitDecision({ kind: "comp-round", intent: "compete" });
+      expect(spy.mock.calls.length, `gate ${gate}`).toBe(gate ? 0 : 1);
+      if (gate) expect(r.held?.reason).toBe("schedule"); else expect(r.held).toBeUndefined();
+    }
   });
   it("ON: the engine's own fast-forward (admin advanceToFinale) is not stalled by the gate", () => {
     const s = runningDay(true);

@@ -32,6 +32,9 @@ def test_a_houseguests_choice_is_voiced_as_given():
 
 def _rig(monkeypatch, user, beats):
     ch.clear_social_runway(user)
+    # ORW-515: the draw hold is process-global and keyed per owner; an auth-off (None) draw left it set for every later
+    # owner=None test in the worker (the agent loop then dropped its forced advanceGame). Give each test its own dict.
+    monkeypatch.setattr(ch, "_VETO_DRAW_HOLDS", {})
     ch._SCHEDULE_STEER.pop(ch._runway_key(user), None)
     seq = list(beats)
     base = {"phase": "veto-competition", "week": 1, "beatSeq": 1}
@@ -86,3 +89,10 @@ def test_the_draw_hold_reads_the_same_key_for_an_auth_off_owner(monkeypatch):
     _rig(monkeypatch, None, [("veto-draw", DRAW), ("veto-competition", "x")])
     _run(ch._pre_resolve_npc_ceremony(None, {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
     assert ch.veto_draw_holds_force("") is True and ch.veto_draw_holds_force(None) is True
+
+
+def test_orw481_veto_steer_does_not_fix_six_or_pick_for_player():
+    """ORW-481 (review 4528860303): the drawn count is the game's, and an open Houseguest's Choice is not picked for the player."""
+    from routes.chat_helpers import _veto_draw_steer
+    out = _veto_draw_steer("a draw")
+    assert "if it names fewer" in out and "do not pick for them" in out

@@ -212,3 +212,10 @@ def test_the_final_segment_asks_for_everything_including_the_winner_in_one_reply
     t = ch._competition_scene_steer(LOG)
     assert "lands in THIS reply" in t and "do not carry any round or the winner over" in t
     assert "lands in THIS reply" not in ch._competition_scene_steer(LOG[:2], paused=True), "a paused segment ends mid-competition on purpose"
+
+
+def test_orw481_no_crown_steer_names_no_winner():
+    """ORW-481 (review 4504455181): a pass that stopped after a round with no recorded crown must not tell the narrator to name a winner."""
+    from routes.chat_helpers import _competition_scene_steer
+    out = _competition_scene_steer([("comp-elimination", "Someone drops out.")])
+    assert "no winner yet" in out and "the winner, by name" not in out

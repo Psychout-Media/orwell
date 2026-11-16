@@ -108,7 +108,7 @@ export function passiveAnswer(p: PendingView): Record<string, unknown> {
  * turn-driven — the only mode; no wall-clock watcher) and return its public measurement. Per-season seeded,
  * so this is order-independent and runnable in any shard.
  */
-export async function playSeed(seed: number): Promise<SeasonResult> {
+export async function playSeed(seed: number, opts: { trace?: string[] } = {}): Promise<SeasonResult> {
   process.env.ORWELL_BEDTIME_GATE = "0"; // ORW-116: the sim player turns in directly when a night is held (the bedtime gate is a separate narrator-facing guard; the night HOLD stays fully on)
   const runtime = composeRuntime({
     clock: new FakeClock(),
@@ -134,6 +134,7 @@ export async function playSeed(seed: number): Promise<SeasonResult> {
     finished = adv.finished;
     winner = adv.winner ?? winner;
     countWin(adv.event ?? null);
+    if (opts.trace && adv.event) opts.trace.push(`${adv.event.beat ?? ""}|${adv.event.content ?? ""}`); // ORW-507: an ordered record of the public season events, for the order-independence test (no effect when absent)
     if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `jr${seed}`, undefined, { direct: true }); // ORW-116: a held night is the player's - time passes, then they turn in
     if (adv.pending) {
       const sub = (await mcp.callTool("submitDecision", passiveAnswer(adv.pending))) as AdvanceResult & {
@@ -143,6 +144,7 @@ export async function playSeed(seed: number): Promise<SeasonResult> {
       finished = sub.finished;
       winner = sub.winner ?? winner;
       countWin(sub.event ?? null);
+      if (opts.trace && sub.event) opts.trace.push(`${sub.event.beat ?? ""}|${sub.event.content ?? ""}`);
     }
   }
   if (!finished) throw new Error(`season for seed ${seed} must finish`);

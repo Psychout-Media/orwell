@@ -91,3 +91,14 @@ def test_real_scenes_that_merely_mention_cutting_away_are_kept():
     msgs = [{"role": "assistant", "content": "The camera cuts away from Sofia as she steps outside."}]
     assert agent_loop._drop_fallback_turns(msgs) == msgs
     assert agent_loop._drop_fallback_turns("not a list") == "not a list"
+
+
+def test_orw481_a_paused_event_is_not_described_as_uncalled(monkeypatch):
+    """ORW-481 (review 4528677540): a paused (already called) event must not get the 'has NOT called' wording."""
+    chat_helpers._LAST_BEAT_SIG[_USER] = _sig()
+    _run(chat_helpers.guard_emptied_cutaway(_USER))
+    monkeypatch.setitem(chat_helpers._EVENT_PAUSE_FRESH, chat_helpers._runway_key(_USER), "competition")
+    chat_helpers._LAST_BEAT_SIG[_USER] = _sig()
+    _run(chat_helpers.guard_emptied_cutaway(_USER))
+    d = chat_helpers._DESYNC_REGROUND[_USER]
+    assert "has NOT called" not in d and "PAUSED" in d
