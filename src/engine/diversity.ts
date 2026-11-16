@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { COMMON_WORD_NAMES } from "./commonWordNames";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "./characterFactory";
@@ -529,12 +530,6 @@ export function showmancePlausible(a: ShowmanceIdentity, b: ShowmanceIdentity): 
 // re-export so the cap is a single source of truth in tests/imports
 export { MAX_PER_AGE_BAND };
 
-/** Given names that are also everyday words or months: only these need the context rule below. */
-const COMMON_WORD_NAMES: ReadonlySet<string> = new Set([
-  "may", "will", "grace", "hope", "summer", "faith", "mark", "art", "rose", "june", "april", "august", "dawn", "joy", "ivy", "pearl",
-  "amber", "frank", "lane", "chase", "cliff", "drew", "gene", "guy", "hunter", "miles", "autumn", "winter", "storm", "river", "sky",
-  "rain", "bill", "jack", "rich", "ray", "jay", "pat",
-]);
 /** A word before the name that makes a common-word reading ("in May", "the will", "her faith", "last summer") the likelier one. */
 const COMMON_USE_BEFORE: ReadonlySet<string> = new Set([
   "in", "of", "on", "last", "next", "this", "every", "each", "since", "until", "during", "early", "late", "mid", "the", "a", "an",
