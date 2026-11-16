@@ -142,6 +142,8 @@ Then("the narrator gets the meeting as the speakers' words, and every listener's
   const m = b.mtg!;
   const line = b.s.getMomentPrompt({}).systemPrompt.split("\n").find((l) => l.includes("HOUSE MEETING"));
   assert.ok(line, "the narrator got no house meeting line");
+  const heard = (b.s as unknown as { houseMeetingThePlayerHeard(): Record<string, unknown> | undefined }).houseMeetingThePlayerHeard();
+  assert.deepEqual(Object.keys(heard ?? {}).sort(), ["accused", "answer", "caller", "claim", ...(heard && "redirectTo" in heard ? ["redirectTo"] : [])].sort(), "the heard meeting carries only caller, accused, claim, answer and redirectTo");
   assert.ok(line.includes(nameOf(b.s, b.hg)) && line.includes(nameOf(b.s, b.liar)) && /denies it|admits it|turns it back/.test(line), line);
   const listeners = m.attendees.filter((id) => id !== PLAYER && id !== m.caller && id !== m.accused);
   assert.ok(listeners.length >= 4, "the house was not gathered");
