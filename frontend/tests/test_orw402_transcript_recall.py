@@ -44,13 +44,17 @@ def _recall_msgs(out):
     return [m for m in out if isinstance(m.get("content"), str) and m["content"].startswith(tr.RECALL_HEADER)]
 
 
-def test_day_one_detail_injected_verbatim_on_day_three_right_after_story():
+def test_day_one_detail_injected_verbatim_on_day_three_right_before_the_newest_message():
     _rows, view, out = _run("Where was that lighthouse key hidden again?")
     rec = _recall_msgs(out)
     assert len(rec) == 1 and SECRET_DETAIL in rec[0]["content"]
     assert rec[0]["role"] == "user", "review of #2703: quoted player text must never be a system message"
     i = next(k for k, m in enumerate(out) if m["content"].startswith("[Story so far]"))
-    assert out[i + 1] is rec[0]
+    # ORW-555: the story block is still above it, and the recall now sits right before the player's newest message
+    # (it used to sit right after the story block, ahead of the whole raw transcript, which broke the prompt-prefix cache)
+    assert out.index(rec[0]) > i
+    assert out[-2] is rec[0] and out[-1] is view[-1]
+    assert out[:-2] == view[:-1], "everything before the recall is byte-identical to the view without it (the cacheable prefix)"
     assert len(out) == len(view) + 1
 
 

@@ -3,7 +3,9 @@
 The prompt view (``orwell_day_condense.apply_prompt_view``) replaces closed days with a ``[Story so far]`` summary in
 the SENT list only. When the player's newest message asks about a detail from one of those days, this step searches the
 STORED rows the view dropped and injects up to ``MAX_EXCERPTS`` short verbatim exchanges (player line + narration reply)
-as ONE message ``[From earlier days - verbatim]`` (role ``user``, never ``system``: it quotes player-authored text) right after the ``[Story so far]`` block.
+as ONE message ``[From earlier days - verbatim]`` (role ``user``, never ``system``: it quotes player-authored text) right BEFORE the player's newest message.
+(ORW-555: it used to sit right after the ``[Story so far]`` block. That put a per-turn message ahead of the whole raw transcript, so on every turn it fired, and on the turn after, the
+provider's prompt-prefix cache missed the entire history behind it. Just before the newest message, only that message and the reply before it fall outside the cached prefix.)
 
 No tool call (the production narrator model rejects forced tools), no model call, no new dependency, no rng. Lexical
 scoring: overlapping content words and names, recency tie-break. Only player-visible user/assistant ``content`` strings
@@ -148,7 +150,7 @@ def build_recall(original: list, view: list, query: str, names=()) -> str:
 
 
 def apply_recall(original: list, view: list, names=()) -> list:
-    """Return ``view`` with one recall (user-role) message inserted right after the ``[Story so far]`` block, or ``view``
+    """Return ``view`` with one recall (user-role) message inserted right before the player's newest message, or ``view``
     itself when disabled / nothing matches. Pure; never mutates; any error => ``view``."""
     try:
         if not enabled() or not isinstance(view, list) or not isinstance(original, list) or view is original:
@@ -160,7 +162,10 @@ def apply_recall(original: list, view: list, names=()) -> list:
         text = build_recall(original, view, _last_user_text(view), names)
         if not text:
             return view
-        return view[: story_idx + 1] + [{"role": "user", "content": text, "_protected": True}] + view[story_idx + 1:]  # review of #2745: user-role, so without the flag `_trim_preserving_system` would drop it first (the oldest droppable turn); agent_loop strips the key before the request
+        # ORW-555: right before the newest user message, not after the story block: everything before it stays the byte-identical prefix of the previous turn's request (the cache), and the story block is still above it.
+        at = max((i for i, m in enumerate(view) if isinstance(m, dict) and m.get("role") == "user"), default=len(view) - 1)
+        at = max(at, story_idx + 1)
+        return view[:at] + [{"role": "user", "content": text, "_protected": True}] + view[at:]  # review of #2745: user-role, so without the flag `_trim_preserving_system` would drop it first (the oldest droppable turn); agent_loop strips the key before the request
     except Exception as e:
         logger.warning("[transcript-recall] skipped: %s", e)
         try:

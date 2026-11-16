@@ -9139,6 +9139,11 @@ async def apply_game_framing(
         _gd = game_state.get("dayNumber") if isinstance(game_state, dict) and game_state.get("started") else None
         if isinstance(_gd, int) and not isinstance(_gd, bool) and _gd > 0:
             _LAST_FRAMED_GAME_DAY[user or "default"] = _gd
+            try:  # ORW-554: the token ledger stamps this played day on every model call until the next turn
+                from src import orwell_token_ledger as _tl_day
+                _tl_day.note_game_day(user, _gd)
+            except Exception:  # failsoft-ok: telemetry only
+                pass
         else:
             _LAST_FRAMED_GAME_DAY.pop(user or "default", None)
         # ADR 0011: stash the FRAMING beat key (the beat the model is grounded on THIS turn) so the
