@@ -11,7 +11,7 @@ def test_older_ai_and_user_bubbles_drop_the_blur():
     for sel in ("msg-ai", "msg-user"):
         m = re.search(rf"body\.theme-frosted \.{sel}:not\(:nth-last-child\(-n\+(\d+)\)\)\s*\{{([^}}]*)\}}", TAIL)
         assert m, f"{sel}: no old-bubble rule"
-        assert int(m.group(1)) >= 8, "keep enough recent bubbles blurred for the on-screen window"
+        assert 8 <= int(m.group(1)) <= 24, "keep enough recent bubbles blurred for the on-screen window, but a bounded number (a long season must not carry a blur layer per message)"
         assert "backdrop-filter: none" in m.group(2) and "-webkit-backdrop-filter: none" in m.group(2)
 
 

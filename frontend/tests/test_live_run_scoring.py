@@ -154,3 +154,35 @@ def test_review_followups_scoring_regexes_and_clock():
     bad = _score([_turn("c", "The nominees are Aa Bb and then everyone left.", phase="hoh-competition", nominees=["Aa Bb", "Cc Dd"])])
     assert not [k for k in bad if k.startswith("C5-")], "a lowercase word after 'and' is not a second nominee name"
     assert ls.abs_hours("2:00am, Day 1") - ls.abs_hours("11:00pm, Day 1") == 3  # a night across midnight keeps one day number
+
+
+def test_orw503_alone_is_still_checked_and_the_messages_own_skip_is_not_excused_by_runner_moves():
+    txt = "The kitchen hums.\n\nMVMarisol Vance — \"Coffee?\""
+    alone = _score([_turn("t1", txt, phase="hoh-competition", rooms_known=True)])
+    assert not alone["C6-speakers-in-room[t1]"]["ok"], "an empty room is a real answer: a speaker nobody placed there is still flagged"
+    nodata = _score([_turn("t1", txt, phase="hoh-competition", rooms_known=False)])
+    assert "C6-speakers-in-room[t1]" not in nodata, "no whereabouts data: the check cannot judge, so it skips"
+    a = _turn("t1", "x", clock="4:05pm, Day 1")
+    ran = _score([a, _turn("t2", "x", clock="8:05am, Day 2", harness_jump=1, clock_pre_send="4:10pm, Day 1", msg="Can we start the competition?")])
+    assert [c for k, c in ran.items() if k.startswith("K1-no-skipped-time")][0]["ok"] is False, "the runner moved nothing between pre-send and now: the message skipped the night"
+
+
+def test_review_2839_player_out_matches_whole_first_names_and_legacy_rooms_skip():
+    lw = _load("live_week")
+    assert lw.first_name_evicted("Al Person", ["Alan Other"]) is False and lw.first_name_evicted("Al Person", ["al Other"]) is True
+    legacy = _turn("legacy", "ABSomeone Name — hello there.", room_end=[], phase="hoh-competition")
+    legacy.pop("rooms_known", None)
+    assert not [k for k in _score([legacy]) if k.startswith("C6-")], "an older report without rooms_known is not read as an empty room"
+
+
+def test_review_k2_boundary_and_k3_eviction_allowance():
+    a = _turn("t1", "x", clock="4:05pm, Day 1")
+    ok = _score([a, _turn("t2", "x", clock="5:35pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert not [k for k in ok if k.startswith("K2-")], "the crown's 1.5h share is the allowed edge"
+    over = _score([a, _turn("t2", "x", clock="5:41pm, Day 1", phase="nominations", phase_before="hoh-competition")])
+    assert not [c for k, c in over.items() if k.startswith("K2-")][0]["ok"], "just above 1.5h is a competition in one message"
+    due = {"next": "eviction", "phase": "evening", "due": True, "minutesUntil": 0}
+    eight = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 9)]
+    assert not [k for k in _score(eight) if k.startswith("K3-")], "an eviction night gets 8 replies"
+    nine = [_turn(f"t{i}", "x", ds=due, phase="eviction", week=1) for i in range(1, 10)]
+    assert [k for k in _score(nine) if k.startswith("K3-")], "the 9th reply of an unfired eviction night fails"

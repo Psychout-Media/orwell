@@ -278,6 +278,8 @@ def main():
              "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
         t["harness_jump"] = eng.jumps; eng.jumps = 0
+        t["clock_pre_send"] = st0.get("clockLabel")  # ORW-503: the clock just before THIS message, so the runner's own moves are excused only up to here
+        t["rooms_known"] = isinstance(st.get("whereabouts"), dict) and "present" in st["whereabouts"]  # ORW-503: an empty room list is only "alone" when the engine actually sent whereabouts
         turns.append(t); return t
 
     try:
@@ -379,6 +381,8 @@ def score(turns, checks, check, turn_limit):
         a_ = abs_hours(t.get("clock"))
         if prev is not None and a_ is not None and a_ - prev > 1.0:
             gap = a_ - prev; bed = bool(BED_MSG_RE.search(t.get("msg") or "") or NAP_MSG_RE.search(t.get("msg") or "")); wake8 = abs((a_ % 24) - 8.0) < 0.2 and ((prev % 24) >= 23.0 or (prev % 24) < 8.0)  # the night ran its course to 8am (the previous turn was already deep in the night), not a day cut short
+            _pre = abs_hours(t.get("clock_pre_send")) if t.get("harness_jump") else None
+            if _pre is not None and a_ - _pre > 1.0 and not (bed or wake8): gap = a_ - _pre; t = dict(t, harness_jump=0)  # ORW-503: the message's OWN share of the gap is judged as game time, not excused with the runner's moves
             if t.get("harness_jump"): check(f"K1-clock-jump-by-runner[{t['label']}]", True, f"+{gap:.1f}h, made by the runner's own engine call ({t['harness_jump']} move(s)) - not the game", "note")
             elif bed or wake8: check(f"K1-clock-jump-bed[{t['label']}]", True, f"+{gap:.1f}h after a bed message or to 8am", "note")
             elif t.get("phase_before") in ("hoh-competition", "veto-competition") and t.get("phase") != t.get("phase_before"):
@@ -434,9 +438,8 @@ def score(turns, checks, check, turn_limit):
                 check(f"C5-nominee-names[{t['label']}]", same, f"narration names {sorted(said)}; engine nominees {sorted(truth)}")
     # (e) nobody speaks in the player's room unless the engine has them there (at the start or end of the turn - people can walk in or out within a reply)
     for t in turns:
-        if t["phase"] in ("setup",) or t.get("room_end") is None: continue
+        if t["phase"] in ("setup",) or t.get("room_end") is None or t.get("rooms_known") is False or ("rooms_known" not in t and not t.get("room_end")): continue  # an older report carries no rooms_known: an empty room there is missing data, not "alone"  # ORW-503: alone is a real answer and is still checked; only missing whereabouts data skips
         ok_names = {n.lower() for n in (t.get("room_start") or []) + (t.get("room_end") or [])}
-        if not ok_names and not t.get("room_end"): continue
         bad = sorted({n for n in SPEAKER_RE.findall(t["text"]) if n.lower() not in ok_names and not any(n.lower() == x or n.split()[0].lower() == x.split()[0] for x in ok_names)})
         check(f"C6-speakers-in-room[{t['label']}]", not bad, f"spoke in the player's room but the engine has them elsewhere: {bad}" if bad else "every speaker is in the room")
     held = [t for t in turns if t["label"].startswith("veto-morning") and t["phase"] == "veto-competition" and (t["ds"] or {}).get("due") is False]
