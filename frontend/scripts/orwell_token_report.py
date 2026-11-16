@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""ORW-554: the daily token-cost report. No model calls, no network: it only reads the token ledger file.
+"""ORW-554: the daily token-cost report. No model calls, no network: it only reads the token ledger's roll-up file.
 
     python scripts/orwell_token_report.py                     # every user, every stored UTC date
     python scripts/orwell_token_report.py --days 3 --user alice
-    python scripts/orwell_token_report.py --ledger path/to/orwell_token_ledger.json --json
+    python scripts/orwell_token_report.py --rollup path/to/orwell_token_ledger_rollup.json --json
 
 It prints, from the ledger's daily roll-up:
   * cost, calls, input tokens and cache hit rate per call site (the table that says where the money goes);
@@ -26,7 +26,6 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-_ROLLUP_KEY = "__rollup__"
 _COUNTERS = ("calls", "inputTokens", "cacheHitTokens", "cacheMissTokens", "reasoningTokens", "outputTokens", "cost")
 
 
@@ -48,10 +47,10 @@ def _finish(row: dict) -> dict:
     return out
 
 
-def build_report(ledger: dict, user: str | None = None, days: int | None = None) -> dict:
-    """Aggregate a loaded ledger dict into the report structure (pure; testable with a hand-made ledger)."""
-    roll = ledger.get(_ROLLUP_KEY) if isinstance(ledger, dict) else None
-    roll = roll if isinstance(roll, dict) else {}
+def build_report(rollup: dict, user: str | None = None, days: int | None = None) -> dict:
+    """Aggregate a loaded roll-up dict ``{user: {"daily": ..., "gameDays": ...}}`` into the report structure (pure; testable by hand)."""
+    roll = rollup if isinstance(rollup, dict) else {}
+    roll = {u: r for u, r in roll.items() if isinstance(r, dict)}  # a damaged user row is skipped, never a crash
     users = [user] if user else sorted(roll)
     by_site: dict = {}
     by_model: dict = {}
@@ -128,24 +127,26 @@ def render(rep: dict) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--ledger", help="path to orwell_token_ledger.json (default: the app's data dir)")
+    ap.add_argument("--rollup", help="path to orwell_token_ledger_rollup.json (default: the app's data dir)")
     ap.add_argument("--user", help="only this user (default: all)")
     ap.add_argument("--days", type=int, help="only the most recent N UTC dates")
     ap.add_argument("--json", action="store_true", help="print the report as JSON")
     a = ap.parse_args(argv)
-    if a.ledger:
-        path = Path(a.ledger)
+    if a.rollup:
+        path = Path(a.rollup)
     else:
-        from src.orwell_token_ledger import LEDGER_PATH as path
+        from src.orwell_token_ledger import _rollup_path
+
+        path = _rollup_path()
     try:
-        ledger = json.loads(Path(path).read_text(encoding="utf-8"))
+        rollup = json.loads(Path(path).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        print("no ledger file yet", file=sys.stderr)
+        print("no roll-up file yet", file=sys.stderr)
         return 1
     except ValueError:
-        print("ledger file is not valid JSON", file=sys.stderr)
+        print("roll-up file is not valid JSON", file=sys.stderr)
         return 1
-    rep = build_report(ledger, user=a.user, days=a.days)
+    rep = build_report(rollup, user=a.user, days=a.days)
     print(json.dumps(rep, indent=2) if a.json else render(rep))
     return 0
 

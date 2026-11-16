@@ -85,6 +85,31 @@ def _load() -> dict:
         return {}
 
 
+def _write_fast(path: Path, data: dict) -> None:
+    """Atomic (temp file + rename) but WITHOUT fsync: this is telemetry written on every model call, on the event loop.
+    A power cut can lose the last few entries; it can never leave a torn file, and it costs no disk flush per call."""
+    import os
+
+    os.makedirs(str(path.parent), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, separators=(",", ":")))  # dumps uses the C encoder; dump(f) streams through the pure-Python one
+    os.replace(tmp, str(path))
+
+
+def _rollup_path() -> Path:
+    """The roll-up's own file, beside the ledger (derived at call time, so a test that points LEDGER_PATH at a tmp dir moves both)."""
+    return LEDGER_PATH.with_name(LEDGER_PATH.stem + "_rollup.json")
+
+
+def _load_rollup() -> dict:
+    try:
+        data = json.loads(_rollup_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 # ── coercion (the Vault-free floor) ──────────────────────────────────────────────
 
 
@@ -181,10 +206,10 @@ def _entry(
 # ── ORW-554: call site, in-game day, and the daily roll-up ───────────────────────────
 #
 # The 500-entry ring above holds a few hours of traffic, far too little for a daily cost report. So every
-# entry is ALSO folded into a small per-user roll-up kept in the SAME file under ``_ROLLUP_KEY`` (numbers only,
-# keyed by UTC date + call site + model, and by played day). Same store, same lock, same atomic write.
+# entry is ALSO folded into a small per-user roll-up (numbers only, keyed by UTC date + call site + model, and by
+# played day). It lives in its OWN file (``_rollup_path()``), keyed by user, so a user name can never collide with
+# it and the per-call ledger write stays small. Same lock, same atomic write.
 
-_ROLLUP_KEY = "__rollup__"
 _ROLLUP_DAYS = 90          # keep this many UTC dates per user
 _ROLLUP_GAME_DAYS = 600    # keep this many (session, played day) rows per user
 
@@ -299,18 +324,20 @@ def _bump(row: dict, entry: dict) -> None:
     row["cost"] = round(row.get("cost", 0.0) + _clean_float(entry.get("cost")), 8)
 
 
-def _roll_up(data: dict, user_key: str, entry: dict) -> None:
-    """Fold one entry into the per-user roll-up inside ``data`` (caller holds the lock and writes the file)."""
-    roll = data.get(_ROLLUP_KEY)
-    if not isinstance(roll, dict):
-        roll = {}
+def _row_part(v: Any) -> str:
+    """One half of a roll-up row key: ``|`` separates site from model, so it can never appear inside either half."""
+    return (str(v or "") or "-").replace("|", "/")
+
+
+def _roll_up(roll: dict, user_key: str, entry: dict) -> None:
+    """Fold one entry into ``roll`` (the roll-up file's dict; caller holds the lock and writes the file)."""
     u = roll.get(user_key)
     if not isinstance(u, dict):
         u = {}
     daily = u.get("daily") if isinstance(u.get("daily"), dict) else {}
     date = _utc_date(entry.get("ts"))
     day_rows = daily.get(date) if isinstance(daily.get(date), dict) else {}
-    rk = f"{entry.get('callSite') or '-'}|{entry.get('model') or '-'}"
+    rk = f"{_row_part(entry.get('callSite'))}|{_row_part(entry.get('model'))}"
     row = day_rows.get(rk) if isinstance(day_rows.get(rk), dict) else {}
     _bump(row, entry)
     day_rows[rk] = row
@@ -329,14 +356,13 @@ def _roll_up(data: dict, user_key: str, entry: dict) -> None:
             del gd[next(iter(gd))]
         u["gameDays"] = gd
     roll[user_key] = u
-    data[_ROLLUP_KEY] = roll
 
 
 def get_rollup(user: str | None) -> dict:
     """The user's roll-up ``{"daily": {date: {"site|model": counters}}, "gameDays": {"session:day": counters}}``."""
     with _LOCK:
-        roll = _load().get(_ROLLUP_KEY)
-    u = roll.get(_key(user)) if isinstance(roll, dict) else None
+        roll = _load_rollup()
+    u = roll.get(_key(user))
     return u if isinstance(u, dict) else {}
 
 
@@ -409,8 +435,11 @@ def record_turn(
             if len(bucket) > _MAX_PER_USER:
                 bucket = bucket[-_MAX_PER_USER:]  # bounded — drop oldest
             data[k] = bucket
-            _roll_up(data, k, entry)
-            atomic_write_json(str(LEDGER_PATH), data, indent=2)
+            # Runs on every model call: compact JSON, no fsync (see _write_fast).
+            _write_fast(LEDGER_PATH, data)
+            roll = _load_rollup()
+            _roll_up(roll, k, entry)
+            _write_fast(_rollup_path(), roll)
         _log_line(k, entry)
     except Exception as e:  # pragma: no cover - defence in depth
         try:
@@ -468,13 +497,11 @@ def clear(user: str | None) -> None:
     k = _key(user)
     with _LOCK:
         data = _load()
-        changed = data.pop(k, None) is not None
-        roll = data.get(_ROLLUP_KEY)
-        if isinstance(roll, dict) and k in roll:
-            del roll[k]
-            changed = True
-        if changed:
+        if data.pop(k, None) is not None:
             atomic_write_json(str(LEDGER_PATH), data, indent=2)
+        roll = _load_rollup()
+        if roll.pop(k, None) is not None:
+            atomic_write_json(str(_rollup_path()), roll, indent=None)
 
 
 # ORW-198: a turn whose model spent more than this many REASONING tokens is a slow-turn suspect (the DeepSeek route thinks on every round even with narration reasoning "off"; slow turns showed 4.3k-10k

@@ -125,14 +125,27 @@ def test_record_clips_ids_and_never_stores_a_body():
         applied_max_tokens=_SENTINEL,
         cost=_SENTINEL,
         context_percent=_SENTINEL,
+        # ORW-554's fields: two short ids (the model name can come from the provider's response) and three counts
+        call_site=big,
+        model=big,
+        cache_miss_tokens=_SENTINEL,
+        calls=_SENTINEL,
+        day=_SENTINEL,
     )
     e = ledger.get_recent("player")[0]
     assert set(e.keys()) <= _ALLOWED_KEYS
-    # ids / class / provider / finishReason are clipped to short tokens — no field holds a paragraph body
-    for f in ("session", "turnId", "callClass", "provider", "finishReason"):
+    # ids / class / provider / finishReason / call site / model are clipped to short tokens — no field holds a paragraph body
+    for f in ("session", "turnId", "callClass", "provider", "finishReason", "callSite", "model"):
         assert len(e[f]) <= ledger._MAX_ID_LEN
     # the numeric fields rejected the smuggled string entirely
     assert e["inputTokens"] == 0 and e["appliedMaxTokens"] == 0
+    assert e["cacheMissTokens"] == 0 and e["calls"] == 1 and e["day"] == 0
+    # ...and the daily roll-up (its own file) holds only numbers, keyed by the same clipped site and model ids
+    for rows in ledger.get_rollup("player")["daily"].values():
+        for rk, counters in rows.items():
+            site, _, model = rk.partition("|")
+            assert len(site) <= ledger._MAX_ID_LEN and len(model) <= ledger._MAX_ID_LEN
+            assert all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in counters.values())
     assert e["cost"] == 0.0 and e["contextPercent"] == 0.0
 
 

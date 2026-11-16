@@ -83,9 +83,35 @@ def test_infer_names_module_through_await_chain():
 
 
 def test_infer_skips_plumbing_frames():
+    # a frame in a plumbing module, with nothing above it, names no site
     ns = {"__name__": "src.llm_core", "ledger": ledger}
     exec("def _x():\n    return ledger.infer_call_site()\n", ns)
-    assert ns["_x"]() in ("",) or isinstance(ns["_x"](), str)
+    assert ns["_x"]() == ""
+
+
+def test_infer_sees_through_the_cast_authoring_closures():
+    # Utility spend runs through cast authoring's `_fn` -> `_once` closures; the site is whoever called `_fn`, not
+    # "cast-authoring". Built here the way the real module nests them, called from a day-condense coroutine.
+    ca = {"__name__": "src.orwell_cast_authoring", "ledger": ledger}
+    exec(
+        "def make():\n"
+        "    async def _once(m, cap):\n"
+        "        return ledger.infer_call_site()\n"
+        "    async def _fn(m):\n"
+        "        return await _once(m, 1)\n"
+        "    return _fn\n",
+        ca,
+    )
+    dc = {"__name__": "src.orwell_day_condense", "fn": ca["make"]()}
+    exec("async def _summarise_day():\n    return await fn([])\n", dc)
+    assert asyncio.run(dc["_summarise_day"]()) == "day-condense"
+    # ...and the real module still names its closures so: a rename would relabel every utility call "cast-authoring"
+    import inspect
+
+    from src import orwell_cast_authoring
+
+    src = inspect.getsource(orwell_cast_authoring)
+    assert "    async def _once(" in src and "    async def _fn(" in src
 
 
 # ── played day ───────────────────────────────────────────────────────────────────────────────
@@ -219,7 +245,7 @@ def _seed():
 
 def test_report_per_site_hit_rate_and_cost_per_day():
     _seed()
-    rep = report.build_report(json.loads(ledger.LEDGER_PATH.read_text()))
+    rep = report.build_report(json.loads(ledger._rollup_path().read_text()))
     s = rep["bySite"]
     assert list(s) == ["narrator-turn", "npc-minds"]  # sorted by cost
     assert s["narrator-turn"]["cost"] == pytest.approx(0.40) and s["narrator-turn"]["calls"] == 5
@@ -233,7 +259,7 @@ def test_report_per_site_hit_rate_and_cost_per_day():
 def test_report_filters_user_and_renders_text_without_ids():
     _seed()
     ledger.record_turn("other", call_site="zeitgeist", cost=9.0)
-    data = json.loads(ledger.LEDGER_PATH.read_text())
+    data = json.loads(ledger._rollup_path().read_text())
     assert "zeitgeist" not in report.build_report(data, user="player")["bySite"]
     text = report.render(report.build_report(data, user="player", days=1))
     assert "narrator-turn" in text and "Per call site" in text and "Cost per played day" in text
@@ -241,6 +267,30 @@ def test_report_filters_user_and_renders_text_without_ids():
 
 def test_report_cli_json_and_missing_file(tmp_path, capsys):
     _seed()
-    assert report.main(["--ledger", str(ledger.LEDGER_PATH), "--json"]) == 0
+    assert report.main(["--rollup", str(ledger._rollup_path()), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["total"]["calls"] == 6
-    assert report.main(["--ledger", str(tmp_path / "nope.json")]) == 1
+    assert report.main(["--rollup", str(tmp_path / "nope.json")]) == 1
+
+
+# ── review fixes (#2894): the roll-up's own file ─────────────────────────────────────────────
+
+def test_a_user_named_like_the_old_rollup_key_collides_with_nothing():
+    _rec(call_site="narrator-turn", cost=0.2)
+    ledger.record_turn("__rollup__", call_site="x", cost=0.1)
+    assert len(ledger.get_recent("player")) == 1 and ledger.get_rollup("player")
+    ledger.clear("__rollup__")
+    assert ledger.get_rollup("player") and ledger.get_recent("player")
+
+
+def test_a_bar_in_the_call_site_cannot_split_the_row_key():
+    ledger.record_turn("player", call_site="a|b", model="m", cost=0.1)
+    (rows,) = ledger.get_rollup("player")["daily"].values()
+    assert list(rows) == ["a/b|m"]
+    assert list(report.build_report(json.loads(ledger._rollup_path().read_text()))["bySite"]) == ["a/b"]
+
+
+def test_report_skips_a_damaged_user_row():
+    _seed()
+    data = json.loads(ledger._rollup_path().read_text())
+    data["broken"] = "not a dict"
+    assert report.build_report(data)["total"]["calls"] == 6
