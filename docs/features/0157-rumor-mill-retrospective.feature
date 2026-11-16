@@ -24,9 +24,14 @@ Feature: The retrospective shows the lies the house believed
   Scenario: A season with no lies renders cleanly
     Given a season where nobody lied
     When the season is over and a winner is crowned
-    Then the retrospective carries no rumor mill and is otherwise whole
+    Then the retrospective carries no claim-planted rumors and is otherwise whole
 
   Scenario: Reading the rumor mill changes nothing
     Given a season where a houseguest lied to two others about a rival and another houseguest lied about the player
     When the season is over and a winner is crowned
     Then reading the retrospective leaves the claim log and the beliefs exactly as they were
+
+  Scenario: What the house got wrong about the player includes beliefs the engine formed other ways
+    Given a season where nobody lied aloud but a houseguest came to believe something false about the player
+    When the season is over and a winner is crowned
+    Then the retrospective lists that wrong belief about the player with its believer and no claim, truth or intent
