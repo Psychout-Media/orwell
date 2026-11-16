@@ -296,11 +296,12 @@ def main():
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
     a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     if a.rescore:
-        turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
+        saved = json.load(open(f"{a.run_dir}/report.json")); turns = saved["turns"]; checks = []
         _rc = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
         rescore_x0(turns, _rc)
+        keep_live_checks(saved, checks)
         score(turns, checks, _rc, a.turn_limit_secs)
-        write(a.run_dir, turns, checks, None); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
+        write(a.run_dir, turns, checks, saved.get("error")); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
         print("RESULT:", "FAIL" if hard else "PASS"); sys.exit(1 if hard else 0)
     from playwright.sync_api import sync_playwright
     eng = Engine(a.engine, a.token); turns = []; checks = []
@@ -569,6 +570,17 @@ def rescore_x0(turns, check):
     flags = [t["x0_ok"] for t in turns if str(t.get("label", "")).startswith("cross-") and "x0_ok" in t]
     if flags:
         check("X0-reached-eviction-night", all(flags), "from the saved crossover turns (the live check's verdict)")
+
+
+LIVE_ONLY_CHECKS = ("G1-", "G2-", "P1-")  # the checks only the live run can make (they read the engine as it plays); `score()` never recreates them
+
+
+def keep_live_checks(saved, checks):
+    """A `--rescore` keeps the live-only checks the saved report recorded (review of the ORW-109 rescore): a run that failed its production hold or never reached the veto morning
+    cannot turn into a PASS by being re-scored, and a saved run error stays on the report."""
+    for c in saved.get("checks") or []:
+        if str(c.get("id", "")).startswith(LIVE_ONLY_CHECKS):
+            checks.append(c)
 
 
 def not_covered(checks, turns=()):

@@ -13,7 +13,7 @@ afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
 type Internals = {
   presence: Map<EntityId, string> | null;
-  live: { npcMemory?: Record<string, Record<string, { kind: string; severity: number }[]>> };
+  live: { npcMemory?: Record<string, Record<string, { kind: string; week?: number; severity: number }[]>> };
   rel: { edge(a: string, b: string): { trust: number; affinity: number; threat: number } };
   setNpcMemoryEnabled(on: boolean): void;
   setDealsWitnessesEnabled(on: boolean): void;
@@ -98,3 +98,14 @@ describe("a witnessed deal is remembered", () => {
     expect(JSON.stringify(t.g.live.npcMemory)).not.toMatch(/a deal \d/); // entries hold kind/week/severity only, never the deal's words
   });
 });
+
+describe("a neutral witnessed deal can be recalled in words (review of ORW-85)", () => {
+  it("a witness who only saw the deal offers it as something they remember about the player", () => {
+    const t = table();
+    (t.g as unknown as { setNpcMemorySpeechEnabled(on: boolean): void }).setNpcMemorySpeechEnabled(true);
+    t.g.live.npcMemory = { [t.w2]: { [PLAYER]: [{ kind: "deal-witnessed", week: (t.g as unknown as { live: { week: number } }).live.week, severity: DEAL_WITNESS.recallSeverity }] } };
+    const v = t.s.npcVoice(t.w2) as { rememberedAboutYou?: string[] } | null;
+    expect(v?.rememberedAboutYou?.some((f) => f.startsWith("you made a deal in front of them")), "the stored memory reaches the narrator's recall").toBe(true);
+  });
+});
+

@@ -1938,6 +1938,28 @@ def _bedtime_clock_note(turn_in_output) -> str:
     return _BEDTIME_DIRECT_NOTE
 
 
+async def _turn_in_output_with_clock(turn_in_output, get_state):
+    """Review of #2630: the engine's turnIn result carries its status WITHOUT the `clockLabel` (only the game-state projection has it), so the bedtime clock note never named the engine clock in production.
+    Return the turnIn output with the label added to its status, read FRESH from the game state (`get_state` is an awaitable returning that projection). Fail-open: any hiccup, or a label already present, returns the output unchanged."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        if not isinstance(data, dict):
+            return turn_in_output
+        st = data.get("status") if isinstance(data.get("status"), dict) else data
+        if isinstance(st.get("clockLabel"), str) and st["clockLabel"].strip():
+            return turn_in_output
+        gs = await get_state()
+        lab = gs.get("clockLabel") if isinstance(gs, dict) else None
+        if not (isinstance(lab, str) and lab.strip()):
+            return turn_in_output
+        st["clockLabel"] = lab
+        if isinstance(gs.get("earlyMorning"), bool) and "earlyMorning" not in st:
+            st["earlyMorning"] = gs["earlyMorning"]
+        return json.dumps(data) if isinstance(turn_in_output, str) else data
+    except Exception:
+        return turn_in_output
+
+
 def _bedtime_direct_note(turn_in_output) -> str:
     """The production note for a directly-run turnIn: the ORW-355 clock note plus the ORW-382 day-in-review directive (empty when the recap has nothing in it)."""
     return _bedtime_clock_note(turn_in_output) + _bedtime_recap_directive(turn_in_output)
@@ -6491,6 +6513,13 @@ _OUTAGE_TRANSIENT_STATUSES = frozenset({408, 425, 429})
 _NARRATOR_AWAY_LINE = (
     "The feed has gone dark — the narrator is away. The show is on pause: nothing has happened and nothing "
     "is lost. Your last message is kept; say it again when the feed returns and the scene picks up from here.")
+# Review of #2367/#2380: when the outage hits AFTER an earlier round already aired, "nothing has happened" would be false - say what stands instead.
+_NARRATOR_AWAY_MIDTURN_LINE = (
+    "The feed has gone dark again — the narrator is away. The show is on pause: what already aired stands, and nothing "
+    "more has happened. Your last message is kept; say it again when the feed returns and the scene picks up from here.")
+_NARRATOR_ACCOUNT_MIDTURN_LINE = (
+    "The feed is off the air again and will stay off until the host sorts out the broadcast account. The show is on "
+    "pause: what already aired stands, and nothing more has happened. Play resumes from here once the host has fixed it.")
 _NARRATOR_ACCOUNT_LINE = (
     "The feed is off the air and will stay off until the host sorts out the broadcast account. The show is on "
     "pause: nothing has happened and nothing is lost. Your last message is kept, and play resumes from here "
@@ -6543,8 +6572,21 @@ def _alert_outage_once(owner, kind, call_class, reason):
         pass
 
 
-async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, **kwargs):
-    """Wrap `stream_llm_with_fallback` with the ORW-133 pause/retry/resume. Pre-content failures only."""
+def _pause_notice_parts(narrator_paused, emitted_visible, full_response):
+    """(separator, line) for the turn's pause notice. Earlier narration this turn does not hide it; the wording then says what already aired stands (review of #2367/#2380)."""
+    if emitted_visible:
+        line = _NARRATOR_ACCOUNT_MIDTURN_LINE if narrator_paused == "account" else _NARRATOR_AWAY_MIDTURN_LINE
+        return ("\n\n" if full_response and not full_response.endswith(("\n", " ")) else ""), line
+    return "", (_NARRATOR_ACCOUNT_LINE if narrator_paused == "account" else _NARRATOR_AWAY_LINE)
+
+
+async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, live_game=True, **kwargs):
+    """Wrap `stream_llm_with_fallback` with the ORW-133 pause/retry/resume. Pre-content failures only.
+    Live games only (review of #2367): casting and ordinary chat have no pause line to show, so the wrapper would swallow their error - they get the plain stream and its own error."""
+    if not live_game:
+        async for chunk in stream_llm_with_fallback(candidates, messages, **kwargs):
+            yield chunk
+        return
     attempt = 0
     while True:
         saw_output = False
@@ -6556,7 +6598,8 @@ async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, *
                 if kind is not None:
                     failure = (kind, parsed, chunk)
                     break
-            if '"delta"' in chunk or "tool_call" in chunk:
+            # Review of #2367/#2380: a private THINKING delta is not output the player saw - only a visible reply delta or a tool call counts, so an outage after thinking still retries/pauses.
+            if ('"delta"' in chunk and '"thinking": true' not in chunk) or "tool_call" in chunk:
                 saw_output = True
             yield chunk
         if failure is None:
@@ -8791,6 +8834,7 @@ async def _stream_agent_loop_impl(
     # When this is set the casting block treats the turn as a STALL (run the FE-driven finalize), not a
     # cancellation. Reset implicitly per turn (this is a fresh local each stream_agent_loop call).
     _turn_had_error = False
+    _pause_notice_shown = False  # ORW-133: the pause notice itself has been shown this turn (not "any narration")
     _narrator_paused = False   # ORW-133: outage outlasted the retries (or an account fault): hold the show
     _turn_reapproach_nudges = 0  # 0057: post-season re-approach, at most one per finishing turn
     _turn_premiere_marks = 0  # #380 premiere markHouseguestMet auto-belt: intros the FE marked this turn
@@ -9257,7 +9301,8 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "assistant", "content": None, "tool_calls": [
                                     {"id": _bt_call_id, "type": "function", "function": {"name": "turnIn", "arguments": "{}"}}]})
                                 messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bedtime_tool_message(_bt_out)}\n```"})
-                                messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out)})
+                                _bt_out_clock = await _turn_in_output_with_clock(_bt_out, lambda: _oe_bt.get_game_state(user=_force_owner))
+                                messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out_clock)})
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
                                 if await _refresh_context_after_turn_in(messages, _force_owner, _bt_out):
@@ -9332,6 +9377,7 @@ async def _stream_agent_loop_impl(
             _candidates,
             _volatile_tail_wire(messages) if (game_mode == "game" and _volatile_tail_enabled()) else messages,
             owner=_force_owner,
+            live_game=_is_live_game,
             temperature=temperature,
             max_tokens=_effective_max_tokens,  # ADR 0010 #1: admin-editable per-class output cap
             prompt_type=prompt_type if round_num == _first_stream_round else None,
@@ -10075,11 +10121,13 @@ async def _stream_agent_loop_impl(
             if _is_live_game and _narrator_paused:
                 # ORW-133: the show is on pause. Say so ONCE (persisted as the turn's text) and run NO belt:
                 # no auto-record, no stall nudge, no forced advance - nothing advances, no fake scene folds.
-                if not _emitted_visible:
-                    _pl = _NARRATOR_ACCOUNT_LINE if _narrator_paused == "account" else _NARRATOR_AWAY_LINE
-                    full_response += _pl
+                # Review of #2367/#2380: the notice is shown unless THIS notice already was - earlier narration this turn (a round that spoke and called a tool before the outage) does not hide it; the wording then says what already aired stands.
+                if not _pause_notice_shown:
+                    _pl_sep, _pl = _pause_notice_parts(_narrator_paused, _emitted_visible, full_response)
+                    _pause_notice_shown = True
+                    full_response += _pl_sep + _pl
                     _emitted_visible = True
-                    yield f'data: {json.dumps({"delta": _pl})}\n\n'
+                    yield f'data: {json.dumps({"delta": _pl_sep + _pl})}\n\n'
             elif _is_live_game:
                 _tool_names = {(ev.get("tool") if isinstance(ev, dict) else None)
                                for ev in _landed_tool_events(tool_events)}

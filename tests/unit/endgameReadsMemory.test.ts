@@ -15,15 +15,16 @@ import type { MemoryEntry } from "../../src/engine/npcMemory";
 const mk = (): SeasonCtx => ({ player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel: new RelationshipModel(0.5) });
 const withMemory = (ctx: SeasonCtx, tilt: (s: EntityId, d: EntityId) => number): SeasonCtx => ({ ...ctx, endgameMemoryFor: tilt });
 
-function finalThree(ctx: SeasonCtx): LiveSeasonState {
+/** `playerThreat` is the HOH's read of the player; npc(2) is read at 0.6, so with no memory the higher-threat npc(2) goes. The memory values below stay inside what the ledger can really return (`memoryTiltFor`: a grudge <= 0.15, a favor >= -0.06). */
+function finalThree(ctx: SeasonCtx, playerThreat = 0.5): LiveSeasonState {
   const s = newLiveSeason([PLAYER, npc(1), npc(2)]);
   s.beat = "final-eviction"; s.hoh = npc(1);
-  ctx.rel.edge(npc(1), PLAYER).threat = 0.4;
+  ctx.rel.edge(npc(1), PLAYER).threat = playerThreat;
   ctx.rel.edge(npc(1), npc(2)).threat = 0.6; // npc(2) is the baseline evictee
   return s;
 }
-const evicted = (ctx: SeasonCtx): EntityId => {
-  const s = finalThree(ctx);
+const evicted = (ctx: SeasonCtx, playerThreat = 0.5): EntityId => {
+  const s = finalThree(ctx, playerThreat);
   const ev = advance(s, ctx, new SeededRandom(3))!;
   return ev.participants[1]!;
 };
@@ -33,9 +34,10 @@ describe("Final-3 eviction reads the HOH's memory", () => {
     expect(evicted(mk())).toBe(npc(2));
     expect(evicted(withMemory(mk(), () => 0))).toBe(npc(2));
   });
-  it("a held grudge against the lower-threat rival flips the eviction; a favor to the higher-threat rival does too", () => {
-    expect(evicted(withMemory(mk(), (s) => (s === PLAYER ? 0.5 : 0)))).toBe(PLAYER);
-    expect(evicted(withMemory(mk(), (s) => (s === npc(2) ? -0.5 : 0)))).toBe(PLAYER);
+  it("a held grudge (at most 0.15) against a near-tied rival flips the eviction; a real favor (at most 0.06) to the higher-threat rival does too", () => {
+    expect(evicted(withMemory(mk(), (s) => (s === PLAYER ? 0.15 : 0)), 0.5)).toBe(PLAYER); // 0.5 + 0.15 = 0.65 > 0.6
+    expect(evicted(withMemory(mk(), (s) => (s === npc(2) ? -0.06 : 0)), 0.55)).toBe(PLAYER); // 0.6 - 0.06 = 0.54 < 0.55
+    expect(evicted(withMemory(mk(), (s) => (s === PLAYER ? 0.15 : 0)), 0.4), "a memory this small does not override a wide threat gap").toBe(npc(2));
   });
 });
 
@@ -44,6 +46,7 @@ function vetoed(ctx: SeasonCtx): EntityId {
   const s = newLiveSeason(active);
   s.beat = "eviction"; s.hoh = npc(6); s.finalNominees = [npc(1), npc(2)]; s.secretVeto = { holder: npc(1), used: false };
   ctx.rel.edge(npc(6), npc(3)).threat = 0.5;
+  ctx.rel.edge(npc(6), npc(4)).threat = 0.4; // npc(4) trails npc(3) by 0.1: within reach of a real grudge (<= 0.15)
   advance(s, ctx, new SeededRandom(3));
   return s.finalNominees!.find((n) => n !== npc(2))!;
 }
@@ -52,8 +55,8 @@ describe("secret-veto replacement reads the HOH's memory", () => {
     expect(vetoed(mk())).toBe(npc(3));
     expect(vetoed(withMemory(mk(), () => 0))).toBe(npc(3));
   });
-  it("a held grudge against another option flips the replacement", () => {
-    expect(vetoed(withMemory(mk(), (s) => (s === npc(4) ? 0.9 : 0)))).toBe(npc(4));
+  it("a held grudge (within the ledger's 0.15) against a near-tied option flips the replacement", () => {
+    expect(vetoed(withMemory(mk(), (s) => (s === npc(4) ? 0.15 : 0)))).toBe(npc(4));
   });
 });
 
@@ -79,6 +82,35 @@ describe("the adapter's endgame memory provider (ORWELL_ENDGAME_MEMORY)", () => 
     expect(g.endgameMemoryFor(cand, PLAYER)).toBe(0);
     g.setEndgameMemoryEnabled(false);
     expect(g.endgameMemoryFor(cand, holder)).toBe(0);
+  });
+});
+
+describe("the adapter's own ctx carries the endgame memory into the live loop", () => {
+  type A = {
+    live: { week: number; playedGame?: boolean; npcMemory?: Record<string, Record<string, MemoryEntry[]>> };
+    setNpcMemoryEnabled(on: boolean): void; setEndgameMemoryEnabled(on: boolean): void;
+    ctx(): { endgameMemoryFor?: (s: EntityId, d: EntityId) => number; memoryTiltFor?: (s: EntityId, h: EntityId) => number };
+  };
+  function played() {
+    const sb = new GameSessionRegistry().sandboxFor(`egm-ctx-${Math.random()}`);
+    sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
+    sb.session.advanceGame(); sb.session.advanceGame();
+    const g = sb.session as unknown as A;
+    const [holder, cand] = sb.session.livingIds().filter((i) => i !== PLAYER);
+    g.setNpcMemoryEnabled(true); g.setEndgameMemoryEnabled(true);
+    g.live.playedGame = true;
+    g.live.npcMemory = { [holder!]: { [cand!]: [{ kind: "deal-broken", week: g.live.week, severity: 1 }] } };
+    return { g, holder: holder!, cand: cand! };
+  }
+  it("the ctx the loop reads carries the provider (removing the wiring turns this red), a real grudge stays inside the ledger's own bound, and switching it off drops it", () => {
+    const { g, holder, cand } = played();
+    const c = g.ctx();
+    expect(typeof c.endgameMemoryFor, "the loop gets the endgame memory").toBe("function");
+    const tilt = c.endgameMemoryFor!(cand, holder);
+    expect(tilt).toBeGreaterThan(0);
+    expect(tilt, "a real grudge is small - the unit tests above use values this size").toBeLessThanOrEqual(0.15);
+    g.setEndgameMemoryEnabled(false);
+    expect(g.ctx().endgameMemoryFor).toBeUndefined();
   });
 });
 

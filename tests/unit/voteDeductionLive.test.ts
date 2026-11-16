@@ -3,6 +3,8 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { RelationshipModel } from "../../src/engine/relationships";
 import type { EntityId } from "../../src/domain/ids";
 import { PLAYER } from "../../src/domain/ids";
+import { mannerLeanOf } from "../../src/engine/jury";
+import type { EvictionManner } from "../../src/engine/jury";
 import { resolvePending } from "../../features/support/answerPending";
 import { playSeasonOutcome } from "../../features/support/seasonOutcome";
 
@@ -47,9 +49,9 @@ function craft(seed: number, on: boolean) {
   ev.voteOf = { [defector!]: evictee, [hostileA!]: evictee, [hostileB!]: evictee, [suspectedKeeper!]: other, [otherKeeper!]: other };
   ev.revealOrder = Object.keys(ev.voteOf);
   ev.revealIx = ev.revealOrder.length; // every ballot already read: the next step tallies and commits
-  // The evictee's reads: deeply trusts the true defector; distrusts the two hostile; moderately suspects the keeper who in fact voted to keep them; mildly reads the other keeper.
+  // The evictee's reads: deeply trusts the true defector; distrusts the two hostile; reads the keeper who in fact voted to keep them as a harmless low-trust houseguest (so, if they are believed to have voted, the move reads as a BLINDSIDE: a real grievance); mildly reads the other keeper.
   const reads: Array<[EntityId, number, number]> = [
-    [defector!, 0.9, 0.1], [hostileA!, 0.1, 0.9], [hostileB!, 0.1, 0.9], [suspectedKeeper!, 0.5, 0.5], [otherKeeper!, 0.6, 0.3],
+    [defector!, 0.9, 0.1], [hostileA!, 0.1, 0.9], [hostileB!, 0.1, 0.9], [suspectedKeeper!, 0.1, 0.35], [otherKeeper!, 0.6, 0.3],
   ];
   const edges = rel.serialize().edges.filter((e) => !(e.from === evictee && reads.some((r) => r[0] === e.to)));
   for (const [to, trust, threat] of reads) edges.push({ from: evictee, to, trust, affinity: 0.5, threat, alignment: 0, confidence: 0.5, reliability: 0.3 });
@@ -66,6 +68,10 @@ describe("0110 live: the grudge lands on the BELIEVED voter (crafted ballot, tru
     expect(r.row[r.hostileA], "hostile voter is believed (and truly voted)").toBeDefined();
     expect(r.row[r.hostileB]).toBeDefined();
     expect(r.row[r.suspectedKeeper], "MISATTRIBUTED: blamed though they voted to keep").toBeDefined();
+    // review of ORW-111: having a row is not a grudge - the believed (innocent) voter carries a real grievance flag and a negative jury lean
+    const m = r.row[r.suspectedKeeper] as EvictionManner;
+    expect(m.blindsided === true || m.betrayed === true, "the grievance flag is set on the believed voter").toBe(true);
+    expect(mannerLeanOf(m), "and it weighs against them in the jury lean").toBeLessThan(0);
     expect(r.row[r.defector], "the true secret defector, unsuspected, earns no grudge").toBeUndefined();
     expect(r.row[r.otherKeeper]).toBeUndefined();
   });
