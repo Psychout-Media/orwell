@@ -69,6 +69,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
+import { brokenDealClaimId, brokenDealLieConfidence } from "../../engine/dealCredibility";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
@@ -337,6 +338,7 @@ import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type H
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
+import { drawHouseLeans, describeHouseLeans } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -1205,7 +1207,10 @@ export class GameSessionAdapter implements GameSession {
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
     // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
+    const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
     if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
+    // ORW-551 / spec 0162: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
+    if (this.live && firstPlayedMessage && this.houseCultureEnabled && !this.live.houseLeans) this.live.houseLeans = drawHouseLeans(`${this.gameSeed ?? 0}`);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
@@ -1422,10 +1427,15 @@ export class GameSessionAdapter implements GameSession {
   /** The believed-bluff belief id for (holder, subject): its own id (never the gossip rumor's) so catching it can refute exactly this claim. */
   private bluffBeliefId(holder: EntityId, subject: EntityId, week: number): string { return `${holder}|heard-rumor|${subject}|bluff:${PLAYER}|${week}`; }
   /** `holder` was lied to by `liar`, caught with evidence of the given confidence. Never for the player as holder (nothing acts on the player's hidden read). */
-  private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told"): void {
+  private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told", id?: string): void {
     if (!this.liesCaughtWriting || holder === PLAYER) return;
-    recordClaim((this.live!.beliefs ??= {}), { holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
+    recordClaim((this.live!.beliefs ??= {}), { ...(id ? { id } : {}), holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
     this.agendaRecheck("caught-lying", [holder]); // ORW-312
+  }
+  /** ORW-545 - a broken formal deal is a caught lie for the wronged party (full weight) and for each formation witness (the witness factor); one claim per deal per holder (idempotent). Never for a sealed ballot break (the callers skip it). */
+  private writeDealBreakLie(holder: EntityId, breaker: EntityId, deal: Deal, role: "wronged" | "witness"): void {
+    if (holder === breaker || (role === "witness" && deal.parties.includes(holder))) return;
+    this.writeLieCaught(holder, breaker, brokenDealLieConfidence(deal, this.live?.week, role), role === "wronged" ? "witnessed" : "told", brokenDealClaimId(holder, breaker, deal));
   }
   /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
@@ -1636,6 +1646,9 @@ export class GameSessionAdapter implements GameSession {
    * Draws come from the `${seed}:house-meeting` side stream. ON unless `ORWELL_HOUSE_MEETINGS=0`; needs the belief layer and a played game.
    */
   private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
+  /** ORW-551 / spec 0162 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
+  private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
+  setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
   holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
@@ -4408,8 +4421,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.live?.finished) return null; // the structural gate: no finished season, no unsealing
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
-    const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id)); // ORW-525 (spec 0157): reads the claim log only; same gate
-    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}) };
+    const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
+    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0162): texture words only, same crown gate; absent when no culture was drawn
+    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -14388,7 +14402,8 @@ export class GameSessionAdapter implements GameSession {
       // #1802: at breach, seed the breach fact into each formation-witness via the standard
       // 0038 diffusion pathway. The registry wires this to the KnowledgeService/gossip;
       // standalone ⇒ no-op ⇒ byte-identical.
-      revealToWitness: (witness, breaker) => {
+      revealToWitness: (witness, breaker, deal) => {
+        this.writeDealBreakLie(witness, breaker, deal, "witness");
         this.onPlayerEvent?.(
           `${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`,
           [witness], "betrayal",
@@ -14422,6 +14437,7 @@ export class GameSessionAdapter implements GameSession {
         // 0024: an ATTRIBUTED break (a public action, or the player's own vote) is a memory the wronged party holds; the
         // sealed-ballot branch above deliberately writes none (it would de-anonymize the vote through behaviour).
         this.remember(wronged, breaker, "deal-broken", Math.min(1, 0.6 * breakSeverityScale(deal, this.live?.week)));
+        this.writeDealBreakLie(wronged, breaker, deal, "wronged");
         return this.onPlayerEvent?.(
           `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)}`,
           [wronged, breaker], "betrayal",

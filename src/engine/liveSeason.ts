@@ -607,6 +607,8 @@ export interface LiveSeasonState {
   npcMemory?: NpcMemoryLedger;
   /** ORW-319 (ORW-253 slice 5): what the utility model wrote at cast time - habits + aim hints per houseguest, and the house culture. Write-once; engine-side. */
   npcMindsAuthored?: NpcMindsAuthored;
+  /** ORW-551 / spec 0162: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
+  houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
