@@ -417,6 +417,7 @@ update_turn_hold_end() {
 # $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).
 update_wait_for_no_turn() {
   local f="$1" force_now="${2:-0}" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
+  [[ "$max" =~ ^[0-9]+$ ]] && { max="${max#"${max%%[!0]*}"}"; max="${max:-0}"; }   # ORW-465: leading zeros do not count against the length
   [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=120   # at most six digits: a 20-digit value would wrap the arithmetic below
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300
@@ -453,6 +454,7 @@ update_probe_host() {
   local -a hs=()
   IFS=, read -ra hs <<<"$raw"   # read, not word splitting: an unquoted "*" would glob
   for h in ${hs[@]+"${hs[@]}"}; do
+    [[ "$h" == \[* ]] || h="${h%%:*}"   # ORW-465: a port is not part of the host name (the front end drops it from the allow-list entry too)
     [[ -n "$h" && "$h" != "*" ]] || continue
     # Starlette's "*.example.com" matches only a subdomain (host ends with ".example.com"), never the bare domain.
     if [[ "$h" == \*.* ]]; then [[ -n "$wild" ]] || wild="${h#\*.}"; continue; fi
@@ -471,6 +473,7 @@ update_probe_host() {
 _warm_log() { [[ -n "$1" ]] || return 0; [[ /proc/self/fd/1 -ef "$1" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
   local eng="${1:-}" fe="${2:-}" log="${3:-}" fehost="${4:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
+  [[ "$max" =~ ^[0-9]+$ ]] && { max="${max#"${max%%[!0]*}"}"; max="${max:-0}"; }   # ORW-465: leading zeros do not count against the length
   [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=60
   (( max = 10#$max, max < 1 )) && max=1
   (( max > 300 )) && max=300

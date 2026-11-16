@@ -1264,7 +1264,7 @@ export function generateCastDeepLayer(seed: number, npcs: readonly Houseguest[])
     new SeededRandom(hashSeed(`${seed}:casting-type`)), npcs.length, npcs.map((n) => n.character.age),
     // ORW-432: the type is dealt AFTER archetype, strategy style and demeanor exist (the factory sets them first),
     // from the types compatible with them. All three are public card fields; no stat is read here.
-    npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+    npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor, genderPresentation: n.character.genderPresentation })), // ORW-467: the type's gender lean and label variant
   );
   let ix = 0;
   for (const hg of npcs) {
