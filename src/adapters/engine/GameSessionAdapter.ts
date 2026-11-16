@@ -1522,9 +1522,14 @@ export class GameSessionAdapter implements GameSession {
     const told: SpokenClaim[] = [];
     type Base = { speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId };
     const said: Base[] = [];
+    // ORW-558: "they've been talking about you" names no object: a kind that needs one, said without it, is about the person it was told to (each addressee,
+    // never the subject). Everyone who heard it hears it that way; an addressee hears it about themself.
+    const aboutAddressee = c.object === undefined && (kind === "talking-about" || kind === "going-after");
     for (const listener of heard) {
       const third = ABOUT_YOU[kind];
-      if (third && !addressed.includes(listener)) {
+      if (aboutAddressee) {
+        for (const to of addressed.filter((a) => a !== c.subject)) said.push({ speaker, listener, kind, subject: c.subject, object: to });
+      } else if (third && !addressed.includes(listener)) {
         // a bystander hears it as said about each person it was told to (the player included), never about themself
         for (const to of addressed.filter((a) => a !== c.subject && a !== listener)) said.push({ speaker, listener, kind: third, subject: c.subject, object: to });
       } else {

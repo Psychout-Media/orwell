@@ -31,3 +31,10 @@ Feature: The open ledger catches claims the narrator writes
     Given a played season with the open ledger on
     When a houseguest's claim to the player was decided by the engine, and the narration then voices it
     Then the claim is recorded once, with the engine's truth
+
+  # ORW-558 (2026-11-16 live sweep): "they've been talking about you" names no one it is about. It is about the person it was told to.
+  Scenario: A rumor told without naming whom it is about is about the one it was told to
+    Given a played season with the open ledger on
+    When the narration has a houseguest tell another houseguest, in front of the player, that a third has been talking about them, without naming them
+    Then the houseguest it was told to holds it as said about themself, sourced to the speaker
+    And the player can ask who told them that, and the speaker is the one who said it
