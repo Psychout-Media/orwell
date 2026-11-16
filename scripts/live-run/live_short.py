@@ -238,7 +238,7 @@ def crossover(eng, play, check, chat):
     if w.get("room") != dest and isinstance(mv, dict) and mv.get("refused"):
         check("T19-the-engine-moves-the-player-first", False, f"{words!r}: the engine refused the move ({mv.get('reason')!r}); player in {w.get('room')!r}", "warn")
     else:
-        check("T19-the-engine-moves-the-player-first", w.get("room") == dest, f"{words!r} from {here!r}: engine has the player in {w.get('room')!r} (playerMove {mv!r})")
+        check("T19-the-engine-moves-the-player-first", w.get("room") == dest and (not isinstance(mv, dict) or not mv or (mv.get("from") in (None, here) and mv.get("to") in (None, dest))), f"{words!r} from {here!r}: engine has the player in {w.get('room')!r} (playerMove {mv!r})")
     st = eng.call("getGameState"); ds = st.get("daySchedule") or {}
     check("W3-hoh-next-in-the-afternoon", ds.get("next") == "hoh-competition" and ds.get("phase") == "afternoon", f"schedule next {ds.get('next')!r} at {ds.get('phase')!r} on {st.get('clockLabel')}")
     hdr = chat.page.evaluate("(() => { const s = [...document.querySelectorAll('#chat-history .role-timestamp-moment')].pop(); return s ? s.textContent : ''; })()")
@@ -382,7 +382,7 @@ BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|hea
 _NUMW = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
 _NUM = r"(\d{1,2}|" + "|".join(sorted(_NUMW, key=len, reverse=True)) + r")"
 # the whole house named outright: "N of us left / still in the house", "N houseguests remain", "all N of us"
-_HC_HOUSE_RE = re.compile(r"(?i)\b(all\s+(?:the\s+)?)?" + _NUM + r"\s+(of us|houseguests|people|players)\b(?=(\s+(?:are\s+|were\s+)?(?:left|remain\w*|still\s+(?:here|standing|in\s+(?:the|this)\s+(?:house|game))|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)\b)?)")
+_HC_HOUSE_RE = re.compile(r"(?i)\b(all\s+(?:the\s+)?)?" + _NUM + r"\s+(of us|of you|houseguests|people|players)\b(?=(\s+(?:are\s+|were\s+)?(?:left(?!\s+(?:the|a|an|their|his|her|its|to|for|at|with|through|by|on|and)\b)|remain\w*|still\s+(?:here|standing|in\s+(?:the|this)\s+(?:house|game))|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)\b)?)")
 # a place right after the number is a ROOM count ("the four of us at the table"), never a house total
 _HC_PLACE_RE = re.compile(r"(?i)^\s*(?:at|around|on|by|near|in|inside|out|outside|over|crammed|squeezed|huddled|sitting|sat|left\s+(?:at|in|on|by))\b")
 _HC_WORLD_RE = re.compile(r"(?i)^\s*(?:left|remain\w*|still|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)")
@@ -399,10 +399,10 @@ def headcount_claims(text):
         rest = text[m.end():m.end() + 30]
         if house_words: sev = "fail"
         elif _HC_PLACE_RE.match(rest) and not _HC_WORLD_RE.match(rest): continue
-        elif m.group(1) and noun in ("of us", "houseguests"): sev = "fail"
-        elif noun == "of us" and n >= 5: sev = "warn"  # "the two of us" / "the three of us" is a pair or a huddle, never a house total
+        elif m.group(1) and noun in ("of us", "of you", "houseguests", "people", "players"): sev = "fail"
+        elif noun in ("of us", "of you") and n >= 5: sev = "warn"  # "the two of us" / "the three of us" is a pair or a huddle, never a house total
         else: continue
-        out.append((sev, n, m.group(0).strip() + (house_words or ""), bool(house_words)))
+        out.append((sev, n, m.group(0).strip() + (house_words or ""), bool(house_words or m.group(1))))  # "all N of us" names the whole house outright
     return out
 
 

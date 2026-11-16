@@ -105,6 +105,7 @@ jobs:
   # probe (the BDD Auditor's N/W checklist lines), 12 seeds over 3 legs, no model. Nightly only - never on a PR (Ryne: PRs stay fast). A leg fails with the checklist line(s)
   # that broke; "INFO" lines are information, never a failure. If a FAIL looks odd, check the probe's pacing first (notes in the probe and on the ORW-433 card).
   bed-wake-probe:
+    if: github.event_name != 'pull_request'   # nightly / manual only: never on a PR
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     strategy:

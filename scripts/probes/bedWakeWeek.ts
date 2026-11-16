@@ -129,7 +129,7 @@ async function main() {
             ceremonyBedTried.add(st0.week ?? 0);
             const tb = await call<{ held?: unknown; weekChapter?: unknown }>("turnIn", { idempotencyKey: `${user}-cer-${st0.week}` });
             const st1 = await call<State>("getGameState");
-            rec("INFO a goodnight during an open ceremony is held (refused)", !!tb.held, `seed ${seed} week ${st0.week}: bed at ${st0.clockLabel} went through mid-ceremony, woke ${st1.clockLabel}, phase ${st1.phase}`);
+            rec(`INFO a goodnight during an open ceremony was ${tb.held ? "held (refused)" : "taken"}`, true, `seed ${seed} week ${st0.week}: bed at ${st0.clockLabel} went through mid-ceremony, woke ${st1.clockLabel}, phase ${st1.phase}`);
             if (!tb.held) { // a real bed: hold it to the same chapter rule and move the probe's own week cursor (it consumed the chapter otherwise)
               nights++;
               rec("the week chapter rolls exactly at the first bed of a new week", !!tb.weekChapter === ((st0.week ?? 1) > lastBedWeek), `seed ${seed} mid-ceremony bed: week ${st0.week} (last bed in week ${lastBedWeek}) chapter ${tb.weekChapter ? "given" : "absent"}`);
