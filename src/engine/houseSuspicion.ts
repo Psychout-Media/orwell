@@ -31,6 +31,8 @@ export interface HouseSuspicionDeps {
   /** Directed affinity read (0017/0026) — who is motivated to notice/care about whom. */
   affinity: (a: EntityId, b: EntityId) => number;
   nameOf: (id: EntityId) => string;
+  /** ORW-466: the room as it reads mid-sentence this season ("the Coral Reef Room"); absent: "the " + the plain label. */
+  roomRef?: (room: Room) => string;
   knowledge: KnowledgeService;
   /** A DEDICATED rng stream — MUST NOT be the shared society/vote stream (calibration neutrality). */
   rng: RandomnessSource;
@@ -99,7 +101,7 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
     graph: makeSocialGraph(edges),
     rng,
     origin,
-    fact: { content: `word in the house: ${nameOf(chosen.pair[0])} and ${nameOf(chosen.pair[1])} keep slipping off to the ${roomDisplayName(chosen.room)} together` },
+    fact: { content: `word in the house: ${nameOf(chosen.pair[0])} and ${nameOf(chosen.pair[1])} keep slipping off to ${deps.roomRef ? deps.roomRef(chosen.room) : `the ${roomDisplayName(chosen.room)}`} together` },
     rounds: GOSSIP.rounds,
     transmitProb: GOSSIP.transmitProb,
     decay: GOSSIP.decay,
