@@ -281,17 +281,20 @@ Then("it never draws on another juror's private knowledge or any hidden house st
 
 Given("the house schemes off-screen and records confessionals after a juror's eviction", function (this: W) {
   // The orchestrated runtime: off-screen ticks run between the player's turns, recording hidden scenes + confessionals.
-  // 0163 (2026-11-16): the house must still be playing after these steps, so the seat is found with room left in the season (perceived bonds moved
-  // the first seed that seats the player to one twelve steps from the finale, where the jury house closes).
-  const got = findGame("seated:2:true:room", true, (sb, v) => seatedWith(2)(sb, v) && sb.session.livingIds().length >= 6);
-  this.jhSb = got.sb; this.jhSeatedAt = got.seatedAt; this.jhJurors = got.sb.session.getGameState().juryHouse!.jurors;
-  const sb = this.jhSb!;
-  // Let the still-playing house live on a while after the jurors were seated.
-  for (let i = 0; i < 12; i++) {
-    const v = sb.session.advanceGame();
-    if (v.pending) answer(sb, v.pending);
-    if (v.finished) break;
+  // The house must still be playing, with the player still a juror, after it lives on. 0163 (2026-11-16): perceived bonds moved the first seed that seats
+  // the player to one where a returning-juror twist brings the player back into the house within those steps, so the search plays ahead and skips such a seat.
+  let sb: UserSandbox | undefined;
+  for (let seed = 1; seed <= 120 && !sb; seed++) {
+    const got = playUntil(seed, true, seatedWith(2));
+    if (!got) continue;
+    for (let i = 0; i < 12; i++) {
+      const v = got.sb.session.advanceGame();
+      if (v.pending) answer(got.sb, v.pending);
+      if (v.finished) break;
+    }
+    if (got.sb.session.getGameState().juryHouse) { sb = got.sb; this.jhSb = got.sb; this.jhSeatedAt = got.seatedAt; }
   }
+  assert.ok(sb, "no seed seats the player on a jury that is still sitting a while later");
   this.jhJurors = sb.session.getGameState().juryHouse!.jurors;
   const juror = this.jhJurors[0]!;
   const since = this.jhSeatedAt!.get(juror.id)!;
