@@ -49,6 +49,7 @@ def test_c_close_open_markup_closes_a_quote_and_bold_left_open():
     t2 = t + agent_loop.close_open_markup(t)
     assert t2.count("**") % 2 == 0 and t2.count('"') % 2 == 0
     assert agent_loop.close_open_markup('A “quote that opens') == "”"
+    assert agent_loop.close_open_markup('She said “he told me “no” and left') == "”"  # an inner quote closing leaves the OUTER one open
     assert agent_loop.close_open_markup('**"Done."** She nods.') == ""
     assert agent_loop.close_open_markup("") == ""
 
@@ -60,3 +61,16 @@ def test_c_a_halted_round_persists_balanced_text():
     # idempotent: a live-closed round persists unchanged
     closed = emitted + '"**'
     assert agent_loop._persisted_round_text("x", scene_broken=True, scrub_active=True, round_emitted=closed) == closed
+
+
+def test_orw481_a_second_comma_clause_still_binds_you_to_the_player():
+    """ORW-481 (review 4576008744): 'Name, the HOH, says you won' is not a vocative - 'you' is the player."""
+    spans = rc.name_spans("Nom Alpha, the HOH, says you won.", ROSTER, "Player Epsilon")
+    assert any(c == "Player Epsilon" for c, _a, _b in spans)
+    assert not any(c == "Player Epsilon" for c, _a, _b in rc.name_spans("Nom Alpha, you are evicted.", ROSTER, "Player Epsilon"))
+
+
+def test_orw481_a_vocative_with_an_interjection_still_binds_you_to_the_name():
+    """ORW-481 (review 4582382295): 'Name, honestly, you are going home' addresses the name, not the player."""
+    spans = rc.name_spans("Nom Alpha, honestly, you're going home.", ROSTER, "Player Epsilon")
+    assert not any(c == "Player Epsilon" for c, _a, _b in spans)

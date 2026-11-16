@@ -8,15 +8,16 @@ TAIL = CSS[CSS.index("ORW-155 (perf)"):]
 
 
 def test_older_ai_and_user_bubbles_drop_the_blur():
+    # ORW-481 (review 4535398024): the count is over bubbles only (`of .msg-ai, .msg-user`), so agent-thread rows between bubbles do not use up the newest-12 slots.
     for sel in ("msg-ai", "msg-user"):
-        m = re.search(rf"body\.theme-frosted \.{sel}:not\(:nth-last-child\(-n\+(\d+)\)\)\s*\{{([^}}]*)\}}", TAIL)
+        m = re.search(rf"body\.theme-frosted \.{sel}:not\(:nth-last-child\(-n\+(\d+) of \.msg-ai, \.msg-user\)\)\s*\{{([^}}]*)\}}", TAIL)
         assert m, f"{sel}: no old-bubble rule"
         assert 8 <= int(m.group(1)) <= 24, "keep enough recent bubbles blurred for the on-screen window, but a bounded number (a long season must not carry a blur layer per message)"
         assert "backdrop-filter: none" in m.group(2) and "-webkit-backdrop-filter: none" in m.group(2)
 
 
 def test_old_received_bubbles_get_a_firmer_scrim_so_contrast_holds_without_blur():
-    m = re.search(r"\.msg-ai:not\(:nth-last-child\(-n\+\d+\)\)\s*\{([^}]*)\}", TAIL)
+    m = re.search(r"\.msg-ai:not\(:nth-last-child\(-n\+\d+ of \.msg-ai, \.msg-user\)\)\s*\{([^}]*)\}", TAIL)
     alpha = float(re.search(r"--ai-scrim-alpha:\s*([0-9.]+)", m.group(1)).group(1))
     assert alpha > 0.46
 
