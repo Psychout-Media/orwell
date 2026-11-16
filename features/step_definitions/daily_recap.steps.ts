@@ -117,7 +117,7 @@ When("the daily recap is assembled", function () {
 
 Then("only the already-surfaced rumor may appear", function () {
   const b = bag(this);
-  assert.ok(b.recap!.surfaced.includes(b.surfaced!), "the rumor the player was told is missing from the recap");
+  assert.deepEqual(b.recap!.surfaced, [b.surfaced!], "the recap's surfaced list must be exactly the rumor the player was told");
 });
 
 Then("neither the hidden rumor nor the Diary Room entry appears", function () {
