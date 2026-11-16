@@ -12,6 +12,7 @@
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { AvoidSets } from "../../domain/recentSeasons";
 import namesJson from "./world/given-names.json";
+import surnamesJson from "./world/surnames.json";
 import { buildTable, drawConstrained, type WeightedTable } from "./worldSampler";
 
 /** The year a season's ages are counted from. */
@@ -70,4 +71,33 @@ export function dealEraGivenNames(
     used.add(name);
     return name;
   });
+}
+
+/**
+ * Surnames at real frequency: the US Census Bureau 2010 surnames (public domain), the roughly 5,000 names carried by
+ * 7,000 or more people (about 60 percent of residents), reduced to `world/surnames.json` (about 85 KB). Softened by
+ * `SURNAME_FLATTEN` so Smith is not in one cast in six and rarer real names (Whitfield, Kessler) still turn up.
+ */
+export const SURNAME_FLATTEN = 0.5;
+const SURNAME_TABLE: WeightedTable<readonly [string, number]> = buildTable(
+  surnamesJson.rows as unknown as ReadonlyArray<readonly [string, number]>, (r) => r[1], SURNAME_FLATTEN,
+);
+
+/** One surname per slot: not in `taken` (the rest of the cast), not on the recent-seasons memory, one `rng.next()` per attempt. */
+export function dealSurnames(
+  rng: RandomnessSource, count: number, taken: ReadonlySet<string>, avoid?: AvoidSets,
+): string[] {
+  const used = new Set([...taken].map((t) => t.toLowerCase()));
+  const avoided = new Set<string>();
+  if (avoid) for (const n of avoid.names) { const parts = n.split(" "); if (parts.length > 1) avoided.add(parts[parts.length - 1]!.toLowerCase()); }
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const fresh = (r: readonly [string, number]): boolean => !used.has(r[0].toLowerCase());
+    const row = drawConstrained(rng, SURNAME_TABLE, [(r) => fresh(r) && !avoided.has(r[0].toLowerCase()), fresh], 80);
+    let name = row[0];
+    if (used.has(name.toLowerCase())) name = SURNAME_TABLE.rows.find((r) => !used.has(r[0].toLowerCase()))![0];
+    used.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
 }

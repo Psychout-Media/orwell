@@ -11,7 +11,9 @@ Inputs (fetched once by hand, not by the build; pass the paths):
             to 2012; the SSA site itself refused a generic client with 403). Public domain. Checked against the SSA's own
             published 2012 top names (Sophia, Emma, Isabella, Olivia, Ava; Jacob, Mason, Ethan, Noah, William) and the 1990
             count for Michael (65,270).
-Outputs (committed): src/engine/data/world/places.json, jobs.json, given-names.json
+  --surnames US Census Bureau 2010 Census surnames (names.zip, Names_2010Census.csv), fetched once from
+            https://www2.census.gov/topics/genealogy/2010surnames/names.zip . Public domain. Smith is 2,442,977 as published.
+Outputs (committed): src/engine/data/world/places.json, jobs.json, given-names.json, surnames.json
 Only the standard library is used (the xlsx is read as zip plus xml).
 """
 import argparse, csv, json, re, sys, zipfile
@@ -56,6 +58,21 @@ def given_names(path):
     for (sex, n), c in counts.items():
         if max(c) >= NAME_MIN_COUNT: out[sex].append([n] + c)
     for sex in out: out[sex].sort(key=lambda r: (-sum(r[1:]), r[0]))
+    return out
+
+SURNAME_MIN_COUNT = 7000  # about 5,000 surnames, 60 percent of residents
+_ODD = re.compile(r"^O(BRIEN|CONNOR|DONNELL|NEIL|NEAL|CONNELL|BRYANT|HARA|ROURKE|LEARY|REILLY|SULLIVAN|KEEFE|BANNON)$")
+
+def surnames(path):
+    out = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if not r["count"].isdigit() or int(r["count"]) < SURNAME_MIN_COUNT: continue
+            n = r["name"]
+            if not re.fullmatch(r"[A-Z]{3,12}", n) or _ODD.match(n): continue  # one plain word: no apostrophes, hyphens or spaces
+            t = n.title()
+            if re.match(r"^Mc[a-z]{3,}$", t): t = "Mc" + t[2:].capitalize()
+            out.append([t, int(r["count"])])
     return out
 
 def xlsx_rows(zpath):
@@ -142,7 +159,7 @@ def jobs(zpath):
     return sorted((r for r in out.values() if r[1] > 0), key=lambda r: (-r[1], r[0]))
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--places", required=True); ap.add_argument("--oews", required=True); ap.add_argument("--names", required=True); ap.add_argument("--out", required=True)
+    ap = argparse.ArgumentParser(); ap.add_argument("--places", required=True); ap.add_argument("--oews", required=True); ap.add_argument("--names", required=True); ap.add_argument("--surnames", required=True); ap.add_argument("--out", required=True)
     ap.add_argument("--min-pop", type=int, default=1000)
     a = ap.parse_args()
     p = places(a.places, a.min_pop); j = jobs(a.oews)
@@ -150,4 +167,7 @@ if __name__ == "__main__":
     json.dump({"source": "US Bureau of Labor Statistics, Occupational Employment and Wage Statistics, national, May 2023, detailed occupations. Weight is employment in thousands times an authored castability lean per major group. Public domain.", "columns": ["job", "weightK", "socCode", "minAge", "maxSize"], "rows": j}, open(a.out + "/jobs.json", "w"), separators=(",", ":"), ensure_ascii=False)
     g = given_names(a.names)
     json.dump({"source": "US Social Security Administration national baby-name counts (births 1966 to 2005 in four decade buckets), via the jsvine/babynames mirror of the SSA yob files. Public domain.", "decades": [list(d) for d in DECADES], "columns": ["name", "count per decade bucket"], "F": g["F"], "M": g["M"]}, open(a.out + "/given-names.json", "w"), separators=(",", ":"))
+    sn = surnames(a.surnames)
+    json.dump({"source": "US Census Bureau 2010 Census surnames (names with 7,000 or more people, one plain word), about 60 percent of residents. Public domain.", "columns": ["name", "people"], "rows": sn}, open(a.out + "/surnames.json", "w"), separators=(",", ":"))
+    print(len(sn), "surnames;", end=" ", file=sys.stderr)
     print(len(p), "places;", len(j), "jobs;", len(g["F"]), "female and", len(g["M"]), "male names", file=sys.stderr)

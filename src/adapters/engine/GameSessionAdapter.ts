@@ -331,7 +331,7 @@ import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
-import { dealEraGivenNames } from "../../engine/data/worldNames";
+import { dealEraGivenNames, dealSurnames } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -7734,7 +7734,7 @@ export class GameSessionAdapter implements GameSession {
    */
   /**
    * ORW-508 Layer 1: re-deal every houseguest's GIVEN name from the real baby-name table for their birth decade and
-   * presented gender (unique in the cast, off the recent-seasons memory), keeping the surname. Runs AFTER the name-keyed
+   * presented gender, and the SURNAME from the Census 2010 surnames (both unique in the cast, off the recent-seasons memory). Runs AFTER the name-keyed
    * deep layer is fixed, through the same `renameHouseguest` the gender-coherence rename uses (so prose follows), on its own
    * `:era-names` sub-stream. Only for a played season: an explicit seed keeps the seeded floor names.
    */
@@ -7747,10 +7747,12 @@ export class GameSessionAdapter implements GameSession {
       npcs.map((n) => ({ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) })),
       taken, avoid,
     );
+    const family = dealSurnames(new SeededRandom(hashSeed(`${seed}:era-surnames`)), npcs.length, new Set([this.house.player.name.split(" ").slice(1).join(" ")].filter(Boolean)), avoid);
     npcs.forEach((n, i) => {
       const parts = n.name.split(" ");
-      if (parts[0] === given[i]) return;
-      this.renameHouseguest(n, [given[i]!, ...parts.slice(1)].join(" "));
+      const next = [given[i]!, family[i]!].join(" ");
+      if (n.name === next) return;
+      this.renameHouseguest(n, next);
     });
   }
 

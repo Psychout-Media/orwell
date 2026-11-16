@@ -96,3 +96,42 @@ describe("ORW-508 names in a played season", () => {
     expect(again.filter((n) => first.some((f) => f.split(" ")[0] === n.split(" ")[0])).length).toBeLessThanOrEqual(1);
   });
 });
+
+import { dealSurnames } from "../../src/engine/data/worldNames";
+import surnamesJson from "../../src/engine/data/world/surnames.json";
+
+describe("ORW-508 surnames at Census frequency", () => {
+  it("the table is the Census 2010 surnames: about five thousand names, the published Smith count, plain single words", () => {
+    const rows = surnamesJson.rows as unknown as Array<[string, number]>;
+    expect(rows.length).toBeGreaterThan(4500);
+    expect(rows[0]).toEqual(["Smith", 2442977]);
+    for (const [n] of rows) expect(n, n).toMatch(/^[A-Z][a-zA-Z]{2,11}$/);
+    expect(rows.some(([n]) => n === "McDonald")).toBe(true);
+  });
+  it("is deterministic, unique in a cast, and off the memory; far wider than the 805-name list", () => {
+    const count = new Map<string, number>(); const inCast = new Map<string, number>(); let shared = 0; let prev = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      const seed = 1000 + i * 7919;
+      const a = dealSurnames(new SeededRandom(seed), 15, new Set());
+      expect(a).toEqual(dealSurnames(new SeededRandom(seed), 15, new Set()));
+      expect(new Set(a.map((x) => x.toLowerCase())).size).toBe(15);
+      const l = recordSeason(emptyLedger(), { names: a.map((s) => `Pat ${s}`) });
+      expect(dealSurnames(new SeededRandom(seed), 15, new Set(), avoidSets(l)).filter((s) => a.includes(s))).toEqual([]);
+      for (const s of a) count.set(s, (count.get(s) ?? 0) + 1);
+      for (const s of new Set(a)) { inCast.set(s, (inCast.get(s) ?? 0) + 1); if (prev.has(s)) shared++; }
+      prev = new Set(a);
+    }
+    expect(count.size).toBeGreaterThan(1500);
+    expect(Math.max(...count.values()) / 3000).toBeLessThan(0.004);
+    expect(Math.max(...inCast.values()) / 200).toBeLessThan(0.06);
+    expect(shared / 199).toBeLessThan(0.29);
+  });
+  it("a played season's surnames are Census names, unique, and off the last season", () => {
+    const set = new Set((surnamesJson.rows as unknown as Array<[string, number]>).map((r) => r[0]));
+    const first = new GameSessionAdapter().preSeedCast({}).house.map((c) => c.name);
+    for (const n of first) expect(set.has(n.split(" ").slice(1).join(" ")), n).toBe(true);
+    expect(new Set(first.map((n) => n.split(" ").slice(1).join(" "))).size).toBe(first.length);
+    const again = new GameSessionAdapter().preSeedCast({ avoid: { names: first } }).house.map((c) => c.name);
+    expect(again.filter((n) => first.some((f) => f.split(" ").slice(1).join(" ") === n.split(" ").slice(1).join(" ")))).toEqual([]);
+  });
+});
