@@ -439,9 +439,12 @@ export function restoreCanon(raw: unknown): { ledger: CanonLedger; problems: str
   const nextIdOk = typeof r.nextId === "number" && Number.isInteger(r.nextId) && r.nextId > maxId;
   const nextId = nextIdOk ? (r.nextId as number) : maxId + 1;
   if (!nextIdOk) problems.push("canon: nextId repaired past the highest id");
-  const recent = (Array.isArray(r.recent) ? r.recent : [])
+  if (r.recent !== undefined && !Array.isArray(r.recent)) problems.push("canon: recent is not a list");
+  const recentRaw = Array.isArray(r.recent) ? r.recent : [];
+  const recent = recentRaw
     .filter((x): x is PersistedCanon["recent"][number] => !!x && typeof (x as { key?: unknown }).key === "string" && typeof (x as { result?: unknown }).result === "object")
     .slice(-CANON_IDEMPOTENCY_KEEP);
+  if (recent.length < Math.min(recentRaw.length, CANON_IDEMPOTENCY_KEEP)) problems.push("canon: a malformed recent entry was dropped"); // never silently (review of the canon ledger)
   return { ledger: JSON.parse(JSON.stringify({ schemaVersion: 1, nextId, entries, recent })) as CanonLedger, problems };
 }
 

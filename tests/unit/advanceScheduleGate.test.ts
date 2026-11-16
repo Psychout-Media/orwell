@@ -55,6 +55,14 @@ describe("A65 - the engine schedule gate", () => {
     expect(v.held).toBeUndefined();
     expect(v.pending?.kind ?? v.event?.beat).toBeTruthy();
   });
+  it("the chain after a resolved decision asks the same schedule question as advanceGame (review of T0-2)", () => {
+    const holds = (s: GameSessionAdapter) => (s as unknown as { scheduleHoldsAdvance(): boolean }).scheduleHoldsAdvance();
+    expect(holds(runningDay(false))).toBe(false);
+    const on = runningDay(true);
+    expect(holds(on)).toBe(true);
+    for (let i = 0; i < 60 && !sched(on).due; i++) on.advanceClockPerConversation();
+    expect(holds(on)).toBe(false);
+  });
   it("ON: the engine's own fast-forward (admin advanceToFinale) is not stalled by the gate", () => {
     const s = runningDay(true);
     const r = s.advanceToFinale();

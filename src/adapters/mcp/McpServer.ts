@@ -260,6 +260,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "callInFavor": // 0142
       guardSyncFields(false);
       if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
+      if (args["ask"] !== undefined && !isStr(args["ask"])) refuse("ask", "a deal kind (string)");
       return;
     case "confront": // 0094
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq

@@ -82,6 +82,12 @@ describe("calling a favor in", () => {
     expect(s.callInFavor(npc, "target-other")!.honored).toBe(true);
     expect(dealsWith(s, npc)[0]!.parties[0]!.id).toBe(npc);
   });
+  it("an unknown ask kind never spends the favor", () => {
+    const { s, g, npc } = game();
+    g.bankOwedFavor(npc, PLAYER);
+    expect(s.callInFavor(npc, "not-a-kind" as never)).toBeNull();
+    expect(g.live.owedFavors).toHaveLength(1);
+  });
   it("a favor cannot be called in for protect-third (it names no third houseguest) and is not spent", () => {
     const { s, g, npc } = game();
     g.bankOwedFavor(npc, PLAYER);
