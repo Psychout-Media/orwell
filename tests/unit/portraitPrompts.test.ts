@@ -267,12 +267,14 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   it("full photo sheet: the sentences in order, the old studio recipe gone", () => {
     const order = ["An official cast photo for a reality show, made by the production's unit photographer", "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks their age, crisp and youthful.",
       "Face: ", "Hair: short dark curls, shaped and neat.", "A tattoo half-sleeve on the left forearm, dimples.", "Wearing a faded grey hoodie, dark jeans.",
-      "Setting: ", "Light: ", "The moment: ", "Keep the stated age and build exactly.", "The only person in the frame; no text or logos."];
+      "Setting: ", "Light: ", "The moment: ", "Keep the stated age and build exactly: the person reads as that age", "The only person in the frame; no text or logos."];
     let at = -1;
     for (const o of order) { const i = full.indexOf(o); expect(i, o).toBeGreaterThan(at); at = i; }
-    expect(full).not.toMatch(/Waist-up|softly out of focus|85mm|shallow depth|soft flattering|Official cast portrait|camera-ready/);
+    expect(full).not.toMatch(/Waist-up|softly out of focus|shallow depth|soft flattering|Official cast portrait|camera-ready/);
     expect(full).toMatch(/unit photographer/);
-    expect(full).toMatch(/visible pores/);
+    expect(full).toMatch(/Natural skin texture, not plastic and not airbrushed/);
+    expect(full).toMatch(/reads as that age and looks their best on the day, groomed, with hair and makeup done for the shoot/);
+    expect(full).not.toMatch(/fine lines|creased|no retouching|visible pores|flash|tilted/);
     // the written face line is replaced by the dealt face card (seven concrete features), the writer's on-camera line is not sent
     expect(full).not.toContain("kitchen island");
     expect(full).not.toContain("someone who misses nothing");

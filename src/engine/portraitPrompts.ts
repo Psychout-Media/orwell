@@ -163,13 +163,14 @@ export function signatureMarkClause(mark: string | undefined): string {
 const SHOT_OPENER = "An official cast photo for a reality show, made by the production's unit photographer during the season: "
   + "the person knows they are being photographed and is presented well, and it is a real photograph, not a stock headshot or a snapshot";
 /**
- * The shared closing asks (ORW-480). They replace the old studio recipe (85mm portrait lens, shallow depth of field,
- * soft flattering light, hair and makeup done for the shoot, "softly out of focus behind"): a real photograph, a
- * readable place, real skin, an unposed moment; the hard protections stay (the only person in frame, no text or logos).
+ * The shared closing asks (ORW-480). They replace the old studio recipe (shallow depth of field, "softly out of focus behind"):
+ * a production's cast photo: the person reads as their stated age, groomed and at their best, natural (not plastic) skin, a readable
+ * place; the hard protections stay (the only person in frame, no text or logos).
  */
 const REAL_PHOTO_TAIL =
-  "Keep the stated age and build exactly. The face stays large, sharp and clear, also in a square crop. Real skin with visible pores, fine lines and small natural asymmetries, loose hairs "
-  + "and creased clothes, no retouching or beauty filter. The place behind stays readable but is never the subject. Natural hands "
+  "Keep the stated age and build exactly: the person reads as that age and looks their best on the day, groomed, with hair and makeup done for the shoot, "
+  + "flattering but real. Natural skin texture, not plastic and not airbrushed. The face stays large, sharp and clear, also in a square crop. "
+  + "The place behind stays readable but is never the subject. Natural hands "
   + "with five fingers, ordinary real garments with proper seams and fit, nothing held beyond what is stated. "
   + "The only person in the frame; no text or logos.";
 
@@ -220,7 +221,8 @@ export function buildPortraitPrompt(
   // 3. Hair: the shoot-day line, or the written cut trimmed and neatened.
   const photoHair = stripWornWords(clean(look?.photoHair));
   const writtenHair = look ? stripWornWords(trimWrittenHair(clean(look.hair))) : "";
-  const hairLine = photoHair !== "" ? sentence(`Hair: ${photoHair}`)
+  const hairLine = photoHair !== "" ? sentence(writtenHair !== "" && !photoHair.toLowerCase().includes(writtenHair.toLowerCase())
+      ? `Hair: ${photoHair} (the cut as written: ${writtenHair}; keep exactly that length and volume, no longer or bigger)` : `Hair: ${photoHair}`)
     : writtenHair !== "" ? sentence(`Hair: ${writtenHair}, neatly styled`) : "";
 
   // 4. Signature features only.
@@ -262,6 +264,7 @@ function sheetOf(id: string, name: string, f: PublicAppearanceFacets): ShotSheet
     ...(f.identityConcept !== undefined ? { identityConcept: f.identityConcept } : {}),
     ...(look?.facialFeatures !== undefined ? { facialFeatures: look.facialFeatures } : {}),
     ...(look?.heightBuild !== undefined ? { heightBuild: look.heightBuild } : {}),
+    ...(look !== undefined ? { clothes: [...(Array.isArray((look as { wardrobe?: unknown }).wardrobe) ? (look as { wardrobe: string[] }).wardrobe : []), look.style ?? ""].join(" ; ") } : {}),
   };
 }
 

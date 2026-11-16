@@ -6,7 +6,7 @@ import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer } from "../../src/engine/deepProfile";
 import { buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
 import {
-  dealShotCards, dealFaceCards, shotCaps, capOf, bucketOf, propFor, momentFit, buildClassOf, FACE_MIN_DISTANCE, MOMENTS, PLACES, LIGHTS, FRAMINGS, type ShotSheet,
+  placeFit, ANGLES, dealShotCards, dealFaceCards, shotCaps, capOf, bucketOf, propFor, momentFit, buildClassOf, FACE_MIN_DISTANCE, MOMENTS, PLACES, LIGHTS, FRAMINGS, type ShotSheet,
 } from "../../src/engine/shotCards";
 
 // ORW-480: the shot card and the face card, dealt across the cast on their own seeded stream.
@@ -19,6 +19,7 @@ const sheetsOf = (seed: number): ShotSheet[] => {
     ...(n.character.demeanor ? { demeanor: n.character.demeanor } : {}),
     ...(n.character.castingType ? { castingRead: n.character.castingType.read, castingLabel: n.character.castingType.label } : {}),
     ...(n.character.voice ? { energy: n.character.voice.energy } : {}),
+    ...(n.character.physicalCharacteristics ? { clothes: [...(n.character.physicalCharacteristics.wardrobe ?? []), n.character.physicalCharacteristics.style].join(" ; ") } : {}),
     ...(n.character.physicalCharacteristics?.heightBuild ? { heightBuild: n.character.physicalCharacteristics.heightBuild } : {}),
     ...(n.character.vocation ? { vocation: n.character.vocation } : {}),
   }));
@@ -69,6 +70,33 @@ describe("ORW-480 shot cards", () => {
     }
   });
 
+  it("a production's light and camera: no flash, no dark rooms, a level camera, 85/50/35mm by framing", () => {
+    for (const l of LIGHTS) expect(l.phrase).not.toMatch(/flash|no fill|dark corners|hard|squint/);
+    for (const a of ANGLES) expect(a).toMatch(/camera level/);
+    for (const a of ANGLES) expect(a).not.toMatch(/below|tilt/);
+    expect(FRAMINGS.map((f) => `${f.id}:${f.lens}`)).toEqual(["close:an 85mm lens", "half:a 50mm lens", "three-quarter:a 35mm lens"]);
+  });
+
+  it("the place fits the person and their clothes: the gym is for athletes and not in a blazer; a cook may take the kitchen", () => {
+    const gym = PLACES.find((p) => p.id === "gym")!, kitchen = PLACES.find((p) => p.id === "kitchen")!, lounge = PLACES.find((p) => p.id === "lounge")!;
+    const elena: ShotSheet = { id: "e", age: 42, castingLabel: "the underdog", vocation: "restaurant supply sales rep", clothes: "brown tweed blazer, green sweater vest ; classic", heightBuild: "average" };
+    const jock: ShotSheet = { id: "j", age: 25, castingLabel: "the jock", vocation: "firefighter paramedic", clothes: "cream sweater, trousers" };
+    const lifter: ShotSheet = { id: "l", age: 25, castingLabel: "the charmer", vocation: "strength coach", clothes: "waxed canvas chore jacket ; workwear" };
+    expect(placeFit(gym, elena)).toBeUndefined();
+    expect(placeFit(gym, lifter)).toBeDefined();
+    expect(placeFit(gym, { ...lifter, clothes: "tailored blazer" })).toBeUndefined();
+    expect(placeFit(kitchen, { id: "c", age: 30, vocation: "line cook" })!.score).toBeGreaterThan(placeFit(kitchen, { id: "c", age: 30, vocation: "accountant" })!.score);
+    expect(placeFit(lounge, { id: "b", age: 30, castingLabel: "the brain", vocation: "librarian" })!.score).toBeGreaterThan(0);
+    void jock;
+    for (const seed of SEEDS) {
+      const sheets = sheetsOf(seed);
+      for (const [id, c] of dealShotCards(sheets)) {
+        const sh = sheets.find((x) => x.id === id)!;
+        expect(placeFit(PLACES.find((p) => p.id === c.placeId)!, sh), `${seed} ${id} ${c.placeId}`).toBeDefined();
+      }
+    }
+  });
+
   it("is deterministic, and the same cast in another order gets the same cards", () => {
     const sheets = sheetsOf(77);
     expect([...dealShotCards(sheets)]).toEqual([...dealShotCards(sheets)]);
@@ -87,6 +115,11 @@ describe("ORW-480 shot cards", () => {
     for (const id of Object.keys(wants)) { expect(cards.get(id)!.momentId, id).toMatch(wants[id]!); expect(cards.get(id)!.why, id).toMatch(/type|read/); }
     // never a pose that reads as hiding or creeping unless the sheet says sly
     for (const c of cards.values()) expect(c.moment).not.toMatch(/whisper|hid|creep|crouch|sneak/);
+    // an abstract type nothing in the pose table knows: the demeanor and voice lead (and the overall bucket), never a blank
+    const floater: ShotSheet = { id: "f", age: 30, castingLabel: "the floater", castingRead: "drifts between groups", demeanor: "warm, animated, and unfiltered", energy: "loud and warm" };
+    const best = [...MOMENTS].map((m) => ({ m, f: momentFit(m, floater, bucketOf(floater, () => 0.5)) })).sort((a, b) => b.f.score - a.f.score)[0]!;
+    expect(best.m.bucket).toBe("expressive");
+    expect(best.f.why.join(";")).toMatch(/demeanor|voice/);
     expect(MOMENTS.filter((m) => /sly|sideways glance/.test(m.text)).every((m) => m.words.source.includes("sly"))).toBe(true);
     expect(momentFit(MOMENTS.find((m) => m.id === "comp-grin")!, jock).why.join(";")).toContain('type "the jock"');
     // across casts, the traced line is always present
@@ -160,7 +193,7 @@ describe("ORW-480 the prompts", () => {
     for (const p of ps) {
       expect(p.prompt).not.toMatch(/the one who keeps score|Namea/);
       for (const part of ["Setting: ", "Light: ", "The moment: ", "Face: "]) expect(p.prompt).toContain(part);
-      expect(p.prompt).not.toMatch(/Waist-up|softly out of focus|85mm|soft flattering/);
+      expect(p.prompt).not.toMatch(/Waist-up|softly out of focus|soft flattering/);
     }
     expect(LINES.length).toBe(28);
   });

@@ -46,6 +46,8 @@ export interface ShotSheet {
   facialFeatures?: string;
   /** The written height and build ("short and slight"): the neck and shoulders are dealt to agree with it. */
   heightBuild?: string;
+  /** What the person wears (wardrobe and style): a place must fit the clothes (no tweed blazer in the gym). */
+  clothes?: string;
 }
 
 export interface ShotCard {
@@ -141,30 +143,29 @@ export const PLACES: readonly Place[] = [
 
 interface Light { id: string; phrase: string; where: "in" | "out" | "any" }
 export const LIGHTS: readonly Light[] = [
-  { id: "window", phrase: "soft side light from a big window, mid-morning", where: "in" },
-  { id: "overcast", phrase: "flat overcast daylight, grey and even", where: "any" },
-  { id: "golden", phrase: "low golden-hour sun, warm and directional, late afternoon", where: "any" },
-  { id: "shade", phrase: "open shade at midday, bright but cool and even", where: "out" },
-  { id: "lamps", phrase: "practical lamps at night, warm pools of light and dark corners, no fill", where: "in" },
-  { id: "flash", phrase: "direct on-camera flash at dusk, hard-edged, the background falling into shadow", where: "any" },
-  { id: "midday", phrase: "hard midday sun, real shadows under the brow and a slight squint", where: "out" },
+  { id: "window", phrase: "soft side light from a big window, mid-morning, the room bright", where: "in" },
+  { id: "bright-room", phrase: "bright, even daylight filling the room from large windows", where: "in" },
+  { id: "overcast", phrase: "soft overcast daylight, even and flattering", where: "any" },
+  { id: "golden", phrase: "low golden-hour sun, warm and soft, late afternoon", where: "any" },
+  { id: "shade", phrase: "open shade, bright and even, a soft catchlight in the eyes", where: "out" },
+  { id: "lamps", phrase: "warm evening lamps with soft fill light, the room bright enough to read", where: "in" },
+  { id: "poolside", phrase: "bright afternoon sun, warm with soft shadows", where: "out" },
 ];
 
 /** Cast photos are an avatar on the roster and a large image on the card: the face is always large. No full-body shot, no wide seated shot. */
 interface Framing { id: string; phrase: string; lens: string; cap?: number }
 export const FRAMINGS: readonly Framing[] = [
-  { id: "close", phrase: "a close-up, head and shoulders, the face filling about half the frame", lens: "a 50mm lens" },
-  { id: "half", phrase: "a half-length shot from the waist up, the face large in the frame", lens: "a 35mm lens" },
+  { id: "close", phrase: "a close-up, head and shoulders, the face filling about half the frame", lens: "an 85mm lens" },
+  { id: "half", phrase: "a half-length shot from the waist up, the face large in the frame", lens: "a 50mm lens" },
   // a few only (per-cast cap 3 on top of the table's framing cap)
   { id: "three-quarter", phrase: "a three-quarter-length shot to mid-thigh, the face still large and clear in the upper third of the frame", lens: "a 35mm lens", cap: 3 },
 ];
 
+/** Level portraits only: at or slightly above eye level, the camera held level (no tilt, nothing from below the chin). */
 export const ANGLES: readonly string[] = [
-  "at eye level",
-  "from slightly below eye level",
-  "from slightly above eye level",
-  "from a three-quarter angle off to one side",
-  "from a slightly tilted, caught-in-passing angle",
+  "the camera level, at eye level",
+  "the camera level, slightly above eye level",
+  "the camera level, at eye level, the person turned slightly to one side",
 ];
 
 // ---------------------------------------------------------------------------------------------------- moments
@@ -242,9 +243,9 @@ export const MOMENTS: readonly Moment[] = [
 ];
 
 const BUCKET_WORDS: Record<Bucket, RegExp> = {
-  expressive: /\b(?:charmer|firecracker|class clown|life of the party|flirt|wildcard|showstopper|loud|bubbly|bright|chatty|animated|manic|goofy|big laugh|playful|mischief|grin|warm|lit up|talkative|exuberant)\b/gi,
-  watchful: /\b(?:brain|quiet storm|rebel|mastermind|straight shooter|guarded|wary|watchful|cold|dry|reserved|unreadable|flat|clipped|deadpan|stare|composed|observant|private|still|measured|surgical)\b/gi,
-  easy: /\b(?:sweetheart|free spirit|dreamer|natural|gentle giant|parent of the house|wise head|distinguished one|easy|soft|relaxed|sunny|gentle|patient|steady|kind|dreamy|calm|easygoing|laid-back|loose)\b/gi,
+  expressive: /\b(?:charmer|firecracker|class clown|life of the party|flirt|wildcard|showstopper|loud|bubbly|bright|chatty|animated|manic|goofy|big laugh|playful|mischief|grin|warm|lit up|talkative|exuberant|fan favorite)\b/gi,
+  watchful: /\b(?:brain|quiet storm|rebel|mastermind|straight shooter|guarded|wary|watchful|cold|dry|reserved|unreadable|flat|clipped|deadpan|stare|composed|observant|private|still|measured|surgical|enigma|sophisticate|sleeper)\b/gi,
+  easy: /\b(?:sweetheart|free spirit|dreamer|natural|gentle giant|parent of the house|wise head|distinguished one|easy|soft|relaxed|sunny|gentle|patient|steady|kind|dreamy|calm|easygoing|laid-back|loose|floater|baby of the house|elder statesperson)\b/gi,
   driven: /\b(?:jock|competitor|hustler|underdog|sharp|focused|athletic|intense|blunt|forward|ready|driven|ambitious|scrappy|fierce|competitive|set jaw|earnest)\b/gi,
 };
 const BUCKETS: readonly Bucket[] = ["expressive", "watchful", "easy", "driven"];
@@ -258,15 +259,24 @@ export function bucketOf(s: ShotSheet, rnd: () => number): Bucket {
   return best === 0 ? pickFrom(rnd, BUCKETS) : top.length === 1 ? top[0]! : pickFrom(rnd, top);
 }
 
-/** How well a moment fits a person, and which of their own lines say so: the casting label (6), words in the casting read (3 each), the demeanor (2 each), the voice energy (1 each). */
-export function momentFit(m: Moment, s: ShotSheet): { score: number; why: string[] } {
+/**
+ * How well a moment fits a person, and which of their own lines say so. For a casting type the pose table knows (its label is in a
+ * moment's `for` list): the label (6), words in the casting read (3 each), the demeanor (2 each), the voice energy (1 each). For a type
+ * it does NOT know (an abstract one such as "the floater" or "the enigma": nothing to derive a pose from), the read carries little, so the
+ * demeanor (3 each) and the voice energy (2 each) lead, and a moment of the person's overall bucket (expressive / watchful / easy / driven,
+ * read from all their lines) gets a bonus of 2 either way.
+ */
+export function momentFit(m: Moment, s: ShotSheet, bucket?: Bucket): { score: number; why: string[] } {
   const why: string[] = [];
   let score = 0;
+  const known = s.castingLabel !== undefined && MOMENTS.some((x) => x.for.includes(s.castingLabel!.toLowerCase()));
   if (s.castingLabel !== undefined && m.for.includes(s.castingLabel.toLowerCase())) { score += 6; why.push(`type "${s.castingLabel}"`); }
   const hits = (t: string | undefined): string[] => (t ? (t.match(new RegExp(m.words.source, "gi")) ?? []) : []);
-  const r = hits(s.castingRead); if (r.length > 0) { score += 3 * r.length; why.push(`read "${s.castingRead}" (${[...new Set(r.map((x) => x.toLowerCase()))].join(", ")})`); }
-  const d = hits(s.demeanor); if (d.length > 0) { score += 2 * d.length; why.push(`demeanor (${[...new Set(d.map((x) => x.toLowerCase()))].join(", ")})`); }
-  const e = hits(s.energy); if (e.length > 0) { score += e.length; why.push(`voice (${[...new Set(e.map((x) => x.toLowerCase()))].join(", ")})`); }
+  const names = (xs: string[]): string => [...new Set(xs.map((x) => x.toLowerCase()))].join(", ");
+  const r = hits(s.castingRead); if (r.length > 0) { score += 3 * r.length; why.push(`read "${s.castingRead}" (${names(r)})`); }
+  const d = hits(s.demeanor); if (d.length > 0) { score += (known ? 2 : 3) * d.length; why.push(`demeanor (${names(d)})`); }
+  const e = hits(s.energy); if (e.length > 0) { score += (known ? 1 : 2) * e.length; why.push(`voice (${names(e)})`); }
+  if (bucket !== undefined && m.bucket === bucket) { score += 2; why.push(`${bucket} overall`); }
   return { score, why };
 }
 
@@ -283,6 +293,49 @@ export function propFor(s: ShotSheet): string | undefined {
   return undefined;
 }
 
+// ---------------------------------------------------------------------------------------------------- place fit
+
+/** Which sheets a place suits: casting labels (6) and words in the vocation / identity (6 each) or the other lines (3 each). */
+interface PlaceFit { labels: readonly string[]; words: RegExp }
+const PLACE_FIT: Record<string, PlaceFit> = {
+  gym: { labels: ["the jock", "the competitor", "the gentle giant"], words: /\b(?:athlet\w*|coach|trainer|fitness|gym|sport\w*|runner|basketball|football|lifter|strength|boxer|wrestl\w*|swimmer|firefighter|paramedic|muscular|powerful)\b/i },
+  pool: { labels: ["the jock", "the life of the party", "the flirt", "the free spirit", "the showstopper", "the wildcard"], words: /\b(?:swim\w*|lifeguard|beach|surf\w*|athletic|sun)\b/i },
+  kitchen: { labels: ["the sweetheart", "the parent of the house", "the natural"], words: /\b(?:cook|chef|baker|pastry|restaurant|food|kitchen|barista|caterer|waiter|server)\b/i },
+  lounge: { labels: ["the brain", "the dreamer", "the wise head", "the distinguished one", "the mastermind in plain sight", "the quiet storm", "the underdog"], words: /\b(?:book\w*|teacher|professor|writer|author|librarian|editor|reader|thoughtful|observant|quiet|calm|supply|sales)\b/i },
+  "living-room": { labels: ["the charmer", "the natural", "the sweetheart", "the flirt"], words: /\b(?:relaxed|easy|warm)\b/i },
+  "dining-room": { labels: ["the parent of the house", "the distinguished one", "the wise head", "the brain", "the hustler"], words: /\b(?:host\w*|formal|polished|manager|sales|office|banker|lawyer|dental)\b/i },
+  bedroom: { labels: ["the dreamer", "the underdog", "the sweetheart", "the free spirit"], words: /\b(?:shy|dreamy|soft|cozy)\b/i },
+  "stair-landing": { labels: ["the wildcard", "the class clown", "the rebel", "the flirt", "the showstopper"], words: /\b(?:restless|motion|mischief)\b/i },
+  backyard: { labels: ["the jock", "the competitor", "the class clown", "the life of the party", "the wildcard"], words: /\b(?:outdoors?|hik\w*|athletic|energetic|trimmer|arborist)\b/i },
+  patio: { labels: ["the charmer", "the life of the party", "the hustler", "the parent of the house"], words: /\b(?:host\w*|social|warm)\b/i },
+  garden: { labels: ["the free spirit", "the dreamer", "the natural", "the gentle giant", "the sweetheart", "the wise head"], words: /\b(?:garden\w*|florist|plants?|nature|farm\w*|outdoorsy|hik\w*|forage\w*)\b/i },
+  "front-steps": { labels: ["the underdog", "the rebel", "the straight shooter", "the class clown", "the sweetheart"], words: /\b(?:neighbo\w*|small-town|hometown|earnest)\b/i },
+};
+const ATHLETIC_RE = PLACE_FIT.gym!.words;
+/** Clothes that do not go to a gym or a pool (a tweed blazer, a dress, a suit, loafers). */
+const FORMAL_CLOTHES_RE = /\b(?:blazer|tweed|suit|dress|skirt|gown|heels?|loafers?|cashmere|oxford|tailored|trousers?|lace)\b/i;
+
+/** Outerwear and heavy layers: not by the pool. */
+const OUTERWEAR_RE = /\b(?:jacket|coat|parka|puffer|vest|boots?|sweater|cardigan|hoodie|henley|knit|wool|flannel)\b/i;
+
+/** How well a place suits a person, from their own lines; undefined when the place is not allowed for them at all (the gym is for the athletes, and not in a blazer). */
+export function placeFit(place: Place, s: ShotSheet): { score: number; why: string } | undefined {
+  const fit = PLACE_FIT[place.id];
+  if (fit === undefined) return { score: 0, why: "" };
+  const own = `${s.vocation ?? ""} ; ${s.identityConcept ?? ""}`;
+  const other = [s.castingRead, s.demeanor, s.energy, s.heightBuild].filter(Boolean).join(" ; ");
+  const athletic = ATHLETIC_RE.test(`${own} ; ${other}`) || ["the jock", "the competitor"].includes((s.castingLabel ?? "").toLowerCase());
+  const formal = FORMAL_CLOTHES_RE.test(s.clothes ?? "");
+  if (place.id === "gym" && (!athletic || formal)) return undefined;
+  if (place.id === "pool" && (formal || OUTERWEAR_RE.test(s.clothes ?? ""))) return undefined;
+  const count = (t: string): number => (t.match(new RegExp(fit.words.source, "gi")) ?? []).length;
+  let score = 0; const why: string[] = [];
+  if (s.castingLabel !== undefined && fit.labels.includes(s.castingLabel.toLowerCase())) { score += 6; why.push(`type "${s.castingLabel}"`); }
+  if (count(own) > 0) { score += 6 * count(own); why.push(`job/identity`); }
+  if (count(other) > 0) { score += 3 * count(other); why.push(`read/demeanor/build`); }
+  return { score, why: why.join(", ") };
+}
+
 // ---------------------------------------------------------------------------------------------------- the shot deal
 
 const count = <T>(m: Map<T, number>, k: T): number => m.get(k) ?? 0;
@@ -297,7 +350,6 @@ function pickCapped<T>(rnd: () => number, cands: readonly T[], used: Map<string,
   return pickFrom(rnd, pool.filter((c) => count(used, key(c)) === least));
 }
 
-const KITCHEN_VOCATION_RE = /\b(?:cook|chef|baker|pastry|butcher|restaurant|barista|waiter|server|caterer)\b/i;
 const poss = (g: ShotSheet["genderPresentation"]): string => (g === "man" ? "his" : g === "woman" ? "her" : "their");
 
 /** Deal one shot card per sheet. Caps (cast of 15): no place on more than 3, no framing on more than 6 (three-quarter on 3), no light on more than 4, a prop on at most 2, eyes on the lens on at most 9; the moment is a consistent set with the place and the framing. */
@@ -308,16 +360,21 @@ export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCar
   const placeUsed = new Map<string, number>(), framingUsed = new Map<string, number>(), lightUsed = new Map<string, number>();
   const order = shuffled(rnd, byId(sheets));
   const buckets = new Map(order.map((s) => [s.id, bucketOf(s, rnd)] as const));
-  // About a third of the cast is photographed outdoors (backyard, pool, patio, front steps, garden).
+  // About a third of the cast is photographed outdoors (backyard, pool, patio, front steps, garden): the people whose sheets suit it best.
   const outdoorN = Math.max(Math.min(sheets.length, 4), Math.round(sheets.length / 3));
-  const outdoorIds = new Set(order.slice(0, outdoorN).map((s) => s.id));
+  const outScore = (s: ShotSheet): number => Math.max(0, ...PLACES.filter((p) => p.outdoor).map((p) => placeFit(p, s)?.score ?? -1)) - (FORMAL_CLOTHES_RE.test(s.clothes ?? "") ? 3 : 0) + rnd() * 0.5;
+  const outdoorIds = new Set([...order].map((s) => ({ s, k: outScore(s) })).sort((a, b) => b.k - a.k).slice(0, outdoorN).map((x) => x.s.id));
   const base = new Map<string, { place: Place; light: Light; framing: Framing; angle: string; prop?: string }>();
   let props = 0;
   for (const s of order) {
     const wantOut = outdoorIds.has(s.id);
-    let places = PLACES.filter((p) => p.outdoor === wantOut);
-    if (!wantOut && KITCHEN_VOCATION_RE.test(s.vocation ?? "") && count(placeUsed, "kitchen") < 2) places = PLACES.filter((p) => p.id === "kitchen");
-    const place = pickCapped(rnd, places, placeUsed, (p) => p.id, caps.place);
+    // the place is scored against the person's own sheet (the cook may take the kitchen, the athlete the gym or the pool, the bookish
+    // one the lounge); a place not allowed for them is out; the cap per place still spreads the cast.
+    const allowed = PLACES.filter((p) => p.outdoor === wantOut && placeFit(p, s) !== undefined);
+    const open = allowed.filter((p) => count(placeUsed, p.id) < caps.place);
+    const pool = open.length > 0 ? open : allowed.length > 0 ? allowed : PLACES.filter((p) => p.outdoor === wantOut && p.id !== "gym" && p.id !== "pool");
+    const best = Math.max(...pool.map((p) => placeFit(p, s)?.score ?? 0));
+    const place = pickFrom(rnd, pool.filter((p) => (placeFit(p, s)?.score ?? 0) === best && (best > 0 || count(placeUsed, p.id) === Math.min(...pool.map((q) => count(placeUsed, q.id))))));
     bump(placeUsed, place.id);
     const lights = LIGHTS.filter((l) => l.where === "any" || l.where === (place.outdoor ? "out" : "in"));
     const light = pickCapped(rnd, lights, lightUsed, (l) => l.id, caps.light);
@@ -339,7 +396,7 @@ export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCar
       if (m.needs !== "any" && !(m.needs === "walk" ? b.place.walk === true : b.place[m.needs] !== undefined)) continue;
       if (b.framing.id === "close" && m.body === true) continue;               // a close-up cannot show the body
       if (b.prop !== undefined && m.hands === true) continue;                  // both hands busy: nothing held
-      const fit = momentFit(m, s);
+      const fit = momentFit(m, s, buckets.get(s.id));
       pairs.push({ id: s.id, m, score: fit.score, why: fit.why, tie: rnd() });
     }
   }
