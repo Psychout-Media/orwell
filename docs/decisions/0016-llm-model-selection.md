@@ -111,7 +111,7 @@ it, and regenerate *against* it so face + gender stay stable instead of re-rolli
 Lite "Sequential" is the chosen model. It is **not on OpenRouter** (OpenRouter's newest Seedream is 4.5, and
 OpenRouter has **frozen** the `/chat/completions` image path the current Gemini portraits use — new image
 models live behind a separate `/api/v1/images` endpoint). So it uses a **fal.ai provider client**
-(`fal-ai/bytedance/seedream/v5/lite/edit`; references via `image_urls`; ~$0.035/img), now built as an optional provider (#1156), used only when explicitly configured; the OOB `image_model` stays `google/gemini-3.1-flash-image`.
+(`fal-ai/bytedance/seedream/v5/lite/edit`; references via `image_urls`; ~$0.035/img), now built as an optional provider (#1156), used only when explicitly configured; the OOB `image_model` is `openai/gpt-image-2.6-sunburst` (see the ORW-362 amendment below), with `google/gemini-3.1-flash-image` as the per-portrait fallback.
 
 ### D. `tool_choice` force-call at critical beats · *follow-up build*
 

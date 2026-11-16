@@ -128,6 +128,7 @@ describe("0059 §5 surfaceSeededTies — organic surfacing, never the sealed rea
         surfaceToPlayer: () => true, foldDiscovery: () => { folds++; }, alreadySurfacedToPlayer: () => false,
         playerSurfaceCount: 0, rng: new SeededRandom(seed),
       })).toEqual([]);
+      for (const id of [PLAYER, ...NPCS]) expect(knowledge.knownTo(id), "nobody learned a rumor").toHaveLength(0);
     }
     expect(folds).toBe(0);
   });

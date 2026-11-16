@@ -52,6 +52,8 @@ Vault with a *kind* (`pre-game-tie` / `showmance`) and a *stage*, seeded sparsel
 
 ## 3. Governed by the reserve-twist rules (0025) — the hard gate (L35 ruling)
 
+> Scope note (see the ORW-132 amendment below): the sealed-until-a-pathway rule here applies to SECRET ties only; a tie marked public from Day 1 is plain knowledge.
+
 This layer inherits the **reserve-twist governance** verbatim (feature 0025):
 
 1. **Vault-sealed from the player AND the admin.** The engine generates + seals each tie; neither the
@@ -92,6 +94,8 @@ protectiveness" is folded as a small standing affinity bias between the two — 
 player only as *behavior*.
 
 ## 6. Vault-Wall guarantees & testability
+
+> Scope note (see the ORW-132 amendment below): these guarantees cover SECRET ties only; a public tie is not sealed.
 
 - **No tie, stage, or partner ever reaches the player OR the admin** until a modeled pathway
   surfaces it — sentinel-tested on the player surface, the admin/God-Mode surface, `npcVoice`, and

@@ -54,6 +54,7 @@ describe("what a vote leaves behind (pure)", () => {
     expect(questionAnswered(q, rel()), "every read the same: an ambiguous deduction").toBe(false);
     const sure = rel({ [`${SURVIVOR}>${V3}`]: { trust: 0, threat: 1 }, [`${SURVIVOR}>${V1}`]: { trust: 1, threat: 0 }, [`${SURVIVOR}>${V2}`]: { trust: 1, threat: 0 }, [`${SURVIVOR}>${V4}`]: { trust: 1, threat: 0 }, [`${SURVIVOR}>${HOH}`]: { trust: 1, threat: 0 } });
     expect(questionAnswered(q, sure)).toBe(true);
+    expect(QUESTION_ANSWERED_CONFIDENCE, "the bar a question must clear").toBeGreaterThan(0);
   });
 });
 

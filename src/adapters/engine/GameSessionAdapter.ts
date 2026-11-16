@@ -4926,6 +4926,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-247: the ceremony hold is memory-only. A save taken mid-ceremony has the player seated in the ceremony room on the player-facing map while the base still holds the room they really
     // had; rebuild the hold from that so a resumed tick keeps the base exactly as uninterrupted play would.
     this.ceremonyHeld = null; this.ceremonyBasePlayerRoom = null;
+    this.ceremonyBeat = null; // memory-only: a restore into a live adapter must not read the previous game's scene
     const meId = this.house?.player.id;
     const seated = meId ? this.presence?.get(meId) : undefined, real = meId ? this.presenceBase?.get(meId) : undefined;
     const held = this.houseEventInSession()?.kind;
