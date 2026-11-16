@@ -61,7 +61,7 @@
     },
     {
      "line": 1276,
-     "anchor": "person or topic that isn't in the most recent inbox slice — ",
+     "anchor": "person or topic that isn't in the most recent inbox slice \u2014 ",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     }
    ]
@@ -106,12 +106,12 @@
    "sites": [
     {
      "line": 2515,
-     "anchor": "· up \" + esc(up(eng.uptimeSeconds)) : \"\") + (eng.error ? \" ·",
+     "anchor": "\u00b7 up \" + esc(up(eng.uptimeSeconds)) : \"\") + (eng.error ? \" \u00b7",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
      "line": 2515,
-     "anchor": "? \" · \" + esc(eng.latencyMs) + \" ms\" : \"\") + (eng.uptimeSeco",
+     "anchor": "? \" \u00b7 \" + esc(eng.latencyMs) + \" ms\" : \"\") + (eng.uptimeSeco",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
@@ -121,7 +121,7 @@
     },
     {
      "line": 2518,
-     "anchor": "(img.model ? \" · \" + esc(img.model) : \"\") + (img.portraits &",
+     "anchor": "(img.model ? \" \u00b7 \" + esc(img.model) : \"\") + (img.portraits &",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
@@ -136,12 +136,12 @@
     },
     {
      "line": 2521,
-     "anchor": "raded ? B(false, \"DEGRADED\") + \" · \" : \"\") + esc(st.sessions",
+     "anchor": "raded ? B(false, \"DEGRADED\") + \" \u00b7 \" : \"\") + esc(st.sessions",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
      "line": 2812,
-     "anchor": "j++) out.push(\" • \" + (tw[j].kind || \"\") + (tw[j].firedWeek ",
+     "anchor": "j++) out.push(\" \u2022 \" + (tw[j].kind || \"\") + (tw[j].firedWeek ",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
@@ -335,7 +335,7 @@
    "sites": [
     {
      "line": 93,
-     "anchor": "scenario it applies to — create any sample input it needs (e",
+     "anchor": "scenario it applies to \u2014 create any sample input it needs (e",
      "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
     },
     {
@@ -659,7 +659,7 @@
    "sites": [
     {
      "line": 87,
-     "anchor": "ate POST /api/services/{domain}/{service} — call service (e.",
+     "anchor": "ate POST /api/services/{domain}/{service} \u2014 call service (e.",
      "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
     },
     {
@@ -673,7 +673,7 @@
    "path": "frontend/src/orwell_cast_authoring.py",
    "kind": "example",
    "name": "text",
-   "max": 7,
+   "max": 6,
    "owner": "ORW-480",
    "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
   },
@@ -1007,7 +1007,7 @@
    "sites": [
     {
      "line": 213,
-     "anchor": "' — check that the endpoint is running and accessible. Canno",
+     "anchor": "' \u2014 check that the endpoint is running and accessible. Canno",
      "reason": "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"
     }
    ]
@@ -1127,7 +1127,7 @@
     },
     {
      "line": 3129,
-     "anchor": "ix with `cd …`, `source …`, or chain with `&&`. env_prefix (",
+     "anchor": "ix with `cd \u2026`, `source \u2026`, or chain with `&&`. env_prefix (",
      "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
     },
     {
@@ -1162,7 +1162,7 @@
     },
     {
      "line": 144,
-     "anchor": "ma, or Diffusers. cmd MUST start with the binary directly — ",
+     "anchor": "ma, or Diffusers. cmd MUST start with the binary directly \u2014 ",
      "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
     },
     {
@@ -1337,7 +1337,7 @@
     },
     {
      "line": 794,
-     "anchor": "server — use the friendly NAME from list_cookbook_servers (e",
+     "anchor": "server \u2014 use the friendly NAME from list_cookbook_servers (e",
      "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
     },
     {
@@ -1357,7 +1357,7 @@
     },
     {
      "line": 812,
-     "anchor": "Target server — friendly NAME from list_cookbook_servers (e.",
+     "anchor": "Target server \u2014 friendly NAME from list_cookbook_servers (e.",
      "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
     },
     {
@@ -1502,7 +1502,7 @@
    "sites": [
     {
      "line": 534,
-     "anchor": "'every morning…', 'each day at 7:30', 'daily summarize…') — ",
+     "anchor": "'every morning\u2026', 'each day at 7:30', 'daily summarize\u2026') \u2014 ",
      "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
     },
     {
@@ -1522,7 +1522,7 @@
    "sites": [
     {
      "line": 871,
-     "anchor": "launches it). If the // browser blocks self-close (rare — e.",
+     "anchor": "launches it). If the // browser blocks self-close (rare \u2014 e.",
      "reason": "code comment captured inside the HTML report template string (not model-visible); no creative text"
     },
     {
@@ -1567,7 +1567,7 @@
     },
     {
      "line": 2984,
-     "anchor": "type=\"text\" class=\"ow-field\" placeholder=\"default (white) — ",
+     "anchor": "type=\"text\" class=\"ow-field\" placeholder=\"default (white) \u2014 ",
      "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
     }
    ]
@@ -1627,7 +1627,7 @@
    "sites": [
     {
      "line": 3485,
-     "anchor": "Optional label for this account (e.g. “Work” or “Personal”).",
+     "anchor": "Optional label for this account (e.g. \u201cWork\u201d or \u201cPersonal\u201d).",
      "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
     },
     {
@@ -1652,7 +1652,7 @@
     },
     {
      "line": 4810,
-     "anchor": "Optional label for this account (e.g. “Work” or “Personal”).",
+     "anchor": "Optional label for this account (e.g. \u201cWork\u201d or \u201cPersonal\u201d).",
      "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
     },
     {
@@ -1662,7 +1662,7 @@
     },
     {
      "line": 4815,
-     "anchor": "Yes — your full email address goes here too (e.g. you@gmail.",
+     "anchor": "Yes \u2014 your full email address goes here too (e.g. you@gmail.",
      "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
     },
     {
@@ -2184,7 +2184,8 @@
    "name": "FACIAL",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2192,7 +2193,8 @@
    "name": "MARKS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2892,6 +2894,96 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.athletic / coaching / fitness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.first-responder / military / uniformed service",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.trades / manual / outdoor work",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.service / hospitality / food",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.creative / performing arts / media",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.office / corporate / professional",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.medical / care / wellness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.education / community / nonprofit",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.sales / small-business / hustle",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.tech / science / analytical",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
   }
  ]
 }
