@@ -337,12 +337,12 @@ describe("ORW-480 no other dealt value moves", () => {
         const l = generateCastDeepLayer(seed, npcs);
         dealShotCards(sheetsOf(seed));
         const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: 0 }]));
-        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0 } })) : npcs;
+        const cast = blankText ? npcs.map((n) => ({ ...n, character: { ...n.character, background: 0, presentation: 0 } })) : npcs;
         all += JSON.stringify([cast, pub, l.hidden, l.threads]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("2d2b169fab03fcb30110d4031c4f9f544809700b1c3ca4b05c1b5c0bc85b5eec");
-    expect(run(false)).toBe("47784456afb1c29f278da1f706f55715ca95bd7d3984cc330aecffad4d846b2b");
+    expect(run(true)).toBe("b0407245a1433ac4d9e5c8368891d3dee0552b016763aafd7eecc70ce50d0144")   // equal to the creationLooks381 pin (main's value, blanking the presentation too);
+    expect(run(false)).toBe("a1579dbb2f4a0947e3e6d12d3db2a462548ead966414f53a20631d2ec77ec698")   // equal to the creationLooks381 pin;
   });
 });

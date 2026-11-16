@@ -403,7 +403,7 @@ const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw
   jaw: [
     { v: J.square, pin: /\b(?:square|strong|angular) jaw\b|\bangular\b/i }, { v: J.soft, pin: /\bsoft jaw\b/i },
     { v: J.pointed, pin: /\bpointed chin\b/i }, { v: J.cleft, pin: /\bcleft\b/i }, { v: J.small, pin: /\bsmall chin\b/i },
-    { v: J.wide }, { v: J.narrow }, { v: J.long },
+    { v: J.wide, pin: /\b(?:wide|broad) jaw\b/i }, { v: J.narrow, pin: /\bnarrow jaw\b/i }, { v: J.long },
   ],
   neck: [
     { v: "a long, slender neck", pin: /\bslender neck\b/i, build: "slender" },
@@ -429,7 +429,7 @@ const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw
   brows: [
     { v: "thick, straight brows", pin: /\b(?:thick|straight|bushy) brows?\b/i }, { v: "thin, high-arched brows", pin: /\b(?:thin|arched) brows?\b/i },
     { v: "heavy dark brows", pin: /\bheavy[^,.]*\bbrows?\b|\bbrows? that\b/i }, { v: "light, sparse brows", pin: /\bsparse\b/i },
-    { v: "low, flat brows", pin: /\blow brows?\b/i }, { v: "brows that rise at the outer ends" },
+    { v: "low, flat brows", pin: /\b(?:low|flat) brows?\b/i }, { v: "brows that rise at the outer ends" },
     { v: "soft, rounded brows" }, { v: "one brow that sits a little higher than the other", pin: /\buneven brows?\b/i },
   ],
   mouth: [

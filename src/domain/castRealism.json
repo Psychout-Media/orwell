@@ -605,8 +605,7 @@
       "headphones",
       "earbuds",
       "film camera",
-      "polaroid",
-      "camera"
+      "polaroid"
      ]
     },
     "bag": {
@@ -633,8 +632,7 @@
       "water glass",
       "pint glass",
       "drinking glass",
-      "tumbler",
-      "glass"
+      "tumbler"
      ]
     },
     "tool": {
@@ -673,8 +671,7 @@
       "soccer ball",
       "baseball glove",
       "volleyball",
-      "softball",
-      "ball"
+      "softball"
      ]
     },
     "keys": {

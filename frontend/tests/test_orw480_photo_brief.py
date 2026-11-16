@@ -14,7 +14,7 @@ PLACES = [
     ("the taqueria her mother runs", "Laredo, Texas", "public-building", "salsa"), ("the church steps after choir", "Selma, Alabama", "street", "choir"),
     ("the karaoke bar she owns", "Duluth, Minnesota", "public-building", "karaoke"), ("the family ballroom studio", "Wichita, Kansas", "indoor-room", "ballroom"),
     ("the kitchen table at his grandmother's", "Fresno, California", "kitchen", "dumplings"), ("the ridge above the town", "Boise, Idaho", "field", "trail running"),
-    ("the corner store on his block", "Akron, Ohio", "street", "newspapers"), ("the pond behind the house", "Burlington, Vermont", "water", "kayak"),
+    ("the corner store on his block", "Akron, Ohio", "street", "crates"), ("the pond behind the house", "Burlington, Vermont", "water", "kayak"),
     ("the greenhouse at the end of the lane", "Dayton, Ohio", "yard", "orchids"), ("the garage workshop", "Reno, Nevada", "indoor-room", "carpentry"),
     ("the porch swing", "Mobile, Alabama", "yard", "quilting"),
 ]
@@ -270,7 +270,7 @@ def test_fix2_a_brief_is_repaired_before_it_is_rejected_and_the_editor_can_land(
     cs = cards()
     c = cs[0]
     an = B.deal_anchors(cs, 1)["npc:1"]
-    long = {**good_brief(c, 0), "signature": "a hand-sewn patch on the cuff, a faded stitch of red thread, and a long note about the trip, ending with a signature", "where": good_brief(c, 0)["where"] + ", with " + ", ".join(["a very long list of other things around"] * 6),
+    long = {**good_brief(c, 0), "signature": "a hand-sewn patch on the cuff, a faded stitch of red thread, and a long story about the trip, ending with a signature", "where": good_brief(c, 0)["where"] + ", with " + ", ".join(["a very long list of other things around"] * 6),
             "wear": "a cream knit, olive trousers, a hard hat for the walk"}
     fixed = B.repair_brief(c, B.clean_brief(long))
     assert len(fixed["signature"]) <= B.LIMITS["signature"] and len(fixed["where"]) <= B.LIMITS["where"] and "hard hat" not in fixed["wear"]
@@ -880,3 +880,54 @@ def test_round21_a_cut_leaves_no_fragment_and_the_dash_markers_are_caught():
     for t in ("sitting. Framing — the same for the whole series", "sitting, Setting - a studio", "ok. Wearing – a uniform"):
         assert "prompt-structure" in B.check_brief(c, an, {**base, "doing": t}), t
         assert not B.STRUCT_RE.search(B.repair_brief(c, {**base, "doing": t}, an)["doing"]) or "prompt-structure" in B.check_brief(c, an, B.repair_brief(c, {**base, "doing": t}, an))
+
+
+def test_round22_final_object_repeat_is_rebuilt_from_the_place_not_floored():
+    cs = cards(); c = cs[0]; an = B.deal_anchors(cs, 1)["npc:1"]
+    base = {**good_brief(c, 0), "where": "the corner store on his block in Akron, Ohio, a flickering ice cooler, a rusted bike rack"}
+    seen = B._obj_tokens(" ".join(base["inFrame"]))
+    out = B._drop_used(base, seen, c)
+    assert out["inFrame"] and not (B._obj_tokens(" ".join(out["inFrame"])) & seen)         # rebuilt from the things the place names
+    # nothing left to rebuild from: the first object is kept (never an empty frame)
+    only = B._drop_used({**base, "where": "the corner store"}, seen, c)
+    assert len(only["inFrame"]) == 1
+
+
+def test_round22_no_writing_on_objects():
+    cs = cards(); c = cs[0]; an = B.deal_anchors(cs, 1)["npc:1"]
+    base = good_brief(c, 0)
+    for item in ("a cassette labelled Mixtape", "a hand-lettered poster", "a sign by the door", "a note on the fridge", "a menu board"):
+        assert "writing-on-object" in B.check_brief(c, an, {**base, "inFrame": [item, base["inFrame"][1]]}), item
+        fixed = B.repair_brief(c, {**base, "inFrame": [item, base["inFrame"][1]]}, an)
+        assert item not in fixed["inFrame"] and B.check_brief(c, an, fixed) == [] or not fixed["inFrame"], item
+    assert B.repair_brief(c, {**base, "signature": "a mixtape in a jacket pocket"}, an).get("signature") is None
+    assert "writing-on-object" not in B.check_brief(c, an, base)
+
+
+def test_round22_the_place_itself_can_tell_the_job():
+    cs = cards(); c = {**cs[0], "vocation": "funeral director"}; an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": B.FACETS[0]}
+    base = good_brief(c, 0)
+    assert "job-caption" in B.check_brief(c, an, {**base, "where": "a quiet cemetery path in Akron, Ohio, beside a headstone with fresh flowers"})
+    assert "job-caption" not in B.check_brief(c, an, {**base, "where": "the back porch of her house in Akron, Ohio, with the garden hose coiled up"})
+    assert B.workplace_hit("funeral director", "by a headstone") and B.workplace_hit("registered nurse", "in a hospital ward")
+    assert not B.workplace_hit("funeral director", "her back porch") and not B.workplace_hit("line cook", "the community garden")
+
+
+def test_round22_the_time_of_day_is_the_persons_dealt_anchor_and_a_cast_does_not_converge():
+    cs = cards(); an = B.deal_anchors(cs, 1)
+    c = cs[0]; a = an["npc:1"]
+    other = "the golden hour before sunset" if B._time_bucket(a["time"]) != "golden" else "dusk"
+    fixed = B.repair_brief(c, {**good_brief(c, 0), "timeLight": other + ", warm"}, a)
+    assert B._time_bucket(fixed["timeLight"]) == B._time_bucket(a["time"])
+    buckets = {}
+    for i in an:
+        b = B._time_bucket(an[i]["time"]); buckets[b] = buckets.get(b, 0) + 1
+    assert max(buckets.values()) <= B.TIME_BUCKET_MAX
+
+
+def test_round22_a_footwear_signature_is_not_kept_in_a_half_length_frame():
+    cs = cards(); c = cs[0]; an = B.deal_anchors(cs, 1)["npc:1"]
+    base = good_brief(c, 0)
+    assert "signature-not-visible" in B.check_brief(c, an, {**base, "signature": "scuffed work boots she never replaces"})
+    assert B.repair_brief(c, {**base, "signature": "scuffed work boots she never replaces"}, an).get("signature") is None
+    assert "signature-not-visible" not in B.check_brief(c, an, base)

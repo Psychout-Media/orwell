@@ -110,7 +110,7 @@ SYSTEM = (
     "or mid-motion); natural and not acted. This sentence alone says how they stand or sit and what their hands are doing.\n"
     "inFrame: an array of exactly two OBJECTS in the frame that belong to their life in this place, taken from their sheet; not clothes or jewellery or nails they are wearing and not the signature item.\n"
     "wear: what they wear today, taken from their wardrobe, in their own everyday clothes.\n"
-    "signature: when the sheet has a lookSignature, write exactly that; otherwise one object or detail of theirs that makes them memorable and fits their life; it is not one of the clothes listed in wear. Anything worn (jewellery, painted nails, a chain, a patch on a sleeve) is part of wear, not an object.\n"
+    "signature: when the sheet has a lookSignature, write exactly that; otherwise one object or detail of theirs that makes them memorable and fits their life; it is not one of the clothes listed in wear and it must show in a half-length frame (head to mid-torso with the hands): never footwear or anything below the belt. Anything worn (jewellery, painted nails, a chain, a patch on a sleeve) is part of wear, not an object.\n"
     "timeLight: the time of day, the light and the weather. The anchors given for each person (the facet of life to feature, the time, the season and weather, the "
     "energy, and the body: how they stand or sit in the frame) are fixed facts: follow them (doing follows the body anchor: not squared and centred with the hands clasped or folded unless the anchor says so); if the weather does not fit the town and season, keep the time and use the nearest plausible weather. When the weather is cold, wet or windy "
     "and their clothes would not do for it, add a layer from their own style (a jacket, an overshirt, a cardigan), as a real person would.\n"
@@ -122,11 +122,11 @@ SYSTEM = (
     "tie: one sentence that quotes, in double quotes, the exact phrase of their sheet that this PLACE comes from: their home, their family, a hobby, a routine of their hometown, "
     "or a place next to their work. It is checked and never printed; a place with no tie to the sheet is rejected.\n"
     "Rules for every person. The facet of life to feature is the thing the photo shows; when it says near their work, the place is close to where they work but they wear "
-    "their own clothes and nothing shows the job: no uniform, scrubs, apron, badge, work gear or work prop. The job is never a caption for the photo anywhere else either; "
+    "their own clothes and nothing shows the job: no uniform, scrubs, apron, badge, work gear or work prop. The job is never a caption for the photo anywhere else either, and the place is never the workplace of their job even when it names no job (a funeral director is not in a cemetery, a nurse not in a ward, a cook not in a restaurant kitchen); "
     "a hobby or a family object is welcome. Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
     "nothing is acted. Never change their hair or its styling, whatever the activity. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
     "background (animals, vehicles, a view) is welcome and wanted but out of focus; no other person appears anywhere in the frame, and an object is always a thing, never a person or a pet with its owner. "
-    "Clothes are worn the way that person would on an ordinary day. No readable brand names, signs or text. Do not write the person's name: say "
+    "Clothes are worn the way that person would on an ordinary day. No readable brand names, signs or text, and no object that carries or invites writing (a labelled cassette or tape, a poster, a sign, a note, a letter, a menu, a book cover). Do not write the person's name: say "
     "'the person'. Do not describe framing, lens or camera. Invent from the sheet; do not reuse wording between people. Every object, signature item and place is used by ONE "
     "person only: when 'alreadyUsed' lists things, choose different ones."
 )
@@ -166,6 +166,8 @@ CODE_WORDS = {
     "job-caption": "the job must not show in the place or the action; use a hobby, family or hometown facet",
     "work-gear": "no uniform, scrubs, apron, badge, lanyard, hard hat or stethoscope anywhere",
     "text-or-brand": "no readable text, signs, logos or brand names",
+    "signature-not-visible": "the signature must show in a half-length frame (head to mid-torso with the hands): nothing below the belt, no footwear",
+    "writing-on-object": "no object that carries writing (a labelled cassette, a poster, a sign, a note, a letter, a menu): choose a plain object",
     "acted-or-odd-pose": "a natural upright pose only: no hunch, slump, sprawl, fists, pointing, flexing, eyes shut",
     "open-palm-to-nobody": "no open palm held out unless they are mid-sentence to someone",
     "hat-indoors": "no hat indoors", "sunglasses": "no sunglasses",
@@ -227,6 +229,10 @@ OPEN_PALM_RE = re.compile(r"palms? (?:up|open|out)|open (?:hand|palm)|hand open|
 TALKING_RE = re.compile(r"mid-sentence|talking to|telling (?:a|the) story|speaking to|laughing with|in conversation|chatting", re.I)
 WORK_GEAR_RE = re.compile(r"\b(?:scrubs?|scrub (?:tops?|pants)|uniforms?|aprons?|badges?|lanyards?|hard ?hats?|turnout gear|stethoscopes?|name ?tags?|hi[- ]?vis|high[- ]?vis(?:ibility)?|chef'?s? (?:coat|jacket|whites))\b", re.I)
 TEXT_RE = re.compile(r"\b(?:logo|brand|sign (?:reading|that says)|reads? ['\"]|lettering|slogan|printed words|text on|written on|banner reading)\b|[A-Z][a-z]+(?:'s)? (?:Pizza|Diner|Market|Bar|Cafe|Café)\b(?= sign)", re.I)
+# The frame is half-length (mid-torso up, hands in view): a signature below the belt line is never seen, so it is not a signature.
+LOWER_BODY_RE = re.compile(r"\b(?:boots?|shoes?|sneakers?|trainers?|loafers?|sandals?|heels?|slippers?|cleats?|flats|socks?|anklets?|ankle|trousers|jeans|pants|shorts|belt buckle|belt|leggings|laces)\b", re.I)
+# An object that invites a label gets one painted on by the image model (a cassette marked "Mixtape"): such objects are never in the frame.
+WRITING_OBJ_RE = re.compile(r"\b(?:mixtape|cassettes?|labell?ed|labels?|posters?|signs?|signboards?|notes?|notepads?|post-?its?|sticky notes?|handwritten|letters?(?! jacket)|postcards?|greeting cards?|album covers?|record sleeves?|book covers?|newspapers?|magazines?|menus?|tickets?|banners?|name ?cards?|flyers?|certificates?)\b", re.I)
 _BRAND_STRONG = re.compile(r"\b(?:nike|adidas|coca[- ]cola|pepsi|starbucks|mcdonald'?s|walmart|harley|carhartt|patagonia|north face|levi'?s|budweiser|yeti|samsung|toyota|chevrolet)\b", re.I)
 _BRAND_CAPITAL = re.compile(r"\b(?:Target|Ford|Apple|Honda|Vans|Converse|Puma|Corona|Chevy)\b")      # ordinary words in lower case (a target, a ford, vans): brands only when capitalised
 
@@ -589,6 +595,8 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     wear_words = _cw(wear)
     # the signature: gone (not refilled by guessing) when it only repeats what is worn
     sig = str(out.get("signature") or "")
+    if sig and (WRITING_OBJ_RE.search(sig) or LOWER_BODY_RE.search(sig)) and not out.get("_look"):
+        sig = ""
     if sig:
         sw = _cw(sig)
         if CLOTHING_RE.search(sig) and sw & wear_words and not out.get("_look"):
@@ -598,6 +606,8 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for item in (out.get("inFrame") or []):
         if bad_rx.search(item):
             continue
+        if WRITING_OBJ_RE.search(item):
+            continue                                                  # an object that invites writing is not shown
         if PERSON_OBJ_RE.search(item) and not PERSON_PHOTO_OK_RE.search(item.strip()):
             continue                                                  # a person is not an object (the closers say the only person in the frame)
         iw = _cw(item)
@@ -618,6 +628,9 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         out["signature"] = sig
     else:
         out.pop("signature", None)
+    # the light: the time of day is this person's dealt anchor (the writer's own pick drifts to golden hour and dusk, and a cast converges on one light)
+    if anchors and anchors.get("time") and _time_bucket(str(out.get("timeLight") or "")) != _time_bucket(str(anchors["time"])):
+        out["timeLight"] = f"{anchors['time']}, {anchors.get('weather', '')}".rstrip(", ")
     # the weather: cold or wet and the clothes do not fit it: a layer from their own style, as a real person would
     if anchors and _needs_layer(anchors) and out.get("wear") and not LAYER_RE.search(out["wear"]):
         wardrobe = [w for w in ((card.get("physicalCharacteristics") or {}).get("wardrobe") or []) if isinstance(w, str) and LAYER_RE.search(w)]
@@ -679,6 +692,10 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("work-gear")
     if TEXT_RE.search(body) or BRAND_RE.search(body):
         codes.append("text-or-brand")
+    if LOWER_BODY_RE.search(brief["signature"]) and not look:
+        codes.append("signature-not-visible")
+    if any(WRITING_OBJ_RE.search(x) for x in brief["inFrame"]) or (WRITING_OBJ_RE.search(brief["signature"]) and not look):
+        codes.append("writing-on-object")
     if SUNGLASSES_RE.search(brief["wear"] + " " + brief["signature"]):
         codes.append("sunglasses")
     indoor = bool(INDOOR_RE.search(brief["where"])) and not OUTDOOR_RE.search(brief["where"])
@@ -731,12 +748,50 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         head = re.split(r"\b(?:near|beside|across|next to|down the street|outside|by|behind|from|along|close to)\b", brief["where"], 1)[0]
         if job_words and (job_words & _tokens(head + " " + brief["doing"])):        # the place IS the workplace, or the action is the job: a home or a park near it is fine
             codes.append("job-caption")
+        elif workplace_hit(job, head + " " + brief["doing"]):
+            codes.append("job-caption")          # the place itself tells the job (a funeral director in a cemetery)
     # the trace: a quoted phrase that really is in the sheet
     quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{5,})[\"\u201d]", brief["why"]) if q.strip()]
     sheet = _norm(_sheet_text(card))
     if not any(_quote_in_sheet(q, sheet) for q in quotes):
         codes.append("no-sheet-quote")
     return codes
+
+
+# The place can BE the workplace without naming the job (a funeral director beside a headstone): job -> the places that are that job's own workplace.
+WORKPLACES = (
+    (r"funeral|undertaker|mortician|embalm|cemetery|sexton|gravedigger", r"cemeter|graveyard|headstone|gravestone|tombstone|funeral home|mortuary|chapel of rest|crematori"),
+    (r"teacher|professor|instructor|lecturer|principal|tutor|counsel+or", r"classroom|schoolroom|school hallway|lecture hall|school yard|schoolyard|staff room"),
+    (r"nurse|doctor|physician|surgeon|paramedic|\bEMT\b|medical|dental|hygienist|therapist|pharmac", r"hospital|clinic|ward\b|ambulance|operating room|exam room|waiting room|pharmacy counter|dental office"),
+    (r"firefight|fire ?fighter|fire captain|fire marshal", r"fire station|firehouse|fire engine|fire truck"),
+    (r"police|officer|deputy|sheriff|detective|trooper|corrections", r"police station|precinct|patrol car|squad car|jail|courthouse steps"),
+    (r"pilot|flight|air traffic|aircraft|aviation", r"cockpit|airfield|airstrip|hangar|control tower|runway|tarmac"),
+    (r"librarian|archivist", r"library|stacks|reading room|checkout desk"),
+    (r"mechanic|technician|auto|welder|machinist", r"auto shop|repair shop|machine shop|service bay|body shop|dealership"),
+    (r"cashier|clerk|retail|store manager|grocer|stocker|merchandis", r"checkout|cash register|store aisle|supermarket|grocery store|shop floor|stockroom"),
+    (r"bartender|barista|waiter|waitress|server\b|host\b|cook|chef|baker|banquet|caterer|line cook|dishwasher|restaurant", r"restaurant|bistro|bakery|coffee shop|catering hall|banquet hall|dining room of the|diner counter|food truck|bar counter|behind the bar|commercial kitchen|prep kitchen"),
+    (r"barber|hairdress|hair stylist|cosmetolog|esthetic|nail tech|stylist", r"salon|barbershop|barber shop|styling chair"),
+    (r"pastor|priest|minister|chaplain|deacon|clergy|rabbi|imam|choir director|organist", r"church|chapel|sanctuary|pulpit|altar|synagogue|mosque|choir loft|vestry"),
+    (r"veterinar|vet tech|kennel|groomer|animal control", r"veterinary|vet clinic|animal hospital|kennel|animal shelter"),
+    (r"butcher|meat cutter", r"butcher shop|meat counter|meat locker|slaughter"),
+    (r"judge|lawyer|attorney|paralegal|bailiff|court", r"courthouse|courtroom|law office|judge's chambers"),
+    (r"mail|postal|letter carrier|postmaster", r"post office|sorting room|mail truck|mail route"),
+    (r"driver|trucker|bus operator|conductor|dispatcher|delivery", r"truck cab|bus depot|loading dock|rail yard|truck stop|dispatch office|bus stop shelter|cab of"),
+    (r"farm|rancher|grower|orchard|agricultur|dairy|crop", r"cornfield|hayfield|barn|milking|feed lot|pasture|greenhouse rows|orchard rows|tractor"),
+    (r"electrician|plumber|carpenter|roofer|contractor|construction|lineworker|lineman|mason|painter|hvac", r"job site|jobsite|construction site|scaffold|utility pole|crawl space|work van|truck bed of tools"),
+    (r"banker|teller|accountant|bookkeeper|loan officer|financial|insurance|actuar", r"bank branch|teller window|bank lobby|accounting office|insurance office"),
+    (r"lifeguard|swim instructor|coach|trainer|athletic director", r"pool deck|lifeguard chair|weight room|gym floor|training room|locker room|sideline|practice field"),
+    (r"journalist|reporter|editor|newsroom|broadcast|anchor", r"newsroom|press box|studio booth|editing bay|news desk"),
+    (r"social worker|case ?worker|caseworker|child welfare|probation", r"county office|caseworker.s desk|intake office|welfare office"),
+)
+
+
+def workplace_hit(job: str, text: str) -> bool:
+    """True when `text` puts the person in the workplace that goes with their job title (the place itself tells the job)."""
+    for jrx, prx in WORKPLACES:
+        if re.search(jrx, job or "", re.I) and re.search(prx, text or "", re.I):
+            return True
+    return False
 
 
 def _place_kind(where: str) -> str:
@@ -823,7 +878,7 @@ def missing_parts(brief: Optional[dict]) -> list:
     if len(brief.get("inFrame") or []) < 2:
         out.append("one more object of theirs in the frame")
     if not brief.get("signature"):
-        out.append("a signature object or detail")
+        out.append("a signature object or detail that shows from the waist up (never footwear or anything below the belt)")
     return out
 
 
@@ -930,10 +985,13 @@ def calm_brief(brief: dict) -> dict:
     return out
 
 
-def _drop_used(brief: dict, seen: set) -> dict:
-    """Drop the objects and the signature that another person already has (never the last thing standing, never the place)."""
+def _drop_used(brief: dict, seen: set, card: Optional[dict] = None) -> dict:
+    """Drop the objects and the signature that another person already has. When every object is taken, they are rebuilt from the things the place sentence itself names
+    (never a person, a garment or the signature), and only if even that yields nothing is the first one kept (never the place, never an empty frame)."""
     out = dict(brief)
     objs = [x for x in out.get("inFrame") or [] if not (_obj_tokens(x) & seen)]
+    if not objs and card is not None and out.get("where"):
+        objs = [x for x in objects_from_where(card, out["where"], sig_text=str(out.get("signature") or ""), wear=str(out.get("wear") or "")) if not (_obj_tokens(x) & seen)]
     out["inFrame"] = objs or (out.get("inFrame") or [])[:1]
     if out.get("signature") and not out.get("_look") and _obj_tokens(out["signature"]) & seen:
         out.pop("signature", None)
@@ -1062,7 +1120,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, an
                 trial = {**accepted, i: nb}
                 codes = check_cast(cards, anchors, trial).get(i, [])
                 if codes and set(codes) <= {"object-repeat"}:       # a clash of objects is repaired by dropping the repeated ones, not by the floor
-                    nb = _drop_used(nb, seen_before(i))
+                    nb = _drop_used(nb, seen_before(i), by_id[i])
                     codes = check_brief(by_id[i], anchors[i], nb) or check_cast(cards, anchors, {**accepted, i: nb}).get(i, [])
             if not codes:
                 accepted[i] = nb
@@ -1089,8 +1147,10 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2, an
                     cand["tie"] = t
             seen = seen_before(i)
             if _obj_tokens(" ".join(cand.get("inFrame") or [])) & seen:
-                cand = _drop_used(cand, seen)
+                cand = _drop_used(cand, seen, by_id[i])
             codes = check_brief(by_id[i], anchors[i], cand) or check_cast(cards, anchors, {**accepted, i: cand}, relax=1).get(i, [])
+            if codes == ["object-repeat"] and cand.get("inFrame"):
+                codes = []          # the last resort: the brief is otherwise sound and has been cut to what is left of its objects; a shared object beats the floor
             if not codes:
                 accepted[i] = cand
                 rewritten += 1
