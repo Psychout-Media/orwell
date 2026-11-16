@@ -192,7 +192,13 @@ def crossover(eng, play, check, chat):
     morning" ask that must not reach morning, the player's own goodnight, and the Week 2 morning. Checks map to the Auditor's ORW-433 lines."""
     eng.play_pendings_until("hoh-competition", "x1", max_steps=80)
     st = eng.call("getGameState"); wk0, day0 = st.get("week"), st.get("dayNumber")
-    check("X0-reached-eviction-night", st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh"), f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    x0 = st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh")
+    check("X0-reached-eviction-night", x0, f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    _play = play
+
+    def play(label, line):
+        # review of #2854: every crossover turn carries whether X0 held, so a --rescore (which keeps only the turns) knows whether Week 2 was really reached
+        t = _play(label, line); t["x0_ok"] = bool(x0); return t
     evicted = [h.get("name") for h in (st.get("house") or []) if isinstance(h, dict) and h.get("status") not in (None, "active")]
     for i, line in enumerate(CROSS_EVENING): play(f"cross-evening-{i + 1}", line)
     st = eng.call("getGameState")
@@ -263,7 +269,9 @@ def main():
     a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     if a.rescore:
         turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
-        score(turns, checks, lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail}), a.turn_limit_secs)
+        _rc = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
+        rescore_x0(turns, _rc)
+        score(turns, checks, _rc, a.turn_limit_secs)
         write(a.run_dir, turns, checks, None); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
         print("RESULT:", "FAIL" if hard else "PASS"); sys.exit(1 if hard else 0)
     from playwright.sync_api import sync_playwright
@@ -481,9 +489,25 @@ NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden 
 NOT_COVERED_CROSSOVER = "the finale and everything after Week 2's start: a `--crossover` run plays on through Week 1's eviction night into Week 2, no further"
 
 
-def not_covered(checks):
-    """The coverage list for THIS run: a run that drove the crossover (it left X0 checks) did cover eviction night and Week 2's start."""
-    if any(str(c.get("id", "")).startswith("X0-") for c in checks):
+def crossed_into_week_two(checks, turns=()):
+    """True when the crossover really reached Week 2: its X0 check passed, or - for a `--rescore`, which keeps only the turns - its `cross-` turns were recorded with
+    X0 holding (review of #2854: `cross-` turns are played even when X0 failed, so their labels alone prove nothing; older reports without the flag do not count)."""
+    x0 = [c for c in checks if str(c.get("id", "")).startswith("X0-")]
+    if x0:
+        return all(c.get("ok") for c in x0)
+    return any(str(t.get("label", "")).startswith("cross-") and t.get("x0_ok") is True for t in turns)
+
+
+def rescore_x0(turns, check):
+    """A `--rescore` restores the X0 verdict the crossover saved with its turns, so a run that never reached Week 2 cannot rescore as a pass."""
+    flags = [t["x0_ok"] for t in turns if str(t.get("label", "")).startswith("cross-") and "x0_ok" in t]
+    if flags:
+        check("X0-reached-eviction-night", all(flags), "from the saved crossover turns (the live check's verdict)")
+
+
+def not_covered(checks, turns=()):
+    """The coverage list for THIS run: a run whose crossover reached Week 2 did cover eviction night and Week 2's start."""
+    if crossed_into_week_two(checks, turns):
         return NOT_COVERED[:-1] + [NOT_COVERED_CROSSOVER]
     return list(NOT_COVERED)
 
@@ -511,7 +535,7 @@ def write(run_dir, turns, checks, error):
     json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
     L = [f"# Live run (short tier) - {verdict}", ""] + _header(run_dir, turns) + [f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
     L += ["## Checked against the Live Run Pass Bar", ""] + [f"- {bar}: {', '.join(sorted({c['id'].split('[')[0] for c in checks if c['id'].split('[')[0].split('-')[0] in ids})) or '-'}" for bar, ids in BAR_MAP] + [""]
-    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks)] + [""]
+    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks, turns)] + [""]
     if hard or warn:
         L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
     L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]

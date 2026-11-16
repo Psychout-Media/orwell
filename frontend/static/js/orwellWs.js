@@ -685,8 +685,9 @@
   // reconcile-from-history path decides. Rejects with the last error when the deadline passes.
   // ORW-461: an update holds new turns for the few seconds of its restart. The server refuses a turn BEFORE anything starts (`update-holding`, retryable: nothing was written), so
   // re-sending the same clientMsgId can never double it. The hold is waited out here: `opts.onHold()` fires once (the caller shows "one moment"), the send is retried every
-  // retryAfterMs, the socket drop of the restart itself is ridden out by ensure(), and the wait is bounded (150 s, or the server's own `untilMs` + 30 s, whichever is sooner).
-  var HOLD_MAX_WAIT_MS = 150000;
+  // retryAfterMs, the socket drop of the restart itself is ridden out by ensure(), and the wait is bounded (480 s, or the server's own `untilMs` + 30 s, whichever is sooner).
+  // Review of #2805: the cap covers the updater's longest hold (its turn wait, at most 300 s, plus 150 s for the restart and warm-up), so a valid hold is never given up early.
+  var HOLD_MAX_WAIT_MS = 480000;
   function sendTurnWhenLive(payload, maxMs, opts) {
     var deadline = _now() + (maxMs > 0 ? maxMs : 45000);
     var sendFailures = 0;
