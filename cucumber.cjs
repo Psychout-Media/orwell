@@ -139,6 +139,7 @@ module.exports = {
       "docs/features/0157-rumor-mill-retrospective.feature",
       "docs/features/0153-npcs-spread-and-lie.feature",
       "docs/features/0155-ledger-claims-net.feature",
+      "docs/features/0160-belief-conviction.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

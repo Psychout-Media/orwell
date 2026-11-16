@@ -121,3 +121,22 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
     case "fish": return fromBeliefs(partner, actor, "inform"); // the listener answers the asker with what THEY believe
   }
 }
+
+/** 0160: is what `holder` believes TRUE by the engine's records? (The belief read as the claim it stands for, told to the holder.) Unknown kinds read false. */
+export function beliefTruth(b: BeliefClaim, holder: EntityId, f: TruthFacts): boolean {
+  switch (b.kind) {
+    case "targets-me": return f.goalAgainst(b.subject, holder);
+    case "voted-against-me": return f.votedToEvict(b.subject, holder);
+    case "lied-to-me": return f.liedTo(b.subject, holder);
+    case "allied-with": return b.object !== undefined && f.finalTwo(b.subject, b.object);
+    case "heard-rumor":
+      if (b.object === undefined) return false;
+      if (b.nature === "going-after") return f.goalAgainst(b.subject, b.object);
+      if (b.nature === "voted-against") return f.votedToEvict(b.subject, b.object);
+      if (b.nature === "voted-to-keep") return f.votedToKeep(b.subject, b.object);
+      if (b.nature === "lying") return f.liedTo(b.subject, b.object);
+      if (b.nature === "talking-about") return f.talkedAbout(b.subject, b.object);
+      return false;
+    default: return false;
+  }
+}

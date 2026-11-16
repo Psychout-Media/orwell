@@ -281,7 +281,8 @@ import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, type EdgeDelta } from "../../engine/beliefStore";
-import { beliefPull, believedGrievances } from "../../engine/beliefDecisions";
+import { BELIEF_RULES, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
+import { CONVICTION, credulityOf, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -329,7 +330,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { beliefTruth, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
@@ -1446,6 +1447,7 @@ export class GameSessionAdapter implements GameSession {
       week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
+      ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
     });
     return told;
   }
@@ -1498,6 +1500,12 @@ export class GameSessionAdapter implements GameSession {
       if (t) told.push(t);
     }
     return told;
+  }
+  /** 0160: how readily `id` believes what they are told, from their own sheet (0.5 for anyone without one). */
+  private credulityOf(id: EntityId): number {
+    const n = this.house?.npcs.find((x) => x.id === id);
+    if (!n) return 0.5;
+    return credulityOf({ archetype: n.character.archetype, disposition: dispositionOf(n.character.archetype), temperamentDrift: this.soulObj(id)?.temperamentDrift }, id, this.gameSeed ?? 0);
   }
   /** 0153 / ORW-330 slice 3: the engine's truth for checking a claim - goals, recorded ballots, open final-two deals, the claim log. Engine-only reads. */
   private truthFacts(): TruthFacts {
@@ -11550,8 +11558,42 @@ export class GameSessionAdapter implements GameSession {
     const believed = this.npcBeliefsEnabled ? believedGrievances(s.beliefs, owner, others, s.week) : [];
     return {
       owner, character: character2, threats, affinity, grudges, ...(believed.length ? { believedGrievances: believed } : {}), emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
-      allianceMates: [...mates].sort(), secretExposed, ...this.voteQuestionsFor(owner), powerWins: s.resume?.[owner] ?? 0,
+      allianceMates: [...mates].sort(), secretExposed, ...this.questionsFor(owner), powerWins: s.resume?.[owner] ?? 0,
     };
+  }
+  /**
+   * 0160 / ORW-330 (conviction): the open questions are the vote questions plus the beliefs the holder is still TESTING (doubted, testable,
+   * at most CONVICTION_TESTS_MAX, strongest first, about someone still in the house); a tested belief is answered once it became a fact to
+   * them or they let it go. Only in full strength (capped: the vote questions alone, byte-identical).
+   */
+  private questionsFor(owner: EntityId): { openQuestions: Array<{ ref: string; suspect?: EntityId }>; answered: string[] } {
+    const vq = this.voteQuestionsFor(owner);
+    if (BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return vq;
+    const living = new Set(this.livingIds());
+    const mine = claimsOf(this.live?.beliefs, owner);
+    const testing = mine.filter((b) => underTest(b) && living.has(b.subject)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX);
+    const settled = mine.filter((b) => b.confidence >= CONVICTION.asFact || b.refuted || !b.value).map(testRef);
+    return { openQuestions: [...vq.openQuestions, ...testing.map((b) => ({ ref: testRef(b), suspect: b.subject }))], answered: [...vq.answered, ...settled] };
+  }
+  private static readonly CONVICTION_TESTS_MAX = 2;
+  /** 0160: one night of looking into each belief a holder is testing (an active find-out goal for it): the evidence moves the conviction toward the truth. */
+  private weighEvidenceOvernight(): void {
+    const s = this.live;
+    if (!s?.agendas || !s.beliefs || BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return;
+    const facts = this.truthFacts();
+    const day = s.dayNumber ?? s.week;
+    for (const [holder, agenda] of Object.entries(s.agendas)) {
+      const looking = new Set(agenda.goals.filter((g) => g.status === "active" && g.kind === "find-out" && g.test.kind === "question-answered").map((g) => (g.test as { ref: string }).ref));
+      for (const b of s.beliefs[holder] ?? []) {
+        if (!underTest(b) || !looking.has(testRef(b))) continue;
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:evidence:${day}:${holder}:${b.id}`)).next();
+        b.confidence = Math.max(0, Math.min(1, b.confidence + evidenceStep(beliefTruth(b, holder, facts), roll)));
+        if (b.confidence < CONVICTION.dropBelow) {
+          refuteClaim(s.beliefs, holder, b.id, (h, sub) => this.rel.edge(h, sub));
+          b.refuted = true; // a belief that moved no edge is still let go
+        }
+      }
+    }
   }
   /** ORW-342: this houseguest's open "who voted against me / who flipped" questions (live through the week after the vote), and which of them their own deduction has since made confident (answered). */
   private voteQuestionsFor(owner: EntityId): { openQuestions: Array<{ ref: string; suspect?: EntityId }>; answered: string[] } {
@@ -11622,6 +11664,7 @@ export class GameSessionAdapter implements GameSession {
       if (!s.agendas) return;
       const board = this.agendaBoard();
       const seed = this.gameSeed ?? 0;
+      this.weighEvidenceOvernight(); // 0160: what they looked into today moves what they believe, before the night's mull
       for (const id of Object.keys(s.agendas)) {
         const view = this.agendaView(id);
         if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed); this.appraiseSettled(id, before, s.agendas[id]!); }
