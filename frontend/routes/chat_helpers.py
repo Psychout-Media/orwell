@@ -6126,7 +6126,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             # Strictness is unchanged for anything else: the remedy applies only if the stripped text then passes the SAME verifier (a wrong evictee, a
             # phantom result or a second fabrication still cuts the whole scene).
             _kept = drop_wrong_tally_sentences(text, live)
-            if _kept != text and _kept.strip() and not _narration_claims_outcome(_kept, before, live):
+            if _kept != text and (not _kept.strip() or not _narration_claims_outcome(_kept, before, live)):  # ORW-504: a segment that IS the wrong tally rewrites to "" (quietly dropped, scene not cut)
                 _SCENE_REWRITE[_dkey] = _kept
                 logger.warning("[orwell] scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept for user=%s", user)
                 return None
