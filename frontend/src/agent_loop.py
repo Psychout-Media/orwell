@@ -7520,6 +7520,12 @@ def _forget_owner_entries(store, keys) -> None:
         raise TypeError(f"no season reset for a {type(store).__name__} store")
 
 
+# ORW-499: a season generation per owner, bumped by every reset. A restart usually fires INSIDE a turn (the model calls createCharacter), and that same turn keeps running after the clear, writing
+# last season's stall level, progress clock and kin from awaited work. `stream_agent_loop` records the generation at its start and, if it moved by the turn's end, clears the owner's pacing again so nothing
+# from the older season lands in the new one. (A Counter, not a dict literal: it must survive the reset, so it is deliberately not one of `_SEASON_PACING_STORES`.)
+_SEASON_GEN: "collections.Counter[str]" = collections.Counter()
+
+
 def _forget_season_pacing(user) -> None:
     """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
     stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
@@ -7527,6 +7533,7 @@ def _forget_season_pacing(user) -> None:
     never touched. Registered on `orwell_engine.on_season_reset`; never raises: a store that fails is logged
     and the rest are still cleared."""
     keys = {user, user or "", _belt_key(user)}
+    _SEASON_GEN[_belt_key(user)] += 1
     try:
         keys.add(_faith_key(user))
     except Exception:
@@ -8078,12 +8085,19 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
     _ledger_tokens: list = []
+    _gen_key = _belt_key(kwargs.get("owner"))
+    _gen0 = _SEASON_GEN.get(_gen_key, 0)
     try:
         async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        if _SEASON_GEN.get(_gen_key, 0) != _gen0:  # ORW-499: a season restarted during this turn; drop any pacing the turn wrote for the old season after the reset
+            try:
+                _forget_season_pacing(kwargs.get("owner"))
+            except Exception:  # failsoft-ok: the reset itself never raises; this is a belt on top
+                logger.debug("ORW-499: end-of-turn pacing clear failed", exc_info=True)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
@@ -8616,6 +8630,7 @@ async def _stream_agent_loop_impl(
     time_to_first_token = None
     first_token_received = False
     tool_events = []   # Persist tool executions for history reload
+    _engine_ledger: list = []  # ORW-482: admin-only engine results of starts the FE forced itself; deliberately NOT tool_events (the belts, the sync ledger and finalize detection read that set)
     round_texts = []   # Cleaned text per round for history reload
     # F-2/F-4: owed chyron — announcements of a beat the FE pre-resolved this turn reach the client whatever
     # the model says (blank, skipped, or contradicting). Consumed once; the client dispatches `orwell:announcements`.
@@ -11627,6 +11642,9 @@ async def _stream_agent_loop_impl(
                                     _CASTING_STALL_LEVEL.pop(owner, None)
                                     _CASTING_SUBSTANCE_LEVEL.pop(owner, None)
                                     _turn_casting_force += 1  # FE forced the season start (finalize fallback)
+                                    _forced_er = _engine_result_for_transcript("createCharacter", _cres)  # ORW-482: leave the engine result in the admin transcript
+                                    if _forced_er is not None:
+                                        _engine_ledger.append({"round": round_num, "tool": "createCharacter", "forced": True, "engine_result": _forced_er})
                                     _note_belt(owner, "casting-finalize-force")  # gap #3 telemetry
                                     logger.info(f"[orwell] FORCED createCharacter (casting stall "
                                                 f"L{_clv}) round {round_num} user={owner}")
@@ -12777,6 +12795,8 @@ async def _stream_agent_loop_impl(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    if _engine_ledger:
+        metrics["engine_ledger"] = _engine_ledger
     if _casting_finalized_this_turn:
         metrics["casting_finalized"] = True  # ORW-481: this casting-stamped reply carries the premiere (the Show Brief may tail it)
     if _turn_owed_announcements:

@@ -17,6 +17,7 @@ keeps its state, and that no per-owner store can be added to the agent loop with
 Roles only; no names.
 """
 
+import asyncio
 import collections
 import importlib
 import os
@@ -210,6 +211,56 @@ def test_season_twos_first_stall_is_not_held_by_season_ones_streak(monkeypatch):
     _stub_engine_create(monkeypatch, {"started": True, "phase": "premiere"})
     _run(orwell_engine.create_character("The Player", confirm_restart=True, user=_PLAYER))
     assert agent_loop._SILENT_FORCE_ADVANCE_STREAK.get(key, 0) < agent_loop._SILENT_FORCE_ADVANCE_CAP
+
+
+# ── ORW-499: a turn that is still running when the season restarts must not write the old season back ── #
+
+def _drive_turn(monkeypatch, owner, restart_mid_turn):
+    """Run the real `stream_agent_loop` wrapper around a stand-in loop body that writes pacing state, restarts the season through the engine's create path (as a model's
+    createCharacter does), then writes MORE old-season pacing from awaited work, as the stall / force-advance paths do."""
+    key = agent_loop._belt_key(owner)
+
+    async def fake_impl(*a, **kw):
+        agent_loop._ADVANCE_STALL_LEVEL[key] = 1
+        if restart_mid_turn:
+            _stub_engine_create(monkeypatch, {"started": True, "phase": "premiere"})
+            await orwell_engine.create_character("The Player", confirm_restart=True, user=owner)
+        await asyncio.sleep(0)
+        agent_loop._ADVANCE_STALL_LEVEL[key] = 4
+        agent_loop._TURNS_SINCE_PROGRESS[key] = 7
+        yield "data: x\n\n"
+
+    monkeypatch.setattr(agent_loop, "_stream_agent_loop_impl", fake_impl)
+
+    async def go():
+        return [e async for e in agent_loop.stream_agent_loop("u", "m", [], owner=owner)]
+    _run(go())
+    return key
+
+
+def test_orw499_a_turn_running_at_season_restart_leaves_no_old_pacing_behind(monkeypatch):
+    key = _drive_turn(monkeypatch, _PLAYER, restart_mid_turn=True)
+    assert key not in agent_loop._ADVANCE_STALL_LEVEL and key not in agent_loop._TURNS_SINCE_PROGRESS
+
+
+def test_orw499_a_turn_with_no_restart_keeps_its_pacing(monkeypatch):
+    key = _drive_turn(monkeypatch, _PLAYER, restart_mid_turn=False)
+    assert agent_loop._ADVANCE_STALL_LEVEL[key] == 4 and agent_loop._TURNS_SINCE_PROGRESS[key] == 7
+
+
+def test_orw499_a_restart_for_another_owner_does_not_clear_this_turn(monkeypatch):
+    key = agent_loop._belt_key(_PLAYER)
+
+    async def fake_impl(*a, **kw):
+        agent_loop._ADVANCE_STALL_LEVEL[key] = 4
+        agent_loop._forget_season_pacing(_OTHER)
+        yield "data: x\n\n"
+    monkeypatch.setattr(agent_loop, "_stream_agent_loop_impl", fake_impl)
+
+    async def go():
+        return [e async for e in agent_loop.stream_agent_loop("u", "m", [], owner=_PLAYER)]
+    _run(go())
+    assert agent_loop._ADVANCE_STALL_LEVEL[key] == 4
 
 
 # ── completeness: a new per-owner store cannot dodge the reset ──────────────────────────────────── #

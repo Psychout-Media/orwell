@@ -66,6 +66,11 @@ _admitting: Dict[str, List[float]] = {}
 # admit_end releases THIS record, oldest first, never a newer admission's live stamp under the same clientMsgId (review of #2854).
 _expired: Dict[str, List[float]] = {}
 _EXPIRED_KEEP_S = 600.0
+# ORW-491: an admission whose turn was handed to the run queue (ws_routes `agent_runs.start(..., queue=True)`) is NOT subject to the TTL: a turn queued behind a long game turn must keep counting
+# until its own stream registers (admit_end) or its run ends without registering (release_admission, from the run task's done-callback: cancelled, deleted, failed before registering).
+# Keyed by a handle id so a late release can never drop another turn's count.
+_queued: Dict[int, str] = {}
+_queued_seq = 0
 _registry_size = 0
 _lock = threading.Lock()
 
@@ -87,7 +92,7 @@ def _total_locked() -> int:
             _expired[k] = keep
         else:
             del _expired[k]
-    return _registry_size + sum(len(v) for v in _admitting.values())
+    return _registry_size + sum(len(v) for v in _admitting.values()) + len(_queued)
 
 
 def admit_begin(token: Optional[str]) -> str:
@@ -111,6 +116,11 @@ def admit_end(token: Optional[str]) -> None:
                 del _expired[token]
             publish_inflight(_total_locked())
             return
+        for hid, tok in _queued.items():   # ORW-491: the oldest queued admission under this token registers first (runs queue FIFO)
+            if tok == token:
+                del _queued[hid]
+                publish_inflight(_total_locked())
+                return
         stamps = _admitting.get(token)
         if not stamps:
             return
@@ -118,6 +128,34 @@ def admit_end(token: Optional[str]) -> None:
         if not stamps:
             del _admitting[token]
         publish_inflight(_total_locked())
+
+
+def pin_admission(token: Optional[str]) -> Optional[int]:
+    """ORW-491: take the admission just made under `token` out of the TTL: it counts until its stream registers or `release_admission(handle)` is called. Returns the handle (None when
+    there is no such admission). Call it synchronously right after handing the turn to the run queue."""
+    global _queued_seq
+    if not token:
+        return None
+    with _lock:
+        stamps = _admitting.get(token)
+        if not stamps:
+            return None
+        stamps.pop()
+        if not stamps:
+            del _admitting[token]
+        _queued_seq += 1
+        _queued[_queued_seq] = token
+        publish_inflight(_total_locked())
+        return _queued_seq
+
+
+def release_admission(handle: Optional[int]) -> None:
+    """ORW-491: the queued run ended. Idempotent: a no-op when the stream already registered (admit_end released it)."""
+    if handle is None:
+        return
+    with _lock:
+        if _queued.pop(handle, None) is not None:
+            publish_inflight(_total_locked())
 
 
 def _admit_cancel(key: str) -> None:

@@ -704,7 +704,11 @@ async def ws_session(websocket: WebSocket) -> None:
                 producer = _turn_stream_factory(d, sock["canonical"], user)
                 # queue-don't-cancel for GAME turns (ADR 0012 / 0064-C) — two windows serialize behind
                 # one canonical run; the result fans out as chat ``event`` frames (not inline on cid).
-                agent_runs.start(sock["canonical"], producer, queue=True)
+                _run = agent_runs.start(sock["canonical"], producer, queue=True)
+                # ORW-491: the turn may sit queued behind a long run; keep it counted (no TTL) until its stream registers, or release it if the run ends first (Stop, session delete, early failure).
+                _handle = _turn_inflight.pin_admission(_tok or cid)
+                if _run.task is not None:
+                    _run.task.add_done_callback(lambda _t, _h=_handle: _turn_inflight.release_admission(_h))
                 session_events.publish(sock["canonical"], "run-started")
                 await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True}})
             except Exception as e:

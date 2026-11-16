@@ -2,6 +2,7 @@
 chars. The full (capped) text goes in an admin-only `engine_result`; the player-facing `output` stays blank for silent tools; the player's history payload never carries it. Roles only."""
 import importlib
 import json
+import os
 
 al = importlib.import_module("src.agent_loop")
 hr = importlib.import_module("routes.history_routes")
@@ -230,3 +231,31 @@ def test_markdown_export_includes_the_admin_engine_results():
         out = atr._render_markdown(row, "owner", [{"role": "assistant", "content": "reply", "metadata": {"tool_events": legacy}}])
         assert "reply" in out and "Engine results" not in out
 
+
+
+# ORW-482: a start the FE forces itself (casting stall ladder) has no model tool call, so no tool event. Its engine result goes in a separate admin-only `engine_ledger` on the turn metadata.
+def test_orw482_the_forced_start_engine_result_is_admin_only_and_exported():
+    from types import SimpleNamespace
+    from core.models import client_metadata_update
+    md = {"model": "m", "tool_events": [], "engine_ledger": [{"round": 1, "tool": "createCharacter", "forced": True, "engine_result": SECRET}]}
+    pub = public_metadata(md)
+    assert "engine_ledger" not in pub and SECRET not in str(pub) and pub["model"] == "m"
+    assert public_metadata({"engine_ledger": [{"engine_result": SECRET}]}) == {}
+    assert md["engine_ledger"][0]["engine_result"] == SECRET  # storage untouched
+    assert "engine_ledger" not in client_metadata_update({"engine_ledger": [{"engine_result": "forged"}], "x": 1})
+    m = ChatMessage("assistant", "reply", metadata=md)
+    assert SECRET not in str(m.to_dict())
+    atr = importlib.import_module("routes.admin_transcript_routes")
+    row = SimpleNamespace(id="s", name="n", created_at=None, updated_at=None)
+    out = atr._render_markdown(row, "owner", [{"role": "assistant", "timestamp": "", "content": "reply", "metadata": md}])
+    assert SECRET in out and "`createCharacter` (round 1)" in out
+
+
+def test_orw482_the_forced_casting_finalize_records_its_result_in_the_ledger_not_in_tool_events():
+    """The forced branch appends to the ledger (the belts keep reading tool_events unchanged) and the final metrics carry it. Source pin: the forced path needs a live model loop to drive."""
+    import re
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src", "agent_loop.py"), encoding="utf-8").read()
+    i = src.index("FE forced the season start (finalize fallback)")
+    seg = src[i:i + 700]
+    assert '_engine_result_for_transcript("createCharacter", _cres)' in seg and "_engine_ledger.append(" in seg and "tool_events.append" not in seg
+    assert re.search(r'if _engine_ledger:\s+metrics\["engine_ledger"\] = _engine_ledger', src)

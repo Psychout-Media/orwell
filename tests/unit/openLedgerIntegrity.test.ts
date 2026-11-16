@@ -33,7 +33,7 @@ describe("openLedgerSuperset covers the whole entry", () => {
 
 describe("restoreOpenLedger rejects malformed optional fields", () => {
   const raw = (e: unknown) => restoreOpenLedger({ nextId: 2, entries: [e] });
-  it.each([["parties {}", { parties: {} }], ["about number", { about: 4 }], ["note number", { note: 1 }], ["status junk", { status: "x" }], ["parties non-string", { parties: [1] }]])(
+  it.each([["parties {}", { parties: {} }], ["about number", { about: 4 }], ["note number", { note: 1 }], ["status junk", { status: "x" }], ["parties non-string", { parties: [1] }], ["negative day (ORW-494)", { day: -1 }], ["fractional day (ORW-494)", { day: 2.5 }]])(
     "%s", (_n, over) => {
       const r = raw({ ...entry(), ...over });
       expect(r.problems).toBe(1);
@@ -51,6 +51,19 @@ describe("restoreOpenLedger rejects malformed optional fields", () => {
     const r = raw(old);
     expect(r.problems).toBe(0);
     expect(r.ledger.entries[0]).toMatchObject({ id: "open:1", status: "open" });
+  });
+});
+
+describe("restoreOpenLedger drops a damaged due flag (ORW-494)", () => {
+  const due = (d: unknown) => restoreOpenLedger({ nextId: 3, entries: [entry(), entry({ id: "open:2", quoteHash: "h2", status: "kept", note: "x", resolvedTurn: 4 })], due: d });
+  it("keeps a good flag, drops one for a missing entry, a resolved entry, or too many offers, and the result still passes the write check", () => {
+    const r = due({ "open:1": { line: "l", offers: 1 }, "open:9": { line: "l", offers: 1 }, "open:2": { line: "l", offers: 1 }, "open:1x": { line: "l", offers: 99 } });
+    expect(r.problems).toBe(0);
+    expect(r.ledger.due).toEqual({ "open:1": { line: "l", offers: 1 } });
+    expect(openLedgerSuperset(r.ledger, r.ledger)).toBe(true);
+  });
+  it("drops an over-bound flag on an open entry", () => {
+    expect(due({ "open:1": { line: "l", offers: 99 } }).ledger.due).toEqual({});
   });
 });
 
