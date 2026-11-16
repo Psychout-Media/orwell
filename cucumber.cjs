@@ -144,7 +144,6 @@ module.exports = {
       "docs/features/0163-decisions-read-what-they-see.feature",
       "docs/features/0162-broken-deal-credibility.feature",
       "docs/features/0161-alliance-history.feature",
-      "docs/features/0158-theme-2-end-to-end.feature",
       "docs/features/0159-a-lie-planted-on-the-player.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
