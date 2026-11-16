@@ -5,6 +5,7 @@ import { GameSessionRegistry, type UserSandbox } from "../../src/composition/reg
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
 import { claimConfidence, type ClaimLog, type SpokenClaim } from "../../src/engine/spokenClaims";
+import { convictionFor } from "../../src/engine/beliefConviction";
 
 /**
  * Feature 0149 - the claims core (theme 2 slice 1, ORW-330). Drives the REAL adapter through a per-user registry sandbox (its own stores and
@@ -78,7 +79,9 @@ Then("the belief's confidence follows how much the listener trusts the speaker",
   const sure = beliefsOf(this, listener!).find((c) => c.kind === "targets-me" && c.subject === subject)!;
   const doubtful = beliefsOf(this, other!).find((c) => c.kind === "targets-me" && c.subject === subject)!;
   assert.ok(sure.confidence > doubtful.confidence, `trusted ${sure.confidence} vs distrusted ${doubtful.confidence}`);
-  assert.equal(sure.confidence, claimConfidence(0.9, false));
+  // 0160 (conviction): the source's confidence, scaled by the listener's own credulity (`convictionFor`); 0.5 credulity leaves it as is.
+  const credulity = (s(this) as unknown as { credulityOf(id: string): number }).credulityOf(listener!);
+  assert.equal(sure.confidence, convictionFor(claimConfidence(0.9, false), credulity));
 });
 
 // ---- Scenario: a false claim plants a false belief, and the engine knows ----

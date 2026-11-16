@@ -127,7 +127,7 @@ export function refuteClaim(
 
 /** Record a heard rumor (an E44 gossip receipt) as a claim with provenance: the holder, the subject, the believed nature, and the edge delta it absorbed. */
 export function recordRumorClaim(
-  store: BeliefStore, r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }, week: number,
+  store: BeliefStore, r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta; source?: EntityId }, week: number,
 ): boolean {
   // One record PER RECEIPT: repeated receipts for the same (holder, subject, week) each moved the edge, so each keeps its own provenance and its own
   // refutation state (a shared id would overwrite the earlier impact — making it unrefutable — and reset `refuted`).
@@ -135,7 +135,7 @@ export function recordRumorClaim(
   const n = (store[r.listener] ?? []).filter((c) => c.id === base || c.id.startsWith(base + "#")).length;
   return recordClaim(store, {
     id: n === 0 ? base : `${base}#${n + 1}`,
-    holder: r.listener, kind: "heard-rumor", subject: r.subject, value: true, origin: "gossip", nature: r.type,
+    holder: r.listener, kind: "heard-rumor", subject: r.subject, value: true, origin: "gossip", nature: r.type, ...(r.source !== undefined ? { source: r.source } : {}),
     confidence: Math.max(0, Math.min(1, r.confidence)), week, impact: r.delta,
   });
 }

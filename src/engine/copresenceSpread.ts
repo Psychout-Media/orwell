@@ -42,7 +42,7 @@ export interface SpreadDeps {
    * B24/B36 - an OBSERVER of each one-hop receipt (the co-presence analogue of the graph path's `onReceipt`): told the listener, the (believed) subject, the nature and the transmitted
    * confidence, so the caller can record a `heard-rumor` belief claim. Read-only: it fires AFTER the transmit, draws no randomness, and moves no edge. Only fired for a fact with a subject.
    */
-  onTold?: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; slipped: boolean }) => void;
+  onTold?: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; slipped: boolean; content: string }) => void;
 }
 
 /**
@@ -124,7 +124,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
           distortion: Math.min(1, Math.max(src.distortion ?? 0, spinDist) + (spinDist > 0 ? 0 : 0)), ...(src.subject !== undefined ? { subject: src.subject } : {}),
         }, `told-by:${holder}`);
         transmitted = true;
-        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip" });
+        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: src.content });
       }
     }
     out.push({ holder, listener, factId: h.factId, decision: told, transmitted });

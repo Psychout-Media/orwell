@@ -298,13 +298,13 @@ def _record_spend(user, data: dict) -> None:
         from src import orwell_token_ledger
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         cost, estimated = usage.get("cost"), False
+        ptd = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+        cached = ptd.get("cached_tokens")
+        if cached is None:
+            cached = usage.get("prompt_cache_hit_tokens")
         if cost is None:
             # ORW-437: DeepSeek's own API returns no dollar cost; estimate it the way llm_core does, never ledger 0.0
             from src.llm_core import _deepseek_cost_estimate
-            ptd = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
-            cached = ptd.get("cached_tokens")
-            if cached is None:
-                cached = usage.get("prompt_cache_hit_tokens")
             cost = _deepseek_cost_estimate(str(data.get("model") or _check_model_id(user)), usage.get("prompt_tokens") or 0,
                                            cached or 0, usage.get("completion_tokens") or 0)
             estimated = cost is not None
@@ -314,7 +314,10 @@ def _record_spend(user, data: dict) -> None:
         orwell_token_ledger.record_turn(
             user, call_class=CHECK_CALL_CLASS,
             input_tokens=usage.get("prompt_tokens") or 0,
+            cached_tokens=cached or 0,
+            cache_miss_tokens=usage.get("prompt_cache_miss_tokens"),
             output_tokens=usage.get("completion_tokens") or 0,
+            call_site="photo-check", model=str(data.get("model") or "") or None,
             cost=cost or 0.0, provider=CHECK_PROVIDER, **extra)
     except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
         pass

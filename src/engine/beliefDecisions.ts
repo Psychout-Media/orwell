@@ -1,6 +1,8 @@
 import type { EntityId } from "../domain/ids";
 import { claimsOf, targetsMeTilt, type BeliefClaim, type BeliefStore } from "./beliefStore";
 import { REASONS } from "./agendaConstants";
+import { CONVICTION } from "./beliefConviction";
+import { THREAT_NATURES } from "./gossipBeliefs";
 
 /**
  * Feature 0150 / ORW-330 (theme 2, slice 2) - BELIEFS DRIVE DECISIONS. What a houseguest BELIEVES about someone (that they are targeting
@@ -22,7 +24,7 @@ export const BELIEF_PULL = {
   /** Weeks for a belief's weight to halve (a stale read fades), as for the targets-me tilt. */
   halfLifeWeeks: 4,
   /** How much each kind of believed grievance counts (a lie told to you, or a rumor that someone is after you, a little less than a direct threat or a vote). */
-  kindWeight: { "targets-me": 1, "voted-against-me": 1, "lied-to-me": 0.8, "going-after-me": 0.8 } as const,
+  kindWeight: { "targets-me": 1, "voted-against-me": 1, "lied-to-me": 0.8, "going-after-me": 0.8, /* ORW-546 (0169): a heard rumor that someone is dangerous - a soft pull, below the revenge bar alone */ "rumored-threat": 0.35 } as const,
   /**
    * The goal-forming bar: a believed grievance this strong (weight x confidence, after decay) can become a revenge goal. 0150 used the remembered
    * grudge's bar (0.6); 0153 (slice 3) raised it to 0.75 to keep the agreed week-1 house mix once NPCs tell each other claims (houseMixGuard,
@@ -40,7 +42,11 @@ export function grievanceOf(c: BeliefClaim, holder: EntityId): GrievanceKind | u
     case "targets-me": return c.object === undefined || c.object === holder ? "targets-me" : undefined;
     case "voted-against-me": return "voted-against-me";
     case "lied-to-me": return "lied-to-me";
-    case "heard-rumor": return c.nature === "going-after" && c.object === holder ? "going-after-me" : undefined;
+    case "heard-rumor":
+      if (c.nature === "going-after" && c.object === holder) return "going-after-me";
+      // ORW-546 (0169): off-screen gossip with a teller (only written under ORWELL_GOSSIP_BELIEFS, so flag-off claims never match) that says its subject is dangerous.
+      if (c.origin === "gossip" && c.source !== undefined && c.nature !== undefined && THREAT_NATURES.has(c.nature)) return "rumored-threat";
+      return undefined;
     default: return undefined;
   }
 }
@@ -48,7 +54,9 @@ export function grievanceOf(c: BeliefClaim, holder: EntityId): GrievanceKind | u
 /** One belief's weight now: kind x confidence x decay. */
 function weightNow(c: BeliefClaim, kind: GrievanceKind, week: number): number {
   const age = Math.max(0, week - c.week);
-  return BELIEF_PULL.kindWeight[kind] * Math.max(0, Math.min(1, c.confidence)) * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
+  // 0160 (conviction): a belief held at or above CONVICTION.asFact is acted on as a fact (full weight); below it, in proportion.
+  const conviction = c.confidence >= CONVICTION.asFact ? 1 : Math.max(0, Math.min(1, c.confidence));
+  return BELIEF_PULL.kindWeight[kind] * conviction * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
 }
 
 /** How strongly `holder` believes they have a grievance against `subject`, 0..1 (several beliefs stack with diminishing returns). */

@@ -7,7 +7,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 import type { Room } from "../../src/domain/house";
 import type { Archetype } from "../../src/engine/characterFactory";
 
-/** ORW-551 / spec 0159 slice 2: the house culture scales the house-life BASELINE of four dials. Roles only. */
+/** ORW-551 / spec 0168 slice 2: the house culture scales the house-life BASELINE of four dials. Roles only. */
 const HOLDER = "npc:1", FRIEND = "npc:4", FOE = "npc:3", AWAY = "npc:6", PARTNER = "npc:7";
 const NONE: HouseCulture = { gossip: 1, conflict: 1, flirting: 1, lying: 1 };
 const cultureOf = (id: LeanId): HouseCulture => {

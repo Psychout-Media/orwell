@@ -113,7 +113,7 @@ export interface AgendaView {
   /** True once the holder's secret has been exposed. */
   secretExposed: boolean;
   /** Open questions the holder has (e.g. "who flipped on me"), with an optional prime suspect. */
-  openQuestions: Array<{ ref: string; suspect?: EntityId }>;
+  openQuestions: Array<{ ref: string; suspect?: EntityId; weight?: number }>; // 0160: a tested belief carries its own (lower) drive; absent = 0.5
   /** Questions now answered (refs). */
   answered: string[];
   /** Times the holder has won HOH or veto this season. */
@@ -304,8 +304,9 @@ function weekCandidates(view: AgendaView, board: AgendaBoard, agenda: Agenda): C
   // Find out: an open question the holder has (who flipped, who told).
   for (const q of view.openQuestions) {
     if (view.answered.includes(q.ref)) continue;
-    out.push({ horizon: "week", kind: "find-out", ...(q.suspect !== undefined ? { target: q.suspect } : {}), weight: 0.5,
-      test: { kind: "question-answered", ref: q.ref }, why: [{ kind: "question", ref: q.ref, ...(q.suspect !== undefined ? { about: q.suspect } : {}), weight: 0.5 }] });
+    const w = q.weight ?? 0.5;
+    out.push({ horizon: "week", kind: "find-out", ...(q.suspect !== undefined ? { target: q.suspect } : {}), weight: w,
+      test: { kind: "question-answered", ref: q.ref }, why: [{ kind: "question", ref: q.ref, ...(q.suspect !== undefined ? { about: q.suspect } : {}), weight: w }] });
   }
   return out;
 }
