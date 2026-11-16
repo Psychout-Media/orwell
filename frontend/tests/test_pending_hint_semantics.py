@@ -62,3 +62,11 @@ def test_comp_round_pending_kind_is_a_real_engine_kind():
     # The specific kind the once-only ruling is about must exist in the engine (belt-and-suspenders
     # with the general test above, and a clear failure if `comp-round` is ever renamed engine-side).
     assert "comp-round" in _engine_pending_kinds()
+
+
+def test_comp_round_hint_answers_a_non_answer_with_a_short_waiting_line():
+    """ORW-543: 'next' on an open approach card must not re-narrate the scene; the hint says so and
+    keeps the once-only ruling (no new engine content: the card choices are the closed set)."""
+    hint = chat_helpers._PENDING_KIND_HINTS["comp-round"]
+    assert "non-answer" in hint and "never a re-narrated scene" in hint
+    assert "not a fresh choice each round" in hint.lower()

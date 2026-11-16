@@ -12,7 +12,7 @@
  * ordinary 0002 belief — never the sealed `nature`, never a banner.
  *
  * CALIBRATION (sacred — mandate #4): every roll the scheduler makes is on a DEDICATED rng (never the
- * shared society/competition/vote stream), and the whole scheduler is OPT-IN behind a default-OFF flag
+ * shared society/competition/vote stream), and the whole scheduler is behind a default-ON flag (`=0` opts out)
  * (`ORWELL_SEEDED_TIE_SURFACING`). With the flag off — the default, and the state the seeded juryReach /
  * gradient / UAT sims run in — `advanceSeededTies` returns immediately, drawing nothing and folding
  * nothing, so the off-screen draw count/order and every seeded outcome are BYTE-IDENTICAL to the
