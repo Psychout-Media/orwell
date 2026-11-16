@@ -2170,7 +2170,7 @@ def _nap_applied(result) -> bool:
 
 _NAP_DIRECT_NOTE = (
     "(Production note, not for the player.) The player took a nap and the game has just run it: the nap result above is what the game shows. Voice them waking ONLY from that result and the WHILE YOU SLEPT line "
-    "below; never invent what happened elsewhere in the house, and do not call nap again.")
+    "below; never invent what happened elsewhere in the house, and do not call nap again. If the result shows the nap ended early (wokenBy) or that line says it was cut short, voice that: how long they actually slept and what woke them.")
 
 
 def _note_belt(owner, belt: str, n: int = 1) -> None:

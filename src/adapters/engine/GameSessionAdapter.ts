@@ -982,6 +982,15 @@ const AGENDA_BEAT_TRIGGER: Partial<Record<string, AgendaTrigger>> = {
   "hoh-competition": "comp-result", "veto-competition": "comp-result",
 };
 
+/** ORW-477: a nap span in plain words ("about 20 minutes", "about an hour", "about 2 hours"), for the narrator's wake-up read. */
+function napSpanWords(hours: number): string {
+  const mins = Math.max(1, Math.round(hours * 60 / 5) * 5);
+  if (mins < 60) return `${mins} minutes`;
+  if (mins === 60) return "an hour";
+  if (mins === 90) return "an hour and a half";
+  return mins % 60 === 0 ? `${mins / 60} hours` : `${Math.floor(mins / 60)} hours ${mins % 60} minutes`;
+}
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -12318,7 +12327,7 @@ export class GameSessionAdapter implements GameSession {
       const endHour = live.nightDepth ?? startHour;
       const sleptHours = Math.round((endHour - startHour) * 1000) / 1000;
       live.napHoursToday = Math.round(((live.napHoursToday ?? 0) + sleptHours) * 1000) / 1000;
-      live.napWake = { room: dest, before: inRoom, startHour, endHour, ...(wokenBy ? { wokenBy } : {}) };
+      live.napWake = { room: dest, before: inRoom, startHour, endHour, ...(wokenBy ? { wokenBy, askedHours: hours } : {}) };
       this.napPendingHours += sleptHours;
       this.hangOutSkipStepAt = undefined;
       // Seen napping: each houseguest in the room witnesses a public fact; each reads it through their own character (a small bounded fold; easygoing types barely react).
@@ -12331,7 +12340,7 @@ export class GameSessionAdapter implements GameSession {
         }
       }
       this.persist();
-      return { ok: true, slept: sleptHours, ...(wokenBy ? { wokenBy } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
+      return { ok: true, slept: sleptHours, ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
     }));
   }
 
@@ -12363,6 +12372,11 @@ export class GameSessionAdapter implements GameSession {
     const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
     const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
     const parts = [`You just woke from a nap in the ${here.replace(/-/g, " ")}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
+    // ORW-477: a nap cut short says so: how much was slept against how much was meant, and what cut it (the clock moved by the slept part only).
+    const sleptH = nw.endHour - nw.startHour;
+    if (nw.wokenBy && nw.askedHours !== undefined && sleptH < nw.askedHours - 0.05) {
+      parts.push(`The nap was cut short: you slept about ${napSpanWords(sleptH)} of the ${napSpanWords(nw.askedHours)} you meant to, ${nw.wokenBy === "event" ? "woken for the event production called" : "because the day had run into the evening"}.`);
+    }
     parts.push(now.length ? `In the room now: ${now.map((id) => this.nameOf(id)).join(", ")}.` : "Nobody else is in the room.");
     if (came.length) parts.push(`Came in while you slept: ${came.join(", ")}.`);
     if (went.length) parts.push(`Left while you slept: ${went.join(", ")}.`);
