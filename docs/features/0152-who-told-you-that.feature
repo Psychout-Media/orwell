@@ -8,6 +8,9 @@
 
 Feature: Who told you that? - a houseguest names their source or protects it
 
+  Background:
+    Given a started season with who-told-you on
+
   Scenario: "Who told you that?" - the houseguest names their source or protects it
     Given an NPC told the player a claim they heard from a second NPC
     When the player asks who told them

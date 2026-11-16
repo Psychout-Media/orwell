@@ -323,6 +323,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
+import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
@@ -5429,6 +5430,7 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
+    if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
@@ -5770,6 +5772,40 @@ export class GameSessionAdapter implements GameSession {
   /** The move-in pick itself: the premiere, or any time before the player owns a bed. The narrator's BEDS line runs every turn only here; after it, only on a turn the player's words touched a bed. */
   private moveInPickOpen(beds: BedsState): boolean {
     return this.phase === "premiere" || !beds.owner[PLAYER];
+  }
+
+  /** 0152: this turn's answer to "who told you that?", for the narrator (one engine-truth line). Memory-only, replaced by the next `resolvePlayerMove`. */
+  private claimSourceNote: string | null = null;
+
+  /**
+   * 0152 (theme 2 slice 4b): the player asks who told a houseguest what they just passed on. The rules live in `engine/claimSource.ts`; this is the thin hook. Only a claim TOLD TO the player by a houseguest
+   * in the player's room (and awake) can be asked about; the houseguest's recorded belief names the source (or says they saw it); the engine decides name / protect. A NAMED source reaches the player as
+   * `told-by:<houseguest>` knowledge (as askJuror does). Changes no relationship, belief or claim. Returns true when the player learned something new.
+   */
+  private resolveWhoToldYou(text: string): boolean {
+    this.claimSourceNote = null;
+    if (!this.house || !this.presence || !this.live?.claims || !parseWhoToldYou(text)) return false;
+    const here = this.presence.get(this.house.player.id);
+    if (here === undefined) return false;
+    const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
+    for (const claim of askableClaims(this.live.claims.items, present)) {
+      const held = heldBeliefFor(this.live.beliefs, claim);
+      if (!held) continue;
+      const answer = decideSourceAnswer({
+        seed: this.gameSeed ?? 0, holder: claim.speaker, claimId: claim.id, origin: held.origin, source: held.source,
+        sourceAffinity: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).affinity : 0.5,
+        sourceTrust: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).trust : 0.5,
+        playerTrust: this.rel.edge(claim.speaker, PLAYER).trust,
+      });
+      if (!answer) continue;
+      const holderName = this.nameOf(claim.speaker);
+      this.claimSourceNote = sourceNote(answer, holderName, held.source !== undefined ? this.nameOf(held.source) : undefined);
+      if (answer !== "name" || held.source === undefined || held.source === PLAYER || !this.onConfide) return false;
+      const content = namedSourceContent(holderName, this.nameOf(held.source), claimPhrase(claim, (id) => this.nameOf(id), this.nameOf(PLAYER)));
+      if ((this.playerKnowledgeReader?.() ?? []).some((k) => k.content === content)) return false; // already learned: asking again adds nothing
+      return this.onConfide(claim.speaker, content, 0.7);
+    }
+    return false;
   }
 
   /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
@@ -15289,7 +15325,8 @@ export class GameSessionAdapter implements GameSession {
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
-    const view = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
