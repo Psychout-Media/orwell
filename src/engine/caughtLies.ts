@@ -15,7 +15,7 @@ type MutableEdge = { trust: number; affinity: number; threat: number };
  */
 export const CAUGHT_LIE = {
   /** The public count makes the claim impossible. */
-  impossible: 0.9,
+  impossible: 0.97, // a certainty (a public count rules the claim out): clears the 0150 revenge bar (0.75) at the lied-to-me weight 0.8
   /** Two claims by one speaker to one listener cannot both be true. */
   contradiction: 0.8,
 } as const;

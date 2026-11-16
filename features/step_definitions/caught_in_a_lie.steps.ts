@@ -1,3 +1,4 @@
+import { CAUGHT_LIE } from "../../src/engine/caughtLies";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -108,8 +109,8 @@ Given("told the same houseguest that the second is going after the third", funct
 
 Given("a houseguest has caught an NPC lying about something that cost them", function () {
   const b = init(this);
-  b.s!.recordAssurance({ from: b.speaker!, to: b.listener!, kind: "safe", sincerity: 0.5, source: "npc" });
-  b.s!.assuranceNominated(b.speaker!, b.listener!);   // the assurance broke: nominated after "you're safe"
+  // a CERTAIN catch (the public count ruled the claim out): strong enough to clear the revenge bar. (A broken casual assurance is written at 0.8, a milder lie that no longer forms a revenge goal by itself.)
+  (b.s as unknown as { catchLie(i: { holder: string; liar: string; confidence: number }): void }).catchLie({ holder: b.listener!, liar: b.speaker!, confidence: CAUGHT_LIE.impossible });
   assert.equal(lied(this, b.listener!, b.speaker!).length, 1, "the lie was not caught");
 });
 Then("the houseguest can take up a goal against that NPC, with the caught lie as its reason", function () {
