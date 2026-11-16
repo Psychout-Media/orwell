@@ -1574,19 +1574,10 @@ export class GameSessionAdapter implements GameSession {
   setClaimsToPlayerEnabled(on: boolean): void { this.claimsToPlayerEnabled = on; }
   private claimsToPlayerDecided = new Map<EntityId, { epoch: number; tells?: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> }>();
   private claimsToPlayerAttempts = new Map<string, number>();
-  /** The engine's own check of whether a believed thing is TRUE (never handed outward). going-after / targets-me: the subject holds an active get-them-out goal on the object; final-two: an open final-two deal binds
-   *  both; lying: the claim log holds a lie from the subject to the object; talking-about: the cheapest honest read, the subject trusts the object little (< 0.4). */
+  /** The engine's own check of whether a believed thing is TRUE (never handed outward): the ONE truth rule, slice 3's `truthOf` over `truthFacts()` (review by the claims-core owner: slice 4 used its own cheaper reads before). */
   private believedThingIsTrue(b: SayableBelief): boolean {
-    const live = this.live;
-    if (!live) return false;
-    switch (b.kind) {
-      case "going-after": return (live.agendas?.[b.subject]?.goals ?? []).some((g) => g.status === "active" && g.kind === "get-them-out" && g.target === b.object);
-      case "final-two-with": return this.deals.open().some((d) => d.kind === "final-two" && d.parties.includes(b.subject) && b.object !== undefined && d.parties.includes(b.object));
-      case "lying-about": return (live.claims?.items ?? []).some((c) => !c.isTrue && c.speaker === b.subject && c.listener === b.object);
-      case "talking-about": return b.object !== undefined && this.rel.edge(b.subject, b.object).trust < 0.4;
-      case "voted-against": case "voted-to-keep": return b.object !== undefined && truthOf({ kind: b.kind, listener: PLAYER, subject: b.subject, object: b.object }, this.truthFacts()); // the recorded ballot (engine truth, never shown)
-      default: return false;
-    }
+    if (!this.live) return false;
+    return truthOf({ kind: b.kind, listener: PLAYER, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}) }, this.truthFacts());
   }
   /**
    * 0156 / ORW-330 (theme 2, slice 7a) - HOUSE MEETINGS (`houseMeeting.ts` holds the rules). `caller` accuses `accused` (an NPC; the claim is about them) in front of the awake house: the accusation is `tellClaim`ed from the
