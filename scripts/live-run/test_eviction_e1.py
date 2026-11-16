@@ -83,3 +83,28 @@ def test_live_short_refuses_both_eviction_drivers_at_once():
     here = os.path.dirname(os.path.abspath(__file__))
     r = subprocess.run([sys.executable, os.path.join(here, "live_short.py"), "--run-dir", "/nonexistent", "--eviction", "--crossover"], capture_output=True, text=True)
     assert r.returncode == 2 and "pick one" in r.stderr
+
+
+def test_a_card_on_eviction_night_is_answered_through_the_weeks_own_card_turn(monkeypatch):
+    """Live finding (ORW-506 E-1 run): the card branch crashed on a bare int; it must go through live_week's card_turn."""
+    answered = []
+
+    class _W:
+        def __init__(self, *a, **k): self.name_fn = None
+        def card_turn(self): answered.append(1); return {"label_extra": "pick 1"}
+
+    cards = iter([{"kind": "vote"}, None, None, None, None, None, None, None])
+
+    class _P:
+        def evaluate(self, js, *a): return next(cards, None)
+
+    class _C:
+        page, base = _P(), "http://x"
+
+    import sys, types
+    fake = types.ModuleType("live_week"); fake.Week = _W; fake.CARD = "() => card"
+    monkeypatch.setitem(sys.modules, "live_week", fake)
+    checks = []
+    eng = _Eng(["eviction"])
+    ev.run(eng, lambda l, t: None, lambda cid, ok, d, sev="fail": checks.append((cid, ok, sev)), _C(), 2)
+    assert answered == [1] and ("E3-card-answered[1]", True, "note") in checks

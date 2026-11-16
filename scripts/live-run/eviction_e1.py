@@ -78,10 +78,8 @@ def run(eng, play, check, chat, turns=DEFAULT_TURNS):
             break
         c = chat.page.evaluate(CARD)
         if c:
-            t0 = time.time(); n0 = len(chat.page.evaluate("() => document.querySelectorAll('#chat-history .msg-ai').length"))
-            label = week.answer_card(c); cards += 1
-            week.wait_new(n0, t0, limit=180)
-            check(f"E3-card-answered[{cards}]", True, label, "note")
+            r = week.card_turn(); cards += 1   # live_week's own card answer + wait (the bubble count is the page's BUB list, never a bare number)
+            check(f"E3-card-answered[{cards}]", True, str((r or {}).get("label_extra", "card")), "note")
             continue
         if played >= turns:
             break
