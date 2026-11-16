@@ -264,6 +264,7 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { decideVoteTalk, voteTalkCunning } from "../../engine/voteTalk";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
 import { roomLabel, themedRoomAliases } from "../../engine/roomLabels";
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
@@ -1440,6 +1441,57 @@ export class GameSessionAdapter implements GameSession {
       roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
     });
     return said ? this.tellClaim(said) : undefined;
+  }
+  /**
+   * 0154 / ORW-330 slice 5b - LYING ABOUT YOUR VOTE. Once an eviction is over (the count is public, the ballots are not) each NPC voter may tell ONE other NPC how they voted: true or not, decided by the engine
+   * from the speaker's real ballot (read here, never handed out), cunning/candor and need, on its own `${seed}:vote-talk` side stream. Told as a claim (`tellClaim`, the listener's belief is the speaker's word).
+   * At most one per speaker per eviction (`votesTalked`). `ORWELL_VOTE_TALK`; OFF => byte-identical (no draws, no claims).
+   */
+  private voteTalkEnabled = flagDefaultOn("ORWELL_VOTE_TALK");
+  setVoteTalkEnabled(on: boolean): void { this.voteTalkEnabled = on; }
+  private votesTalked = new Set<string>();
+  /** Tell the vote claims for the latest recorded eviction. Returns the claims told (engine-side; tests read them). */
+  private talkAboutTheVote(): SpokenClaim[] {
+    const live = this.live;
+    const rec = live?.voteRecord?.[live.voteRecord.length - 1];
+    if (!this.voteTalkEnabled || !live || !rec || !this.npcBeliefsEnabled) return [];
+    const key = `${rec.week}:${rec.evictee}`;
+    if (this.votesTalked.has(key)) return [];
+    this.votesTalked.add(key);
+    const digest = (live.weekDigests ?? []).filter((d) => d.week === rec.week && d.evictee === rec.evictee).pop();
+    const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
+    const living = this.livingIds().filter((id) => id !== PLAYER);
+    const out: SpokenClaim[] = [];
+    const log = (live.claims ??= { seq: 0, items: [] });
+    for (const speaker of Object.keys(rec.voteOf).sort()) {
+      if (speaker === PLAYER || !living.includes(speaker)) continue;
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:vote-talk:${rec.week}:${rec.evictee}:${speaker}`));
+      const character = this.agendaCharacterOf(speaker);
+      const said = decideVoteTalk({
+        speaker, candidates: living, real: rec.voteOf[speaker]!, nominees,
+        cunning: voteTalkCunning(character?.archetype),
+        candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0))),
+        likes: (listener, of) => Math.max(0, Math.min(1, this.rel.edge(listener, of).affinity)),
+        rolls: { tell: rng.next(), pick: rng.next(), lie: rng.next() },
+      });
+      if (!said) continue;
+      // The evictee has just left the house, so the claim is told against the house as it stood at the vote.
+      const told = this.tellClaimIn(said.claim, [...living, ...nominees.filter((n) => !living.includes(n))]);
+      if (told) out.push(told);
+    }
+    if (log.items.length === 0) delete live.claims;
+    return out;
+  }
+  /** `tellClaim` against an explicit house (vote talk names the evictee, who has already left `livingIds()`). */
+  private tellClaimIn(input: ClaimInput, living: readonly EntityId[]): SpokenClaim | undefined {
+    const live = this.live!;
+    const log = (live.claims ??= { seq: 0, items: [] });
+    const beliefs = this.npcBeliefsEnabled ? (live.beliefs ??= {}) : undefined;
+    return tellClaim(log, beliefs, input, {
+      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
+      trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
+      credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
+    });
   }
   /** 0153 / ORW-330 slice 3: the engine's truth for checking a claim - goals, recorded ballots, open final-two deals, the claim log. Engine-only reads. */
   private truthFacts(): TruthFacts {
@@ -13908,6 +13960,7 @@ export class GameSessionAdapter implements GameSession {
     if (ev && ev.beat === "eviction-result") {
       this.rel.decay(RELATIONSHIP_CONSTANTS.DECAY_RATE);
       this.deals.expireWeekScoped(this.live?.week ?? 0);
+      this.talkAboutTheVote(); // 0154 slice 5b: after the eviction the voters may tell each other how they voted (flag-gated, own seeded stream)
     }
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
     // `ev` + the now-committed `this.live` (every read/mutation above this line is either read-only
