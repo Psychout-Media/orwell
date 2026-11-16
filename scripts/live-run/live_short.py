@@ -85,7 +85,18 @@ class Engine:
             h, _ = self.hour()
             if h is None or h >= 24 or n > 700: break
             self.call("noteMessage", {"messageId": f"{tag}-{n}"}); n += 1
-        self.call("turnIn"); self.call("noteMessage", {"messageId": f"{tag}-wake"})
+        # ORW-446: a goodnight is HELD while a staged ceremony is open (reason "ceremony"): finish the ceremony (advance its watch steps, answer its card) and go to bed again.
+        for k in range(30):
+            r = self.call("turnIn") or {}
+            h = r.get("held")
+            if not (isinstance(h, dict) and h.get("reason") == "ceremony"): break
+            a = self.call("advanceGame") or {}
+            p = a.get("pending")
+            if p and p.get("kind") != "ceremony-step":
+                o = [x.get("id") for x in (p.get("options") or [])]
+                try: self.call("submitDecision", {"kind": p.get("kind"), "choice": o[:2] if p.get("kind") == "nominations" else (o[0] if o else None), "use": False, "intent": "compete", "vote": o[0] if o else "a"})
+                except RuntimeError: pass
+        self.call("noteMessage", {"messageId": f"{tag}-wake"})
 
     def tick_to_night(self, tag):
         """Let the evening pass with the engine's own message ticks until the NIGHT period (a player may not go to bed earlier)."""
@@ -157,7 +168,8 @@ class Chat:
             self.page.wait_for_timeout(2000)
             bs = self.page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
             busy = self.page.evaluate(BUSY_JS)
-            stable = stable + 1 if (sig == prev and not busy) else 0
+            arrived = len(bs) > before  # a reply that has not started yet (the casting finalize builds the whole season first) is not "settled"
+            stable = stable + 1 if (sig == prev and not busy and arrived) else 0
             prev = sig
             if stable >= 3: break
         bs = self.page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
@@ -193,7 +205,23 @@ def crossover(eng, play, check, chat):
     check("W2-week-chapter-at-the-bed", chat.page.evaluate("!!document.querySelector('.ow-week-card')"), "a Week recap card is on the page after the bed after eviction")
     last = evicted[-1] if evicted else None
     check("N4-the-bed-voices-the-day", bool(last) and last.split()[0] in bed["text"], f"the bed reply names the evicted houseguest ({last}) as part of the day in review", "warn")
+    # T17 (0102 / ORW-382): the turnIn the narrator made at the bed closed the day and materialized its day-in-review; the engine re-reads it with dailyRecap.
+    # Eviction night is a day the player witnessed (the vote, the goodbye, the evening turns above), so an empty recap is a FAIL.
+    rec = eng.call("dailyRecap") or {}
+    items = [x for k in ("highlights", "surfaced", "yourDay") for x in (rec.get(k) or [])] if isinstance(rec, dict) else []
+    check("T17-a-recap-every-bedtime", bool(items), f"dailyRecap after the bed: day {rec.get('day') if isinstance(rec, dict) else None}, {len(items)} item(s) (highlights / surfaced / yourDay); the closed day was Day {day0}, with the eviction and {len(CROSS_EVENING)} evening scenes witnessed")
+    if isinstance(rec, dict) and rec.get("day") is not None and rec.get("day") != day0: check("T17-the-recap-is-the-closed-day", False, f"dailyRecap is for Day {rec.get('day')}, the bed closed Day {day0}", "warn")
+    bed["recap"] = rec
     for i, line in enumerate(CROSS_MORNING): play(f"cross-morning-{i + 1}", line)
+    # T19 (ORW-418/419): the engine moves the player FIRST, from the player's own words, before the narrator runs. Walk somewhere the player is not.
+    here = (eng.call("getGameState").get("whereabouts") or {}).get("room")
+    dest, words = ("living-room", "I walk to the living room.") if here == "kitchen" else ("kitchen", "I walk to the kitchen.")
+    play("cross-walk", words)
+    st = eng.call("getGameState"); w = st.get("whereabouts") or {}; mv = st.get("playerMove") or {}
+    if w.get("room") != dest and isinstance(mv, dict) and mv.get("refused"):
+        check("T19-the-engine-moves-the-player-first", False, f"{words!r}: the engine refused the move ({mv.get('reason')!r}); player in {w.get('room')!r}", "warn")
+    else:
+        check("T19-the-engine-moves-the-player-first", w.get("room") == dest, f"{words!r} from {here!r}: engine has the player in {w.get('room')!r} (playerMove {mv!r})")
     st = eng.call("getGameState"); ds = st.get("daySchedule") or {}
     check("W3-hoh-next-in-the-afternoon", ds.get("next") == "hoh-competition" and ds.get("phase") == "afternoon", f"schedule next {ds.get('next')!r} at {ds.get('phase')!r} on {st.get('clockLabel')}")
     hdr = chat.page.evaluate("(() => { const s = [...document.querySelectorAll('#chat-history .role-timestamp-moment')].pop(); return s ? s.textContent : ''; })()")
@@ -276,7 +304,9 @@ def main():
         t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"], "finalized": r.get("finalized"),
              "room_start": room_of(st0), "room_end": sorted(set(room_of(st)) | set(ent.get("arrivedNames") or [])), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
              "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
-             "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder")}
+             "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder"),
+             # T16 (ORW-376): the engine's headcounts, the player included, at the start and end of the turn (an eviction inside a reply changes the house)
+             "counts_start": (st0.get("whereabouts") or {}).get("counts"), "counts": (st.get("whereabouts") or {}).get("counts")}
         t["harness_jump"] = eng.jumps; eng.jumps = 0
         turns.append(t); return t
 
@@ -326,6 +356,33 @@ def main():
 ZERO_CLOCK_RE = re.compile(r"(?i)\b\d{1,2}:\d{2}\b|\b\d{1,2}\s?(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d{1,2})\s+o'?clock\b|\b(?:at|by|until|till|past|after|before|around)\s+(?:noon|midnight)\b|\bit(?:'s| is)\s+(?:almost |nearly |just |about )?(?:noon|midnight)\b|\b(?:noon|midnight)\s+sharp\b")
 NAP_MSG_RE = re.compile(r"(?i)\b(?:take|taking|have|grab) (?:a |an )?(?:nap|lie[- ]down|rest)\b")
 BED_MSG_RE = re.compile(r"(?i)\b(go(?:ing)? to (?:bed|sleep)|turn(?:ing)? in|head to my bunk|goodnight|good night)\b")
+
+
+_NUMW = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
+_NUM = r"(\d{1,2}|" + "|".join(sorted(_NUMW, key=len, reverse=True)) + r")"
+# the whole house named outright: "N of us left / still in the house", "N houseguests remain", "all N of us"
+_HC_HOUSE_RE = re.compile(r"(?i)\b(all\s+(?:the\s+)?)?" + _NUM + r"\s+(of us|houseguests|people|players)\b(?=(\s+(?:are\s+|were\s+)?(?:left|remain\w*|still\s+(?:here|standing|in\s+(?:the|this)\s+(?:house|game))|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)\b)?)")
+# a place right after the number is a ROOM count ("the four of us at the table"), never a house total
+_HC_PLACE_RE = re.compile(r"(?i)^\s*(?:at|around|on|by|near|in|inside|out|outside|over|crammed|squeezed|huddled|sitting|sat|left\s+(?:at|in|on|by))\b")
+_HC_WORLD_RE = re.compile(r"(?i)^\s*(?:left|remain\w*|still|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)")
+
+
+def headcount_claims(text):
+    """T16: the house-total claims in a reply as (severity, number, the words, named-the-house-outright). FAIL when the claim names the whole house ("all N of us", "N houseguests left",
+    "N of us in the house"); WARN for an unqualified "N of us" (it may be the room); nothing for a room count ("the four of us at the table"), a houseguest
+    count without a house word ("16 houseguests walked in" may be the season's cast), or any other number."""
+    out = []
+    for m in _HC_HOUSE_RE.finditer(text or ""):
+        raw, noun, house_words = m.group(2).lower(), m.group(3).lower(), m.group(4)
+        n = int(raw) if raw.isdigit() else _NUMW[raw]
+        rest = text[m.end():m.end() + 30]
+        if house_words: sev = "fail"
+        elif _HC_PLACE_RE.match(rest) and not _HC_WORLD_RE.match(rest): continue
+        elif m.group(1) and noun in ("of us", "houseguests"): sev = "fail"
+        elif noun == "of us" and n >= 5: sev = "warn"  # "the two of us" / "the three of us" is a pair or a huddle, never a house total
+        else: continue
+        out.append((sev, n, m.group(0).strip() + (house_words or ""), bool(house_words)))
+    return out
 
 
 def draw_voiced(text):
@@ -435,6 +492,14 @@ def score(turns, checks, check, turn_limit):
         if not ok_names and not t.get("room_end"): continue
         bad = sorted({n for n in SPEAKER_RE.findall(t["text"]) if n.lower() not in ok_names and not any(n.lower() == x or n.split()[0].lower() == x.split()[0] for x in ok_names)})
         check(f"C6-speakers-in-room[{t['label']}]", not bad, f"spoke in the player's room but the engine has them elsewhere: {bad}" if bad else "every speaker is in the room")
+    # T16 (Ryne, ORW-376): a stated house total counts the player.
+    for t in turns:
+        for sev, n, said, explicit in headcount_claims(t["text"]):
+            truth = {c.get("house") for c in (t.get("counts_start"), t.get("counts")) if isinstance(c, dict) and isinstance(c.get("house"), int)}
+            if not truth: continue
+            rooms = {c.get("room") for c in (t.get("counts_start"), t.get("counts")) if isinstance(c, dict)}
+            if n in truth or (not explicit and n in rooms): continue  # "all N of us" / "N of us" said in a room of N is the room's own "all of us" (headcountLines)
+            check(f"T16-headcount-includes-the-player[{t['label']}]", False, f"reply says {said!r}; the engine has {sorted(truth)} in the house (the player included), {sorted(r for r in rooms if r is not None)} in the room", sev)
     held = [t for t in turns if t["label"].startswith("veto-morning") and t["phase"] == "veto-competition" and (t["ds"] or {}).get("due") is False]
     for t in held:
         m = COMP_PLAY_RE.search(t["text"])
@@ -445,10 +510,11 @@ def score(turns, checks, check, turn_limit):
 
 # The vault note "Live Run Pass Bar" (the Auditor's) numbers the checks; the short tier's own ids map onto it here.
 BAR_MAP = [("T1 real scene", {"T2", "T2b"}), ("T5 message answered", {"T1"}), ("T6 no machinery", {"T3"}), ("T9 time is honest", {"K1", "D1", "C3"}),
-           ("T12 every houseguest toasts", {"T12"}), ("T13 zero clocks", {"T13"}), ("run level: reaches its end", {"G1", "G2"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
+           ("T12 every houseguest toasts", {"T12"}), ("T13 zero clocks", {"T13"}), ("T16 headcounts include the player", {"T16"}),
+           ("T17 a recap every bedtime (crossover)", {"T17", "N4"}), ("T19 the engine moves the player first (crossover)", {"T19"}), ("run level: reaches its end", {"G1", "G2"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
 NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden information, T8 choices through the card, T10 invented confession: read by hand from the transcript",
                "T15 the awake list, T18 naps, T20 early sleepers wake alone: need the full week or the widget",
-               "T16 headcounts, T17 a recap every bedtime, T19 the engine moves the player first: not automated in the short tier yet",
+               "T17 and T19 run only with --crossover",
                "eviction night and the finale: the short tier stops at the Week 1 veto morning"]
 NOT_COVERED_CROSSOVER = "the finale and everything after Week 2's start: a `--crossover` run plays on through Week 1's eviction night into Week 2, no further"
 

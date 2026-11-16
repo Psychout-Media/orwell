@@ -73,6 +73,9 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | T5 | A reply slower than 240 s | FAIL |
 | T12 | Every houseguest gives their champagne toast before the premiere ends (Ryne, ORW-368; the bar's T12) | FAIL |
 | T13 | Zero clocks: no reply names a clock time ("8:15", "9 am", "ten o'clock"); parts of the day only; the bubble's header stamp is ignored (Ryne, ORW-377; the bar's T13) | FAIL |
+| T16 | Headcounts include the player (Ryne, ORW-376): a reply's house total ("16 of us", "fifteen houseguests left", "all 14 of us") must equal the engine's `whereabouts.counts.house` (player included) at the start or end of the turn. A claim that names the whole house is FAIL; an unqualified "N of us" (N >= 5) that is neither the house nor the room count is WARN; room counts ("the four of us at the table"), small huddles and a houseguest count with no house word are never flagged | FAIL / WARN |
+| T17 | A recap every bedtime (0102, ORW-382), `--crossover` only: after the eviction-night bed, the engine's `dailyRecap` (materialized by the narrator's turnIn) has at least one highlight / surfaced / yourDay item (WARN when it is for another day than the one closed); the bed reply naming the evictee is N4 (WARN) | FAIL |
+| T19 | The engine moves the player first (ORW-418/419), `--crossover` only: after "I walk to the kitchen." on the Week 2 morning (the living room if already in the kitchen) the engine has the player in that room; a move the engine refused in fiction (`playerMove.refused`) is WARN | FAIL |
 | C1 | While the engine says the veto competition is not due, no reply narrates competition play (apparatus, rounds, eliminations, a winner) | FAIL |
 | C2 | A veto-morning reply voices the draw | FAIL |
 | C3 | A clock the reply states matches the engine's clock (within an hour) | WARN |
