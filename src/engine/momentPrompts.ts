@@ -1789,10 +1789,11 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
         byNominee.set(b.votedFor.id, cur);
       }
       const tally = [...byNominee.values()].sort((a, b) => b.n - a.n);
-      lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
+      // review of ORW-358: a staged reveal hands over a PARTIAL set of ballots, so a count is only a fact once the result is committed.
+      if (ev?.evictee) lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
-        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
+        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee and state no count or tally (the engine hands you none until the result is committed).");
     }
   }
   return lines;
@@ -2067,7 +2068,7 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
       if ((c?.veto?.players?.length ?? 0) === 0) {
         return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
       }
-      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due) {
+      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due && view.whereabouts?.houseEvent?.kind !== "veto-competition") { // review of ORW-252: a staged comp already running on the house event has started
         // ORW-252: the draw is done but the competition is NOT due - the house waits for its hour. The competition fragment (venue, rounds) must not ride along, or the narrator plays the comp ahead of the engine.
         return { replace: true, note: "MOMENT NOTE - the veto competition has NOT started: the game has drawn the six players, but the competition is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: the players, the nominees and everyone else talk, scheme and kill time; the competition begins only when the game runs it." };
       }
