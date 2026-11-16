@@ -161,3 +161,10 @@ def test_dev_watch_records_an_in_flight_verdict_and_keeps_its_period():
     assert "trap 'STOP=1' TERM INT" in src and 'wait "$child"' in src and "left=$(( POLL - (" in src
     assert "watch.log" in src and "watch-<slot>.log" in src
     assert _sh(f'bash -n "{LIVE}/dev_watch.sh" && bash -n "{LIVE}/run_short.sh" && bash -n "{LIVE}/short_lib.sh"').returncode == 0
+
+
+def test_review_followups_the_live_run_scripts_clean_up_lock_and_record_only_a_real_run():
+    short, season, resume = [(LIVE / n).read_text() for n in ("run_short.sh", "season.sh", "season_resume.sh")]
+    assert 'case $RC in 0|1) echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"' in short  # a COULD-NOT-RUN revision is not recorded as tested
+    assert "trap '\"$KIT/stop.sh\"" in short and "trap '\"$KIT/stop.sh\"" in season  # a cancelled run stops the rig
+    assert 'flock -n 9' in resume  # the resume takes the rig lock like the other runners

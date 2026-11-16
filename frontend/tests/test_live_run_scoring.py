@@ -90,11 +90,15 @@ def test_k3_a_due_evening_ceremony_unfired_for_more_than_two_messages_fails():
 
 def _load(name):
     import sys
-    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run"))
-    p = pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run" / f"{name}.py"
+    d = str(pathlib.Path(__file__).resolve().parents[2] / "scripts" / "live-run")
+    p = pathlib.Path(d) / f"{name}.py"
     spec = importlib.util.spec_from_file_location(name, p)
     m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
+    sys.path.insert(0, d)
+    try:
+        spec.loader.exec_module(m)
+    finally:
+        sys.path.remove(d)  # review of ORW-109: the path edit never leaks into other tests
     return m
 
 
@@ -140,3 +144,13 @@ def test_the_veto_draw_ceremony_hour_is_not_skipped_time():
 def test_a_raw_tool_tag_reply_is_machinery():
     # ORW-440: a whole reply of "</tool_use>" reached the player; the short tier must flag it.
     assert not _score([_turn("cross-evening-1", "Week 2 · Eviction night · Night</tool_use>")])["T3-no-machinery[cross-evening-1]"]["ok"]
+
+
+# review follow-ups (ORW-481): one case per fixed scoring bug
+def test_review_followups_scoring_regexes_and_clock():
+    assert ls.LEAK_RE.search("The Vault holds the secrets") and not ls.LEAK_RE.search("the vault door was open")  # a sentence-start "The Vault" is machinery too
+    assert not ls.PHANTOM_CER_RE.search("The nomination ceremony is tomorrow, and the house is nervous.")  # speculation about a later ceremony is not a ceremony voiced
+    assert ls.PHANTOM_CER_RE.search("The nomination ceremony begins.")
+    bad = _score([_turn("c", "The nominees are Aa Bb and then everyone left.", phase="hoh-competition", nominees=["Aa Bb", "Cc Dd"])])
+    assert not [k for k in bad if k.startswith("C5-")], "a lowercase word after 'and' is not a second nominee name"
+    assert ls.abs_hours("2:00am, Day 1") - ls.abs_hours("11:00pm, Day 1") == 3  # a night across midnight keeps one day number

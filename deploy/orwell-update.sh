@@ -515,7 +515,7 @@ npm_env_fp() {
   if [[ -z "$_NPM_ENV_FP" ]]; then
     _NPM_ENV_FP="$( {
       env | LC_ALL=C grep -E '^(npm_config_|NPM_CONFIG_|ONNXRUNTIME_NODE_INSTALL|NODE_ENV=)' | LC_ALL=C sort || true
-      for f in "${HOME:-/root}/.npmrc" "$(npm config get globalconfig 2>/dev/null || true)"; do
+      for f in "${HOME:-/root}/.npmrc" "$(npm config get userconfig 2>/dev/null || true)" "$(npm config get globalconfig 2>/dev/null || true)"; do
         if [[ -n "$f" && -f "$f" ]]; then printf 'npmrc %s %s\n' "$f" "$(_fp_sum < "$f")"; fi
       done
     } 2>/dev/null | _fp_sum )"
@@ -678,7 +678,8 @@ build_play_app() {
   # The build itself (the commit's own `npm run build`) runs unprivileged — see _play_run_build.
   if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x --no-same-owner -C "$PLAY_TMP" \
      && _play_run_build "$out" \
-     && [[ -f "${out}/dist/index.html" ]] \
+     && [[ -f "${out}/dist/index.html" && ! -L "${out}/dist" ]] \
+     && rm -f "${out}/dist/${PLAY_STAMP}" \
      && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
      && _stage_play_build "${out}/dist"; then
     echo "==> /play built — it goes live when the update commits"

@@ -4,6 +4,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"   # RIG_SLOT (default 1) picks the rig: ports, lock, worktree, run pointer
 STATE=$RIG_STATE_DIR; mkdir -p "$STATE"
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SEASON BUSY (rig slot $RIG_SLOT)"; exit 3; }
+trap '"$KIT/stop.sh" >/dev/null 2>&1' EXIT TERM INT   # a cancelled run never leaves the rig running
 git -C "$RIG_HOME/orwell" fetch -q origin main; SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 origin/main)
 "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1 || { echo "LIVE-SEASON COULD-NOT-RUN $SHA stage failed"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
 RUN=$(cat $RIG_RUN_PTR)

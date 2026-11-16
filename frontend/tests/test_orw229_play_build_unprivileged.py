@@ -163,3 +163,9 @@ def test_a_build_with_a_symlink_in_it_is_refused(rig):
     out = rig.build()
     assert rig.staged() is None, "a symlink (or device, FIFO) in the output never reaches the code tree"
     assert "other than files and directories" in out
+
+
+def test_review_followup_the_stamp_is_written_over_a_removed_path_never_through_a_planted_link():
+    src = UPDATE.read_text()
+    assert '! -L "${out}/dist"' in src and 'rm -f "${out}/dist/${PLAY_STAMP}"' in src
+    assert src.index('rm -f "${out}/dist/${PLAY_STAMP}"') < src.index("""printf '%s\\n' "$fp" > "${out}/dist/${PLAY_STAMP}\"""")
