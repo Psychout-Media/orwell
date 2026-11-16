@@ -6475,7 +6475,8 @@ export class GameSessionAdapter implements GameSession {
     } else if (pe) {
       remaining.length = 0;
     }
-    const everyoneMet = remaining.length === 0;
+    // review of ORW-196: with the player LAST in the entrance order every NPC can be inside while the player has not walked in yet - the roll-call is not complete until they have.
+    const everyoneMet = remaining.length === 0 && !(pe && pe.stage === "entrances" && pe.arrived <= pe.playerPos);
     // +1 on both counts for the player (they ARE met — they're playing). total = the whole cast.
     return {
       complete: everyoneMet,
@@ -7993,6 +7994,8 @@ export class GameSessionAdapter implements GameSession {
     this.pacingDripWeek = 0;
     this.pacingDripCount = 0;
     this.pacingTickCount = 0;
+    this.confideRoutes.clear(); // review of ORW-261: a restarted season must not replay the old season's cached disclosure decisions (keyed by npc:week:phase)
+    this.orientationRoutes.clear();
     this.pacingLastDrippedWeek = {};
   }
 
@@ -12616,7 +12619,8 @@ export class GameSessionAdapter implements GameSession {
     const named = (id: EntityId): boolean => {
       const full = this.nameOf(id).toLowerCase();
       const first = full.split(/\s+/)[0] ?? full;
-      return [full, first].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
+      const firstIsUnique = this.livingIds().filter((x) => (this.nameOf(x).toLowerCase().split(/\s+/)[0] ?? "") === first).length <= 1; // two houseguests sharing a first name: a bare first name names neither
+      return [full, ...(firstIsUnique ? [first] : [])].some((n) => n.length > 1 && new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(terms));
     };
     for (const w of this.awakeAmong(witnesses.filter((id) => id !== PLAYER && id !== a && id !== b))) {
       const targetsMe = deal.kind === "target-other" && (named(w) || this.livingIds().some((x) => x !== w && x !== a && x !== b && named(x) && isAlly(w, x)));
