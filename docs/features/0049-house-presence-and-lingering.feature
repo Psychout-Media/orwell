@@ -96,11 +96,16 @@ Feature: House presence and lingering play
     Then the engine has the player in the living room
     And the game state hands the narrator the move from the backyard to the living room
 
-  Scenario: A future or conditional phrase is not a move
+  Scenario Outline: A future or conditional phrase is not a move
     Given a started game with the player in the backyard and no house event in session
-    When the engine reads the player's words "I'll go to the kitchen later"
+    When the engine reads the player's words "<words>"
     Then the engine has the player in the backyard
     And the game state hands the narrator no move
+
+    Examples:
+      | words                              |
+      | I'll go to the kitchen later       |
+      | if it rains I will go to the kitchen |
 
   Scenario Outline: During a house event the player's move is refused with a reason and nothing moves
     Given a seeded season paused at <event>
@@ -148,24 +153,56 @@ Feature: House presence and lingering play
     Then the wait stopped because the event came due
     And the in-game clock has moved on by exactly 47 minutes
 
-  # ORW-462 (Kevin's ruling, 2026-11-15): the player is not omniscient. Looking for someone always finds them, but only through what the player could really do.
+  # ORW-462 (Kevin's ruling, 2026-11-15, refined 15:58 MST): the player is not omniscient, and the game does not confirm where someone is if the player does not know. Looking for someone resolves only from what the player can see and what they have seen.
   Scenario: A plain house search never sees through a closed door
     Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
     When the player searches the house without naming anyone
     Then the houseguests behind doors are listed as not in view with no room named
     And the houseguests the player can see are still named in their rooms
 
-  Scenario: Looking for someone behind an unlocked door finds them by opening it
+  Scenario: Asking for every houseguest by name reveals nothing the player did not know
     Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
-    When the player searches the house looking for the houseguest behind the unlocked door
-    Then the answer names the door to open and says the player will see who is inside
+    When the player asks for each houseguest by name in turn, knowing nothing about where anyone is
+    Then only the houseguest in view is placed in a room
 
-  Scenario: Looking for someone in the HOH room is answered by a houseguest who knows
+  Scenario: A houseguest the player watched head into a closed room is a lead, never a confirmation
     Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
-    When the player searches the house looking for the houseguest in the HOH room
-    Then the answer is that a houseguest who knows says the houseguest is there, while the door stays closed to the player
+    When the player has watched a houseguest head into a closed room and asks for them
+    Then the answer is a lead that names the room as last seen, not confirmed
 
-  Scenario: Looking for someone in the diary room is answered by a houseguest who knows
-    Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
-    When the player searches the house looking for the houseguest in the diary room
-    Then the answer is that a houseguest who knows says the houseguest is there, while the door stays closed to the player
+  # ORW-475 (Kevin with Ryne, 2026-11-15): asking around. Each houseguest keeps their own record of who they saw go where and answers from it; whether they tell it straight, dodge or mislead comes from their own character sheet.
+  Scenario: A candid houseguest who watched someone go says where, as something that may be out of date
+    Given a played game where the player stands in the backyard, a houseguest is in the kitchen in view, and another is behind a bedroom door
+    And the houseguest in the kitchen watched the other walk into the storage room
+    And the houseguest in the kitchen is candid and fond of everyone
+    When the player asks around for the other houseguest
+    Then the answer is told by the houseguest in the kitchen, naming the storage room, as something that may be out of date
+    And the other houseguest is really in the bedroom, so the lead is out of date
+
+  Scenario: Nobody here has seen them
+    Given a played game where the player stands in the backyard, a houseguest is in the kitchen in view, and another is behind a bedroom door
+    And the houseguest in the kitchen is candid and fond of everyone
+    When the player asks around for the other houseguest
+    Then nobody here knows where the other houseguest is and no room is named
+
+  Scenario: A guarded houseguest cold to the player dodges on some days and tells on others
+    Given a played game where the player stands in the backyard, a houseguest is in the kitchen in view, and another is behind a bedroom door
+    And the houseguest in the kitchen watched the other walk into the storage room
+    And the houseguest in the kitchen is guarded and cold to the player
+    When the player asks around for the other houseguest on every day of a long season
+    Then the guarded houseguest sometimes gives no straight answer and names no room
+  # ORW-473 (Kevin with Ryne, 2026-11-15: "That should be dynamic based on character sheets involved"): walking in on a private strategy talk. Each houseguest's reaction comes from their own sheet, not one rule for everyone.
+  Scenario Outline: Walking in on a private talk: the reaction comes from the houseguests' own sheets
+    Given a played game where two houseguests are in the kitchen in a private strategy talk and the player is in the backyard
+    And both houseguests have the sheet of one who <sheet>
+    When the player walks into the kitchen
+    Then each of them <sheet>
+    And the narrator is told the manner of each reaction and nothing about what the talk was
+    And both of them remember that the player walked in
+
+    Examples:
+      | sheet                |
+      | pulls the player in  |
+      | carries on guarded   |
+      | moves the talk       |
+      | goes quiet           |

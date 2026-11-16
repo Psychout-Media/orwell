@@ -8,8 +8,7 @@ narration that runs ahead of the engine, and stalls. Roles only; no cast name is
 - **Short tier (this slice, `live_short.py`):** after every dev update. Casting -> premiere -> an early "run the competition" ask -> the engine clock is jumped
   with the engine's own player API (turn-in / time-passing) to the veto morning of Week 1 -> four real chat turns (the draw, then the house waiting for the
   competition). About 10 minutes, a few cents on DeepSeek, images OFF.
-- **Full week (not built yet):** a whole week played like a real player, before each playtest and release. The short tier should grow eviction night and the
-  finale before this one is started.
+- **Full week:** `week.sh` (below) plays a whole week like a real player under a spend cap.
 
 ## Automatic run: `run_short.sh`
 
@@ -44,13 +43,15 @@ The rehearsal kit used to have exactly one rig. It now has two, picked by ONE va
 |---|---|---|
 | engine / front end | :18765 / :17000 | :18766 / :17001 |
 | lock | `live-short/rig.lock` | `live-short/rig-2.lock` (beside it) |
-| worktree | `/home/ryne/orwell-rehearsal` | `/home/ryne/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
+| worktree | `$RIG_HOME/orwell-rehearsal` | `$RIG_HOME/orwell-slot2` (its own git worktree; `node_modules` and the FE venv are shared read-only from the main checkout, never written) |
 | run pointer | `/tmp/claude-1000/a11_run` | `/tmp/claude-1000/a11_run_2` |
 | run directories | `rehearsal-<date>` | `slot2-rehearsal-<date>` (a glob of slot 1's never matches them) |
 
+`RIG_HOME` is the rig user's home directory: the main checkout (`orwell`), the worktrees, `orwell-playtest` and `.config/orwell/secrets.env` all live under it. It defaults to `$HOME` (the rig runs as its own user); set `ORWELL_RIG_HOME=<dir>` when the rig's files live elsewhere. A stage records it in the run's `slot.env`.
+
 A stage writes `slot.env` into the run directory it creates, so the scripts copied there keep following THEIR run's slot. Slot 2 never creates, edits or reads slot 1's worktree, lock, pointer or run directories.
 
-`scripts/live-run/week.sh` plays one whole Week 1 on the real narrator under a spend cap (`RIG_SPEND_CAP`, default $3, estimated from the model-call archive at a deliberately high rate; `spend_guard.py` stops the run by PID file when it is reached) and writes `spend.json` and `rig-stats.md` (the sent size per call and per turn, and the E22 rate) into the run directory. `RIG_DRY=1` stands the slot up, checks the front end and engine answer, and tears it down: no model calls, nothing spent.
+`scripts/live-run/week.sh` plays one whole Week 1 on the real narrator under a spend cap (`RIG_SPEND_CAP`, default $3, estimated from the model-call archive at a deliberately high rate; `spend_guard.py` stops the run by PID file when it is reached) and writes `spend.json` and `rig-stats.md` (the sent size per call and per turn, and the E22 rate) into the run directory. `RIG_WEEKS=N` plays on through week N (default 1 = Week 1 only; the cap and the checks run the same; it must be a positive integer). `RIG_DRY=1` stands the slot up, checks the front end status endpoint and the engine `/health` status code (a health check, not an engine request), and tears it down: no model calls, nothing spent.
 
     RIG_SLOT=2 RIG_DRY=1 scripts/live-run/week.sh          # prove a slot
     RIG_SLOT=2 RIG_SPEND_CAP=3 scripts/live-run/week.sh    # one capped week
@@ -71,6 +72,9 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | T5 | A reply slower than 240 s | FAIL |
 | T12 | Every houseguest gives their champagne toast before the premiere ends (Ryne, ORW-368; the bar's T12) | FAIL |
 | T13 | Zero clocks: no reply names a clock time ("8:15", "9 am", "ten o'clock"); parts of the day only; the bubble's header stamp is ignored (Ryne, ORW-377; the bar's T13) | FAIL |
+| T16 | Headcounts include the player (Ryne, ORW-376): a reply's house total ("16 of us", "three of you left in the house", "fifteen houseguests left", "all 14 of us") must equal the engine's `whereabouts.counts.house` (player included) at the start or end of the turn. A claim that names the whole house is FAIL; an unqualified "N of us" (N >= 5) that is neither the house nor the room count is WARN; room counts ("the four of us at the table"), small huddles and a houseguest count with no house word are never flagged | FAIL / WARN |
+| T17 | A recap every bedtime (0102, ORW-382), `--crossover` only: after the eviction-night bed, the engine's `dailyRecap` (materialized by the narrator's turnIn) has at least one highlight / surfaced / yourDay item (WARN when it is for another day than the one closed); the bed reply naming the evictee is N4 (WARN) | FAIL |
+| T19 | The engine moves the player first (ORW-418/419), `--crossover` only: after "I walk to the kitchen." on the Week 2 morning (the living room if already in the kitchen) the engine has the player in that room; a move the engine refused in fiction (`playerMove.refused`) is WARN | FAIL |
 | C1 | While the engine says the veto competition is not due, no reply narrates competition play (apparatus, rounds, eliminations, a winner) | FAIL |
 | C2 | A veto-morning reply voices the draw | FAIL |
 | C3 | A clock the reply states matches the engine's clock (within an hour) | WARN |
@@ -80,12 +84,12 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | A1 | Every houseguest is inside by the end of the premiere | FAIL |
 | A2 | Arrivals keep progressing (no long flat stretch of the inside count) | FAIL |
 | D1 | Day one is not skipped: after the premiere the clock still reads Day 1 | FAIL |
-| K1 | No skipped time: a clock jump over an hour needs a bed or nap message, the 8am wake, the runner's own move, or a sanctioned ceremony (competition crown share, staged eviction ballots, the veto draw when the reply voices it) | FAIL (notes for the sanctioned cases) |
+| K1 | No skipped time: a clock jump over an hour needs a bed or nap message, the 8am wake, the runner's own move, or a sanctioned ceremony (competition crown share, staged eviction ballots, the veto draw when the reply voices it). A jump of at most 4.5 hours in a message that also moves the phase (a beat played inside one message) is accepted too and listed as a note, so read the notes; this allowance never covers a competition crown, which is accepted only up to 1.5 hours and is otherwise a K2 failure | FAIL (notes for the sanctioned cases) |
 | K2 | A competition is never crowned inside one message that also moves the clock by hours | FAIL |
 | K3 | An event the schedule reports due fires within a few messages | FAIL |
 | N1, N2, N5, N12 | A daytime goodnight does not end the day (N1); "hang out until morning" never reaches morning (N2); an early bed wakes before the house (N5); a nap stays in the day (N12) | FAIL |
 | N4 | The bed reply names the evicted houseguest in the day in review | WARN |
-| N7, N8 | The Nightfall card lists who is awake; the Whereabouts card shows no sleeper with the player. A missing card is recorded as `N7-widget-missing` / `N8-widget-missing` | FAIL / WARN when the card is missing |
+| N7, N8 | The Nightfall card lists who is awake; the Whereabouts card shows no sleeper with the player. A missing card is recorded as `N7-widget-missing[<moment>]` / `N8-widget-missing[<moment>]` (for example `N7-widget-missing[morning]`) | FAIL / WARN when the card is missing |
 | W2, W3, W10 | Only with `RIG_CROSSOVER=1`: a Week recap card after the bed, the HOH next in the afternoon, the bubble header shows the new week | FAIL |
 | X0 | Only with `RIG_CROSSOVER=1`: eviction night is reached and Week 2 begins with no HOH | FAIL |
 | T1c, T2b | A settled reply's bubble has its footer (T1c); a player request gets a scene, not a thin answer (T2b) | WARN |

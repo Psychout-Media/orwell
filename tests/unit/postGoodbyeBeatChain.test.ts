@@ -89,7 +89,7 @@ async function toPlayerGoodbyeOnSeed(seed: number) {
   const tick = (): void => sb.session.advanceClockPerConversation();
   for (let i = 0; i < 5_000; i++) {
     const adv = (await mcp.callTool("advanceGame", {})) as View;
-    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `pg${seed}`, tick); // ORW-116: a held night is the player's: time passes, then they turn in
+    if ((adv as { held?: unknown }).held) await endHeldNight((n, a) => mcp.callTool(n, a), `pg${seed}`, tick, { stopWhenDue: true }); // ORW-116: a held night is the player's: time passes, then they turn in
     if (adv.finished) break;
     if (adv.pending) {
       if (adv.pending.kind === "goodbye-message") return { mcp, pending: adv.pending };

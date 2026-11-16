@@ -305,7 +305,7 @@ async function tendAllies(mcp: Mcp, allies: Set<string>): Promise<void> {
 export interface RealisticTending { scenes: Map<string, number>; lastWeek: Map<string, number> }
 const REALISTIC_MINUTES = 90;
 const REALISTIC_SCENES_PER_WEEK = 2;
-const ALLY_SCENES = 3;
+const ALLY_SCENES = SCENES_PER_ALLY; // one constant: the ally threshold cannot drift between the opening scenes and the realistic arm
 async function tendRealistic(mcp: Mcp, allies: Set<string>, t: RealisticTending, week: number): Promise<void> {
   const st = (await mcp.callTool("getGameState", {})) as StateView;
   const live = new Set((st.house ?? []).filter((h) => h.status === "active" && h.id !== PLAYER).map((h) => h.id));

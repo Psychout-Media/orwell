@@ -325,9 +325,13 @@ def test_roster_cleared_unlinks_the_chat_names(fe):
             page = _page(browser, fe, 1440, 900)
             _rows(page)
             assert page.evaluate("document.querySelectorAll('#r1 span.ow-name-link[data-ow-auto]').length") > 0
+            assert page.evaluate("document.getElementById('bold1').dataset.hg") == "npc:2", "the name pass linked the bold name"
             page.evaluate("window.OrwellMonogram.allCards = () => []; window.OrwellChatNames.refresh();")
             _until(page, "document.querySelectorAll('#r1 span.ow-name-link[data-ow-auto]').length === 0 && document.getElementById('r1').dataset.owNames === undefined")
             assert "Priya Nair's plan is thin" in page.evaluate("document.getElementById('p2').textContent"), "the words stay, only the links go"
+            # ORW-465: the <strong> the name pass linked is unlinked too (a stale id must not outlive the roster); the speaker name markdown.js tagged keeps its own id
+            assert page.evaluate("document.querySelectorAll('#r1 strong[data-ow-auto-strong], #r1 #bold1[data-hg]').length") == 0, "a linked <strong> kept its stale id"
+            assert page.evaluate("document.getElementById('spk1').dataset.hg") == "npc:1"
         finally:
             browser.close()
 

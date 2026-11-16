@@ -1,3 +1,4 @@
+import { testTmpDir } from "../support/freshTmpDir";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -132,7 +133,7 @@ describe("B36/B24 - the production runtime under ORWELL_GOSSIP_COPRESENCE writes
     vi.stubEnv("ORWELL_GOSSIP_COPRESENCE", "1");
     vi.stubEnv("ORWELL_NPC_BELIEFS", beliefs ? "1" : "0");
     vi.stubEnv("ORWELL_NPC_BELIEF_NOMS", "0");
-    const rt = composeRuntime({ saveStore: new FileSaveStore(mkdtempSync(join(tmpdir(), "orwell-b36-"))) });
+    const rt = composeRuntime({ saveStore: new FileSaveStore(testTmpDir("orwell-b36-")) });
     const sb = rt.registry.sandboxFor(`b36-${beliefs ? "on" : "off"}`);
     const s = sb.session;
     s.createCharacter({ playerName: "P", seed: 7 });

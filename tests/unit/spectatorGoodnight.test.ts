@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import { MOMENT_PROMPTS } from "../../src/engine/momentPrompts";
 import type { AdvanceView, SubmitDecisionReq } from "../../src/ports/GameSession";
 
 /**
@@ -68,6 +69,31 @@ describe("a watching spectator's goodnight", () => {
     const s = new GameSessionRegistry().sandboxFor(`sg${seq++}`).session;
     s.createCharacter({ playerName: "P", seed: 3 });
     expect((s as unknown as { live: { spectator?: unknown } }).live.spectator).toBeUndefined();
-    expect(() => s.turnIn()).not.toThrow();
+    // ORW-507: assert what the old path DOES (a committed night for the active player), not merely that it does not throw.
+    const live = (s as unknown as { live: { spectator?: unknown; dayNumber?: number; weekDigests?: unknown[] } }).live;
+    const beatSeq0 = s.gameStatus().beatSeq, day0 = live.dayNumber ?? 1, digests0 = (live.weekDigests ?? []).length;
+    const v = s.turnIn();
+    expect(v.held, "not refused").toBeUndefined();
+    expect(s.gameStatus().beatSeq, "the night passed: a committed mutation").toBeGreaterThan(beatSeq0);
+    expect(live.dayNumber ?? 1, "the day rolled by exactly the one night").toBe(day0 + 1);
+    expect((live.weekDigests ?? []).length, "an active player's goodnight does not run a watched week").toBe(digests0);
+    expect(live.spectator, "still no spectator").toBeUndefined();
+  });
+
+  it("is not a silent no-op while a ceremony watch step is pending (the step is taken, then the season moves on) (#2626)", () => {
+    // A staged ceremony never opens FOR a spectator, but one can be left open on the way out (or in an old save): park the watch step by hand.
+    const s = earlyEvictedWatcher();
+    const live = (s as unknown as { live: { pending?: { kind: string; by: string; binding: boolean } | null; hoh?: string } }).live;
+    live.pending = { kind: "ceremony-step", by: live.hoh ?? "x", binding: false };
+    const beatSeq0 = s.gameStatus().beatSeq;
+    s.turnIn();
+    expect(s.gameStatus().beatSeq, "the goodnight moved the board").toBeGreaterThan(beatSeq0);
+    expect(live.pending?.kind, "the watch step was consumed").not.toBe("ceremony-step");
+  });
+
+  it("the evicted-moment goodnight line scopes turnIn to WATCHING and says a skipped player hears only the finale beats (#2626)", () => {
+    const line = Object.values(MOMENT_PROMPTS).find((p) => p.includes("THEY ARE OUT OF THE HOUSE FOR GOOD"))!;
+    expect(line).toMatch(/goodnight while WATCHING, call `turnIn`/);
+    expect(line).toMatch(/once they have SKIPPED, voice only the finale beats/);
   });
 });

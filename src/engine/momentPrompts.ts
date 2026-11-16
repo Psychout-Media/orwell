@@ -570,7 +570,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    day that just closed); this same tool re-fetches it. `highlights`/`surfaced` are facts straight",
   "    from the record — voice them as a short in-fiction 'day in review' beat (never a list, never a",
   "    dashboard), then move straight into the new morning. If it carries a `hook`, tease its `framing`",
-  "    as a possibility ('feels like...', 'you can't shake the sense that...') — NEVER state it as a",
+  "    as a possibility ('feels like...', 'I can't shake the sense that...') — NEVER state it as a",
   "    coming fact, NEVER name who wins the next HOH or who goes up or who goes home, and NEVER surface",
   "    anything beyond what `highlights`/`yourDay`/`surfaced`/`hook` contain. No `dailyRecap` present ⇒ no",
   "    recap beat — just narrate the player turning in; never invent one.",
@@ -758,7 +758,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "finished — do NOT re-run the gathered-circle introductions or the toast; go straight to the bedroom " +
     "pick and move only to the room the player selects. " +
     "(3) PICK A BEDROOM — a REAL player choice (AFTER the circle has closed): the house has bedrooms (the " +
-    "GAME CONTEXT/whereabouts names the rooms — typically two, e.g. \"bedroom a\" and \"bedroom b\"). " +
+    "GAME CONTEXT/whereabouts names the rooms — the three bedrooms, by this season's names). " +
     "Invite the player to go claim a bed and settle in; when they choose one, call moveTo {that room} so " +
     "the game MOVES them there for real, then voice the room and whoever whereabouts shows is in it. Let " +
     "it be their call — never pick for them and never narrate them into a room the game has not moved " +
@@ -895,9 +895,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "CLOSE THE REVEAL IN THE SHOW'S OWN GRAMMAR — never a recited script, always the ACTUAL evictee the " +
     "game just handed you: once the `eviction-result` beat names the evictee, deliver it in the classic " +
     "host cadence, naming the evictee plainly — '<the evictee>, you are evicted from the Big Brother " +
-    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally, so do NOT " +
-    "reach for a 'by a vote of <count>' line here (the rules on the rare case where a count may be voiced " +
-    "are below); if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
+    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally of its own, so do NOT " +
+    "reach for a 'by a vote of <count>' line from your own arithmetic; when the moment lists a TALLY line (engine-counted; the engine lists it only once the result is committed), you may " +
+    "state exactly that count, and no other; if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
     "evictee their own beat to say goodbye to the room (some version of 'you have a few seconds to say " +
     "your goodbyes'), then the door, the hug line, and the house watching them go. " +
     "EXIT INTERVIEW (0130): when the game hands you an `exit-interview` beat, play the producers' " +
@@ -915,7 +915,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "and do NOT say the vote hasn't happened or that you're waiting to reach it: it HAS happened and the " +
     "result is being read out beat by beat. If it feels like nothing new is coming, call advanceGame — " +
     "the next ballot (or the eviction result) is waiting on the game, never on the player. " +
-    "STATE A TALLY OR NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you " +
+    "NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you, and state a count ONLY from the engine's own TALLY line " +
     "THIS turn — never from your own running count, and never as a prediction. Until that result beat " +
     "names who leaves, you do NOT know the evictee or the majority: do not say \"the majority votes to " +
     "evict <name>\", do not name who is going home, and never name a houseguest as evicted whom the game " +
@@ -1001,7 +1001,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "path back in. If a WATCHING player asks to skip ahead, the engine re-raises the card and they confirm ON it: until they do, the season is NOT over — voice NO finale, final two, jury, vote or winner, just point them at the card. " +
     "SKIP IS IRREVERSIBLE: once they have skipped, never offer or narrate watching the rest of the season again — say plainly that skipping is final. " +
     "THEY ARE OUT OF THE HOUSE FOR GOOD: never put them in the house, a bunk, the bedroom or a scene with houseguests, and never narrate them going to sleep among the cast, whatever they say they do. If they say goodnight or ask to do something " +
-    "inside the house, answer as the host, from outside: they are watching the season from outside the house. For a goodnight, call `turnIn` — the game moves the watched season on — and voice only what the game then returns. " +
+    "inside the house, answer as the host, from outside: they are watching the season from outside the house. For a goodnight while WATCHING, call `turnIn` — the game moves the watched season on — and voice only what the game then returns; once they have SKIPPED, voice only the finale beats the game hands you. " +
     "The hidden story stays SEALED until the season crowns a winner.",
   "re-entry":
     "MOMENT — Re-entry. The player has RETURNED to a season in progress (a new session; the chat may " +
@@ -1268,7 +1268,9 @@ export function renderGameContext(view: GameStateView): string {
   // positions or "still to arrive" houseguests (the whole cast is seated at premiere). Scoped to the
   // player's room + adjacent rooms only; tenure grounds continuity (who has lingered vs. just arrived).
   const wa = view.whereabouts ?? null;
-  const roomLabel = (r: string): string => r.replace(/-/g, " ");
+  // ORW-466: this season's themed room names when the house has a theme (the whereabouts carry them), else the plain label.
+  const roomLabel = (r: string): string => wa?.roomNames?.[r] ?? r.replace(/-/g, " ");
+  const roomRefHere = (r: string): string => wa?.roomNames?.[r] ?? `the ${r.replace(/-/g, " ")}`;
   const tenureWord = (t: number): string => (t <= 0 ? "just arrived" : t === 1 ? "a moment" : `${t} turns`);
   const whereaboutsLines: string[] = !wa ? [] : (() => {
     const here = wa.present.length
@@ -1292,7 +1294,8 @@ export function renderGameContext(view: GameStateView): string {
     return [
       "- WHERE YOU ARE (engine truth — voice THIS room and THESE people EXACTLY; NEVER invent positions,",
       "  room changes, or \"still to arrive\" houseguests — the whole cast is already in the house):",
-      `    Your room: the ${roomLabel(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
+      `    Your room: ${roomRefHere(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
+      ...(wa.roomLook ? [`    This season it looks like this (dress the scene with it; never read it out as a list): ${wa.roomLook}`] : []),
       `    With you: ${here}.`,
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
@@ -1305,7 +1308,8 @@ export function renderGameContext(view: GameStateView): string {
       // retries. Hand it the EXACT walkable rooms so it always names a real one (moveTo is forgiving,
       // but this removes the guessing entirely). These are the WHOLE house — only the player's room +
       // the adjacent rooms above are VISIBLE; the others exist and can be walked to, just not seen yet.
-      `    ROOMS YOU CAN WALK THE PLAYER TO (the whole house; pass any of these to moveTo): ${WALKABLE_ROOM_NAMES}.`,
+      `    ROOMS YOU CAN WALK THE PLAYER TO (the whole house; pass any of these to moveTo): ${wa.roomNames ? WALKABLE_ROOMS.map((r) => wa.roomNames![r] ?? roomDisplayName(r)).join(", ") : WALKABLE_ROOM_NAMES}.`,
+      ...(wa.roomNames ? ["    The rooms have THEMED names this season: always call a room by its name above, never by a letter or a number."] : []),
       "    THIS IS THE WHOLE OF WHAT THE PLAYER CAN SEE OR HEAR: your room and the rooms next to it. Whether",
       "    a room is full or empty is the GAME's to say, never yours — voice EXACTLY the people listed for a",
       "    room, and call a room empty ONLY when it is listed empty above. If the player checks, glances into,",
@@ -1424,6 +1428,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => e.suspects.length)
           ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it like \"not my target yet, but could be\" - never as a confirmation, a plan, a number, or a campaign)"]
           : []),
+        // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
+          ? ["  (a `tellsYou` is a belief this houseguest passes to the player now: voice it as THEIR OWN words, hedged by their certainty; do not say whether it is true or why they tell it)"]
+          : []),
         ...(view.presentKnowledge ?? []).flatMap((e) => {
           // Route each knowledge string through `neutralizeForPrompt` (as the diary-room entries above
           // do): these are model-adjacent content the guest "knows", so a prompt-injection control
@@ -1443,6 +1451,7 @@ export function renderGameContext(view: GameStateView): string {
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
           if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
+          if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
           if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
         }),
@@ -1536,6 +1545,7 @@ export function renderGameContext(view: GameStateView): string {
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
+    ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words and never add, correct or doubt it): ${view.sourceNote}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
     ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT
@@ -1578,7 +1588,7 @@ export function renderGameContext(view: GameStateView): string {
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
               ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
-              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it; nobody is surprised when production calls them in.`,
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming; nobody is surprised when production calls them in.`,
         ]
       : []),
   ].join("\n");
@@ -1596,6 +1606,11 @@ export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
   "had-it-planned": "this was always the plan",
   "nothing-personal": "it is purely strategic, nothing personal",
   "house-wants-it": "it is what the house wanted",
+};
+/** 0151: what a `tellsYou` kind says, as a verb phrase between the subject and the second party. */
+const TELLS_YOU_VERB: Record<string, string> = {
+  "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
+  "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
 };
 const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
@@ -1661,7 +1676,7 @@ export function terminalKnowledgeItems(items: readonly string[]): string[] {
  * ORW-376 - the engine's headcounts as plain sentences the narrator can quote (the player always counted). The engine hands the
  * model only the OTHER people's names, and a model counting that list is one short of "us". Empty when the view carries no counts.
  */
-export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number; asleep?: number }; nearby?: Array<{ room: string; present: Array<{ name: string }> }> } | null | undefined): string[] {
+export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number; asleep?: number }; nearby?: Array<{ room: string; present: Array<{ name: string }> }>; roomNames?: Partial<Record<string, string>> } | null | undefined): string[] {
   const c = wa?.counts;
   if (!c) return [];
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
@@ -1675,7 +1690,7 @@ export function headcountLines(wa: { counts?: { room: number; others: number; ho
   // ORW-386: the narrator said "twelve asleep" with eleven turned in, and called the living room empty with a houseguest in it. The sleepers' count and every visible room's roster are engine facts too.
   if (c.asleep !== undefined) lines.push(`Asleep right now: ${c.asleep} ${c.asleep === 1 ? "houseguest has" : "houseguests have"} turned in (the game's asleep list).`);
   if (wa?.nearby?.length) {
-    lines.push("Rooms in view right now: " + wa.nearby.map((n) => `${n.room.replace(/-/g, " ")}: ${n.present.length ? n.present.map((p) => p.name).join(", ") : "empty"}`).join("; ") + ". Call a room empty ONLY when it is listed empty here.");
+    lines.push("Rooms in view right now: " + wa.nearby.map((n) => `${wa.roomNames?.[n.room] ?? n.room.replace(/-/g, " ")}: ${n.present.length ? n.present.map((p) => p.name).join(", ") : "empty"}`).join("; ") + ". Call a room empty ONLY when it is listed empty here.");
   }
   lines.push("QUOTE these numbers exactly or use no number at all; NEVER count the room yourself, and never leave the player out of \"us\".");
   return lines;
@@ -1789,10 +1804,11 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
         byNominee.set(b.votedFor.id, cur);
       }
       const tally = [...byNominee.values()].sort((a, b) => b.n - a.n);
-      lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
+      // review of ORW-358: a staged reveal hands over a PARTIAL set of ballots, so a count is only a fact once the result is committed.
+      if (ev?.evictee) lines.push(`    TALLY (engine-counted from the ballots above - state THIS count if you state one, never your own arithmetic): ${tally.map((t) => `${t.n} to evict ${t.name}`).join(", ")}.`);
       lines.push(ev?.evictee
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
-        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee.");
+        : "    The result has not been committed yet: read the ballots above in order, but announce no evictee and state no count or tally (the engine hands you none until the result is committed).");
     }
   }
   return lines;
@@ -2067,7 +2083,7 @@ function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace
       if ((c?.veto?.players?.length ?? 0) === 0) {
         return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist. Do not narrate the chip draw, the field or the competition. If production has called it (the schedule says it is due), call advanceGame NOW and voice only what the game returns; otherwise keep the house social." };
       }
-      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due) {
+      if (!c?.veto?.holder && view.daySchedule && view.daySchedule.next === "veto-competition" && !view.daySchedule.due && view.whereabouts?.houseEvent?.kind !== "veto-competition") { // review of ORW-252: a staged comp already running on the house event has started
         // ORW-252: the draw is done but the competition is NOT due - the house waits for its hour. The competition fragment (venue, rounds) must not ride along, or the narrator plays the comp ahead of the engine.
         return { replace: true, note: "MOMENT NOTE - the veto competition has NOT started: the game has drawn the six players, but the competition is set for later and production has not called it. Do not describe its venue, its apparatus, its rounds, who is out or a winner. The house waits: the players, the nominees and everyone else talk, scheme and kill time; the competition begins only when the game runs it." };
       }

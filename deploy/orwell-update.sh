@@ -179,9 +179,10 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
     [[ "${!__k:-}" =~ ^[0-9]+$ ]] || continue
     # The wait bounds are capped (24 h): a huge value would make flock fail and be reported as "another update is running".
     case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT)
-      __v="${!__k}"; if (( ${#__v} > 6 )) || (( 10#$__v > 86400 )); then echo "==> ${__k}=${__v} ignored (more than 86400); the default applies"; continue; fi ;;
+      __v="${!__k}"; __v="${__v#"${__v%%[!0]*}"}"; __v="${__v:-0}"   # ORW-465: leading zeros do not count against the length ("000000090" is 90)
+      if (( ${#__v} > 6 )) || (( 10#$__v > 86400 )); then echo "==> ${__k}=${__v} ignored (more than 86400); the default applies"; continue; fi ;;
     esac
-    FWD_LG="${FWD_LG} ${__k}='${!__k}'"
+    case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT) FWD_LG="${FWD_LG} ${__k}='${__v}'" ;; *) FWD_LG="${FWD_LG} ${__k}='${!__k}'" ;; esac
   done
   FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
   if [[ -n "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]:-}" ]]; then
@@ -284,6 +285,7 @@ acquire_update_lock() {
   local _flock_args=(-n)
   if [[ "${__UD_SUPERSEDED:-0}" == 1 ]]; then
     local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
+    [[ "$_w" =~ ^[0-9]+$ ]] && { _w="${_w#"${_w%%[!0]*}"}"; _w="${_w:-0}"; }   # ORW-465: leading zeros do not count against the length
     if ! [[ "$_w" =~ ^[0-9]{1,6}$ ]] || (( 10#$_w > 86400 )); then echo "==> ORWELL_UPDATE_LOCK_WAIT=${ORWELL_UPDATE_LOCK_WAIT:-} ignored (not 0 to 86400); using 3600"; _w=3600; fi
     _w=$((10#$_w))
     _flock_args=(-w "$_w")
@@ -515,7 +517,7 @@ npm_env_fp() {
   if [[ -z "$_NPM_ENV_FP" ]]; then
     _NPM_ENV_FP="$( {
       env | LC_ALL=C grep -E '^(npm_config_|NPM_CONFIG_|ONNXRUNTIME_NODE_INSTALL|NODE_ENV=)' | LC_ALL=C sort || true
-      for f in "${HOME:-/root}/.npmrc" "$(npm config get globalconfig 2>/dev/null || true)"; do
+      for f in "${HOME:-/root}/.npmrc" "$(npm config get userconfig 2>/dev/null || true)" "$(npm config get globalconfig 2>/dev/null || true)"; do
         if [[ -n "$f" && -f "$f" ]]; then printf 'npmrc %s %s\n' "$f" "$(_fp_sum < "$f")"; fi
       done
     } 2>/dev/null | _fp_sum )"
@@ -678,7 +680,8 @@ build_play_app() {
   # The build itself (the commit's own `npm run build`) runs unprivileged — see _play_run_build.
   if git -C "$APP_DIR" archive --format=tar HEAD frontend/web frontend/static/js | tar -x --no-same-owner -C "$PLAY_TMP" \
      && _play_run_build "$out" \
-     && [[ -f "${out}/dist/index.html" ]] \
+     && [[ -f "${out}/dist/index.html" && ! -L "${out}/dist" ]] \
+     && rm -f "${out}/dist/${PLAY_STAMP}" \
      && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
      && _stage_play_build "${out}/dist"; then
     echo "==> /play built — it goes live when the update commits"

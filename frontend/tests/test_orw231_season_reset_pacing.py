@@ -80,9 +80,13 @@ def _seed_season_one(owner):
     chat_helpers._PREMIERE_ENTRANCE_STAGE[rk] = "entrances"
     chat_helpers._PREMIERE_RELEASED_THIS_TURN.add(rk)
     chat_helpers._PENDING_CHYRON[rk] = [{"id": "ann:old-season"}]
+    chat_helpers._AIRED_STEER[rk] = (2, ["an old-season headline"])
+    chat_helpers._OWED_ANN_IDS[rk] = ["ann:old-season"]
+    chat_helpers._HANGOUT_STEER[rk] = "an old-season hang-out steer"
     dkey = chat_helpers._desync_key(owner)
     chat_helpers._CUT_STREAK[dkey] = {"count": 2, "seen": None, "cut": None, "line": "an old board"}
     chat_helpers._DESYNC_REGROUND[dkey] = "RE-GROUND ON WHO IS ON THE BLOCK — an old-season correction"
+    chat_helpers._CEREMONY_UNVOICED[dkey] = {"label": "an old-season ceremony", "names": ["an old houseguest"]}
 
 
 def _assert_season_starts_at_zero(owner):
@@ -93,13 +97,15 @@ def _assert_season_starts_at_zero(owner):
     assert not chat_helpers.advance_escalation_armed(owner)
     rk = chat_helpers._runway_key(owner)
     for store in (chat_helpers._RUNWAY_LEFT, chat_helpers._RUNWAY_SIG, chat_helpers._PRODUCTION_HOLD,
-                  chat_helpers._PREMIERE_MSGS, chat_helpers._PREMIERE_ENTRANCE_STAGE, chat_helpers._PENDING_CHYRON):
+                  chat_helpers._PREMIERE_MSGS, chat_helpers._PREMIERE_ENTRANCE_STAGE, chat_helpers._PENDING_CHYRON,
+                  chat_helpers._AIRED_STEER, chat_helpers._OWED_ANN_IDS, chat_helpers._HANGOUT_STEER):
         assert rk not in store
     assert rk not in chat_helpers._PREMIERE_CLOCK_STARTED
     assert rk not in chat_helpers._PREMIERE_RELEASED_THIS_TURN
     dkey = chat_helpers._desync_key(owner)
     assert dkey not in chat_helpers._CUT_STREAK
     assert dkey not in chat_helpers._DESYNC_REGROUND
+    assert dkey not in chat_helpers._CEREMONY_UNVOICED
 
 
 @pytest.fixture(autouse=True)
@@ -118,6 +124,8 @@ def _clean():
             chat_helpers._PREMIERE_RELEASED_THIS_TURN.discard(rk)
             chat_helpers._CUT_STREAK.pop(dkey, None)
             chat_helpers._DESYNC_REGROUND.pop(dkey, None)
+            chat_helpers._CEREMONY_UNVOICED.pop(dkey, None)
+            chat_helpers._HANGOUT_STEER.pop(rk, None)
     wipe()
     yield
     wipe()

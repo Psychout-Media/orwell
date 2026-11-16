@@ -8,10 +8,19 @@
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"
 STATE=$RIG_STATE_DIR; mkdir -p "$STATE"; REF=${1:-main}; CAP=${RIG_SPEND_CAP:-3}
+python3 -c 'import sys; c=float(sys.argv[1]); import math; assert math.isfinite(c) and c>0' "$CAP" 2>/dev/null || { echo "LIVE-WEEK COULD-NOT-RUN RIG_SPEND_CAP must be a positive number (got '$CAP'); nothing was started"; exit 2; }   # fail closed: never a paid run without a working guard
+case "${RIG_WEEKS:-1}" in ''|*[!0-9]*|0|????*) echo "LIVE-WEEK COULD-NOT-RUN RIG_WEEKS must be a positive integer of at most 3 digits (got '${RIG_WEEKS:-}'); nothing was started"; exit 2;; esac   # validated before anything is staged or spent
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-WEEK BUSY (another live run holds rig slot $RIG_SLOT)"; exit 3; }
-git -C /home/ryne/orwell fetch -q origin "$REF" || { echo "LIVE-WEEK COULD-NOT-RUN fetch failed"; exit 2; }
-SHA=$(git -C /home/ryne/orwell rev-parse --short=8 "origin/$REF")
-if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then echo "LIVE-WEEK COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
+git -C "$RIG_HOME/orwell" fetch -q origin "$REF" || { echo "LIVE-WEEK COULD-NOT-RUN fetch failed"; exit 2; }
+SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 "origin/$REF")
+PRE_PTR=$(cat "$RIG_RUN_PTR" 2>/dev/null || true)
+_kill_ours() { local pid; pid=$(cat "$1" 2>/dev/null); [ -n "$pid" ] && tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qE "$2" && kill "$pid" 2>/dev/null; return 0; }   # signal a pid only while its command line still looks like ours (a reused pid is left alone)
+trap '_kill_ours "${RUN:-/nonexistent}/spend.pid" spend_guard; _kill_ours "${RUN:-/nonexistent}/driver.pid" live_week; [ -n "${RUN:-}" ] && "$KIT/stop.sh" >/dev/null 2>&1' INT TERM   # an interrupted run never leaves its rig or its guard behind
+if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then
+  echo "LIVE-WEEK COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"
+  [ "$(cat "$RIG_RUN_PTR" 2>/dev/null || true)" != "$PRE_PTR" ] && "$KIT/stop.sh" >/dev/null 2>&1   # stop only a run THIS stage created, never the one the pointer named before
+  exit 2
+fi
 RUN=$(cat "$RIG_RUN_PTR")
 python3 - <<P || { echo "LIVE-WEEK COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
 import json
@@ -22,16 +31,22 @@ if [ "${RIG_DRY:-0}" = 1 ]; then
   "$KIT/stop.sh" >/dev/null 2>&1
   echo "LIVE-WEEK DRY slot=$RIG_SLOT $SHA fe=$FE engine=$EN run=$RUN"; [ "$FE" = 200 ] && [ "$EN" = 200 ]; exit $?
 fi
-TMPDIR=${TMPDIR:-/home/ryne/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
-PY=${ORWELL_PY:-/home/ryne/orwell/frontend/.venv/bin/python3}; LLMIO="$WT/frontend/data/llm-io.jsonl"
+TMPDIR=${TMPDIR:-$RIG_HOME/.cache/a9chrome-tmp}; mkdir -p "$TMPDIR"; export TMPDIR
+PY=${ORWELL_PY:-$RIG_HOME/orwell/frontend/.venv/bin/python3}; LLMIO="$WT/frontend/data/llm-io.jsonl"
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>&1 & echo $! > "$RUN/spend.pid"
+sleep 2; kill -0 "$(cat "$RUN/spend.pid")" 2>/dev/null || { echo "LIVE-WEEK COULD-NOT-RUN $SHA the spend guard did not stay alive (see $RUN/spend-guard.out); the paid driver was not started"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
 EXTRA=""; [ "${RIG_WEEKS:-1}" -gt 1 ] && EXTRA="--season --stop-after-week $RIG_WEEKS"   # RIG_WEEKS=3: Week 1 then weeks 2 and 3 (ORW-350), stopping when week 3 ends
 "$PY" "$HERE/live_week.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" $EXTRA > "$RUN/live_week.out" 2>&1 & echo $! > "$RUN/driver.pid"
-wait "$(cat "$RUN/driver.pid")"; RC=$?
-kill "$(cat "$RUN/spend.pid")" 2>/dev/null
+DPID=$(cat "$RUN/driver.pid"); SPID=$(cat "$RUN/spend.pid")
+( while kill -0 "$DPID" 2>/dev/null; do kill -0 "$SPID" 2>/dev/null || { kill "$DPID" 2>/dev/null; echo guard-died > "$RUN/GUARD-DIED"; break; }; sleep 2; done ) &   # a dead guard must never leave the paid driver uncapped
+WATCH=$!
+wait "$DPID"; RC=$?
+kill "$WATCH" 2>/dev/null
+_kill_ours "$RUN/spend.pid" spend_guard
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" --once >/dev/null 2>&1   # a final spend.json
 (cd "$KIT" && python3 rig_stats.py "$LLMIO" "$RUN" >/dev/null 2>&1)
 "$KIT/stop.sh" >/dev/null 2>&1
-if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "LIVE-WEEK CAPPED $SHA $RUN/report.md (spend cap \$$CAP hit; see $RUN/spend.json)"; exit 4; fi
+[ -f "$RUN/GUARD-DIED" ] && { echo "LIVE-WEEK COULD-NOT-RUN $SHA the spend guard died mid-run; the driver was stopped ($RUN)"; exit 2; }
+if [ -f "$RUN/SPEND-CAP-HIT" ] && [ ! -f "$RUN/report.md" ]; then echo "LIVE-WEEK CAPPED $SHA $RUN/spend.json (spend cap \$$CAP hit; the driver was stopped before it wrote a report; see also $RUN/rig-stats.md)"; exit 4; fi
 case $RC in 0) V=PASS;; 1) V=FAIL;; *) V=COULD-NOT-RUN;; esac
 echo "LIVE-WEEK $V $SHA $RUN/report.md"; exit $RC
