@@ -384,6 +384,15 @@
         mk("The biggest lies the house believed", _millRows(_mill.biggest));
         mk("What they got wrong about you", _millRows(_mill.aboutYou));
       }
+      // ORW-551 (spec 0159): the house culture, in plain texture words (one phrase per lean; the engine sends words only). Render-only, textContent. Absent => skipped.
+      const _cult = unsealed.houseCulture;
+      const _cultWords = ((_cult && _cult.leans) || []).filter((t) => typeof t === "string" && t.trim()).map((t) => clean(t));
+      if (_cultWords.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "The house you lived in"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _cultWords) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
       // ENDGAME-1: the full hidden story, not just the latest 40 — a completed season with off-screen
       // sim, gossip diffusion, confessionals, threads, and seeded ties easily runs to hundreds of rows,
       // and dropping the early/mid season silently guts the "you were blindsided, and it was real all

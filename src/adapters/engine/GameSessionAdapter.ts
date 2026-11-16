@@ -337,6 +337,7 @@ import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type H
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
+import { drawHouseLeans, describeHouseLeans } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -713,8 +714,8 @@ const _hoScale = Number(process.env.ORWELL_HANGOUT_P_SCALE);
 const HANGOUT_P_SCALE = process.env.ORWELL_HANGOUT_P_SCALE !== undefined && Number.isFinite(_hoScale) && _hoScale > 0 ? _hoScale : 1;
 const HANGOUT_PULL_P = Math.min(0.9, 0.03 * HANGOUT_P_SCALE), HANGOUT_APPROACH_P = Math.min(0.9, 0.08 * HANGOUT_P_SCALE), HANGOUT_OBSERVED_P = Math.min(0.9, 0.07 * HANGOUT_P_SCALE);
 /**
- * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). OFF unless
- * `ORWELL_DESIRE_CLOCK=1`. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
+ * A8 - NPC approaches keyed to elapsed in-game HOURS and each NPC's own desire clock (urgency rises toward the event they care about; an hours-based cooldown). ON by default;
+ * `ORWELL_DESIRE_CLOCK=0` turns it off. Off => nothing is written to the live state and the hang-out keeps its flat per-beat approach roll, so the spine is byte-identical.
  */
 const DESIRE_CLOCK_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DESIRE_CLOCK");
 /**
@@ -1205,7 +1206,10 @@ export class GameSessionAdapter implements GameSession {
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
     // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
+    const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
     if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
+    // ORW-551 / spec 0162: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
+    if (this.live && firstPlayedMessage && this.houseCultureEnabled && !this.live.houseLeans) this.live.houseLeans = drawHouseLeans(`${this.gameSeed ?? 0}`);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
@@ -1633,6 +1637,9 @@ export class GameSessionAdapter implements GameSession {
    * Draws come from the `${seed}:house-meeting` side stream. ON unless `ORWELL_HOUSE_MEETINGS=0`; needs the belief layer and a played game.
    */
   private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
+  /** ORW-551 / spec 0162 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
+  private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
+  setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
   holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
@@ -4406,7 +4413,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
-    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}) };
+    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0162): texture words only, same crown gate; absent when no culture was drawn
+    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -10206,13 +10214,13 @@ export class GameSessionAdapter implements GameSession {
     return strategicDriveWeight(this.statsOf(id).mental, npc?.character.strategyStyle);
   }
 
-  // --- 0066 Phase-2 (#1125): the three sleep-economy extension flags (each default OFF) --------------
+  // --- 0066 Phase-2 (#1125): the three sleep-economy extension flags (each default ON; `=0` turns it off) --------------
 
-  /** Extension 1 — the per-conversation clock advance. Off by default — calibration leaves it off. */
+  /** Extension 1 — the per-conversation clock advance. On by default (`ORWELL_TIME_PER_CONVERSATION=0` turns it off). */
   setPerConversationClockEnabled(on: boolean): void { this.perConversationClockEnabled = on; }
-  /** Extension 2 — NPC next-day social fatigue (dampened sway + conflict-drained bedtime). Off by default. */
+  /** Extension 2 — NPC next-day social fatigue (dampened sway + conflict-drained bedtime). On by default (`ORWELL_SOCIAL_FATIGUE=0` turns it off). */
   setSocialFatigueEnabled(on: boolean): void { this.socialFatigueEnabled = on; }
-  /** Extension 3 — the compounding multi-night fatigue meter. Off by default. */
+  /** Extension 3 — the compounding multi-night fatigue meter. On by default (`ORWELL_MULTI_NIGHT_FATIGUE=0` turns it off). */
   setMultiNightFatigueEnabled(on: boolean): void { this.multiNightFatigueEnabled = on; }
 
   /** #1400 — generative competition design (the model dresses the fixed roll). Off by default (env-gated). */
