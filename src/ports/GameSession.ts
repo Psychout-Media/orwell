@@ -525,6 +525,8 @@ export interface GameStateView {
    * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
+  /** ORW-473: the player walked in on a private talk this turn (only on the message it happened on). */
+  walkedIn?: WalkedInView;
   player: PlayerCard | null;
   house: HouseguestCard[];
   /** Deals the player is party to (0039) — fact + status only, never the hidden opinion numbers. */
@@ -1931,6 +1933,14 @@ export interface HouseSearchView {
  * through walls — fog of war is gameplay).
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
+/** ORW-473: the player walked in on a private talk between two houseguests this turn: who, and each one's reaction (chosen from their own sheet) as a manner to voice; never what the talk was about. */
+export interface WalkedInView {
+  room: string;
+  with: NamedRef[];
+  /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
+  reactions: Array<{ id: EntityId; name: string; line: string }>;
+}
+
 export type PlayerMoveView =
   | { from: string; to: string; refused?: undefined; msg?: string }
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
@@ -2409,7 +2419,29 @@ export interface HouseStory {
 export interface RecordNpcReflectionsReq { reflections: Array<{ id: EntityId; night: number; reflection: string }> }
 export interface RecordNpcReflectionsResult { accepted: number; rejected: number; reason?: string }
 
+/**
+ * ORW-525 (spec 0157, theme 2 slice 8): one false belief of the season, told in plain words. Present ONLY on the post-season retrospective
+ * (`RetrospectiveView.rumorMill`, behind the `finished` gate). Covers claim-planted beliefs only. No truth flag or intent is carried: every row IS a lie.
+ */
+export interface RumorMillBelief {
+  /** What was believed, in words ("that <name> was targeting them"; "them" = each believer). */
+  claim: string;
+  /** Who told it first (the earliest false claim of its kind). */
+  starter: NamedRef;
+  startedWeek: number;
+  /** Later tellers who passed it on without meaning to mislead (leaks, not starters). */
+  passedOn: NamedRef[];
+  /** The houseguests it was told to. */
+  believers: NamedRef[];
+  tellings: number;
+  /** The player was told it too. */
+  toldToYou: boolean;
+}
+export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose subject is the player: what the house got wrong about you. */ aboutYou: RumorMillBelief[] }
+
 export interface RetrospectiveView {
+  /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
+  rumorMill?: RumorMill;
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
    * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
