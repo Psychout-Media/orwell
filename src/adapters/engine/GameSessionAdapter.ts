@@ -324,7 +324,8 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { planSpeech, speechActionOf, type TruthFacts } from "../../engine/houseSpeech";
+import { liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1425,6 +1426,28 @@ export class GameSessionAdapter implements GameSession {
     });
     if (log.items.length === 0) delete live.claims;   // a refused first claim leaves the season byte-identical
     return told;
+  }
+  /** 0153 / ORW-330 slice 3: what a house-life speech action SAYS, as a claim the engine decides and checks against its truth; nothing for other actions. Returns the claim told, if any. */
+  private sayInHouseLife(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): SpokenClaim | undefined {
+    const action = speechActionOf(p.kind);
+    if (!action || !this.live) return undefined;
+    const said = planSpeech(action, p.actor, partner, p.about, p.truthful, {
+      living: this.livingIds(), beliefs: this.live.beliefs, facts: this.truthFacts(),
+      roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
+    });
+    return said ? this.tellClaim(said) : undefined;
+  }
+  /** 0153 / ORW-330 slice 3: the engine's truth for checking a claim - goals, recorded ballots, open final-two deals, the claim log. Engine-only reads. */
+  private truthFacts(): TruthFacts {
+    const live = this.live;
+    const AGAINST = new Set(["get-them-out", "revenge", "long-con"]);
+    return {
+      goalAgainst: (who, target) => (live?.agendas?.[who]?.goals ?? []).some((g) => g.status === "active" && g.target === target && AGAINST.has(g.kind)),
+      votedToEvict: (voter, evictee) => (live?.voteRecord ?? []).some((r) => r.voteOf[voter] === evictee),
+      finalTwo: (a, b) => this.deals.forParty(a).some((d) => d.status === "open" && d.kind === "final-two" && d.parties.includes(b)),
+      liedTo: (a, b) => liesBy(live?.claims, a).some((c) => c.listener === b),
+      talkedAbout: (a, b) => (live?.claims?.items ?? []).some((c) => c.speaker === a && (c.subject === b || c.object === b)),
+    };
   }
   /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
   claimsThePlayerHeard(): HeardClaim[] {
@@ -11008,6 +11031,8 @@ export class GameSessionAdapter implements GameSession {
         };
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
+        // 0153 / ORW-330 slice 3: a speech action is a real claim the engine decides (plant a lie, leak a belief, confirm one, fish for one), checked against its own truth.
+        this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}`);
       }
     }
     return out;

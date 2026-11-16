@@ -133,6 +133,7 @@ module.exports = {
       "docs/features/0148-player-nap.feature",
       "docs/features/0149-claims-core.feature",
       "docs/features/0150-beliefs-drive-decisions.feature",
+      "docs/features/0153-npcs-spread-and-lie.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
