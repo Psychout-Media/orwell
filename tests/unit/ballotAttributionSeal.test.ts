@@ -147,7 +147,7 @@ describe("A7 — the same seal applies to a named-alliance betrayal (0107 Phase 
     poke(session).reconcileAllianceBetrayals(action);
 
     const visibleToPlayer = sb.engine.events.query({ witnessedBy: PLAYER });
-    for (const e of visibleToPlayer) expect(e.content).not.toContain(npcName);
+    for (const e of visibleToPlayer.filter((x) => x.type !== "alliance-formed")) expect(e.content).not.toContain(npcName); // the formation of an alliance the player is IN (0161) legitimately names its founder: the seal is about the sealed vote, not the roster
     expect(visibleToPlayer.some((e) => e.type === "betrayal")).toBe(true); // the unattributed signal lands
 
     const attributed = sb.engine.events.queryAll().find(
