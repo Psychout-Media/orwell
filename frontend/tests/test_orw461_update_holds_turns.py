@@ -152,3 +152,15 @@ def test_the_hold_and_its_dir_are_readable_by_the_front_end_user_whatever_the_um
     assert oct(run.stat().st_mode & 0o777) == "0o755", "the run dir must be traversable by other users"
     assert oct((run / "turns-hold").stat().st_mode & 0o777) == "0o644", "the hold must be world-readable"
     assert not list(run.glob(".turns-hold.*"))
+
+
+@needs_bash
+def test_a_run_dir_another_writer_made_0700_is_made_traversable_when_the_hold_begins(tmp_path):
+    # ORW-489: `mkdir -p -m 755` only applies the mode when it creates the dir; update_run_supersede runs first under root's umask
+    run = tmp_path / "run"
+    run.mkdir(exist_ok=True)
+    run.chmod(0o700)
+    r = _hb(run, 240, "umask 077")
+    assert r.returncode == 0, r.stderr
+    assert oct(run.stat().st_mode & 0o777) == "0o755", "a pre-existing 0700 run dir must be 755 once the hold begins"
+    assert (run / "turns-hold").is_file()

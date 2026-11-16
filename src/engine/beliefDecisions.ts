@@ -87,5 +87,5 @@ export function believedGrievances(store: BeliefStore | undefined, holder: Entit
   return out.sort((a, b) => b.strength - a.strength || a.toward.localeCompare(b.toward));
 }
 
-/** 0158 / ORW-539: how much one witnessed bonding scene between two others raises the bond the decider sees (four scenes = the full floater span). */
+/** 0161 / ORW-539: how much one witnessed bonding scene between two others raises the bond the decider sees (four scenes = the full floater span). */
 export const PERCEIVED_BOND = { perScene: 0.25, /** v2: how much of the read is what they saw (the rest is the true bond: tone and glances a houseguest picks up). */ seenShare: 0.5 } as const;

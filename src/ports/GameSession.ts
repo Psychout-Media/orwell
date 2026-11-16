@@ -417,6 +417,15 @@ export interface JuryHouseView {
   jurors: JuryHouseJurorView[];
 }
 
+/** 0156: what the narrator may voice of a house meeting: who called it, who was accused, the claim made and how the accused answered. Names only (Vault-free). */
+export interface HouseMeetingView {
+  caller: string;
+  accused: string;
+  claim: { kind: string; subject: string; object?: string };
+  answer: "deny" | "admit" | "redirect";
+  redirectTo?: string;
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -564,6 +573,8 @@ export interface GameStateView {
   beds?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
+  /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
+  houseMeeting?: HouseMeetingView;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive

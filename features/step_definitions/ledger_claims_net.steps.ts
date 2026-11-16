@@ -58,6 +58,13 @@ Then("the houseguest who heard it holds it as a belief, sourced to the speaker",
   assert.equal(held.length, 1);
 });
 
+Then("a houseguest who only overheard it holds it as said about the one it was told to, never about themself", function () {
+  const b = bag(this);
+  const theirs = live(b.s!).beliefs?.[b.third!] ?? [];
+  assert.ok(theirs.some((c) => c.kind === "heard-rumor" && c.nature === "going-after" && c.subject === b.subject && c.object === b.listener), "the bystander does not hold it as said about the addressee");
+  assert.ok(!theirs.some((c) => c.kind === "targets-me" && c.subject === b.subject), "the bystander came to believe the subject is targeting THEM");
+});
+
 Then("the player is handed no belief", function () {
   assert.equal((live(bag(this).s!).beliefs?.[PLAYER] ?? []).length, 0);
 });
@@ -80,6 +87,13 @@ Then("the engine marks the claim true or false from its own record of the ballot
   assert.equal(items.find((c) => c.object === b.listener)?.isTrue, false, "a claim the ballot record contradicts was not marked false");
 });
 
+Then("a false claim the speaker does not believe is recorded as a lie, a true one as passing on", function () {
+  const b = bag(this);
+  const items = (live(b.s!).claims?.items ?? []).filter((c) => c.listener === b.listener && c.kind === "voted-against");
+  assert.equal(items.find((c) => c.object === b.third)?.intent, "inform");
+  assert.equal(items.find((c) => c.object === b.listener)?.intent, "mislead");
+});
+
 Then("no player or admin view shows that verdict", async function () {
   const b = bag(this);
   const after = await surfaces(b.sb!);
@@ -97,4 +111,18 @@ When("the narration records a promise with no claim attached", async function ()
 Then("no claim is recorded and no belief changes", function () {
   const b = bag(this);
   assert.equal(JSON.stringify({ c: live(b.s!).claims, b: live(b.s!).beliefs }), b.before);
+});
+
+When("a houseguest's claim to the player was decided by the engine, and the narration then voices it", async function () {
+  const b = bag(this);
+  const engineClaim = b.s!.tellClaim({ speaker: b.speaker!, listener: PLAYER, kind: "targets-you", subject: b.subject!, isTrue: true, intent: "warn" });
+  assert.ok(engineClaim, "the engine refused its own claim");
+  await record(this, { text: "Heads up, they are coming for you.", speaker: b.speaker!, addressedTo: [PLAYER], kind: "claim", about: b.subject!, claim: { kind: "targets-you", subject: b.subject! } });
+});
+
+Then("the claim is recorded once, with the engine's truth", function () {
+  const b = bag(this);
+  const toPlayer = (live(b.s!).claims?.items ?? []).filter((c) => c.listener === PLAYER && c.speaker === b.speaker && c.kind === "targets-you" && c.subject === b.subject);
+  assert.equal(toPlayer.length, 1, "the narration re-recorded a claim the engine already told");
+  assert.equal(toPlayer[0]!.origin, "engine");
 });

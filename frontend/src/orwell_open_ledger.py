@@ -43,7 +43,7 @@ WriteFn = Callable[[dict], Awaitable[dict]]
 
 _SYSTEM = (
     "You extract what a Big Brother narration puts on the record in the player's hearing, as free text: a promise, threat, "
-    "offer or reveal between two people; a PACT or proposal among a GROUP (e.g. if one of us wins the rest are safe); a "
+    "offer or reveal between two people; a PACT or proposal among a GROUP (a conditional promise that binds several people at once); a "
     "CLAIM one houseguest makes ABOUT another; a stated PLAN or intention voiced in front of the player. Reply "
     "IMMEDIATELY with ONLY a JSON object, no prose, no code fence: "
     '{"entries":[{"text":"<their words, verbatim or nearly, one sentence>","speaker":"<id from the list, or player>",'
@@ -53,7 +53,8 @@ _SYSTEM = (
     "parties and about are optional: leave them out when they do not apply. A CLAIM about houseguests may also carry "
     '"claim":{"kind":"<one of: targets-you, voted-to-evict-you, final-two-with, going-after, talking-about, lying-about, voted-against, '
     'voted-to-keep>","subject":"<id>","object":"<id, only when the kind names a second person>"} when it says exactly one of those '
-    '(targets-you and voted-to-evict-you mean the LISTENER); leave claim out otherwise. '
+    '(targets-you and voted-to-evict-you mean the LISTENER), and ONLY when it is stated as fact: never for a hunch, a question, a joke or sarcasm; '
+    'leave claim out otherwise. '
     "Only people from the PRESENT list may speak, be "
     "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
     "(use parties for a larger group pact). "

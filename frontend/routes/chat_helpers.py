@@ -4174,11 +4174,25 @@ def _sentence_stages_absent_npc(sentence: str, facts: dict, first_counts: dict) 
             return n
     # ORW-249 (the hard roster): someone in an ADJACENT room who is staged speaking or acting IN the player's scene is as absent as someone across the house. The one legitimate form is the
     # glimpse/overhear framed as the OTHER room ("you hear Mara laughing in the backyard", "from next door, Mara's voice..."), which stays.
-    if not _sentence_frames_elsewhere(sentence, facts):
+    _elsewhere = _sentence_frames_elsewhere(sentence, facts)
+    # ORW-501 (review 4502876775): a room word INSIDE quoted speech ("Let's go to the backyard.") is not the narration framing the action elsewhere. When the adjacent houseguest is staged by the NARRATION (outside
+    # the quotes) and the narration itself carries no elsewhere framing, the dialogue's room word must not exempt them. Staged only inside a quote, the old sentence-wide reading stands (never a new drop).
+    _narr = _QUOTED_SPEECH_RE.sub(" ", sentence or "")
+    _narr_elsewhere = _elsewhere and _narr != (sentence or "") and _sentence_frames_elsewhere(_narr, facts)
+    if not _elsewhere or (not _narr_elsewhere and _narr != (sentence or "")):
         for n in facts.get("adjacent") or ():
-            if n not in _exempt and _name_staged_unique(sentence, n, first_counts):
+            if n in _exempt:
+                continue
+            if not _elsewhere:
+                if _name_staged_unique(sentence, n, first_counts):
+                    return n
+            elif _name_staged_unique(_narr, n, first_counts):
                 return n
     return None
+
+
+# ORW-501: a double-quoted span of speech (straight or curly), blanked to find what the NARRATION alone says.
+_QUOTED_SPEECH_RE = re.compile(r'"[^"]*"|\u201c[^\u201d]*\u201d')
 
 
 # ORW-249: cues that a sentence places a sound or glimpse in ANOTHER room (so it is an overhear, not a presence in the player's scene).
@@ -6112,7 +6126,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             # Strictness is unchanged for anything else: the remedy applies only if the stripped text then passes the SAME verifier (a wrong evictee, a
             # phantom result or a second fabrication still cuts the whole scene).
             _kept = drop_wrong_tally_sentences(text, live)
-            if _kept != text and _kept.strip() and not _narration_claims_outcome(_kept, before, live):
+            if _kept != text and (not _kept.strip() or not _narration_claims_outcome(_kept, before, live)):  # ORW-504: a segment that IS the wrong tally rewrites to "" (quietly dropped, scene not cut)
                 _SCENE_REWRITE[_dkey] = _kept
                 logger.warning("[orwell] scene circuit-breaker: wrong vote tally in a committed eviction - dropped the tally sentence(s) only, scene kept for user=%s", user)
                 return None
@@ -6615,6 +6629,7 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         status = await orwell_engine.game_status(user=user)
         if not isinstance(status, dict):
             return True
+        status = await _status_with_clock_label(user, status)  # review of #2630: `gameStatus` carries no clockLabel, so every clock-aware branch below needs it read fresh
         tod = str(status.get("timeOfDay") or "").strip().lower()
         lab = status.get("clockLabel")
         # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
@@ -6631,6 +6646,14 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
             return False
         if tod not in _UNBACKED_MORNING_BOARD_TIMES and not _clock_is_predawn(lab):
             return True
+        if _clock_is_predawn(lab) and tod not in _UNBACKED_MORNING_BOARD_TIMES:
+            # review of #2630: the player ALREADY turned in and woke early (the engine bands that "morning"): there is no bedtime to call turnIn for - say it is the small hours and where the morning begins.
+            _stash_overclaim_reground(
+                user,
+                "RE-GROUND ON THE CLOCK - you narrated the morning arriving, but the engine clock reads " + (_zc_narrator_clock(lab) if lab else "the small hours") + ": it is still the small hours, before 7am. "
+                "The player already turned in and woke early; it is dark, the house is asleep, and morning does not come until the engine's own morning. Voice only the quiet dark.")
+            logger.warning("[orwell] pre-emission guard HELD a pre-dawn morning claim for user=%s - engine clock still pre-dawn", user)
+            return False
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the morning / the next day arriving, but the engine clock still "
@@ -7040,6 +7063,9 @@ _HC_REMAIN_TAIL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ORW-501: a contrast that makes the count a SUBGROUP: "..., while the rest chat in the yard", "and the others are outside".
+_HC_REST_CONTRAST_RE = re.compile(r"\b(?:the\s+(?:rest|others?|remaining)|everyone\s+else|the\s+other\s+(?:\w+\s+)?(?:are|were|chat|wait|stay|sit|stand|hang)\w*)\b", re.IGNORECASE)
+
 # One stated count: kind "inside" (how many are in) or "remaining" (how many are still to come); `subj` is
 # "you" ("N of you"), "us", or "them" (a bare number, a noun, "of the cast", "the other N").
 _HcClaim = collections.namedtuple("_HcClaim", ["kind", "n", "subj", "in_dialogue", "text"])
@@ -7086,6 +7112,8 @@ def _headcount_claims(text: str) -> list:
         tail = text[m.end():]
         # "one in" is almost always the pronoun ("no one in the house", "the one in the corner").
         im = None if word == "one" else _HC_INSIDE_TAIL_RE.match(tail)
+        if im and _HC_REST_CONTRAST_RE.search(tail[im.end():im.end() + 60]):
+            continue  # ORW-501 (review 4531996541): "Two of them are inside, while the rest chat in the yard" names a subgroup beside the others, not the arrival total
         if im:
             subj_txt = (im.group("subj") or "").lower()
             if lead == "other":

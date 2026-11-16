@@ -13,14 +13,21 @@ Feature: The open ledger catches claims the narrator writes
     Then the engine records the claim with its speaker and its listeners, as narrated
     And the houseguest who heard it holds it as a belief, sourced to the speaker
     And the player is handed no belief
+    And a houseguest who only overheard it holds it as said about the one it was told to, never about themself
 
   Scenario: The engine settles what it can check
     Given a played season with the open ledger on
     When the narration has a houseguest claim that another houseguest voted to evict a third
     Then the engine marks the claim true or false from its own record of the ballots
+    And a false claim the speaker does not believe is recorded as a lie, a true one as passing on
     And no player or admin view shows that verdict
 
   Scenario: A ledger entry with no claim the engine understands changes nothing
     Given a played season with the open ledger on
     When the narration records a promise with no claim attached
     Then no claim is recorded and no belief changes
+
+  Scenario: The narrator voicing a claim the engine already told does not record it twice
+    Given a played season with the open ledger on
+    When a houseguest's claim to the player was decided by the engine, and the narration then voices it
+    Then the claim is recorded once, with the engine's truth

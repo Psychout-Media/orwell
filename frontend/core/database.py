@@ -138,6 +138,9 @@ class Session(TimestampMixin, Base):
     endpoint_url = Column(String, nullable=False)
     model = Column(String, nullable=False)
     owner = Column(String, nullable=True, index=True)  # username; null = legacy/shared
+    # ORW-512: the registered endpoint the session was created on or switched to (null = a raw URL or a legacy row). Two endpoints
+    # can share a base URL; this names the session's own, so its key is never ambiguous.
+    endpoint_id = Column(String, nullable=True)
     
     # Configuration flags
     rag = Column(TolerantBoolean, default=False)
@@ -909,6 +912,24 @@ def _migrate_add_document_archived_column():
         conn.close()
     except Exception as e:
         logging.getLogger(__name__).warning(f"documents.archived migration failed: {e}")
+
+
+def _migrate_add_session_endpoint_id_column():
+    """ORW-512: add the nullable sessions.endpoint_id column if it doesn't exist (existing rows load unchanged, as null)."""
+    import sqlite3
+    db_path = DATABASE_URL.replace("sqlite:///", "")
+    if not os.path.exists(db_path):
+        return
+    try:
+        conn = sqlite3.connect(db_path)
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()]
+        if columns and "endpoint_id" not in columns:
+            conn.execute("ALTER TABLE sessions ADD COLUMN endpoint_id TEXT")
+            conn.commit()
+            logging.getLogger(__name__).info("Migrated: added 'endpoint_id' column to sessions")
+        conn.close()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Migration check failed: {e}")
 
 
 def _migrate_add_owner_column():
@@ -1815,6 +1836,7 @@ def _init_db_inner():
     _migrate_add_supports_tools_column()
     _migrate_add_task_run_model_column()
     _migrate_add_owner_column()
+    _migrate_add_session_endpoint_id_column()
     _migrate_add_document_archived_column()
     _migrate_add_last_message_at_column()
     _migrate_add_chat_message_seq_column()  # ADR 0008: authoritative per-session chat order
