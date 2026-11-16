@@ -197,6 +197,20 @@ def _reject_raw_endpoint_url_for_non_admin(
         raise HTTPException(403, "Choose a registered model endpoint")
 
 
+def _persist_session_endpoint_id(session_id: str, endpoint_id: str | None) -> None:
+    """ORW-512: remember which registered endpoint the session uses (None = a raw URL), so a same-URL tie never leaves it without its key."""
+    db = SessionLocal()
+    try:
+        db_session = db.query(DbSession).filter(DbSession.id == session_id).first()
+        if db_session:
+            db_session.endpoint_id = (endpoint_id or "").strip() or None
+            db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _persist_session_headers(session_id: str, headers: dict | None) -> None:
     """Persist endpoint auth headers for DB-backed session metadata."""
     db = SessionLocal()
@@ -522,6 +536,8 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
             rag=str(rag).lower() == "true" if rag else False,
             owner=user,
         )
+        if endpoint_id and endpoint_id.strip():
+            _persist_session_endpoint_id(sid, endpoint_id)  # ORW-512
         # Set auth headers for custom API-key endpoints
         resolved_key = request_api_key
         resolved_base = endpoint_url
@@ -600,6 +616,7 @@ def setup_session_routes(session_manager: SessionManager, config: dict, webhook_
                 if db_session:
                     db_session.model = model
                     db_session.endpoint_url = endpoint_url
+                    db_session.endpoint_id = (endpoint_id or "").strip() or None  # ORW-512: a switch to a raw URL clears it
                     from src.endpoint_resolver import persistable_session_headers
                     db_session.headers = persistable_session_headers(
                         endpoint_url, session.headers or {}, getattr(db_session, "owner", None),
