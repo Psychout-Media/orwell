@@ -91,6 +91,13 @@ async () => {
   send(mk(['npc:8', 'npc:9'], 'Cast your vote to evict one of the two nominees.')); await wait(700);
   document.querySelector('#orwell-decision-card .odec-x').click(); await wait(300);
   out.afterDismiss = state();
+  // ORW-507: the SAME jury-vote pending gaining new jurorBrief content must show the new brief (the brief is not part of the decision signature).
+  send(null); await wait(200);
+  const jv = (brief) => ({ kind: 'juror-vote', by: { id: 'player', name: 'P' }, prompt: 'Cast your jury vote.', pick: 1, options: [{ id: 'npc:1', name: 'A' }, { id: 'npc:2', name: 'B' }], jurorBrief: brief });
+  send(jv([{ finalist: { name: 'A' }, heard: ['one thing'] }])); await wait(700);
+  out.briefBefore = (document.querySelector('#orwell-decision-card .odec-stillin') || {}).textContent || '';
+  send(jv([{ finalist: { name: 'A' }, heard: ['one thing', 'a newer thing'] }])); await wait(400);
+  out.briefAfter = (document.querySelector('#orwell-decision-card .odec-stillin') || {}).textContent || '';
   return out;
 }
 """
@@ -119,3 +126,4 @@ def test_a_repeat_of_the_same_decision_keeps_the_pick_and_a_different_one_replac
     assert r["afterNone"] is None, "no pending removes the card"
     assert r["doneRebuilt"] is True and r["afterDone"]["pressed"] == ["false", "false"], f"a finished card is rebuilt, not kept: {r}"
     assert r["afterDismiss"] is None, f"a dismissed card is gone: {r}"
+    assert "a newer thing" not in r["briefBefore"] and "a newer thing" in r["briefAfter"], f"a jury card must refresh when its juror brief changes: {r}"

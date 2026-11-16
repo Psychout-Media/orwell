@@ -441,6 +441,8 @@ function grandparentSelfReference(text: string): boolean {
       const at = m.index ?? 0;
       const after = text.slice(at + m[0].length);
       const before = text.slice(Math.max(0, at - 40), at + (m[1]?.length ?? 0));
+      // ORW-501 (review 4576094204): "has a grandkid of his own" and "spoils the only grandkid" still make the houseguest the grandparent; only the grandchild shapes pass.
+      if (/^\s+of\s+(?:his|her|their|my|our|your)\s+own\b/i.test(after) || /\b(?:has|have|had|spoils?|dotes?\s+on|raises?|babysits?|adores?|loves?)\s+(?:a\s+|an\s+|the\s+)?(?:\w+\s+)?$/i.test(before)) return true;
       if (/^\s+of\b/i.test(after) || /\bthe\s+(?:only|youngest|eldest|oldest|first|favou?rite|last)\s+$/i.test(before)) continue;
       return true;
     }
