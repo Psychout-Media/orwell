@@ -146,3 +146,32 @@ def test_orw511_entries_carry_a_reviewed_reason_per_site_and_a_decision_per_list
     for e in G.load_allowlist():
         if e["owner"] == "ORW-511" and e["kind"] != "list":
             assert len(e["sites"]) >= e["max"] and all(x["reason"] != "UNREVIEWED" for x in e["sites"])
+
+
+# ORW-511 re-review: the shapes of the sample lines the pre-#2866 moment prompt carried (rewritten with other words; same punctuation, quoting and wrapping).
+OLD_MOMENT_PROMPT_SHAPES = '''
+export const BASE = [
+  "QUESTION DISCIPLINE: when a houseguest asks the",
+  "PLAYER something directly and is waiting on them - 'what do you think of Sam?', 'can I trust",
+  "you?', 'are you coming with us?' - that question is a live invitation: stop there.",
+  "TIME: never say \\"8 o'clock\\", \\"quarter past eight\\" or \\"it's eight in the evening\\" as a time stamp.",
+  "SHORT: answer with 'a day passes', 'the house resets', 'later that night' and similar.",
+].join("\\n");
+export const REVEAL =
+  "the whole house crowding upstairs, \\"who wants to see my room?!\\", the " +
+  "letter and photos read aloud.";
+'''
+
+
+def test_the_sample_shapes_of_the_pre_2866_moment_prompt_are_found():
+    hits = S.scan_sources({"ts": {"src/engine/momentPrompts.ts": OLD_MOMENT_PROMPT_SHAPES}})
+    menus = [h for h in hits if h.kind == "menu"]
+    lines = [h for h in hits if h.name == "example@quoted-line"]
+    assert len(menus) >= 3, menus   # the single-quoted trio wrapped across literals, the "or"-separated double-quoted trio, the short single-quoted trio
+    assert lines, hits              # the lone "who wants to see my room?!" line
+    assert len(run({"ts": {"src/engine/momentPrompts.ts": OLD_MOMENT_PROMPT_SHAPES}})) >= 2
+
+
+def test_an_apostrophe_in_plain_prose_is_not_a_quoted_sample():
+    prose = 'export const P = "The player\'s own words stay theirs; it isn\'t your place to speak, and the host\'s role isn\'t yours either.";\n'
+    assert run({"ts": {"src/engine/p.ts": prose}}) == []
