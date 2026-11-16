@@ -141,6 +141,7 @@ module.exports = {
       "docs/features/0157-rumor-mill-retrospective.feature",
       "docs/features/0155-ledger-claims-net.feature",
       "docs/features/0158-theme-2-end-to-end.feature",
+      "docs/features/0161-decisions-read-what-they-see.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
