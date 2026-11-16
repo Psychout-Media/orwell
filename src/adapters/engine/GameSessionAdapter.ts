@@ -5804,7 +5804,13 @@ export class GameSessionAdapter implements GameSession {
         : `the player asked ${this.nameOf(owner)} to swap beds; ${this.nameOf(owner)} said NO and keeps their ${isDoubleSpot(theirBed) ? "half of a double" : "bed"} in ${this.roomName(ownRoom)} (engine truth: voice the refusal in their own way)`;
       return false;
     }
+    const before = { owner: bedPartner(beds, owner, living), player: bedPartner(beds, PLAYER, living) };
     if (!swapBeds(beds, PLAYER, owner, ownerTo, day, living)) return false;
+    // A trade is felt like any move: whoever each side left behind or joined reads it (the player's own edge is never touched).
+    for (const [who, was] of [[owner, before.owner], [PLAYER, before.player]] as const) {
+      const now = bedPartner(beds, who, living);
+      this.foldBedMove(who, was !== undefined && was !== now ? [was] : [], now !== undefined && now !== was ? [now] : [], day);
+    }
     this.playerBedNote = `the player asked ${this.nameOf(owner)} to swap beds and ${this.nameOf(owner)} said YES: the player now has ${this.nameOf(owner)}'s bed in ${this.roomName(ownRoom)}, and ${this.nameOf(owner)} moved to ${this.roomName(newRoom)}`;
     this.noteBedChoice(beds, owner, newRoom, living, "swaps beds with the player and moves to");
     this.noteBedChoice(beds, PLAYER, ownRoom, living, "takes a bed in");
@@ -5885,6 +5891,7 @@ export class GameSessionAdapter implements GameSession {
     for (const gone of s.evictionOrder) {
       const spot = beds.owner[gone];
       if (gone === PLAYER || !spot || living.has(gone) || beds.noticedEmpty?.includes(gone)) continue;
+      if (Object.entries(beds.owner).some(([who, sp]) => who !== gone && sp === spot && living.has(who))) { (beds.noticedEmpty ??= []).push(gone); continue; } // already taken by someone living: nothing sits empty
       (beds.noticedEmpty ??= []).push(gone);
       const room = roomOfBed(spot);
       const mates = roommatesIn(beds, room, living).filter((m) => m !== PLAYER);
