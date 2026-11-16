@@ -79,7 +79,7 @@ CT_HOSTNAME="${CT_HOSTNAME:-orwell}"
 __here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
 # ORW-484: this script runs as root, and the host bridge pushes it to /tmp (world-writable) in the container, so
 # "beside this file" is /tmp there. A library is sourced from beside this file ONLY when the file and its directory are
-# regular, non-symlink, owned by root (or by whoever runs this) and not group/other-writable; /tmp (mode 1777) never
+# regular, non-symlink, owned by root (or by whoever runs this) and not other-writable (and, as root, not group-writable); /tmp (mode 1777) never
 # qualifies, so a file a local user plants at /tmp/orwell-live-game.sh is never sourced as root. The installed
 # checkout copies (a root-owned code tree) are the fallback and the normal source for the pushed copy.
 __lib_trusted() {
@@ -89,7 +89,8 @@ __lib_trusted() {
     o="$(stat -c %u "$p" 2>/dev/null)" || return 1
     [[ "$o" == "0" || "$o" == "$(id -u)" ]] || return 1
     m="$(stat -c %a "$p" 2>/dev/null)" || return 1
-    (( (8#$m & 8#022) == 0 )) || return 1
+    (( (8#$m & 8#002) == 0 )) || return 1                                 # never writable by everyone (so never /tmp)
+    [[ "$(id -u)" != "0" ]] || (( (8#$m & 8#020) == 0 )) || return 1      # as root: nor by a group
   done
 }
 __source_lib() {

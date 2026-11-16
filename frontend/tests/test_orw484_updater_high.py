@@ -53,12 +53,12 @@ def test_a_library_planted_in_a_world_writable_pushed_dir_is_never_sourced_the_i
 
 
 @needs_bash
-def test_a_group_or_world_writable_library_file_and_a_symlinked_one_are_refused(tmp_path):
+def test_a_world_writable_library_file_and_a_symlinked_one_are_refused(tmp_path):
     here = tmp_path / "here"
     _plant(here, "BESIDE")
     here.chmod(0o755)
     (here / "orwell-tui.sh").chmod(0o666)                      # writable by others
-    (here / "orwell-live-game.sh").chmod(0o664)                # writable by the group
+    (here / "orwell-live-game.sh").chmod(0o606)                # writable by others
     real = tmp_path / "elsewhere.sh"
     real.write_text('echo "SOURCED BESIDE via-symlink"\n')
     (here / "orwell-ops-progress.sh").unlink()
