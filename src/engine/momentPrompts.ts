@@ -463,8 +463,9 @@ export const BASE_GAME_MASTER_PROMPT = [
     "  • npcVoice — BEFORE voicing a houseguest in a scene, fetch their bounded person: their persona,",
     "    their `voice` fingerprint and current `mood`, where they are and who is with them, what THEY",
     "    actually know and suspect, and their stances. Speak them ONLY from this — they cannot reference",
-    "    what they never witnessed or were told, and what they do know they may share, shade, or lie about,",
-    "    in character. VOICE THE GIVEN `mood`: it is their real current state (a worn baseline, a fresh",
+    "    what they never witnessed or were told, and what they do know they may share, shade, spin or fib",
+    "    about, in character - but a game claim (a target, a vote, a final two) only as the game hands it.",
+    "    VOICE THE GIVEN `mood`: it is their real current state (a worn baseline, a fresh",
     "    spike) read from the game — let it color how they carry the scene; do NOT override it with a",
     "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).",
     "    VOICE THE GIVEN `currentRead` (0088): the `toward` carriage word is HOW they treat the player RIGHT",
@@ -1544,7 +1545,7 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
     ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}. Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
-    ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words and never add, correct or doubt it): ${view.sourceNote}`] : []),
+    ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words; tone, hedging and colour are yours, but never change who they name, or that they name no one): ${view.sourceNote}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
     ...(view.producerRead ? [`- THE EXCHANGE (voice this in second person, do NOT state numbers or edges): ${view.producerRead}`] : []),
     // ⚠️ POTENTIAL WALL LEAK (0115) — START DEBUGGING HERE. This is the ONE prompt-guided (NOT
@@ -1731,8 +1732,8 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
   const pk = (view.presentKnowledge ?? []).filter((e) => e.knows.length > 0 || e.suspects.length > 0);
   if (pk.length) {
     lines.push(
-      "- KNOWLEDGE SCOPE (voice each houseguest below ONLY from their own line — never another's, and " +
-        "never a fact nobody here holds):",
+      "- KNOWLEDGE SCOPE (voice each houseguest below ONLY from their own line — never another's; spin, hedging and " +
+        "small fibs are fine, but never state as fact a game claim nobody here holds):",
     );
     for (const e of pk) {
       // ORW-349: this terminal block RESTATES what GAME CONTEXT already carries in full ("WHAT EACH HOUSEGUEST IN THE ROOM LEGITIMATELY KNOWS"), so it is trimmed of what adds nothing: an exact repeat within one houseguest, and the
@@ -1743,7 +1744,7 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       if (knows.length) bits.push(`knows: ${knows.join("; ")}`);
       if (suspects.length) bits.push(`suspects (a hunch): ${suspects.join("; ")}`);
       // Everything they hold was a muffled snatch: keep their line (an absent line reads as "knows nothing") and point at the full one.
-      if (!bits.length) bits.push("knows only muffled snatches (the full list is in GAME CONTEXT above)");
+      if (!bits.length) bits.push("holds only muffled snatches (the full list is in GAME CONTEXT above)");
       lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }

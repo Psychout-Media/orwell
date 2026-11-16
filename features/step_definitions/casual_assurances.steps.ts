@@ -1,4 +1,4 @@
-import { Given, When, Then } from "@cucumber/cucumber";
+import { Given, When, Then, Before, After } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import type { BbWorld } from "../support/world";
 import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
@@ -9,6 +9,11 @@ import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { AdvanceView } from "../../src/ports/GameSession";
 import { newLiveGame, advanceUntil, cloneSnapshot, resumeFrom, edgeIn, searchSeeds, type LiveGame } from "../support/liveEvictionNight";
+
+// Theme 2 slice 5b: vote talk (default on) adds told claims at every eviction, and the HOH's tie-break (which differs between the branch and the control here) would draw different ones, so the exact deal-broken memory deltas below would no longer isolate the assurance break. This feature pins THAT mechanism, so it runs with vote talk off.
+let __voteTalk0143: string | undefined;
+Before({ tags: "@no-vote-talk" }, function () { __voteTalk0143 = process.env.ORWELL_VOTE_TALK; process.env.ORWELL_VOTE_TALK = "0"; });
+After({ tags: "@no-vote-talk" }, function () { if (__voteTalk0143 === undefined) delete process.env.ORWELL_VOTE_TALK; else process.env.ORWELL_VOTE_TALK = __voteTalk0143; });
 
 // Feature 0143 - Casual assurances ("you're safe with me"), B4 + ORW-15. Roles only.
 // Recording goes through the player MCP boundary (McpServer.callTool). The nomination / ballot / tie-break / lapse scenarios play a

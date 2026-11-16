@@ -45,7 +45,7 @@ describe("the terminal block trims; GAME CONTEXT keeps everything", () => {
 
   it("an NPC who holds only muffled snatches keeps a line pointing at the full list (an absent line would read as 'knows nothing')", () => {
     const hc = renderHardConstraints(pk([{ id: "npc:2", name: "Houseguest B", knows: [MUFFLED("a"), MUFFLED("b")] }]))!;
-    expect(hc).toContain("Houseguest B — knows only muffled snatches (the full list is in GAME CONTEXT above)");
+    expect(hc).toContain("Houseguest B — holds only muffled snatches (the full list is in GAME CONTEXT above)");
   });
 
   it("a block with nothing to trim is byte-identical to the old rendering", () => {

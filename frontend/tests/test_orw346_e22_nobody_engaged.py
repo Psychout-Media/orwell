@@ -102,7 +102,7 @@ def test_an_explicit_empty_withIds_marks_the_ledger_nobody():
 
 def test_a_malformed_or_unresolvable_answer_does_not_mark_nobody(monkeypatch):
     # a rejected id (not on the living roster) and an unparseable / withIds-less reply are NOT "nobody engaged": the E22 guard must keep its normal under-call handling
-    for raw in ('{"withIds": ["npc:99"], "kind": "strategy", "content": "x"}', '{"withIds": "npc:1"}', '{"kind": "strategy", "content": "x"}', "not json at all"):
+    for raw in ('{"withIds": ["npc:99"], "kind": "strategy", "content": "x"}', '{"withIds": "npc:1"}', '{"withIds": null, "kind": "strategy", "content": "x"}', '{"kind": "strategy", "content": "x"}', "not json at all"):
         out, marked = _belt(raw)
         assert out is False and marked is False, raw
 
@@ -110,7 +110,7 @@ def test_a_malformed_or_unresolvable_answer_does_not_mark_nobody(monkeypatch):
 def test_the_belt_notes_nobody_only_for_an_explicit_empty_answer():
     import inspect
     src = inspect.getsource(importlib.import_module("src.agent_loop")._auto_record_scene)
-    assert "note_scene_nobody" in src and "if not _rejected_with_ids" in src
+    assert "note_scene_nobody" in src and "isinstance(obj.get(\"withIds\"), list)" in src
 
 
 def test_a_nobody_flag_left_by_an_early_return_turn_never_silences_the_next_turn(monkeypatch):
@@ -153,3 +153,25 @@ def test_orw481_a_stage_left_by_a_dropped_turn_does_not_leak_into_the_next_turn(
         return [c async for c in agent_loop.stream_agent_loop(owner="u", session_id="s")]
     _run(drive())
     assert fold_ledger.consume_staged_this_turn("u", "s") is False
+
+
+def test_orw507_all_proposed_ids_off_scene_marks_nobody_even_without_a_session(monkeypatch):
+    """ORW-507 (4574633469): E22's rich extraction runs with no session_id; the owner-scoped nobody verdict must still be recorded."""
+    agent_loop = importlib.import_module("src.agent_loop")
+    orwell_engine_mod = importlib.import_module("src.orwell_engine")
+
+    async def wb(user=None, **k):
+        return {"present": [{"id": "npc:2"}]}
+    monkeypatch.setattr(orwell_engine_mod, "whereabouts", wb)
+    fold_ledger.clear_all()
+    out = _run(agent_loop._auto_record_scene(_NARRATION_SCENE, "I ask how they are doing.", _HOUSE, "http://unused", "m", {}, "o507",
+                                             raw='{"withIds": ["npc:1"], "kind": "strategy", "content": "x"}'))
+    assert out is False and fold_ledger.consume_scene_nobody("o507") is True
+
+
+def test_orw507_turn_start_drops_a_stale_nobody_flag():
+    """ORW-507 (4574633425): the chat route consumes a leftover verdict at the top of each agent turn."""
+    import inspect
+    src = inspect.getsource(importlib.import_module("routes.chat_routes"))
+    i = src.index("_beat_seq_before = last_beat_seq(ctx.user)")
+    assert "consume_scene_nobody(ctx.user)" in src[i:i + 900]

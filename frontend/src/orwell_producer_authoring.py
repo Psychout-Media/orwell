@@ -30,7 +30,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
+import secrets
+import string
 from typing import Awaitable, Callable, Optional, Union
 
 logger = logging.getLogger(__name__)
@@ -96,7 +99,23 @@ _STRICT_RETRY = (
 )
 
 
-def build_authoring_messages(producer: Optional[dict] = None) -> list[dict]:
+def producer_anchors(seed: Optional[int]) -> str:
+    """ORW-511: random anchors for the writer, drawn on their OWN seeded side stream (random.Random(seed)), so two seasons do not start from the same
+    default producer. Letters only (a letter is not a menu and carries no number): the letter the producer's last job before TV starts with, the letter their
+    home town starts with, the letter their first mentor's name starts with. ``None`` -> no anchors (the writer works from the brief alone)."""
+    if seed is None:
+        return ""
+    rng = random.Random(int(seed) & 0xFFFFFFFF)
+    a, b, c = (rng.choice(string.ascii_uppercase) for _ in range(3))
+    return (
+        "Starting points for THIS producer, so they are not the default one (use them as the first letter of the real thing you invent; "
+        f"never mention the letters): the last job before television begins with {a}; the home town begins with {b}; "
+        f"the first mentor's first name begins with {c}. Do not reuse the first producer that comes to mind: no seen-it-all veteran who can smell a fake, "
+        "no ruthless gatekeeper, no editor turned caster unless the letters above lead there.\n"
+    )
+
+
+def build_authoring_messages(producer: Optional[dict] = None, anchor_seed: Optional[int] = None) -> list[dict]:
     """The producer-deepening prompt. `producer` (optional) is the engine's Vault-free seeded skeleton —
     when present we hand the model the seeded NAME + any seeded facets as the BRIEF to sharpen (never a
     script to copy, and never a name to change). Returns chat messages for the utility model."""
@@ -110,7 +129,7 @@ def build_authoring_messages(producer: Optional[dict] = None) -> list[dict]:
                 "Deepen this seeded producer (build FROM it, never contradict it, NEVER change the name): "
                 f"{json.dumps(skeleton, ensure_ascii=False)}\n"
             )
-    user = brief + "Write the producer's persona bible as JSON now — richer backstory, temperament, and voice."
+    user = brief + producer_anchors(anchor_seed) + "Write the producer's persona bible as JSON now — richer backstory, temperament, and voice."
     return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
 
 
@@ -191,13 +210,13 @@ def parse_authored_producer(text: str) -> dict:
 
 
 async def author_producer(llm_fn: LlmFn, write_fn: WriteFn, *,
-                          producer: Optional[dict] = None) -> dict:
+                          producer: Optional[dict] = None, anchor_seed: Optional[int] = None) -> dict:
     """Orchestrate: build the producer prompt → `llm_fn` → parse → `write_fn` (recordProducerProfile).
     Injected deps make the whole lane testable without a live model or engine. Best-effort + fail-soft:
     a one-shot strict-JSON reparse on a prose reply, then — if nothing usable authored — NO write-back
     (the seeded floor stands). Returns the write-back result (``{accepted, fields, ...}``) or
     ``{"accepted": False, "reason": ...}``. NEVER raises."""
-    messages = build_authoring_messages(producer)
+    messages = build_authoring_messages(producer, anchor_seed)
     try:
         text = await llm_fn(messages)
     except Exception as e:  # failsoft-ok: handled-by-terminal (run_authoring records llm-failed RED via log_rings.record_soft_failure)
@@ -257,7 +276,7 @@ async def run_authoring(owner: Optional[str]) -> dict:
     async def _write(overlay: dict) -> dict:
         return await orwell_engine.record_producer_profile(overlay, user=owner)
 
-    result = await author_producer(llm_fn, _write)
+    result = await author_producer(llm_fn, _write, anchor_seed=secrets.randbits(32))  # live: a fresh anchor stream per season start; tests inject a fixed seed
     # #1599: a GENUINE producer-authoring failure (the model call RAISED, or the engine REFUSED the
     # write-back) shows RED on /admin/status — the seeded producer floor stands (auto-corrected),
     # never a silent skip. Expected-empty reasons (no-model / no-fields) are normal flow, no alarm.
