@@ -887,8 +887,14 @@ def _record_recent_season(user: str | None, res: dict) -> None:
     try:
         from src import orwell_recent_seasons
         orwell_recent_seasons.record_season(user, orwell_recent_seasons.facts_of_house(res.get("house")))
-    except Exception:
-        logger.warning("[orwell] recent-seasons record failed for user=%s", user, exc_info=True)
+    except Exception as e:
+        # Fail-soft (a season start must never break on it), never silent: the next cast then avoids nothing new.
+        try:
+            from src import log_rings
+
+            log_rings.record_soft_failure("recent-seasons:record-failed", e, corrected="next cast not steered off this one", user=user)
+        except Exception:  # failsoft-ok: recorder-self (the recorder itself failed; the warning below still logs it)
+            logger.warning("[orwell] recent-seasons record failed for user=%s", user, exc_info=True)
 
 
 def _notify_season_reset(user: str | None) -> None:
