@@ -30,9 +30,11 @@ Given(/^a seeded season paused at (an eviction vote|a competition in session)$/,
     const k = s.getGameState().pending?.kind;
     return event === "an eviction vote" ? k === "eviction-vote" : k === "comp-intent" || k === "comp-round";
   };
+  GameSessionAdapter.setTimeOfDayEnabled(true); // the in-game clock must be RUNNING so "the clock is unchanged" is a real check (restored by features/support/resetStaticOverrides.ts after the scenario)
   for (let seed = 1; seed <= 40; seed++) {
     const s = new GameSessionRegistry().sandboxFor(`move419-ev-${n++}`).session as GameSessionAdapter;
     s.createCharacter({ playerName: "The Player", seed });
+    s.setPerConversationClockEnabled(true);
     for (let i = 0; i < 4000; i++) {
       const v = s.advanceGame();
       if (want(s)) { bag(this).s = s; return; }
@@ -69,10 +71,12 @@ Then("the move is refused with an in-fiction reason", function () {
   const pm = bag(this).r!.playerMove as { refused?: boolean; reason?: string } | null;
   assert.ok(pm && pm.refused === true, `the move was not refused: ${JSON.stringify(pm)}`);
   assert.ok((pm.reason ?? "").length > 5 && !/\d/.test(pm.reason ?? ""), "no in-fiction reason (or a number in it)");
+  assert.deepEqual(bag(this).s!.getGameState().playerMove, pm, "the refusal does not reach the narrator's game-state view"); // review of #2760
 });
 
 Then("the player's room and the in-game clock are unchanged", function () {
   const b = bag(this); const s = b.s!;
   assert.equal(s.whereabouts()!.room, b.before!.room);
   assert.equal(JSON.stringify([live(s).nightDepth, live(s).timeOfDay]), b.before!.clock);
+  assert.notEqual(b.before!.clock, "[null,null]", "the in-game clock was not running, so 'unchanged' proved nothing"); // review of #2760
 });

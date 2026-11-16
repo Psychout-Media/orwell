@@ -219,6 +219,8 @@ def test_search_target_ignores_lowercase_words_that_are_first_names():
     gs = _roster("Will Baker", "Miguel Ortega")
     assert chat_helpers._search_target("where is Miguel, will you check", gs) == "Miguel Ortega"
     assert chat_helpers._search_target("where is will", gs) is None
+    assert chat_helpers._search_target("where is miguel?", gs) == "Miguel Ortega"  # an ordinary first name matches in any case (review of #2804)
+    assert chat_helpers._search_target("WHERE IS MIGUEL", gs) == "Miguel Ortega"
     assert chat_helpers._search_target("Where is Will?", gs) == "Will Baker"
 
 
@@ -232,3 +234,11 @@ def test_search_target_skips_evicted_houseguests():
     gs = _roster("Miguel Ortega", "Ana Ruiz", evicted=("Miguel Ortega",))
     assert chat_helpers._search_target("Where is Miguel Ortega?", gs) is None
     assert chat_helpers._search_target("where are Miguel and Ana", gs) == "Ana Ruiz"
+
+
+def test_search_target_ordinary_word_first_names_need_a_capital():
+    gs = _roster("Wade Cole", "Penny Marsh", "Willow Reed", "Violet Ames", "Trinity Cho", "Griffin Lee")
+    for text in ("how do I wade through this crowd", "a penny for your thoughts", "the willow by the gate", "a violet dress", "the trinity of rules", "a griffin on the crest"):
+        assert chat_helpers._search_target(text, gs) is None, text
+    assert chat_helpers._search_target("Where is Wade?", gs) == "Wade Cole"
+    assert chat_helpers._search_target("where is Penny", gs) == "Penny Marsh"
