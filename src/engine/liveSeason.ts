@@ -1005,6 +1005,8 @@ export interface SeasonCtx {
    * blocs themselves are recomputed every read and NEVER stored (decision 0002).
    */
   loyaltyOf?: (id: EntityId) => number;
+  /** ORW-551 slice 3: the house culture's paranoia dial (multiplies the rattled-voter / rattled-HOH terms). Absent = 1, byte-identical. */
+  paranoiaMult?: number;
   /**
    * 0107 — the NAMED-ALLIANCE cement fed into bloc detection: a bounded boost to a pair's mutual bond
    * when they share a named alliance. Optional: omitted ⇒ 0 for every pair ⇒ the bloc read (and the
@@ -2137,7 +2139,7 @@ export function voteChoice(
   // ORW-305: one pass - the named terms, in the exact order the score adds them; the score IS their left-to-right sum
   // (`a - b` is `a + (-b)` bit for bit, so the signed terms reproduce the original expression).
   const termVals = (n: EntityId): number[] => [
-    ctx.rel.edge(voter, n).threat * (1 + paranoia * V.moodSelfProtectWeight),
+    ctx.rel.edge(voter, n).threat * (1 + paranoia * (V.moodSelfProtectWeight * (ctx.paranoiaMult ?? 1))),
     blocTerm(blocs, voter, n),
     // ORW-37 half 2 (B41): a pre-show tie this voter holds with `n` (positive evicts, negative keeps: family keeps, a rival evicts). Absent provider => 0 => byte-identical.
     ctx.tieVotePushFor?.(n, voter) ?? 0,
@@ -3343,7 +3345,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // disposition-gated tactic (pawn / backdoor / direct). Legality still binds downstream.
       const plan = nominationPlan(s.hoh!, s.active, ctx.rel, {
         blocs: currentBlocs(s, ctx),
-        mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+        mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
         style: ctx.nominationStyleOf?.(s.hoh!),
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
@@ -3528,7 +3530,7 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
   const hoh = s.hoh!;
   const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
   // ORW-87: + the HOH's memory of the option. ORW-305: the named terms (threat, paranoia, memory); the score is their sum.
-  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
+  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood, ctx.paranoiaMult), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
   const replaceScore = (t: EntityId): number => sumVals(replaceVals(t));
   const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
   {
@@ -3632,7 +3634,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
 function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[]): EntityId {
   return replacementPick(s.hoh!, otherNominee(s, saved), options, s.active, ctx.rel, {
     blocs: currentBlocs(s, ctx),
-    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
     style: ctx.nominationStyleOf?.(s.hoh!),
     target: s.nominationTarget,
     ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
@@ -3712,7 +3714,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       // The same strategic read the loop's own NPC HOHs use (no second rulebook).
       const [a, b] = nominationStrategy(p.by, s.active, ctx.rel, {
         blocs: currentBlocs(s, ctx),
-        mood: ctx.emotionalOf?.(p.by) ?? 0.5,
+        mood: ctx.emotionalOf?.(p.by) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
         disposition: ctx.dispositionOf?.(p.by) ?? "neutral",
         style: ctx.nominationStyleOf?.(p.by),
       });
@@ -3734,7 +3736,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       return {
         kind: "replacement",
         replacement: replacementPick(p.by, otherNominee(s), p.options, s.active, ctx.rel, {
-          blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(p.by) ?? 0.5, style: ctx.nominationStyleOf?.(p.by),
+          blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(p.by) ?? 0.5, paranoiaMult: ctx.paranoiaMult, style: ctx.nominationStyleOf?.(p.by),
           target: s.nominationTarget,
         }),
       };

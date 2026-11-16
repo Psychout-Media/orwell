@@ -126,3 +126,23 @@ Then("the claim is recorded once, with the engine's truth", function () {
   assert.equal(toPlayer.length, 1, "the narration re-recorded a claim the engine already told");
   assert.equal(toPlayer[0]!.origin, "engine");
 });
+
+// ---- ORW-558: a rumor with no named object is about the addressee ----
+When("the narration has a houseguest tell another houseguest, in front of the player, that a third has been talking about them, without naming them", async function () {
+  const b = bag(this);
+  const r = await record(this, { text: "They've been talking about you behind your back.", speaker: b.speaker!, addressedTo: [b.listener!], kind: "claim", about: b.subject!,
+    claim: { kind: "talking-about", subject: b.subject! } });
+  assert.ok(r.accepted, "the ledger refused the entry");
+});
+
+Then("the houseguest it was told to holds it as said about themself, sourced to the speaker", function () {
+  const b = bag(this);
+  const held = (live(b.s!).beliefs?.[b.listener!] ?? []).filter((c) => c.subject === b.subject && c.object === b.listener && c.source === b.speaker && c.value);
+  assert.equal(held.length, 1, "the addressee holds no belief that the subject has been talking about them");
+});
+
+Then("the player can ask who told them that, and the speaker is the one who said it", function () {
+  const b = bag(this);
+  const heard = b.s!.claimsThePlayerHeard().filter((h) => h.speaker === b.speaker && h.kind === "talking-about" && h.subject === b.subject);
+  assert.ok(heard.length > 0, "the player, who heard it, has no claim to ask about");
+});
