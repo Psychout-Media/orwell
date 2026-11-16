@@ -96,6 +96,8 @@ export interface WorldAvoid {
   compThemeTitles?: string[];
   /** Alliance names used by the previous season(s). */
   allianceNames?: string[];
+  /** Room names of the previous season's house (a new authored house is refused when it reuses too many). */
+  houseRoomNames?: string[];
   /** House theme ids of the previous season(s). */
   houseThemes?: string[];
   /** House-event lines (without the week stamp) used by the previous season(s). */

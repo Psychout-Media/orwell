@@ -9,11 +9,20 @@ import { roomDisplayName, HOUSE_ROOMS, type Room } from "../domain/house";
 import { HOUSE_THEMES, type HouseTheme } from "./data/houseThemes";
 import { hashSeed } from "./characterFactory";
 
-/** ORW-509: season houses authored by the writer and ACCEPTED by `acceptHouseThemeDraft`. Process-level, keyed by id; the season snapshot carries the definition and re-registers it on load. */
+/**
+ * ORW-509: season houses authored by the writer and ACCEPTED by `acceptHouseThemeDraft`. The id is content-addressed (a hash of the name and room names), so the
+ * process-level map is safe on a multi-user engine: the same id always means the same house, a lookup can never return another user's different house, and it is
+ * bounded (oldest evicted). The season itself carries the definition (`live.houseThemeDef`) and re-registers it on load, so eviction never loses a live house.
+ */
 const AUTHORED_THEMES = new Map<string, HouseTheme>();
+const AUTHORED_THEMES_MAX = 64;
 
 /** Register an accepted authored house so `houseTheme(id)`, `roomLabel` and `themedRoomAliases` resolve it like a library theme. Idempotent. */
-export function registerHouseTheme(theme: HouseTheme): void { AUTHORED_THEMES.set(theme.id, theme); }
+export function registerHouseTheme(theme: HouseTheme): void {
+  AUTHORED_THEMES.delete(theme.id);
+  AUTHORED_THEMES.set(theme.id, theme);
+  while (AUTHORED_THEMES.size > AUTHORED_THEMES_MAX) AUTHORED_THEMES.delete(AUTHORED_THEMES.keys().next().value as string);
+}
 
 export function houseTheme(themeId: string | undefined): HouseTheme | undefined {
   return themeId ? (HOUSE_THEMES.find((t) => t.id === themeId) ?? AUTHORED_THEMES.get(themeId)) : undefined;

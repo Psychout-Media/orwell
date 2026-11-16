@@ -244,10 +244,21 @@ export function applyTheme(
       premise: `${theme.setting} ${def.narrative.premise}`,
       // ORW-509: with a `beatKey` (the season seed + phase + week + cycle) each authored beat takes one clause from a wide set, so the same mechanic's
       // three beats read differently every time it is drawn (30 mechanics x 3 fixed beats was the whole beat space). No key => the authored beats, as before.
-      beats: beatKey === undefined ? [...def.narrative.beats] : def.narrative.beats.map((b, i) => `${b}, ${BEAT_FLOURISHES[hashSeed(`${beatKey}:beat:${i}:${def.id}`) % BEAT_FLOURISHES.length]}`),
+      beats: beatKey === undefined ? [...def.narrative.beats] : def.narrative.beats.map((b, i) => `${b}, ${flourishFor(b, hashSeed(`${beatKey}:beat:${i}:${def.id}`))}`),
       winReads: def.narrative.winReads,
     },
   };
+}
+
+/** The flourish for a beat: the hashed pick, moved on to the next one that does not open with a conjunction the beat already uses (no "as the wall pitches, as a rival glances"). */
+function flourishFor(beat: string, key: number): string {
+  const used = /\b(as|while|with|and)\b/g;
+  const has = new Set([...beat.toLowerCase().matchAll(used)].map((m) => m[1]));
+  for (let k = 0; k < BEAT_FLOURISHES.length; k++) {
+    const f = BEAT_FLOURISHES[(key + k) % BEAT_FLOURISHES.length]!;
+    if (!has.has(f.split(" ")[0]!)) return f;
+  }
+  return BEAT_FLOURISHES[key % BEAT_FLOURISHES.length]!;
 }
 
 /** Clauses that sit on the end of any beat ("... the first grips fail, as the crowd noise swells"). Public, Vault-free staging only. */

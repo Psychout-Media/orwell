@@ -799,6 +799,8 @@ export interface FormAllianceReq {
 /** 0107 Phase B — the player accepts an alliance an NPC pitched them into (by its id). */
 export interface JoinAllianceReq {
   allianceId: string;
+  /** ORW-509: the name this group would give itself, authored by the narrator from their story at the moment the player is let in. The engine accepts it only if it passes the naming rules (3-40 chars, no houseguest name, not in use or used last season); otherwise the engine's name stands. */
+  name?: string;
   expectedBeatSeq?: number;
 }
 
@@ -1374,6 +1376,11 @@ export interface PublicGameStatus {
   alliances?: AllianceView[];
   /** 0107 Phase B — alliances an NPC has pitched the player (aware of, not yet a member): `joinAlliance` to accept. */
   alliancePitches?: AllianceView[];
+  /**
+   * ORW-509: present only on a turn where today's house event was just recorded. The recorded event/confessional/elimination lines are SEEDS the narrator authors a
+   * cast-specific version of (no extra call): two random anchor words dealt on a side stream and the lines already used, so wording and situations do not recur.
+   */
+  flavourSeed?: { note: string; anchors: string[]; used: string[] };
 }
 
 /**
@@ -2818,6 +2825,12 @@ export interface RecordCastGenesisReq {
   npcs: GenesisNpcDTO[];
   /** The proposed pre-show tie graph (0–2 pairs; excess dropped, sanity-validated, sealed). */
   ties?: GenesisTieDTO[];
+  /**
+   * ORW-509: the writer-authored HOUSE for the season (name, pitch, 13 rooms with a name and a look), authored by the setup call from the season's own facts with no menu.
+   * The engine reads it with `acceptHouseThemeDraft` (shape, length, unique, not-plain, fresh against the library and the last seasons); on refusal the plain room labels stand.
+   * A request that carries only `house` (empty `npcs`) writes the house alone.
+   */
+  house?: unknown;
 }
 /** One structured, Vault-free validation violation (never echoes a hidden value). */
 export interface GenesisViolationDTO {
@@ -2839,6 +2852,8 @@ export interface RecordCastGenesisResult {
   varianceOk: boolean;
   /** Set when not accepted (no warmed cast / a season already running). Vault-free reason. */
   reason?: string;
+  /** ORW-509: what happened to a proposed house (accepted, and the rejection counts by rule). */
+  house?: { accepted: boolean; rejected: Record<string, number>; id?: string };
 }
 
 /** The Vault-free skeleton of one recorded off-screen scene — public participant ids, room, and nature only (0070). */

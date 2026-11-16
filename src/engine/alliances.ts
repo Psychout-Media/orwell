@@ -112,25 +112,25 @@ const ALLIANCE_PLACES: readonly string[] = [
 const ALLIANCE_NUMBERS: readonly string[] = ["Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
 const ALLIANCE_NUMBER_NOUNS: readonly string[] = ["Pack", "Squad", "Strong", "Deep", "Club", "Alliance", "Plan", "Rule", "Pact", "Count"];
 
-/** How many distinct names the composed floor can make (the 18 classics + four composed shapes). */
-export const ALLIANCE_NAME_SPACE =
-  ALLIANCE_NAMES.length + ALLIANCE_COLLECTIVES.length + ALLIANCE_QUALITIES.length * ALLIANCE_COLLECTIVES.length +
-  ALLIANCE_PLACES.length * ALLIANCE_COLLECTIVES.length + ALLIANCE_NUMBERS.length * ALLIANCE_NUMBER_NOUNS.length;
+/** Every composed name, once: the 18 classics first, then the four composed shapes with any repeat of an earlier name dropped (a name never sits in two regions). */
+const ALLIANCE_NAME_LIST: readonly string[] = (() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (n: string): void => { if (!seen.has(n)) { seen.add(n); out.push(n); } };
+  for (const n of ALLIANCE_NAMES) add(n);
+  for (const c of ALLIANCE_COLLECTIVES) add(`The ${c}`);
+  for (const q of ALLIANCE_QUALITIES) for (const c of ALLIANCE_COLLECTIVES) add(`The ${q} ${c}`);
+  for (const w of ALLIANCE_PLACES) for (const c of ALLIANCE_COLLECTIVES) add(`${w} ${c}`);
+  for (const n of ALLIANCE_NUMBERS) for (const k of ALLIANCE_NUMBER_NOUNS) add(`${n} ${k}`);
+  return out;
+})();
 
-/** The `index`th composed alliance name (0 <= index < ALLIANCE_NAME_SPACE). Pure. */
+/** How many distinct names the composed floor can make. */
+export const ALLIANCE_NAME_SPACE = ALLIANCE_NAME_LIST.length;
+
+/** The `index`th composed alliance name (any integer; wraps). Pure. */
 export function allianceNameAt(index: number): string {
-  let i = ((Math.floor(index) % ALLIANCE_NAME_SPACE) + ALLIANCE_NAME_SPACE) % ALLIANCE_NAME_SPACE;
-  if (i < ALLIANCE_NAMES.length) return ALLIANCE_NAMES[i]!;
-  i -= ALLIANCE_NAMES.length;
-  if (i < ALLIANCE_COLLECTIVES.length) return `The ${ALLIANCE_COLLECTIVES[i]}`;
-  i -= ALLIANCE_COLLECTIVES.length;
-  const q = ALLIANCE_QUALITIES.length * ALLIANCE_COLLECTIVES.length;
-  if (i < q) return `The ${ALLIANCE_QUALITIES[Math.floor(i / ALLIANCE_COLLECTIVES.length)]} ${ALLIANCE_COLLECTIVES[i % ALLIANCE_COLLECTIVES.length]}`;
-  i -= q;
-  const w = ALLIANCE_PLACES.length * ALLIANCE_COLLECTIVES.length;
-  if (i < w) return `${ALLIANCE_PLACES[Math.floor(i / ALLIANCE_COLLECTIVES.length)]} ${ALLIANCE_COLLECTIVES[i % ALLIANCE_COLLECTIVES.length]}`;
-  i -= w;
-  return `${ALLIANCE_NUMBERS[Math.floor(i / ALLIANCE_NUMBER_NOUNS.length)]} ${ALLIANCE_NUMBER_NOUNS[i % ALLIANCE_NUMBER_NOUNS.length]}`;
+  return ALLIANCE_NAME_LIST[((Math.floor(index) % ALLIANCE_NAME_SPACE) + ALLIANCE_NAME_SPACE) % ALLIANCE_NAME_SPACE]!;
 }
 
 /**
@@ -242,6 +242,14 @@ export class AllianceStore {
   }
 
   forMember(member: EntityId): Alliance[] { return alliancesOf(this.alliances, member); }
+
+  /** ORW-509: set an alliance's name (the caller has already applied the naming rules). */
+  rename(id: string, name: string): Alliance | undefined {
+    const i = this.alliances.findIndex((a) => a.id === id);
+    if (i < 0) return undefined;
+    this.alliances[i] = { ...this.alliances[i]!, name };
+    return this.alliances[i];
+  }
 
   byId(id: string): Alliance | undefined { return this.alliances.find((a) => a.id === id); }
 

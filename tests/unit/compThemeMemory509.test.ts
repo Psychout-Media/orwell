@@ -20,14 +20,15 @@ const fiction = (s: GameSessionAdapter, theme: string) => {
 };
 
 describe("ORW-509 competition theme memory", () => {
-  it("hands the previous season's authored titles to the writer and refuses a repeat (counted), then accepts a fresh one", () => {
+  it("hands the previous season's authored titles to the writer and keeps the paid fiction on a repeat but renames the title to the engine's skin name (counted), then accepts a fresh one", () => {
     const s = drive({ compThemeTitles: ["Lantern Gauntlet"] });
     expect(s.competitionStagingView()!.recentThemes).toContain("Lantern Gauntlet");
-    expect(fiction(s, "The Lantern Gauntlet")).toEqual({ accepted: false, reason: "repeat-theme" });
-    expect(fiction(s, "Moonlit Orchard Dash").accepted).toBe(true);
-    expect(s.worldMemory().compThemeTitles).toEqual(["Moonlit Orchard Dash"]);
+    const floorName = s.competitionStagingView()!.library.name;
+    expect(fiction(s, "The Lantern Gauntlet")).toEqual({ accepted: true }); // the premise and drop lines are kept
+    expect(s.snapshot().live!.competitionFiction!.theme).toBe(floorName);
+    expect(s.snapshot().live!.compThemeRejects).toBe(1);
   });
-  it("with no memory the view carries no recentThemes and the first title is accepted", () => {
+  it("with no memory the view carries no recentThemes and the first title is accepted as written", () => {
     const s = drive();
     expect(s.competitionStagingView()!.recentThemes).toBeUndefined();
     expect(fiction(s, "Any Title").accepted).toBe(true);

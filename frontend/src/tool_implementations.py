@@ -6117,7 +6117,9 @@ async def do_join_alliance(content: str, owner: Optional[str] = None) -> Dict:
     if not alliance_id:
         return {"error": "allianceId (from gameStatus.alliancePitches) is required", "exit_code": 1}
     try:
-        res = await orwell_engine.join_alliance(alliance_id, user=owner)
+        name = str(args.get("name") or "").strip()
+        # ORW-509: the narrator may author the group's own name at the moment the player is let in; forwarded only when given (the engine reads it with its naming rules).
+        res = await (orwell_engine.join_alliance(alliance_id, user=owner, name=name) if name else orwell_engine.join_alliance(alliance_id, user=owner))
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

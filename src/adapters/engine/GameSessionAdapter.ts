@@ -264,7 +264,7 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
-import { roomLabel, themedRoomAliases } from "../../engine/roomLabels";
+import { roomLabel, themedRoomAliases, registerHouseTheme, acceptHouseThemeDraft, houseTheme as houseThemeById } from "../../engine/roomLabels";
 import { BED_RULES, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, spotScore, swapBeds, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
@@ -289,7 +289,10 @@ import {
 import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } from "../../engine/beatAnnouncement";
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
-import type { WorldAvoid } from "../../engine/data/composedFloor";
+import { sideStream, type WorldAvoid } from "../../engine/data/composedFloor";
+import type { HouseTheme } from "../../engine/data/houseThemes";
+import { ANCHOR_WORDS } from "../../engine/data/anchorWords";
+import { HOUSE_ROOMS as HOUSE_ROOM_IDS } from "../../domain/house";
 const normTitle = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
@@ -500,6 +503,8 @@ interface PrewarmCast {
   // The validated tie graph rides here so createCharacter's adopt path can prefer it over the floor draw;
   // the seeded brief + provenance persist with the warm. Absent ⇒ the deterministic floor cast (byte-neutral).
   genesisTies?: PreGameTie[];
+  /** ORW-509: the writer-authored house the setup call proposed, accepted by `acceptHouseThemeDraft`; adopted onto the live season at createCharacter. */
+  houseTheme?: HouseTheme;
   seasonBrief?: SeasonBrief;
   genesisAuthored?: boolean;
 }
@@ -3876,6 +3881,15 @@ export class GameSessionAdapter implements GameSession {
     }
     const cast = this.prewarm;
 
+    // ORW-509: the writer-authored house rides this pre-game write-back. Accepted or refused on its own (a refused house never touches the cast).
+    let houseReport: { accepted: boolean; rejected: Record<string, number>; id?: string } | undefined;
+    if (req.house !== undefined) {
+      const verdict = acceptHouseThemeDraft(req.house, { avoidNames: this.worldAvoid.houseRoomNames ?? [], avoidIds: this.worldAvoid.houseThemes ?? [] });
+      houseReport = { accepted: verdict.accepted, rejected: verdict.rejected, ...(verdict.theme ? { id: verdict.theme.id } : {}) };
+      if (verdict.accepted && verdict.theme) { cast.houseTheme = verdict.theme; registerHouseTheme(verdict.theme); this.persist(); }
+      if (!Array.isArray(req.npcs) || req.npcs.length === 0) return { accepted: verdict.accepted, committed: 0, violations: [], varianceOk: true, house: houseReport };
+    }
+
     // The player-BLIND validation context, built from the warmed FLOOR cast (the per-NPC fallback source).
     // The in-flight intake NAME feeds ONLY the post-hoc name near-duplicate NUDGE — it is never woven into
     // any accepted identity (sycophancy-proof by construction). The player carries no vocation/hometown
@@ -3944,7 +3958,7 @@ export class GameSessionAdapter implements GameSession {
     const violations: GenesisViolationDTO[] = result.violations.map((v) => ({
       scope: v.scope, ...(v.npcId ? { npcId: v.npcId } : {}), field: v.field, rule: v.rule, action: v.action,
     }));
-    return { accepted: true, committed, violations, varianceOk: result.varianceOk };
+    return { accepted: true, committed, violations, varianceOk: result.varianceOk, ...(houseReport ? { house: houseReport } : {}) };
   }
 
   /**
@@ -4673,6 +4687,7 @@ export class GameSessionAdapter implements GameSession {
     this.phase = core.phase;
     this.ceremony = { ...core.ceremony, nominees: [...core.ceremony.nominees] };
     this.live = core.live ? cloneSession(core.live) : null;
+    if (this.live?.houseThemeDef) registerHouseTheme(this.live.houseThemeDef); // ORW-509: an authored house resolves again after a restart
     this.deals.load(core.deals ?? []);
     // 0107: restore named alliances (absent on pre-0107 saves ⇒ none).
     this.alliances.load(core.alliances ?? []);
@@ -5019,6 +5034,7 @@ export class GameSessionAdapter implements GameSession {
       winner: this.named(this.live?.winner),
       ...(this.alliances.forMember(PLAYER).length ? { alliances: this.playerAllianceViews() } : {}),
       // 0107 Phase B: alliances an NPC has pitched the player (aware of, not yet in) — accept via joinAlliance.
+      ...(this.flavourSeedView() ? { flavourSeed: this.flavourSeedView()! } : {}),
       ...(this.alliances.pitchesFor(PLAYER).length ? { alliancePitches: this.alliances.pitchesFor(PLAYER).map((a) => this.allianceView(a)) } : {}),
     };
   }
@@ -6899,6 +6915,7 @@ export class GameSessionAdapter implements GameSession {
     const priorCastNames = (this.house && req.confirmRestart)
       ? this.priorSeasonNames(req.priorCastNames)
       : req.priorCastNames;
+    const worldCarried = (this.house && req.confirmRestart && !req.avoidWorld) ? this.carriedWorldAvoid() : undefined; // ORW-509: the dead season's world picks, read BEFORE the reset
     const effReq: CreateCharacterReq = {
       ...(carried ?? {}),
       ...req,
@@ -6989,7 +7006,7 @@ export class GameSessionAdapter implements GameSession {
     // first-class for tests and replays. An adopted warm reuses its already-minted seed.
     const seed = adopt ? adopt.seed : (effReq.seed ?? entropySeed());
     this.gameSeed = seed; // B60/E12: every per-moment rng below keys off the GAME's seed
-    this.worldAvoid = effReq.avoidWorld ?? {};
+    this.worldAvoid = effReq.avoidWorld ?? worldCarried ?? {};
     // The producer persona (producer-persona feature): keep the producer the player has been interviewing
     // with if one was already established pre-game; otherwise bind it to the season seed so a direct
     // `createCharacter` (no prior interview, e.g. tests) still has a deterministic, reproducible producer.
@@ -7065,6 +7082,13 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = false;
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
+    // ORW-509: a house the writer authored at setup (accepted pre-game) becomes this season's house; none => plain room labels, exactly as before.
+    if (adopt?.houseTheme) {
+      // Re-read against the memory this season starts with (the restart carry arrives after the warm): a house that reuses the last seasons' rooms is dropped (plain labels), counted.
+      const again = acceptHouseThemeDraft(adopt.houseTheme, { avoidNames: this.worldAvoid.houseRoomNames ?? [], avoidIds: this.worldAvoid.houseThemes ?? [] });
+      if (again.accepted) { registerHouseTheme(adopt.houseTheme); this.live.houseTheme = adopt.houseTheme.id; this.live.houseThemeDef = adopt.houseTheme; }
+      else this.live.houseThemeRejects = (this.live.houseThemeRejects ?? 0) + 1;
+    }
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
     // engine-recorded, Vault-free and seed-neutral (projection sets only; no rng, no fold). The premiere's
     // introductions auto-happen at the champagne toast (the first thing that happens), NOT via a manual
@@ -9477,6 +9501,30 @@ export class GameSessionAdapter implements GameSession {
   compThemesEnabledNow(): boolean { return this.compThemesEnabled; }
 
   /**
+   * ORW-509: the seeded flavour block for the narrator's turn (no extra call). Present only when today's ambient house event is the latest house event, so it costs
+   * tokens on one turn a day. The recorded line is a SEED: two anchor words come from a side stream keyed on the season seed and the day (the main stream is never
+   * read), and `used` is the lines this season and the last already used (explicit `avoidWorld` input).
+   */
+  private flavourSeedView(): { note: string; anchors: string[]; used: string[] } | undefined {
+    if (!this.live || this.gameSeed === null) return undefined;
+    const day = dayOfWeek(this.phase);
+    const stamp = day === null ? `Week ${this.week}` : `Week ${this.week}, day ${day}`;
+    const houseEvents = (this.record?.events() ?? []).filter((e) => e.type === "house-event");
+    const last = houseEvents[houseEvents.length - 1];
+    if (!last || !String(last.content).startsWith(`${stamp}:`)) return undefined;
+    const strip = (c: string): string => c.replace(/^Week \d+(, day \d+)?: /, "").slice(0, 100);
+    const used = [...(this.worldAvoid.eventLines ?? []).slice(-3), ...houseEvents.slice(-5, -1).map((e) => strip(String(e.content)))].map((l) => l.slice(0, 100));
+    const side = sideStream(`${this.gameSeed}:world:anchor:${stamp}`);
+    const a = side.int(ANCHOR_WORDS.length);
+    const b = (a + 1 + side.int(ANCHOR_WORDS.length - 1)) % ANCHOR_WORDS.length;
+    return {
+      note: "Today's house event, and any stock confessional or elimination line the game hands you, is a SEED, not a script: voice this cast's own version from their people and habits, let one anchor word colour one detail, and never reuse the wording or situation of anything in `used`.",
+      anchors: [ANCHOR_WORDS[a]!, ANCHOR_WORDS[b]!],
+      used,
+    };
+  }
+
+  /**
    * ORW-509: what THIS season used from the non-character world lists, for the caller's recent-seasons ledger to hand to the NEXT season as `avoidWorld`.
    * Pure read (no rng). Competition themes are the worlds both phases drew for the first 16 weeks (a season's reach, cycles included).
    */
@@ -9485,7 +9533,33 @@ export class GameSessionAdapter implements GameSession {
     if (this.gameSeed !== null) {
       for (let w = 1; w <= 16; w++) for (const phase of ["hoh", "veto"] as const) for (const cycle of [0, 1]) compThemes.add(themeForWeek(this.gameSeed, phase, w, cycle, this.worldAvoid.compThemes ?? []).id);
     }
-    return { compThemes: [...compThemes], allianceNames: this.alliances.all().map((a) => a.name), compThemeTitles: [...(this.live?.recentCompThemes ?? [])] };
+    const house = houseThemeById(this.live?.houseTheme);
+    const eventLines = (this.record?.events() ?? []).filter((e) => e.type === "house-event").map((e) => String(e.content).replace(/^Week \d+(, day \d+)?: /, ""));
+    return {
+      compThemes: [...compThemes],
+      allianceNames: this.alliances.all().map((a) => a.name),
+      compThemeTitles: [...(this.live?.recentCompThemes ?? [])],
+      ...(house ? { houseThemes: [house.id], houseRoomNames: HOUSE_ROOM_IDS.map((r) => house.rooms[r].name) } : {}),
+      eventLines: eventLines.slice(-60),
+    };
+  }
+
+  /**
+   * ORW-509: the world memory the NEXT season is told to avoid, built from THIS season (`worldMemory`) plus what this season itself was told (so two seasons back stay
+   * avoided), each list capped. Engine-internal like `priorCastNames` (NAME-1): it rides `effReq.avoidWorld` through a confirmed restart, so the memory needs no store.
+   */
+  private carriedWorldAvoid(): WorldAvoid {
+    const now = this.worldMemory();
+    const prev = this.worldAvoid;
+    const merge = (a?: string[], b?: string[], cap = 120): string[] => [...new Set([...(b ?? []), ...(a ?? [])])].slice(-cap);
+    return {
+      compThemes: merge(now.compThemes, prev.compThemes, 160),
+      compThemeTitles: merge(now.compThemeTitles, prev.compThemeTitles, 60),
+      allianceNames: merge(now.allianceNames, prev.allianceNames),
+      houseThemes: merge(now.houseThemes, prev.houseThemes, 24),
+      houseRoomNames: merge(now.houseRoomNames, prev.houseRoomNames, 80),
+      eventLines: merge(now.eventLines, prev.eventLines, 240),
+    };
   }
 
   /**
@@ -13010,7 +13084,19 @@ export class GameSessionAdapter implements GameSession {
     if (!a || a.members.includes(PLAYER) || !a.knownTo.includes(PLAYER)) return null; // not an open pitch
     const bondOf = (x: EntityId, y: EntityId): number => (this.rel.edge(x, y).trust + this.rel.edge(x, y).affinity) / 2;
     if (Math.min(bondOf(PLAYER, a.founder), bondOf(a.founder, PLAYER)) < ALLIANCE.joinBondFloor) return null; // not close enough
-    const joined = this.alliances.join(a.id, PLAYER)!;
+    let joined = this.alliances.join(a.id, PLAYER)!;
+    // ORW-509: the narrator may author the group's own name now that the player is in; the engine reads it with the naming rules (counted refusal => its own name stands).
+    if (typeof req.name === "string") {
+      const proposed = req.name.trim().replace(/\s+/g, " ");
+      const taken = new Set(this.alliances.all().filter((x) => x.id !== a.id).map((x) => normTitle(x.name)));
+      const peopleNames = [PLAYER, ...(this.house?.npcs.map((n) => n.id) ?? [])].flatMap((id) => this.nameOf(id).toLowerCase().split(/\s+/)).filter((w) => w.length > 2 && w !== "the");
+      const words = proposed.toLowerCase().replace(/['\u2019]s\b/g, "").split(/[^a-z]+/).filter(Boolean);
+      const ok = proposed.length >= 3 && proposed.length <= 40 && /[a-z]/i.test(proposed) && !/[<>{}\[\]\\]/.test(proposed)
+        && !taken.has(normTitle(proposed)) && !(this.worldAvoid.allianceNames ?? []).some((n) => normTitle(n) === normTitle(proposed))
+        && !words.some((w) => peopleNames.includes(w));
+      if (ok) joined = this.alliances.rename(a.id, proposed) ?? joined;
+      else this.live.allianceNameRejects = (this.live.allianceNameRejects ?? 0) + 1;
+    }
     this.onPlayerEvent?.(`${this.nameOf(PLAYER)} joins the alliance "${joined.name}"`, [...joined.members], "alliance");
     this.agendaRecheck("alliance-changed"); // ORW-312
     this.persist();
@@ -15676,11 +15762,13 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return { accepted: false, reason: "no-game" };
     const result = validateCompetitionFiction(this.live, req);
     if (!result.ok) return { accepted: false, reason: result.reason };
-    // ORW-509 acceptance: a theme title this season or the last already used is refused (counted); the engine's composed skin stands, never a blocked comp.
+    // ORW-509 acceptance: a theme title this season or the last already used is renamed to the engine's skin name (counted), never a blocked comp.
+    // A repeated title does NOT discard the paid fiction (premise + every drop line): the title falls back to the engine's themed name for this comp, counted.
     const titleKey = normTitle(result.fiction.theme);
     if (this.recentThemeTitles().some((t) => normTitle(t) === titleKey)) {
       this.live.compThemeRejects = (this.live.compThemeRejects ?? 0) + 1;
-      return { accepted: false, reason: "repeat-theme" };
+      const floorName = this.competitionStagingView()?.library.name;
+      if (floorName) result.fiction.theme = floorName;
     }
     this.live.recentCompThemes = [...(this.live.recentCompThemes ?? []), result.fiction.theme].slice(-16);
     this.live.competitionFiction = result.fiction;
