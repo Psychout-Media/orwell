@@ -50,7 +50,7 @@ describe("TIE_BEHAVIOR", () => {
 describe("pure table: the only src caller is the adapter's tie providers (ORW-37 half 2 wired it)", () => {
   const files = (d: string, out: string[] = []): string[] => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) files(p, out); else if (p.endsWith(".ts")) out.push(p); } return out; };
   it("no src file other than the module and the adapter imports it", () => {
-    const users = files("src").filter((f) => !f.endsWith("/tieBehavior.ts")).filter((f) => /(?:from|import)\s*\(?\s*["'][^"']*\/tieBehavior["']/.test(readFileSync(f, "utf8")));
+    const users = files("src").filter((f) => !f.endsWith("/tieBehavior.ts")).filter((f) => /(?:from|import)\s*\(?\s*["'][^"']*\/tieBehavior(?:\.[cm]?[jt]s)?["']/.test(readFileSync(f, "utf8")));
     expect(users).toEqual(["src/adapters/engine/GameSessionAdapter.ts"]);
   });
   it("the type has only decision terms", () => {
