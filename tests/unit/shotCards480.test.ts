@@ -8,7 +8,7 @@ import { buildCastPortraitPrompts } from "../../src/engine/portraitPrompts";
 import {
   placeFit, placeText, regionOf, dealShotCards, dealFaceCards, shotCaps, capOf, propFor, buildClassOf, FACE_MIN_DISTANCE, PLACES, LIGHTS, PORTRAIT_FORMAT, type ShotSheet,
 } from "../../src/engine/shotCards";
-import { POSTURES, EXPRESSIONS, traitScores, perfCaps } from "../../src/engine/performance";
+import { POSTURES, EXPRESSIONS, TRAITS, traitScores, perfCaps, dealPerformances, type PerfSheet } from "../../src/engine/performance";
 
 // ORW-480: the shot card and the face card, dealt across the cast on their own seeded stream.
 
@@ -106,6 +106,42 @@ describe("ORW-480 shot cards", () => {
     expect(EXPRESSIONS.filter((e) => e.closedHalf).length).toBeGreaterThan(0);
   });
 
+  it("every expression, posture and hands entry is something a real person does unprompted for a portrait: none of the acted-out words", () => {
+    const BAN = /hunch|slump|sprawl|lung|crouch|elbows on (?:the )?knees|elbow on the knee|between the knees|hanging|behind the head|chin resting|on one fist|\bfists?\b|point\w* at|thumbs up|flex|jazz|snarl|bared|fierce|mugg|comic|disbelief|startled|performing|wiggl|slapping|bared|stretched out|legs (?:loose|spread)|flush|dejected|deep hunch/i;
+    const hands = ["one hand open mid-sentence, the other resting", "one hand holding the other wrist"];
+    for (const e of EXPRESSIONS) expect(e.text, e.id).not.toMatch(BAN);
+    for (const p of POSTURES) expect(p.text, p.id).not.toMatch(BAN);
+    // the whole table of hands, read through a deal of every trait
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 30; seed++) {
+      const sheets: PerfSheet[] = TRAITS.map((t, i) => ({ id: `t${i}`, castingLabel: `the ${t}`, demeanor: `${t} ${t}` }));
+      const rnd = (() => { let a = seed; return () => { a = (a * 1664525 + 1013904223) % 4294967296; return a / 4294967296; }; })();
+      const flags = new Map(sheets.map((x) => [x.id, { perch: "the counter", lean: "the doorframe", seat: "on a stool", table: "the table" }] as const));
+      for (const pf of dealPerformances(sheets, flags, rnd, perfCaps(10, 6)).values()) { seen.add(pf.hands); expect(pf.moment).not.toMatch(BAN); }
+    }
+    for (const h of seen) if (h !== "") expect(h).not.toMatch(BAN);
+    void hands;
+  });
+
+  it("shy is upright with the shoulders a little in and one hand holding the other arm, not hunched; a table is only dealt where the place has one", () => {
+    expect(POSTURES.find((p) => p.id === "fidget")!.text).toBe("standing upright, shoulders a little drawn in, one hand holding the other forearm");
+    for (const seed of SEEDS) for (const c of dealShotCards(sheetsOf(seed)).values()) {
+      const po = POSTURES.find((x) => x.id === c.momentId.split("+")[1])!;
+      if (po.needs === "table") expect(PLACES.find((p) => p.id === c.placeId)!.table, `${c.placeId} ${po.id}`).toBeDefined();
+      if (c.placeId === "back-yard") expect(c.posture).not.toMatch(/table/);
+    }
+  });
+
+  it("two people never get the same setting sentence in a cast (the same place with a different detail and regional look)", () => {
+    const sheets: ShotSheet[] = Array.from({ length: 15 }, (_, i) => ({ id: `n${i}`, name: `N${i}`, age: 30, hometown: i % 2 === 0 ? "Atlanta, Georgia" : "Gainesville, Georgia", castingLabel: "the jock", biography: "plays ball in the yard" }));
+    const places = [...dealShotCards(sheets).values()].map((c) => c.place.replace(/Atlanta, Georgia|Gainesville, Georgia/g, "TOWN"));
+    expect(new Set(places).size).toBe(places.length);
+    for (const seed of SEEDS.slice(0, 20)) {
+      const ps = [...dealShotCards(sheetsOf(seed)).values()].map((c) => c.place);
+      expect(new Set(ps).size, `${seed}`).toBe(ps.length);
+    }
+  });
+
   it("a prop only when the sheet gives a reason", () => {
     expect(propFor({ id: "a", age: 30, vocation: "line cook" })).toBeUndefined();            // no work props in cast photos
     expect(propFor({ id: "a", age: 30, vocation: "strength coach" })).toBeUndefined();
@@ -130,9 +166,9 @@ describe("ORW-480 shot cards", () => {
     expect(placeFit(by("family-table"), cook)!.score).toBeGreaterThan(0);
     expect(placeFit(by("work-plaza"), { id: "x", age: 30 })).toBeUndefined();   // no job, nothing near work
     // the setting looks like where they live
-    expect(placeText(by("front-porch"), "Starkville, Mississippi")).toMatch(/Starkville, Mississippi, live oaks, humid green/);
-    expect(placeText(by("main-street"), "Sidney, Nebraska")).toMatch(/Sidney, Nebraska.*flat farmland, a grain elevator/);
-    expect(placeText(by("back-yard"), "Los Angeles, California")).toMatch(/palms, stucco/);
+    expect(placeText(by("front-porch"), "Starkville, Mississippi")).toMatch(/Starkville, Mississippi, .*(?:live oaks and humid green|tin roofs and a gravel lane|a pecan tree and cicadas)/);
+    expect(placeText(by("main-street"), "Sidney, Nebraska")).toMatch(/Sidney, Nebraska.*(?:flat farmland and a grain elevator|a huge sky and a gravel road|a water tower|wind-bent cottonwoods)/);
+    expect(placeText(by("back-yard"), "Los Angeles, California")).toMatch(/palms and stucco|hazy hillside|bougainvillea/);
     expect(placeText(by("home-kitchen"), undefined)).toMatch(/their home town/);
     expect(regionOf("Atlanta, Georgia")).toBe("southeast");
     for (const seed of SEEDS) {

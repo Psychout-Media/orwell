@@ -5,7 +5,10 @@
  *
  *   npx tsx scripts/orw480-three.ts <cards.json> npc:6 npc:3 npc:15
  *   npx tsx scripts/orw480-three.ts <cards.json> --ab npc:3        # realism A/B on ONE person: keys npc_3_a (press kit), npc_3_b (documentary), npc_3_c (minimal)
- *   npx tsx scripts/orw480-three.ts <cards.json> --realism press npc:3 npc:6 npc:8   # the whole three with one wording (the default is documentary)
+ *   npx tsx scripts/orw480-three.ts <cards.json> --all            # every card of the file, in order (a full cast of 15)
+ *
+ * `<cards.json>`: a flat list of public cards (cards-s3.json, casts/live-*.json, casts/0008-*.json), or the older casts/*.json wrapper
+ * `{ "casts": [ { "cards": [...] } ] }` (the first cast, or `--cast N`).
  *
  * Output: for each prompt a header `--- <key> (<name>)` then the prompt on the next line.
  */
@@ -15,11 +18,17 @@ import { buildCastPortraitPrompts, type RealismVariant } from "../src/engine/por
 const args = process.argv.slice(2);
 const cardsPath = args.shift();
 const ab = args.includes("--ab");
+const all = args.includes("--all");
+const ci = args.indexOf("--cast");
+const castN = ci >= 0 ? Number(args[ci + 1]) : 0;
 const ri = args.indexOf("--realism");
 const realism = (ri >= 0 ? args[ri + 1] : "documentary") as RealismVariant;
-const ids = args.filter((a, i) => !a.startsWith("--") && (ri < 0 || i !== ri + 1));
-if (!cardsPath || ids.length === 0 || !["press", "documentary", "minimal"].includes(realism)) { console.error("usage: orw480-three.ts <cards.json> [--ab | --realism press|documentary|minimal] <id> [<id> ...]"); process.exit(2); }
-const cards = JSON.parse(readFileSync(cardsPath, "utf8")) as Array<Record<string, any>>;
+let ids = args.filter((a, i) => !a.startsWith("--") && (ri < 0 || i !== ri + 1) && (ci < 0 || i !== ci + 1));
+if (!cardsPath || (ids.length === 0 && !all) || !["press", "documentary", "minimal"].includes(realism)) { console.error("usage: orw480-three.ts <cards.json> [--ab | --realism press|documentary|minimal] <id> [<id> ...]"); process.exit(2); }
+const raw = JSON.parse(readFileSync(cardsPath, "utf8")) as unknown;
+const cards = (Array.isArray(raw) ? raw : (raw as { casts?: Array<{ cards?: unknown[] }> }).casts?.[castN]?.cards ?? []) as Array<Record<string, any>>;
+if (cards.length === 0) { console.error("no cards found in " + cardsPath); process.exit(2); }
+if (all) ids = cards.map((c) => c.id as string);
 const cast = cards.map((c) => ({
   id: c.id as string, name: c.name as string, appearance: (c.appearance as string) ?? "card", age: c.age as number, presentation: c.presentation as string,
   ...(c.physicalCharacteristics ? { physicalCharacteristics: c.physicalCharacteristics } : {}),

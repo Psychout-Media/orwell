@@ -22,7 +22,8 @@ const [cardsPath, oldPath] = process.argv.slice(2);
 if (!cardsPath || !oldPath) { console.error("usage: orw480-shot-report.ts <cards.json> <old-prompts.json>"); process.exit(2); }
 const out: string[] = [];
 const log = (...a: unknown[]): void => { out.push(a.join(" ")); };
-const cards = JSON.parse(readFileSync(cardsPath, "utf8")) as Card[];
+const rawCards = JSON.parse(readFileSync(cardsPath, "utf8")) as unknown;
+const cards = (Array.isArray(rawCards) ? rawCards : (rawCards as { casts?: Array<{ cards?: unknown[] }> }).casts?.[0]?.cards ?? []) as Card[];
 const old = JSON.parse(readFileSync(oldPath, "utf8")) as { id: string; prompt: string }[];
 
 const cast = cards.map((c) => ({
@@ -118,6 +119,7 @@ const CHECK = [
   "R9 pre-season cast photo on location: the place is from the person's own ordinary day, looks like their region, the reason is traced to their sheet (hometown, biography, type)",
   "R10 the job does not define the photo: at most 3 of 15 near work, none in uniform or work gear, no work props",
   "R11 the person looks like their life: the prompt says 'an ordinary person, not a model: a <age>-year-old <vocation> from <hometown>; grooming, hands, build and clothes fit that life'. A CARD whose own style contradicts the life (designer linen on a line cook) is reported as a card DEFECT, not photographed faithfully",
+  "R13 stage direction test: read each dealt moment as a stage direction; fail any a stranger would find odd to see in a framed cast photo (hunched, slumped, elbows on knees, hands dangling, lunging, bared teeth, fists, pointing, flexing, fierce); every posture is upright or leaning lightly on something the place has, and holds the head at the same distance",
   "R12 marks: no tooth gap ever; a mark is a minor detail inside the face sentence, once, never a sentence of its own",
 ];
 const LIFE_MISMATCH = /\b(?:minimalist monochrome|designer|couture|silk|cashmere|linen|glam|runway|tailored|high fashion|luxury)\b/i;
@@ -140,7 +142,7 @@ for (const c of cards) {
     /real skin and hair/.test(pr) && /worn everyday clothes/.test(pr) && /normal focus/.test(pr) && /available light/.test(pr) && !/fine lines|no retouching|flash|tilted, caught|tilted angle/.test(pr),
     cnt(placesAll, sh.placeId) <= caps.place && cnt(lightsAll, sh.lightId) <= caps.light && cnt([...plans.values()].map((p) => p.shot.momentId), sh.momentId) === 1,
     dist >= 4,
-    (sh.prop === undefined || /paperback|coffee cup|guitar|camera/.test(sh.prop)) && !/clipboard|glove|keys|dish towel|pencil|mug/.test(pr),
+    (sh.prop === undefined || /paperback|coffee cup|guitar|camera/.test(sh.prop)) && !/clipboard|glove|keys|dish towel|pencil|\bmug\b/.test(`${sh.prop ?? ""} ${sh.hands} ${sh.moment}`),
     !(sh.prop !== undefined && po.fixedHands),
     /place \S+ \(/.test(sh.why) && /hometown/.test(sh.why) && /where they live/.test(pr) && (c.hometown ? pr.includes(c.hometown.trim()) : true),
     placeKindsAll.filter((x) => x === "work-adjacent").length <= 3 && !/\b(?:scrubs|turnout gear|apron|badge|lanyard|uniform|hard hat|stethoscope)\b/i.test(pr.replace("never a uniform, scrubs, apron, badge or work gear", "")),
@@ -148,6 +150,7 @@ for (const c of cards) {
     !/gap/i.test(pr) && !/\.\s+(?:A |An )?(?:light )?(?:freckles|tattoo|dimples|nose stud|stud earring|glasses|beauty mark)/i.test(pr),
   ];
   if (gapInCard) cardDefects.push(`${c.id} ${c.name}: the CARD names a tooth gap (the prompt never passes it): ${pcAny?.distinguishingMark ?? ""} / ${pcAny?.facialFeatures ?? ""}`);
+  r.push(!/hunch|slump|sprawl|lung|crouch|elbows on (?:the )?knees|elbow on the knee|between the knees|hanging|behind the head|chin resting|on one fist|\bfists?\b|point\w* at|thumbs up|flex|jazz|snarl|bared|fierce|mugg|comic|disbelief|startled|wiggl|slapping|stretched out|flush/i.test(sh.moment) && (po.needs !== "table" || /table|booth/.test(sh.posture)));
   if (r.includes(false)) allOk = false;
   rows.push(`${c.id} ${c.name.padEnd(24)} ${r.map((x, i) => `R${i + 1}:${x ? "ok" : "NO"}`).join(" ")}  (${sh.trait}, ${sh.momentId.split("+")[0]}, ${sh.momentId.split("+")[1]}, ${sh.placeId}, ${sh.lightId}, face distance ${dist})`);
 }
@@ -159,4 +162,11 @@ console.log("Card defects (R11 / R12 NO from the CARD itself: the text builder f
 for (const d of cardDefects) console.log("  " + d);
 console.log("Note: an R10 NO means the CARD's own wardrobe or style names a badge, lanyard or uniform (the text builder owns that: the photo builder only passes it through).");
 console.log(allOk ? "ALL 15 PASS R1-R8\n" : "SOME FAIL\n");
+{
+  const stripped = [...plans.values()].map((p, i) => p.shot.place.replace(new RegExp((cards[i]!.hometown ?? "@@").replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "TOWN"));
+  console.log(`Setting sentences with the town removed: ${new Set(stripped).size} distinct of ${stripped.length} (two prompts with the same one would be the same place AND region)`);
+  console.log("Stage directions (read each as an instruction to a person being photographed):");
+  for (const c of cards) console.log(`  ${c.id} ${plans.get(c.id)!.shot.moment}`);
+  console.log("");
+}
 console.log(out.join("\n"));

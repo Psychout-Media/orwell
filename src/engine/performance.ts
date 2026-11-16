@@ -2,8 +2,8 @@
  * ORW-480: the PERFORMANCE of a cast photo: who the person is at a glance. Each card gets, derived from the person's own sheet
  * (casting type and its read, demeanor, voice energy):
  *   - one TRAIT word (loud, sly, shy, intense, warm, guarded, cocky, dreamy, playful, poised),
- *   - an EXPRESSION at full strength (a big open laugh with teeth, a flat unimpressed stare, a sly sideways look, a shy look down and away),
- *   - a POSTURE (leaning in over the table, sprawled back with an arm over the chair, arms folded tight, hunched with the hands between the knees),
+ *   - an EXPRESSION at full strength (a big real laugh, a flat unimpressed stare, a sly sideways look, a shy look down and away, a hard level stare),
+ *   - a POSTURE the head can hold at the same distance (seated at the table with the elbows on it, relaxed in the seat with an arm over the back, arms folded tight, standing with a slight lean),
  *   - what the HANDS are doing.
  * The cast is capped: a closed half-smile on at most 3 of 15, at least 4 people not smiling at all, no expression on more than 2, no posture
  * on more than 2, eyes on the lens within the table's gaze cap. Pure and public-only; the same cast always gets the same deal.
@@ -22,7 +22,7 @@ export interface PerfSheet {
   prop?: string;
 }
 /** What the place offers a posture. */
-export interface PlaceFlags { perch?: string; lean?: string; seat?: string }
+export interface PlaceFlags { perch?: string; lean?: string; seat?: string; table?: string }
 
 export type TraitId = "loud" | "sly" | "shy" | "intense" | "warm" | "guarded" | "cocky" | "dreamy" | "playful" | "poised";
 export const TRAITS: readonly TraitId[] = ["loud", "sly", "shy", "intense", "warm", "guarded", "cocky", "dreamy", "playful", "poised"];
@@ -30,122 +30,127 @@ export const TRAITS: readonly TraitId[] = ["loud", "sly", "shy", "intense", "war
 interface TraitDef { labels: readonly string[]; words: RegExp; expressions: readonly string[]; postures: readonly string[]; hands: readonly string[] }
 
 interface Expression { id: string; text: string; smiles: boolean; closedHalf?: boolean; gaze: Gaze }
+/**
+ * Each entry is something a real person does, unprompted, when a staff photographer points a camera at them: a real laugh, a big grin, a level
+ * stare, a shy look away. No performed or stock expressions (no snarls, bared teeth, mugging, comic disbelief).
+ */
 export const EXPRESSIONS: readonly Expression[] = [
-  { id: "open-laugh", smiles: true, gaze: "off", text: "a big open laugh, teeth showing, eyes crinkled nearly shut, head thrown back a little" },
-  { id: "wide-grin", smiles: true, gaze: "lens", text: "a broad toothy grin, bright eyes, looking straight into the lens" },
-  { id: "lopsided-grin", smiles: true, gaze: "lens", text: "a cheeky lopsided grin, one cheek high, eyes glinting, looking into the lens" },
-  { id: "squint-laugh", smiles: true, gaze: "down", text: "laughing hard, squinting, mouth wide open, looking down and away" },
-  { id: "fierce-grin", smiles: true, gaze: "lens", text: "a fierce competitive grin, teeth bared a little, eyes locked on the lens" },
+  { id: "open-laugh", smiles: true, gaze: "off", text: "a big real laugh, eyes crinkled nearly shut, looking off to one side at someone" },
+  { id: "wide-grin", smiles: true, gaze: "lens", text: "a broad, genuine grin, bright eyes, looking straight into the lens" },
+  { id: "lopsided-grin", smiles: true, gaze: "lens", text: "a cheeky lopsided grin, one cheek high, looking into the lens" },
+  { id: "squint-laugh", smiles: true, gaze: "down", text: "laughing hard, eyes squeezed shut, looking down and away" },
+  { id: "confident-half-grin", smiles: true, closedHalf: true, gaze: "lens", text: "a tight, confident half-grin, chin slightly down, eyes steady on the lens" },
   { id: "warm-smile", smiles: true, gaze: "lens", text: "a warm, easy smile with crinkled eyes and relaxed brows, looking into the lens" },
-  { id: "soft-smile-away", smiles: true, gaze: "off", text: "a soft smile, eyes just past the lens, relaxed and unguarded" },
+  { id: "soft-smile-away", smiles: true, gaze: "off", text: "a soft smile, eyes just past the lens, relaxed" },
   { id: "shy-smile", smiles: true, gaze: "lens", text: "a small shy smile, chin tucked, eyes up at the lens through the brows" },
   { id: "smirk", smiles: true, gaze: "lens", text: "a sly smirk, one corner of the mouth pulled up, one brow lifted, eyes on the lens" },
-  { id: "dreamy-smile", smiles: true, closedHalf: true, gaze: "off", text: "an unfocused dreamy half-smile, lips closed, eyes drifting past the lens" },
+  { id: "dreamy-smile", smiles: true, closedHalf: true, gaze: "off", text: "an unfocused half-smile, lips closed, eyes drifting past the lens" },
   { id: "closed-half", smiles: true, closedHalf: true, gaze: "lens", text: "a closed-mouth half-smile, calm eyes on the lens" },
-  { id: "smug", smiles: true, closedHalf: true, gaze: "lens", text: "a smug closed-mouth smile, chin raised, eyes half-lidded" },
+  { id: "smug", smiles: true, closedHalf: true, gaze: "lens", text: "a closed-mouth smile, chin slightly raised, eyes half-lidded" },
+  { id: "cool-away", smiles: true, gaze: "off", text: "chin lifted, looking away from the camera with a cool, bored smirk" },
   { id: "sly-side", smiles: false, gaze: "aside", text: "a sly sideways look, eyes cut to the side, lips pressed together, a knowing stillness" },
   { id: "flat-stare", smiles: false, gaze: "lens", text: "a flat, unimpressed stare, mouth a straight line, eyes steady on the lens" },
-  { id: "hard-stare", smiles: false, gaze: "lens", text: "a hard direct stare, jaw set, brows low, mouth firm" },
+  { id: "hard-stare", smiles: false, gaze: "lens", text: "a hard, level stare, jaw set, mouth firm, eyes steady on the lens" },
   { id: "brow-raise", smiles: false, gaze: "lens", text: "one brow raised, a skeptical look, lips together, no smile" },
   { id: "serious-calm", smiles: false, gaze: "lens", text: "a calm, serious face, lips together, steady eyes on the lens" },
   { id: "thoughtful-away", smiles: false, gaze: "off", text: "a thoughtful far-off look, lips slightly pressed, eyes to one side" },
-  { id: "shy-down", smiles: false, gaze: "down", text: "a shy look down and away, lips pressed together, a faint flush" },
-  { id: "cool-away", smiles: true, gaze: "off", text: "chin lifted, looking away from the camera with a cool, bored smirk" },
+  { id: "shy-down", smiles: false, gaze: "down", text: "a shy look down and away, lips pressed together" },
   { id: "poised-away", smiles: false, gaze: "off", text: "a serene look off to one side, chin lifted, mouth neutral" },
-  { id: "focus-off", smiles: false, gaze: "off", text: "eyes locked on something off to the side, jaw set, mouth firm" },
-  { id: "surprised", smiles: false, gaze: "lens", text: "wide startled eyes, brows high, lips closed in comic disbelief" },
-  { id: "chin-up-cool", smiles: false, gaze: "lens", text: "chin lifted, a cool level gaze, mouth neutral, faintly disdainful" },
+  { id: "focus-off", smiles: false, gaze: "off", text: "eyes on something off to the side, jaw set, mouth firm" },
+  { id: "chin-up-cool", smiles: false, gaze: "lens", text: "chin lifted, a cool level gaze, mouth neutral" },
 ];
 
-type Needs = "any" | "perch" | "lean" | "seat";
+type Needs = "any" | "perch" | "lean" | "seat" | "table";
 interface Posture { id: string; text: string; needs: Needs; /** the text already says what the hands do */ fixedHands: boolean }
+/**
+ * Poses a person holds unprompted in a cast photo, with the head staying at the same distance from the camera as in every other photo: seated
+ * or standing upright, no lunging toward the lens, no deep hunch. No stock poses (pointing at the camera, thumbs up, flexing, fist bumps, jazz hands).
+ * `table` is only dealt where the place has a table.
+ */
 export const POSTURES: readonly Posture[] = [
-  { id: "lean-in-table", needs: "seat", fixedHands: false, text: "leaning in over the table toward the camera, forearms on it, shoulders forward" },
-  { id: "sprawl-back", needs: "seat", fixedHands: false, text: "sprawled back {seat} with one arm slung over the back, legs loose" },
+  { id: "lean-in-table", needs: "table", fixedHands: false, text: "seated at {table}, forearms resting on it, upright" },
+  { id: "relaxed-seat", needs: "seat", fixedHands: false, text: "seated {seat}, upright and relaxed, one arm along the back" },
   { id: "arms-folded-tight", needs: "any", fixedHands: true, text: "arms folded tight across the chest, shoulders squared" },
-  { id: "hunched", needs: "seat", fixedHands: true, text: "hunched forward {seat}, elbows on knees, hands hanging loose between the knees" },
+  { id: "seated-upright", needs: "seat", fixedHands: true, text: "seated {seat}, upright, hands resting in the lap" },
   { id: "hands-on-hips", needs: "any", fixedHands: true, text: "standing square with both hands on the hips, chest open, chin level" },
-  { id: "chin-on-fist", needs: "lean", fixedHands: true, text: "elbow propped on {lean}, chin resting on one fist" },
   { id: "shoulder-lean", needs: "lean", fixedHands: false, text: "one shoulder against {lean}, weight on one hip" },
-  { id: "perched", needs: "perch", fixedHands: false, text: "perched on {perch}, leaning forward, gripping the edge" },
-  { id: "arms-wide", needs: "any", fixedHands: true, text: "arms thrown wide, chest open, mid-story" },
+  { id: "perched", needs: "perch", fixedHands: false, text: "perched on {perch}, sitting upright, hands resting on the edge" },
+  { id: "slight-lean", needs: "any", fixedHands: true, text: "standing upright, weight settled, arms relaxed at the sides" },
   { id: "upright", needs: "any", fixedHands: true, text: "standing very upright, shoulders back, chin lifted, hands clasped in front" },
   { id: "turned-shoulder", needs: "any", fixedHands: false, text: "body turned three-quarter away, head turned back to the camera over the shoulder" },
-  { id: "slouch", needs: "seat", fixedHands: false, text: "slumped low {seat}, shoulders rounded, legs stretched out" },
+  { id: "relaxed-cross", needs: "seat", fixedHands: false, text: "seated {seat}, shoulders loose, one leg crossed over the other" },
   { id: "pockets", needs: "any", fixedHands: true, text: "standing loose, thumbs hooked in the pockets, weight on one leg" },
-  { id: "behind-head", needs: "any", fixedHands: true, text: "hands clasped behind the head, elbows out, leaning back" },
-  { id: "fidget", needs: "any", fixedHands: true, text: "shoulders drawn in, fingers twisting together at the waist" },
-  { id: "fist-pump", needs: "any", fixedHands: true, text: "one fist raised and clenched in front of the chest, shoulders squared" },
-  { id: "point", needs: "any", fixedHands: true, text: "one hand pointing at the camera, the other on the hip" },
+  { id: "fidget", needs: "any", fixedHands: true, text: "standing upright, shoulders a little drawn in, one hand holding the other forearm" },
+  { id: "talking", needs: "any", fixedHands: false, text: "turned toward someone off-camera, caught mid-conversation" },
   { id: "hand-chest", needs: "any", fixedHands: true, text: "one hand pressed to the chest, head tilted" },
-  { id: "hair-touch", needs: "any", fixedHands: true, text: "one hand running back through the hair, elbow high" },
+  { id: "hair-touch", needs: "any", fixedHands: true, text: "upright, one hand lightly touching the hair" },
+  { id: "hand-on-surface", needs: "lean", fixedHands: true, text: "leaning lightly on {lean}, one hand resting on it" },
   { id: "arms-crossed-lean", needs: "lean", fixedHands: true, text: "arms crossed, leaning back against {lean}" },
-  { id: "head-in-hand", needs: "seat", fixedHands: true, text: "head resting in one hand, elbow on the knee, relaxed" },
 ];
 
 const T: Record<TraitId, TraitDef> = {
   loud: {
     labels: ["life of the party", "loudmouth", "superfan", "cheerleader", "class clown", "sidekick", "good sport", "country kid", "cool relative", "showstopper"],
     words: /\b(?:loud\w*|big laugh|animated|boisterous|shout\w*|bubbly|exuberant|goofy|wide grin|manic|talkative|lit up|chatty|bouncy|explosive|unfiltered)\b/i,
-    expressions: ["open-laugh", "wide-grin", "squint-laugh", "lopsided-grin", "surprised"],
-    postures: ["arms-wide", "lean-in-table", "perched", "point", "sprawl-back", "behind-head", "fist-pump"],
-    hands: ["both hands mid-gesture, palms open", "one hand slapping the thigh, the other waving"],
+    expressions: ["open-laugh", "wide-grin", "squint-laugh", "lopsided-grin"],
+    postures: ["lean-in-table", "talking", "perched", "relaxed-seat", "slight-lean"],
+    hands: ["one hand open mid-sentence, the other resting", "both hands open as if mid-sentence"],
   },
   sly: {
     labels: ["schemer", "villain", "mastermind in plain sight", "old school player", "enigma"],
     words: /\b(?:sly|scheming|calculat\w*|knowing|smirk\w*|unreadable|gives nothing away|plan|private smile|flicker)\b/i,
     expressions: ["sly-side", "smirk", "brow-raise", "closed-half"],
-    postures: ["turned-shoulder", "shoulder-lean", "arms-crossed-lean", "pockets", "chin-on-fist", "arms-folded-tight"],
-    hands: ["fingers laced loosely, thumbs tapping", "one thumb rubbing slowly across the fingertips"],
+    postures: ["turned-shoulder", "shoulder-lean", "arms-crossed-lean", "pockets", "arms-folded-tight"],
+    hands: ["one hand resting loosely on the other wrist", "fingers hooked in a pocket"],
   },
   shy: {
     labels: ["wallflower", "underdog", "baby of the house", "showmance seeker", "puzzle head"],
     words: /\b(?:shy|hopeful|tentative|earnest|timid|gentle|sweet|eager|awkward|drawn in)\b/i,
     expressions: ["shy-down", "shy-smile", "thoughtful-away", "serious-calm"],
-    postures: ["fidget", "hunched", "hair-touch", "hand-chest", "turned-shoulder", "head-in-hand"],
-    hands: ["one hand holding the opposite elbow", "fingers fidgeting with a sleeve cuff"],
+    postures: ["fidget", "seated-upright", "hand-chest", "turned-shoulder", "hair-touch"],
+    hands: ["one hand holding the other wrist", "one hand holding the opposite forearm"],
   },
   intense: {
     labels: ["competitor", "comp beast", "grinder", "hothead", "gym rat", "jock"],
     words: /\b(?:focused|set jaw|intense|ready|competitive|fierce|determined|locked|blunt|coiled|athletic|ready stance|tight jaw)\b/i,
-    expressions: ["hard-stare", "fierce-grin", "focus-off", "flat-stare", "serious-calm"],
-    postures: ["fist-pump", "hands-on-hips", "lean-in-table", "arms-folded-tight", "perched", "hunched", "arms-crossed-lean"],
-    hands: ["hands balled into loose fists", "hands gripping each other tight, knuckles pale"],
+    expressions: ["hard-stare", "confident-half-grin", "focus-off", "flat-stare", "serious-calm"],
+    postures: ["slight-lean", "hands-on-hips", "hand-on-surface", "lean-in-table", "arms-folded-tight", "arms-crossed-lean", "upright", "seated-upright"],
+    hands: ["hands resting still and relaxed", "fingers laced and still"],
   },
   warm: {
     labels: ["sweetheart", "natural", "parent of the house", "gentle giant", "fan favorite"],
     words: /\b(?:warm|kind|soft|open|gentle|patient|easy|unforced|steady|calm|relaxed|folksy)\b/i,
     expressions: ["warm-smile", "soft-smile-away", "closed-half", "serious-calm"],
-    postures: ["sprawl-back", "shoulder-lean", "slouch", "pockets", "hand-chest", "hair-touch", "head-in-hand", "perched"],
+    postures: ["relaxed-seat", "shoulder-lean", "hand-on-surface", "relaxed-cross", "pockets", "hand-chest", "hair-touch", "perched"],
     hands: ["one hand open and relaxed, palm up", "hands loosely folded"],
   },
   guarded: {
     labels: ["tough nut", "quiet storm", "brain", "straight shooter", "rebel", "sleeper", "wise head"],
     words: /\b(?:guarded|wary|watchful|reserved|still|composed|measured|clipped|dry|deadpan|cool|stare|observant|private|surgical|unbothered|level)\b/i,
     expressions: ["flat-stare", "brow-raise", "serious-calm", "closed-half", "thoughtful-away"],
-    postures: ["arms-folded-tight", "shoulder-lean", "arms-crossed-lean", "chin-on-fist", "hunched", "slouch", "upright"],
+    postures: ["arms-folded-tight", "shoulder-lean", "arms-crossed-lean", "seated-upright", "relaxed-cross", "upright"],
     hands: ["one hand rubbing the back of the neck", "hands resting flat and still"],
   },
   cocky: {
     labels: ["trash talker", "influencer", "queen bee", "know it all", "diva", "bombshell", "hustler", "charmer", "firecracker"],
     words: /\b(?:cocky|smug|chin (?:up|lifted|jutted)|polished|practiced|confident|salesman|posed|owns|forward-leaning|assured|sharp)\b/i,
     expressions: ["smirk", "smug", "cool-away", "chin-up-cool", "brow-raise"],
-    postures: ["hands-on-hips", "upright", "arms-crossed-lean", "point", "sprawl-back", "behind-head", "turned-shoulder", "shoulder-lean"],
-    hands: ["one hand adjusting the collar", "hands spread wide, palms up, as if it is obvious"],
+    postures: ["hands-on-hips", "upright", "arms-crossed-lean", "relaxed-seat", "turned-shoulder", "shoulder-lean"],
+    hands: ["one hand resting in a pocket", "one hand loosely on the hip"],
   },
   dreamy: {
     labels: ["dreamer", "free spirit", "hopeless romantic", "floater"],
     words: /\b(?:dreamy|drifting|sunny|loose|soft gaze|hopeful|far-off|wandering|unfocused)\b/i,
     expressions: ["dreamy-smile", "thoughtful-away", "soft-smile-away", "warm-smile"],
-    postures: ["head-in-hand", "slouch", "behind-head", "shoulder-lean", "hair-touch", "hand-chest", "pockets"],
+    postures: ["relaxed-cross", "shoulder-lean", "hair-touch", "hand-chest", "pockets"],
     hands: ["one hand twirling a strand of hair", "fingers trailing idly"],
   },
   playful: {
     labels: ["flirt", "wildcard", "loose cannon", "heartbreaker", "drama magnet"],
     words: /\b(?:playful|flirt\w*|mischief|spark|restless|lopsided|teasing|head tilt|twitchy|unpredictable|wired)\b/i,
     expressions: ["lopsided-grin", "smirk", "squint-laugh", "brow-raise", "wide-grin"],
-    postures: ["hair-touch", "shoulder-lean", "turned-shoulder", "lean-in-table", "point", "perched", "sprawl-back"],
-    hands: ["one hand making a small wave, the other tucked in a pocket", "both hands up, fingers wiggling"],
+    postures: ["hair-touch", "shoulder-lean", "turned-shoulder", "lean-in-table", "talking", "perched", "relaxed-seat"],
+    hands: ["one hand in a pocket, the other loosely open", "hands loosely clasped in front, a restless shift"],
   },
   poised: {
     labels: ["sophisticate", "elder statesperson", "silver fox"],
@@ -233,8 +238,12 @@ export function dealPerformances(
     const exs = own.filter(exOk).length > 0 ? own.filter(exOk) : own.filter(exOkSoft);
     const cand = exs.length > 0 ? exs.slice(0, 2) : EXPRESSIONS.filter(exOk);
     const ex = cand.length > 0 ? pick(cand) : EXPRESSIONS[0]!;
+    const compat = (p: Posture): boolean => {
+      const f = flags.get(x.s.id) ?? {};
+      return (p.needs === "any" || f[p.needs] !== undefined) && !(x.s.prop !== undefined && p.fixedHands);
+    };
     const pos = def.postures.map((id) => byPo.get(id)!).filter((p) => poOk(p, x.s));
-    const po = pos.length > 0 ? pick(pos.slice(0, 3)) : pick(POSTURES.filter((p) => poOk(p, x.s) || (p.needs === "any" && !(x.s.prop !== undefined && p.fixedHands))));
+    const po = pos.length > 0 ? pick(pos.slice(0, 3)) : pick(POSTURES.filter((p) => poOk(p, x.s)).length > 0 ? POSTURES.filter((p) => poOk(p, x.s)) : POSTURES.filter(compat));
     bump(exUsed, ex.id); bump(poUsed, po.id);
     if (ex.closedHalf) closedHalf++;
     if (ex.gaze === "lens") lens++;
@@ -273,7 +282,7 @@ export function dealPerformances(
   const res = new Map<string, Performance>();
   for (const [id, v] of out) {
     const f = flags.get(id) ?? {};
-    const fill = (t: string): string => t.replace(/\{perch\}/g, f.perch ?? "").replace(/\{lean\}/g, f.lean ?? "").replace(/\{seat\}/g, f.seat ?? "").replace(/\{poss\}/g, poss(v.s.genderPresentation));
+    const fill = (t: string): string => t.replace(/\{perch\}/g, f.perch ?? "").replace(/\{lean\}/g, f.lean ?? "").replace(/\{seat\}/g, f.seat ?? "").replace(/\{table\}/g, f.table ?? "").replace(/\{poss\}/g, poss(v.s.genderPresentation));
     const hands = v.s.prop !== undefined ? `${v.s.prop}` : v.po.fixedHands ? "" : pick(T[v.trait].hands);
     const posture = fill(v.po.text);
     res.set(id, {

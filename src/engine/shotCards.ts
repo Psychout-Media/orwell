@@ -139,26 +139,26 @@ interface Place {
 }
 
 export const PLACES: readonly Place[] = [
-  { id: "home-kitchen", kind: "home-interior", outdoor: false, phrase: "the person's own kitchen in {town}, {home}, the counters and a window in plain view behind", perch: "the kitchen counter", lean: "the kitchen island", seat: "on a kitchen stool" },
-  { id: "home-living-room", kind: "home-interior", outdoor: false, phrase: "the person's own living room in {town}, {home}, a sofa, shelves and family photos in view behind", perch: "the arm of the sofa", lean: "the bookshelf", seat: "on the sofa" },
-  { id: "family-table", kind: "home-interior", outdoor: false, phrase: "a family dining table in {town}, {home}, a window and a sideboard behind", lean: "the sideboard", seat: "in a dining chair" },
-  { id: "window-seat", kind: "home-interior", outdoor: false, phrase: "a bright window seat in the person's apartment in {town}, the street visible outside", lean: "the window frame", seat: "on the window seat" },
-  { id: "front-porch", kind: "home-exterior", outdoor: true, phrase: "the front porch of the person's home in {town}, {out}", lean: "the porch post", seat: "on the porch steps" },
-  { id: "back-yard", kind: "home-exterior", outdoor: true, phrase: "the back yard of the person's home in {town}, a fence and trees behind, {out}", lean: "the fence", seat: "in a lawn chair", walk: true },
-  { id: "balcony", kind: "home-exterior", outdoor: true, phrase: "an apartment balcony in {town}, rooftops and open sky behind", lean: "the balcony railing", seat: "in a balcony chair" },
-  { id: "stoop", kind: "home-exterior", outdoor: true, phrase: "the stoop of the person's building in {town}, a brick wall and the street behind", lean: "the stoop railing", seat: "on the stoop" },
-  { id: "diner-booth", kind: "town", outdoor: false, phrase: "a corner booth in a local diner in {town}, a window and a counter behind", seat: "in the booth" },
-  { id: "main-street", kind: "town", outdoor: true, phrase: "the main street of {town}, shopfronts behind, {out}", lean: "a shopfront wall", walk: true },
-  { id: "park-bench", kind: "town", outdoor: true, phrase: "a park bench in {town}, trees and a path behind, {out}", seat: "on the bench", walk: true },
-  { id: "ball-field", kind: "town", outdoor: true, phrase: "the fence of a local ball field in {town}, bleachers behind, {out}", lean: "the fence", seat: "on the bleachers" },
-  { id: "farmers-market", kind: "town", outdoor: true, phrase: "a farmers market in {town}, stalls and awnings behind, {out}", lean: "a stall table", walk: true },
-  { id: "coffee-shop", kind: "town", outdoor: false, phrase: "a neighborhood coffee shop in {town}, a window and the street behind", seat: "on a window stool", lean: "the counter" },
-  { id: "lakeside", kind: "nature", outdoor: true, phrase: "a lakeside dock near {town}, still water and trees behind, {out}", seat: "on the dock", perch: "the end of the dock", walk: true },
-  { id: "trail", kind: "nature", outdoor: true, phrase: "a trail near {town}, trees and open sky behind, {out}", lean: "a tree", seat: "on a log", walk: true },
-  { id: "open-field", kind: "nature", outdoor: true, phrase: "an open field near {town}, tall grass and a long horizon, {out}", lean: "a fence post", walk: true },
-  { id: "work-plaza", kind: "work-adjacent", outdoor: true, phrase: "a bench in a plaza near where the person works in {town}, in their own everyday clothes, {out}", seat: "on the bench", walk: true },
-  { id: "work-cafe", kind: "work-adjacent", outdoor: false, phrase: "a café table across from where the person works in {town}, in their own everyday clothes, a window behind", seat: "in a café chair" },
-  { id: "work-street", kind: "work-adjacent", outdoor: true, phrase: "the sidewalk outside a shop near where the person works in {town}, in their own everyday clothes, {out}", lean: "the shop wall", walk: true },
+  { id: "home-kitchen", kind: "home-interior", outdoor: false, phrase: "the person's own kitchen in {town}, {home}, {detail} behind", table: "the kitchen table", details: ["the counters and a window over the sink", "open shelves, a fridge covered in magnets", "a window onto the back yard and a dish rack", "painted cupboards and a calendar on the wall"], perch: "the kitchen counter", lean: "the kitchen island", seat: "on a kitchen stool" },
+  { id: "home-living-room", kind: "home-interior", outdoor: false, phrase: "the person's own living room in {town}, {home}, {detail} behind", details: ["a sofa, shelves and family photos", "a TV, a lamp and a bookcase", "a worn armchair and a window with curtains", "framed photos and a crowded side table"], perch: "the arm of the sofa", lean: "the bookshelf", seat: "on the sofa" },
+  { id: "family-table", kind: "home-interior", outdoor: false, phrase: "a family dining table in {town}, {home}, {detail} behind", table: "the dining table", details: ["a window and a sideboard", "a china cabinet and patterned wallpaper", "a doorway into the kitchen", "a wall of family photos"], lean: "the sideboard", seat: "in a dining chair" },
+  { id: "window-seat", kind: "home-interior", outdoor: false, phrase: "a bright window seat in the person's apartment in {town}, {detail}", details: ["the street visible outside", "a radiator and a shelf of plants beside it", "a stack of books and a view over rooftops"], lean: "the window frame", seat: "on the window seat" },
+  { id: "front-porch", kind: "home-exterior", outdoor: true, phrase: "the front porch of the person's home in {town}, {detail}, {out}", details: ["a screen door and a hanging plant", "a worn railing and a doormat", "a swing at one end and a pile of shoes by the door", "wooden steps down to a short front walk"], lean: "the porch post", seat: "on the porch steps" },
+  { id: "back-yard", kind: "home-exterior", outdoor: true, phrase: "the back yard of the person's home in {town}, {detail}, {out}", details: ["a chain-link fence and a shed behind", "a clothesline and a single big tree", "a patchy lawn, a hose and a neighbor's fence", "a garden bed along a wooden fence"], lean: "the fence", seat: "in a lawn chair", walk: true },
+  { id: "balcony", kind: "home-exterior", outdoor: true, phrase: "an apartment balcony in {town}, {detail}", details: ["rooftops and open sky behind", "potted plants and a folding chair", "a neighbor's balcony across the gap and a string of laundry"], lean: "the balcony railing", seat: "in a balcony chair" },
+  { id: "stoop", kind: "home-exterior", outdoor: true, phrase: "the stoop of the person's building in {town}, {detail}", details: ["a brick wall and the street behind", "a row of mailboxes and a parked car", "a metal railing and the next building's stoop"], lean: "the stoop railing", seat: "on the stoop" },
+  { id: "diner-booth", kind: "town", outdoor: false, phrase: "a corner booth in a local diner in {town}, {detail} behind", table: "the booth table", details: ["a window and a counter", "a pie case and a row of stools", "a wall of faded photos and a menu board"], seat: "in the booth" },
+  { id: "main-street", kind: "town", outdoor: true, phrase: "the main street of {town}, {detail}, {out}", details: ["shopfronts behind", "a hardware store and a bank clock behind", "angled parking and a crosswalk behind"], lean: "a shopfront wall", walk: true },
+  { id: "park-bench", kind: "town", outdoor: true, phrase: "a park bench in {town}, {detail}, {out}", details: ["trees and a path behind", "a playground in the distance", "a duck pond and a gravel walk behind"], seat: "on the bench", walk: true },
+  { id: "ball-field", kind: "town", outdoor: true, phrase: "the fence of a local ball field in {town}, {detail}, {out}", details: ["bleachers behind", "a scoreboard and a dugout behind", "a concession stand and the outfield behind"], lean: "the fence", seat: "on the bleachers" },
+  { id: "farmers-market", kind: "town", outdoor: true, phrase: "a farmers market in {town}, {detail}, {out}", details: ["stalls and awnings behind", "crates of produce and a chalkboard sign behind", "a flower stall and folding tables behind"], lean: "a stall table", walk: true },
+  { id: "coffee-shop", kind: "town", outdoor: false, phrase: "a neighborhood coffee shop in {town}, {detail} behind", table: "a small café table", details: ["a window and the street", "a pastry case and a chalkboard menu", "mismatched chairs and a shelf of mugs"], seat: "on a window stool", lean: "the counter" },
+  { id: "lakeside", kind: "nature", outdoor: true, phrase: "a lakeside dock near {town}, {detail}, {out}", details: ["still water and trees behind", "a rowboat tied up and reeds behind", "a far shore and a few other docks behind"], seat: "on the dock", perch: "the end of the dock", walk: true },
+  { id: "trail", kind: "nature", outdoor: true, phrase: "a trail near {town}, {detail}, {out}", details: ["trees and open sky behind", "a trail marker and a slope behind", "rocks and low scrub beside the path"], lean: "a tree", seat: "on a log", walk: true },
+  { id: "open-field", kind: "nature", outdoor: true, phrase: "an open field near {town}, {detail}, {out}", details: ["tall grass and a long horizon", "a fence line and a lone tree", "a dirt track and bales in the distance"], lean: "a fence post", walk: true },
+  { id: "work-plaza", kind: "work-adjacent", outdoor: true, phrase: "a bench in a plaza near where the person works in {town}, in their own everyday clothes, {detail}, {out}", details: ["office windows behind", "a fountain behind", "a row of bikes behind"], seat: "on the bench", walk: true },
+  { id: "work-cafe", kind: "work-adjacent", outdoor: false, phrase: "a café table across from where the person works in {town}, in their own everyday clothes, {detail} behind", table: "the café table", details: ["a window", "a menu board", "a wall of local flyers"], seat: "in a café chair" },
+  { id: "work-street", kind: "work-adjacent", outdoor: true, phrase: "the sidewalk outside a shop near where the person works in {town}, in their own everyday clothes, {detail}, {out}", details: ["a shop window behind", "a bus stop behind", "a row of parked cars behind"], lean: "the shop wall", walk: true },
 ];
 
 // where they live: the setting should look like it (a Nebraska town, a Mississippi porch, a Los Angeles street)
@@ -177,30 +177,36 @@ for (const [r, names] of Object.entries({
   pacific: "California,Hawaii",
   "pacific-nw": "Oregon,Washington",
 } as Record<Region, string>)) for (const n of names.split(",")) STATE_REGION[n.toLowerCase()] = r as Region;
-const REGION_FLAVOR: Record<Region | "none", { out: string; home: string }> = {
-  "new-england": { out: "white clapboard houses, stone walls and maples", home: "an older wood-floored home" },
-  "mid-atlantic": { out: "brick rowhouses and narrow streets", home: "a brick row home" },
-  southeast: { out: "tall pines, red clay and magnolias", home: "a brick ranch house" },
-  "deep-south": { out: "live oaks, humid green and tin roofs", home: "a wood-frame house with a deep porch" },
-  "great-lakes": { out: "maples, brick and a soft grey sky", home: "a two-story frame house" },
-  plains: { out: "flat farmland, a grain elevator and a huge sky", home: "a simple ranch house" },
-  texas: { out: "dry grass, pickup trucks and a big sky", home: "a low brick ranch house" },
-  southwest: { out: "adobe-coloured walls, dry light and desert plants", home: "a stucco home" },
-  "mountain-west": { out: "mountains on the horizon, sage and pine", home: "a log-trimmed home" },
-  pacific: { out: "palms, stucco and bright dry light", home: "a stucco bungalow" },
-  "pacific-nw": { out: "tall firs, wet green and soft grey light", home: "a wood-shingled home" },
-  none: { out: "ordinary houses and trees", home: "an ordinary home" },
+const REGION_FLAVOR: Record<Region | "none", { out: readonly string[]; home: readonly string[] }> = {
+  "new-england": { out: ["white clapboard houses and maples", "stone walls and bare-branched trees", "a church steeple and shingled houses"], home: ["an older wood-floored home", "a narrow house with low ceilings"] },
+  "mid-atlantic": { out: ["brick rowhouses and narrow streets", "stoops and fire escapes", "tight lots and chain-link"], home: ["a brick row home", "a small apartment in an older building"] },
+  southeast: { out: ["tall pines and red clay", "magnolias and brick bungalows", "a cracked driveway and crepe myrtles", "kudzu at the edge of the lot"], home: ["a brick ranch house", "a low frame house with a carport"] },
+  "deep-south": { out: ["live oaks and humid green", "tin roofs and a gravel lane", "a pecan tree and cicadas in the heat"], home: ["a wood-frame house with a deep porch", "a low brick house with window units"] },
+  "great-lakes": { out: ["maples, brick and a soft grey sky", "a flat street of frame houses", "bare trees and a slate-coloured sky"], home: ["a two-story frame house", "a brick bungalow"] },
+  plains: { out: ["flat farmland and a grain elevator", "a huge sky and a gravel road", "a water tower on the horizon", "wind-bent cottonwoods"], home: ["a simple ranch house", "a one-story house with a porch light"] },
+  texas: { out: ["dry grass and pickup trucks", "a big sky and a metal fence", "mesquite and a dusty road"], home: ["a low brick ranch house", "a house with a wide carport"] },
+  southwest: { out: ["adobe-coloured walls and dry light", "gravel yards and desert plants", "a cinder-block wall and a bare mountain"], home: ["a stucco home", "a flat-roofed house"] },
+  "mountain-west": { out: ["mountains on the horizon and sage", "pines and a dirt road", "a pickup and a snow fence"], home: ["a log-trimmed home", "a small house with a woodpile"] },
+  pacific: { out: ["palms and stucco in bright dry light", "a hazy hillside and low hedges", "a bougainvillea wall and parked cars"], home: ["a stucco bungalow", "a small apartment with a window unit"] },
+  "pacific-nw": { out: ["tall firs and wet green", "soft grey light and moss on the fence", "a cedar fence and fern beds"], home: ["a wood-shingled home", "a small house with a covered porch"] },
+  none: { out: ["ordinary houses and trees"], home: ["an ordinary home"] },
 };
 /** The state of a "City, State" hometown, as a region. */
 export function regionOf(hometown: string | undefined): Region | undefined {
   const st = (hometown ?? "").split(",").pop()?.trim().toLowerCase() ?? "";
   return STATE_REGION[st];
 }
-/** The place phrase with the person's town and its regional look filled in. */
-export function placeText(place: Place, hometown: string | undefined): string {
+/**
+ * The place phrase with the person's town, its regional look and the specifics of this place filled in. `k` is how many people in the cast are already
+ * in this same place: it picks the detail and the regional look, so two people in the same kind of place never get the same sentence.
+ */
+export function placeText(place: Place, hometown: string | undefined, k = 0): string {
   const f = REGION_FLAVOR[regionOf(hometown) ?? "none"];
   const town = (hometown ?? "").trim() !== "" ? hometown!.trim() : "their home town";
-  return place.phrase.replace(/\{town\}/g, town).replace(/\{out\}/g, f.out).replace(/\{home\}/g, f.home);
+  const h = fnv1a(town);
+  const pickAt = <X>(xs: readonly X[], i: number): X => xs[i % xs.length]!;
+  return place.phrase.replace(/\{town\}/g, town).replace(/\{detail\}/g, pickAt(place.details ?? [""], k + (h % 7)))
+    .replace(/\{out\}/g, pickAt(f.out, k + (h % 5))).replace(/\{home\}/g, pickAt(f.home, k + (h % 3)));
 }
 
 // ---------------------------------------------------------------------------------------------------- light, framing, angle
@@ -223,7 +229,7 @@ export const LIGHTS: readonly Light[] = [
  */
 export const PORTRAIT_FORMAT = {
   id: "portrait",
-  phrase: "a half-length portrait from mid-torso up, both shoulders and at least one hand in frame, the head about a quarter of the frame height, the eyes on the upper-third line, room above the head",
+  phrase: "a half-length portrait from mid-torso up, both shoulders and at least one hand in frame, the head about a quarter of the frame height, the eyes on the upper-third line, room above the head, seated or standing upright enough that the head stays the same size as in every other photo",
   angle: "the camera level, at eye level",
   lens: "a 50mm lens",
 } as const;
@@ -300,12 +306,13 @@ const poss = (g: ShotSheet["genderPresentation"]): string => (g === "man" ? "his
 export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCard> {
   const rnd = stream(castSeed(sheets, "shot-cards"));
   const caps = shotCaps(sheets.length);
+  const placeRegionUsed = new Set<string>();
   const placeUsed = new Map<string, number>(), kindUsed = new Map<string, number>(), placeWhy = new Map<string, string>(), lightUsed = new Map<string, number>();
   const order = shuffled(rnd, byId(sheets));
   // the kinds: at most 5 of 15 in any one kind (the table's place-kind cap), at most 3 near work (place-work); a couple of people near work
   const kindCap = (kind: PlaceKind): number => (kind === "work-adjacent" ? capOf("place-work", sheets.length) : capOf("place-kind", sheets.length));
   const workIds = new Set(order.filter((s) => (s.vocation ?? "").trim() !== "").slice(0, Math.min(2, Math.max(0, Math.floor(sheets.length / 10)))).map((s) => s.id));
-  const base = new Map<string, { place: Place; light: Light; prop?: string }>();
+  const base = new Map<string, { place: Place; light: Light; k: number; prop?: string }>();
   let props = 0;
   for (const s of order) {
     // The place is somewhere from the person's ordinary day, scored against their own sheet (hometown, biography hobbies, type); the cap per
@@ -315,31 +322,42 @@ export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCar
     if (pool.length === 0) pool = PLACES.filter((p) => p.kind !== "work-adjacent" && placeFit(p, s) !== undefined && count(placeUsed, p.id) < caps.place);
     if (pool.length === 0) pool = PLACES.filter((p) => p.kind !== "work-adjacent");
     const leastKind = Math.min(...pool.map((p) => count(kindUsed, p.kind)));
-    const scored = pool.map((p) => ({ p, v: (placeFit(p, s)?.score ?? 0) + (count(kindUsed, p.kind) === leastKind ? 1 : 0) }));
+    // never two people in the same place AND the same region when another place will do
+    const prKey = (p: Place): string => `${p.id}|${regionOf(s.hometown) ?? "none"}`;
+    const scored = pool.map((p) => ({ p, v: (placeFit(p, s)?.score ?? 0) + (count(kindUsed, p.kind) === leastKind ? 1 : 0) - (placeRegionUsed.has(prKey(p)) ? 8 : 0) }));
     const top = Math.max(...scored.map((x) => x.v));
     const place = pickFrom(rnd, scored.filter((x) => x.v === top)).p;
     placeWhy.set(s.id, `place ${place.id} (${place.kind}): ${placeFit(place, s)?.why || "no line of the sheet matched: dealt"}`);
     bump(kindUsed, place.kind);
+    const placeK = count(placeUsed, place.id);
+    placeRegionUsed.add(prKey(place));
     bump(placeUsed, place.id);
     const lights = LIGHTS.filter((l) => l.where === "any" || l.where === (place.outdoor ? "out" : "in"));
     const light = pickCapped(rnd, lights, lightUsed, (l) => l.id, caps.light);
     bump(lightUsed, light.id);
     const prop = props < caps.prop ? propFor(s) : undefined;
     if (prop !== undefined) props++;
-    base.set(s.id, { place, light, ...(prop !== undefined ? { prop } : {}) });
+    base.set(s.id, { place, light, k: placeK, ...(prop !== undefined ? { prop } : {}) });
   }
   // The performance: expression at full strength, posture and hands, from the person's own sheet; the caps are kept across the cast.
-  const flags = new Map<string, PlaceFlags>([...base].map(([id, b]) => [id, { ...(b.place.perch ? { perch: b.place.perch } : {}), ...(b.place.lean ? { lean: b.place.lean } : {}), ...(b.place.seat ? { seat: b.place.seat } : {}) }] as const));
+  const flags = new Map<string, PlaceFlags>([...base].map(([id, b]) => [id, { ...(b.place.perch ? { perch: b.place.perch } : {}), ...(b.place.lean ? { lean: b.place.lean } : {}), ...(b.place.seat ? { seat: b.place.seat } : {}), ...(b.place.table ? { table: b.place.table } : {}) }] as const));
   const perfSheets = order.map((s) => ({ id: s.id, ...(s.castingLabel ? { castingLabel: s.castingLabel } : {}), ...(s.castingRead ? { castingRead: s.castingRead } : {}),
     ...(s.demeanor ? { demeanor: s.demeanor } : {}), ...(s.energy ? { energy: s.energy } : {}), ...(s.genderPresentation ? { genderPresentation: s.genderPresentation } : {}),
     ...(base.get(s.id)!.prop ? { prop: base.get(s.id)!.prop } : {}) }));
   const perf = dealPerformances(perfSheets, flags, rnd, perfCaps(sheets.length, caps.lensGaze));
   const sheetById = new Map(sheets.map((s) => [s.id, s] as const));
   const out = new Map<string, ShotCard>();
+  const settingSeen = new Set<string>();
   for (const s of order) {
     const b = base.get(s.id)!, pf = perf.get(s.id)!, sheet = sheetById.get(s.id)!;
+    // the setting sentence, with the town taken out, is never the same for two people in a cast: a later one takes the next detail and regional look
+    const townTag = (sheet.hometown ?? "").trim();
+    const norm = (t: string): string => (townTag !== "" ? t.split(townTag).join("TOWN") : t);
+    let kk = b.k, text = placeText(b.place, sheet.hometown, kk);
+    for (let guard = 0; guard < 24 && settingSeen.has(norm(text)); guard++) text = placeText(b.place, sheet.hometown, ++kk);
+    settingSeen.add(norm(text));
     out.set(s.id, {
-      placeId: b.place.id, place: placeText(b.place, sheet.hometown), outdoor: b.place.outdoor, placeKind: b.place.kind,
+      placeId: b.place.id, place: text, outdoor: b.place.outdoor, placeKind: b.place.kind,
       framingId: PORTRAIT_FORMAT.id, framing: PORTRAIT_FORMAT.phrase, angle: PORTRAIT_FORMAT.angle, lens: PORTRAIT_FORMAT.lens,
       lightId: b.light.id, light: b.light.phrase,
       momentId: `${pf.expressionId}+${pf.postureId}`, moment: pf.moment, gaze: pf.gaze,
