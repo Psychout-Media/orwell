@@ -112,3 +112,9 @@ def test_stamp_refresh_is_bounded_and_keeps_the_start_of_turn_stamp(monkeypatch)
     asyncio.run(ch.refresh_framed_game_stamps("u-slow"))
     assert time.monotonic() - t0 < 2
     assert ch._LAST_FRAMED_GAME_MOMENT["u-slow"] == "start-of-turn"
+
+
+def test_rest_of_band_scan_stays_in_the_intents_own_sentence():
+    """Cubic on main: a LATER sentence's "rest of the day/morning" must not change this wait's target."""
+    assert ch.parse_stated_wait("I wait here for an hour. Tomorrow I will sleep for the rest of the morning") == (60, False)
+    assert ch.parse_stated_wait("hang out until the rest of the afternoon. then bed for the rest of the night") == (None, True)
