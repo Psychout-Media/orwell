@@ -1180,6 +1180,7 @@ export class GameSessionAdapter implements GameSession {
     // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
     const nowOcc = this.witnessOccupancy();
     this.sendOccupancy = nowOcc ? new Map(nowOcc) as Occupancy : null;
+    this.sendAwake = this.awakeNow() ? new Set(this.awakeNow()!) : null; // ORW-249 (#2321): who was visibly UP at send, frozen BEFORE the clock step below can put someone to bed
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
@@ -1193,6 +1194,8 @@ export class GameSessionAdapter implements GameSession {
   }
   /** The occupancy frozen at the player's last SEND (see `noteMessage`); null before any send or after the player moved rooms. Memory-only, never persisted. */
   private sendOccupancy: Occupancy | null = null;
+  /** The awake set frozen with `sendOccupancy` (null = the clock was off, everyone visible). Memory-only. */
+  private sendAwake: Set<EntityId> | null = null;
   /**
    * The occupancy the WITNESS grounding reads for a recorded scene: the send-time roster while it still applies (the player is still in the room they sent from), else the live witness occupancy.
    * Anyone who arrived after the player spoke is placed elsewhere here, so the engine drops them as a phantom witness; anyone who was there and left still heard it.
@@ -5391,6 +5394,8 @@ export class GameSessionAdapter implements GameSession {
     // so the society's player-overhears and `whereabouts` always agree about where the player is.
     this.presenceBase?.set(me, dest);
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
+    this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
+    this.sendAwake = null;
     this.persist();
     return this.whereabouts();
   }
@@ -6176,11 +6181,11 @@ export class GameSessionAdapter implements GameSession {
    * ORW-249 - the arrival/departure beat: diff the roster frozen at the player's last send (`sendOccupancy`) against who is in the player's room now. Only while the player is still in the room they sent
    * from (a room change makes the old roster stale, exactly as `sendTimeOccupancy`). Names only; absent (empty spread) when nothing changed.
    */
-  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[] } } {
+  private sinceSendBeat(me: EntityId, room: Room, present: NamedRef[], _isUp: (id: EntityId) => boolean, notHere: Set<EntityId> | null | undefined): { sinceSend?: { arrived: string[]; departed: string[] } } {
     const sent = this.sendOccupancy;
     if (!sent || sent.get(me) !== room) return {};
     const was = new Set<EntityId>();
-    for (const [id, where] of sent) if (where === room && id !== me && isUp(id) && !notHere?.has(id)) was.add(id);
+    for (const [id, where] of sent) if (where === room && id !== me && (!this.sendAwake || this.sendAwake.has(id)) && !notHere?.has(id)) was.add(id);
     const now = new Set(present.map((p) => p.id));
     const arrived = present.filter((p) => !was.has(p.id)).map((p) => p.name);
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -7076,6 +7081,8 @@ export class GameSessionAdapter implements GameSession {
     this.lastApproachStretch = undefined;
     this.seenMessageIds = []; // a fresh season forgets the prior season's message ids and returns to legacy billing until announced
     this.messageMode = false;
+    this.seenMoods = null; // ORW-343 (#2619): the mood word the player last saw belongs to ONE season; reused npc ids must not show the prior season's look
+    this.sendOccupancy = null; // the frozen send-time roster is the prior season's too
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
@@ -12141,8 +12148,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.timeOfDayEnabled) return remember(this.advanceView(null)); // dormant unless the clock is running
     // ORW-351 (Ryne: one rule for every night): an evicted player WATCHING the season who says goodnight ends their night like any player's - the watched season moves on (the same player-less beats advanceGame runs for a spectator) instead of the
     // call being a silent no-op while the narrator carries on narrating a night that never passes (a live week sat 90 turns on one night, 5 minutes per goodnight).
-    if (this.live.spectator && !this.live.pending && !this.live.finished) {
-      return remember(this.inOneCommit(() => this.spectatorFastForward()));
+    if (this.live.spectator && (!this.live.pending || this.live.pending.kind === "ceremony-step") && !this.live.finished) {
+      // ORW-351 (#2626): an open ceremony WATCH step is answered by the beat itself (advanceGame's Continue), so the goodnight takes that step first - otherwise the fast-forward sees a pending and the call is a silent no-op.
+      return remember(this.inOneCommit(() => { if (this.live!.pending?.kind === "ceremony-step") this.advanceOneBeat(); return this.spectatorFastForward(); }));
     }
     if (this.live.finished || playerHasLeft(this.live, PLAYER)) return remember(this.advanceView(null));
     // Bedtime gate (found in a live run: the narrator called turnIn on "wake up in the morning" and the engine slept through a whole day). A bed in the morning or afternoon is not a night: refuse with a typed
