@@ -136,6 +136,10 @@ interface Place {
   id: string; kind: PlaceKind; outdoor: boolean; phrase: string;
   /** Things a moment can use: what to perch on, lean on, sit on, and whether there is room to walk. */
   perch?: string; lean?: string; seat?: string; walk?: boolean;
+  /** A table to sit at, only where the place really has one. */
+  table?: string;
+  /** What is in this place, one per person dealt it (a back yard is a different yard each time): {detail}. */
+  details?: readonly string[];
 }
 
 export const PLACES: readonly Place[] = [
