@@ -58,6 +58,12 @@ def last_scene_tail(history: Any) -> Optional[str]:
         role = getattr(msg, "role", None) if not isinstance(msg, dict) else msg.get("role")
         if role != "assistant":
             continue
+        # ORW-481: a casting-interview reply is stamped `phase=casting` and is never in-game scene text, and it is newer than any
+        # earlier season's scene, so the search STOPS there (no fallback to an older row). The finalize turn's reply is stamped
+        # casting too but carries the premiere (`casting_finalized`), so it still counts.
+        meta = getattr(msg, "metadata", None) if not isinstance(msg, dict) else msg.get("metadata")
+        if isinstance(meta, dict) and meta.get("phase") == "casting" and not meta.get("casting_finalized"):
+            return None
         content = getattr(msg, "content", None) if not isinstance(msg, dict) else msg.get("content")
         if not isinstance(content, str):
             return None

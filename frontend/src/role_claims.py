@@ -174,6 +174,9 @@ def _name_patterns(names: Iterable[str]) -> "list[tuple[str, re.Pattern]]":
 _SECOND_PERSON_RE = re.compile(r"(?<![\w'’])(?:you|your|yours|yourself)(?![\w])|(?<![\w'’])you(?:'re|’re|'ve|’ve|'ll|’ll|'d|’d)(?![\w])", re.IGNORECASE)
 
 
+_SUBJECT_VERB_GAP_RE = re.compile(r"\b(?:says|said|tells|told|announces|announced|thinks|thought|knows|knew|believes|believed|claims|claimed|insists|insisted|admits|admitted|whispers|whispered|reveals|revealed|decides|decided|hears|heard|saw|sees)\b", re.IGNORECASE)
+
+
 def name_spans(s: str, names: Iterable[str], player: Optional[str] = None) -> "list[tuple[str, int, int]]":
     """(canonical name, start, end) for every occurrence in `s`; longer matches mask shorter ones. With `player`, the second person
     ("you", "you're", "yours") IS the player — the live rehearsal told the player "the power's yours" for an HOH the engine gave
@@ -183,8 +186,8 @@ def name_spans(s: str, names: Iterable[str], player: Optional[str] = None) -> "l
     named = [(canon, m.start(), m.end()) for canon, pat in _name_patterns(names) for m in pat.finditer(s)]
     if player:
         for m in _SECOND_PERSON_RE.finditer(s):
-            # ORW-354: "Name, you are evicted" / "Name - you ..." - a name opening the clause as a vocative ("Name, ... you") is who "you" addresses, not the player.
-            if any(e <= m.start() and re.fullmatch(r"\s*[,:\u2014\u2013-]+[^.!?]*", s[e:m.start()]) for _c, _a, e in named):
+            # ORW-354: "Name, you are evicted" / "Name - you ..." - a name opening the clause as a vocative ("Name, ... you") is who "you" addresses, not the player. ORW-481: a speech/thought verb in the gap makes the name the SUBJECT ("Name, the HOH, says you won"), so "you" is the player; an interjection ("Name, honestly, you ...") stays a vocative.
+            if any(e <= m.start() and re.fullmatch(r"\s*[,:\u2014\u2013-]+[^.!?;]*", s[e:m.start()]) and not _SUBJECT_VERB_GAP_RE.search(s[e:m.start()]) for _c, _a, e in named):
                 continue
             out.append((player, m.start(), m.end()))
             taken.append((m.start(), m.end()))

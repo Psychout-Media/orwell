@@ -20,6 +20,20 @@ function finaleSetup(manner: Record<string, unknown> | undefined, grudge: number
   live.finale = { stage: "questions", finalists: [PLAYER, other], questionIx: 0, revealIx: 0, script: { questions: [{ juror }], revealOrder: [] } };
   return sb.session.finaleView()!;
 }
+/** ORW-507: an NPC-only finale (a spectating player): the manner/grudge toward EACH of the two finalists is read; `wronged` picks which finalist the juror holds it against. */
+function spectatorFinale(wronged: "first" | "second" | "neither", manner: Record<string, unknown> | undefined, grudge?: { first?: number; second?: number }) {
+  const sb = new GameSessionRegistry().sandboxFor(`bearing-spec-${Math.random()}`);
+  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
+  sb.session.setTraitorsFuryEnabled(true);
+  const npcs = sb.session.livingIds().filter((i) => i !== PLAYER);
+  const juror = npcs[0]!, first = npcs[1]!, second = npcs[2]!;
+  const live = (sb.session as unknown as { live: L }).live;
+  const target = wronged === "first" ? first : wronged === "second" ? second : undefined;
+  live.mannerByEvictee = manner && target ? { [juror]: { [target]: manner } } : {};
+  live.juryGrudge = { [juror]: { ...(grudge?.first !== undefined ? { [first]: grudge.first } : {}), ...(grudge?.second !== undefined ? { [second]: grudge.second } : {}) } };
+  live.finale = { stage: "questions", finalists: [first, second], questionIx: 0, revealIx: 0, script: { questions: [{ juror }], revealOrder: [] } };
+  return sb.session.finaleView()!.asking!.bearing;
+}
 function finale(manner: Record<string, unknown> | undefined, grudge: number | undefined) {
   return finaleSetup(manner, grudge).asking!.bearing;
 }
@@ -54,5 +68,15 @@ describe("the finale bearing reads how the juror was treated (ORW-110)", () => {
   });
   it("flag OFF: no bearing at all, even for a blindsided juror (byte-identical headless view)", () => {
     expect(finaleSetup({ blindsided: true }, undefined, false).asking!.bearing).toBeUndefined();
+  });
+  it("NPC-only finale: a juror blindsided by the FIRST finalist, then by the SECOND, reads burning either way; wronged by neither reads settled", () => {
+    expect(spectatorFinale("first", { blindsided: true })).toBe("burning");
+    expect(spectatorFinale("second", { blindsided: true })).toBe("burning");
+    expect(spectatorFinale("neither", { blindsided: true })).toBe("settled");
+  });
+  it("NPC-only finale: a larger relayed grudge still wins over a milder manner, for either finalist", () => {
+    expect(spectatorFinale("first", { disrespected: true }, { first: 0.15 })).toBe("burning");
+    expect(spectatorFinale("second", { disrespected: true }, { second: 0.15 })).toBe("burning");
+    expect(spectatorFinale("second", { disrespected: true })).toBe("warm");
   });
 });
