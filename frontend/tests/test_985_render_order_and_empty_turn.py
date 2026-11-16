@@ -378,3 +378,25 @@ def test_bug2_clean_empty_turn_renders_retry(_app):
     assert result["hasRetryBtn"], "the empty-turn recourse must include a clickable Retry button"
     assert result["retryBtnText"] == "Retry", f"the button must read 'Retry', got {result['retryBtnText']!r}"
     assert "retry" in (result["noteText"] or "").lower(), "the empty-turn note must invite a retry"
+
+
+def test_orw502_retry_holder_is_dropped_once_the_server_answered():
+    """ORW-502 (retro thread 4535725357): a dropped stream's Retry holder is carried across a rebuild only while the server log still ends on the player's message; once it ends on an assistant answer the
+    holder is stale. Source-pinned (the repo convention for this seam); the rule itself is the exported pure helper."""
+    js = _read("static/js/chatReconcile.js")
+    assert "export function _retryHolderSuperseded(el, visible)" in js
+    assert "!_retryHolderSuperseded(el, visible)" in js and "last.role === 'assistant'" in js
+    # review of #2839: run the real helper, not just grep it
+    import json as _json, re as _re, shutil as _shutil, subprocess as _sp
+    node = _shutil.which("node")
+    if node is None:
+        return
+    m = _re.search(r"export function _retryHolderSuperseded\(el, visible\) \{.*?\n  \}\n", js, _re.S)
+    assert m, "the helper must stay a plain top-level function"
+    prog = ("const f = (" + m.group(0).replace("export function _retryHolderSuperseded", "function") + ");"
+            "const holder = { querySelector: () => ({}) };"
+            "const ans = f(holder, [{role:'user'},{role:'assistant'}]), asked = f(holder, [{role:'user'}]), plain = f({ querySelector: () => null }, [{role:'assistant'}]);"
+            "process.stdout.write(JSON.stringify([ans, asked, plain]));")
+    res = _sp.run([node, "-e", prog], capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    assert _json.loads(res.stdout) == [True, False, False]

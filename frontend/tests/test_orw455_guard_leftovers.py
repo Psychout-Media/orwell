@@ -130,3 +130,24 @@ def test_a_contraction_in_the_dropped_sentence_is_not_a_quote_opener(monkeypatch
     shown, stored = _round(monkeypatch, ["Sam whispers, 'Hold on. It's 3 a.m.' You nod. " + T3])
     expected = "Sam whispers, 'Hold on.' You nod. " + T3S
     assert shown == stored == expected, (shown, stored)
+
+
+# ── ORW-479: the producer-call bubble: a stray closing quote and a missing line start ───────────────────────────────────
+def test_orw479_a_dropped_opening_sentence_does_not_leave_its_closing_quote_or_its_blank(monkeypatch):
+    # the quote opened in the dropped sentence ("It was 3 a.m.") closes two sentences later, after kept text: that closer is an orphan, and the line must start at its first word
+    shown, stored = _round(monkeypatch, ['Production pulls you aside.\n\n"It was 3 a.m. Sit down, this won\'t take long." A pause hangs. ' + T3])
+    expected = "Production pulls you aside.\n\nSit down, this won't take long. A pause hangs. " + T3S
+    assert shown == expected and stored == expected, (shown, stored)
+
+
+def test_orw479_a_quote_that_the_kept_text_opens_and_closes_itself_is_untouched(monkeypatch):
+    shown, stored = _round(monkeypatch, ['It was 3 a.m. "Sit down," Ana says. "This will not take long." A pause hangs. ' + T3])
+    expected = '"Sit down," Ana says. "This will not take long." A pause hangs. ' + T3S
+    assert shown == expected and stored == expected, (shown, stored)
+
+
+def test_orw479_the_edge_edit_is_read_back_by_the_stored_text_mirror():
+    from src.agent_loop import _lead_closer_stripped as edge
+    assert edge('" A pause hangs.', " A pause hangs.") and edge('" A pause hangs.', "A pause hangs.")   # the closer, with and without the blank
+    assert edge("  Sit down.", "Sit down.")                                                           # the blank alone
+    assert not edge("Sit down.", "Stand up.") and not edge("Sit down.", "Sit down.")
