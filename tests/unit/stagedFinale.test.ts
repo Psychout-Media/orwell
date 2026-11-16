@@ -1,6 +1,6 @@
+import { freshTmpDir, testTmpDir, dropTmpDir } from "../support/freshTmpDir";
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, cpSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync } from "node:fs";
 import { join } from "node:path";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -14,7 +14,7 @@ import { resolvePending } from "../../features/support/answerPending";
  * It is now a staged ceremony (decision -> result; the player-Final-HOH's choice is the binding first step), played games only. Roles only.
  */
 type Any = Record<string, any>;
-const dir = (): string => mkdtempSync(join(tmpdir(), "orwell-fin-"));
+const dir = (): string => testTmpDir("orwell-fin-");   // per test (the memoised finale save below is file-scoped)
 const boot = (d: string, seed: number, played: boolean): Any => {
   const s = new GameSessionRegistry(new FileSaveStore(d)).sandboxFor("u").session as unknown as Any;
   s.createCharacter({ playerName: "P", seed });
@@ -42,8 +42,9 @@ function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSea
   const key = String(played);
   if (!memo.has(key)) {
     for (let seed = 1; seed <= 25 && !memo.has(key); seed++) {
-      const d = dir();
+      const d = freshTmpDir("orwell-fin-");   // shared by every test of the file: removed at the end of the file
       if (toFinalEviction(boot(d, seed, played))) memo.set(key, { d, seed });
+      else dropTmpDir(d);                      // a rejected seed's full-season save goes at once
     }
   }
   const m = memo.get(key);

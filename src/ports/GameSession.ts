@@ -560,6 +560,8 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
+  sourceNote?: string;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -1894,13 +1896,18 @@ export interface MarkHouseguestMetOpts {
 export interface HouseSearchEntry {
   id: EntityId;
   name: string;
-  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "unknown";
+  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "told" | "unknown";
   /**
    * The room id. ORW-462 (Kevin, 2026-11-15: the game must not confirm where someone is if the player does not know): named only where the player can SEE now (their own room and the rooms in sightline), or, for the
    * houseguest they are LOOKING FOR, as a `lead` from the player's own record (a witnessed "walked into X", or the last-known sighting in view): never confirmed. Absent for everyone else ("unseen"), for a houseguest nobody here
    * can place (`unknown`), for a sleeper not being looked for, and for one who has not walked in yet at the premiere entrances.
    */
   room?: string;
+  /**
+   * ORW-475: a `told` answer comes from a houseguest the player can see, out of THEIR OWN record of who they saw go where (it can be out of date): who says it. Set on `told`, and on an `unknown` where the asked houseguest
+   * would not give a straight answer. Never a houseguest who had no way to know.
+   */
+  toldBy?: NamedRef;
   /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Present only for a houseguest in view. */
   access?: "open" | "closed";
   /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
@@ -2240,6 +2247,11 @@ export interface PresentKnowledgeView {
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
   rememberedAboutOthers?: string[];
+  /**
+   * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
+   * it is true, never why they are telling, never a claim id. Names, not ids.
+   */
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**
