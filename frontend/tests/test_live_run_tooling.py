@@ -47,15 +47,15 @@ def test_only_the_schedule_hold_waits_for_the_event_a_night_hold_is_a_bed():
 
 def test_a_bare_mention_of_a_nap_does_not_excuse_a_clock_jump():
     assert ls.NAP_MSG_RE.search("I take a nap in my room") and ls.NAP_MSG_RE.search("grab a nap")
-    assert not ls.NAP_MSG_RE.search("Dana says her nap was great, what is everyone doing?")
+    assert not ls.NAP_MSG_RE.search("The NPC says her nap was great, what is everyone doing?")
     a = _turn("t1", "x", clock="4:05pm, Day 1")
-    r = _score([a, _turn("t2", "x", clock="8:05am, Day 2", msg="Dana mentioned a nap. What is the plan?")])
+    r = _score([a, _turn("t2", "x", clock="8:05am, Day 2", msg="The NPC mentioned a nap. What is the plan?")])
     assert not [c for k, c in r.items() if k.startswith("K1-no-skipped-time")][0]["ok"]
 
 
 def test_the_veto_draw_allowance_needs_a_reply_that_voices_the_draw():
     a = _turn("t1", "x", clock="9:00am, Day 3", phase="veto-competition", phase_before="veto-competition")
-    drawn = _turn("t2", "The veto chips are drawn: Dana pulls the chip and everyone is playing for the veto.", clock="10:10am, Day 3", phase="veto-competition", phase_before="veto-competition")
+    drawn = _turn("t2", "The veto chips are drawn: the HOH pulls the chip and everyone is playing for the veto.", clock="10:10am, Day 3", phase="veto-competition", phase_before="veto-competition")
     quiet = _turn("t2", "The house chats about breakfast and the weather.", clock="10:10am, Day 3", phase="veto-competition", phase_before="veto-competition")
     assert [c for k, c in _score([a, drawn]).items() if k.startswith("K1-clock-jump-veto-draw")][0]["severity"] == "note"
     r = _score([a, quiet])
@@ -81,7 +81,7 @@ class _Page:
 
 
 class _Eng:
-    def call(self, name): return {"awake": [{"name": "Dana Reyes"}], "asleep": [], "whereabouts": {"present": []}}
+    def call(self, name): return {"awake": [{"name": "NPC-A Role"}], "asleep": [], "whereabouts": {"present": []}}
 
 
 class _Chat:
@@ -97,18 +97,40 @@ def _widget_checks(cards):
 def test_a_missing_widget_is_recorded_not_skipped_silently():
     ids = {c[0].split("[")[0]: c for c in _widget_checks({})}
     assert ids["N7-widget-missing"][1] is False and ids["N8-widget-missing"][1] is False
-    present = {c[0].split("[")[0] for c in _widget_checks({"orwell-night": "Awake: Dana", "orwell-presence": "With you: nobody"})}
+    present = {c[0].split("[")[0] for c in _widget_checks({"orwell-night": "Awake: NPC-A", "orwell-presence": "With you: nobody"})}
     assert "N7-widget-missing" not in present and "N8-widget-missing" not in present and "N7-widget-lists-the-awake" in present
 
 
 def test_the_coverage_list_follows_whether_the_crossover_ran():
     plain = ls.not_covered([{"id": "G1-x"}])
-    cross = ls.not_covered([{"id": "G1-x"}, {"id": "X0-reached-eviction-night"}])
+    cross = ls.not_covered([{"id": "G1-x"}, {"id": "X0-reached-eviction-night", "ok": True}])
     assert any("stops at the Week 1 veto morning" in x for x in plain)
     assert not any("stops at the Week 1 veto morning" in x for x in cross) and any("Week 2" in x for x in cross)
+    # a --rescore keeps only the turns (the live X0 check is gone): the crossover turns still say the run went past the veto morning (review of #2795)
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "veto-morning-1"}, {"label": "cross-bed", "x0_ok": True}]) == cross
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "veto-morning-1"}]) == plain
+    # review of #2854: the crossover turns are played even when X0 failed; a failed X0 (live, or saved with the turns) or a turn without the flag is not Week 2
+    assert ls.not_covered([{"id": "G1-x"}, {"id": "X0-reached-eviction-night", "ok": False}], [{"label": "cross-bed", "x0_ok": False}]) == plain
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "cross-bed", "x0_ok": False}]) == plain
+    assert ls.not_covered([{"id": "G1-x"}], [{"label": "cross-bed"}]) == plain
+
+
+def test_a_rescore_restores_the_saved_x0_verdict():
+    checks = []
+    rec = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity})
+    ls.rescore_x0([{"label": "veto-morning-1"}, {"label": "cross-bed", "x0_ok": False}], rec)
+    assert checks == [{"id": "X0-reached-eviction-night", "ok": False, "severity": "fail"}]
+    checks.clear(); ls.rescore_x0([{"label": "veto-morning-1"}], rec)
+    assert checks == []
 
 
 # ── scripts/rehearsal-kit/stage2.sh ────────────────────────────────────────────────────────────────────────────────────
+def test_an_env_override_value_is_never_glob_expanded(tmp_path):
+    (tmp_path / "ORWELL_A=from-a-file").write_text("")   # a file the pattern would match
+    r = _sh(f'cd "{tmp_path}"; . "{KIT}/env_override.sh"; rig_apply_env_override "ORWELL_A=* ORWELL_B=1"; echo "[$ORWELL_A][$ORWELL_B]"')
+    assert r.returncode == 0 and r.stdout.strip() == "[*][1]", (r.stdout, r.stderr)
+
+
 def test_a_bad_env_override_entry_fails_loudly():
     ok = _sh(f'. "{KIT}/env_override.sh"; rig_apply_env_override "ORWELL_A=0 ORWELL_B=1"; echo "$ORWELL_A$ORWELL_B"')
     assert ok.returncode == 0 and ok.stdout.strip() == "01"
@@ -117,6 +139,12 @@ def test_a_bad_env_override_entry_fails_loudly():
             r = _sh(f'. "{KIT}/env_override.sh"; {fn} "{bad}"')
             assert r.returncode == 1 and "FATAL" in r.stderr, (fn, bad)
     assert _sh(f'. "{KIT}/env_override.sh"; rig_validate_env_override "ORWELL_A=a,b ORWELL_B=0"').returncode == 0, "a comma that is not followed by another ORWELL_ assignment is a value"
+    # review of #2854: a multiline override is checked on every line, and every line is applied
+    for fn in ("rig_validate_env_override", "rig_apply_env_override"):
+        r = _sh(f'. "{KIT}/env_override.sh"; {fn} "ORWELL_A=1' + "\n" + 'BAD"')
+        assert r.returncode == 1 and "FATAL" in r.stderr and "BAD" in r.stderr, (fn, r.stdout, r.stderr)
+    two = _sh(f'. "{KIT}/env_override.sh"; rig_apply_env_override "ORWELL_A=1' + "\n" + 'ORWELL_B=2"; echo "[$ORWELL_A][$ORWELL_B]"')
+    assert two.returncode == 0 and two.stdout.strip() == "[1][2]", (two.stdout, two.stderr)
     src = (KIT / "stage2.sh").read_text()
     # the validation runs before anything is checked out or built
     assert src.index('rig_validate_env_override "${RIG_ENV_OVERRIDE:-}" || exit 1') < src.index('git -C "$RIG_HOME/orwell" fetch') < src.index("npm run build")
@@ -144,9 +172,12 @@ def test_a_capped_run_leaves_a_report_that_says_nothing_was_scored(tmp_path):
     assert _sh(f'. "{LIVE}/short_lib.sh"; short_partial_report "{tmp_path}" abc12345 0.5').returncode == 0
     t = (tmp_path / "report.md").read_text()
     assert "CAPPED" in t and "NO checks were scored" in t and "$0.51" in t and "turn 3 played" in t
-    (tmp_path / "report.md").write_text("the driver's own report")
-    _sh(f'. "{LIVE}/short_lib.sh"; short_partial_report "{tmp_path}" abc12345 0.5')
-    assert (tmp_path / "report.md").read_text() == "the driver's own report", "a real report is never overwritten"
+    # the driver finished and scored, then the final recount passed the cap: its checks are kept, but the title no longer says PASS (review of #2795)
+    (tmp_path / "report.md").write_text("# Live run (short tier) - PASS\n\nthe driver's own checks\n")
+    for _ in range(2):   # idempotent
+        assert _sh(f'. "{LIVE}/short_lib.sh"; short_partial_report "{tmp_path}" abc12345 0.5').returncode == 0
+    t = (tmp_path / "report.md").read_text()
+    assert t.startswith("# Live run (short tier) - CAPPED (") and "$0.5 cap" in t.splitlines()[0] and "PASS" not in t and "the driver's own checks" in t, t
 
 
 def test_run_short_turns_the_crossover_on_only_for_the_value_one():

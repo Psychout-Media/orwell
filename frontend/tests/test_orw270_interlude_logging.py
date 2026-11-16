@@ -126,3 +126,30 @@ def test_chat_js_beacons_on_interlude_paths():
     body = js[i:i + 1200]
     assert "orwell:gamechanged" not in body and "orwellGameChanged" not in body
     assert body.count("catch") >= 3
+
+
+def test_host_key_never_carries_url_credentials():
+    """ORW-481 (retro review): the host key is logged; Basic Auth userinfo in a provider URL must not reach it."""
+    key = llm_core._host_key("https://user:hunter2pw@provider.example:8443/v1")
+    assert key == "https://provider.example:8443"
+    assert "hunter2pw" not in key and "user" not in key
+
+
+def test_whereabouts_route_marks_a_failed_read_unavailable(monkeypatch):
+    """ORW-481 (retro review): the fail-open null is flagged so the strip can tell a failed read from 'no room'."""
+    async def boom(user=None):
+        raise RuntimeError("engine down")
+    monkeypatch.setattr(orwell_routes.orwell_engine, "whereabouts", boom)
+    app = FastAPI()
+    app.include_router(orwell_routes.setup_orwell_routes())
+    r = TestClient(app).get("/api/orwell/whereabouts")
+    assert r.json() == {"whereabouts": None, "unavailable": True}
+
+
+def test_the_stream_error_beacon_names_the_chat_whose_stream_failed():
+    """ORW-481 (retro review of #2346): switching chats mid-stream must not make the beacon name the OTHER chat."""
+    import re
+    src = _read("static", "js", "chat.js")
+    calls = re.findall(r"_beaconStreamError\([^\n]*\)", src)
+    calls = [c for c in calls if not c.startswith("_beaconStreamError(status")]
+    assert calls and all(c.rstrip(");").endswith("streamSessionId") for c in calls), calls

@@ -427,7 +427,7 @@ All user data lives in `data/` (gitignored): `app.db` (sessions, messages, docum
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=kevinhirsch%2Forwell&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=Psychout-Media%2Forwell&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Psychout-Media/orwell&type=date&theme=dark&legend=top-left" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Psychout-Media/orwell&type=date&legend=top-left" />
