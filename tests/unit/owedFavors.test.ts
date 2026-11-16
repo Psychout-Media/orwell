@@ -76,6 +76,24 @@ describe("calling a favor in", () => {
     expect(g.live.owedFavors).toBeUndefined();
     expect(s.callInFavor(npc, "comp-throw")).toBeNull(); // spent
   });
+  it("a called-in target-other favor binds the NPC who honored it (the promisor), not the player (ORW-504, provisional default)", () => {
+    const { s, g, npc } = game();
+    g.bankOwedFavor(npc, PLAYER);
+    expect(s.callInFavor(npc, "target-other")!.honored).toBe(true);
+    expect(dealsWith(s, npc)[0]!.parties[0]!.id).toBe(npc);
+  });
+  it("an unknown ask kind never spends the favor", () => {
+    const { s, g, npc } = game();
+    g.bankOwedFavor(npc, PLAYER);
+    expect(s.callInFavor(npc, "not-a-kind" as never)).toBeNull();
+    expect(g.live.owedFavors).toHaveLength(1);
+  });
+  it("a favor cannot be called in for protect-third (it names no third houseguest) and is not spent", () => {
+    const { s, g, npc } = game();
+    g.bankOwedFavor(npc, PLAYER);
+    expect(s.callInFavor(npc, "protect-third")).toBeNull();
+    expect(g.live.owedFavors).toHaveLength(1);
+  });
   it("a feared/distrusted player is still refused: no deal, the favor is spent, and the player's read of them drops", () => {
     const { s, g, npc } = game();
     const e = g.rel.edge(npc, PLAYER); e.trust = 0; e.affinity = 0; e.threat = 0.95;
@@ -86,5 +104,19 @@ describe("calling a favor in", () => {
     expect(dealsWith(s, npc)).toHaveLength(0);
     expect(g.live.owedFavors).toBeUndefined();
     expect(g.rel.edge(PLAYER, npc).trust).toBeLessThan(before);
+  });
+});
+
+describe("callInFavor over the MCP boundary (review of #2846)", () => {
+  it("an empty ask reaches the engine's unknown-kind path (null) instead of being refused at the guard", async () => {
+    const { McpServer } = await import("../../src/adapters/mcp/McpServer");
+    const { GameSessionAdapter } = await import("../../src/adapters/engine/GameSessionAdapter");
+    const { EngineCommandsAdapter } = await import("../../src/adapters/engine/EngineCommandsAdapter");
+    const { buildSandbox } = await import("../support/sandbox");
+    const sb = buildSandbox(1);
+    const session = new GameSessionAdapter();
+    session.createCharacter({ playerName: "The Player", seed: 5 });
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands: new EngineCommandsAdapter(sb.engine.events, sb.engine.knowledge), session });
+    await expect(server.callTool("callInFavor", { npcId: "npc:1", ask: "" })).resolves.toBeNull();
   });
 });

@@ -54,8 +54,10 @@ _SYSTEM = (
     "addressed or be a party; about may also be someone from the ELSEWHERE list. addressedTo may be empty and holds at most four ids "
     "(use parties for a larger group pact). "
     "Copy what was said; invent nothing. Skip small talk and anything already finished in the scene. "
-    "A formal agreement between the player and one houseguest (a mutual deal to protect, vote, or go to the end together) is "
-    "recorded elsewhere as a deal: leave it out, do not extract it as a pact or a promise. "
+    "A formal agreement between the player and one houseguest (a mutual deal to protect, vote, or go to the end together) IS "
+    "extracted too, with kind \"deal\" (exactly that word), the player and that houseguest as the two people, and what was agreed "
+    "in one sentence. The engine links it to the real deal when there is one, so a deal that was only spoken is not lost; extract "
+    "only a deal that was actually spoken, never one you infer. "
     "resolutions: ONLY for entries in the OPEN list, ONLY when this narration clearly shows that promise or claim kept, "
     "broken or taken back. "
     'Most turns have none: reply {"entries":[],"resolutions":[]} when unsure.'
@@ -293,7 +295,8 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         accepted = 0
         refused_full = False
         mode = grounding_mode()
-        entries = clean_entries(parsed, {p["id"] for p in people}, known)
+        # review of #2776: a DUE entry lets the call run on a short narration, but NEW entries still need the ordinary bar (someone here, enough narration).
+        entries = clean_entries(parsed, {p["id"] for p in people}, known) if people and len(narration or "") >= _MIN_NARRATION_CHARS else []
         weak, lowest = 0, 1.0
         for entry in entries:
             if mode != "off":

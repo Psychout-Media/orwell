@@ -39,14 +39,14 @@ PREMIERE_MINGLE = [
     "I compliment the latest arrival on their outfit.",
 ]
 # a nominations ceremony voiced before the engine committed one (ritual cues only - 'nominations' in general talk is fine)
-PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\bon the block\b")
+PHANTOM_CER_RE = re.compile(r"(?i)\bnomination ceremony (?:begins|starts|opens|is (?:now )?(?:starting|beginning|under ?way))\b|turns? (?:a|the|his|her|their) key\b|\bkeys? (?:are|is) on the table\b|\bhas (?:nominated|put up)\b|\bnominated (?:you|me)\b|\b(?:are|is|were) (?:now )?on the block\b|\b(?:you|they|we)[\u2019']re (?:now )?on the block\b|\b(?:he|she|it)[\u2019']s (?:now )?on the block\b")
 # one dialogue line: the chip initials, then the full name, then a dash ("TBTerrance Boyd — ...")
 SPEAKER_RE = re.compile(r"(?m)^[A-Z]{1,3}([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)+)\s*[\u2014-]")
-PAIR_AFTER_RE = re.compile(r"(?i)nominees?\W+(?:are|were|is)\W+([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
+PAIR_AFTER_RE = re.compile(r"(?i:nominees?\W+(?:are|were|is)\W+)([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?)")
 PAIR_BEFORE_RE = re.compile(r"([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?) and ([A-Z][a-z'-]+(?: [A-Z][a-z'-]+)?),? (?:are|were)(?: both)? (?:the )?(?:nominees|nominated|on the block|up for eviction)")
 
 # machinery that must never reach a player-facing reply
-LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\bthe Vault\b|\bVault Wall\b)", re.I)
+LEAK_RE = re.compile(r"npc:\d+|<think|</think|</?tool_use|</?tool_call|</?function_calls|advanceGame|submitDecision|beatSeq|\btool call\b|\[System prompt|(?-i:\b[Tt]he Vault\b|\bVault Wall\b)", re.I)
 # a guard's replacement shell is not a scene
 SHELL_RE = re.compile(r"feed glitched|lost what just came through|say that again\?|Responding\W*$", re.I)
 # competition play that must not be narrated before the engine has run the competition
@@ -193,7 +193,13 @@ def crossover(eng, play, check, chat):
     morning" ask that must not reach morning, the player's own goodnight, and the Week 2 morning. Checks map to the Auditor's ORW-433 lines."""
     eng.play_pendings_until("hoh-competition", "x1", max_steps=80)
     st = eng.call("getGameState"); wk0, day0 = st.get("week"), st.get("dayNumber")
-    check("X0-reached-eviction-night", st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh"), f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    x0 = st.get("phase") == "hoh-competition" and (wk0 or 0) >= 2 and not st.get("hoh")
+    check("X0-reached-eviction-night", x0, f"phase {st.get('phase')} week {wk0} at {st.get('clockLabel')}, HOH set {bool(st.get('hoh'))}")
+    _play = play
+
+    def play(label, line):
+        # review of #2854: every crossover turn carries whether X0 held, so a --rescore (which keeps only the turns) knows whether Week 2 was really reached
+        t = _play(label, line); t["x0_ok"] = bool(x0); return t
     evicted = [h.get("name") for h in (st.get("house") or []) if isinstance(h, dict) and h.get("status") not in (None, "active")]
     for i, line in enumerate(CROSS_EVENING): play(f"cross-evening-{i + 1}", line)
     st = eng.call("getGameState")
@@ -280,7 +286,9 @@ def main():
     a = ap.parse_args()
     if a.rescore:
         turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
-        score(turns, checks, lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail}), a.turn_limit_secs)
+        _rc = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
+        rescore_x0(turns, _rc)
+        score(turns, checks, _rc, a.turn_limit_secs)
         write(a.run_dir, turns, checks, None); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
         print("RESULT:", "FAIL" if hard else "PASS"); sys.exit(1 if hard else 0)
     from playwright.sync_api import sync_playwright
@@ -303,11 +311,13 @@ def main():
         ent = (eng.call("premiereIntros") or {}).get("entrance") or {} if st.get("phase") == "premiere" else {}
         t = {"label": label, "msg": text[:80], "secs": r["secs"], "phase": st.get("phase"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule"), "text": r["text"], "settled": r["settled"], "finalized": r.get("finalized"),
              "room_start": room_of(st0), "room_end": sorted(set(room_of(st)) | set(ent.get("arrivedNames") or [])), "inside": ent.get("insideCount"), "arrived": ent.get("arrivedNames"), "entrance_stage": ent.get("stage"), "hoh_name": ((st.get("ceremony") or {}).get("hoh") or {}).get("name") if isinstance((st.get("ceremony") or {}).get("hoh"), dict) else None,
-             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
+             "timed_out": r["timed_out"], "new_bubbles": r["new_bubbles"], "phase_before": st0.get("phase"), "part_before": (st0.get("daySchedule") or {}).get("finalHohPart"), "nominees": [n.get("name") for n in (st.get("nominees") or (st.get("ceremony") or {}).get("nominees") or [])],
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder"),
              # T16 (ORW-376): the engine's headcounts, the player included, at the start and end of the turn (an eviction inside a reply changes the house)
              "counts_start": (st0.get("whereabouts") or {}).get("counts"), "counts": (st.get("whereabouts") or {}).get("counts")}
         t["harness_jump"] = eng.jumps; eng.jumps = 0
+        t["clock_pre_send"] = st0.get("clockLabel")  # ORW-503: the clock just before THIS message, so the runner's own moves are excused only up to here
+        t["rooms_known"] = isinstance(st.get("whereabouts"), dict) and "present" in st["whereabouts"]  # ORW-503: an empty room list is only "alone" when the engine actually sent whereabouts
         turns.append(t); return t
 
     try:
@@ -392,7 +402,9 @@ def draw_voiced(text):
 
 def abs_hours(label):
     m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", label or "")
-    return None if not m else (int(m.group(4)) - 1) * 24 + int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+    if not m: return None
+    h = int(m.group(1)) % 12 + (12 if m.group(3) == "pm" else 0) + int(m.group(2)) / 60
+    return (int(m.group(4)) - 1) * 24 + h + (24 if h < 8 else 0)  # the engine keeps the day number until the 8am wake, so 2am belongs to the night that began the evening before
 
 
 def clock_hour(label):
@@ -434,6 +446,8 @@ def score(turns, checks, check, turn_limit):
         a_ = abs_hours(t.get("clock"))
         if prev is not None and a_ is not None and a_ - prev > 1.0:
             gap = a_ - prev; bed = bool(BED_MSG_RE.search(t.get("msg") or "") or NAP_MSG_RE.search(t.get("msg") or "")); wake8 = abs((a_ % 24) - 8.0) < 0.2 and ((prev % 24) >= 23.0 or (prev % 24) < 8.0)  # the night ran its course to 8am (the previous turn was already deep in the night), not a day cut short
+            _pre = abs_hours(t.get("clock_pre_send")) if t.get("harness_jump") else None
+            if _pre is not None and a_ - _pre > 1.0 and not (bed or wake8): gap = a_ - _pre; t = dict(t, harness_jump=0)  # ORW-503: the message's OWN share of the gap is judged as game time, not excused with the runner's moves
             if t.get("harness_jump"): check(f"K1-clock-jump-by-runner[{t['label']}]", True, f"+{gap:.1f}h, made by the runner's own engine call ({t['harness_jump']} move(s)) - not the game", "note")
             elif bed or wake8: check(f"K1-clock-jump-bed[{t['label']}]", True, f"+{gap:.1f}h after a bed message or to 8am", "note")
             elif t.get("phase_before") in ("hoh-competition", "veto-competition") and t.get("phase") != t.get("phase_before"):
@@ -448,6 +462,8 @@ def score(turns, checks, check, turn_limit):
                 # ORW-281: the veto chip draw is its own morning mini ceremony and costs a ceremony's felt hours (~1h, daySchedule DURATION_CATEGORY "veto-draw": "ceremony"),
                 # so the reply that voices the draw moves the clock about an hour. Sanctioned, not skipped time.
                 check(f"K1-clock-jump-veto-draw[{t['label']}]", True, f"+{gap:.1f}h: the veto draw ceremony (ORW-281, about 1h)", "note")
+            elif t.get("phase_before") == t.get("phase") == "hoh-competition" and gap <= 4.5 and t.get("part_before") and t.get("part_before") != (t.get("ds") or {}).get("finalHohPart"):
+                check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: one part of the Final HOH played inside one message", "note")
             elif t.get("phase_before") != t.get("phase") and gap <= 4.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h as the phase moved {t.get('phase_before')} -> {t.get('phase')} (a beat played inside one message)", "note")
             else: check(f"K1-no-skipped-time[{t['label']}]", False, f"clock {prev:.1f}h -> {a_:.1f}h (+{gap:.1f}h) on {t.get('msg')!r}: no bed message, not 8am, no runner move")
         if a_ is not None: prev = a_
@@ -487,9 +503,8 @@ def score(turns, checks, check, turn_limit):
                 check(f"C5-nominee-names[{t['label']}]", same, f"narration names {sorted(said)}; engine nominees {sorted(truth)}")
     # (e) nobody speaks in the player's room unless the engine has them there (at the start or end of the turn - people can walk in or out within a reply)
     for t in turns:
-        if t["phase"] in ("setup",) or t.get("room_end") is None: continue
+        if t["phase"] in ("setup",) or t.get("room_end") is None or t.get("rooms_known") is False or ("rooms_known" not in t and not t.get("room_end")): continue  # an older report carries no rooms_known: an empty room there is missing data, not "alone"  # ORW-503: alone is a real answer and is still checked; only missing whereabouts data skips
         ok_names = {n.lower() for n in (t.get("room_start") or []) + (t.get("room_end") or [])}
-        if not ok_names and not t.get("room_end"): continue
         bad = sorted({n for n in SPEAKER_RE.findall(t["text"]) if n.lower() not in ok_names and not any(n.lower() == x or n.split()[0].lower() == x.split()[0] for x in ok_names)})
         check(f"C6-speakers-in-room[{t['label']}]", not bad, f"spoke in the player's room but the engine has them elsewhere: {bad}" if bad else "every speaker is in the room")
     # T16 (Ryne, ORW-376): a stated house total counts the player.
@@ -519,9 +534,25 @@ NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden 
 NOT_COVERED_CROSSOVER = "the finale and everything after Week 2's start: a `--crossover` run plays on through Week 1's eviction night into Week 2, no further"
 
 
-def not_covered(checks):
-    """The coverage list for THIS run: a run that drove the crossover (it left X0 checks) did cover eviction night and Week 2's start."""
-    if any(str(c.get("id", "")).startswith("X0-") for c in checks):
+def crossed_into_week_two(checks, turns=()):
+    """True when the crossover really reached Week 2: its X0 check passed, or - for a `--rescore`, which keeps only the turns - its `cross-` turns were recorded with
+    X0 holding (review of #2854: `cross-` turns are played even when X0 failed, so their labels alone prove nothing; older reports without the flag do not count)."""
+    x0 = [c for c in checks if str(c.get("id", "")).startswith("X0-")]
+    if x0:
+        return all(c.get("ok") for c in x0)
+    return any(str(t.get("label", "")).startswith("cross-") and t.get("x0_ok") is True for t in turns)
+
+
+def rescore_x0(turns, check):
+    """A `--rescore` restores the X0 verdict the crossover saved with its turns, so a run that never reached Week 2 cannot rescore as a pass."""
+    flags = [t["x0_ok"] for t in turns if str(t.get("label", "")).startswith("cross-") and "x0_ok" in t]
+    if flags:
+        check("X0-reached-eviction-night", all(flags), "from the saved crossover turns (the live check's verdict)")
+
+
+def not_covered(checks, turns=()):
+    """The coverage list for THIS run: a run whose crossover reached Week 2 did cover eviction night and Week 2's start."""
+    if crossed_into_week_two(checks, turns):
         return NOT_COVERED[:-1] + [NOT_COVERED_CROSSOVER]
     return list(NOT_COVERED)
 
@@ -549,7 +580,7 @@ def write(run_dir, turns, checks, error):
     json.dump({"verdict": verdict, "error": error, "checks": checks, "turns": turns}, open(f"{run_dir}/report.json", "w"), indent=1)
     L = [f"# Live run (short tier) - {verdict}", ""] + _header(run_dir, turns) + [f"Turns played: {len(turns)}. Failing checks: {len(hard)}. Warnings: {len(warn)}." + (f" Could not run: {error}" if error else ""), ""]
     L += ["## Checked against the Live Run Pass Bar", ""] + [f"- {bar}: {', '.join(sorted({c['id'].split('[')[0] for c in checks if c['id'].split('[')[0].split('-')[0] in ids})) or '-'}" for bar, ids in BAR_MAP] + [""]
-    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks)] + [""]
+    L += ["## Not covered by the short tier", ""] + [f"- {x}" for x in not_covered(checks, turns)] + [""]
     if hard or warn:
         L += ["## Not passing", ""] + [f"- **{c['severity'].upper()}** `{c['id']}` - {c['detail']}" for c in hard + warn] + [""]
     L += ["## Every check", ""] + [f"- {'ok ' if c['ok'] else 'NO '} `{c['id']}` - {c['detail']}" for c in checks] + ["", "## Turns", ""]

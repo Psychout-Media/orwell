@@ -829,7 +829,7 @@ export interface LiveSeasonState {
   /** 0148 / ORW-417: hours the player has napped TODAY (the nap credit `playerRestDeficit` reads). Reset by `playerTurnIn` (a night in bed resets the credit with the night). Absent (serialization-neutral) when 0. Persisted. */
   napHoursToday?: number;
   /** 0148: the player's last nap, for the one-shot "while you slept" read the narrator gets on waking (the room they slept in, who was in it at the start, the hour they woke). Vault-free (ids + hours). Cleared once voiced. */
-  napWake?: { room: string; before: string[]; startHour: number; endHour: number; wokenBy?: "event" | "evening" };
+  napWake?: { room: string; before: string[]; startHour: number; endHour: number; wokenBy?: "event" | "evening"; /** ORW-477: the length the player asked for, hours (set when the nap was cut short, so the narrator can say how much of it they got). */ askedHours?: number };
   /**
    * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
    * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
@@ -2474,7 +2474,7 @@ export function tickPremiereClock(s: LiveSeasonState, hours: number): void {
   s.nightDepth = Math.min(s.nightDepth + hours, DAY_END_HOUR - 0.0001);
   s.timeOfDay = phaseForHour(s.nightDepth);
 }
-/** ORW-116: the houseguests ENTER in the afternoon - the in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
+/** ORW-116: the houseguests ENTER at 4pm - the evening band starts at this same hour (`CLOCK.phaseStartsHour.evening`), so the premiere and the toast are the EVENING. The in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
 export const PREMIERE_ENTRY_HOUR = 16;
 /** Hours each premiere entrance / toast release costs (time passing, not a skip): 16 entrances put the toast in the evening. */
 export const PREMIERE_STEP_HOURS = 0.15;

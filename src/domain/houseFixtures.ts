@@ -82,6 +82,8 @@ export const UNIVERSAL_STRUCTURES: readonly string[] = ["door", "wall", "floor",
 
 /** The most fixtures a room may list (K9 §1.2: "6-12 fixtures per room"; the diary room is deliberately bare). */
 export const MAX_FIXTURES_PER_ROOM = 12;
+/** The fewest fixtures a room other than the diary room may list (K9 §1.2: "6-12 fixtures per room"). */
+export const MIN_FIXTURES_PER_ROOM = 6;
 /** A label or alias is a short noun phrase, never a sentence. */
 export const MAX_FIXTURE_LABEL_CHARS = 60;
 
@@ -291,7 +293,7 @@ function textProblem(where: string, text: unknown): string | undefined {
 /**
  * Validate a house map. Returns every problem found as a plain sentence; `[]` means valid. Used by the tests
  * and, later, by the Show Bible write-back (an authored dressing passes this before it can stand, K4 §1.4).
- * Checks: every house room has exactly one entry under its own key; each room lists 1-12 fixtures; fixture ids
+ * Checks: every house room has exactly one entry under its own key; each room lists 6-12 fixtures (the bare diary room 1-12); fixture ids
  * are `<room>.<slug>` and unique across the house; labels and aliases are short single lines, unique within the
  * room, and free of engine-only terms (hidden places, plot devices); kinds and zones are known; prop categories
  * are known and not repeated; the diary room carries no props.
@@ -304,6 +306,7 @@ export function validateHouseMap(map: HouseMap): readonly string[] {
     if (!HOUSE_ROOMS.includes(key)) { problems.push(`${String(key)}: not a house room`); continue; }
     if (entry.room !== key) problems.push(`${key}: entry names room "${entry.room}"`);
     if (entry.fixtures.length === 0) problems.push(`${key}: lists no fixtures`);
+    else if (key !== "diary-room" && entry.fixtures.length < MIN_FIXTURES_PER_ROOM) problems.push(`${key}: lists fewer than ${MIN_FIXTURES_PER_ROOM} fixtures`);
     if (entry.fixtures.length > MAX_FIXTURES_PER_ROOM) problems.push(`${key}: lists more than ${MAX_FIXTURES_PER_ROOM} fixtures`);
     const zones = zonesFor(key);
     const names = new Set<string>();

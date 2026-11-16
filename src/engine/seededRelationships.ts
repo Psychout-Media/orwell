@@ -115,7 +115,7 @@ export function migrateSeededRelationships(sr: SeededRelationships): SeededRelat
     ties: sr.ties.map((t) => ({ ...t, nature: normalizeTieNature(t.nature) ?? "old-acquaintance" })),
   };
 }
-/** Chance an enabled tie/showmance slot is actually loaded (often none, even when budgeted). */
+/** Chance an enabled SHOWMANCE slot is actually loaded (often none, even when budgeted). Tie slots use `TIE_LOAD_PROB` below. */
 export const SEED_LOAD_PROB = 0.5;
 /** ORW-132 (ASSUMED 0.25, pending Ryne): the chance a budgeted TIE slot actually loads - a huge minority (reserve twists load at 0.5 per slot). Showmance slots keep `SEED_LOAD_PROB`. */
 export const TIE_LOAD_PROB = 0.25;

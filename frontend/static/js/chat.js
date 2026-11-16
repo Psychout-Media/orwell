@@ -1738,6 +1738,13 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
         if (_bodyDiv && !_sc) { _sc = document.createElement('div'); _sc.className = 'stream-content'; _bodyDiv.appendChild(_sc); }
         _wsPinRound({ holder: holder, contentDiv: _sc, state: {}, reply: '', reasoning: '',
                      sessionId: streamSessionId, clientMsgId: _clientMsgId, _spinner: spinner });
+        // ORW-461: an update is restarting the game and holds new turns for a few seconds: the bubble says "one moment…" and the same turn goes through right after. The turn has
+        // not started, so the stream idle-abort is stood down for the hold (review of #2805: past its bound it would POST /api/chat/stop for the shared game session and could cut a
+        // turn admitted in another window); sendTurnWhenLive bounds the hold itself, and the accepted send or the refusal below disarms the guard anyway.
+        const _holdOpts = {
+          onHold: function () { try { if (clearResponseTimeout) clearResponseTimeout(); } catch (_) {} if (_userMsgEl) { try { _setQueuedTag(_userMsgEl, 'held'); } catch (_) {} } },
+          onRelease: function () { if (_userMsgEl) { try { _setQueuedTag(_userMsgEl, null); } catch (_) {} } }
+        };
         try {
           // ORW-406: sendTurnWhenLive re-sends (same clientMsgId) only when the frame provably never left the device.
           await (window.OrwellWs.sendTurnWhenLive || window.OrwellWs.sendTurn)({
@@ -1745,11 +1752,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
             clientMsgId: _clientMsgId,
             mode: isAgentMode ? 'agent' : 'chat',
             expectedBeatSeq: (window.OrwellWs.lastBeatSeq && window.OrwellWs.lastBeatSeq()) || undefined
-          }, undefined, {
-            // ORW-461: an update is restarting the game and holds new turns for a few seconds: the bubble says "one moment…" and the same turn goes through right after
-            onHold: function () { if (_userMsgEl) { try { _setQueuedTag(_userMsgEl, 'held'); } catch (_) {} } },
-            onRelease: function () { if (_userMsgEl) { try { _setQueuedTag(_userMsgEl, null); } catch (_) {} } }
-          });
+          }, undefined, _holdOpts);
           // Accepted: the persistent consumer renders the reply frames and runs the
           // settle on `done` (it releases _streamSessionId + reconciles). Keep the
           // active-stream lock set until then so a racing reconcile defers past us.
@@ -1767,7 +1770,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 clientMsgId: _clientMsgId,
                 mode: isAgentMode ? 'agent' : 'chat',
                 // Don't pass expectedBeatSeq — sendTurn uses lastBeatSeq() as default
-              });
+              }, undefined, _holdOpts);   // review of #2805: an update hold during the retry shows "one moment…" too
               // Retry ACCEPTED — normal stream flow continues. Keep the pinned round.
               if (clearResponseTimeout) clearResponseTimeout();
               return;

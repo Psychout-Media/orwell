@@ -153,35 +153,80 @@ def test_search_returns_no_metadata_fields():
     assert "metadata" not in d and "tool_events" not in str(d)
 
 
-def test_update_last_meta_cannot_touch_the_server_owned_tool_events():
-    """POST /api/session/{id}/update-last-meta merges client metadata into the last assistant message: tool_events / engine_result are server-owned and are never merged."""
+def test_update_last_meta_cannot_touch_the_server_owned_tool_events(monkeypatch):
+    """POST /api/session/{id}/update-last-meta merges client metadata into the last assistant message: tool_events / engine_result are server-owned and are never merged.
+    Both writes are checked: the in-memory message AND the stored database row (review of #2248: the row was never seeded or read back)."""
+    import uuid
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     import routes.history_routes as hist
     from core.models import client_metadata_update
+    from core.database import SessionLocal, Session as DbSession, ChatMessage as DbChatMessage
     assert client_metadata_update({"tool_events": [1], "variants": ["a"]}) == {"variants": ["a"]}
     assert client_metadata_update(None) == {} and client_metadata_update("x") == {}
+    sid = "orw187-meta-" + uuid.uuid4().hex[:8]
     stored_events = [{"tool": "getGameState", "output": "", "engine_result": SECRET}]
-    session = Session(id="s2", name="n", endpoint_url="u", model="m",
+    session = Session(id=sid, name="n", endpoint_url="u", model="m",
                       history=[ChatMessage("assistant", "reply", metadata={"tool_events": stored_events, "model": "m"})])
+    with SessionLocal() as db:
+        db.add(DbSession(id=sid, name="n", endpoint_url="u", model="m"))
+        db.add(DbChatMessage(id=uuid.uuid4().hex, session_id=sid, role="assistant", content="reply", seq=1,
+                             meta_data=json.dumps({"tool_events": stored_events, "model": "m"})))
+        db.commit()
+    try:
+        def _row_meta():
+            with SessionLocal() as db:
+                return json.loads(db.query(DbChatMessage).filter(DbChatMessage.session_id == sid).one().meta_data)
 
-    class SM:
-        def get_session(self, sid):
-            return session
+        class SM:
+            def get_session(self, sid_):
+                return session
 
-        def save_sessions(self):
-            pass
+            def save_sessions(self):
+                pass
 
-    hist._verify_session_owner = lambda *a, **k: None
-    app = FastAPI()
-    app.include_router(hist.setup_history_routes(SM()))
-    c = TestClient(app)
-    r = c.post("/api/session/s2/update-last-meta", json={"metadata": {"variants": ["v1"], "tool_events": [{"tool": "forged", "engine_result": "FORGED"}]}})
-    assert r.status_code == 200
-    md = session.history[0].metadata
-    assert md["variants"] == ["v1"]                                   # ordinary keys still merge
-    assert md["tool_events"][0]["engine_result"] == SECRET            # the server-written ledger is untouched
-    assert "FORGED" not in str(md)
-    r = c.post("/api/session/s2/update-last-meta", json={"metadata": {"tool_events": []}})  # nor can it be deleted
-    assert session.history[0].metadata["tool_events"][0]["engine_result"] == SECRET
+        monkeypatch.setattr(hist, "_verify_session_owner", lambda *a, **k: None)  # restored after the test (a bare assignment leaked it into later tests)
+        app = FastAPI()
+        app.include_router(hist.setup_history_routes(SM()))
+        c = TestClient(app)
+        r = c.post(f"/api/session/{sid}/update-last-meta", json={"metadata": {"variants": ["v1"], "tool_events": [{"tool": "forged", "engine_result": "FORGED"}]}})
+        assert r.status_code == 200
+        for md in (session.history[0].metadata, _row_meta()):
+            assert md["variants"] == ["v1"]                                   # ordinary keys still merge
+            assert md["tool_events"][0]["engine_result"] == SECRET            # the server-written ledger is untouched
+            assert "FORGED" not in str(md)
+        r = c.post(f"/api/session/{sid}/update-last-meta", json={"metadata": {"tool_events": []}})  # nor can it be deleted
+        assert r.status_code == 200
+        assert session.history[0].metadata["tool_events"][0]["engine_result"] == SECRET
+        assert _row_meta()["tool_events"][0]["engine_result"] == SECRET
+    finally:  # review of #2854: the seeded rows never outlive the test in the shared test database
+        with SessionLocal() as db:
+            db.query(DbChatMessage).filter(DbChatMessage.session_id == sid).delete()
+            db.query(DbSession).filter(DbSession.id == sid).delete()
+            db.commit()
+
+
+def test_malformed_client_tool_events_never_pass_the_sanitizer():
+    """review of #2248: a non-list `tool_events` (or a non-dict entry) used to pass through unchanged, so the message routes could store a
+    forged engine_result for the admin export."""
+    forged = {"tool": "getGameState", "engine_result": "FORGED"}
+    assert public_metadata({"tool_events": forged, "model": "m"}) == {"tool_events": [], "model": "m"}
+    assert public_metadata({"tool_events": "FORGED"})["tool_events"] == []
+    assert public_metadata({"tool_events": ["FORGED", forged]})["tool_events"] == [{"tool": "getGameState"}]
+
+
+def test_markdown_export_includes_the_admin_engine_results():
+    """review of #2248: the Markdown export printed only content + tool_calls, never metadata.tool_events[].engine_result."""
+    from types import SimpleNamespace
+    atr = importlib.import_module("routes.admin_transcript_routes")
+    row = SimpleNamespace(id="s", name="n", created_at=None, updated_at=None)
+    node = {"role": "assistant", "timestamp": "", "content": "reply",
+            "metadata": {"tool_events": [{"round": 2, "tool": "whereabouts", "output": "", "engine_result": SECRET}, {"tool": "bash", "output": "ok"}]}}
+    md = atr._render_markdown(row, "owner", [node])
+    assert SECRET in md and "`whereabouts` (round 2)" in md
+    assert atr._render_markdown(row, "owner", [{"role": "user", "content": "x"}]).count("Engine results") == 0
+    # review of #2854: a legacy truthy non-list `tool_events` (a number, a dict, a string) renders without engine results, never a TypeError
+    for legacy in (1, {"tool": "t", "engine_result": SECRET}, "text"):
+        out = atr._render_markdown(row, "owner", [{"role": "assistant", "content": "reply", "metadata": {"tool_events": legacy}}])
+        assert "reply" in out and "Engine results" not in out
 

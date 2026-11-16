@@ -1,6 +1,6 @@
 # P0d - live clock smoke (dev, once #2145 is deployed there)
 
-Goal: prove, as a real player, that the clock moves +5 in-game minutes per message (plain chat included), nothing 409s, a hang-out does not make the next message free, and nothing fires early. About 15 messages, mostly chat. Images off. Spend cap $0.5.
+Goal: prove, as a real player, that the clock moves +5 in-game minutes per message (plain chat included), nothing 409s, a hang-out does not make the next message free, and nothing fires early. About 15 messages, mostly chat. Images off. **There is NO spend cap in this manual session: nothing here stops the spend, so watch it yourself and stop at about $0.5.** (A staged rig run is different: its spend guard enforces the cap.)
 
 **Precondition (not mine to create):** dev has login on (it redirects to /login). I do not create accounts or enter credentials on hosted boxes, so someone must hand me an already-logged-in session (the Coordinator or Ryne starts it and gives me the cookie), or run this themselves. Start from a fresh game that has finished the premiere day-break (morning, 8:00 clock running).
 

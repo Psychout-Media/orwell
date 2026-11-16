@@ -4832,7 +4832,7 @@ async def do_create_character(
             motivation=args.get("motivation"),
             private_strategy=args.get("privateStrategy"),
             interview_notes=args.get("interviewNotes"),
-            gender_presentation=args.get("genderPresentation"),
+            gender_presentation=gate_player_gender(args).get("genderPresentation"),
             seed=args.get("seed"),
             # The ONE sanctioned player-channel restart door (D1/R1): a confirmed play-again over a
             # finished/abandoned season delegates through the engine's registry.resetUser hinge.
@@ -5167,6 +5167,12 @@ async def do_create_character(
                             "Production is still casting the house — your houseguests are being "
                             "written. Hang tight; the season opens the moment the cast is ready."),
                     }
+                    # ORW-208 (review of #2252): this early return skips the normal result below, so carry a strategy-style
+                    # substitution here too; the later gate-clear refresh does not resend it.
+                    _hold_note = _strategy_style_adjusted_note(owner, res)
+                    if _hold_note:
+                        holding["strategyStyleAdjusted"] = res.get("strategyStyleAdjusted")
+                        holding["strategyStyleNote"] = _hold_note
                     try:
                         orwell_engine.remember_pending(holding, user=owner)
                     except Exception:
@@ -5207,30 +5213,39 @@ async def do_create_character(
                 orwell_npc_minds_words.kickoff_npc_minds_words(owner)
             except Exception as e:  # noqa: BLE001 — never block game start
                 logger.warning("[create] npc-minds-words kickoff failed: %s", e)
-        # ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an auto-corrected change is not a cloak)
-        # and a plain line for the narrator so the casting card and the player are told the STORED style, never the one asked for.
-        _out = json.dumps(res, indent=2)
-        _adj = res.get("strategyStyleAdjusted") if isinstance(res, dict) else None
-        if isinstance(_adj, dict) and _adj.get("applied"):
-            try:
-                from src import enrichment_policy as _ep_style
-                _ep_style.record_runtime_failure(
-                    owner, "casting-strategy-style",
-                    f"engine stored strategy style '{_adj.get('applied')}' instead of the requested '{_adj.get('requested')}' "
-                    f"(not offered by archetype '{_adj.get('archetype')}') - auto-corrected, RED-eligible per #1599",
-                    detail=json.dumps(_adj))
-            except Exception:
-                pass
-            _out += STRATEGY_STYLE_ADJUSTED_NOTE.format(applied=_adj.get("applied"), requested=_adj.get("requested"), archetype=_adj.get("archetype"))
-        return {"output": _out, "exit_code": 0}
+        out_obj = res
+        _note = _strategy_style_adjusted_note(owner, res)
+        if _note:
+            out_obj = {**res, "strategyStyleNote": _note}
+        return {"output": json.dumps(out_obj, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
 STRATEGY_STYLE_ADJUSTED_NOTE = (
-    "\n\nNOTE (engine truth): the stored strategy style is \"{applied}\" - the \"{archetype}\" archetype does not offer \"{requested}\", so the engine kept \"{applied}\". "
+    "NOTE (engine truth): the stored strategy style is \"{applied}\" - the \"{archetype}\" archetype does not offer \"{requested}\", so the engine kept \"{applied}\". "
     "The casting card shows the stored style; tell the player plainly if they asked for \"{requested}\" and do not describe their strategy as \"{requested}\"."
 )
+
+
+def _strategy_style_adjusted_note(owner: Optional[str], res: Any) -> Optional[str]:
+    """ORW-208: the engine substituted a strategy style the chosen archetype does not offer. Make it visible: a RED-eligible health note (an
+    auto-corrected change is not a cloak) and the narrator line returned here, so the casting card and the player are told the STORED style,
+    never the one asked for. The caller puts the line INSIDE the JSON result (`strategyStyleNote`): the output must stay valid JSON, because
+    the finalize checks in agent_loop and the producer-view redactor parse it (review of #2252). None when nothing was substituted."""
+    _adj = res.get("strategyStyleAdjusted") if isinstance(res, dict) else None
+    if not (isinstance(_adj, dict) and _adj.get("applied")):
+        return None
+    try:
+        from src import enrichment_policy as _ep_style
+        _ep_style.record_runtime_failure(
+            owner, "casting-strategy-style",
+            f"engine stored strategy style '{_adj.get('applied')}' instead of the requested '{_adj.get('requested')}' "
+            f"(not offered by archetype '{_adj.get('archetype')}') - auto-corrected, RED-eligible per #1599",
+            detail=json.dumps(_adj))
+    except Exception:
+        pass
+    return STRATEGY_STYLE_ADJUSTED_NOTE.format(applied=_adj.get("applied"), requested=_adj.get("requested"), archetype=_adj.get("archetype"))
 
 
 async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
@@ -5241,7 +5256,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
-        res = await orwell_engine.update_casting(args, user=owner)
+        res = await orwell_engine.update_casting(gate_player_gender(args), user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
@@ -5826,6 +5841,30 @@ import contextvars as _cv
 
 PLAYER_TURN_TEXT: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_turn_text", default="")
 
+# ORW-476: ALL of the player's own typed words this conversation (not production cues), so a gender the model
+# files with updateCasting / createCharacter can be checked against what the player actually said.
+PLAYER_OWN_WORDS: "_cv.ContextVar[str]" = _cv.ContextVar("orwell_player_own_words", default="")
+
+_GENDER_KEYS = ("genderpresentation", "gender_presentation", "gender", "pronouns")
+
+
+def gate_player_gender(args: dict) -> dict:
+    """ORW-476: a model-filed player gender (genderPresentation, or its aliases gender / pronouns) is kept ONLY when the
+    player's own words state that gender. Anything else (a guess from the name, a default) is dropped here, before it
+    reaches the engine, so the player stays unset and the narrator keeps ORW-444's "unstated" line. Returns a new dict."""
+    out = dict(args or {})
+    from src.orwell_player_gender import player_stated_genders
+    stated = player_stated_genders(PLAYER_OWN_WORDS.get() or PLAYER_TURN_TEXT.get())
+    for k in list(out):
+        if str(k).lower() not in _GENDER_KEYS:
+            continue
+        v = str(out[k] or "").strip().lower().replace(" ", "")
+        v = {"nonbinary": "nonbinary", "non-binary": "nonbinary"}.get(v, v)
+        if v != "unset" and v not in stated:  # "unset" clears (the heal); it never sets a gender
+            logger.info("[orwell] ORW-476: dropped a player genderPresentation the player never stated")
+            del out[k]
+    return out
+
 _DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"
 _DEAL_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
                    "nine": 9, "ten": 10, "a": 1, "another": 1, "the next": 1, "next": 1}
@@ -5942,12 +5981,18 @@ def is_deal_refusal(res) -> bool:
 def deal_refusal_for_narrator(res: dict) -> dict:
     """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
     why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
-    return {"output": json.dumps({
+    out = {
         "declined": True,
         "reason": res.get("reason"),
         "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
                     "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
-    }, indent=2), "exit_code": 0}
+    }
+    # ORW-481 (review 4539129295): the engine may attach a counteroffer; hand it over so the refusal is voiced WITH its terms (still no deal until the player accepts).
+    counter = res.get("counteroffer")
+    if isinstance(counter, dict) and (counter.get("terms") or counter.get("kind")):
+        out["counteroffer"] = {"kind": counter.get("kind"), "terms": counter.get("terms")}
+        out["message"] += (" The engine attached a COUNTEROFFER: voice its terms exactly as given as what they would accept instead; it is an offer only, no deal exists until the player takes it.")
+    return {"output": json.dumps(out, indent=2), "exit_code": 0}
 
 
 async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
