@@ -41,6 +41,12 @@ export interface PhysicalCharacteristics {
    * most `PHOTO_HAIR_MAX` chars. Optional, as `wardrobe`.
    */
   photoHair?: string;
+  /**
+   * ORW-480: the ONE memorable thing about how this person looks or dresses (what you would use to describe them to a friend: a long
+   * single braid, a bleached buzz cut and earrings, a shell necklace), authored from their own life, never dealt, at most
+   * `LOOK_SIGNATURE_MAX` chars. Optional, as `wardrobe`. The photo prompt reads it from `physicalCharacteristics.lookSignature`.
+   */
+  lookSignature?: string;
 }
 
 export const WARDROBE_ITEM_MAX = 60;
@@ -48,6 +54,7 @@ export const WARDROBE_MAX_ITEMS = 3;
 export const WARDROBE_MIN_ITEMS = 2;
 export const ON_CAMERA_MAX = 240;
 export const PHOTO_HAIR_MAX = 90;
+export const LOOK_SIGNATURE_MAX = 90;
 
 /** Strip control characters (C0, DEL and the C1 range U+0080-U+009F) and collapse whitespace. */
 function cleanText(v: unknown): string {
@@ -82,4 +89,16 @@ export function cleanOnCamera(v: unknown): string | undefined {
 /** ORW-380: clean + clamp the authored `photoHair` line. */
 export function cleanPhotoHair(v: unknown): string | undefined {
   return cleanLine(v, PHOTO_HAIR_MAX);
+}
+
+export const STYLE_LINE_MAX = 200;
+
+/** ORW-480: clean + clamp a rewritten `style` line (the line that describes the clothes: it is rewritten with the wardrobe it describes). */
+export function cleanStyleLine(v: unknown): string | undefined {
+  return cleanLine(v, STYLE_LINE_MAX);
+}
+
+/** ORW-480: clean + clamp the authored `lookSignature` line. */
+export function cleanLookSignature(v: unknown): string | undefined {
+  return cleanLine(v, LOOK_SIGNATURE_MAX);
 }

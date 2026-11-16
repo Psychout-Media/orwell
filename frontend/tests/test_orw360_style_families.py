@@ -80,7 +80,7 @@ def test_wardrobe_rules():
 def test_oncamera_rules():
     n = _npc()
     assert ca.look_problems(_pc(onCamera="leans in; at the kitchen counter."), n) == []
-    assert "oncamera-shape" in ca.look_problems(_pc(onCamera="leans in, no spot named."), n)
+    assert ca.look_problems(_pc(onCamera="leans in, no spot named."), n) == []  # ORW-480: no room is asked of the writer any more (the photo chooses it)
     assert "oncamera-scene" in ca.look_problems(_pc(onCamera="kitchen and also the backyard"), n)  # ORW-380: two spots
     assert "oncamera-scene" in ca.look_problems(_pc(onCamera="kitchen " + "x" * 300), n)           # ORW-380: over 240
 
@@ -88,10 +88,10 @@ def test_oncamera_rules():
 def test_fallbacks_after_failed_retry():
     n = _npc()
     p = _pc(hair="silver hair", heightBuild="stocky and willowy", style="band tee, studded leather jacket",
-            wardrobe=["Nike tee", "boots"], onCamera="no spot")
+            wardrobe=["Nike tee", "boots"], onCamera="kitchen and also the backyard")
     probs = ca.look_problems(p, n)
     assert set(probs) == {"gray-hair-young", "build-contradiction", "style-wrong-family",
-                          "wardrobe-shape", "oncamera-shape"}
+                          "wardrobe-shape", "oncamera-scene"}
     ca.apply_look_fallbacks(p, n, probs)
     pc = p["physicalCharacteristics"]
     assert pc["hair"] == "short brown hair" and pc["heightBuild"] == "tall and lean"
@@ -156,7 +156,7 @@ def test_retry_fixes_the_look_and_the_fixed_profile_is_written():
 
 
 def test_failed_retry_applies_fallbacks_and_logs_no_text():
-    bad = _profile(hair="silver hair", wardrobe=["Def Leppard tee", "boots"], onCamera="nowhere named")
+    bad = _profile(hair="silver hair", wardrobe=["Def Leppard tee", "boots"], onCamera="kitchen and also the backyard")
     writes, lines = [], []
 
     async def llm_fn(messages):

@@ -176,19 +176,15 @@ function buildCastingPlan(rng: SeededRandom, count: number): GenesisCastingRole[
   return plan;
 }
 
-/** Build the seeded AGE plan — the real-world cast age curve, one `[lo,hi]` band per slot, shuffled. */
+/** Build the seeded AGE plan: one `[lo,hi]` stratum per slot, each drawn independently at the real-data frequency (`GENESIS_AGE_BANDS`). */
 function buildAgePlan(rng: SeededRandom, count: number): Array<{ lo: number; hi: number }> {
+  const total = GENESIS_AGE_BANDS.reduce((a, b) => a + b.count, 0);
   const bands: Array<{ lo: number; hi: number }> = [];
-  const baseTotal = GENESIS_AGE_BANDS.reduce((a, b) => a + b.count, 0);
-  for (const band of GENESIS_AGE_BANDS) {
-    // Scale the band's count to the actual cast size (round), so the curve holds for any N.
-    const n = Math.max(0, Math.round((band.count / baseTotal) * count));
-    for (let i = 0; i < n; i++) bands.push({ lo: band.lo, hi: band.hi });
+  for (let i = 0; i < count; i++) {
+    let r = rng.int(total);
+    const band = GENESIS_AGE_BANDS.find((b) => (r -= b.count) < 0) ?? GENESIS_AGE_BANDS[GENESIS_AGE_BANDS.length - 1]!;
+    bands.push({ lo: band.lo, hi: band.hi });
   }
-  // Pad/trim to exactly count (rounding can drift by one), padding from the youngest band.
-  while (bands.length < count) bands.push({ lo: GENESIS_AGE_BANDS[0]!.lo, hi: GENESIS_AGE_BANDS[0]!.hi });
-  bands.length = count;
-  seededShuffle(bands, rng);
   return bands;
 }
 
