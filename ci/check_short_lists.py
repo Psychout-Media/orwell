@@ -23,6 +23,8 @@ MIN_REASON = 20
 
 # Seed rules for --write-allowlist: first match wins. (path regex, kind or "*", owner, reason)
 OWNER_RULES = [
+    (r"^src/engine/curiosityNeedleComposed\.ts$", "list", "ORW-509", "composed curiosity-needle floor (PR 2843)"),
+    (r"^src/engine/data/worldPlausibility\.ts$", "list", "ORW-508", "plain-job fallback of the age/place plausibility acceptance (PR 2840)"),
     (r"^frontend/src/orwell_cast_authoring\.py$", "list", "ORW-511", "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads"),
     (r"^frontend/src/(agent_tools|agent_loop)\.py$", "list", "ORW-511", "mechanics: tool tags and record-kind keys of the assistant loop, not player text"),
     (r"^src/engine/(confidenceConstants|houseLife|jury)\.ts$|^src/adapters/engine/GameSessionAdapter\.ts$", "list", "ORW-511", "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose"),
@@ -112,7 +114,7 @@ def decision_for(path: str, name: str, size: int, owner: str) -> str:
     if size >= S.LIMIT:
         return ("(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the "
                 "real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it") if re.search(r"data/(givenNames|nameGender|surnames|vocations|hometowns)", path) else \
-            "mechanics: a long internal key list (tags, ids), not text a player reads"
+            ("mechanics: a long internal key list (tool tags), not text a player reads" if path.endswith("agent_tools.py") else "")
     if owner == "ORW-511":
         return "mechanics: an internal candidate or key list tried in order; not player text"
     return ""

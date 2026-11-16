@@ -54,7 +54,8 @@ def main() -> None:
         o.append(f"| {ow} | {by[(ow, 1)]} | {by[(ow, 2)]} |")
     o.append("\nOwner key: ORW-508 cast and character pools; ORW-509 world-side lists (PR 2843); ORW-510 live text and moment prompts; ORW-480 photo track and cast-text authoring (PRs 2821 and 2828); ORW-511 this card.\n")
     o.append(hand + "\n")
-    o.append("## ORW-511: the 14 lists\n\n| file:line | list (size) | decision |\n|---|---|---|")
+    n511 = sum(1 for e in ent if e["owner"] == "ORW-511" and e["kind"] == "list")
+    o.append(f"## ORW-511: the {n511} lists\n\n| file:line | list (size) | decision |\n|---|---|---|")
     for e in ent:
         if e["owner"] == "ORW-511" and e["kind"] == "list":
             r = rows.get((e["path"], "list", e["name"]))
@@ -64,6 +65,15 @@ def main() -> None:
         if e["owner"] == "ORW-511" and e["kind"] != "list":
             for s in e["sites"]:
                 o.append(f"| {e['path']}:{s['line']} | {s['reason']} |")
+    o.append("\n## Lists of any length that need a recorded decision (40 or more, any owner)\n\n| file:line | list (size) | owner | decision |\n|---|---|---|---|")
+    for e in ent:
+        r = rows.get((e["path"], "list", e["name"]))
+        if e["kind"] == "list" and r and r["size"] >= S.LIMIT:
+            o.append(f"| {e['path']}:{r['lines'][0]} | {e['name']} ({r['size']}) | {e['owner']} | {e.get('decision', '')} |")
+    o.append("\n## Allowlist entries waiting on another PR (transitional)\n\n| entry | until | owner |\n|---|---|---|")
+    for e in ent:
+        if e.get("transitional"):
+            o.append(f"| {e['path']} {e['kind']} {e['name']} | {e['transitional']} | {e['owner']} |")
     o.append("\n## All other scanned sites (other owners)\n\n| file:lines | class | kind | cadence | owner |\n|---|---|---|---|---|")
     for (p, k, n), r in rows.items():
         if owner[(p, k, n)] == "ORW-511":
