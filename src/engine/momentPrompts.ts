@@ -1743,7 +1743,7 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       if (knows.length) bits.push(`knows: ${knows.join("; ")}`);
       if (suspects.length) bits.push(`suspects (a hunch): ${suspects.join("; ")}`);
       // Everything they hold was a muffled snatch: keep their line (an absent line reads as "knows nothing") and point at the full one.
-      if (!bits.length) bits.push("knows only muffled snatches (the full list is in GAME CONTEXT above)");
+      if (!bits.length) bits.push("holds only muffled snatches (the full list is in GAME CONTEXT above)");
       lines.push(`    · ${neutralizeForPrompt(e.name)} — ${bits.join("; ")}`);
     }
   }

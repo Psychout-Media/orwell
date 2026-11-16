@@ -34,6 +34,8 @@ function claimText(kind: SpokenClaimKind, subject: string, object: string | unde
     case "voted-against": return `that ${subject} voted to evict ${object}`;
     case "voted-to-keep": return `that ${subject} voted to keep ${object}`;
     case "lying-about": return object ? `that ${subject} was lying to ${object}` : `that ${subject} was lying to them`;
+    case "voted-against": return `that ${subject} voted to evict ${object ?? "them"}`;
+    case "voted-to-keep": return `that ${subject} voted to keep ${object ?? "them"}`;
   }
 }
 

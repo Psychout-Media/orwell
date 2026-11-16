@@ -61,8 +61,8 @@ const HELD_AS: Record<SpokenClaimKind, readonly BeliefClaim["kind"][]> = {
   "going-after": ["heard-rumor", "targets-me"], // slice 4a says a held targets-me as going-after, the speaker being the object
   "talking-about": ["heard-rumor"],
   "lying-about": ["lied-to-me", "heard-rumor"],
-  "voted-against": ["voted-against-me", "heard-rumor"],
-  "voted-to-keep": ["assured-me", "heard-rumor"],
+  "voted-against": ["voted-against-me", "heard-rumor"], // 0153: "X voted to evict me / them"
+  "voted-to-keep": ["assured-me", "heard-rumor"],        // 0153: "X voted to keep me / them"
 };
 
 /**
@@ -143,6 +143,8 @@ export function claimPhrase(c: Pick<SpokenClaim, "kind" | "subject" | "object">,
     case "voted-against": return `${subj} voted to evict ${obj}`;
     case "voted-to-keep": return `${subj} voted to keep ${obj}`;
     case "lying-about": return `${subj} is lying to ${obj ?? playerName}`;
+    case "voted-against": return `${subj} voted to evict ${obj ?? playerName}`;
+    case "voted-to-keep": return `${subj} voted to keep ${obj ?? playerName}`;
   }
 }
 

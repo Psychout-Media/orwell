@@ -240,3 +240,14 @@ def test_kickoff_runs_the_driver_and_never_raises(monkeypatch):
 def test_engine_client_method_exists():
     from src import orwell_engine
     assert hasattr(orwell_engine, "record_producer_profile")
+
+
+# ORW-511: the random anchors are letters on their own seeded stream, so the same seed gives the same prompt and different seeds give different ones.
+def test_orw511_anchors_are_seeded_letters_not_a_menu():
+    from src.orwell_producer_authoring import build_authoring_messages, producer_anchors
+    assert producer_anchors(None) == ""
+    assert producer_anchors(7) == producer_anchors(7)
+    assert len({producer_anchors(s) for s in range(200)}) > 100
+    assert not any(ch.isdigit() for ch in producer_anchors(7))
+    a = build_authoring_messages(None, 7)[1]["content"]
+    assert "begins with" in a and build_authoring_messages(None, None)[1]["content"].startswith("Write the producer")
