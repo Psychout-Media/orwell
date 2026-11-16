@@ -39,10 +39,57 @@ def test_planted_py_modulo_and_inline_fail():
     assert len(run({"py": {"frontend/src/planted.py": py}})) == 2
 
 
-def test_a_long_list_and_an_undealt_list_pass():
+def test_an_undealt_list_passes_and_a_long_dealt_list_needs_a_decision():
     ts = f"const BIG = [{LONG}];\nexport const f = (r: R) => r.pick(BIG);\nconst SHORT_BUT_UNDEALT = [\"a1\", \"b2\", \"c3\"];\n"
     py = "FIELDS = ('a1', 'b2', 'c3')\ndef f(row):\n    return [row[k] for k in FIELDS]\n"
-    assert run({"ts": {"src/engine/p.ts": ts}, "py": {"frontend/src/p.py": py}}) == []
+    srcs = {"ts": {"src/engine/p.ts": ts}, "py": {"frontend/src/p.py": py}}
+    bad = run(srcs)
+    assert len(bad) == 1 and "BIG" in bad[0]  # a dealt list of any length needs an entry
+    ent = [{"path": "src/engine/p.ts", "kind": "list", "name": "BIG", "max": 1, "owner": "ORW-508", "reason": "a long world table, kept as the floor"}]
+    assert any("live-authoring decision" in b for b in run(srcs, ent))
+    ent[0]["decision"] = "(a) YES live: the writer authors it per person; this is the offline floor"
+    assert run(srcs, ent) == []
+
+
+def test_deal_is_tied_to_the_lists_own_binding_not_its_name():
+    # an unrelated `names.length)` in another file must not make a local `names` list a dealt list (the false positive the review found)
+    a = 'export function f() {\n  const names = ["a1", "b2", "c3"];\n  return names.join(",");\n}\n'
+    b = 'export function g(names: string[]) {\n  return names.length) + 1;\n}\n'.replace("length)", "length")
+    b += 'export const h = (names: string[], r: R) => names[r.int(names.length)];\n'
+    assert run({"ts": {"src/engine/a.ts": a, "src/engine/b.ts": b}}) == []
+    py_a = 'def f():\n    names = ["a1", "b2", "c3"]\n    return ",".join(names)\n'
+    py_b = 'import random\ndef g(names):\n    return random.choice(names)\n'
+    assert run({"py": {"frontend/src/a.py": py_a, "frontend/src/b.py": py_b}}) == []
+
+
+def test_wrapped_object_table_alias_and_floor_idioms_are_found():
+    wrapped = 'const X = widen(["a1", "b2", "c3"], 3);\nexport const f = (r: R) => r.pick(X);\n'
+    table = 'export const POOLS: Record<string, readonly string[]> = {\n  "k-one": ["a1", "b2", "c3"],\n  two: ["d4", "e5", "f6"],\n};\nexport function g(k: string, r: R) {\n  const full = POOLS[k];\n  const pool = full.length > 0 ? full : full;\n  return pool[Math.floor(r.next() * pool.length)];\n}\n'
+    floor = 'export const k = (r: R) => ["a1", "b2", "c3"][Math.floor(r.next() * 3)];\nexport const m = (r: R) => among(["a1", "b2", "c3"] as const);\n'
+    pytable = 'import random\nT = {"x": ("a1", "b2", "c3"), "y": ("d4", "e5", "f6")}\ndef f(k):\n    return random.choice(T[k])\n'
+    assert len(run({"ts": {"src/engine/w.ts": wrapped}})) == 1
+    assert len(run({"ts": {"src/engine/t.ts": table}})) == 2  # both rows of the table
+    assert len(run({"ts": {"src/engine/f.ts": floor}})) == 1  # one inline-list entry per file, two sites
+    assert len(run({"py": {"frontend/src/t.py": pytable}})) == 2
+
+
+def test_a_list_dealt_in_an_importing_file_is_found():
+    lst = 'export const FAR = ["a1", "b2", "c3"];\n'
+    use = 'import { FAR } from "./far";\nexport const f = (r: R) => r.pick(FAR);\n'
+    assert len(run({"ts": {"src/engine/far.ts": lst, "src/engine/use.ts": use}})) == 1
+
+
+def test_a_stale_ceiling_fails_unless_it_is_transitional():
+    ent = [{"path": "src/engine/gone.ts", "kind": "list", "name": "GONE", "max": 1, "owner": "ORW-509", "reason": "removed by the owner's PR"}]
+    assert any("stale allowlist entry" in b for b in run({}, ent))
+    ent[0]["transitional"] = "PR 2843"
+    assert run({}, ent) == []
+
+
+def test_quoted_sample_lines_without_a_marker_are_a_closed_menu():
+    py = 'P = "Speak like this: \\"I head to the kitchen now\\", \\"let us go out back later\\", \\"I will check on the garden\\" and so on."\n'
+    bad = run({"py": {"frontend/src/p.py": py}})
+    assert len(bad) == 1 and "closed menu" in bad[0]
 
 
 def test_planted_example_line_fails_in_each_language():
@@ -95,7 +142,7 @@ def test_orw511_entries_carry_a_reviewed_reason_per_site_and_a_decision_per_list
     bad = G.check([], [{"path": "frontend/src/x.py", "kind": "example", "name": "text", "max": 2, "owner": "ORW-511", "reason": "a long enough owner reason text",
                         "sites": [{"line": 1, "anchor": "a", "reason": "reviewed: a usage sample for a tool"}]},
                        {"path": "src/x.ts", "kind": "list", "name": "L", "max": 1, "owner": "ORW-511", "reason": "a long enough owner reason text"}])[0]
-    assert len(bad) == 2 and any("one reviewed reason per site" in b for b in bad) and any("written decision" in b for b in bad)
+    assert any("one reviewed reason per site" in b for b in bad) and any("live-authoring decision" in b for b in bad)
     for e in G.load_allowlist():
         if e["owner"] == "ORW-511" and e["kind"] != "list":
             assert len(e["sites"]) >= e["max"] and all(x["reason"] != "UNREVIEWED" for x in e["sites"])

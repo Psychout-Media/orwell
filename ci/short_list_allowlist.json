@@ -52,15 +52,6 @@
    ]
   },
   {
-   "path": "frontend/mcp_servers/email_server.py",
-   "kind": "list",
-   "name": "candidates",
-   "max": 1,
-   "owner": "ORW-511",
-   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player",
-   "decision": "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
-  },
-  {
    "path": "frontend/mcp_servers/image_gen_server.py",
    "kind": "example",
    "name": "text",
@@ -87,6 +78,26 @@
      "line": 3014,
      "anchor": "l a COMPLETED step that this page never observed live // (e.",
      "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/admin_health_routes.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 3018,
+     "anchor": "\"fetching latest code\", \"rebuilding engine\", \"refreshing fro",
+     "reason": "operator status text: the steps of an admin restart progress list; developer-facing"
+    },
+    {
+     "line": 3019,
+     "anchor": "\"stopping services\", \"preserving API keys / LLM config\", \"wi",
+     "reason": "operator status text: the steps of an admin restart progress list; developer-facing"
     }
    ]
   },
@@ -144,15 +155,6 @@
    ]
   },
   {
-   "path": "frontend/routes/email_helpers.py",
-   "kind": "list",
-   "name": "candidates",
-   "max": 2,
-   "owner": "ORW-511",
-   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player",
-   "decision": "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
-  },
-  {
    "path": "frontend/routes/email_pollers.py",
    "kind": "example",
    "name": "text",
@@ -191,7 +193,7 @@
    "path": "frontend/routes/email_pollers.py",
    "kind": "menu",
    "name": "text",
-   "max": 2,
+   "max": 3,
    "owner": "ORW-511",
    "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
    "sites": [
@@ -199,6 +201,11 @@
      "line": 510,
      "anchor": "JSON array. Each item has: \"action\": \"create\" | \"update\" | \"",
      "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    },
+    {
+     "line": 512,
+     "anchor": "\"Flight to Berlin\", \"Hotel check-in\", \"Dinner reservation\") ",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
     },
     {
      "line": 704,
@@ -373,10 +380,28 @@
   {
    "path": "frontend/src/agent_loop.py",
    "kind": "list",
-   "name": "_REAPPROACH_NUDGES",
+   "name": "_RECORD_KINDS",
    "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: tool tags and record-kind keys of the assistant loop, not player text",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/agent_loop.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 6,
    "owner": "ORW-510",
    "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "frontend/src/agent_tools.py",
+   "kind": "list",
+   "name": "TOOL_TAGS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: tool tags and record-kind keys of the assistant loop, not player text",
+   "decision": "mechanics: a long internal key list (tags, ids), not text a player reads"
   },
   {
    "path": "frontend/src/ai_interaction.py",
@@ -459,15 +484,6 @@
    ]
   },
   {
-   "path": "frontend/src/document_processor.py",
-   "kind": "list",
-   "name": "candidates",
-   "max": 1,
-   "owner": "ORW-511",
-   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player",
-   "decision": "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
-  },
-  {
    "path": "frontend/src/goal_based_extractor.py",
    "kind": "example",
    "name": "text",
@@ -515,13 +531,50 @@
    "kind": "list",
    "name": "IDENTITY_OPENINGS",
    "max": 1,
-   "owner": "ORW-480",
-   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
   },
   {
    "path": "frontend/src/orwell_cast_authoring.py",
    "kind": "list",
    "name": "ONCAMERA_OPENINGS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "SHEET_FIELDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "SHEET_WRITER_FIELDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "_SHEET_PHYS_FIELDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "menu",
+   "name": "text",
    "max": 1,
    "owner": "ORW-480",
    "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
@@ -585,6 +638,14 @@
   {
    "path": "frontend/src/orwell_cast_genesis.py",
    "kind": "list",
+   "name": "GENESIS_ENSEMBLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
    "name": "GENESIS_EXPRESSIVENESS_AXIS",
    "max": 1,
    "owner": "ORW-480",
@@ -594,6 +655,14 @@
    "path": "frontend/src/orwell_cast_genesis.py",
    "kind": "list",
    "name": "GENESIS_EXPRESSIVENESS_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_LOOK_FEATURES",
    "max": 1,
    "owner": "ORW-480",
    "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
@@ -662,6 +731,78 @@
    "path": "frontend/src/orwell_facet_ledger.py",
    "kind": "list",
    "name": "OUTLIER_VOCATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.Texas / the Southwest",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Deep South / Appalachia",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Mid-Atlantic",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Midwest / Great Lakes",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Northeast / New England",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Pacific Northwest",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Plains / Mountain West",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Southeast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the West Coast",
    "max": 1,
    "owner": "ORW-508",
    "reason": "front-end facet ledger menu (ORW-508 audit C27)"
@@ -1248,6 +1389,21 @@
    ]
   },
   {
+   "path": "frontend/static/js/settings.js",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 4134,
+     "anchor": "\" data-intg-id=\" \" data-intg-type=\" \" data-intg-name=\" // ──",
+     "reason": "markup attribute names inside an HTML template string in a settings form; not prose"
+    }
+   ]
+  },
+  {
    "path": "frontend/static/js/slashCommands.js",
    "kind": "example",
    "name": "text",
@@ -1266,6 +1422,15 @@
      "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
     }
    ]
+  },
+  {
+   "path": "src/adapters/engine/GameSessionAdapter.ts",
+   "kind": "list",
+   "name": "WEEK_WORDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
   },
   {
    "path": "src/adapters/mcp/McpServer.ts",
@@ -1357,6 +1522,30 @@
   {
    "path": "src/engine/characterFactory.ts",
    "kind": "list",
+   "name": "HIDDEN_ELEMENT_POOLS.divergent-persona",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_ELEMENT_POOLS.pre-game-tie",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_ELEMENT_POOLS.secret-motive",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
    "name": "HIDDEN_KINDS",
    "max": 1,
    "owner": "ORW-508",
@@ -1387,12 +1576,53 @@
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
   },
   {
+   "path": "src/engine/confessionalConstants.ts",
+   "kind": "list",
+   "name": "CONFESSIONAL.ceremonyCues",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "ALLY_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "CURT_ALLY_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "EXPANSIVE_ALLY_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
    "path": "src/engine/confessionals.ts",
    "kind": "list",
    "name": "GRUDGE_LINES",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confidenceConstants.ts",
+   "kind": "list",
+   "name": "CONFIDENCE.manipulativeArchetypes",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
   },
   {
    "path": "src/engine/curiosityNeedle.ts",
@@ -1403,13 +1633,58 @@
    "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
   },
   {
-   "path": "src/engine/dealConsent.ts",
+   "path": "src/engine/data/givenNames.ts",
    "kind": "list",
-   "name": "order",
+   "name": "GIVEN_NAMES",
    "max": 1,
-   "owner": "ORW-511",
-   "reason": "mechanics: internal key order or archetype keys, never shown to a player",
-   "decision": "not player text: the tie-break order of five internal drag keys when scoring a deal; no authoring needed"
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/nameGender.ts",
+   "kind": "list",
+   "name": "MEN",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/nameGender.ts",
+   "kind": "list",
+   "name": "UNISEX",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/nameGender.ts",
+   "kind": "list",
+   "name": "WOMEN",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/surnames.ts",
+   "kind": "list",
+   "name": "SURNAMES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/vocations.ts",
+   "kind": "list",
+   "name": "VOCATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -1431,6 +1706,14 @@
    "path": "src/engine/deepProfile.ts",
    "kind": "list",
    "name": "BIO_ROOTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "CONDITIONS_BY_CLASS.secret",
    "max": 1,
    "owner": "ORW-508",
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
@@ -1462,7 +1745,119 @@
   {
    "path": "src/engine/deepProfile.ts",
    "kind": "list",
+   "name": "SECRET_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.arts",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.business",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.curio",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.education",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.fitness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.generic",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.healthcare",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.outdoors",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.publicService",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.service",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.tech",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.trades",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
    "name": "SKIN_TONE",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "TRUE_GOAL_POOL",
    "max": 1,
    "owner": "ORW-508",
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
@@ -1510,6 +1905,14 @@
   {
    "path": "src/engine/genesisConstants.ts",
    "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_LOUD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
    "name": "GENESIS_ENERGY_AXIS",
    "max": 1,
    "owner": "ORW-508",
@@ -1518,7 +1921,39 @@
   {
    "path": "src/engine/genesisConstants.ts",
    "kind": "list",
+   "name": "GENESIS_ENERGY_LOUD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_ENSEMBLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
    "name": "GENESIS_EXPRESSIVENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_LOUD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_LOOK_FEATURES",
    "max": 1,
    "owner": "ORW-508",
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
@@ -1548,6 +1983,23 @@
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
   },
   {
+   "path": "src/engine/houseEvents.ts",
+   "kind": "list",
+   "name": "HOUSE_EVENT_POOL",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/houseLife.ts",
+   "kind": "list",
+   "name": "inline",
+   "max": 6,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
    "path": "src/engine/imageConstants.ts",
    "kind": "list",
    "name": "STYLE_ANCHOR_VARIANTS",
@@ -1556,13 +2008,13 @@
    "reason": "photo track: portrait prompt tables and shot brief"
   },
   {
-   "path": "src/engine/juryMinds.ts",
+   "path": "src/engine/jury.ts",
    "kind": "list",
-   "name": "all",
+   "name": "FINALE_APPEALS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "mechanics: internal key order or archetype keys, never shown to a player",
-   "decision": "not player text: the five juror archetype keys scored and sorted; a closed enum, not a pick"
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
   },
   {
    "path": "src/engine/momentPrompts.ts",
@@ -1574,9 +2026,9 @@
   },
   {
    "path": "src/engine/momentPrompts.ts",
-   "kind": "list",
-   "name": "lines",
-   "max": 2,
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
    "owner": "ORW-510",
    "reason": "live narrator / moment prompt text"
   },
@@ -1685,20 +2137,276 @@
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
   },
   {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.blow-up",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.mask-slips",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.meltdown",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.showmance-detonation",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.comp-beast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.flirt",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.floater",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.loyalist",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.mastermind",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.social-butterfly",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.underdog",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.villain",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.comp-beast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.flirt",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.floater",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.loyalist",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.mastermind",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.social-butterfly",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.underdog",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.villain",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.directness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.energy",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.humor",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.register",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.rhythm",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.stressTell",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_LEXICON_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/wipeoutReel.ts",
+   "kind": "list",
+   "name": "suffixes",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
    "path": "src/engine/zeitgeist.ts",
    "kind": "list",
    "name": "MOOD_POOL",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
   },
   {
    "path": "src/engine/zeitgeist.ts",
    "kind": "list",
-   "name": "lines",
+   "name": "POOLS.internet",
    "max": 1,
    "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.music",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.news",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.screen",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.sports",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
   }
  ]
 }

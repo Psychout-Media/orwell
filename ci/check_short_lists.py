@@ -23,6 +23,11 @@ MIN_REASON = 20
 
 # Seed rules for --write-allowlist: first match wins. (path regex, kind or "*", owner, reason)
 OWNER_RULES = [
+    (r"^frontend/src/orwell_cast_authoring\.py$", "list", "ORW-511", "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads"),
+    (r"^frontend/src/(agent_tools|agent_loop)\.py$", "list", "ORW-511", "mechanics: tool tags and record-kind keys of the assistant loop, not player text"),
+    (r"^src/engine/(confidenceConstants|houseLife|jury)\.ts$|^src/adapters/engine/GameSessionAdapter\.ts$", "list", "ORW-511", "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose"),
+    (r"^src/engine/(voice|deepProfile|characterFactory|characters|genesisConstants|diversityConstants|castGenesis|seededRelationships)\.ts$|^src/engine/data/(givenNames|nameGender|surnames|vocations|hometowns)\.ts$|^src/domain/", "list", "ORW-508", "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"),
+    (r"^src/engine/(confessionals|confessionalConstants|houseEvents|triggers|wipeoutReel|zeitgeist|gossipDriftConstants)\.ts$", "list", "ORW-509", "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"),
     (r"^src/engine/(characterFactory|deepProfile|characters|castGenesis|genesisConstants|diversityConstants|seededRelationships)\.ts$|^src/domain/", "list", "ORW-508", "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"),
     (r"^frontend/src/orwell_facet_ledger\.py$", "*", "ORW-508", "front-end facet ledger menu (ORW-508 audit C27)"),
     (r"^frontend/src/orwell_(cast_authoring|cast_genesis)\.py$", "*", "ORW-480", "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"),
@@ -67,6 +72,8 @@ SITE_RULES = [
     (r"Payload template|Webhook channel", "assistant integrations help: a webhook payload-template format sample; developer-facing"),
     (r"genuinely solve the user|did NOT genuinely", "skill-teacher prompt for the assistant's skill library: a verification rule with a sample case; non-game"),
     (r"self-close|no-op if|no session_id", "code comment captured inside the HTML report template string (not model-visible); no creative text"),
+    (r"fetching latest code|rebuilding engine|stopping services", "operator status text: the steps of an admin restart progress list; developer-facing"),
+    (r"data-intg-id|data-intg-type|data-intg-na", "markup attribute names inside an HTML template string in a settings form; not prose"),
     (r"safety this week|a comp throw", "FIXED in this PR: replaced by a rule (name the concrete thing asked)"),
 ]
 PATH_FALLBACK = [
@@ -98,6 +105,19 @@ def site_reason(h: "S.Hit") -> str:
     return "UNREVIEWED"
 
 
+def decision_for(path: str, name: str, size: int, owner: str) -> str:
+    base = name.split(".")[0]
+    if (path, name) in LIST_DECISIONS:
+        return LIST_DECISIONS[(path, name)]
+    if size >= S.LIMIT:
+        return ("(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the "
+                "real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it") if re.search(r"data/(givenNames|nameGender|surnames|vocations|hometowns)", path) else \
+            "mechanics: a long internal key list (tags, ids), not text a player reads"
+    if owner == "ORW-511":
+        return "mechanics: an internal candidate or key list tried in order; not player text"
+    return ""
+
+
 def load_allowlist() -> list[dict]:
     return json.loads(ALLOWLIST.read_text(encoding="utf8"))["entries"]
 
@@ -126,7 +146,7 @@ def check(hits: list[S.Hit], entries: list[dict]) -> tuple[list[str], list[str]]
         e = allowed.get(key)
         where = f"{key[0]}:{','.join(map(str, lines[key][:6]))}"
         if e is None:
-            what = {"list": f"string list {key[2]!r} dealt from with fewer than {S.LIMIT} items", "example": "example line inside prompt text", "menu": "closed menu inside prompt text"}[key[1]]
+            what = {"list": f"string list {key[2]!r} dealt from (any length needs an entry with a live-authoring decision)", "example": "example line inside prompt text", "menu": "closed menu inside prompt text"}[key[1]]
             fix = ("author it per moment from the game's facts or compose it from independent parts so the floor is wide, then it needs no entry" if key[1] == "list"
                    else "state the quality wanted as a rule instead of a sample the model will copy")
             bad.append(f"{where}: new {what}. Fix: {fix}; or add an entry to ci/short_list_allowlist.json with an owner and a reason.")
@@ -134,11 +154,17 @@ def check(hits: list[S.Hit], entries: list[dict]) -> tuple[list[str], list[str]]
             bad.append(f"{where}: {n} hit(s), allowlist ceiling is {e['max']} (owner {e['owner']}); a NEW one was added. Fix it as above, do not raise the ceiling.")
     for key, e in allowed.items():
         if got.get(key, 0) < int(e["max"]):
-            notes.append(f"loose: {key[0]} {key[1]} {key[2]} ceiling {e['max']}, found {got.get(key, 0)} (owner {e['owner']}): lower or delete the entry")
+            msg = f"{key[0]} {key[1]} {key[2]} ceiling {e['max']}, found {got.get(key, 0)} (owner {e['owner']}): lower or delete the entry in the PR that fixed it"
+            if e.get("transitional"):
+                notes.append(f"transitional ({e['transitional']}): {msg}")
+            else:
+                bad.append(f"stale allowlist entry: {msg}")
+    big = {(h.path, h.name) for h in hits if h.kind == "list" and h.size >= S.LIMIT}
+    for e in entries:
+        if e["kind"] == "list" and ((e["path"], e["name"]) in big or e.get("owner") == "ORW-511") and len(str(e.get("decision", ""))) < MIN_REASON:
+            bad.append(f"list entry {e['path']}:{e['name']} needs a written live-authoring decision (a dealt list of any length records whether a writer already authors it, and why a list is still dealt)")
     for e in entries:
         if e.get("owner") == "ORW-511":
-            if e["kind"] == "list" and len(str(e.get("decision", ""))) < MIN_REASON:
-                bad.append(f"ORW-511 list entry {e['path']}:{e['name']} needs a written decision (live path or why none)")
             if e["kind"] != "list":
                 sites = e.get("sites", [])
                 if len(sites) < int(e["max"]) or any(len(str(x.get("reason", ""))) < MIN_REASON or x.get("reason") == "UNREVIEWED" for x in sites):
@@ -147,6 +173,7 @@ def check(hits: list[S.Hit], entries: list[dict]) -> tuple[list[str], list[str]]
 
 
 def seed_entries(hits: list[S.Hit]) -> list[dict]:
+    OLD = {(e["path"], e["kind"], e["name"]): e for e in (load_allowlist() if ALLOWLIST.exists() else [])}
     out = []
     for (path, kind, name), n in sorted(counts(hits).items()):
         for rx, k, owner, reason in OWNER_RULES:
@@ -157,9 +184,17 @@ def seed_entries(hits: list[S.Hit]) -> list[dict]:
         e = {"path": path, "kind": kind, "name": name, "max": n, "owner": owner, "reason": reason}
         if owner == "ORW-511" and kind != "list":
             e["sites"] = [{"line": h.line, "anchor": h.ctx[:60], "reason": site_reason(h)} for h in hits if (h.path, h.kind) == (path, kind)]
-        if owner == "ORW-511" and kind == "list":
-            e["decision"] = LIST_DECISIONS.get((path, name)) or "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
+        if kind == "list":
+            size = max((h.size for h in hits if (h.path, h.kind, h.name) == (path, kind, name)), default=0)
+            d = decision_for(path, name, size, owner)
+            if d:
+                e["decision"] = d
+            if (path, kind, name) in OLD:
+                for f in ("transitional",):
+                    if OLD[(path, kind, name)].get(f): e[f] = OLD[(path, kind, name)][f]
         out.append(e)
+    seen = {(e["path"], e["kind"], e["name"]) for e in out}
+    out += [e for k, e in OLD.items() if e.get("transitional") and k not in seen]
     return out
 
 
