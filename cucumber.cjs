@@ -144,6 +144,7 @@ module.exports = {
       "docs/features/0161-alliance-history.feature",
       "docs/features/0158-theme-2-end-to-end.feature",
       "docs/features/0159-a-lie-planted-on-the-player.feature",
+      "docs/features/0162-house-culture.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
