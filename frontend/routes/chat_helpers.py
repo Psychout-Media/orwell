@@ -1170,7 +1170,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     )
 
 
-def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
+def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
 
@@ -1230,9 +1230,24 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
     sleepers = _names(asleep)
     asleep_line = (f"\nTURNED IN FOR THE NIGHT (engine truth): {', '.join(sleepers)} - asleep in their beds. They do NOT speak, act, walk, laugh, overhear or appear in any room this turn; "
                    "they may only be MENTIONED. Do not write a scene, a line of dialogue or a movement for any of them." if sleepers else "")
+    # ORW-478: the player's own move this turn (the engine already performed it, ORW-419). Without it the narrator saw only the new room name and could keep the scene where the player WAS ("head back to the kitchen" narrated in the living room).
+    move_line = ""
+    moved_now = False
+    # Only when the move ends in the room the player is in NOW. The engine hands over `playerMove` only on the message it was made for (it is stamped with that message and withheld from the state of any later message), so a
+    # failed `resolvePlayerMove` call on a later turn leaves nothing to voice here (ORW-478).
+    if (isinstance(player_move, dict) and not player_move.get("refused") and player_move.get("from") and player_move.get("to") and player_move.get("from") != player_move.get("to")
+            and str(player_move.get("to")) == room):
+        moved_now = True
+        move_line = (f"\nTHE PLAYER JUST MOVED: from the {str(player_move['from']).replace('-', ' ')} to the {str(player_move['to']).replace('-', ' ')} (the engine has already done it). Open this turn's scene in the {str(player_move['to']).replace('-', ' ')}, "
+                     f"with exactly the people listed above; never in the {str(player_move['from']).replace('-', ' ')}, and never re-describe the walk as still to come.")
+    # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
+    # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
+    since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
+    left = bool(since.get("departed"))
+    absent_line = ("\nIf the last scene had someone in this room who is not on the list above, do not write them as still here and do not make them vanish: show them stepping out in a line, or let them be only mentioned (unless they are on the asleep list: then only mentioned)." if (not present and (moved_now or left)) else "")
     return (
         "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
-        f"the player is in the {room}, with: {here}.{nearby_line}{asleep_line}\n"
+        f"the player is in the {room}, with: {here}.{move_line}{nearby_line}{asleep_line}{absent_line}\n"
         + roster_line +
         "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
         "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
@@ -8569,8 +8584,9 @@ async def note_player_message(client_msg_id, user) -> None:
         logger.info("noteMessage id=%s accepted=%s beatSeq=%s", _mid, _r.get("accepted"), _r.get("beatSeq"))  # ids only, no content
         _refresh_beat_seq(user, res if isinstance(res, dict) else {})
         # ORW-435: the ledger counts this write at the engine dispatch seam (orwell_engine._call), not here.
-    except Exception:
-        logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
+    except Exception as _e:
+        # A failed announce means the engine clock never hears this message (the premiere clock never starts, the in-game part of day never shows): visible at WARNING with the error class and text (no message content), still fail-soft.
+        logger.warning("[orwell] noteMessage failed (the engine clock did not hear this message): %s: %s", type(_e).__name__, _exc_detail(_e))
 
 
 async def apply_game_framing(
@@ -8817,7 +8833,7 @@ async def apply_game_framing(
         # and the model's grounding + the gadget reflect one snapshot (supports D1). Permits narrated
         # movement (D2 records it); forbids only the impossible. Best-effort / fail-open.
         try:
-            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))
+            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"), game_state.get("playerMove"))
             if _loc:
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).

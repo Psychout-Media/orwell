@@ -245,7 +245,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
-import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSection, partiesOf, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -1157,7 +1157,10 @@ export class GameSessionAdapter implements GameSession {
    */
   private messageMode = false;
   private seenMessageIds: string[] = [];
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number } {
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string } {
+    // A message announced before any game exists (the casting interview) steps no in-game clock and changes nothing: refuse it plainly (accepted false + a reason; the transport counts it on /health) instead of
+    // answering accepted:true with a small rising counter that makes pre-game chat look like in-game time.
+    if (!this.house || !this.live) return { accepted: false, beatSeq: this.beatSeq, reason: "no-game" };
     const id = String(req.messageId);
     if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
     this.seenMessageIds.push(id);
@@ -5010,7 +5013,7 @@ export class GameSessionAdapter implements GameSession {
       beatSeq: this.beatSeq, // 0065 Part A — the monotonic CAS token; Vault-free
       week: this.week,
       phase: this.phase,
-      ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, dayNumber: this.live.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
+      ...(this.timeOfDayEnabled && (this.live?.timeOfDay ?? this.premiereClockPreview()) ? { timeOfDay: (this.live?.timeOfDay ?? this.premiereClockPreview())!, dayNumber: this.live?.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
@@ -5435,14 +5438,14 @@ export class GameSessionAdapter implements GameSession {
       if (hadMove) this.persist();
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
-      this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest };
+      this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest, ...this.moveStamp() };
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {
       const w = this.movePlayer(dest);
       const now = this.presence.get(me) ?? null;
       if (now === dest) {
-        this.playerMove = { from: here, to: dest };
+        this.playerMove = { from: here, to: dest, ...this.moveStamp() };
         this.persist();
         result = { playerMove: { ...this.playerMove }, whereabouts: w };
       } else {
@@ -5451,6 +5454,19 @@ export class GameSessionAdapter implements GameSession {
     }
     result.beatSeq = this.beatSeqNow();
     return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
+  }
+
+  /** ORW-478: the id of the most recent player message the engine was told about (the turn the next `resolvePlayerMove` belongs to). */
+  private moveStamp(): { msg?: string } { const m = this.lastNotedMessageId(); return m === undefined ? {} : { msg: m }; }
+  private lastNotedMessageId(): string | undefined { return this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; }
+  /**
+   * ORW-478: the recorded move, but only while it belongs to the CURRENT turn: it is stamped with the message it was made on, and a later message (whose own `resolvePlayerMove` call may have failed, which is fail-soft) must
+   * not be handed last turn's move. A move made with no message noted (a headless or harness call) matches while none is noted. The persisted record itself is untouched.
+   */
+  private playerMoveThisTurn(): PlayerMoveView | null {
+    const m = this.playerMove;
+    if (!m) return null;
+    return m.msg === this.lastNotedMessageId() ? ({ ...m } as PlayerMoveView) : null;
   }
 
   /**
@@ -6549,6 +6565,14 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
+  /** The part of day the premiere will start in, for the public status BEFORE the clock has started (the first entrance or the first player message starts it, see `ensurePremiereClock`): the status panel's header used to read "Week 1 Premiere" with no part of day until then. Same conditions as `ensurePremiereClock`; read-only, never starts the clock. */
+  private premiereClockPreview(): LifeTimeOfDay | undefined {
+    const s = this.live;
+    if (!s || s.timeOfDay !== undefined || s.nightDepth !== undefined || !(this.perConversationClockEnabled && this.timeOfDayEnabled)) return undefined;
+    if (s.week !== 1 || s.firstNightPassed || (s.dayNumber ?? 1) >= 2) return undefined;
+    return phaseForHour(PREMIERE_ENTRY_HOUR);
+  }
+
   /** ORW-116 (Ryne): the clock STARTS at the premiere entry (afternoon) when the clock pacing is on - no later jump starts it. Idempotent; no-op once it is running or with the clock pacing off. */
   private ensurePremiereClock(): void {
     const s = this.live;
@@ -7614,6 +7638,13 @@ export class GameSessionAdapter implements GameSession {
     // model narrate a fresh casting interview post-season while the engine never started one. The
     // refusal names whether a season is live (`in-progress`) or already crowned (`over`).
     if (this.house) {
+      // ORW-476: the ONE thing a running season takes from here: `genderPresentation: "unset"` clears the PLAYER's recorded gender
+      // (the front end sends it when no words of the player's own state one, healing a guess saved before the player-gender check).
+      // It can only clear; no value can be set after casting. Persisted so the clear survives a restart.
+      if ((req as { genderPresentation?: unknown }).genderPresentation === "unset" && this.house.player.character.genderPresentation !== undefined) {
+        delete this.house.player.character.genderPresentation;
+        this.persist();
+      }
       return { known: {}, missing: [], next: null, ready: false, finalizable: false, refused: this.live?.finished ? "over" : "in-progress" };
     }
     const before = this.intake;
@@ -7836,12 +7867,14 @@ export class GameSessionAdapter implements GameSession {
       new SeededRandom(hashSeed(`${seed}:casting-type`)),
       npcs.map((n) => n.character.castingType),
       npcs.map((n) => n.character.age),
-      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor })),
+      npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor, genderPresentation: n.character.genderPresentation })),
     );
     const changed: EntityId[] = [];
     npcs.forEach((n, i) => {
       const t = types[i]!;
       if (n.character.castingType?.id !== t.id) { n.character.castingType = { id: t.id, label: t.label, read: t.read }; changed.push(n.id); }
+      // ORW-467: the same type, but the person's presentation changed before the season: the label follows (not a repair).
+      else if (n.character.castingType.label !== t.label) n.character.castingType = { id: t.id, label: t.label, read: t.read };
     });
     return changed;
   }
@@ -15437,7 +15470,34 @@ export class GameSessionAdapter implements GameSession {
   private dealMadeBeat = new Map<string, number>();
   private static readonly DEAL_LINK_BEATS = 3;
   private trackDealMade(deal: Deal): void {
-    if (deal.parties.includes(PLAYER)) this.dealMadeBeat.set(deal.id, this.beatSeq);
+    if (deal.parties.includes(PLAYER)) {
+      this.dealMadeBeat.set(deal.id, this.beatSeq);
+      this.ledgerDealLine(deal);
+    }
+  }
+
+  /**
+   * ORW-456 (Kevin: formal deals are ALSO in the open ledger, linked): the engine writes ONE open-ledger line for each deal struck
+   * with the player, linked by the deal id, so a deal that was only spoken is never lost; a spoken deal line already in the ledger is
+   * linked to it instead of doubled (`recordDealEntry`). It closes with the deal through `syncOpenLedger` (the deal's PUBLIC ending
+   * only: a deal broken by a sealed ballot still reads open, so nothing here reveals or depends on who voted how). Text is the
+   * engine's own words from the deal's terms. Quiet when the ledger is off, locked, or the game is not a played one.
+   */
+  private ledgerDealLine(deal: Deal): void {
+    if (!this.openLedgerEnabled || this.openLedgerAsLoaded !== undefined || this.live?.playedGame !== true || !this.house) return;
+    const partner = deal.parties.find((p) => p !== PLAYER);
+    if (!partner) return;
+    const wa = this.whereabouts();
+    const terms = (deal.terms ?? "").trim();
+    const day = this.ledgerDay();
+    const out = recordDealEntry(this.openLedger, {
+      dealId: deal.id, partner: partner as string,
+      text: `You and ${this.nameOf(partner)} struck a ${deal.kind} deal${terms ? `: ${terms}` : ""}`,
+    }, {
+      turn: this.beatSeq, beatSeq: this.beatSeq, room: wa?.room ?? "", witnesses: (wa?.present ?? []).map((x) => x.id as string),
+      ...(day !== undefined ? { day } : {}), maxAge: GameSessionAdapter.DEAL_LINK_BEATS,
+    });
+    if (out.ledger !== this.openLedger) this.openLedger = out.ledger; // every caller persists right after (a deal is a board commit)
   }
 
   /** ORW-448: the in-game day the ledger counts in (the day number the HUD shows); undefined while the game has none (the week is NOT a stand-in: it would run backwards when the day counter starts). */
@@ -15463,6 +15523,7 @@ export class GameSessionAdapter implements GameSession {
       dealEnd: (dealId) => {
         const d = this.deals.all.find((x) => x.id === dealId);
         if (!d) return undefined; // an unknown id: treated as unlinked
+        if (d.status === "lapsed") return "lapsed"; // ORW-456: an untested term that ran out, or a deal a renegotiation replaced: no verdict, no ballot involved
         const shown = this.dealView(d).status;
         return shown === "kept" || shown === "broken" || shown === "open" ? shown : undefined;
       },
@@ -15510,6 +15571,11 @@ export class GameSessionAdapter implements GameSession {
         && this.beatSeq - (this.dealMadeBeat.get(d.id) ?? -Infinity) <= GameSessionAdapter.DEAL_LINK_BEATS).pop()
       : undefined;
     const day = this.ledgerDay();
+    // ORW-456: a spoken deal ("kind: deal") between the player and one houseguest, when that pair's deal already has its engine line (made the same in-game day), is that line, not a second one.
+    if (p.kind.toLowerCase() === "deal" && everyone.length === 2 && everyone.includes(OPEN_LEDGER_PLAYER) && hg.length === 1) {
+      const line = openLedgerSameDayDealLine(this.openLedger, hg[0]!, { beatSeq: this.beatSeq, ...(day !== undefined ? { day } : {}), maxAge: GameSessionAdapter.DEAL_LINK_BEATS });
+      if (line) return { accepted: true, duplicate: true, entryId: line.id };
+    }
     const out = recordOpenEntry(this.openLedger, p, {
       turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string),
       ...(day !== undefined ? { day } : {}), ...(linked ? { dealId: linked.id } : {}),
@@ -15984,7 +16050,7 @@ export class GameSessionAdapter implements GameSession {
       // L21/L24: the player's live whereabouts (room, who's with them + tenure, adjacent rooms) so the
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
       whereabouts: this.whereabouts(),
-      ...(this.playerMove ? { playerMove: { ...this.playerMove } as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn
+      ...(this.playerMoveThisTurn() ? { playerMove: this.playerMoveThisTurn() as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn (ORW-478: only on the message it was made for)
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
