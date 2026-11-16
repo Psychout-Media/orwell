@@ -161,3 +161,99 @@ def test_dev_watch_records_an_in_flight_verdict_and_keeps_its_period():
     assert "trap 'STOP=1' TERM INT" in src and 'wait "$child"' in src and "left=$(( POLL - (" in src
     assert "watch.log" in src and "watch-<slot>.log" in src
     assert _sh(f'bash -n "{LIVE}/dev_watch.sh" && bash -n "{LIVE}/run_short.sh" && bash -n "{LIVE}/short_lib.sh"').returncode == 0
+
+
+# ── review follow-ups (PR #2852): cancellation, the capped-run record, and the scoring regexes ───────────────────────────────────────────────
+import signal
+import time
+
+
+def _stub_rig(tmp_path, driver_body="exec sleep 30"):
+    """A throwaway rig: a stub kit (slot.sh, stage2.sh, stop.sh, spend_guard.py), a stub git and a stub driver python. Returns (env, paths)."""
+    home = tmp_path / "home"; kit = tmp_path / "kit"; bindir = tmp_path / "bin"; state = tmp_path / "state"; wt = tmp_path / "wt"; run = tmp_path / "run"
+    for d in (home / "orwell" / "frontend" / ".venv" / "bin", kit, bindir, state, wt / "frontend" / "data"):
+        d.mkdir(parents=True)
+    (wt / "frontend" / "data" / "settings.json").write_text("{}")
+    (kit / "slot.sh").write_text(f"RIG_HOME={home}; RIG_SLOT=1; RIG_SUFFIX=''; RIG_STATE_DIR={state}; RIG_LOCK={state}/rig.lock; RIG_RUN_PTR={tmp_path}/ptr; WT={wt}; RIG_BASE=http://127.0.0.1:1; RIG_ENGINE_URL=http://127.0.0.1:2\n")
+    (kit / "stage2.sh").write_text(f"#!/usr/bin/env bash\nmkdir -p {run}; echo {run} > {tmp_path}/ptr\n")
+    (kit / "stop.sh").write_text(f"#!/usr/bin/env bash\necho stopped >> {tmp_path}/stop.log\n")
+    (kit / "spend_guard.py").write_text("import sys, time\nif '--once' not in sys.argv: time.sleep(30)\n")
+    (bindir / "git").write_text("#!/usr/bin/env bash\ncase \"$*\" in *rev-parse*) echo abcd1234;; esac\nexit 0\n")
+    driver = bindir / "driver"
+    driver.write_text(f"#!/usr/bin/env bash\necho $$ > {tmp_path}/driver.pid\n{driver_body}\n")
+    for f in (kit / "stage2.sh", kit / "stop.sh", bindir / "git", driver):
+        f.chmod(0o755)
+    (home / "orwell" / "frontend" / ".venv" / "bin" / "python3").symlink_to(driver)
+    env = {**os.environ, "ORWELL_KIT": str(kit), "ORWELL_PY": str(driver), "PATH": f"{bindir}:{os.environ['PATH']}", "RIG_ZERO_CLOCKS": "1"}
+    return env, {"run": run, "state": state, "stop": tmp_path / "stop.log", "driver_pid": tmp_path / "driver.pid"}
+
+
+def _alive(pid):
+    try: os.kill(pid, 0)
+    except ProcessLookupError: return False
+    return True
+
+
+@pytest.mark.skipif(not __import__("shutil").which("flock"), reason="needs flock")
+@pytest.mark.parametrize("script,args,sig,rc", [("run_short.sh", [], signal.SIGTERM, 143), ("run_short.sh", [], signal.SIGINT, 130), ("season.sh", [], signal.SIGTERM, 143), ("season_resume.sh", [], signal.SIGTERM, 143)])
+def test_a_cancelled_run_kills_its_children_and_stops_the_rig(tmp_path, script, args, sig, rc):
+    env, p = _stub_rig(tmp_path)
+    if script == "season_resume.sh": (p["run"]).mkdir(); (tmp_path / "ptr").write_text(str(p["run"]) + "\n")
+    proc = subprocess.Popen(["bash", str(LIVE / script), *args], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    try:
+        for _ in range(100):
+            if p["driver_pid"].exists() and p["driver_pid"].read_text().strip() and (script != "run_short.sh" or (p["run"] / "spend.pid").exists()): break
+            time.sleep(0.1)
+        kids = [int(p["driver_pid"].read_text())] + ([int((p["run"] / "spend.pid").read_text())] if script == "run_short.sh" else [])
+        proc.send_signal(sig)  # to the script ONLY, not its process group
+        assert proc.wait(timeout=10) == rc, "the trap fires promptly (a foreground child would delay it) and the script ends"
+        assert p["stop"].exists() and "stopped" in p["stop"].read_text(), "the rig is stopped"
+        time.sleep(0.2)
+        assert not [k for k in kids if _alive(k)], "the driver and the spend guard are both gone"
+    finally:
+        proc.kill()
+        for f in (p["driver_pid"], p["run"] / "spend.pid"):
+            if f.exists():
+                try: os.kill(int(f.read_text()), signal.SIGKILL)
+                except (ProcessLookupError, ValueError): pass
+
+
+@pytest.mark.skipif(not __import__("shutil").which("flock"), reason="needs flock")
+def test_a_capped_run_is_recorded_as_run_so_if_new_does_not_re_spend_the_cap(tmp_path):
+    # the spend guard TERMs the driver: it exits 143 with SPEND-CAP-HIT set. That run happened and spent its cap.
+    env, p = _stub_rig(tmp_path, driver_body=f'touch {tmp_path}/run/SPEND-CAP-HIT; exit 143')
+    r = subprocess.run(["bash", str(LIVE / "run_short.sh"), "--if-new"], env=env, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 4 and "LIVE-SHORT CAPPED abcd1234" in r.stdout, r.stdout + r.stderr
+    assert (p["state"] / "last-sha").read_text().strip() == "abcd1234"
+    again = subprocess.run(["bash", str(LIVE / "run_short.sh"), "--if-new"], env=env, capture_output=True, text=True, timeout=30)
+    assert "SKIPPED abcd1234" in again.stdout
+
+
+@pytest.mark.skipif(not __import__("shutil").which("flock"), reason="needs flock")
+def test_a_run_that_could_not_run_is_not_recorded(tmp_path):
+    env, p = _stub_rig(tmp_path, driver_body="exit 2")
+    r = subprocess.run(["bash", str(LIVE / "run_short.sh")], env=env, capture_output=True, text=True, timeout=30)
+    assert r.returncode == 2 and not (p["state"] / "last-sha").exists()
+
+
+def test_the_resume_takes_the_rig_lock_on_fd_9():
+    assert 'exec 9>"$RIG_LOCK"; flock -n 9 ||' in (LIVE / "season_resume.sh").read_text()  # the whole acquisition line, not any mention of it
+
+
+@pytest.mark.parametrize("text", ["The nomination ceremony is now scheduled for tomorrow.", "The nomination ceremony is now at 5pm tomorrow."])
+def test_later_status_talk_is_not_a_phantom_ceremony(text):
+    assert not ls.PHANTOM_CER_RE.search(text)
+
+
+@pytest.mark.parametrize("text", ["The nomination ceremony is now starting.", "The nomination ceremony is now underway.", "The nomination ceremony begins.", "You're on the block.", "You\u2019re on the block.", "She's now on the block.", "They are on the block."])
+def test_a_definitive_ceremony_reveal_is_a_phantom_ceremony(text):
+    assert ls.PHANTOM_CER_RE.search(text)
+
+
+def test_only_a_real_final_hoh_part_transition_excuses_a_clock_jump():
+    a = _turn("t1", "x", clock="9:00am, Day 9", phase="hoh-competition", phase_before="hoh-competition")
+    moved = _turn("t2", "x", clock="1:00pm, Day 9", phase="hoh-competition", phase_before="hoh-competition", part_before=1, ds={"finalHohPart": 2})
+    same = _turn("t2", "x", clock="1:00pm, Day 9", phase="hoh-competition", phase_before="hoh-competition", part_before=2, ds={"finalHohPart": 2})
+    assert [k for k in _score([a, moved]) if k.startswith("K1-clock-jump-competition")]
+    assert not [k for k in _score([a, same]) if k.startswith("K1-clock-jump-competition")]
+
