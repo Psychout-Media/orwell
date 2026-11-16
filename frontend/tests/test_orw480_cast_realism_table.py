@@ -391,26 +391,61 @@ def test_the_python_style_weight_matches_the_shared_cases_the_typescript_half_ch
 
 
 # ---- ages (a real cast: 12 of 15 at 21 to 28) ----------------------------------------------------------------
-def test_the_final_ages_follow_the_cast_age_curve_whatever_the_writer_proposes():
+REAL_AGES = json.load(open(os.path.join(ROOT, "src", "domain", "castAges.json")))
+
+
+def _real_stats():
+    """The real distribution, from the committed counts: share per decade, and the quantiles of the oldest and youngest per cast."""
+    import statistics
+    total = sum(x["count"] for x in REAL_AGES["strata"])
+    share = {d: sum(x["count"] for x in REAL_AGES["strata"] if min(x["lo"] // 10 * 10, 60) == d) / total for d in (20, 30, 40, 50, 60)}
+    q = lambda v: statistics.quantiles(sorted(v), n=4)
+    return share, q(REAL_AGES["oldest_per_cast"]), q(REAL_AGES["youngest_per_cast_21plus"])
+
+
+def test_the_age_tables_are_the_committed_real_counts_and_the_python_mirror_is_a_byte_copy():
+    from src import orwell_cast_genesis as G
+    assert [(x["lo"], x["hi"], x["count"]) for x in REAL_AGES["strata"]] == list(G.GENESIS_AGE_BANDS)
+    assert open(os.path.join(ROOT, "src", "domain", "castAges.json"), "rb").read() == open(os.path.join(ROOT, "frontend", "src", "cast_ages.json"), "rb").read()
+    assert REAL_AGES["casts"] == 28 and "wikipedia" in REAL_AGES["_sources"].lower() and sum(x["count"] for x in REAL_AGES["strata"]) == REAL_AGES["contestants"] - REAL_AGES["under21_left_out"]
+
+
+def test_over_200_seeded_casts_the_ages_match_the_real_reality_casting_distribution():
+    """Kevin: as realistic as possible. Real casts (Big Brother 11-26, Survivor 36-48): 56 percent in the twenties, 30 in the thirties, 11 in the
+    forties, 3 in the fifties, under 1 in the sixties; the oldest of a cast has quartiles 42 / 47.5 / 54 (range 33-63), the youngest 21 / 21 / 23."""
+    import statistics
     from src import orwell_cast_identity as I
-    for seed in range(40):
-        import random
-        rng = random.Random(seed)
-        cast = [{"id": f"npc:{i}", "age": rng.randint(21, 52)} for i in range(1, 16)]
-        facets = {c["id"]: {"age": rng.choice([21, 22, 22, 23, 24, 25, 26, 28])} for c in cast}   # the writer's favourite twenties
-        out = I.spread_ages(facets, cast)
+    real_share, real_old, real_young = _real_stats()
+    allages, oldest, youngest = [], [], []
+    for seed in range(1, 201):
+        cast = [{"id": f"npc:{i}", "name": f"N{seed}x{i}", "age": 22} for i in range(1, 16)]
+        facets = {c["id"]: {"age": 46 if int(c["id"][4:]) % 2 else 24} for c in cast}  # a writer that proposes edge ages: ignored
+        out = I.spread_ages(facets, cast, seed)
         ages = [out[c["id"]]["age"] for c in cast]
-        assert sum(a <= 26 for a in ages) == 4 and sum(27 <= a <= 33 for a in ages) == 5, ages
-        assert sum(34 <= a <= 45 for a in ages) == 4 and sum(a >= 46 for a in ages) == 2, ages
-        assert min(ages) >= 21 and max(ages) <= 60
+        assert out == I.spread_ages(facets, cast, seed)  # deterministic for a season seed
+        allages += ages
+        oldest.append(max(ages))
+        youngest.append(min(ages))
+    ours = {d: sum(min(a // 10 * 10, 60) == d for a in allages) / len(allages) for d in (20, 30, 40, 50, 60)}
+    for d in (20, 30, 40, 50, 60):
+        assert abs(ours[d] - real_share[d]) <= 0.03, (d, ours[d], real_share[d])  # within three points of the real share
+    our_old = statistics.quantiles(sorted(oldest), n=4)
+    our_young = statistics.quantiles(sorted(youngest), n=4)
+    for o, r in zip(our_old, real_old):
+        assert abs(o - r) <= 4, (our_old, real_old)  # real casts are a little larger (about 17 against 15), so the oldest sits a little higher
+    for o, r in zip(our_young, real_young):
+        assert abs(o - r) <= 1.5, (our_young, real_young)
+    # the oldest person varies cast to cast the way real casts do: forties and fifties, now and then the sixties; nobody under 21
+    assert min(allages) >= 21 and len(set(oldest)) >= 12 and max(oldest) >= 55 and sum(40 <= o <= 59 for o in oldest) >= 100
 
 
-def test_a_proposal_that_fits_the_curve_is_kept_and_no_proposal_changes_nothing():
+def test_without_a_season_seed_the_ages_follow_the_same_distribution_and_a_writer_proposal_never_moves_one():
     from src import orwell_cast_identity as I
-    cast = [{"id": f"npc:{i}", "age": 30} for i in range(1, 16)]
+    cast = [{"id": f"npc:{i}", "name": f"P{i}", "age": 30} for i in range(1, 16)]
+    a = I.spread_ages({"npc:1": {"age": 47, "ethnicity": "x"}}, cast)
+    b = I.spread_ages({"npc:1": {"age": 21, "ethnicity": "x"}}, cast)
+    assert a == b and a["npc:1"]["ethnicity"] == "x" and set(a) == {c["id"] for c in cast}
     assert I.spread_ages({}, cast) == {}
-    out = I.spread_ages({"npc:1": {"age": 24, "ethnicity": "x"}}, cast)
-    assert out["npc:1"]["age"] == 24 and out["npc:1"]["ethnicity"] == "x"
 
 
 # ---- the dealt mark is authoritative (a real cast: "deep dimples" on three cards) ----------------------------

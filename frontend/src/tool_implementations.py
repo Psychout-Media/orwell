@@ -5081,7 +5081,7 @@ async def do_create_character(
                     # #544 — AI-seed the cast's descriptive identity FIRST (engine validates/repairs/folds),
                     # THEN deep-author. Best-effort/fail-soft: no model ⇒ the engine's deterministic floor
                     # stands and `then` still chains authoring (which also degrades gracefully).
-                    orwell_cast_identity.kickoff_identity(cast, owner, then=_author_then_refresh)
+                    orwell_cast_identity.kickoff_identity(cast, owner, then=_author_then_refresh, seed=_cast_seed)
         except Exception:
             pass  # authoring + portraits are augmentation — never let them affect game start
         # #1313 — THE HOUSE-ENTRY GATE (P0): the game must NEVER start on the deterministic FLOOR cast.

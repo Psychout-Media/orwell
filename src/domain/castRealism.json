@@ -1136,7 +1136,7 @@
     "share": 0.2,
     "min": 3
    },
-   "note": "the first colour word of the main piece: no one colour family on more than 3 of 15 (a fifth of the cast)",
+   "note": "the first colour word of the main piece: no one colour family on more than 3 of 15 (a fifth of the cast); colour-any below counts every piece",
    "values": {
     "black-charcoal": {
      "words": [
@@ -1188,7 +1188,9 @@
       "cognac",
       "chestnut",
       "coffee",
-      "mocha"
+      "mocha",
+      "earth tone",
+      "earth-tone"
      ]
     },
     "green": {
@@ -1201,7 +1203,10 @@
       "olive",
       "hunter",
       "army",
-      "fern"
+      "fern",
+      "camo",
+      "camouflage",
+      "mint"
      ]
     },
     "red-pink": {
@@ -1342,10 +1347,10 @@
    "multi": true,
    "cap": {
     "share": 0.0,
-    "min": 1
+    "min": 2
    },
    "fallback": "other",
-   "note": "the one memorable thing about how this person looks or dresses (authored, never dealt): no two cards share a category; a category matched by one signature is taken by that card alone",
+   "note": "the one memorable thing about how this person looks or dresses (authored, never dealt): at most 2 cards share a category (12 categories for a cast of 15, so one each is impossible); the writer is told the kinds still free",
    "values": {
     "hair": {
      "words": [
@@ -1538,6 +1543,58 @@
       "share": 0.0,
       "min": 15
      }
+    }
+   }
+  },
+  "colour-any": {
+   "field": "wardrobe",
+   "multi": true,
+   "cap": {
+    "share": 0.25,
+    "min": 3
+   },
+   "note": "a distinctive colour family (green, red or pink, a bright) in ANY wardrobe piece, not only the main one: no family in the clothes of more than 4 of 15 cards (olive had converged on 5 cards across jackets, hoodie and cargos). Neutrals, browns and blue denim are not counted: boots and jeans are never the problem.",
+   "values": {
+    "green": {
+     "words": [
+      "green",
+      "sage",
+      "moss",
+      "forest",
+      "emerald",
+      "olive",
+      "hunter",
+      "army",
+      "fern",
+      "camo",
+      "camouflage",
+      "mint"
+     ]
+    },
+    "red-pink": {
+     "words": [
+      "red",
+      "burgundy",
+      "maroon",
+      "pink",
+      "coral",
+      "magenta",
+      "crimson"
+     ]
+    },
+    "bright": {
+     "words": [
+      "yellow",
+      "orange",
+      "purple",
+      "lavender",
+      "lilac",
+      "gold",
+      "bold",
+      "neon",
+      "print",
+      "floral"
+     ]
     }
    }
   }

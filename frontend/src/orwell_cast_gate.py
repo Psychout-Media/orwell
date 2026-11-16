@@ -323,7 +323,7 @@ def rewrite_message(codes: list) -> str:
 
 
 _REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "closing-read")  # the room is no longer asked of the writer
-_REALISM_WARDROBE_KINDS = ("garment", "colour", "pattern", "signature", "look-fit")
+_REALISM_WARDROBE_KINDS = ("garment", "colour", "colour-any", "pattern", "signature", "look-fit")
 
 
 def _realism_tags(card: dict) -> dict:
@@ -355,6 +355,7 @@ _REALISM_ASK = {
     "closing-read": lambda v: 'no closing "the one who ..." read',
     "garment": lambda v: f"no {v.replace('-', ' ')} among the pieces",
     "colour": lambda v: f"a main piece that is not in {v.replace('-', ' ')} tones",
+    "colour-any": lambda v: f"less {v.replace('-', ' ')} anywhere in the outfit (another colour for at least two pieces)",
     "pattern": lambda v: ("at least one piece with a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear "
                           "(faded, worn-in), the way people really dress"),
     "signature": lambda v: ("a lookSignature (ONE memorable thing about how they look or dress, drawn from their life, that nobody else in the "
@@ -463,7 +464,18 @@ class SeasonGate:
             for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("photohair_openings", "hair_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
                 if r.get(key) and r[key] not in out[k]:
                     out[k].append(r[key])
-        sigs = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("signature", []) if v != "other"})
+        try:
+            from src import orwell_cast_realism as _R0
+            _cap = _R0.cap_for("signature", "hair", self.n or 15)
+        except Exception:  # failsoft-ok: the table never blocks a card
+            _cap = 2
+        _cnt: dict = {}
+        for o, r in self.registry.items():
+            if o != hid:
+                for v in (r.get("tags") or {}).get("signature", []):
+                    if v != "other":
+                        _cnt[v] = _cnt.get(v, 0) + 1
+        sigs = sorted(v for v, n_ in _cnt.items() if n_ >= _cap)  # only the kinds already FULL are named as taken
         if sigs:
             out["signatures"] = sigs  # signature categories already taken (hair, jewellery, glasses ...)
             try:
@@ -471,7 +483,7 @@ class SeasonGate:
                 out["signatures_free"] = [c for c in _R.signature_categories() if c not in sigs]
             except Exception:  # failsoft-ok: the table never blocks a card
                 pass
-        cols = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("colour", [])})
+        cols = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("colour-any", [])})
         if cols:
             out["colours"] = cols
         return {k: v for k, v in out.items() if v}
@@ -596,21 +608,26 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         return
     new_ident = fresh.get("identityConcept")
     new_phys = fresh.get("physicalCharacteristics")
-    new_cam = new_phys.get("onCamera") if isinstance(new_phys, dict) else None
-    new_wd = new_phys.get("wardrobe") if isinstance(new_phys, dict) else None
-    new_sig = new_phys.get("lookSignature") if isinstance(new_phys, dict) else None
+    # a writer asked for "just the field" often answers with the field at the top level instead of inside physicalCharacteristics: both are read
+    new_phys = {**{k: fresh[k] for k in ("onCamera", "wardrobe", "style", "lookSignature") if k in fresh}, **(new_phys if isinstance(new_phys, dict) else {})}
+    new_cam = new_phys.get("onCamera")
+    new_wd = new_phys.get("wardrobe")
+    if isinstance(new_wd, list) and len(new_wd) > 3 and all(isinstance(x, str) and x.strip() for x in new_wd):
+        new_wd = new_wd[:3]  # four pieces: the main piece and the next two stand
+    new_sig = new_phys.get("lookSignature")
     has_cam = isinstance(new_cam, str) and new_cam.strip()
     has_wd = isinstance(new_wd, list) and 2 <= len(new_wd) <= 3 and all(isinstance(x, str) and x.strip() for x in new_wd)
+    has_sig = isinstance(new_sig, str) and new_sig.strip()
     if "realism-oncamera" in rep and "oncamera" not in rep:
         rep = {**rep, "oncamera": ""}  # the same line answers both asks
     # each repeated field is judged on its own: kept only when the new text passes the whole gate and no longer repeats
     for key, ok in (("identity", isinstance(new_ident, str) and new_ident.strip()),
                     ("identity-name", isinstance(new_ident, str) and new_ident.strip()),
-                    ("oncamera", has_cam), ("realism-wardrobe", has_wd)):
+                    ("oncamera", has_cam), ("realism-wardrobe", has_wd or (has_sig and "signature" in (rep.get("realism-wardrobe") or {})))):
         if key not in rep:
             continue
         if not ok:
-            gate.count([f"rw-no-{key}"])  # the writer's reply carried no usable value for the asked field
+            gate.count([f"rw-no-{key}", "rw-reply-keys:" + "+".join(sorted(str(k) for k in list(fresh)[:6]))])  # the writer's reply carried no usable value for the asked field
             continue
         cand = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
         if key in ("identity", "identity-name"):
@@ -623,11 +640,12 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
             if key == "oncamera":
                 base["onCamera"] = new_cam
             else:
-                base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
-                if isinstance(new_sig, str) and new_sig.strip():
+                if has_wd:
+                    base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
+                if has_sig:
                     base["lookSignature"] = " ".join(new_sig.split())[:90]  # the signature travels with the wardrobe it is carried by
                 new_style = new_phys.get("style") if isinstance(new_phys, dict) else None
-                if "look-fit" in (rep.get("realism-wardrobe") or {}):
+                if has_wd and "look-fit" in (rep.get("realism-wardrobe") or {}):
                     # the style line travels with the clothes it describes: the writer's own line, unless it still names the poor-fit family
                     # (or is missing), then the pieces themselves in plain words
                     plain = ", ".join(" ".join(x.split()).lower() for x in new_wd)

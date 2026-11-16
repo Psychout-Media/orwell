@@ -183,54 +183,48 @@ def parse_identity_facets(text: str, valid_ids: set[str]) -> dict:
     return out
 
 
-# ORW-480: the writer's favourite ages crowd the early twenties (12 of 15 houseguests at 21 to 28 in a real cast). The identity step may propose
-# an age, but the cast's FINAL ages follow the real-world curve the genesis deal already uses (GENESIS_AGE_BANDS: four at 21-26, five at
-# 27-33, four at 34-45, two at 46-60 for a cast of 15): a proposal stays when its band has room; otherwise the houseguest takes a
-# deterministic age in the emptiest band. Ages of houseguests with no proposal count at their seeded age.
-_AGE_CURVE = ((21, 26, 4), (27, 33, 5), (34, 45, 4), (46, 60, 2))
+# ORW-480: ages come from the REAL age distribution of reality-competition casts (cast_ages.json: American Big Brother 11-26 and Survivor
+# 36-39, 41-48, 465 contestants aged 21+), not from the writer. The identity writer's favourite ages (twenties, then 46 and 47 at the floor of
+# an old band) are ignored. Each houseguest takes the stratum the genesis deal already dealt that slot (the same stratum the name era was
+# chosen from) and an age drawn uniformly inside it from a stream seeded by the season seed; without a seed (tests, a cast of unknown
+# origin) the strata are drawn at the real frequencies from a stream seeded by the cast itself. Nothing is pulled toward a band edge.
 
 
-def spread_ages(facets: dict, cast: list) -> dict:
-    """Return `facets` with every age made to fit the cast's age curve (see `_AGE_CURVE`). Pure and deterministic."""
+def _age_strata() -> list:
+    """[(lo, hi, count)] strata of the real distribution (the genesis table, which a test pins to cast_ages.json)."""
+    from src.orwell_cast_genesis import GENESIS_AGE_BANDS
+    return list(GENESIS_AGE_BANDS)
+
+
+def spread_ages(facets: dict, cast: list, seed=None) -> dict:
+    """Return `facets` with every houseguest's age dealt from the real distribution (see above). Pure and deterministic."""
+    import random
+    import zlib
     ids = [str(n.get("id")) for n in (cast or []) if n.get("id") and n.get("id") != "player"]
     if not ids or not facets:
         return facets
-    n = len(ids)
-    total = sum(c for _, _, c in _AGE_CURVE)
-    caps = [max(0, round(c / total * n)) for _, _, c in _AGE_CURVE]
-    while sum(caps) < n:
-        caps[1] += 1
-    while sum(caps) > n:
-        caps[caps.index(max(caps))] -= 1
-    floor = {str(x.get("id")): x.get("age") for x in cast if isinstance(x.get("age"), (int, float))}
-
-    def band(a: int) -> int:
-        for i, (lo, hi, _) in enumerate(_AGE_CURVE):
-            if a <= hi:
-                return i
-        return len(_AGE_CURVE) - 1
-    want = {h: int((facets.get(h) or {}).get("age") or floor.get(h) or 0) for h in ids}
-    fill = [0] * len(_AGE_CURVE)
-    final: dict = {}
-    for h in ids:  # keep what fits, in roster order
-        a = want[h]
-        if a >= _AGE_CURVE[0][0] and fill[band(a)] < caps[band(a)]:
-            fill[band(a)] += 1
-            final[h] = a
-    for h in ids:  # the rest go to the emptiest band, at a deterministic age inside it
-        if h in final:
-            continue
-        if h not in facets and want[h]:
-            continue  # a houseguest with no proposal keeps the seeded age (it still counts toward its band above)
-        room = [i for i in range(len(caps)) if fill[i] < caps[i]] or list(range(len(caps)))
-        i = max(room, key=lambda k: (caps[k] - fill[k], -k))
-        lo, hi, _ = _AGE_CURVE[i]
-        final[h] = lo + (sum(ord(c) for c in h) % (hi - lo + 1))
-        fill[i] += 1
+    strata = _age_strata()
+    if seed is not None:
+        from src.orwell_cast_genesis import assign_genesis_slots
+        slots = assign_genesis_slots(int(seed), len(ids))
+        bands = [(int(sl["ageLo"]), int(sl["ageHi"])) for sl in slots]
+        key = f"{int(seed)}:identity:ages"
+    else:
+        key = "|".join(f"{n.get('id')}:{n.get('name')}:{n.get('age')}" for n in (cast or []))
+        brng = random.Random(zlib.crc32((key + ":strata").encode("utf-8")))
+        total = sum(c for _, _, c in strata)
+        bands = []
+        for _ in ids:
+            r = brng.randrange(total)
+            for lo, hi, c in strata:
+                r -= c
+                if r < 0:
+                    bands.append((lo, hi))
+                    break
+    rng = random.Random(zlib.crc32(key.encode("utf-8")))
     out = {h: dict(v) for h, v in facets.items()}
-    for h, a in final.items():
-        if h in out and (a != want[h] or "age" in out[h]):
-            out[h]["age"] = a
+    for h, (lo, hi) in zip(ids, bands):
+        out.setdefault(h, {})["age"] = rng.randint(lo, hi)
     return out
 
 
@@ -240,7 +234,7 @@ LlmFn = Callable[[list[dict]], Awaitable[str]]
 WriteFn = Callable[[dict], Awaitable[dict]]
 
 
-async def seed_cast_identity(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn) -> int:
+async def seed_cast_identity(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn, seed=None) -> int:
     """Propose the WHOLE cast's identity in ONE call → parse → write back (recordCastIdentity). Best-effort:
     any failure leaves the engine's deterministic weighted floor in place (graceful degradation). Returns
     how many houseguests had a facet applied (per the engine's Vault-free ``applied`` count), or 0.
@@ -257,7 +251,7 @@ async def seed_cast_identity(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn)
         logger.warning(f"[cast-identity] llm failed: {e}")
         return 0
     facets = parse_identity_facets(text or "", valid_ids)
-    facets = spread_ages(facets, cast)  # ORW-480: the final ages follow the cast age curve, not the writer's favourite twenties
+    facets = spread_ages(facets, cast, seed)  # ORW-480: the final ages come from the real age distribution, not from the writer
     if not facets:
         logger.debug("[cast-identity] nothing usable proposed — keeping the seeded floor")
         return 0
@@ -289,7 +283,7 @@ async def _resolve_llm_fn(owner: Optional[str]) -> Optional[LlmFn]:
 
 
 async def run_identity(cast: list[dict], owner: Optional[str], *,
-                       write: Optional[WriteFn] = None) -> int:
+                       write: Optional[WriteFn] = None, seed=None) -> int:
     """Resolve the live deps and seed the cast's identity. Under the `soft` enrichment policy a
     missing model / failed seed is the legacy silent no-op (returns 0) — the engine's deterministic
     floor stands byte-identically. Under the DEFAULT `strict` policy (owner directive 2026-07-11)
@@ -315,7 +309,7 @@ async def run_identity(cast: list[dict], owner: Optional[str], *,
     async def _write(facets: dict) -> dict:
         return await orwell_engine.record_cast_identity(facets, user=owner)
 
-    applied = await seed_cast_identity(cast, llm_fn, write or _write)
+    applied = await seed_cast_identity(cast, llm_fn, write or _write, seed)
     # STRICT: a run that seeded NOTHING (llm failure / nothing usable / refused write-back — all
     # already logged inside seed_cast_identity) is ledgered loudly. Soft: byte-identical legacy.
     if strict and not applied and cast:
@@ -327,7 +321,7 @@ async def run_identity(cast: list[dict], owner: Optional[str], *,
 
 def kickoff_identity(cast: list[dict], owner: Optional[str],
                      then: Optional[Callable[[], None]] = None,
-                     write: Optional[WriteFn] = None) -> None:
+                     write: Optional[WriteFn] = None, seed=None) -> None:
     """Fire-and-forget: seed the cast's AI-driven identity in the background BEFORE deep authoring (so the
     authored look + secrets read the AI-seeded heritage, and the engine has re-grounded skin tone), then
     call `then` (e.g. the authoring kickoff) REGARDLESS of success — so authoring + portraits still run from
@@ -339,7 +333,7 @@ def kickoff_identity(cast: list[dict], owner: Optional[str],
 
     async def _runner():
         try:
-            await run_identity(cast, owner, write=write)
+            await run_identity(cast, owner, write=write, seed=seed)
         except Exception as e:  # pragma: no cover - defensive
             # #1599: run_identity records its OWN failures + never expects to raise; if it DID
             # (an un-wrapped resolver raise), the whole cast-identity seed silently degraded with

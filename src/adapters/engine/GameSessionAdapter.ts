@@ -15580,8 +15580,12 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-369: look-only write-back (wardrobe + onCamera + photoHair for one existing houseguest); see the port. */
   recordLookExtras(req: RecordLookExtrasReq): RecordLookExtrasResult {
-    if (!this.house) return { accepted: false, fields: [], reason: "no-game" };
-    const target = this.house.npcs.find((n) => n.id === req.houseguestId);
+    // ORW-480: a new cast is authored BEFORE the season starts, on the pre-warmed cast (the same store recordCastProfile writes to), so the look
+    // write-back (the photo-sheet de-duplication and the cast-level look pass) must reach that store too; before, it answered "no-game" and
+    // every pre-game look rewrite was silently dropped.
+    const npcs = this.house ? this.house.npcs : this.prewarm ? this.prewarm.npcs : null;
+    if (!npcs) return { accepted: false, fields: [], reason: "no-game" };
+    const target = npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, fields: [], reason: "unknown-houseguest" };
     const prior = target.character.physicalCharacteristics;
     if (prior === undefined) return { accepted: false, fields: [], reason: "no-physical-facet" };
@@ -15592,7 +15596,7 @@ export class GameSessionAdapter implements GameSession {
     const LOOK_KEYS = ["wardrobe", "onCamera", "photoHair", "lookSignature"] as const;
     const clear = (Array.isArray(req.clear) ? req.clear : []).filter((c): c is typeof LOOK_KEYS[number] => (LOOK_KEYS as readonly string[]).includes(c));
     if (wardrobe === undefined && onCamera === undefined && photoHair === undefined && lookSignature === undefined && clear.length === 0) return { accepted: false, fields: [], reason: "nothing-valid" };
-    const playerName = (this.house.player.name ?? "").trim();
+    const playerName = (this.house ? (this.house.player.name ?? "") : (this.intake.playerName ?? "")).trim();
     const text = `${(wardrobe ?? []).join(" ")} ${onCamera ?? ""} ${photoHair ?? ""} ${lookSignature ?? ""}`.toLowerCase();
     if (playerName.length >= 3 && text.includes(playerName.toLowerCase())) return { accepted: false, fields: [], reason: "mirrors-player" };
     // The same closed-facet (ink) guard recordCastProfile runs: a field that introduces an un-granted dimension reverts to the prior (absent) value.
@@ -15611,7 +15615,8 @@ export class GameSessionAdapter implements GameSession {
     }
     if (fields.length === 0 && cleared.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
     target.character.physicalCharacteristics = next; // only the look keys differ; appearance / every other field untouched
-    this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    if (this.house) this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
+    else this.persist(); // the pre-game store: durable like recordCastProfile's pre-game write
     return { accepted: true, fields, ...(cleared.length > 0 ? { cleared } : {}) };
   }
 

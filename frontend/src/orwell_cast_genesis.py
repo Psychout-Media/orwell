@@ -270,7 +270,10 @@ GENESIS_LOOK_FEATURES = (
 )
 
 # The seeded AGE curve (owner casting-craft upgrade) — mirror of GENESIS_AGE_BANDS: [lo, hi, count].
-GENESIS_AGE_BANDS = ((21, 26, 4), (27, 33, 5), (34, 45, 4), (46, 60, 2))
+# ORW-480: the REAL age distribution of reality-competition casts (counts per stratum from cast_ages.json: American Big Brother 11-26 and
+# Survivor 36-39, 41-48, 465 contestants aged 21+). Each slot draws its stratum independently at these frequencies; mirror of the TS table.
+GENESIS_AGE_BANDS = ((21, 23, 61), (24, 26, 108), (27, 29, 90), (30, 32, 73), (33, 35, 38), (36, 39, 28), (40, 44, 31), (45, 49, 19),
+                     (50, 54, 10), (55, 59, 5), (60, 70, 2))
 
 # The CASTING-ROLE vocabulary + quota — mirror of GENESIS_CASTING_ROLES. Each: (role, archetype, cerebral,
 # physical, note). `archetype` maps the rich role to one of the 12 mechanical archetype tags the engine
@@ -413,15 +416,17 @@ def _build_casting_plan(rng: "_Mulberry32", count: int) -> list:
 def _build_age_plan(rng: "_Mulberry32", count: int) -> list:
     """Build the seeded AGE plan — the real-world cast age curve, one (lo, hi) per slot, shuffled. Mirrors
     the engine's buildAgePlan."""
+    total = sum(b[2] for b in GENESIS_AGE_BANDS)
     bands = []
-    base_total = sum(b[2] for b in GENESIS_AGE_BANDS)
-    for lo, hi, cnt in GENESIS_AGE_BANDS:
-        n = max(0, round((cnt / base_total) * count))
-        bands.extend([(lo, hi)] * n)
-    while len(bands) < count:
-        bands.append((GENESIS_AGE_BANDS[0][0], GENESIS_AGE_BANDS[0][1]))
-    bands = bands[:count]
-    _seeded_shuffle(bands, rng)
+    for _ in range(count):
+        r = rng.int(total)
+        pick = GENESIS_AGE_BANDS[-1]
+        for b in GENESIS_AGE_BANDS:
+            r -= b[2]
+            if r < 0:
+                pick = b
+                break
+        bands.append((pick[0], pick[1]))
     return bands
 
 

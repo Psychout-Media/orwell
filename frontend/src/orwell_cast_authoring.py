@@ -2062,14 +2062,15 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
     for item in flagged:
         if isinstance(item, dict):
             add(str(item.get("id")), f'"{str(item.get("piece") or "")[:80]}" does not fit this life ({str(item.get("why") or "")[:120]})')
-    held: dict = {}
+    held: dict = {}  # category -> the cards holding it
+    cap = _R.cap_for("signature", "hair", len(by_id))
     for hid, c in by_id.items():
         if _sig(c):
             for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": _sig(c)}}).get("signature", []):
                 if cat != "other":
-                    if cat in held:
-                        add(hid, f"its signature is about {cat}, which another card already has")
-                    held.setdefault(cat, hid)
+                    if len(held.get(cat, [])) >= cap:
+                        add(hid, f"its signature is about {cat}, which {cap} other cards already have")
+                    held.setdefault(cat, []).append(hid)
     for hid, c in by_id.items():
         if not _sig(c):
             add(hid, "it has no lookSignature")
@@ -2078,7 +2079,7 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
     for hid, reason in jobs:
         card = by_id[hid]
         phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
-        free = [c for c in _R.signature_categories() if c not in held or held[c] == hid]
+        free = [c for c in _R.signature_categories() if len([h for h in held.get(c, []) if h != hid]) < cap]
         ask = (f"A casting director found a problem with this look: {reason}. " + FIT_AUDIT_RULE
                + " Rewrite the wardrobe (2-3 pieces, one garment each; keep the current one when it is fine) and the lookSignature (ONE memorable thing about "
                f"how they look or dress, from their own life; its kind must be one of: {', '.join(free)}). "
@@ -2093,10 +2094,12 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
             sig = fresh.get("lookSignature")
             if isinstance(sig, str) and sig.strip() and ("signature" in reason.lower() or "wardrobe" in new):
                 cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
-                if not any(c in held and held[c] != hid for c in cats):
+                if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
                     new["lookSignature"] = " ".join(sig.split())[:90]
             if not new:
-                logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable")
+                logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, "
+                            f"wardrobe pieces={len(wd)}, signature kinds={[c for c in _R.tag_card({'physicalCharacteristics': {'lookSignature': str(fresh.get('lookSignature') or '')}}).get('signature', []) if c != 'other']}, "
+                            f"reason={reason.split(',')[0][:40]})")
                 continue
             cand = {**card, "physicalCharacteristics": {**phys, **new}}
             bad = [c for c in look_problems(cand, card) if c != "style-wrong-family"]
@@ -2105,10 +2108,12 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
                 logger.info(f"[fit-audit] rewrite for {hid} rejected: {','.join(bad + fit)}")
                 continue
             res = await write_look_fn(hid, new)
+            if not (isinstance(res, dict) and res.get("accepted")):
+                logger.info(f"[fit-audit] write for {hid} not accepted: {(res or {}).get('reason') if isinstance(res, dict) else type(res).__name__}")
             if isinstance(res, dict) and res.get("accepted"):
                 card["physicalCharacteristics"] = cand["physicalCharacteristics"]
                 for cat in _R.tag_card({"physicalCharacteristics": {"lookSignature": new.get("lookSignature", "")}}).get("signature", []):
-                    held.setdefault(cat, hid)
+                    held.setdefault(cat, []).append(hid)
                 done += 1
                 logger.info(f"[fit-audit] look rewritten for {hid} ({','.join(new)})")
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original look stands)

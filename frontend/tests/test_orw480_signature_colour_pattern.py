@@ -24,14 +24,18 @@ def test_the_signature_kinds_tag_what_a_friend_would_say():
     assert tag("") is None
 
 
-def test_a_later_card_with_a_taken_signature_category_is_asked_for_a_different_one():
+def test_a_later_card_with_a_full_signature_category_is_asked_for_a_different_one():
     g = G.SeasonGate("u"); g.n = 15; g.want_signature = True
-    a, b = _card(1, ["grey sweatshirt", "jeans"], "a long single braid"), _card(2, ["grey polo", "chinos"], "a braided ponytail")
-    assert "signature" not in g.repeats("npc:1", {}, a, [a, b]).get("realism-wardrobe", {})
-    g.accept("npc:1", {}, a, [a, b])
-    assert g.repeats("npc:2", {}, b, [a, b])["realism-wardrobe"]["signature"] == ["hair"]
-    assert "hair" in G.repetition_message(g.repeats("npc:2", {}, b, [a, b]), g.taken_phrases("npc:2"))
-    assert g.taken_phrases("npc:2")["signatures"] == ["hair"]
+    a1, a2, b = (_card(1, ["grey sweatshirt", "jeans"], "a long single braid"), _card(2, ["grey polo", "chinos"], "a bleached buzz cut"),
+                 _card(3, ["rust flannel", "canvas pants"], "a braided ponytail"))
+    cast = [a1, a2, b]
+    g.accept("npc:1", {}, a1, cast)
+    assert "signature" not in g.repeats("npc:3", {}, b, cast).get("realism-wardrobe", {})  # two of a kind are allowed
+    g.accept("npc:2", {}, a2, cast)
+    assert g.repeats("npc:3", {}, b, cast)["realism-wardrobe"]["signature"] == ["hair"]
+    taken = g.taken_phrases("npc:3")
+    assert taken["signatures"] == ["hair"] and "hair" not in taken["signatures_free"] and "jewellery" in taken["signatures_free"]
+    assert "hair" in G.repetition_message(g.repeats("npc:3", {}, b, cast), taken) and "still free" in G.repetition_message(g.repeats("npc:3", {}, b, cast), taken)
 
 
 def test_a_missing_signature_is_asked_only_in_a_real_cast_run():
@@ -106,6 +110,7 @@ def _run(second_sig, rewrite, second_wardrobe=None):
     cast = [a, b]
     loop = asyncio.new_event_loop()
     loop.run_until_complete(G.run_gate(g, _profile("Namea", "A welder who fixes boats and hums.", "a long single braid", ["navy hoodie", "dark jeans"]), a, cast, None))
+    g.registry["npc:0"] = {"tags": {"signature": ["hair"]}}  # a second hair signature: the category is full
 
     async def rw(npc, codes, message=None):
         return rewrite
@@ -216,3 +221,24 @@ def test_family_worn_is_read_from_the_style_line_and_a_look_fit_rewrite_replaces
     assert "family-worn" in R.look_fits_life(card)
     card["physicalCharacteristics"]["style"] = "wool trousers, an ivory blouse"
     assert "family-worn" not in R.look_fits_life(card)
+
+
+def test_olive_in_any_piece_counts_against_the_colour_cap_not_only_the_main_piece():
+    cast = [_card(i, ["grey sweatshirt", "olive cargo pants"]) for i in range(1, 8)]
+    g = G.SeasonGate("u"); g.n = 15
+    asked = []
+    for c in cast:
+        asked.append("colour-any" in g.repeats(c["id"], {}, c, cast).get("realism-wardrobe", {}))
+        g.accept(c["id"], {}, c, cast)
+    assert R.cap_for("colour-any", "green", 15) == 4 and asked == [False] * 4 + [True] * 3
+    assert R.tag_card(_card(1, ["black tee", "camo field jacket"]))["colour-any"] == ["green"]
+    assert "colour-any" not in R.tag_card(_card(1, ["brown leather boots", "blue jeans"]))  # browns and denim are not the problem
+
+
+def test_a_rewrite_answered_at_the_top_level_or_with_only_the_signature_is_read():
+    # a writer asked for "just the field" often drops the physicalCharacteristics wrapper
+    pc = _run("a braided ponytail", {"wardrobe": ["mustard corduroy overshirt", "faded black jeans"], "lookSignature": "a shell necklace"})
+    assert pc["wardrobe"][0].startswith("mustard") and pc["lookSignature"] == "a shell necklace"
+    # a signature-only ask is answered by a signature-only reply (the clothes stay)
+    pc = _run("a braided ponytail", {"lookSignature": "a plain field watch"}, ["rust flannel", "dark jeans"])
+    assert pc["wardrobe"][0] == "rust flannel" and pc["lookSignature"] == "a plain field watch"

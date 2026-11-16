@@ -179,4 +179,16 @@ describe("ORW-437 recordCastProfile keeps what it omits, and renames the prose w
     expect(sb.session.recordLookExtras({ houseguestId: id, clear: ["lookSignature"] })).toEqual({ accepted: true, fields: [], cleared: ["lookSignature"] });
     expect((npc().character.physicalCharacteristics as { lookSignature?: string }).lookSignature).toBeUndefined();
   });
+
+  it("ORW-480: a look write-back lands on the PRE-WARMED cast before the season starts (it answered no-game, so every pre-game look rewrite was dropped)", () => {
+    const a = new GameSessionAdapter();
+    const warm = a.preSeedCast({ seed: 4242 });
+    const id = warm.house[0]!.id;
+    expect(a.recordLookExtras({ houseguestId: id, wardrobe: ["a rust flannel shirt", "canvas work pants"], lookSignature: "a shell necklace" }))
+      .toEqual({ accepted: true, fields: ["wardrobe", "lookSignature"] });
+    const after = a.preSeedCast({ seed: 4242 });
+    expect(after.house.length).toBe(warm.house.length);
+    expect(a.recordLookExtras({ houseguestId: "npc:999", wardrobe: ["a shirt", "jeans"] })).toEqual({ accepted: false, fields: [], reason: "unknown-houseguest" });
+    expect(new GameSessionAdapter().recordLookExtras({ houseguestId: id, wardrobe: ["a shirt", "jeans"] })).toEqual({ accepted: false, fields: [], reason: "no-game" });
+  });
 });
