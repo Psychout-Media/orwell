@@ -772,8 +772,9 @@ def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
     return steer
 
 
-def _hang_out_steer(res: dict) -> str:
-    """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them)."""
+def _hang_out_steer(res: dict, asked_minutes=None) -> str:
+    """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them).
+    ORW-477: `asked_minutes` is the length the player stated; when the engine stopped earlier on an interruption, the steer says the wait was cut short (the engine's own minutes, never the stated span)."""
     reason = str(res.get("stopReason") or "max-beats")
     d = res.get("detail") or {}
     by = {"diary-room": " to the Diary Room", "production": " by production"}.get(str(d.get("by") or ""), "")
@@ -783,8 +784,11 @@ def _hang_out_steer(res: dict) -> str:
     shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
     if shown:
         line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
-    return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. "
-            "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % (mins, line))
+    cut = ""
+    if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins < asked_minutes:
+        cut = ("The wait was CUT SHORT: the player asked to wait about %d minutes but only about %d passed. Say plainly that the wait was interrupted; do NOT claim the full time went by. " % (asked_minutes, mins))
+    return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. " % mins
+            + cut + "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % line)
 
 
 async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
@@ -804,7 +808,7 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
         _refresh_beat_seq(user, res)
         if not isinstance(res, dict) or not res.get("ok"):
             return False
-        _HANGOUT_STEER[_runway_key(user)] = _hang_out_steer(res)
+        _HANGOUT_STEER[_runway_key(user)] = _hang_out_steer(res, _mins)
         return True
     except Exception as e:  # never blocks a turn
         logger.warning("[orwell] hang-out skipped for user=%s: %s", user, e)
