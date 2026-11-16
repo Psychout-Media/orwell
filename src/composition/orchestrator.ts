@@ -496,12 +496,7 @@ export class Orchestrator {
     // Only for a game a person is PLAYING: `live.playedGame` (ORW-281 slice 5: the one played-game flag) is set once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
     // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
     const sess = this.registry.sandboxFor(user).session;
-    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) {
-      const hourComp = sess.inGameHour();
-      if (hourComp !== undefined) this.lastSocietyTickHour.set(user, hourComp); // the social-turn debounce reads this one: the comp's hours are not elapsed time either
-      this.noteTickAbs(user, sess); // review of ORW-256: the time inside the comp is covered by it, so the next tick must not count it again as elapsed
-      return;
-    }
+    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) return;
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;
