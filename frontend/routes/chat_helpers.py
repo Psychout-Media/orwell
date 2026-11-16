@@ -606,55 +606,138 @@ _PRODUCTION_HOLD_CAP = 150
 _HANGOUT_STEER: dict = {}
 # ORW-445: a wait length the player STATED in their own words ("a couple of hours", "an hour", "half an hour", "45 minutes"). Parsed FE-side into a hangOut target (minutes);
 # the engine stops at the EARLIER of it and its usual stop reasons and hard-caps at 3 h. No stated duration => no target => the hang-out runs exactly as before.
-_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40, "forty-five": 45, "sixty": 60}
-_NUM_PAT = r"(?:\d+|" + "|".join(sorted((re.escape(w) for w in _NUM_WORDS), key=len, reverse=True)) + r")"
+_WAIT_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40, "forty-five": 45, "sixty": 60, "ninety": 90}
+_WAIT_NUM_PAT = r"(?:\d+(?:\.\d+)?|" + "|".join(sorted((re.escape(w) for w in _WAIT_NUM_WORDS), key=len, reverse=True)) + r")"
+# ORW-477: own names: a later module-level `_NUM_WORDS` (the cast-size words) shadowed this table, so "ten", "fifteen" and "forty-five" parsed as no duration. The duration family: "another N hours", "N and a half hours", "a couple of / a few (more) hours", "half an hour", "an hour (and a half)", "N minutes".
 _STATED_DURATION_PAT = (
-    r"(?:an?\s+hour\s+and\s+a\s+half|half\s+an?\s+hour|(?:an?|another|one)\s+(?:more\s+)?hour|(?:an?\s+)?(?:couple|few)(?:\s+of)?(?:\s+more)?\s+hours|"
-    + _NUM_PAT + r"(?:\s+more)?\s+(?:hours?|hrs?|minutes?|mins?))"
+    r"(?:(?:an?|another)\s+hour\s+and\s+a\s+half|half\s+an?\s+hour|" + _WAIT_NUM_PAT + r"\s+and\s+a\s+half\s+hours?|"
+    r"(?:another\s+)?(?:an?\s+)?(?:couple|few)(?:\s+of)?(?:\s+more)?\s+(?:hours|minutes)|"
+    r"(?:another\s+)?" + _WAIT_NUM_PAT + r"(?:\s+more)?(?:\s+(?:hours?|hrs?|minutes?|mins?)|\s*h)|"
+    r"(?:an?|another|one)\s+(?:more\s+)?hour)"
 )
 _STATED_DURATION_RE = re.compile(_STATED_DURATION_PAT, re.IGNORECASE)
 _REST_OF_BAND_RE = re.compile(r"\bthe\s+rest\s+of\s+the\s+(?:morning|afternoon|evening)\b", re.IGNORECASE)
 HANGOUT_STATED_CAP_MINUTES = 180  # mirrors HANGOUT.maxStatedMinutes (src/engine/hangOut.ts); the engine enforces it too
 
 
+def _stated_minutes(t: str) -> int:
+    """Minutes a matched duration phrase states (0 when none). Order matters: the halves first, then couple/few, then a number, then "an hour"."""
+    t = t.lower()
+    if re.search(r"hour\s+and\s+a\s+half", t):
+        return 90
+    if re.search(r"half\s+an?\s+hour", t):
+        return 30
+    n = re.search(r"(" + _WAIT_NUM_PAT + r")\s+and\s+a\s+half\s+hours?", t)
+    if n:
+        w = n.group(1)
+        return (int(w) if w.isdigit() else _WAIT_NUM_WORDS.get(w, 0)) * 60 + 30
+    mins_unit = bool(re.search(r"\bmin", t))
+    if re.search(r"couple", t):
+        return 2 if mins_unit else 120
+    if re.search(r"\bfew\b", t):
+        return 5 if mins_unit else 180
+    n = re.search(r"(" + _WAIT_NUM_PAT + r")(?:\s+more)?(?:\s+(hours?|hrs?|minutes?|mins?)|\s*(h))", t)
+    if n:
+        w = n.group(1)
+        val = float(w) if re.fullmatch(r"\d+(?:\.\d+)?", w) else _WAIT_NUM_WORDS.get(w, 0)
+        return int(round(val * (1 if (n.group(2) or "").startswith("min") else 60)))
+    # "an hour or two" states its first number: an hour.
+    return 60 if re.search(r"\bhour\b", t) else 0
+
+
 def parse_stated_wait(player_msg) -> tuple:
-    """ORW-445: (max_minutes | None, until_band_end) from the wait phrase in the player's message. The player's own words only; (None, False) when no duration is stated."""
-    m = _HANGOUT_INTENT_RE.search(str(player_msg or ""))
+    """ORW-445/477: (max_minutes | None, until_band_end) from the wait phrase in the player's message. The player's own words only; (None, False) when no duration is stated or the sentence is not the player's own wait."""
+    text = str(player_msg or "")
+    m = _wait_intent_match(text)
     if not m:
         return (None, False)
     span = m.group(0).lower()
     # Review of #2772: the match span ends at "until"/"till", so "hang out until the rest of the afternoon" lost its band; test the message from the intent on.
-    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(str(player_msg)[m.start():]):
+    # Cubic on main: scan only the intent's OWN sentence (stop at . ? ! or a newline), never a later one.
+    _tail = text[m.start():]
+    _end = [i for i in (_tail.find(c) for c in ".?!\n") if i >= 0]
+    _own = _tail[:min(_end) + 1] if _end else _tail
+    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(_own):
         return (None, True)
     d = _STATED_DURATION_RE.search(span)
     if not d:
         return (None, False)
-    t = d.group(0)
-    if re.match(r"an?\s+hour\s+and\s+a\s+half", t):
-        mins = 90
-    elif t.startswith("half"):
-        mins = 30
-    elif re.search(r"couple", t):
-        mins = 120
-    elif re.search(r"few", t):
-        mins = 180
-    else:
-        n = re.match(r"(\d+|[a-z-]+)", t)
-        if re.match(r"(?:an?|another|one)\s+(?:more\s+)?hour", t):
-            mins = 60
-        else:
-            word = n.group(1) if n else ""
-            val = int(word) if word.isdigit() else _NUM_WORDS.get(word, 0)
-            mins = val * (1 if re.search(r"min", t) else 60)
+    mins = _stated_minutes(d.group(0))
     if mins <= 0:
         return (None, False)
     return (min(mins, HANGOUT_STATED_CAP_MINUTES), False)
 
 
+# The wait verbs. A: the original "hang out / wait / chill ... until X / for <time>" shape, now with the stay / sit / linger family too.
+_WAIT_VERBS = (
+    r"(?:hang(?:ing)?\s+out|hang\s+around|chill(?:ing)?|kick\s+back|lounge(?:\s+around)?|relax|socialize|mingle|pass\s+the\s+time|kill\s+(?:some\s+)?time|wait(?:\s+around)?|take\s+it\s+easy|"
+    r"stay\s+(?:put|here|there|around)|sit\s+(?:tight|here|around)|stick\s+around|linger|remain\s+here)"
+)
 _HANGOUT_INTENT_RE = re.compile(
-    r"\b(?:hang(?:ing)?\s+out|chill(?:ing)?|kick\s+back|lounge(?:\s+around)?|relax|socialize|mingle|pass\s+the\s+time|kill\s+(?:some\s+)?time|wait(?:\s+around)?|take\s+it\s+easy)\b"
+    r"\b" + _WAIT_VERBS + r"\b"
     r"[^.?!\n]{0,60}?\b(?:until|till|'til|til|for\s+(?:a\s+(?:while|bit|few\s+hours)|some\s+time|the\s+(?:afternoon|rest\s+of\s+the\s+(?:morning|day))|" + _STATED_DURATION_PAT + r"|the\s+rest\s+of\s+the\s+(?:afternoon|evening)))\b",
     re.IGNORECASE)
+# B (ORW-477): a wait verb carrying a stated duration with no "until"/"for" frame ("I wait a couple of hours", "stay put for another three hours"): the verb, a few filler words, the duration or a part-of-day.
+_WAIT_FILLER = (r"here|there|around|put|tight|still|back|quietly|patiently|just|for|about|roughly|approximately|maybe|probably|at|least|in|the|a|my|our|living|room|house|kitchen|backyard|bedroom|couch|garden|yard|lounge|"
+                r"by|pool|with|them|everyone|everybody|out|inside|outside|and")
+_STATED_WAIT_RE = re.compile(
+    r"\b(?:wait|stay(?:\s+put)?|sit(?:\s+tight)?|linger|remain|stick\s+around|hang\s+(?:around|back))\b(?:\s+(?:" + _WAIT_FILLER + r")){0,5}?\s+(?:for\s+)?"
+    r"(?:" + _STATED_DURATION_PAT + r"|the\s+rest\s+of\s+the\s+(?:morning|afternoon|evening))\b",
+    re.IGNORECASE)
+# ORW-477: sentences that are NOT the player's own wait: reported or past speech, a question, a negation, somebody else's wait. Read on the clause before the verb and the sentence after it.
+_NOT_MINE_BEFORE_RE = re.compile(
+    r"\b(?:been|said|says|saying|told|tells|asked|asks|thought|heard|wondered|if|whether|because|had|was|were|he|she|they|someone|somebody|nobody|not|never|without|tell|ask|say|order|you|your)\b|n['’]t\b|"
+    r"^\s*(?:should|could|would|can|do|does|did|will|shall|may|might|why|how|what|where|who|is|are|am|has|have)\b",
+    re.IGNORECASE)
+_NOT_MINE_AFTER_RE = re.compile(r"\b(?:he|she|they)\s+(?:said|says|told|asked|replied|whispered|shouted)\b", re.IGNORECASE)
+_CLAUSE_SPLIT_RE = re.compile(r"[.?!\n;]|\b(?:and|but|then|so)\b", re.IGNORECASE)
+
+
+_DISCOURSE_OPENERS = frozenset({"fine", "okay", "ok", "well", "so", "right", "alright", "sure", "yes", "yeah", "no", "hmm", "look", "actually", "honestly", "anyway", "ugh", "then", "now", "please"})
+# A name or other address then a comma, with nothing between it and the wait verb ("Alex, stay put for a few hours"): the line is addressed to somebody else.
+_VOCATIVE_ONLY_RE = re.compile(r"^\s*(?:(?:hey|hi|yo|hello|okay|ok|so)\s+)?([A-Za-z'-]+)(?:\s+[A-Za-z'-]+)?\s*,\s*(?:(?:please|now|just|ok|okay)\s+)*$", re.IGNORECASE)
+_FIRST_PERSON_RE = re.compile(r"\b(?:i|we|let's|i'll|i'm|we'll|i'd|we're)\b", re.IGNORECASE)
+_WAIT_FOR_OTHER_RE = re.compile(r"^wait(?:\s+around)?\s+for\s+(?:me|us|you|him|her|them)\b", re.IGNORECASE)
+_NAMED_WANT_RE = re.compile(r"\b(?:want|need|get|have|make|let|wants|needs)\s+[A-Z][a-z]+\s+to\b")
+
+
+def _is_not_the_players_wait(text: str, m) -> bool:
+    """True when the matched wait phrase sits in a question, reported/past speech, a negation, another person's sentence, or a line addressed to somebody ("Alex, stay put", "you should wait", "I tell Maya: wait here", a quoted imperative, "wait for me")."""
+    start = m.start()
+    clause = _CLAUSE_SPLIT_RE.split(text[:start])[-1]
+    if _NOT_MINE_BEFORE_RE.search(clause) or _NAMED_WANT_RE.search(clause):
+        return True
+    # the whole sentence before the verb, for the vocative ("Alex, ...", "Hey Maya, ..."); a discourse opener ("Fine, ...") is not one
+    sentence_head = re.split(r"[.?!\n]", text[:start])[-1]
+    v = _VOCATIVE_ONLY_RE.match(sentence_head)
+    if v and v.group(1).lower() not in _DISCOURSE_OPENERS:
+        return True
+    # inside quotation marks with no first-person subject: an imperative spoken to somebody ("stay here for an hour" I say to Maya)
+    quoted = sum(text[:start].count(q) for q in ('"', "\u201c", "\u201d")) % 2 == 1
+    if quoted and not _FIRST_PERSON_RE.search(clause):
+        return True
+    if _WAIT_FOR_OTHER_RE.match(m.group(0)):
+        return True
+    end = re.search(r"[.?!\n]", text[m.end():])
+    tail = text[m.end():m.end() + end.start()] if end else text[m.end():]
+    if end and text[m.end() + end.start()] == "?":  # the sentence is a question
+        return True
+    if _NOT_MINE_AFTER_RE.search(tail):
+        return True
+    # a quoted imperative followed by the player telling somebody: `"stay here for an hour" I say to Maya`
+    after = text[m.end():m.end() + 40]
+    return not _FIRST_PERSON_RE.search(clause) and bool(re.match(r"""[\s,.!"\u201d']*\bI\s+(?:say|said|tell|told|ask|asked|call|whisper|whispered)\b""", after, re.IGNORECASE))
+
+
+def _wait_intent_match(text: str):
+    """The first wait phrase (shape A or B) that is the player's own, else None."""
+    for rx in (_HANGOUT_INTENT_RE, _STATED_WAIT_RE):
+        for m in rx.finditer(text):
+            if not _is_not_the_players_wait(text, m):
+                return m
+    return None
+
+
 _HANGOUT_STOP_LINES = {
     "event-due": "production is calling everyone - the scheduled event is on now (the house gathers).",
     "pulled": "the player is pulled away{by}.",
@@ -666,8 +749,8 @@ _HANGOUT_STOP_LINES = {
 
 
 def hang_out_intent(player_msg) -> bool:
-    """True when the player's message asks to hang out / wait / chill until something happens (a conservative wait-verb + until/for-a-while phrase)."""
-    return bool(player_msg) and bool(_HANGOUT_INTENT_RE.search(str(player_msg)))
+    """True when the player's message asks to hang out / wait / chill / stay put until something happens or for a stated time (a conservative wait-verb + until / for-time phrase)."""
+    return bool(player_msg) and _wait_intent_match(str(player_msg)) is not None
 
 
 # review of #2688: the ENGINE's own player-facing stop line for `event-due` (src/engine/hangOut.ts hangOutStopLine) is appended to the steer too; it must be reconciled with the FE template.
@@ -1170,7 +1253,7 @@ def _pending_barrier_directive(pending) -> Optional[str]:
     )
 
 
-def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
+def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
 
@@ -1230,9 +1313,24 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None) -> Optional[str]:
     sleepers = _names(asleep)
     asleep_line = (f"\nTURNED IN FOR THE NIGHT (engine truth): {', '.join(sleepers)} - asleep in their beds. They do NOT speak, act, walk, laugh, overhear or appear in any room this turn; "
                    "they may only be MENTIONED. Do not write a scene, a line of dialogue or a movement for any of them." if sleepers else "")
+    # ORW-478: the player's own move this turn (the engine already performed it, ORW-419). Without it the narrator saw only the new room name and could keep the scene where the player WAS ("head back to the kitchen" narrated in the living room).
+    move_line = ""
+    moved_now = False
+    # Only when the move ends in the room the player is in NOW. The engine hands over `playerMove` only on the message it was made for (it is stamped with that message and withheld from the state of any later message), so a
+    # failed `resolvePlayerMove` call on a later turn leaves nothing to voice here (ORW-478).
+    if (isinstance(player_move, dict) and not player_move.get("refused") and player_move.get("from") and player_move.get("to") and player_move.get("from") != player_move.get("to")
+            and str(player_move.get("to")) == room):
+        moved_now = True
+        move_line = (f"\nTHE PLAYER JUST MOVED: from the {str(player_move['from']).replace('-', ' ')} to the {str(player_move['to']).replace('-', ' ')} (the engine has already done it). Open this turn's scene in the {str(player_move['to']).replace('-', ' ')}, "
+                     f"with exactly the people listed above; never in the {str(player_move['from']).replace('-', ' ')}, and never re-describe the walk as still to come.")
+    # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
+    # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
+    since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
+    left = bool(since.get("departed"))
+    absent_line = ("\nIf the last scene had someone in this room who is not on the list above, do not write them as still here and do not make them vanish: show them stepping out in a line, or let them be only mentioned (unless they are on the asleep list: then only mentioned)." if (not present and (moved_now or left)) else "")
     return (
         "LOCATION IS GROUNDED BY THE ENGINE (the source of truth - do not contradict it). Right now "
-        f"the player is in the {room}, with: {here}.{nearby_line}{asleep_line}\n"
+        f"the player is in the {room}, with: {here}.{move_line}{nearby_line}{asleep_line}{absent_line}\n"
         + roster_line +
         "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
         "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
@@ -1912,6 +2010,15 @@ def mark_comp_walked(user) -> None:
 
 def consume_comp_walked(user) -> bool:
     return bool(_COMP_WALKED_THIS_TURN.pop(_desync_key(user), False))
+
+
+# ORW-505 (provisional default): the veto draw is its own beat, so the turn that voices it never also starts the competition. Set when the draw is committed; read (not consumed) by the agent loop's
+# forced-advance gate for the rest of the turn; cleared when the next framed turn begins.
+_VETO_DRAW_HOLDS: dict = {}
+
+
+def veto_draw_holds_force(user) -> bool:
+    return bool(_VETO_DRAW_HOLDS.get(_runway_key(user or None), False))  # the same key for a None (auth-off) and an empty owner
 
 
 def mark_pre_resolved_advance(user) -> None:
@@ -6439,9 +6546,27 @@ _HOUSE_AWAKE_EXEMPT_RE = re.compile(
     r"\b(?:not|never|nobody|no\s+one|yet|asleep|sleeping|dark|silent|quiet)\b|n't|n\u2019t", re.IGNORECASE)
 
 
+# ORW-474 (Kevin with Ryne, "the clock wins"): a wake before the 8am house wake-up is the SMALL HOURS. Morning-light wording ("You wake to the first grey morning light, alone.") is a closed-set clock claim; only
+# those light claims are held, never other flavor. A bare colour-of-light ("grey light") needs a wake / dawn word beside it, so a hallway's pale light stays fine.
+_MORNING_LIGHT_RE = re.compile(
+    r"\bmorning\s+(?:light|sun|sunlight)\b|\bday\s?light\b|\bsunrise\b|\bsunup\b|\bdawn\b|\bfirst\s+light\b|\bthe\s+sun\b(?!\s+(?:has\s+not|hasn)\b)",
+    re.IGNORECASE,
+)
+_LIGHT_COLOUR_RE = re.compile(r"\b(?:grey|gray|pale|golden)\s+(?:morning\s+)?light\b", re.IGNORECASE)
+_LIGHT_WAKE_CTX_RE = re.compile(r"\bwak\w+|\bwoke\b|\bopen\w*\s+your\s+eyes\b|\bdawn\b|\bsunrise\b", re.IGNORECASE)
+# a light-specific negation / still-to-come assertion ("Dawn is still hours away", "no daylight", "the sun has not come up"): true and kept. Quiet / dark / asleep are NOT negations of the light.
+_LIGHT_NEGATION_RE = re.compile(
+    r"\b(?:not|never|no|nor|without|yet|hours?\s+away|still\s+(?:down|dark|hours|far|below))\b|n't|n\u2019t", re.IGNORECASE)
+
+
+def _sentence_has_morning_light_claim(text: str) -> bool:
+    return bool(text and (_MORNING_LIGHT_RE.search(text) or (_LIGHT_COLOUR_RE.search(text) and _LIGHT_WAKE_CTX_RE.search(text)))
+                and not _LIGHT_NEGATION_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+
+
 def _sentence_has_house_awake_claim(text: str) -> bool:
-    return bool(text and _HOUSE_AWAKE_RE.search(text) and not _HOUSE_AWAKE_EXEMPT_RE.search(text)
-                and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+    return bool(text and ((_HOUSE_AWAKE_RE.search(text) and not _HOUSE_AWAKE_EXEMPT_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+                          or _sentence_has_morning_light_claim(text)))
 
 
 async def screen_streamed_house_awake(user, sentence: str) -> bool:
@@ -6458,10 +6583,19 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
         lab = status.get("clockLabel")
         if not (_clock_is_before_house_wake(lab) or status.get("earlyMorning") is True):
             return True
-        if status.get("asleep") == []:
-            return True
-        if _greeted_by_an_awake_houseguest(sentence, status):
-            return True  # ORW-454: a named houseguest the engine says is awake may greet the player
+        light = _sentence_has_morning_light_claim(sentence)  # ORW-474: a light claim is a clock claim: held whoever is awake
+        if not light:
+            if status.get("asleep") == []:
+                return True
+            if _greeted_by_an_awake_houseguest(sentence, status):
+                return True  # ORW-454: a named houseguest the engine says is awake may greet the player
+        if light:
+            _stash_overclaim_reground(
+                user,
+                "RE-GROUND ON THE CLOCK - you narrated morning light / daylight, but the engine says it is still the small hours (" + (_zc_narrator_clock(lab) if lab else "early morning")
+                + "), before the house's 8am wake-up. It is dark and quiet and the houseguests are asleep; no morning light, dawn or sun until the wake-up call.")
+            logger.warning("[orwell] pre-emission guard HELD a morning-light claim for user=%s - engine clock is before the house wake", user)
+            return False
         _stash_overclaim_reground(
             user,
             "RE-GROUND ON THE CLOCK - you narrated the house awake / people greeting the player, but the engine says it is still the early-morning dark (" + (_zc_narrator_clock(lab) if lab else "early morning")
@@ -6471,6 +6605,110 @@ async def screen_streamed_house_awake(user, sentence: str) -> bool:
     except Exception as e:
         logger.warning("[orwell] pre-emission house-awake guard skipped for user=%s: %s", user, _exc_detail(e))
         return True
+
+
+# ORW-479 (live sweep: production announced "Houseguests. Head of Household competition. Backyard. Now." at 11:55am with the comp five minutes from due; the phase flipped at 12:00): an
+# announcement that the scheduled EVENT is starting NOW, while the engine's day schedule says it is not due yet, is a time fact ahead of the engine. Pre-emission screen like the clock claims:
+# the announcement is dropped before the player sees it (the event itself still fires at its time, with its own chyron). Closed set: only the engine's NEXT event, only today, only when not due,
+# only the narrator's or production's OWN announcement: a houseguest's quoted line, or a question ("does the competition start now?"), is never held.
+_EVENT_ANNOUNCE_NAMES = {
+    "hoh-competition": r"(?:hoh|head\s+of\s+household)\s+(?:comp(?:etition)?|challenge)",
+    "veto-competition": r"(?:power\s+of\s+)?veto\s+(?:comp(?:etition)?|challenge)",
+    "nominations": r"nominations?(?:\s+ceremony)?",
+    "veto-ceremony": r"(?:power\s+of\s+)?veto\s+ceremony",
+    "eviction": r"(?:the\s+)?(?:live\s+)?eviction(?:\s+(?:vote|night|ceremony))?",
+}
+# With exactly ONE event next, the generic "the competition begins now" names it too (the "begins/starts now" shape only).
+_EVENT_GENERIC_NAMES = {
+    "hoh-competition": r"(?:the\s+)?(?:comp(?:etition)?|challenge)",
+    "veto-competition": r"(?:the\s+)?(?:comp(?:etition)?|challenge)",
+    "nominations": r"(?:the\s+)?nominations?",
+}
+_ANY_EVENT_ANNOUNCE_RE = re.compile("(?:" + "|".join(list(_EVENT_ANNOUNCE_NAMES.values()) + list(_EVENT_GENERIC_NAMES.values())) + r")\b", re.IGNORECASE)
+# The rest of production's call, arriving as its own one-word chunks: ONLY these words are held with a held announcement, nothing else.
+_ANNOUNCE_TAIL_WORDS = frozenset({"now", "backyard", "the backyard", "living room", "the living room", "houseguests"})
+
+
+def is_announcement_tail(part: str) -> bool:
+    """A bare fragment made only of the held call's own words ("Now.", "Backyard.", "Houseguests."): never a real sentence."""
+    if re.search("[\"\u201c\u201d]", part or ""):
+        return False  # a character's quoted line ("Now.") is never production's call, even when it is exactly a tail word
+    t = re.sub(r"[^\w ]+", " ", part or "").strip().lower()
+    return " ".join(t.split()) in _ANNOUNCE_TAIL_WORDS
+
+
+def _inside_quotes_at(text: str, pos: int) -> bool:
+    """Is `text[pos]` inside a double quote opened earlier in this text (a straight quote toggles; curly open/close set the state)?"""
+    open_q = False
+    for ch in text[:pos]:
+        if ch == '"':
+            open_q = not open_q
+        elif ch == "\u201c":
+            open_q = True
+        elif ch == "\u201d":
+            open_q = False
+    return open_q
+
+
+def _event_start_spans(text: str, event: str) -> "list[tuple[int, int]]":
+    """Character spans of `text` that ANNOUNCE `event` as starting now, in the narrator's or production's own voice: a short announcement block ("[Houseguests.] <Event>. [Backyard.] Now."),
+    "<the event> begins/starts now" in one sentence, or the bare event-name sentence. Never inside a quote, never a question. Pure."""
+    name = _EVENT_ANNOUNCE_NAMES.get(event)
+    if not text or not name:
+        return []
+    generic = _EVENT_GENERIC_NAMES.get(event)
+    either = f"(?:{name}|{generic})" if generic else name
+    spans: "list[tuple[int, int]]" = []
+    block = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?" + name + r"[.!,]?\s*(?:[A-Za-z' -]{1,24}[.!]\s*){0,2}?now[.!]?", re.IGNORECASE)
+    one = re.compile(r"[^.!?\n]*?\b(?P<ev>" + either + r"\s+(?:begins?|starts?|is\s+(?:starting|beginning)|kicks?\s+off)\s+now)\b[^.!?\n]*[.!?]?", re.IGNORECASE)
+    bare = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?" + name + r"[.!]?[ \t]*(?=\n|$)", re.IGNORECASE)
+    for rx in (block, one, bare):
+        for m in rx.finditer(text):
+            at = m.start("ev") if rx is one else m.start()   # a quote is judged where the EVENT is named, not where the sentence starts ('Ana says, "The competition begins now."')
+            if m.end() > m.start() and not _inside_quotes_at(text, at) and not m.group(0).rstrip().endswith("?"):
+                spans.append((m.start(), m.end()))
+    spans.sort()
+    merged: "list[tuple[int, int]]" = []
+    for a, b in spans:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+_BARE_ANNOUNCE_RE = re.compile(r"(?:(?<=[.!?\n])|^)[ \t]*(?:houseguests?[.,!]\s*)?(?:the\s+)?(?:" + "|".join(_EVENT_ANNOUNCE_NAMES.values()) + r")[.!]?[ \t]*(?=\n|$)", re.IGNORECASE)
+
+
+def _text_may_announce_an_event_start(text: str) -> bool:
+    """Cheap pre-filter (no engine call): the text names a scheduled event AND either says it starts/begins/now, or IS the bare announcement sentence (the stream hands the guard one sentence at a time)."""
+    if not text or not _ANY_EVENT_ANNOUNCE_RE.search(text):
+        return False
+    return bool(re.search(r"\bnow\b|\bbegins?\b|\bstarts?\b|\bstarting\b|\bkicks?\s+off\b", text, re.IGNORECASE) or _BARE_ANNOUNCE_RE.search(text))
+
+
+async def screen_event_start_announcements(user, text: str) -> "list[tuple[int, int]]":
+    """ORW-479: the spans of `text` to HOLD: announcements that the engine's next event (today, with minutes still to go) is starting now. Fail-open: any hiccup, no schedule, the event
+    due, tomorrow's event, or nothing announced returns []."""
+    try:
+        if not _text_may_announce_an_event_start(text):
+            return []
+        from src import orwell_engine
+        gs = await orwell_engine.get_game_state(user=user)
+        ds = gs.get("daySchedule") if isinstance(gs, dict) else None
+        if not isinstance(ds, dict) or ds.get("tomorrow") or ds.get("due") is not False:
+            return []
+        mins = ds.get("minutesUntil")
+        if not (isinstance(mins, (int, float)) and not isinstance(mins, bool) and mins > 0):
+            return []
+        nxt = ds.get("next")
+        spans = _event_start_spans(text, nxt) if isinstance(nxt, str) else []
+        if spans:
+            logger.warning("[orwell] pre-emission guard HELD an early %s announcement for user=%s - the engine says it is %s minute(s) away", nxt, user, int(mins))
+        return spans
+    except Exception as e:
+        logger.warning("[orwell] pre-emission event-start guard skipped for user=%s: %s", user, _exc_detail(e))
+        return []
 
 
 def _clock_is_predawn(lab) -> bool:
@@ -7810,7 +8048,12 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()
     if tod:
-        parts.append(_MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
+        # ORW-479 (ORW-392/441 gap): past 2am and before the house's wake-up call the status carries `earlyMorning`, which turns "Late night" / "Morning" into "Early morning" everywhere else
+        # (the HUD, the status panel); the per-bubble header said "Morning" at 4am.
+        if tod in ("late-night", "morning") and game_state.get("earlyMorning") is True:
+            parts.append("Early morning")
+        else:
+            parts.append(_MOMENT_TOD_LABELS.get(tod) or tod.replace("-", " "))
     return " · ".join(parts) if parts else None
 
 
@@ -8133,6 +8376,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     from src import orwell_engine
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
         event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
+        _VETO_DRAW_HOLDS.pop(_runway_key(user or None), None)
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -8351,6 +8595,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
         if _beat and phase == "veto-competition" and _beat_kind == "veto-draw":
             # ORW-250: the draw is its own ceremony - hand the narrator the committed draw and END the pass here (the competition is a later milestone and is never walked in the same pass).
             _SCHEDULE_STEER[_runway_key(user)] = _veto_draw_steer(str(_beat))
+            _VETO_DRAW_HOLDS[_runway_key(user or None)] = True
             logger.info("[orwell] veto draw committed for user=%s - voiced as its own ceremony, the competition waits for its hour", user)
             try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
                 _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
@@ -8540,8 +8785,9 @@ async def note_player_message(client_msg_id, user) -> None:
         logger.info("noteMessage id=%s accepted=%s beatSeq=%s", _mid, _r.get("accepted"), _r.get("beatSeq"))  # ids only, no content
         _refresh_beat_seq(user, res if isinstance(res, dict) else {})
         # ORW-435: the ledger counts this write at the engine dispatch seam (orwell_engine._call), not here.
-    except Exception:
-        logger.debug("noteMessage skipped (fail-soft)", exc_info=True)
+    except Exception as _e:
+        # A failed announce means the engine clock never hears this message (the premiere clock never starts, the in-game part of day never shows): visible at WARNING with the error class and text (no message content), still fail-soft.
+        logger.warning("[orwell] noteMessage failed (the engine clock did not hear this message): %s: %s", type(_e).__name__, _exc_detail(_e))
 
 
 async def apply_game_framing(
@@ -8788,7 +9034,7 @@ async def apply_game_framing(
         # and the model's grounding + the gadget reflect one snapshot (supports D1). Permits narrated
         # movement (D2 records it); forbids only the impossible. Best-effort / fail-open.
         try:
-            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))
+            _loc = _whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"), game_state.get("playerMove"))
             if _loc:
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).

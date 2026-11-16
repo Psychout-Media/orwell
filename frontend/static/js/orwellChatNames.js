@@ -120,6 +120,11 @@
     row.querySelectorAll("span.ow-name-link[data-ow-auto]").forEach((sp) => {
       sp.replaceWith(document.createTextNode(sp.textContent));
     });
+    // ORW-465: a <strong> that markStrongs linked (it carries data-ow-auto-strong; one markdown.js tagged keeps its own id) is unlinked the same way, so a stale id never outlives the roster it came from
+    row.querySelectorAll("strong[data-ow-auto-strong]").forEach((st) => {
+      st.removeAttribute("data-hg"); st.removeAttribute("data-ow-auto-strong"); st.removeAttribute("role"); st.removeAttribute("tabindex");
+      st.classList.remove("ow-name-link", "tap-exempt");
+    });
     row.normalize();
   }
 
@@ -142,6 +147,7 @@
       } catch (_) { id = null; }
       if (!id) return;
       st.setAttribute("data-hg", String(id));
+      st.setAttribute("data-ow-auto-strong", "");   // ORW-465: ours, so unwrapAuto can undo it
       // ORW-359: a name inside a sentence is an inline target (WCAG 2.5.5/2.5.8 inline exception): `tap-exempt`
       // keeps the 44px touch floor (responsive matrix) for real controls and off running text.
       st.classList.add("ow-name-link", "tap-exempt");
