@@ -54,11 +54,15 @@ describe("ORW-423 pure cap", () => {
   });
 });
 
+/** ORW-452 point 2: what a held-back houseguest does next now comes from THEIR sheet. These tests pin the ORW-423 behaviour for a houseguest whose sheet WAITS (spent want, the normal 3-hour cooldown): every houseguest gets a patient sheet. */
+const everyoneWaits = (s: unknown): void => { (s as { agendaCharacterOf: unknown }).agendaCharacterOf = () => ({ archetype: "analyst", strategyStyle: "social" }); };
+
 describe("ORW-423 live", () => {
   it("played game: never more than the cap in a row, the cap releases after a quiet stretch, and a held houseguest's desire is spent (normal 3-hour cooldown), not kept", () => {
     let checked = 0;
     for (const seed of [3, 5, 8, 11, 13]) {
       const s = parked(seed, `cap${seed}`); if (!s) continue;
+      everyoneWaits(s);
       liveRef(s).playedGame = true;
       const r = run(s, 120);
       expect(r.maxRun, `seed ${seed} ${r.seen.join(",")}`).toBeLessThanOrEqual(DESIRE.streakCap);
@@ -124,6 +128,7 @@ describe("ORW-443 approachHeld", () => {
     let held = 0;
     for (const seed of [3, 5, 8, 11, 13]) {
       const s = parked(seed, `ah${seed}`); if (!s) continue;
+      everyoneWaits(s);
       liveRef(s).playedGame = true;
       for (let i = 0; i < 120; i++) {
         const before = JSON.stringify(live(s).desireApproachedAt ?? {});
