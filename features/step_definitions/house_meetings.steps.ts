@@ -187,9 +187,6 @@ Then("the NPC can call a house meeting about it, at most once a week", function 
   (l.beliefs![b.accuser!]![0]!).week = l.week; (l.beliefs![b.accuser!]![0]!).refuted = false;
   assert.equal(callDays(this, 120), 1, "the next week allows another");
 });
-Then("the player can call one by saying so in their own words", function () {
-  assert.equal(canCallMeeting("player"), true); // the parser itself is slice 7b; the rule is read here
-});
 Then("who may call one is decided in one place", function () {
   const b = bag(this), l = live(b.s!);
   const before = MEETING_RULES.callers;

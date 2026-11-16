@@ -74,7 +74,15 @@ Given("a meeting is called while the player is asleep", function () {
   assert.ok(meeting, "no meeting was held");
 });
 
-Then("the narrator is handed nothing about it", function () {
-  s(this).endNapTicks(); // they wake: still nothing, the meeting was held without them
-  assert.ok(!prompt(this).includes("HOUSE MEETING"), "a meeting the player slept through reached the narrator");
+/** 0156 scenario 6's "nothing about it" half; the shared Then (what_you_hear.steps.ts, 0151 scenario 4) calls this when a meeting scenario is live. */
+export function meetingNothingAboutIt(w: unknown): void {
+  s(w).endNapTicks(); // they wake: still nothing, the meeting was held without them
+  assert.ok(!prompt(w).includes("HOUSE MEETING"), "a meeting the player slept through reached the narrator");
+}
+
+Then("the houseguests still update their beliefs", function () {
+  const live = (s(this) as unknown as { live: { houseMeetings?: Array<{ claimIds?: string[]; caller: string; accused: string }>; beliefs?: Record<string, Array<{ id: string }>> } }).live;
+  const m = live.houseMeetings!.at(-1)!;
+  const holders = Object.entries(live.beliefs ?? {}).filter(([id, bs]) => id !== m.caller && id !== m.accused && bs.some((b) => (m.claimIds ?? []).some((c) => b.id.endsWith(`|${c}`))));
+  assert.ok(holders.length > 0, "no houseguest holds a belief from the meeting the player slept through");
 });

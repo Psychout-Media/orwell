@@ -1521,7 +1521,7 @@ export class GameSessionAdapter implements GameSession {
     const meeting: HouseMeeting = {
       id: `meeting:${meetings.length + 1}`, week: live.week, day, caller, accused, claim: { kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}) },
       accuser: caller, claimId: first.id, claimIds: [...accusation.values()].map((c) => c.id), answer, ...(answer === "redirect" ? { redirect: { to: caller } } : {}),
-      attendees, playerPresent: attendees.includes(PLAYER),
+      attendees, playerPresent: attendees.includes(PLAYER) && !this.napAsleep,
     };
     meetings.push(meeting);
     return meeting;
