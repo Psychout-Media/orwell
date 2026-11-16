@@ -270,7 +270,10 @@ GENESIS_LOOK_FEATURES = (
 )
 
 # The seeded AGE curve (owner casting-craft upgrade) — mirror of GENESIS_AGE_BANDS: [lo, hi, count].
-GENESIS_AGE_BANDS = ((21, 26, 4), (27, 33, 5), (34, 45, 4), (46, 60, 2))
+# ORW-480: the REAL age distribution of reality-competition casts (counts per stratum from cast_ages.json: American Big Brother 11-26 and
+# Survivor 36-39, 41-48, 465 contestants aged 21+). Each slot draws its stratum independently at these frequencies; mirror of the TS table.
+GENESIS_AGE_BANDS = ((21, 23, 61), (24, 26, 108), (27, 29, 90), (30, 32, 73), (33, 35, 38), (36, 39, 28), (40, 44, 31), (45, 49, 19),
+                     (50, 54, 10), (55, 59, 5), (60, 70, 2))
 
 # The CASTING-ROLE vocabulary + quota — mirror of GENESIS_CASTING_ROLES. Each: (role, archetype, cerebral,
 # physical, note). `archetype` maps the rich role to one of the 12 mechanical archetype tags the engine
@@ -413,15 +416,17 @@ def _build_casting_plan(rng: "_Mulberry32", count: int) -> list:
 def _build_age_plan(rng: "_Mulberry32", count: int) -> list:
     """Build the seeded AGE plan — the real-world cast age curve, one (lo, hi) per slot, shuffled. Mirrors
     the engine's buildAgePlan."""
+    total = sum(b[2] for b in GENESIS_AGE_BANDS)
     bands = []
-    base_total = sum(b[2] for b in GENESIS_AGE_BANDS)
-    for lo, hi, cnt in GENESIS_AGE_BANDS:
-        n = max(0, round((cnt / base_total) * count))
-        bands.extend([(lo, hi)] * n)
-    while len(bands) < count:
-        bands.append((GENESIS_AGE_BANDS[0][0], GENESIS_AGE_BANDS[0][1]))
-    bands = bands[:count]
-    _seeded_shuffle(bands, rng)
+    for _ in range(count):
+        r = rng.int(total)
+        pick = GENESIS_AGE_BANDS[-1]
+        for b in GENESIS_AGE_BANDS:
+            r -= b[2]
+            if r < 0:
+                pick = b
+                break
+        bands.append((pick[0], pick[1]))
     return bands
 
 
@@ -688,6 +693,89 @@ _STRICT_RETRY = (
 )
 
 
+def _job_over_cap(job: str, used_jobs: list, n: int) -> bool:
+    try:
+        from src import orwell_cast_realism as _R
+        return bool(_R.job_offenders(job, used_jobs, n))
+    except Exception:  # failsoft-ok: the realism table never breaks genesis
+        return False
+
+
+_JOB_TEXT_FIELDS = ("identity", "biography", "background")
+
+
+def _all_family_jobs() -> list:
+    try:
+        from src.orwell_facet_ledger import FAMILY_JOBS
+        return [j for jobs in FAMILY_JOBS.values() for j in jobs]
+    except Exception:  # failsoft-ok
+        return []
+
+
+def _final_job_pass(entries: list, npcs: list, directives, spread: int = 0) -> int:
+    """ORW-480: the FINISHED cast's jobs (the writer's, else the engine's own floor job from the roster card) are checked once more
+    against the sector and job-word caps, in slot order; a later slot over a cap takes one of its own dealt example jobs, else any
+    ordinary job from the table that fits. The text written around a replaced job is dropped with it. Returns how many were replaced.
+    The guarantee "no sector on more than 2 of 15" holds on the finished cast, floor jobs included."""
+    n = len(entries)
+    by_id = {str(x.get("id")): x for x in npcs if isinstance(x, dict)}
+    taken: list = []
+    changed = 0
+    pool = _all_family_jobs()
+    for e in entries:
+        hid = str(e.get("id"))
+        npc = by_id.get(hid)
+        job = (npc or {}).get("vocation") or e.get("vocation")
+        if not isinstance(job, str) or not job.strip():
+            continue
+        if not _job_over_cap(job, taken, n):
+            taken.append(job)
+            continue
+        alt = _fitting_example_job(hid, directives, taken, n)
+        if not alt and pool:
+            start = sum(ord(c) for c in hid) % len(pool)
+            used = {x.lower() for x in taken}
+            for k in range(len(pool)):
+                j = pool[(start + k) % len(pool)]
+                if j.lower() not in used and not _job_over_cap(j, taken, n):
+                    alt = j
+                    break
+        if not alt:
+            taken.append(job)
+            continue
+        if npc is None:
+            npc = {"id": hid}
+            npcs.append(npc)
+            by_id[hid] = npc
+        npc["vocation"] = alt
+        for k in _JOB_TEXT_FIELDS:
+            npc.pop(k, None)
+        taken.append(alt)
+        changed += 1
+    return changed
+
+
+def _fitting_example_job(hid, directives, used_jobs: list, n: int):
+    """The first of the slot's dealt example jobs that is unused and inside the sector and job-word caps, else None."""
+    try:
+        hand = ((directives or {}).get(hid) or {}).get("ledger") or {}
+        used = {x.lower() for x in used_jobs}
+        for j in hand.get("jobExamples") or []:
+            if j.lower() not in used and not _job_over_cap(j, used_jobs, n):
+                return j
+    except Exception:  # failsoft-ok: the example jobs only help; the floor stands
+        pass
+    return None
+
+
+def _job_hint(jobs: list, n: int) -> str:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.job_taken_hint(jobs, n)
+    except Exception:  # failsoft-ok: a prompt hint only
+        return ""
+
+
 def build_genesis_messages(roster: list, brief: dict,
                            violation_feedback: Optional[str] = None,
                            directives: Optional[dict] = None,
@@ -732,6 +820,9 @@ def build_genesis_messages(roster: list, brief: dict,
             lines.append(
                 "Vocations ALREADY used in THIS cast — do NOT repeat any of these jobs: "
                 + ", ".join(jobs) + ".")
+            hint = _job_hint(jobs, int(used_facets.get("castSize") or 15))
+            if hint:
+                lines.append("A real cast does not cluster by sector: " + hint + ".")
     if directives:
         cards = [render_slot_directive(hid, directives[hid]) for hid in ids if hid in directives]
         if cards:
@@ -1133,7 +1224,7 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
         # The ledger is FROZEN for the whole wave (concurrent calls can't see each other's names); the
         # seeded pre-assignment + the engine dedupe backstop cover any within-wave collision.
         ledger_snapshot = list(used_display)
-        facets_snapshot = {"hometowns": list(used_towns), "vocations": list(used_jobs)}
+        facets_snapshot = {"hometowns": list(used_towns), "vocations": list(used_jobs), "castSize": len(entries)}
         results = await asyncio.gather(*[_author_one(e, ledger_snapshot, facets_snapshot) for e in wave])
         for prop in results:
             if not prop:
@@ -1157,6 +1248,17 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
                     j = job.strip()
                     if j.lower() in {x.lower() for x in used_jobs}:
                         npc.pop("vocation", None)  # collision — the engine floors this slot's job
+                    elif _job_over_cap(j, used_jobs, len(entries)):
+                        # ORW-480: a job sector already full, or a job word already used. The slot's own dealt example jobs come
+                        # first (an ordinary job of its family that fits the caps); only when none fits does the engine floor the slot.
+                        alt = _fitting_example_job(npc.get("id"), directives, used_jobs, len(entries))
+                        if alt:
+                            npc["vocation"] = alt
+                            used_jobs.append(alt)
+                        else:
+                            npc.pop("vocation", None)
+                        for k in _JOB_TEXT_FIELDS:
+                            npc.pop(k, None)  # the identity, biography and background were written around the job that was refused
                     else:
                         used_jobs.append(j)
                 name = npc.get("name")
@@ -1187,6 +1289,7 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
                 tied.add(b)
     if not any_ok or not combined_npcs:
         return {}
+    _final_job_pass(entries, combined_npcs, directives)
     out: dict = {"npcs": combined_npcs}
     if combined_ties:
         out["ties"] = combined_ties[:GENESIS_TIE_BUDGET]
