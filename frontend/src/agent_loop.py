@@ -5808,6 +5808,35 @@ _TOOL_MARKUP_SAFE_TAG_RE = re.compile(
 )
 
 
+# ORW-540: the tail of a half-formed tool call echoed as prose: stray `</parameter>` / `</invoke>` closers and a DSML wrapper tag (ASCII or full-width bars, any spacing: `</\uff5c\uff5cDSML\uff5c\uff5c calls>`). Tag-only, so prose that
+# merely mentions the word "invoke" never matches.
+_STRAY_CALL_CLOSER_RE = re.compile(
+    r"[ \t]*(?:</\s*(?:parameter|invoke)\s*>|<\s*/?\s*[\uff5c|]+\s*DSML\s*[\uff5c|]*[^<>\n]{0,40}>)[ \t]*",
+    re.IGNORECASE,
+)
+# ORW-540: a tool-result content envelope echoed as the reply: `{"content":[{"type":"text","text":"..."}]`. A whole envelope is unwrapped to its text; streamed in pieces, its prefix and its unbalanced suffix are cut.
+_RESULT_ENVELOPE_RE = re.compile(
+    r'^\s*\{\s*"content"\s*:\s*\[\s*\{\s*"type"\s*:\s*"text"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*\}\s*\]\s*\}?\s*$', re.DOTALL)
+_RESULT_ENVELOPE_PREFIX_RE = re.compile(r'^\s*\{\s*"content"\s*:\s*\[\s*\{\s*"type"\s*:\s*"text"\s*,\s*"text"\s*:\s*"')
+_RESULT_ENVELOPE_SUFFIX_RE = re.compile(r'"\s*\}\s*\]\s*\}?\s*$')
+
+
+def _strip_result_envelope(text: str) -> str:
+    if '"' not in text:
+        return text
+    m = _RESULT_ENVELOPE_RE.match(text)
+    if m:
+        try:
+            return json.loads('"' + m.group(1) + '"')
+        except ValueError:
+            return m.group(1)
+    if _RESULT_ENVELOPE_PREFIX_RE.match(text):
+        return _RESULT_ENVELOPE_SUFFIX_RE.sub("", _RESULT_ENVELOPE_PREFIX_RE.sub("", text, count=1), count=1)
+    if _RESULT_ENVELOPE_SUFFIX_RE.search(text) and len(re.findall(r'(?<!\\)"', text)) % 2 == 1:
+        return _RESULT_ENVELOPE_SUFFIX_RE.sub("", text, count=1)  # a later streamed piece: its opening quote went out with the first piece
+    return text
+
+
 _OPENING_PUNCT = "([{\u201c\u2018"
 
 
@@ -5846,6 +5875,9 @@ def _scrub_game_leak(text: str) -> str:
     # ORW-440 / ORW-442: a tag between two words leaves one space (never "quiet.The"); at an edge or beside whitespace it just goes.
     text = _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text)
     text = _cut_markup_keeping_one_space(_TOOL_MARKUP_TAG_RE, text)
+    # ORW-540: stray call-tail closers / DSML tags first (they sit after the envelope's closing bracket), then the result-envelope wrapper.
+    text = _cut_markup_keeping_one_space(_STRAY_CALL_CLOSER_RE, text)
+    text = _strip_result_envelope(text)
     parts = re.split(r"(?<=[.!?\n;])", text)
     def _keep_sentence(p: str) -> bool:
         if _GAME_LEAK_SENTENCE_RE.search(p):
@@ -6376,6 +6408,9 @@ def _persisted_round_text(cleaned_round: str, *, scene_broken: bool, scrub_activ
     if scene_broken and scrub_active:
         _e = (round_emitted or "").strip()
         return _e + close_open_markup(_e)  # ORW-354: never persist a halt inside an open quote / bold span
+    if scrub_active and cleaned_round:
+        # ORW-540: the stored round is the raw buffer (not the scrubbed stream), so the stray call-tail closers / DSML tag and the result envelope the live scrub cut are cut here too.
+        return _strip_result_envelope(_cut_markup_keeping_one_space(_STRAY_CALL_CLOSER_RE, cleaned_round)).strip()
     return cleaned_round
 
 
