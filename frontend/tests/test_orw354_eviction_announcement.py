@@ -49,6 +49,7 @@ def test_c_close_open_markup_closes_a_quote_and_bold_left_open():
     t2 = t + agent_loop.close_open_markup(t)
     assert t2.count("**") % 2 == 0 and t2.count('"') % 2 == 0
     assert agent_loop.close_open_markup('A “quote that opens') == "”"
+    assert agent_loop.close_open_markup('She said “he told me “no” and left') == "”"  # an inner quote closing leaves the OUTER one open
     assert agent_loop.close_open_markup('**"Done."** She nods.') == ""
     assert agent_loop.close_open_markup("") == ""
 

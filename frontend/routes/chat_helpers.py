@@ -568,6 +568,8 @@ def clear_social_runway(user) -> None:
     _PREMIERE_CLOCK_HOLD.pop(key, None)
     _PREMIERE_CLOCK_STARTED.discard(key)
     _PREMIERE_TOAST_SPEAKERS.pop(key, None)
+    for _d in (_COMP_PAUSED, _COMP_CONT, _COMP_STEER_BASE):  # review of ORW-232: a restart mid-pause must not leak the old pause / steer into the new season
+        _d.pop(key, None)
 
 
 # ── P1-2 (#1361, the machinery half) — DAY-BREAK FE awareness ─────────────────────────────── #
@@ -4291,7 +4293,7 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
 # Deliberately narrow: only a definite "the nominee(s)" in a sentence with NO hypothetical / future / negation / question cue, in a phase before nominations, with no committed nominee.
 _FALSE_NOMINEE_RE = re.compile(r"\bthe\s+(?:two\s+|both\s+|current\s+)?nominees?\b", re.IGNORECASE)
 _FALSE_NOMINEE_SAFE_CUE_RE = re.compile(
-    r"\b(?:no|not|nobody|none|never|yet|n't|haven't|hasn't|isn't|aren't|won't|if|unless|suppose|imagine|whoever|whichever|hypothetically|will|would|could|might|"
+    r"\b(?:no|not|nobody|none|never|yet|\w+n['\u2019]t|\w+['\u2019](?:ll|d)|if|unless|suppose|imagine|whoever|whichever|hypothetically|will|would|could|might|"
     r"going\s+to|about\s+to|once|until|before|when|after|soon|tonight|tomorrow|later|upcoming|next|eventually|someday|who|what|which|should|may)\b|\?",
     re.IGNORECASE,
 )
@@ -6473,7 +6475,7 @@ def _clock_is_predawn(lab) -> bool:
 # ORW-355 (Ryne 2026-11-14: one rule for every night): the narrator said "It's 8:15 in the morning" while the engine clock read 4:15am. `_clock_misstated` (post-turn, next-turn re-ground) only matches "it's H:MM am/pm", never
 # "H:MM in the morning/afternoon/evening", and never ran BEFORE the player saw it. A present-tense stated clock time is a closed-set fact: this is its pre-emission sentence screen.
 _CLOCK_IN_THE_RE = re.compile(
-    r"\bit(?:'s|\u2019s|\s+is)\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s+in\s+the\s+(morning|afternoon|evening)\b",
+    r"\b(?:it(?:'s|\u2019s|\s+is)|the\s+time\s+is|right\s+now,?\s+it(?:'s|\u2019s|\s+is))\s+(?:about\s+|just\s+after\s+|almost\s+|around\s+)?(\d{1,2})(?::(\d{2}))?\s+in\s+the\s+(morning|afternoon|evening)\b",
     re.IGNORECASE,
 )
 
@@ -6483,11 +6485,11 @@ def _sentence_has_in_the_clock_claim(text: str) -> bool:
 
 
 async def screen_streamed_clock_time(user, sentence: str) -> bool:
-    """ORW-355 mid-stream screen: HOLD (return False) a sentence stating "It's H:MM in the morning/afternoon/evening" that disagrees with the engine clock by more than the tolerance; else EMIT. Stashes a next-turn
+    """ORW-355 mid-stream screen: HOLD (return False) a sentence stating "It's / The time is H:MM in the morning/afternoon/evening" that disagrees with the engine clock by more than the tolerance; else EMIT. Stashes a next-turn
     re-ground quoting the engine's label. Fail-open: any hiccup, an absent / unparseable clock returns True."""
     try:
-        m = _CLOCK_IN_THE_RE.search(sentence or "")
-        if not m or not _sentence_has_in_the_clock_claim(sentence):
+        matches = list(_CLOCK_IN_THE_RE.finditer(sentence or ""))
+        if not matches or not _sentence_has_in_the_clock_claim(sentence):
             return True
         from src import orwell_engine
         status = await orwell_engine.game_status(user=user)
@@ -6496,10 +6498,15 @@ async def screen_streamed_clock_time(user, sentence: str) -> bool:
         if not mm:
             return True
         eng = _clock_minutes(int(mm.group(1)), int(mm.group(2)), mm.group(3))
-        said = _clock_minutes(int(m.group(1)), int(m.group(2) or 0), "am" if m.group(3).lower() == "morning" else "pm")
-        diff = abs(said - eng)
-        diff = min(diff, 1440 - diff)
-        if diff <= _CLOCK_TOLERANCE_MIN:
+        m = None
+        for cand in matches:  # review of ORW-355: every stated clock time in the sentence is checked, not just the first
+            said = _clock_minutes(int(cand.group(1)), int(cand.group(2) or 0), "am" if cand.group(3).lower() == "morning" else "pm")
+            diff = abs(said - eng)
+            diff = min(diff, 1440 - diff)
+            if diff > _CLOCK_TOLERANCE_MIN:
+                m = cand
+                break
+        if m is None:
             return True
         _stash_overclaim_reground(
             user,

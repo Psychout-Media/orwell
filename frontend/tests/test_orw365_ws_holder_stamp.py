@@ -65,3 +65,8 @@ def test_a_non_game_chat_mirror_holder_keeps_the_wall_clock_time():
     html = _html([])
     assert WALL.match(_ts_text(html).strip()), html
     assert "role-timestamp-moment" not in html
+
+
+def test_message_saved_never_stores_the_moment_text_as_the_wall_clock():
+    src = open(JS, encoding="utf-8").read()
+    assert "!_ts.dataset.wallClock && !_ts.classList.contains('role-timestamp-moment')" in src

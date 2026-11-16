@@ -6226,7 +6226,7 @@ def close_open_markup(text: str) -> str:
             stack.append("\u201d")
         elif ch == "\u201d":
             if "\u201d" in stack:
-                del stack[stack.index("\u201d"):]
+                del stack[len(stack) - 1 - stack[::-1].index("\u201d"):]  # the INNERMOST open curly quote closes, an outer one stays open
         elif ch == '"':
             if '"' in stack:
                 del stack[stack.index('"'):]

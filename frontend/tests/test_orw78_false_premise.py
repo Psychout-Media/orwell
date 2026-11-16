@@ -45,6 +45,7 @@ def test_hypotheticals_questions_negations_asides_and_future_talk_are_not_flagge
         "((There are no nominees yet - the nominee of the week is decided at the ceremony.))",
         "Whoever ends up as the nominee will want an ally.",
         "Nobody here is the nominee.",
+        "The nominee doesn't trust the HOH.",
     ):
         key = _setup()
         _run(ch.record_post_turn_false_premise_check("u78", text))
