@@ -19,9 +19,10 @@ import { playMixGame, mixShares } from "../support/houseMixDriver";
 // ---- THE REFERENCE (the one constant block) ---------------------------------------------------------------------------------------------------------------------------
 // Who changes it, and why: ONLY a PR that deliberately moves the week-1 house mix, with the new 12-season measurement (the MIXGUARD12 line) in its description and the
 // owner's agreement. Today it is the with-conviction average (0160 / ORW-330, Ryne 2026-11-16: "Yeah, I think that type of check is great", the reference being today's average
-// with conviction), measured by this guard: 38.0 / 32.1 / 23.9 / 6.1 over 3226 week-1 scenes (main without conviction was 38.0 / 33.2 / 22.5 / 6.3).
+// with conviction), measured by this guard on conviction + ORW-550's comp-round hours (#2904): 36.5 / 32.3 / 25.1 / 6.1 over 3092 week-1 scenes
+// (conviction alone was 38.0 / 32.1 / 23.9 / 6.1; #2904 alone 36.7 / 33.7 / 23.5 / 6.0; main before both 38.0 / 33.2 / 22.5 / 6.3).
 // The three tolerances below are the owner's numbers: never widened to make a run pass.
-export const REFERENCE = { bonding: 38.0, strategy: 32.1, gossip: 23.9, conflict: 6.1 } as const;
+export const REFERENCE = { bonding: 36.5, strategy: 32.3, gossip: 25.1, conflict: 6.1 } as const;
 export const AVG_TOLERANCE = 5; // points: the 12-season average, each category, against REFERENCE
 export const MIN_SPREAD = 15; // points: at least one of bonding / strategy / gossip, most minus least extreme season
 export const MAX_DEVIATION = 25; // points: no season, in any category, further than this from REFERENCE. 20 was proposed; 25 chosen (Coordinator) because 1 of 12 healthy seasons on main is 22 off (seed 9 strategy); still catches a dead or runaway season
