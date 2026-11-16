@@ -15853,8 +15853,10 @@ export class GameSessionAdapter implements GameSession {
     }
     if (fields.length === 0 && cleared.length === 0) return { accepted: false, fields: [], reason: "rejected-by-guard" };
     target.character.physicalCharacteristics = next; // only the look keys differ; appearance / every other field untouched
-    if (this.house) this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
-    else this.persist(); // the pre-game store: durable like recordCastProfile's pre-game write
+    // the live house: durable but NOT a board beat (no beatSeq bump); the pre-warmed cast: committed, like recordCastProfile's pre-game write
+    const ctx = { prewarm: !this.house };
+    if (ctx.prewarm) this.persist();
+    else this.backgroundPersist();
     return { accepted: true, fields, ...(cleared.length > 0 ? { cleared } : {}) };
   }
 

@@ -2198,7 +2198,7 @@ def _signature_lean(slot: int) -> str:
     try:
         from src import orwell_cast_realism as _R
         cats = [c for c in _R.signature_categories() if c != "hair"]
-        return cats[(slot * 5) % len(cats)]
+        return _R.plain_label("signature", cats[(slot * 5) % len(cats)])  # plain words: the internal category names never reach the writer
     except Exception:  # failsoft-ok: the table never blocks a card
         return "jewellery"
 
@@ -2207,10 +2207,7 @@ def opening_pattern(slot: int) -> dict:
     return {"identityConcept opens with": IDENTITY_OPENINGS[slot % len(IDENTITY_OPENINGS)],
             "onCamera opens with": ONCAMERA_OPENINGS[(slot + 2) % len(ONCAMERA_OPENINGS)],
             # ORW-480: about one card in three ends with a "the one who" read, so it is not on every line
-            "closing read": "yes" if slot % 3 == 0 else "no",
-            # ORW-480: cards are written at the same time, so none can see the others' signatures; each slot leans toward a different
-            # kind of signature (a lean, not a deal: the person's own life decides, and it is never hair twice in a row)
-            "lookSignature leans toward (only if their own life supports it, else a kind other than hair)": _signature_lean(slot)}
+            "closing read": "yes" if slot % 3 == 0 else "no"}
 
 
 def compact_rewrite_messages(npc: dict, ask: str) -> list[dict]:
@@ -2324,6 +2321,8 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
                          + ("; still free (pick one that fits their life): " + ", ".join(ph["signatures_free"]) if ph.get("signatures_free") else ""))
         if ph.get("colours"):
             parts.append("colours already worn by enough people (no more " + ", ".join(ph["colours"]) + "; use other colours)")
+        if taken.get("signature_lean"):
+            parts.append(f"lookSignature leans toward {taken['signature_lean']} only if their own life supports it, otherwise a kind other than hair")
         op = taken.get("openings") if isinstance(taken.get("openings"), dict) else {}
         if op:
             # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
@@ -2696,6 +2695,9 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                          if isinstance(n, dict) and str(n.get("id")) != hid and n.get("hometown")],
             **({"phrases": season_gate.taken_phrases(hid)} if season_gate.registry else {}),
             "openings": opening_pattern(slot_of.get(hid, 0)),
+            # ORW-480: cards are written at the same time, so none can see the others' signatures; each slot leans toward a different kind
+            # of signature (a lean, not a deal; kept out of `opening_pattern`, whose period of 6 is its contract)
+            "signature_lean": _signature_lean(slot_of.get(hid, 0)),
         }
     # #1057: SERIALIZE the engine write-back. The per-NPC recordCastProfile write-backs collide on the
     # orchestrator integrity checkpoint when they run concurrently (the live-verify's 3 `degradation`
