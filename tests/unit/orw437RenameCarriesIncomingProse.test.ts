@@ -120,3 +120,24 @@ describe("ORW-463 recordCastProfile: a rename an EARLIER call made still reaches
     expect(b).toBeDefined();
   });
 });
+
+describe("ORW-463 the rename memory belongs to one season", () => {
+  it("a re-warmed cast on the same adapter does not inherit the last cast's old names", () => {
+    const s = new GameSessionAdapter();
+    s.preSeedCast({ seed: 7 });
+    const first = s.snapshot().prewarm!.npcs[0]!;
+    const oldGiven = first.name.split(" ")[0]!;
+    expect(s.recordCastProfile({ houseguestId: first.id, name: `Bexo ${first.name.split(" ").slice(1).join(" ")}` }).accepted).toBe(true);
+    s.snapshot(); // (a snapshot read must not disturb the memory either way)
+    // a new cast (another seed) on the same adapter: the houseguest in the same slot is a different person now
+    s.preSeedCast({ seed: 99 });
+    const second = s.snapshot().prewarm!.npcs[0]!;
+    expect(second.id).toBe(first.id);
+    const newGiven = second.name.split(" ")[0]!;
+    const res = s.recordCastProfile({ houseguestId: second.id, biography: `Her friend ${oldGiven} Zed is loud. ${oldGiven} knows people.` });
+    expect(res.accepted).toBe(true);
+    // the old given name belonged to the previous cast: nothing in the new houseguest's story is rewritten to the new given name
+    expect(s.snapshot().prewarm!.npcs[0]!.character.biography).toBe(`Her friend ${oldGiven} Zed is loud. ${oldGiven} knows people.`);
+    expect(newGiven).not.toBe("");
+  });
+});

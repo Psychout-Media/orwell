@@ -4780,6 +4780,7 @@ export class GameSessionAdapter implements GameSession {
     // before this fix simply has no locked names yet; any houseguest introduced from here on locks
     // going forward exactly as a fresh season does — no regression, no false lock on old saves).
     this.introducedNames = new Set(core.introducedNames ?? []);
+    this.priorNames = new Map(); // ORW-463: memory only, never restored
     // 0062 — restore the FROZEN move-in zeitgeist snapshot (recalled, never re-searched, §9). Persisted on
     // 0062+ saves; on a pre-0062 save WITH a seed, re-derive the deterministic `model-framed` snapshot off
     // the SAME seed hinge (seed-stable & player-independent, so it returns identically). Without a seed
@@ -7038,6 +7039,7 @@ export class GameSessionAdapter implements GameSession {
     this.premiereHotReads = new Set();
     // A1: reset the durable name-lock — the champagne circle re-locks each houseguest's name as it introduces them.
     this.introducedNames = new Set();
+    this.priorNames = new Map(); // ORW-463: the rename memory belongs to ONE season; a new one starts with none
     // #1322: a fresh season starts with no approach-rotation cooldown either — a reused adapter
     // instance (the one sanctioned restart door) must not carry a prior season's rotation forward.
     this.approachCooldown = new Map();
@@ -7373,6 +7375,7 @@ export class GameSessionAdapter implements GameSession {
     // Mint + persist the season seed NOW (E39/C7 entropy by default) so the warmed cast is reproducible
     // and `createCharacter` adopts THIS seed. An explicit seed stays first-class (tests/replays).
     const seed = req.seed ?? entropySeed();
+    this.priorNames = new Map(); // ORW-463: a (re-)warmed cast is a new cast: names the last one carried must not rewrite its prose
     this.gameSeed = seed;
     if (this.producerSeed === null) this.producerSeed = seed; // keep the casting producer stable pre-game
     const portraitStyleAnchor = STYLE_ANCHOR_VARIANTS[
