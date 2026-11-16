@@ -123,6 +123,11 @@ def first_name_evicted(player_name, evicted_names):
 def names(lst): return [x.get("name") for x in (lst or []) if isinstance(x, dict)]
 
 
+def resume_last_phase(turns):
+    """The phase the last saved turn ended in: what a resumed run's first new turn started from (`phase_before`)."""
+    return turns[-1].get("phase") if turns else None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=None)
@@ -138,6 +143,7 @@ def main():
     if a.resume:
         try: turns.extend(json.loads(l) for l in open(f"{a.run_dir}/turns.jsonl"))
         except OSError: pass
+        if turns: facts["_last_phase"] = resume_last_phase(turns)  # review of #2334: the first resumed turn must know the phase it started from, or its crowning jump is never checked
 
     def check(cid, ok, detail, severity="fail"): checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
 

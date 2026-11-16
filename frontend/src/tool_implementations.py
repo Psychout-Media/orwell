@@ -4683,6 +4683,28 @@ async def do_end_of_session_summary(content: str, owner: Optional[str] = None) -
 _GENESIS_WALL_CLOCK_BACKSTOP_S = 90.0
 
 
+_RECORD_FAILURE_DETAIL_CAP = 500  # enrichment_policy.record_failure keeps this much of a detail string
+
+
+def _cast_coherence_detail(repaired: int, floored: int, corrected: list, limit: int = _RECORD_FAILURE_DETAIL_CAP) -> str:
+    """The cast-coherence failure detail as COMPLETE, valid JSON within the ledger's size cap (review of ORW-145: a cut mid-record lost later ids and was not valid JSON).
+    Full records first (id, action, field names); when they do not fit, ids and actions only; then ids only; finally the counts with how many houseguests were omitted."""
+    def dump(rows):
+        return json.dumps({"repaired": repaired, "floored": floored, "houseguests": rows}, separators=(",", ":"))
+    for rows in (corrected,
+                 [{"id": h["id"], "action": h["action"]} for h in corrected],
+                 [{"id": h["id"]} for h in corrected]):
+        d = dump(rows)
+        if len(d) <= limit:
+            return d
+    kept = []
+    for h in corrected:
+        if len(json.dumps({"repaired": repaired, "floored": floored, "omitted": len(corrected) - len(kept) - 1, "houseguests": kept + [h["id"]]}, separators=(",", ":"))) > limit:
+            break
+        kept.append(h["id"])
+    return json.dumps({"repaired": repaired, "floored": floored, "omitted": len(corrected) - len(kept), "houseguests": kept}, separators=(",", ":"))
+
+
 async def do_create_character(
     content: str, owner: Optional[str] = None,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
@@ -4958,7 +4980,7 @@ async def do_create_character(
                         owner, "cast-coherence",
                         f"engine enforceCastCoherence repaired {repaired} and floored {floored} "
                         f"houseguest(s) at game start — auto-corrected but RED-eligible per #1599",
-                        detail=json.dumps({"repaired": repaired, "floored": floored, "houseguests": corrected})
+                        detail=_cast_coherence_detail(repaired, floored, corrected)
                     )
             # (the player's name is intentionally NOT read here — cast authoring is player-independent)
 

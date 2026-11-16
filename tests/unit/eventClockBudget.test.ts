@@ -120,6 +120,46 @@ describe("an eviction night costs exactly its 2 in-game hours, once (not twice)"
   });
 });
 
+describe("ORW-481 (review of ORW-262) — a PLAYED game (messages announced) spreads an eviction night's budget over its steps", () => {
+  it("through the real adapter: several steps share the 2 hours, none takes the whole budget, and the night still totals exactly the budget", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("event-clock-played");
+    const s = sb.session as GameSession & { snapshot(): { live?: LiveSeasonState }; milestoneDue(): boolean; setPerConversationClockEnabled(on: boolean): void };
+    s.createCharacter({ playerName: "The Player", seed: 108 });
+    s.setPerConversationClockEnabled(true);
+    const perNight = new Map<string, number[]>(); // eviction night -> hours each clock-moving step charged
+    let nights = 0;
+    for (let i = 0; i < 6000 && nights < 2; i++) {
+      s.noteMessage({ messageId: `m-${i}` }); // a person is playing: `messageMode` is what turns the spread on
+      const live0 = s.snapshot().live;
+      const tod = live0?.timeOfDay;
+      if (!s.milestoneDue() && !live0?.pending) { if (tod === "evening" || tod === "late-night") s.turnIn(); continue; }
+      const depthBefore = live0?.nightDepth;
+      const weekBefore = live0?.week ?? 0;
+      const v = s.advanceGame();
+      const beat = v.event?.beat;
+      const after = s.snapshot().live;
+      if (beat && EVICTION.has(beat) && beat !== "final-eviction" && depthBefore !== undefined && after?.nightDepth !== undefined) {
+        let d = after.nightDepth - depthBefore;
+        if (d < 0) d += 24;
+        const key = `eviction:w${weekBefore}`;
+        if (d > 1e-9) perNight.set(key, [...(perNight.get(key) ?? []), d]);
+        if (beat === "eviction-result") nights++;
+      }
+      if (v.pending && v.pending.kind !== "ceremony-step") resolveLegally(s, v.pending);
+    }
+    expect(perNight.size, "the run reached an eviction night").toBeGreaterThan(0);
+    let spread = 0;
+    for (const [key, hours] of perNight) {
+      const total = hours.reduce((a, b) => a + b, 0);
+      expect(total, `${key} totals the budget`).toBeCloseTo(BUDGET, 6);
+      if (hours.length > 1) { spread++; expect(Math.max(...hours), `${key}: no step takes the whole budget`).toBeLessThan(BUDGET - 1e-6); }
+    }
+    expect(spread, "at least one eviction night was spread over several steps").toBeGreaterThan(0);
+  });
+});
+
 describe("a night is counted once, even when an event's later steps sit at 8am", () => {
   it("an eviction night that rolls past 8am accrues the night's fatigue exactly once", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
