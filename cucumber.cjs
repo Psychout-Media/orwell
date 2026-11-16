@@ -130,6 +130,7 @@ module.exports = {
       "docs/features/0147-npc-minds-house-life.feature",
       "docs/features/0134-telephone-game-payoffs.feature",
       "docs/features/0148-player-nap.feature",
+      "docs/features/0149-claims-core.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
