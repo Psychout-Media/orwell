@@ -3,6 +3,8 @@
  * for everyone but comes from THEIR character sheet (how candid their archetype and style make them) and from how they feel about the player and about the person asked about. Pure and deterministic (the caller supplies a
  * seeded roll): it draws no rng and reads no Vault.
  */
+import { clamp01 } from "../domain/num";
+
 export type AskOutcome = "tells" | "dodges" | "misleads";
 
 export interface AskSheet {
@@ -14,7 +16,6 @@ export interface AskSheet {
   affinityToSubject: number;
 }
 
-const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 /**
  * The chances come from the sheet: a candid houseguest (candor near 1) always tells. A guarded one protects someone they are fonder of than the player (misleads, at most `candor`'s complement times how much fonder),
