@@ -290,6 +290,7 @@ import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } f
 import { genCompetitionsEnvDefault } from "../../engine/genCompetitionConstants";
 import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import type { WorldAvoid } from "../../engine/data/composedFloor";
+const normTitle = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE, NAP } from "../../engine/sleepConstants";
@@ -9484,7 +9485,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.gameSeed !== null) {
       for (let w = 1; w <= 16; w++) for (const phase of ["hoh", "veto"] as const) for (const cycle of [0, 1]) compThemes.add(themeForWeek(this.gameSeed, phase, w, cycle, this.worldAvoid.compThemes ?? []).id);
     }
-    return { compThemes: [...compThemes], allianceNames: this.alliances.all().map((a) => a.name) };
+    return { compThemes: [...compThemes], allianceNames: this.alliances.all().map((a) => a.name), compThemeTitles: [...(this.live?.recentCompThemes ?? [])] };
   }
 
   /**
@@ -15650,7 +15651,13 @@ export class GameSessionAdapter implements GameSession {
         winReads: skin?.narrative.winReads ?? "",
       },
       alreadyAuthored: data.alreadyAuthored, // the FE's persistent "author exactly once per comp" guard
+      ...(this.recentThemeTitles().length > 0 ? { recentThemes: this.recentThemeTitles() } : {}),
     };
+  }
+
+  /** ORW-509: competition theme titles already used this season plus the previous season(s)' (the explicit `avoidWorld` input). */
+  private recentThemeTitles(): string[] {
+    return [...(this.worldAvoid.compThemeTitles ?? []), ...(this.live?.recentCompThemes ?? [])].slice(-40);
   }
 
   /**
@@ -15669,6 +15676,13 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.live) return { accepted: false, reason: "no-game" };
     const result = validateCompetitionFiction(this.live, req);
     if (!result.ok) return { accepted: false, reason: result.reason };
+    // ORW-509 acceptance: a theme title this season or the last already used is refused (counted); the engine's composed skin stands, never a blocked comp.
+    const titleKey = normTitle(result.fiction.theme);
+    if (this.recentThemeTitles().some((t) => normTitle(t) === titleKey)) {
+      this.live.compThemeRejects = (this.live.compThemeRejects ?? 0) + 1;
+      return { accepted: false, reason: "repeat-theme" };
+    }
+    this.live.recentCompThemes = [...(this.live.recentCompThemes ?? []), result.fiction.theme].slice(-16);
     this.live.competitionFiction = result.fiction;
     this.backgroundPersist(); // durable, but NOT a board beat — presentation-only, no beatSeq bump
     return { accepted: true };

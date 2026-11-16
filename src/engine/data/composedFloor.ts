@@ -92,6 +92,8 @@ export function sideStream(key: string): { next(): number; int(n: number): numbe
 export interface WorldAvoid {
   /** Competition theme ids used by the previous season(s). */
   compThemes?: string[];
+  /** Titles the writer authored for the previous season(s)' competitions. */
+  compThemeTitles?: string[];
   /** Alliance names used by the previous season(s). */
   allianceNames?: string[];
   /** House theme ids of the previous season(s). */

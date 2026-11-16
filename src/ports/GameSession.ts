@@ -343,6 +343,8 @@ export interface CompetitionStagingView {
   /** The 0042 library scaffold the model riffs ON (and the deterministic floor when no fiction is authored).
    *  `theme` is the seeded 0125 skin (Vault-free flavor) the mechanic is already dressed in; absent when off. */
   library: { name: string; theme?: string; premise: string; beats: string[]; winReads: string };
+  /** ORW-509: theme titles already used this season and the last (the writer must not reuse them; a repeat is refused and the engine skin stands). Absent/empty when none. */
+  recentThemes?: string[];
   /**
    * Whether VALIDATED fiction is ALREADY stored for this competition — the FE's persistent "author exactly
    * once per comp" guard. The staged comp stays surfaced across every reveal round until it crowns, so the

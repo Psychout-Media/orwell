@@ -735,6 +735,9 @@ export interface LiveSeasonState {
    * 0042 library floor stands, byte-identical to the pre-feature model. Persisted with the season (0030).
    */
   competitionFiction?: CompetitionFiction;
+  /** ORW-509: the titles the writer authored for this season's competitions (newest last, bounded). Handed back to the writer as "already used" so a season does not repeat its own themes; counted refusals in `compThemeRejects`. Absent until one is authored. */
+  recentCompThemes?: string[];
+  compThemeRejects?: number;
   /** The in-progress live finale sub-loop (0037); set when the finale begins. */
   finale?: FinaleProgress;
   /** The in-progress live eviction sub-loop (0047); set while a weekly eviction stages its reveal. */
