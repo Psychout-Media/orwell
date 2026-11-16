@@ -1552,11 +1552,12 @@ export class GameSessionAdapter implements GameSession {
     }
     return told;
   }
-  /** 0160: how readily `id` believes what they are told, from their own sheet (0.5 for anyone without one). */
+  /** 0160: how readily `id` believes what they are told, from their own sheet (0.5 for anyone without one). ORW-551 slice 5: the house culture's credulity dial scales that final per-owner value (a multiplier within 1/1.35..1.35, then clamped to 0..1; exactly 1 with no culture, so no-culture games are byte-identical). It scales the value, not a baseline: a person at the extreme still leans their own way. THE one seam: every listener-credulity caller (tellClaim, gossip) reads this. */
   private credulityOf(id: EntityId): number {
     const n = this.house?.npcs.find((x) => x.id === id);
-    if (!n) return 0.5;
-    return credulityOf({ archetype: n.character.archetype, disposition: dispositionOf(n.character.archetype), temperamentDrift: this.soulObj(id)?.temperamentDrift }, id, this.gameSeed ?? 0);
+    const own = n ? credulityOf({ archetype: n.character.archetype, disposition: dispositionOf(n.character.archetype), temperamentDrift: this.soulObj(id)?.temperamentDrift }, id, this.gameSeed ?? 0) : 0.5;
+    const m = this.cultureMult("credulity");
+    return m === 1 ? own : Math.min(1, Math.max(0, own * m));
   }
   /**
    * 0154 / ORW-330 slice 5b - LYING ABOUT YOUR VOTE. Once an eviction is over (the count is public, the ballots are not) each NPC voter may tell ONE other NPC how they voted: true or not, decided by the engine

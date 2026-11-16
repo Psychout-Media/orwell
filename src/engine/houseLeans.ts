@@ -47,7 +47,7 @@ export const LEANS: Record<LeanId, Nudges> = {
   "showmance":        { flirting: 1, bonding: 0.4, conflict: -0.2 },
   "catty":            { conflict: -0.9, gossip: 0.4, bonding: -0.3, loyalty: -0.2 },
   "one-big-family":   { bonding: 0.8, loyalty: 0.5, conflict: 0.5, lying: -0.5, paranoia: -0.5 },
-  "paranoid":         { paranoia: 1, credulity: 0.5, bonding: -0.4, loyalty: -0.3 },
+  "paranoid":         { paranoia: 1, credulity: -0.5, bonding: -0.4, loyalty: -0.3 },
   "floaters":         { allianceSize: -0.6, loyalty: -0.5, compFocus: -0.3, meetings: -0.3 },
   "comp-beasts":      { compFocus: 1, conflict: -0.2, gossip: -0.3 },
   "majority-bloc":    { allianceSize: 1, loyalty: 0.5, paranoia: -0.3, meetings: 0.2 },
