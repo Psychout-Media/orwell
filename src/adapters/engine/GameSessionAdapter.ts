@@ -325,6 +325,7 @@ import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, type TruthFacts } from "../../engine/houseSpeech";
+import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
@@ -1429,7 +1430,39 @@ export class GameSessionAdapter implements GameSession {
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
     });
+    if (told) this.catchContradiction(told);
     return told;
+  }
+  /**
+   * 0154 / ORW-330 slice 5a - the ONE catch: `holder` caught `liar` in a lie. Takes back the belief(s) the told claim(s) planted (`refuteToldBelief`: refuteClaim + `refuted = true`, id kept) and writes
+   * `lied-to-me` at the evidence's confidence (`writeLieCaught`, flag `ORWELL_LIES_CAUGHT`, which also makes the liar's word count for less, B48, and can form a revenge goal, 0150). No rng, no narration.
+   */
+  private catchLie(p: { holder: EntityId; liar: EntityId; claimId?: string | readonly string[]; confidence: number }): void {
+    if (!this.liesCaughtWriting || !this.live) return;
+    const ids = p.claimId === undefined ? [] : typeof p.claimId === "string" ? [p.claimId] : p.claimId;
+    for (const id of ids) refuteToldBelief(this.live.beliefs, p.holder, id, (h, s) => this.rel.edge(h, s));
+    this.writeLieCaught(p.holder, p.liar, p.confidence, "told");
+  }
+  /** 0154 trigger 3: a claim just told that cannot be true beside one the same speaker already told the same listener: the listener caught the lie (both planted beliefs are taken back; they cannot know which was false). */
+  private catchContradiction(told: SpokenClaim): void {
+    if (!this.liesCaughtWriting || !this.live?.claims || told.listener === PLAYER) return;
+    const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told));
+    if (prior.length === 0) return;
+    const held = (id: string): boolean => (this.live!.beliefs?.[told.listener] ?? []).some((b) => b.id.endsWith(`|${id}`) && !b.refuted);
+    if (!prior.some((c) => held(c.id)) && !held(told.id)) return;   // already caught: never write the same lie twice
+    this.catchLie({ holder: told.listener, liar: told.speaker, claimId: [told.id, ...prior.map((c) => c.id)], confidence: CAUGHT_LIE.contradiction });
+  }
+  /**
+   * 0154 trigger 1: the eviction count has just become PUBLIC (the staged reveal's last ballot). Reads the public count only (who left, how many votes read "evict", who was eligible) - never a ballot.
+   * Every "I voted to keep <the evictee>" told this week that the count rules out is a caught lie.
+   */
+  evictionCountPublic(tally: PublicTally): void {
+    if (!this.liesCaughtWriting || !this.live?.claims) return;
+    for (const c of this.live.claims.items) {
+      if (c.week !== this.live.week || c.listener === PLAYER || !voteCountRulesOut(tally, c)) continue;
+      if (!(this.live.beliefs?.[c.listener] ?? []).some((b) => b.id.endsWith(`|${c.id}`) && !b.refuted)) continue;   // already caught
+      this.catchLie({ holder: c.listener, liar: c.speaker, claimId: c.id, confidence: CAUGHT_LIE.impossible });
+    }
   }
   /** 0153 / ORW-330 slice 3: what a house-life speech action SAYS, as a claim the engine decides and checks against its truth; nothing for other actions. Returns the claim told, if any. */
   private sayInHouseLife(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): SpokenClaim | undefined {
@@ -9293,6 +9326,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
+      ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
