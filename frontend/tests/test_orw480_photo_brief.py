@@ -31,7 +31,7 @@ def cards():
 
 
 KINDS = ["a pier", "a street corner", "a back garden", "a field path", "a kitchen table", "a spare room", "a hall step"]
-TIMES = ["early morning, just after sunrise", "around noon", "mid-afternoon", "the golden hour before sunset", "dusk", "early evening, the first lamps on", "late morning"]
+TIMES = ["early morning, just after sunrise", "around noon", "mid-afternoon", "the golden hour before sunset", "dusk"]
 
 
 OBJ2 = ["lantern", "ladder", "kettle", "trowel", "binder", "bucket", "spade", "saddle", "anvil", "tripod", "basket", "canoe", "hammock", "radio", "easel"]
@@ -46,7 +46,7 @@ def good_brief(c, n):
         "inFrame": [f"a battered {p[3]} bag", f"a {OBJ2[n]} left where it was put down"],
         "wear": ["a cream knit", "olive trousers", "a grey wool cardigan", "a rust corduroy shirt", "a green fleece", "a denim jacket", "a mustard sweater"][n % 7] + ", dark jeans",
         "signature": f"a {SIG[n]} that is always on them",
-        "timeLight": f"{TIMES[n % 7]}, {['clear and still', 'thin high cloud', 'a windy day'][n % 3]}",
+        "timeLight": f"{TIMES[n % 5]}, {['clear and still', 'thin high cloud', 'a windy day'][n % 3]}",
         "expressionBody": ["an easy half-smile, shoulders loose", "a steady look, jaw relaxed", "a real laugh, looking off to one side", "a dry half-smile, one brow raised"][n % 4],
         "why": '"' + " ".join(c["biography"].split(".")[0].split()[1:6]) + '"',
         "tie": '"' + p[0] + '"',
@@ -93,7 +93,11 @@ def test_anchors_are_seeded_even_and_near_work_is_capped():
         counts = {}
         for x in a.values():
             counts[x[key]] = counts.get(x[key], 0) + 1
-        assert max(counts.values()) <= 2 or key == "season", (key, counts)
+        assert max(counts.values()) <= (3 if key == "time" else 2) or key == "season", (key, counts)
+    parts = {}
+    for x in a.values():
+        parts[B._time_bucket(x["time"])] = parts.get(B._time_bucket(x["time"]), 0) + 1
+    assert set(parts) == {"morning", "noon", "afternoon", "golden", "evening"} and max(parts.values()) <= 3        # no part of the day on more than 3 of 15
     for x in a.values():
         assert x["weather"] in B.SEASONS[x["season"]]
 
@@ -578,9 +582,9 @@ def test_o4_the_floor_reasons_say_which_codes_put_each_person_on_the_floor():
     cs = cards()
     generic = {"npc:12": lambda b: {**b, "where": "the kitchen"}, "npc:14": lambda b: {**b, "tie": "no quotes"}}
     res = run(B.author_briefs(cs, writer(bad=generic, editor=lambda c, n: {**good_brief(c, n), "wear": "scrubs"}), seed=1))
-    assert sorted(res["floor"]) == ["npc:12", "npc:14"]
+    assert res["floor"] == ["npc:12"]                      # a missing tie is built from the sheet, a generic place cannot be repaired
     assert "generic-place" in res["floorReasons"]["npc:12"] and "editor:work-gear" in res["floorReasons"]["npc:12"]
-    assert any(c in res["floorReasons"]["npc:14"] for c in ("no-place-tie", "missing-tie")) and "editor:work-gear" in res["floorReasons"]["npc:14"]
+    assert B._quote_in_sheet(res["briefs"]["npc:14"]["tie"].strip('"'), B._norm(B._sheet_text(cs[13])))
     assert set(res["floorReasons"]) == set(res["floor"])
 
     async def dead(messages):
@@ -647,3 +651,71 @@ def test_p3_job_caption_only_when_the_place_is_the_workplace_or_the_action_is_th
     assert "job-caption" not in B.check_brief(c, an, own)
     assert "job-caption" in B.check_brief(c, an, {**ok, "where": "the stage of the community theater in Lake Havasu City, the wings behind her"})
     assert "job-caption" in B.check_brief(c, an, {**ok, "doing": "running lines as the actor she is, a script in hand"})
+
+
+# ---------------------------------------------------------------------------------------------------- round 12 (cast 1133, run at 84076224)
+def test_q1_a_tie_holds_on_a_paraphrase_and_is_built_from_the_sheet_when_it_fails():
+    cs = cards()
+    c = cs[3]                                                # Person4 grew up near the gourd... / the Green River bank in Auburn, Washington
+    an = B.deal_anchors(cs, 1)["npc:4"]
+    ok = good_brief(c, 3)
+    para = {**ok, "where": "the sidewalk outside her Auburn house on the bank road, a low fence and a mailbox", "tie": 'The place comes from "grew up near the Green River bank", the Auburn street she still lives on.'}
+    assert B.tie_ok(c, para["where"], para["tie"]) == ""        # the quote is real; it shares no word with the place, but the tie sentence and the place share 'Auburn' and 'bank'
+    assert B.tie_ok(c, "a rooftop bar in a faraway city with neon lights", para["tie"]) == "place-not-tied"
+    assert B.tie_ok(c, para["where"], "no quotes at all") == "no-place-tie"
+    fixed = B.repair_brief(c, B.clean_brief({**para, "tie": "she likes the street"}))
+    assert B.tie_ok(c, fixed["where"], fixed["tie"]) == "" and B._quote_in_sheet(fixed["tie"].strip('"'), B._norm(B._sheet_text(c)))      # a real clause of the sheet
+    assert B.repair_tie(c, "a marble hotel lobby in some faraway city") == ""                                                              # nothing in the sheet ties it
+
+
+def test_q2_every_repair_runs_on_its_own_and_the_brief_is_checked_again():
+    cs = cards()
+    # an acted pose, a tie that fails and a repeated object on three people at once, with an editor that fixes none of it
+    def damage(b):
+        return {**b, "doing": "swinging a rope overhead", "tie": "nothing quoted", "inFrame": ["a fishing rod by the rail", b["inFrame"][1]]}
+    bad = {f"npc:{i}": damage for i in (10, 14)}
+    keeper = {"npc:3": lambda b: {**b, "inFrame": ["a fishing rod on the bank", b["inFrame"][1]]}}
+    res = run(B.author_briefs(cs, writer(bad={**keeper, **bad}, editor=lambda c, n: damage(good_brief(c, n))), seed=1))
+    assert res["floor"] == [] and res["calmed"] >= 2
+    for i in ("npc:10", "npc:14"):
+        b = res["briefs"][i]
+        assert b["doing"] == B.CALM_DOING and "fishing" not in " ".join(b["inFrame"]) and B.tie_ok(cs[int(i[4:]) - 1], b["where"], b["tie"]) == ""
+
+
+def test_q3_the_time_of_day_is_spread_over_the_parts_of_the_day_and_passed_as_used():
+    cs = cards()
+    for seed in range(1, 12):
+        a = B.deal_anchors(cs, seed)
+        parts = {}
+        for x in a.values():
+            parts[B._time_bucket(x["time"])] = parts.get(B._time_bucket(x["time"]), 0) + 1
+        assert max(parts.values()) <= 3 and len(parts) == 5, (seed, parts)
+    assert B.TIME_BUCKET_MAX == 4 and B._time_bucket("late afternoon") == "afternoon" and B._time_bucket("around noon") == "noon"
+    used = B.used_summary({"npc:1": good_brief(cs[0], 0), "npc:2": good_brief(cs[1], 1)})
+    assert sum(used["partsOfTheDayUsed"].values()) == 2
+    dusk = {c["id"]: {**good_brief(c, n), "timeLight": "dusk, thin high cloud"} for n, c in enumerate(cs)}
+    assert "light-repeat" in B.check_cast(cs, B.deal_anchors(cs, 1), dusk)["npc:5"] and "light-repeat" not in B.check_cast(cs, B.deal_anchors(cs, 1), dusk).get("npc:4", [])
+
+
+def test_q4_at_most_one_object_may_hint_at_the_job():
+    cs = cards()
+    c = {**cs[0], "vocation": "home-health aide"}
+    an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": "home and family"}
+    ok = good_brief(cs[0], 0)
+    assert B.check_brief(c, an, {**ok, "jobHints": []}) == []
+    assert "job-objects" in B.check_brief(c, an, {**ok, "inFrame": ["a portable oxygen tank", "a laminated schedule"], "jobHints": ["a portable oxygen tank", "a laminated schedule"]})
+    assert "job-objects" not in B.check_brief(c, an, {**ok, "inFrame": ["a portable oxygen tank", "a family photo album"], "jobHints": ["a portable oxygen tank"]})
+    assert "job-objects" in B.check_brief(c, an, {**ok, "inFrame": ["a health-visit folder", "a home-health binder"], "jobHints": []})      # a word of the job title counts without a list
+    assert "job-objects" not in B.check_brief(c, {**an, "facet": B.NEAR_WORK}, {**ok, "inFrame": ["a portable oxygen tank", "a laminated schedule"], "jobHints": ["a portable oxygen tank", "a laminated schedule"]})
+    assert "jobHints" in B.SYSTEM and "at most ONE" in B.SYSTEM and "never a total tell" in B.SYSTEM
+    assert B.clean_brief({**ok, "jobHints": ["a thing", 3, ""]})["jobHints"] == ["a thing"]
+
+
+def test_q5_gloves_held_or_hung_up_are_objects_and_worn_ones_are_clothing():
+    for item in ("a pair of boxing gloves and a jump rope", "work gloves hanging on a nail", "a helmet held under one arm", "boots by the door", "a hat on a hook"):
+        assert not B._worn_like(item), item
+    for item in ("a denim jacket", "wearing leather gloves", "a knit hat worn low", "canvas work gloves on her hands"):
+        assert B._worn_like(item), item
+    c = cards()[0]
+    fixed = B.repair_brief(c, B.clean_brief({**good_brief(c, 0), "inFrame": ["a pair of boxing gloves and a jump rope", "a rusty bike pump"]}))
+    assert fixed["inFrame"][0] == "a pair of boxing gloves and a jump rope" and len(fixed["inFrame"]) == 2

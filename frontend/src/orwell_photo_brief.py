@@ -34,6 +34,13 @@ FACETS = (
 )
 NEAR_WORK = "near their work (their own clothes, no work gear, no work prop)"
 NEAR_WORK_MAX = 3
+TIME_PARTS = {
+    "morning": ("early morning, just after sunrise", "mid-morning", "late morning"),
+    "noon": ("around noon", "midday, the sun high"),
+    "afternoon": ("early afternoon", "mid-afternoon", "late afternoon"),
+    "golden": ("the golden hour before sunset",),
+    "evening": ("dusk", "the blue hour after sunset", "early evening, the first lamps on"),
+}
 TIMES = (
     "early morning, just after sunrise", "mid-morning", "late morning", "around noon", "early afternoon", "mid-afternoon",
     "late afternoon", "the golden hour before sunset", "dusk", "the blue hour after sunset", "early evening, the first lamps on",
@@ -67,7 +74,9 @@ def deal_anchors(cards: list, seed=0) -> dict:
     near_n = min(NEAR_WORK_MAX, max(0, len(ids) // 7))
     near = {i for i in by_rank if jobs.get(i)}
     near = set(sorted(near, key=lambda i: _h("work", seed, i))[:near_n])
-    times = _spread(ids, TIMES, "time", seed)
+    # the time of day is dealt over the PARTS of the day first (about a fifth of the cast each), then a time inside the part: never a cast that is all dusk
+    parts = _spread(ids, tuple(TIME_PARTS), "part", seed)
+    times = {i: TIME_PARTS[parts[i]][_h("time", seed, i) % len(TIME_PARTS[parts[i]])] for i in ids}
     energies = _spread(ids, ENERGIES, "energy", seed)
     seasons = _spread(ids, tuple(SEASONS), "season", seed)
     out = {}
@@ -80,7 +89,7 @@ def deal_anchors(cards: list, seed=0) -> dict:
 
 
 # ---------------------------------------------------------------------------------------------------- the writer call
-FIELDS = ("where", "doing", "inFrame", "wear", "signature", "timeLight", "expressionBody", "why", "tie")
+FIELDS = ("where", "doing", "inFrame", "wear", "signature", "timeLight", "expressionBody", "why", "tie", "jobHints")
 REQUIRED = ("where", "doing", "inFrame", "wear", "timeLight", "why", "tie")   # the signature is wanted but a brief without one is not rejected
 LIMITS = {"where": 200, "doing": 190, "wear": 190, "signature": 120, "timeLight": 150, "expressionBody": 230, "why": 320, "tie": 240}
 IN_FRAME_ITEM_MAX = 90
@@ -103,6 +112,8 @@ SYSTEM = (
     "expressionBody: the FACE only (expression, gaze, how wide the smile is), taken from their demeanor, their voice and their on-camera line, at the strength of a real person at ease; "
     "no arms, hands, legs or posture here, because doing already says them.\n"
     "why: one sentence that quotes, in double quotes, the exact phrases of their sheet that you used.\n"
+    "jobHints: an array listing which of your inFrame objects and your signature (copied exactly) hint at their job; at most ONE may. The rest come from home, a hobby or family: "
+    "the day in the life is never a total tell of who they are. Use an empty array when none does.\n"
     "tie: one sentence that quotes, in double quotes, the exact phrase of their sheet that this PLACE comes from: their home, their family, a hobby, a routine of their hometown, "
     "or a place next to their work. It is checked and never printed; a place with no tie to the sheet is rejected.\n"
     "Rules for every person. The facet of life to feature is the thing the photo shows; when it says near their work, the place is close to where they work but they wear "
@@ -157,8 +168,9 @@ CODE_WORDS = {
     "body-in-wear": "wear lists clothes only: no arms, shoulders, chin, eyes, smile or pose",
     "body-in-signature": "the signature is a thing or a detail of theirs, not a pose or an expression",
     "signature-repeats-wear": "the signature must not repeat something already listed in wear",
+    "job-objects": "at most one object (of the two in the frame and the signature) may hint at the job; the rest come from home, a hobby or family",
     "no-place-tie": "the tie must quote, in double quotes, the exact phrase of the sheet this place comes from",
-    "place-not-tied": "the place must come from the phrase quoted in tie: home, family, a hobby, a hometown routine or next to their work",
+    "place-not-tied": "the place must come from the phrase quoted in tie (they share content words): home, family, a hobby, a hometown routine or next to their work",
     "weather-layer": "the weather is cold or wet: add a layer from their own style to wear",
     "object-repeat": "another person already has one of these objects or signature items: choose different things of theirs",
     "place-kind-repeat": "another person already has this kind of place: choose a different kind of place from their life",
@@ -175,15 +187,18 @@ def _explain(codes: list) -> list:
 def used_summary(briefs: dict) -> dict:
     """What the accepted briefs already use, so the next writer or the editor chooses differently: objects, signatures, places, first garments."""
     objects, sigs, places, wear = [], [], [], []
+    times: dict = {}
     for b in briefs.values():
         if not b:
             continue
+        tb = _time_bucket(str(b.get("timeLight") or ""))
+        times[tb] = times.get(tb, 0) + 1
         objects += [str(x) for x in (b.get("inFrame") or [])]
         if b.get("signature"):
             sigs.append(str(b["signature"]))
         places.append(str(b["where"])[:90])
         wear.append(str(b.get("wear") or "").split(",")[0])
-    return {"objects": objects, "signatures": sigs, "places": places, "firstGarments": wear}
+    return {"objects": objects, "signatures": sigs, "places": places, "firstGarments": wear, "partsOfTheDayUsed": times}
 
 
 def build_messages(cards: list, anchors: dict, used: Optional[dict] = None) -> list:
@@ -244,7 +259,7 @@ PLACE_KINDS = (
     ("public-building", r"\b(?:church|library|diner|bar|cafe|café|school|gym|hall|court|rink|stadium|shop|salon|theater|karaoke)\b"),
 )
 PLACE_KIND_MAX = 3
-TIME_BUCKET_MAX = 5
+TIME_BUCKET_MAX = 4
 GESTURES = (
     ("arms-crossed", r"arms (?:folded|crossed)"), ("hand-to-head", r"(?:back of (?:the |his |her |their )?neck|(?:the |his |her |their )hair)\b"),
     ("hips", r"hands? on (?:the |his |her |their )?hips?"), ("open-palm", r"palms? (?:up|open|out)|hand open|hands open"),
@@ -280,6 +295,46 @@ def _quote_in_sheet(quote: str, sheet_norm: str) -> bool:
     return False
 
 
+def _tie_words(text: str, card: Optional[dict] = None) -> set:
+    """Content words of a phrase for the tie check, plus the person's hometown words (a town name counts at any length)."""
+    out = _cw(text)
+    if card:
+        town = {w.lower() for w in re.findall(r"[A-Za-z\u02bb']{3,}", str(card.get("hometown") or ""))}
+        out |= {w for w in _norm(text).split() if w in town}
+    return out
+
+
+def tie_ok(card: dict, where: str, tie: str) -> str:
+    """'' when the tie holds, else the code. It holds when a quoted phrase really is in the sheet AND the place is tied to it: the quote shares a word with the place,
+    or (a paraphrase) the tie sentence and the place share 2 or more content words."""
+    sheet_norm = _norm(_sheet_text(card))
+    quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{4,})[\"\u201d]", str(tie or "")) if _quote_in_sheet(q, sheet_norm)]
+    if not quotes:
+        return "no-place-tie"
+    if any(_tokens(q) & _tokens(where) for q in quotes):
+        return ""
+    if len(_tie_words(tie, card) & _tie_words(where, card)) >= 2:
+        return ""
+    return "place-not-tied"
+
+
+def repair_tie(card: dict, where: str) -> str:
+    """A tie built from the sheet itself: the clause of the biography or identity that shares the most words with the place (a town name counts), quoted exactly.
+    '' when no clause shares any word."""
+    best, best_n = "", 0
+    for text in (card.get("biography"), card.get("identityConcept"), card.get("hometown")):
+        for clause in re.split(r"(?<=[.;:!?])\s+|,\s+(?=[a-z])", str(text or "")):
+            clause = clause.strip().rstrip(".")
+            if len(clause) < 8 or len(clause) > 160:
+                continue
+            n = len(_tie_words(clause, card) & _tie_words(where, card))
+            if n > best_n:
+                best, best_n = clause, n
+    if best_n < 1:
+        return ""
+    return f'"{best}"'
+
+
 def _tokens(t: str) -> set:
     return {w for w in _norm(t).split() if len(w) >= 5}
 
@@ -299,6 +354,9 @@ def clean_brief(raw) -> Optional[dict]:
             items = [re.sub(r"\s+", " ", x).strip() for x in v if isinstance(x, str) and x.strip()]
             if items:
                 out[k] = items
+        elif k == "jobHints":
+            if isinstance(v, list):
+                out[k] = [re.sub(r"\s+", " ", x).strip() for x in v if isinstance(x, str) and x.strip()]
         elif isinstance(v, str) and v.strip():
             out[k] = re.sub(r"\s+", " ", v).strip()
     return out or None
@@ -327,6 +385,20 @@ def _drop_clauses(text: str, rx) -> str:
     parts = [p for p in re.split(r"\s*[,;]\s*", str(text or "")) if p.strip()]
     kept = [p for p in parts if not rx.search(p)]
     return ", ".join(kept)
+
+
+HELDABLE_RE = re.compile(r"\b(?:gloves?|hats?|caps?|beanies?|boots?|shoes?|sneakers?|helmets?|scarf|scarves|aprons?|jackets?|coats?)\b", re.I)
+HELD_RE = re.compile(r"\b(?:by the|hanging|hung|held|holding|slung|draped|tossed|lying|resting|propped|pair of|boxing|on a (?:hook|nail|peg|rack|shelf|hanger)|on the (?:hook|nail|peg|rail|post|bench|step|table|fence|shelf)|beside|next to|in (?:her|his|their) hands?)\b", re.I)
+
+
+def _worn_like(item: str) -> bool:
+    """A garment or accessory the person wears. A heldable thing (gloves, a hat, boots, a helmet) that is held, hung up or set down is an object, not clothing."""
+    m = CLOTHING_RE.search(item)
+    if not m:
+        return False
+    if HELDABLE_RE.fullmatch(m.group(0)) and HELD_RE.search(item) and not re.search(r"\b(?:wearing|worn|on (?:her|his|their) (?:head|hands|feet))\b", item, re.I):
+        return False
+    return True
 
 
 def _obj_tokens(text: str) -> set:
@@ -403,9 +475,9 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         if bad_rx.search(item):
             continue
         iw = _cw(item)
-        if ACCESSORY_RE.search(item) and not (iw & wear_words):
+        if ACCESSORY_RE.search(item) and not HELDABLE_RE.search(item) and not (iw & wear_words):
             moved.append(item)
-        elif ACCESSORY_RE.search(item) or CLOTHING_RE.search(item) or (iw & wear_words) or (sig and _obj_tokens(item) & _obj_tokens(sig)):
+        elif (ACCESSORY_RE.search(item) and not HELDABLE_RE.search(item)) or _worn_like(item) or (iw & wear_words) or (sig and _obj_tokens(item) & _obj_tokens(sig)):
             continue
         else:
             objects.append(item)
@@ -428,6 +500,11 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         if k != "why" and isinstance(out.get(k), str):
             out[k] = _trim(out[k], lim)
     out["inFrame"] = [_trim(x, IN_FRAME_ITEM_MAX) for x in out["inFrame"]]
+    # the tie: when it does not hold, built from the sheet itself (the clause closest to the place), never sent to the floor for it
+    if out.get("where") and (not out.get("tie") or tie_ok(card, out["where"], out["tie"])):
+        t = repair_tie(card, out["where"])
+        if t:
+            out["tie"] = t
     return out
 
 
@@ -475,12 +552,9 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     elif not (_tokens(where) & _tokens(_sheet_text(card))):
         codes.append("place-not-from-sheet")
     else:
-        sheet_norm = _norm(_sheet_text(card))
-        tie_quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{4,})[\"\u201d]", brief["tie"]) if _quote_in_sheet(q, sheet_norm)]
-        if not tie_quotes:
-            codes.append("no-place-tie")
-        elif not any(_tokens(q) & _tokens(where) for q in tie_quotes):
-            codes.append("place-not-tied")
+        tie_code = tie_ok(card, where, brief["tie"])
+        if tie_code:
+            codes.append(tie_code)
     # the clothes sentence holds clothes only; the signature is a thing, not a pose and not a repeat of what is worn
     if BODY_RE.search(brief["wear"]):
         codes.append("body-in-wear")
@@ -497,9 +571,17 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     sig = _tokens(brief["signature"])
     for item in brief["inFrame"]:
         it = _tokens(item) | _cw(item)
-        if (it & worn) or (_tokens(item) & sig) or CLOTHING_RE.search(item) or ACCESSORY_RE.search(item):
+        if (it & worn) or (_tokens(item) & sig) or _worn_like(item) or (ACCESSORY_RE.search(item) and not HELDABLE_RE.search(item)):
             codes.append("inframe-worn-or-signature")
             break
+    # at most ONE object (of the two in the frame and the signature) may hint at the job, by the writer's own list or by a word of the job title
+    if anchors.get("facet") != NEAR_WORK:
+        job_words2 = {w for w in _norm(str(card.get("vocation") or "")).split() if len(w) >= 5 and w not in FUNCTION_WORDS and w not in OBJ_STOP}
+        listed = {_norm(x) for x in (brief.get("jobHints") or [])}
+        things = list(brief["inFrame"]) + ([brief["signature"]] if brief["signature"] and not look else [])
+        hinting = [t for t in things if _norm(t) in listed or (job_words2 & _tokens(t))]
+        if len(hinting) >= 2:
+            codes.append("job-objects")
     # the job is not a caption (unless the facet is near work)
     job = str(card.get("vocation") or "")
     if job and anchors.get("facet") != NEAR_WORK:
@@ -524,13 +606,13 @@ def _place_kind(where: str) -> str:
 
 def _time_bucket(t: str) -> str:
     low = str(t).lower()
-    for b, rx in (("morning", r"morning|sunrise|dawn"), ("noon", r"noon|midday"), ("afternoon", r"afternoon"), ("golden", r"golden|sunset"), ("evening", r"dusk|evening|blue hour|lamp|night")):
+    for b, rx in (("morning", r"morning|sunrise|dawn"), ("afternoon", r"afternoon"), ("noon", r"\bnoon\b|midday"), ("evening", r"dusk|evening|blue hour|lamp|night"), ("golden", r"golden|sunset")):
         if re.search(rx, low):
             return b
     return "other"
 
 
-def check_cast(cards: list, anchors: dict, briefs: dict) -> dict:
+def check_cast(cards: list, anchors: dict, briefs: dict, relax: int = 0) -> dict:
     """Cast-level reason codes per id (the LATER brief of a clash is the offender): a place kind or a time bucket or a gesture family beyond its cap, the near-work count, dark tops."""
     out: dict = {}
     ids = [str(c["id"]) for c in cards if isinstance(c, dict) and c.get("id")]
@@ -547,21 +629,21 @@ def check_cast(cards: list, anchors: dict, briefs: dict) -> dict:
         code: list = []
         k = _place_kind(b["where"])
         kinds[k] = kinds.get(k, 0) + 1
-        if k != "other" and kinds[k] > PLACE_KIND_MAX:
+        if k != "other" and kinds[k] > PLACE_KIND_MAX + relax:
             code.append("place-kind-repeat")
         tb = _time_bucket(b["timeLight"])
         times[tb] = times.get(tb, 0) + 1
-        if tb != "other" and times[tb] > TIME_BUCKET_MAX:
+        if tb != "other" and times[tb] > TIME_BUCKET_MAX + relax:
             code.append("light-repeat")
         for fam, rx in GESTURES:
             if re.search(rx, b["doing"] + " " + b["expressionBody"], re.I):
                 gest[fam] = gest.get(fam, 0) + 1
-                if gest[fam] > GESTURE_MAX:
+                if gest[fam] > GESTURE_MAX + relax:
                     code.append(f"gesture-repeat-{fam}")
         first_garment = (b["wear"].split(",")[0] if b["wear"] else "")
         if DARK_TOP_RE.search(first_garment):
             dark += 1
-            if dark > DARK_MAX:
+            if dark > DARK_MAX + relax:
                 code.append("dark-palette")
         obj_toks = _obj_tokens(" ".join(b.get("inFrame") or []))
         sig_toks = _obj_tokens(str(b.get("signature") or ""))
@@ -760,7 +842,7 @@ async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmF
             item = _trim(re.sub(r"\s+", " ", str(item)).strip(), IN_FRAME_ITEM_MAX)
             toks = _obj_tokens(item)
             iw = _cw(item)
-            why = ("empty" if not item else "full" if len(objs) >= 2 else "clothing" if CLOTHING_RE.search(item) else "worn-accessory" if ACCESSORY_RE.search(item)
+            why = ("empty" if not item else "full" if len(objs) >= 2 else "clothing" if _worn_like(item) else "worn-accessory" if (ACCESSORY_RE.search(item) and not HELDABLE_RE.search(item))
                    else "repeats-the-clothes" if iw & wear_words else "work-gear" if WORK_GEAR_RE.search(item) else "text-or-brand" if (TEXT_RE.search(item) or BRAND_RE.search(item))
                    else "no-noun" if not toks else "used-by-another" if toks & seen else "repeats-own" if toks & _obj_tokens(" ".join(objs)) else "")
             if why:
@@ -839,19 +921,33 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
             else:
                 tally({i: codes})
                 last_codes[i] = [c for c in (last_codes.get(i) or []) if not c.startswith("editor")] + [f"editor:{c}" for c in codes]
-        # the editor failed the same acted-pose code again: the person pauses from the activity (deterministic), the rest of the brief is kept
+        # every deterministic repair is applied on its own, then the brief is checked again: an acted pose becomes a calm one, a tie is built from the sheet,
+        # a repeated object is dropped, a cast cap is relaxed by one; a person is on the floor only for what cannot be repaired (a generic place, not from the sheet, work gear ...)
+        FIXABLE = {"acted-or-odd-pose", "no-place-tie", "place-not-tied", "object-repeat", "place-kind-repeat", "light-repeat", "dark-palette", "near-work-count"}
         for i in list(failures):
-            if i in accepted or set(last_codes.get(i, [])) - {"acted-or-odd-pose", "editor:acted-or-odd-pose"}:
+            if i in accepted:
                 continue
+            allc = {c.replace("editor:", "") for c in (last_codes.get(i) or [])} | set(failures.get(i, []))
             base = _prepare(by_id[i], _find(fixed, i), anchors[i]) or briefs.get(i)
             if not base:
                 continue
-            cb = calm_brief(base)
-            codes = check_brief(by_id[i], anchors[i], cb) or check_cast(cards, anchors, {**accepted, i: cb}).get(i, [])
+            cand = dict(base)
+            if (allc & {"acted-or-odd-pose"}) or ACTED_RE.search(" ".join([str(cand.get("doing") or ""), str(cand.get("expressionBody") or "")])):
+                cand = calm_brief(cand)
+            if cand.get("where") and tie_ok(by_id[i], cand["where"], cand.get("tie") or ""):
+                t = repair_tie(by_id[i], cand["where"])
+                if t:
+                    cand["tie"] = t
+            seen = seen_before(i)
+            if _obj_tokens(" ".join(cand.get("inFrame") or [])) & seen:
+                cand = _drop_used(cand, seen)
+            codes = check_brief(by_id[i], anchors[i], cand) or check_cast(cards, anchors, {**accepted, i: cand}, relax=1).get(i, [])
             if not codes:
-                accepted[i] = cb
+                accepted[i] = cand
                 rewritten += 1
                 calmed += 1
+            else:
+                last_codes[i] = [c for c in (last_codes.get(i) or []) if not c.startswith("final:")] + [f"final:{c}" for c in codes]
         for i in complete:                                          # a top-up: only an improvement is kept, an accepted brief is never lost
             nb = _prepare(by_id[i], _find(fixed, i), anchors[i])
             if nb and len(missing_parts(nb)) < len(missing_parts(accepted[i])) and not check_brief(by_id[i], anchors[i], nb) \
