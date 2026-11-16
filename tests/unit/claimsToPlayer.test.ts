@@ -17,7 +17,6 @@ describe("claimsToPlayer (0151)", () => {
   });
   it("maps beliefs to honest claim kinds and leaves the rest unsaid", () => {
     expect(sayable(belief({}), H, P)).toMatchObject({ kind: "going-after", subject: S, object: H });
-    expect(sayable(belief({ kind: "voted-against-me", object: undefined }), H, P)).toBeUndefined();
     expect(sayable(belief({ subject: P }), H, P)).toBeUndefined();
     expect(sayable(belief({ refuted: true }), H, P)).toBeUndefined();
     expect(sayable(belief({ kind: "heard-rumor", nature: "betrayal", object: T }), H, P)).toBeUndefined();
@@ -34,5 +33,16 @@ describe("claimsToPlayer (0151)", () => {
   it("picks the surest, then freshest belief", () => {
     const d = decideTellToPlayer([belief({ id: "a", subject: T, confidence: 0.3 }), belief({ id: "b", confidence: 0.7 })], scene);
     expect(d?.belief.subject).toBe(S);
+  });
+});
+
+describe("slice 3 kinds are sayable (0153 voted-against / voted-to-keep)", () => {
+  const mk = (kind: string, subject: string, object: string | undefined, nature?: string) => ({ id: "h|b", holder: "h", kind, subject, ...(object ? { object } : {}), ...(nature ? { nature } : {}), value: true, origin: "told", confidence: 0.7, week: 1 } as never);
+  it("a held voted-against-me is said as the subject having voted to evict the speaker", () => {
+    expect(sayable(mk("voted-against-me", "x", undefined), "h", "player")).toMatchObject({ kind: "voted-against", subject: "x", object: "h" });
+  });
+  it("a rumor about someone else's vote is said as that vote", () => {
+    expect(sayable(mk("heard-rumor", "x", "y", "voted-against"), "h", "player")).toMatchObject({ kind: "voted-against", subject: "x", object: "y" });
+    expect(sayable(mk("heard-rumor", "x", "y", "voted-to-keep"), "h", "player")).toMatchObject({ kind: "voted-to-keep", subject: "x", object: "y" });
   });
 });

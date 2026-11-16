@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
 // B36: this test asserts the OLD graph-diffusion path (or its neutrality / a positive control that rides it). The co-presence layer (ORWELL_GOSSIP_COPRESENCE) REPLACES that path when on, so the
 // test pins the layer OFF explicitly instead of depending on the process env (the one-hop-by-scene equivalents live in copresenceSpread / copresenceScenes tests).
@@ -151,6 +151,11 @@ import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { resolvePending } from "../../features/support/answerPending";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
 
+// theme 2 slice 5b: vote talk (default on) adds told-claim beliefs of its own; this file pins the belief writers it tests (their exact kinds / provenance / neutrality), so it runs with vote talk off.
+let __voteTalk: string | undefined;
+beforeAll(() => { __voteTalk = process.env.ORWELL_VOTE_TALK; process.env.ORWELL_VOTE_TALK = "0"; });
+afterAll(() => { if (__voteTalk === undefined) delete process.env.ORWELL_VOTE_TALK; else process.env.ORWELL_VOTE_TALK = __voteTalk; });
+
 afterEach(() => vi.unstubAllEnvs());
 
 function playThroughRuntime(on: boolean, seed: number): LiveSeasonState {
@@ -199,7 +204,7 @@ describe("S0b-2: the off-screen gossip tick records heard-rumor claims (flag-gat
     const rumors = Object.values(on.beliefs ?? {}).flat().filter((c) => c.kind === "heard-rumor");
     expect(rumors.length, "the off-screen society produced heard rumors").toBeGreaterThan(0);
     expect(rumors.every((c) => c.origin === "gossip" && typeof c.nature === "string" && c.impact !== undefined && c.confidence > 0 && c.confidence <= 1)).toBe(true);
-    const { beliefs: _b, ...onRest } = on as LiveSeasonState & { beliefs?: unknown };
+    const { beliefs: _b, claims: _c, ...onRest } = on as LiveSeasonState & { beliefs?: unknown }; // `claims`: the 0149 told-claim log (vote talk, house speech) exists only while beliefs are on
     const sha = (x: unknown): string => createHash("sha256").update(JSON.stringify(x)).digest("hex");
     expect(sha(onRest), "the gossip observer moved nothing: season state is byte-identical off vs on").toBe(sha(off));
   }, 300_000);
