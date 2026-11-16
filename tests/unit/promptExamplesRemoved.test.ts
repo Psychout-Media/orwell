@@ -7,7 +7,7 @@ describe("prompt examples the model copied are rules now", () => {
   it.each([
     "what do you think of Jordan", "scouting the territory", "best TV pilot", "we should call ourselves", "locked in\"",
     "'warm and open'", "a cooler greeting", "you owe me a vote", "you two knew each other before this", "keep me safe or this gets out",
-    "slip into the lounge a bit ago", "day in review", "feels like...", "can't shake the sense", "who wants to see my HOH room",
+    "slip into the lounge a bit ago", "day in review", "feels like...", "can't shake the sense", "who wants to see my HOH room", "It's day 12; Maya is HOH", "not something you can reach from in here", "I head to the kitchen", "bedroom a\" and",
   ])("no longer quotes %s", (s) => {
     expect(ALL).not.toContain(s);
   });
