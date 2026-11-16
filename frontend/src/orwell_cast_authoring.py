@@ -1325,7 +1325,9 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             if _R.unreal_clothes(str(pc.get("style") or "")):
                 fam = family_for_label(str((npc or {}).get("presentation") or ""))
                 pc["style"] = fam["sample"] if fam is not None else "plain everyday clothes"
-        elif code in ("oncamera-shape", "oncamera-scene", "oncamera-taken"):
+        elif code == "oncamera-taken":
+            pc.pop("onCamera", None)  # a named spot that already holds three houseguests: the line goes (the room is not asked of the writer now)
+        elif code in ("oncamera-shape", "oncamera-scene"):
             # ORW-480: mend the line (a clause out of a second spot or a banned word, cut to length) before dropping it, so a card
             # keeps its on-camera line whenever a clean part of it survives
             fixed = repair_oncamera(str(pc.get("onCamera") or ""))
