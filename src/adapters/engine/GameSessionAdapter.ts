@@ -323,7 +323,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1415,14 +1415,15 @@ export class GameSessionAdapter implements GameSession {
   tellClaim(input: ClaimInput): SpokenClaim | undefined {
     if (!this.live) return undefined;
     const live = this.live;
+    const living = this.livingIds();
+    if (claimProblem(input, living) !== undefined) return undefined; // review of #2858: a refused claim allocates and persists nothing (no claim log, no belief store)
     const log = (live.claims ??= { seq: 0, items: [] });
     const beliefs = this.npcBeliefsEnabled ? (live.beliefs ??= {}) : undefined;
     const told = tellClaim(log, beliefs, input, {
-      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living: this.livingIds(),
+      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
     });
-    if (log.items.length === 0) delete live.claims;   // a refused first claim leaves the season byte-identical
     return told;
   }
   /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
