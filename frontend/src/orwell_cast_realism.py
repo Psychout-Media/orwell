@@ -85,6 +85,11 @@ def tag_card(card: dict) -> dict:
     return out
 
 
+def signature_categories() -> list:
+    """The signature categories of the table (everything but the open "other" bucket), in table order."""
+    return [v for v in table()["kinds"]["signature"]["values"] if v != "other"]
+
+
 def cap_for(kind_id: str, value: str, n: int) -> int:
     kind = table()["kinds"][kind_id]
     cap = (kind.get("values", {}).get(value) or {}).get("cap") or kind["cap"]
@@ -266,7 +271,7 @@ def climate_misfit(card: dict) -> list:
 def look_fits_life(card: dict) -> list:
     """Why a card's look does not fit its life: [] when it does.
     "family": the dealt style family is a poor fit for the job sector, hometown and age (reported).
-    "family-worn": ... and the wardrobe or style line really follows that family (a rewrite from the person fixes it).
+    "family-worn": ... and the style line names that family or the wardrobe follows it closely (a rewrite from the person fixes it).
     "upscale": two or more expensive-look words on a modest life. "climate": winter layers in a hot state, beach clothes inland or in a cold state.
     "missing": no wardrobe at all."""
     from src.orwell_style_families import family_for_label, families_mentioned
@@ -276,7 +281,10 @@ def look_fits_life(card: dict) -> list:
     fam = family_for_label(str(card.get("presentation") or ""))
     if fam is not None and style_fit_weight(fam["id"], card.get("vocation"), card.get("hometown"), card.get("age")) < _fit()["min-weight"]:
         out.append("family")
-        if fam["id"] in families_mentioned(text):
+        from src.orwell_style_families import family_keyword_hits
+        # the style line (what the portrait reads as the presentation) names the poor-fit family, or the wardrobe follows it closely (two
+        # different keywords of that family); one shared keyword ("a button-down") is only plain clothes
+        if fam["id"] in families_mentioned(str(phys.get("style") or "")) or family_keyword_hits(fam["id"], field_text(card, "wardrobe")) >= 2:
             out.append("family-worn")
     if life_affluence(card.get("vocation")) <= 0.5 and len(set(_upscale_words(text))) >= 2:
         out.append("upscale")

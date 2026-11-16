@@ -437,16 +437,20 @@ def test_the_dealt_mark_wins_over_the_writers_own_and_no_category_exceeds_two_on
 
 
 def test_the_six_looks_a_real_cast_got_wrong_are_all_caught_with_the_reason():
-    cases = [("county sheriff's deputy", "Hilo, Hawaii", 32, "skater", ["a plain charcoal zip hoodie", "baggy dark-wash jeans", "low-top canvas sneakers"], ["family-worn"]),
-             ("line cook", "Crockett, Texas", 21, "beachy surf", ["a faded navy cotton tee", "loose-fitting khaki board shorts", "a simple shell necklace"], ["family-worn", "climate"]),
+    cases = [("county sheriff's deputy", "Hilo, Hawaii", 32, "skater", ["a plain charcoal zip hoodie", "baggy dark-wash jeans", "low-top canvas sneakers"], ["family"]),
+             ("line cook", "Crockett, Texas", 21, "beachy surf", ["a faded navy cotton tee", "loose-fitting khaki board shorts", "a simple shell necklace"], ["family", "climate"]),
              ("warehouse forklift driver", "Stockbridge, Georgia", 28, "cottagecore", ["a loose oatmeal linen button-up shirt", "straight-leg olive khaki trousers", "a woven straw sun hat"], ["family"]),
              ("ballroom dance instructor", "Sun City, Arizona", 22, "outdoorsy technical", ["a fitted olive fleece pullover", "a black puffer vest", "brown leather hiking boots"], ["climate"]),
              ("casino dealer", "Pinedale, Wyoming", 24, "Miami flashy", ["a navy silk button-down shirt with a large tropical print", "slim black trousers", "white leather sneakers"], ["family", "climate"]),
-             ("high-school track and field coach", "Exeter, Rhode Island", 26, "corporate business casual", ["navy single-breasted blazer", "checked button-down shirt", "slim grey trousers"], ["family-worn"])]
+             ("high-school track and field coach", "Exeter, Rhode Island", 26, "corporate business casual", ["navy single-breasted blazer", "checked button-down shirt", "slim grey trousers"], ["family"])]
     for job, town, age, fam, wardrobe, want in cases:
         card = {"vocation": job, "hometown": town, "age": age, "presentation": fam, "physicalCharacteristics": {"wardrobe": wardrobe, "style": ""}}
         got = R.look_fits_life(card)
         assert all(w in got for w in want), (job, got)
+    # the style line naming the poor-fit family is what makes it "worn" (plain clothes sharing one keyword are not)
+    skater = {"vocation": "county sheriff's deputy", "hometown": "Hilo, Hawaii", "age": 32, "presentation": "skater",
+              "physicalCharacteristics": {"wardrobe": ["a plain charcoal zip hoodie", "baggy dark-wash jeans"], "style": "skater style, skate shoes"}}
+    assert "family-worn" in R.look_fits_life(skater)
     ok = {"vocation": "line cook", "hometown": "Crockett, Texas", "age": 24, "presentation": "skater",
           "physicalCharacteristics": {"wardrobe": ["grey cotton tee", "dark work jeans", "scuffed sneakers"], "style": "plain tees and jeans"}}
     assert R.look_fits_life(ok) == []

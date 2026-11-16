@@ -466,6 +466,11 @@ class SeasonGate:
         sigs = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("signature", []) if v != "other"})
         if sigs:
             out["signatures"] = sigs  # signature categories already taken (hair, jewellery, glasses ...)
+            try:
+                from src import orwell_cast_realism as _R
+                out["signatures_free"] = [c for c in _R.signature_categories() if c not in sigs]
+            except Exception:  # failsoft-ok: the table never blocks a card
+                pass
         cols = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("colour", [])})
         if cols:
             out["colours"] = cols
@@ -512,10 +517,11 @@ def repetition_message(repeats: dict, taken: dict) -> str:
         parts.append("the wardrobe repeats what other cards already wear (" + _realism_ask(repeats["realism-wardrobe"])
                      + "); two or three real garments a shop sells, chosen from this person's job, hometown, age and money; the "
                      "lookSignature is one thing someone would use to describe them to a friend, bought or done where they live"
-                     + (f" (signature kinds taken: {', '.join(taken['signatures'])})" if taken.get("signatures") else "")
+                     + (f" (signature kinds already taken, do NOT use these: {', '.join(taken['signatures'])}; kinds still free, pick one that fits "
+                        f"their life: {', '.join(taken.get('signatures_free') or [])})" if taken.get("signatures") else "")
                      + (f" (colours worn: {', '.join(taken['colours'])})" if taken.get("colours") else ""))
     return ("Only this needs fixing: " + " and ".join(parts) + ". Reply with ONLY a JSON object holding just the field or fields "
-            "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe and lookSignature), for the same person: same "
+            "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe, style and lookSignature; when the wardrobe is asked, give a short \"style\" line too that describes these very clothes in plain words and names no style family), for the same person: same "
             "pronouns, age and look; change nothing except the wording named above.")
 
 
@@ -548,7 +554,7 @@ def _oncamera_ok(cand: dict, npc: dict, cast) -> bool:
 def _wardrobe_ok(cand: dict, npc: dict) -> bool:
     """A rewritten wardrobe passes the same look checks as a first-pass one (shape, real garments, pronouns, the taken main piece)."""
     from src import orwell_cast_authoring as A
-    return not A.look_problems(cand, npc)
+    return not [c for c in A.look_problems(cand, npc) if c != "style-wrong-family"]  # the dealt family is the poor fit being replaced: the style line is rewritten from the clothes
 
 
 def _identity_ok(text: str) -> bool:
@@ -586,6 +592,7 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
         logger.warning(f"[cast-gate] repetition re-write call failed for {hid}: {type(e).__name__}")
         return
     if not isinstance(fresh, dict):
+        gate.count(["rw-no-reply"])
         return
     new_ident = fresh.get("identityConcept")
     new_phys = fresh.get("physicalCharacteristics")
@@ -600,7 +607,10 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
     for key, ok in (("identity", isinstance(new_ident, str) and new_ident.strip()),
                     ("identity-name", isinstance(new_ident, str) and new_ident.strip()),
                     ("oncamera", has_cam), ("realism-wardrobe", has_wd)):
-        if key not in rep or not ok:
+        if key not in rep:
+            continue
+        if not ok:
+            gate.count([f"rw-no-{key}"])  # the writer's reply carried no usable value for the asked field
             continue
         cand = {k: (dict(v) if isinstance(v, dict) else v) for k, v in profile.items()}
         if key in ("identity", "identity-name"):
@@ -617,17 +627,26 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
                 if isinstance(new_sig, str) and new_sig.strip():
                     base["lookSignature"] = " ".join(new_sig.split())[:90]  # the signature travels with the wardrobe it is carried by
                 new_style = new_phys.get("style") if isinstance(new_phys, dict) else None
-                if "look-fit" in (rep.get("realism-wardrobe") or {}) and isinstance(new_style, str) and new_style.strip():
-                    base["style"] = " ".join(new_style.split())  # the style line travels with the clothes it describes
+                if "look-fit" in (rep.get("realism-wardrobe") or {}):
+                    # the style line travels with the clothes it describes: the writer's own line, unless it still names the poor-fit family
+                    # (or is missing), then the pieces themselves in plain words
+                    plain = ", ".join(" ".join(x.split()).lower() for x in new_wd)
+                    style = " ".join(new_style.split()) if isinstance(new_style, str) and new_style.strip() else plain
+                    if "family-worn" in _look_fit_failures({**cand, "physicalCharacteristics": {**base, "style": style}}):
+                        style = plain
+                    base["style"] = style
             cand["physicalCharacteristics"] = base
         mend(cand, npc, cast)
         if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):
+            gate.count([f"rw-blocking-{key}"])
             continue
         if key in ("identity", "identity-name") and not _identity_ok(cand.get("identityConcept")):
             continue
         if key == "oncamera" and not _oncamera_ok(cand, npc, cast):
             continue
         if key == "realism-wardrobe" and not _wardrobe_ok(cand, npc):
+            from src import orwell_cast_authoring as _A
+            gate.count(["rw-look-" + "+".join(sorted(c for c in _A.look_problems(cand, npc) if c != "style-wrong-family"))])
             continue
         still = gate.repeats(hid, cand, npc, cast)
         if key == "realism-wardrobe":
@@ -642,6 +661,8 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
             asked = [k for k in ("oncamera", "realism-oncamera") if k in rep]
         else:
             asked = [key]
+        if key == "realism-wardrobe" and "realism-wardrobe" in still:
+            gate.count(["rw-not-improved"])
         if any(k in still for k in asked):  # a realism dict is non-empty only while an offender remains (the asked one or a new one)
             continue  # it still repeats (or still names the person): that field ships as it is (fail open, the code is counted as before)
         profile.clear()

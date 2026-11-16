@@ -157,26 +157,62 @@ def test_a_rewrite_that_fixes_the_look_fit_is_kept_even_with_a_colour_cap_still_
 
 def test_the_fit_audit_asks_the_model_once_for_the_cast_and_rewrites_only_the_cards_it_names():
     cards = [{"id": f"npc:{i}", "name": f"P{i}", "vocation": "court reporter" if i == 1 else "welder", "age": 34, "hometown": "Macon, Georgia",
-              "physicalCharacteristics": {"wardrobe": ["indigo scrub pants", "white clogs"] if i == 1 else ["grey work shirt", "dark jeans"]}} for i in range(1, 4)]
+              "physicalCharacteristics": {"wardrobe": ["indigo scrub pants", "white clogs"] if i == 1 else ["grey work shirt", "dark jeans"],
+                                          **({"lookSignature": "a long single braid"} if i == 2 else {"lookSignature": "a silver watch"} if i == 3 else {})}}
+             for i in range(1, 4)]
+    cards[2]["physicalCharacteristics"]["lookSignature"] = "a braided ponytail"  # the same category as card 2
     calls, written = [], []
 
     async def llm(messages):
         calls.append(messages)
         if len(calls) == 1:
             return '{"misfits": [{"id": "npc:1", "piece": "indigo scrub pants", "why": "a clinical uniform for a courtroom job"}, {"id": "npc:9", "piece": "x", "why": "unknown id"}]}'
-        return '{"wardrobe": ["grey wool trousers", "ivory blouse", "low black flats"], "lookSignature": "a silver watch"}'
+        return '{"wardrobe": ["grey wool trousers", "ivory blouse", "low black flats"], "lookSignature": "a shell necklace"}'
 
     async def write(hid, fields):
         written.append((hid, fields))
         return {"accepted": True}
     n = asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, llm, write))
-    assert n == 1 and len(calls) == 2 and [w[0] for w in written] == ["npc:1"]
+    assert n >= 1 and [w[0] for w in written][0] == "npc:1" and "npc:9" not in [w[0] for w in written]
     assert "no list of jobs or garments" in calls[0][0]["content"] and "scrub" not in calls[0][0]["content"].lower()
     assert cards[0]["physicalCharacteristics"]["wardrobe"][0] == "grey wool trousers"
-    # a clean audit costs one call and changes nothing
+    # the repeated-category card (3) is asked for a different kind, and only one card may take the free jewellery category
+    sigs = [c["physicalCharacteristics"].get("lookSignature") for c in cards]
+    assert sigs.count("a shell necklace") <= 1
+    # a clean cast costs one call and changes nothing
+    clean_cards = [{"id": f"npc:{i}", "vocation": "welder", "age": 30, "physicalCharacteristics": {"wardrobe": ["grey work shirt", "dark jeans"], "lookSignature": s_}}
+                   for i, s_ in ((1, "a long single braid"), (2, "wire glasses"))]
     calls.clear(); written.clear()
 
     async def clean(messages):
         calls.append(messages)
         return '{"misfits": []}'
-    assert asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, clean, write)) == 0 and len(calls) == 1 and not written
+    assert asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(clean_cards, clean, write)) == 0 and len(calls) == 1 and not written
+
+
+def test_the_audit_gives_a_card_with_no_signature_and_no_wardrobe_one_rewrite_each():
+    cards = [{"id": "npc:1", "vocation": "welder", "age": 30, "physicalCharacteristics": {"lookSignature": "wire glasses"}},
+             {"id": "npc:2", "vocation": "welder", "age": 30, "physicalCharacteristics": {"wardrobe": ["grey work shirt", "dark jeans"]}}]
+    written = []
+
+    replies = ['{"wardrobe": ["rust flannel shirt", "canvas work pants"], "lookSignature": "a woven shell necklace"}',
+               '{"lookSignature": "a plain cap"}']
+
+    async def llm(messages):
+        if "casting director of a reality show" in messages[0]["content"]:
+            return '{"misfits": []}'
+        return replies.pop(0)
+
+    async def write(hid, fields):
+        written.append((hid, sorted(fields)))
+        return {"accepted": True}
+    assert asyncio.new_event_loop().run_until_complete(A.fit_audit_pass(cards, llm, write)) == 2
+    assert ("npc:1", ["lookSignature", "wardrobe"]) in written and ("npc:2", ["lookSignature"]) in written
+
+
+def test_family_worn_is_read_from_the_style_line_and_a_look_fit_rewrite_replaces_that_line():
+    card = {"id": "npc:1", "vocation": "county sheriff's deputy", "age": 32, "hometown": "Hilo, Hawaii", "presentation": "skater",
+            "physicalCharacteristics": {"wardrobe": ["wool trousers", "ivory blouse"], "style": "skater style, skate shoes"}}
+    assert "family-worn" in R.look_fits_life(card)
+    card["physicalCharacteristics"]["style"] = "wool trousers, an ivory blouse"
+    assert "family-worn" not in R.look_fits_life(card)

@@ -61,6 +61,11 @@ def _kw_re(kw: str) -> re.Pattern:
 _KW_RES = {f["id"]: [_kw_re(k) for k in f["keywords"]] for f in STYLE_FAMILIES}
 
 
+def family_keyword_hits(fid: str, text: str) -> int:
+    """How many different keywords of family `fid` appear in `text`."""
+    return sum(1 for r in _KW_RES.get(fid, []) if r.search(text or ""))
+
+
 def families_mentioned(text: str) -> list[str]:
     """Ids of every family whose keywords appear in ``text`` (word-start and word-end match, case-insensitive)."""
     return [fid for fid, res in _KW_RES.items() if any(r.search(text or "") for r in res)]

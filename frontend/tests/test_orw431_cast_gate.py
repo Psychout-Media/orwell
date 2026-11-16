@@ -244,7 +244,7 @@ def test_worst_case_a_stub_that_never_returns_oncamera_or_a_biography_for_one_ca
     caplog.set_level(logging.DEBUG)
     n, w, calls = _go(run(cast, reply))
     assert n == 2 and set(w) == {"npc:0", "npc:2"}                   # the other cards are accepted despite no onCamera
-    assert calls <= 3 + 3 + gate.GATE_REWRITE_BOUND + 4              # bounded: no loop
+    assert calls <= 3 + 3 + gate.GATE_REWRITE_BOUND + 4 + 1 + 6              # bounded: no loop (the cast-level look pass adds one audit call and at most six rewrites)
     assert any("npc:1" in r.message and "tier=blocking" in r.message for r in caplog.records)
     # ORW-480: no room is asked of the writer, so an on-camera line with no spot is a valid line and the card carries no look-missing code
     assert any(r.message == "[cast-gate] npc:0 tier=clean codes=- rewrites=0" for r in caplog.records)  # no code at all, not merely no look-missing
