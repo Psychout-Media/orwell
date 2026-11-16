@@ -12396,11 +12396,6 @@ export class GameSessionAdapter implements GameSession {
         const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
         if (h !== null && h > 0) advanceClock(this.live!, h);
       }
-      // ORW-481 (review of ORW-232): a player's `comp-round` answer resolves the FIRST staged elimination inside `applyDecision`, so that round's share is charged here (the later rounds pay in `advanceOneBeat`); otherwise the crown pays it late.
-      if (ev !== null && ev.beat === "comp-elimination" && this.timeOfDayEnabled && this.playedGameNow() && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired) {
-        const h = competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0);
-        if (h !== null && h > 0) advanceClock(this.live!, h);
-      }
       this.commit(ev);
       // T0-2 ("beats terminate themselves") — for the CLOSED-SET ceremony/comp pending kinds
       // (`AUTO_ADVANCE_PENDING_KINDS`, documented above), the resolution's own commit IS the exit: the
