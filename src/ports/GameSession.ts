@@ -2901,6 +2901,10 @@ export interface RecordCastGenesisReq {
   npcs: GenesisNpcDTO[];
   /** The proposed pre-show tie graph (0–2 pairs; excess dropped, sanity-validated, sealed). */
   ties?: GenesisTieDTO[];
+  /** ORW-532: the recent-seasons memory (names); a proposed name on it is refused. Sent by the front end for unseeded casts. */
+  avoid?: AvoidWire;
+  /** ORW-532: keep each warmed card's dealt surname; the writer picks the given name. */
+  keepDealtSurname?: boolean;
 }
 /** One structured, Vault-free validation violation (never echoes a hidden value). */
 export interface GenesisViolationDTO {

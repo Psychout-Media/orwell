@@ -534,13 +534,20 @@ def render_slot_directive(hid: str, d: dict) -> str:
                 hand_clause = f" DEALT FACETS: {rendered}."
         except Exception:  # pragma: no cover - defensive: a ledger hiccup never breaks the card
             hand_clause = ""
+    # ORW-532: the engine dealt this slot's SURNAME (Census frequency, fitted to the heritage) and the birth decade is
+    # known from the age: both are fixed anchors; the writer picks only the GIVEN name.
+    name_clause = ""
+    if d.get("dealtSurname"):
+        name_clause = (f" NAME ANCHORS (fixed): the surname is {d.get('dealtSurname')}; the person was born around "
+                       f"{d.get('birthYear')}. Pick a given name that people born then, with this surname and this "
+                       "background, are really given; answer exactly 'GivenName " + str(d.get("dealtSurname")) + "'.")
     return (f"{hid} — cast as: {d.get('role')} ({d.get('roleNote')}); archetype tag: {d.get('archetype')}; "
             f"age ~{d.get('ageLo')}-{d.get('ageHi')} (name from that birth era); {accent}; "
             f"energy: {d.get('energy')}; register: {d.get('register')}; "
             f"expressiveness: {d.get('expressiveness')}; reactivity: {d.get('emotionalRegister')}; "
             f"self-awareness: {d.get('selfAwareness')}; social-gravity: {d.get('socialGravity')}; "
             f"{look}."
-            + phys + big + hand_clause)
+            + phys + big + hand_clause + name_clause)
 
 
 # ── the envelope vocabulary (mirrors src/engine/castGenesis.ts + genesisConstants.ts) ───────────────────
@@ -621,7 +628,8 @@ _SYSTEM = (
     "of real faces have no single notable mark at all.\n"
     "\"npcs\": an array, ONE object PER houseguest id given below (keep the SAME ids), each with:\n"
     '  "id": the exact houseguest id from the roster below (echo it verbatim).\n'
-    '  "name": a normal, real, everyday FIRST and LAST name (EXACTLY two words) that a modern American '
+    '  "name": when the card has NAME ANCHORS the surname is FIXED (use it exactly) and you choose only the given '
+    "name, one that fits the birth year and the background. Otherwise a normal, real, everyday FIRST and LAST name (EXACTLY two words) that a modern American "
     "reality-TV contestant could actually have. Ordinary surnames are SOMETIMES a little distinctive and "
     "sometimes perfectly plain — both are fine; don't force blandness, and don't reach for anything "
     "flashy either. A familiar short-form or nickname given name (Mike, Liz, Gabe, Nat, Cass) is totally "
@@ -1333,6 +1341,18 @@ async def seed_cast_genesis(roster: list, seed: int, llm_fn: LlmFn, write_fn: Wr
                 slot_list = [{**s, "ledger": hands[i]} for i, s in enumerate(slot_list)]
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(f"[cast-genesis] facet-ledger mint failed (plain cards stand): {e}")
+    # ORW-532: the dealt surname and the birth year ride each card as fixed name anchors.
+    if slot_list:
+        by_id = {str(n.get("id")): n for n in (roster or []) if isinstance(n, dict) and n.get("id")}
+        anchored = []
+        for i, s_ in enumerate(slot_list):
+            card = by_id.get(roster_ids[i]) or {}
+            parts = str(card.get("name") or "").split()
+            age = card.get("age")
+            if len(parts) >= 2 and isinstance(age, int) and 18 <= age <= 99:
+                s_ = {**s_, "dealtSurname": " ".join(parts[1:]), "birthYear": 2026 - age}
+            anchored.append(s_)
+        slot_list = anchored
     directives = {hid: slot_list[i] for i, hid in enumerate(roster_ids)} if slot_list else None
     feedback: Optional[str] = None
     best = {"committed": 0, "accepted": False, "varianceOk": True, "rerolls": 0, "reason": "no-usable-proposal"}
@@ -1586,7 +1606,13 @@ async def _run_genesis_once(roster: list, seed: int, owner: Optional[str], *,
     from src import orwell_engine
 
     async def _write(proposal: dict) -> dict:
-        return await orwell_engine.record_cast_genesis(proposal, user=owner)
+        # ORW-532: the engine keeps the dealt surname and refuses a name on the recent-seasons memory.
+        try:
+            from src.orwell_engine import _avoid_args
+            avoid = _avoid_args(owner, None)
+        except Exception:
+            avoid = {}
+        return await orwell_engine.record_cast_genesis({**proposal, **avoid, "keepDealtSurname": True}, user=owner)
 
     # The LIVE path authors ONE houseguest per call in bounded-concurrency waves (GENESIS_CHUNK_SIZE in
     # flight) — maximizing per-NPC independence + killing cross-call name collisions; a failed call is
