@@ -33,6 +33,8 @@ class _Eng:
     def __init__(self, phases):
         self.phases, self.calls, self.recap = list(phases), [], []
 
+    def hour(self): return (12, 0)
+
     def play_pendings_until(self, phase, tag, max_steps=40):
         self.calls.append(("until", phase, max_steps)); return True
 
@@ -40,7 +42,7 @@ class _Eng:
         self.calls.append((name,))
         if name == "getGameState":
             ph = self.phases[0] if len(self.phases) == 1 else self.phases.pop(0)
-            return {"phase": ph, "week": 1, "clockLabel": "9:00pm, Day 5", "player": {"name": "P"}}
+            return {"phase": ph, "week": 1, "clockLabel": "9:00pm, Day 5", "player": {"name": "P"}, "daySchedule": {"minutesUntil": 20, "due": False}}
         if name == "seasonRecap": return {"evicted": self.recap}
         return {}
 
@@ -108,3 +110,31 @@ def test_a_card_on_eviction_night_is_answered_through_the_weeks_own_card_turn(mo
     eng = _Eng(["eviction"])
     ev.run(eng, lambda l, t: None, lambda cid, ok, d, sev="fail": checks.append((cid, ok, sev)), _C(), 2)
     assert answered == [1] and ("E3-card-answered[1]", True, "note") in checks
+
+
+class _ClockEng:
+    """minutesUntil falls 5 per message tick; the hour jumps to 24 at one point so the bed path runs."""
+    def __init__(self, start, night_at=None):
+        self.mu, self.ticks, self.slept, self.night_at = start, 0, 0, night_at
+    def call(self, name, args=None):
+        if name == "getGameState": return {"daySchedule": {"minutesUntil": self.mu, "due": self.mu <= 0}}
+        if name == "noteMessage": self.ticks += 1; self.mu -= 5
+        return {}
+    def hour(self): return (24, 0) if self.night_at is not None and self.ticks == self.night_at and not self.slept else (14, 0)
+    def sleep_through_night(self, tag): self.slept += 1; self.mu -= 60
+
+
+def test_the_clock_is_moved_by_engine_ticks_to_30_minutes_before_the_ceremony():
+    e = _ClockEng(1290)
+    assert ev.advance_to_due(e) is True
+    assert 0 < e.mu <= 30 and e.ticks == (1290 - e.mu) // 5   # ticks only; no model call, no overshoot past the near-due mark
+
+
+def test_the_night_goes_to_bed_and_the_bound_stops_a_clock_that_never_moves():
+    e = _ClockEng(600, night_at=10)
+    assert ev.advance_to_due(e) is True and e.slept == 1
+    class _Stuck(_ClockEng):
+        def call(self, name, args=None):
+            if name == "noteMessage": self.ticks += 1; return {}
+            return super().call(name, args)
+    assert ev.advance_to_due(_Stuck(600), max_ticks=40) is False
