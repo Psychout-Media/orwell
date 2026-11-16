@@ -7599,13 +7599,28 @@ def _forget_owner_entries(store, keys) -> None:
         raise TypeError(f"no season reset for a {type(store).__name__} store")
 
 
-def _forget_season_pacing(user) -> None:
+# ORW-499 — a per-owner SEASON GENERATION, bumped by every season reset. A restart usually lands INSIDE a
+# turn (the model calls createCharacter and the same loop keeps running), so that turn's later pacing writes
+# would put last season's state back after the reset cleared it. The public turn wrapper records the
+# generation when the turn begins and, if it moved, clears the pacing stores again when the turn ends: a
+# turn that began in an older generation leaves nothing behind. Not a pacing store itself (the reset must
+# never clear it), so it is a Counter and not listed in `_SEASON_PACING_STORES`.
+_SEASON_GENERATION: "collections.Counter[str]" = collections.Counter()
+
+
+def _season_generation(owner) -> int:
+    return _SEASON_GENERATION[_belt_key(owner)]
+
+
+def _forget_season_pacing(user, _bump: bool = True) -> None:
     """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
     stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
     and the faith queue's canonical-session key), so every variant is cleared; another owner's state is
     never touched. Registered on `orwell_engine.on_season_reset`; never raises: a store that fails is logged
     and the rest are still cleared."""
     keys = {user, user or "", _belt_key(user)}
+    if _bump:  # ORW-499: turns that began before this reset are now stale (a stale turn's own re-clear must not stale a newer turn)
+        _SEASON_GENERATION[_belt_key(user)] += 1
     try:
         keys.add(_faith_key(user))
     except Exception:
@@ -8157,12 +8172,18 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
     _ledger_tokens: list = []
+    _gen0 = _season_generation(kwargs.get("owner"))  # ORW-499: the season this turn began in
     try:
         async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        try:  # ORW-499: the season restarted mid-turn, so any pacing this turn wrote since is last season's: drop it
+            if _season_generation(kwargs.get("owner")) != _gen0:
+                _forget_season_pacing(kwargs.get("owner"), _bump=False)
+        except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
+            logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
