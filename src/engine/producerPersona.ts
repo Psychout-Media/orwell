@@ -90,6 +90,48 @@ const PRODUCER_BACKSTORIES: readonly string[] = [
   "treats the casting room like a chess opening — every question is two moves ahead of the answer",
 ];
 
+// ORW-511: each persona field carries a second clause from its own pool, so the offline floor is the product of two lists (not one list of five or six). The live writer overlay still authors the real persona.
+const PRODUCER_DISPOSITION_TAILS: readonly string[] = [
+  "and never says what they are really listening for",
+  "and keeps the first impression in a notebook they never open in front of anyone",
+  "and is more patient than the room expects",
+  "and trusts a hesitation more than a speech",
+  "and writes the verdict down before the player finishes the sentence",
+  "and has been wrong about people exactly as often as they will admit",
+  "and treats every confident answer as an opening bid",
+  "and likes a person best the moment they stop performing",
+];
+const PRODUCER_WIT_TAILS: readonly string[] = [
+  "delivered with a perfectly straight face",
+  "and then waits as if nothing was said",
+  "usually at the expense of whatever the player just said",
+  "but only when the player least expects the room to be paying attention",
+  "and gone before the player can decide whether it was a joke",
+  "pitched low enough that it sounds like a confidence",
+  "with the timing of someone who has told it before and still enjoys it",
+  "always aimed at the answer, never at the person",
+];
+const PRODUCER_QUIRK_TAILS: readonly string[] = [
+  "and taps a pen twice before the question that matters",
+  "and never writes down the answers that are true",
+  "and says the player's first name only when something is about to change",
+  "and lets a cold cup of coffee sit untouched all session",
+  "and checks the clock only when the player says something that matters",
+  "and goes still whenever the player starts to relax",
+  "and hums half a tune when a story is being polished",
+  "and glances at the door right before a surprising question",
+];
+const PRODUCER_BACKSTORY_TAILS: readonly string[] = [
+  "after a first season that went wrong in a way nobody on the crew still talks about",
+  "and still keeps a note of every contestant they were sure about and were wrong about",
+  "having trained under someone who cast by gut and never explained why",
+  "and left a steadier career behind because this room was more honest",
+  "with a reputation among the crew for remembering everything and repeating nothing",
+  "after years of learning that the loudest person in the room is rarely the one who matters",
+  "and came back after a long break because nothing else held their attention",
+  "having learned to like the players the audience will not",
+];
+
 /**
  * Generate the producer persona (feature: producer persona). Reuses the `CharacterFactory` archetype
  * + demeanor vocabularies and the real-name corpus so the producer is a CHARACTER built by the same
@@ -100,14 +142,22 @@ const PRODUCER_BACKSTORIES: readonly string[] = [
  * who the player turns out to be. Vault-free by construction (every field is public voice flavor).
  */
 export function generateProducer(rng: RandomnessSource): Producer {
+  const name = rng.pick(GIVEN_NAMES);
+  const archetype = rng.pick(ARCHETYPES).archetype;
+  const demeanor = rng.pick(DEMEANORS);
+  const disposition = rng.pick(PRODUCER_DISPOSITIONS);
+  const wit = rng.pick(PRODUCER_WITS);
+  const quirk = rng.pick(PRODUCER_QUIRKS);
+  const backstory = rng.pick(PRODUCER_BACKSTORIES);
+  // ORW-511: the second clauses are drawn AFTER every original draw, so name, archetype, demeanor and the first clause of each field keep their seeded values.
   return {
-    name: rng.pick(GIVEN_NAMES),
-    archetype: rng.pick(ARCHETYPES).archetype,
-    demeanor: rng.pick(DEMEANORS),
-    disposition: rng.pick(PRODUCER_DISPOSITIONS),
-    wit: rng.pick(PRODUCER_WITS),
-    quirk: rng.pick(PRODUCER_QUIRKS),
-    backstory: rng.pick(PRODUCER_BACKSTORIES),
+    name,
+    archetype,
+    demeanor,
+    disposition: `${disposition}, ${rng.pick(PRODUCER_DISPOSITION_TAILS)}`,
+    wit: `${wit}, ${rng.pick(PRODUCER_WIT_TAILS)}`,
+    quirk: `${quirk}, ${rng.pick(PRODUCER_QUIRK_TAILS)}`,
+    backstory: `${backstory}, ${rng.pick(PRODUCER_BACKSTORY_TAILS)}`,
     offCamera: true,
     headshot: false,
     houseguest: false,

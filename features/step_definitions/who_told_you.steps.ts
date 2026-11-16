@@ -83,6 +83,8 @@ Then("the engine decides whether the NPC names the second NPC or protects them",
 });
 
 Then("the same inputs always give the same answer", function () {
+  const shared = (globalThis as { sameAnswer0156?: (w: unknown) => void }).sameAnswer0156; // 0156 shares this wording: when its bag is live, its determinism check runs instead
+  if ((this as { house0156?: unknown }).house0156 && shared) { shared(this); return; }
   const again = ask(this);
   assert.equal(again, bag(this).before, "asking again gave a different answer");
   const i = { seed: 7, holder: "h", claimId: "claim:1", origin: "told" as const, source: "s", sourceAffinity: 0.5, sourceTrust: 0.5, playerTrust: 0.5 };

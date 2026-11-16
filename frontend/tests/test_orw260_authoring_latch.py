@@ -52,3 +52,35 @@ def test_latch_is_per_owner_and_cleared_by_the_new_season_scrub():
     from src import orwell_prewarm
     orwell_prewarm.reset_user_season("u-e")
     assert A.strict_failed("u-e") is False
+
+
+def test_review_2375_an_old_run_failing_after_a_season_reset_does_not_latch_the_new_cast(monkeypatch):
+    """A slow run from the previous season fails after the new season began: its failure must not latch the flag against the new cast."""
+    monkeypatch.setattr(ep, "is_strict", lambda: True)
+    release = asyncio.Event()
+
+    async def _slow_bad(*a, **k):
+        await release.wait()
+        return "not json at all"
+
+    # drive through the real run id handling: begin a run, reset the season, then let the old run fail
+    A.begin_authoring_run("u-stale")
+    old_ctx_id = A._RUN_ID.get()
+
+    async def old_run():
+        A._RUN_ID.set(old_ctx_id)
+        await A.author_cast([{"id": "npc:1", "name": "Role One"}], _slow_bad, _noop_write, user="u-stale")
+
+    async def main():
+        task = asyncio.ensure_future(old_run())
+        await asyncio.sleep(0)
+        A.clear_strict_failed("u-stale")  # the new season scrub (reset_user_season)
+        release.set()
+        await task
+    asyncio.get_event_loop().run_until_complete(main())
+    assert A.strict_failed("u-stale") is False
+    # a run that is still current keeps its loud failure
+    A.begin_authoring_run("u-stale")
+    release.set()
+    _run(A.author_cast([{"id": "npc:1", "name": "Role One"}], _slow_bad, _noop_write, user="u-stale"))
+    assert A.strict_failed("u-stale") is True

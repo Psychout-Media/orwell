@@ -1,5 +1,5 @@
 import { testTmpDir } from "../support/freshTmpDir";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtempSync } from "node:fs";
@@ -13,6 +13,11 @@ import { composeRuntime } from "../../src/composition/runtime";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { resolvePending } from "../../features/support/answerPending";
 import type { LiveSeasonState } from "../../src/engine/liveSeason";
+
+// theme 2 slice 5b: vote talk (default on) adds told-claim beliefs of its own; this file pins the belief writers it tests (their exact kinds / provenance / neutrality), so it runs with vote talk off.
+let __voteTalk: string | undefined;
+beforeAll(() => { __voteTalk = process.env.ORWELL_VOTE_TALK; process.env.ORWELL_VOTE_TALK = "0"; });
+afterAll(() => { if (__voteTalk === undefined) delete process.env.ORWELL_VOTE_TALK; else process.env.ORWELL_VOTE_TALK = __voteTalk; });
 
 /**
  * B36 - the co-presence layer's ONE-HOP-BY-SCENE equivalents of the two graph-diffusion tests it replaces (beliefProvenance S0b-2 and liveGossip B27b), plus the B24 heard-rumor claim

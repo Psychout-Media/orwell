@@ -245,7 +245,9 @@ async def prewarm_cast(user: Optional[str] = None, *, engine=None, authoring=Non
     try:
         if identity is None:
             from src import orwell_cast_identity as identity
-        applied = await identity.run_identity(cast, user)
+        import inspect
+        _takes_seed = "seed" in inspect.signature(identity.run_identity).parameters  # an injected dependency may not take the season seed
+        applied = await (identity.run_identity(cast, user, seed=seed) if _takes_seed else identity.run_identity(cast, user))
         if applied:
             again = await engine.pre_seed_cast(user=user)
             if isinstance(again, dict) and again.get("house"):

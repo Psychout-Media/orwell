@@ -13,6 +13,7 @@
 #      the CI filter test that proves the FE-reads-engine list is complete
 #   4. the Vault word scans that fail on a public string: the 0110 vote-deduction and 0023 consequence features under cucumber (the
 #      "no surface shows a confidence ..." and "the opinion change is invisible" scans)
+#   2b. the short-list guard (ORW-511, ci/check_short_lists.py) and its planted-failure test (frontend/tests/test_short_list_guard.py, in step 3)
 #   5. py_compile of the whole front end and a module-syntax check of every static/js file
 # Skips a part with a notice (never silently) when its tool is missing, so a laptop without the Python venv still gets the rest.
 set -uo pipefail
@@ -34,6 +35,9 @@ process.exit(bad);' $(git ls-files '.github/workflows/*.yml' '.github/actions/*/
 step "no internal address, host name or real user's home path in a tracked file (the repository is public, ORW-426)"
 run python3 ci/check_no_internal_details.py
 
+step "short-list guard (ORW-511: no new short dealt list, no new example line or closed menu in prompt text, unless allowlisted with a reason)"
+run python3 ci/check_short_lists.py
+
 step "typecheck"
 run npx tsc --noEmit
 
@@ -49,7 +53,7 @@ if "$PY" -c "import pytest" 2>/dev/null; then
   (cd frontend && "$PY" -m pytest -q -p no:cacheprovider \
     tests/test_f3_window_ratchet.py tests/test_no_new_bespoke_menu.py tests/test_1454_orphan_chrome_ratchet.py tests/test_737_surface_registry.py \
     tests/test_ci_shard.py tests/test_ci_quarantine_guard.py tests/test_ci_fe_reads_engine_filter.py tests/test_ci_fe_coverage_check.py \
-    tests/test_ci_flaky_report.py tests/test_ci_runner_image_pinned.py tests/test_a41_skip_guard.py) || { echo "::error::ci:fast step failed: front-end guard tests"; fail=1; }
+    tests/test_ci_flaky_report.py tests/test_ci_runner_image_pinned.py tests/test_a41_skip_guard.py tests/test_short_list_guard.py) || { echo "::error::ci:fast step failed: front-end guard tests"; fail=1; }
 else
   echo "::warning::pytest not importable by $PY: front-end guard tests SKIPPED here (CI runs them)"
 fi

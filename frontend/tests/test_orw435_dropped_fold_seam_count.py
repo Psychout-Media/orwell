@@ -239,7 +239,7 @@ def test_a_gap_with_no_fe_write_at_all_still_fires(_led):
 
 
 # Methods that commit (this.persist) only in the pre-game prewarm lifecycle and backgroundPersist in a running season.
-MIXED_BY_LIFECYCLE = frozenset({"recordCastIdentity"})
+MIXED_BY_LIFECYCLE = frozenset({"recordCastIdentity", "recordLookExtras"})  # ORW-480: recordLookExtras writes the pre-warmed cast (commits) before the season and the live house (background persist, no beat) during it
 
 
 # Drift guard: every engine `record*` write that persists only via backgroundPersist (no beatSeq bump) must be listed.

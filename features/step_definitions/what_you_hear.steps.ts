@@ -1,3 +1,5 @@
+import { voteTalkWeekOne, voteTalkLate } from "./vote_talk.steps";
+import { meetingNothingAboutIt } from "./house_meetings_player.steps";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -159,6 +161,7 @@ Given("an NPC tells a third NPC a claim while the player is elsewhere", function
   b.s!.noteMessage({ messageId: `hear0151-${n}-elsewhere` });
 });
 Then("the narrator is handed nothing about it", function () {
+  if ((this as { meetings0156p?: { s?: unknown } }).meetings0156p?.s) return meetingNothingAboutIt(this); // 0156 scenario 6 shares this wording
   const s = bag(this).s!;
   assert.equal(s.claimsThePlayerHeard().length, 0);
   const view = JSON.stringify(s.getMomentPrompt({}));
@@ -220,9 +223,11 @@ When("seeded seasons play with houseguests sharing beliefs with the player", fun
   bag(this).mix = { on: run(true), off: run(false) };
 });
 Then("the week-one house mix stays within the agreed reference", function () {
+  if ((this as { arms?: unknown }).arms) return voteTalkWeekOne.call(this); // 0154 scenario 8 shares this wording
   assert.equal(bag(this).mix!.on, bag(this).mix!.off, "sharing beliefs moved the seeded game");
 });
 Then("the late-game guard stays green", function () {
+  if ((this as { arms?: unknown }).arms) return voteTalkLate.call(this); // 0154 scenario 8 shares this wording
   // The 0149/0151 side stream draws nothing from the shared rng; the seeded guards (tests/unit/houseMixGuard.test.ts, tests/property/houseMixLate.property.test.ts) run in the gate.
   assert.equal(bag(this).mix!.on, bag(this).mix!.off);
 });

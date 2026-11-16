@@ -58,11 +58,15 @@ export function sayable(b: BeliefClaim, holder: EntityId, player: EntityId): Say
     case "targets-me": return { ...base, kind: "going-after", object: holder };
     case "allied-with": return b.object && b.object !== player && b.object !== b.subject ? { ...base, kind: "final-two-with", object: b.object } : undefined;
     case "lied-to-me": return { ...base, kind: "lying-about", object: holder };
+    // 0153: "X voted to evict ME" is said as X having voted to evict the speaker (the claims core's `voted-against`, the speaker as object).
+    case "voted-against-me": return { ...base, kind: "voted-against", object: holder };
     case "heard-rumor":
       if (!b.object || b.object === player || b.object === b.subject) return undefined;
       return b.nature === "going-after" ? { ...base, kind: "going-after", object: b.object }
         : b.nature === "talking-about" ? { ...base, kind: "talking-about", object: b.object }
         : b.nature === "lying" ? { ...base, kind: "lying-about", object: b.object }
+        : b.nature === "voted-against" ? { ...base, kind: "voted-against", object: b.object }
+        : b.nature === "voted-to-keep" ? { ...base, kind: "voted-to-keep", object: b.object }
         : undefined;
     default: return undefined;
   }

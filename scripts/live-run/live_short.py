@@ -293,14 +293,19 @@ def main():
     ap.add_argument("--engine", default=None); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
     ap.add_argument("--crossover", action="store_true", help="ORW-433: after the veto morning, play on to eviction night and cross into Week 2 through the real chat bed")
+    ap.add_argument("--eviction", action="store_true", help="ORW-506: after the veto morning, force-drive the engine to eviction night and play it through the real chat, answering its decision cards (not with --crossover)")
+    ap.add_argument("--eviction-turns", type=int, default=8, help="with --eviction: the bound on real chat turns of the night (1..20)")
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
-    a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
+    a = ap.parse_args()
+    if a.eviction and a.crossover: ap.error("--eviction and --crossover both drive the engine to eviction night; pick one")
+    a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     if a.rescore:
-        turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
+        saved = json.load(open(f"{a.run_dir}/report.json")); turns = saved["turns"]; checks = []
         _rc = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
         rescore_x0(turns, _rc)
+        keep_live_checks(saved, checks)
         score(turns, checks, _rc, a.turn_limit_secs)
-        write(a.run_dir, turns, checks, None); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
+        write(a.run_dir, turns, checks, saved.get("error")); hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
         print("RESULT:", "FAIL" if hard else "PASS"); sys.exit(1 if hard else 0)
     from playwright.sync_api import sync_playwright
     eng = Engine(a.engine, a.token); turns = []; checks = []
@@ -362,6 +367,9 @@ def main():
             check("G2-reached-veto-morning", st.get("phase") == "veto-competition", f"phase {st.get('phase')} at {st.get('clockLabel')}")
             for i, line in enumerate(VETO_MORNING): play(f"veto-morning-{i + 1}", line)
             if a.crossover: crossover(eng, play, check, chat)
+            if a.eviction:
+                import eviction_e1
+                eviction_e1.run(eng, play, check, chat, a.eviction_turns)
             b.close()
     except Exception as e:  # noqa: BLE001
         print("could not run:", repr(e)[:300]); write(a.run_dir, turns, checks, str(e)); sys.exit(2)
@@ -547,7 +555,7 @@ def score(turns, checks, check, turn_limit):
 # The vault note "Live Run Pass Bar" (the Auditor's) numbers the checks; the short tier's own ids map onto it here.
 BAR_MAP = [("T1 real scene", {"T2", "T2b"}), ("T5 message answered", {"T1"}), ("T6 no machinery", {"T3"}), ("T9 time is honest", {"K1", "D1", "C3"}),
            ("T12 every houseguest toasts", {"T12"}), ("T13 zero clocks", {"T13"}), ("T16 headcounts include the player", {"T16"}),
-           ("T17 a recap every bedtime (crossover)", {"T17", "N4"}), ("T19 the engine moves the player first (crossover)", {"T19"}), ("run level: reaches its end", {"G1", "G2"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
+           ("T17 a recap every bedtime (crossover)", {"T17", "N4"}), ("T19 the engine moves the player first (crossover)", {"T19"}), ("run level: reaches its end", {"G1", "G2"}), ("eviction night, forced entry (--eviction)", {"E1", "E2", "E3"}), ("production hold", {"P1"}), ("latency", {"T4", "T5"})]
 NOT_COVERED = ["T2 phase match, T3 phantom outcome, T4 silent retcon, T7 hidden information, T8 choices through the card, T10 invented confession: read by hand from the transcript",
                "T15 the awake list, T18 naps, T20 early sleepers wake alone: need the full week or the widget",
                "T17 and T19 run only with --crossover",
@@ -569,6 +577,17 @@ def rescore_x0(turns, check):
     flags = [t["x0_ok"] for t in turns if str(t.get("label", "")).startswith("cross-") and "x0_ok" in t]
     if flags:
         check("X0-reached-eviction-night", all(flags), "from the saved crossover turns (the live check's verdict)")
+
+
+LIVE_ONLY_CHECKS = ("G1-", "G2-", "P1-")  # the checks only the live run can make (they read the engine as it plays); `score()` never recreates them
+
+
+def keep_live_checks(saved, checks):
+    """A `--rescore` keeps the live-only checks the saved report recorded (review of the ORW-109 rescore): a run that failed its production hold or never reached the veto morning
+    cannot turn into a PASS by being re-scored, and a saved run error stays on the report."""
+    for c in saved.get("checks") or []:
+        if str(c.get("id", "")).startswith(LIVE_ONLY_CHECKS):
+            checks.append(c)
 
 
 def not_covered(checks, turns=()):

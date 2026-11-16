@@ -159,7 +159,7 @@ def _wire_fallback(monkeypatch, *, gate_on, authored_ids):
     monkeypatch.setattr(_portraits, "portrait_file", lambda user, hid: "onfile")
 
     # identity seed → immediately chain its `then` (simulate the fold landing).
-    def fake_identity(cast, owner, then=None):
+    def fake_identity(cast, owner, then=None, seed=None):
         if then:
             then()
     monkeypatch.setattr(_cid, "kickoff_identity", fake_identity)

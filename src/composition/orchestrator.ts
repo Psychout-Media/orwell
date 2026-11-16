@@ -207,6 +207,7 @@ export class Orchestrator {
     this.consecutiveFaults.delete(user);
     this.lastTurnTickAt.delete(user);
     this.lastSocietyTickHour.delete(user);
+    this.lastSocietyTickAbs.delete(user); // ORW-513: a new season must not measure its first night from the dead season's clock
   }
 
   /**
@@ -231,7 +232,11 @@ export class Orchestrator {
 
   /** Seed the baseline only when none exists (a sandbox just resumed from disk by whichever path got there first). */
   seedBaselineIfAbsent(user: string): void {
-    if (!this.baselines.has(user)) this.seedBaseline(user);
+    if (!this.baselines.has(user)) {
+      this.seedBaseline(user);
+      // ORW-513: a resumed save has no tick anchor, so its first beat would read zero elapsed hours and skip the overnight settling. Anchor on the saved clock (only when none exists).
+      if (!this.lastSocietyTickAbs.has(user)) this.noteTickAbs(user, this.registry.sandboxFor(user).session);
+    }
   }
 
   /** Release only the non-degradation baseline (a full snapshot) of an LRU-unloaded sandbox; its next resume re-seeds it. */
@@ -496,7 +501,13 @@ export class Orchestrator {
     // Only for a game a person is PLAYING: `live.playedGame` (ORW-281 slice 5: the one played-game flag) is set once the front end announces the player's messages (noteMessage), which a headless calibration/UAT driver never does, so the
     // seeded jury-reach / UAT sims keep their long-standing tick cadence byte-for-byte (suppressing ticks shifts the shared per-user rng stream and re-rolls whole seasons).
     const sess = this.registry.sandboxFor(user).session;
-    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) return;
+    if (competitionSuppressesPrivateScenes(sess.perConversationClockLive(), (candidate.live as { playedGame?: boolean } | undefined)?.playedGame === true, compRunning(baseline), compRunning(candidate))) {
+      // ORW-513: the competition's hours are lived IN the event (everyone gathered, no private scenes) - record them as elapsed so the next off-screen tick does not count them a second time.
+      const hourComp = sess.inGameHour();
+      if (hourComp !== undefined) this.lastSocietyTickHour.set(user, hourComp);
+      this.noteTickAbs(user, sess);
+      return;
+    }
     // Did the live loop move? Beat commits change the loop state; aux commits (an interaction, a
     // DR entry, a deal) never touch it. The loop state is small — this is NOT an events re-export.
     const session = this.registry.sandboxFor(user).session;

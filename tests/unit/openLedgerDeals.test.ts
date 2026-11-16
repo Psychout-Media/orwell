@@ -34,6 +34,9 @@ function step(g: GameSessionAdapter, v: AdvanceView): AdvanceView {
   if (p.kind === "veto-decision") return g.submitDecision({ kind: "veto-decision", use: false });
   if (p.kind === "replacement") return g.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
   if (p.kind === "comp-intent" || p.kind === "comp-round") return g.submitDecision({ kind: p.kind, intent: "compete" });
+  // 0150: a season where the player reaches the final two (full-strength beliefs moved the trajectory) - answer the finale too.
+  if (p.kind === "finale-statement") return g.submitDecision({ kind: "finale-statement", statement: "I played my own game." });
+  if (p.kind === "finale-answer") return g.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
   return g.submitDecision({ kind: p.kind, vote: p.options?.[0]?.id } as never);
 }
 function startAtNominations(seed = SEED): { g: GameSessionAdapter; view: AdvanceView } {
