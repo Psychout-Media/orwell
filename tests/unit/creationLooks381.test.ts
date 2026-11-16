@@ -141,14 +141,14 @@ describe("ORW-381 no main-stream draw moved", () => {
 });
 
 describe("ORW-381 casting type", () => {
-  it("the list has at least 22 gender-neutral entries with short camera-visible reads", () => {
+  it("the list has at least 22 entries with short camera-visible, gender-neutral reads (ORW-467: labels may lean and vary by presentation; tests/unit/castingTypes467.test.ts)", () => {
     expect(CASTING_TYPES.length).toBeGreaterThanOrEqual(22);
     expect(new Set(CASTING_TYPES.map((t) => t.id)).size).toBe(CASTING_TYPES.length);
     for (const t of CASTING_TYPES) {
       const words = t.read.split(/\s+/).length;
       expect(words, t.id).toBeGreaterThanOrEqual(5); // the file's contract: five to ten words
       expect(words, t.id).toBeLessThanOrEqual(10);
-      expect(`${t.label} ${t.read}`, t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|girl|boy|handsome|beautiful|fox|diva|queen|king|lady|gentleman)\b/i);
+      expect(t.read, t.id).not.toMatch(/\b(he|she|his|her|man|woman|guy|girl|boy|handsome|beautiful|fox|diva|queen|king|lady|gentleman)\b/i);
     }
     expect(CASTING_TYPES.find((t) => t.id === "silver-fox")!.minAge).toBe(45);
     expect(CASTING_TYPES.find((t) => t.id === "parent-of-the-house")!.minAge).toBe(36);
