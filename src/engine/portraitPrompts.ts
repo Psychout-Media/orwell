@@ -10,6 +10,7 @@
  * no hidden-layer content. This module is the gate; the tests are the proof.
  */
 
+import { COMMON_WORD_NAMES } from "./commonWordNames";
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import { genderPresentationPhrase } from "../domain/gender";
 import { dealPortraitPlans, faceSentence, type PortraitPlan, type ShotSheet } from "./shotCards";
@@ -116,6 +117,7 @@ const sentence = (t: string): string => {
   const x = t.trim().replace(/[\s.]+$/, "");
   return x === "" ? "" : `${x}.`;
 };
+const lowerFirst = (t: string): string => (t === "" ? t : t[0]!.toLowerCase() + t.slice(1));
 const upperFirst = (t: string): string => (t === "" ? t : t[0]!.toUpperCase() + t.slice(1));
 
 /** The written hair cut at the first "usually / that / by / until" clause, ready to take ", neatly styled". */
@@ -161,6 +163,92 @@ export function signatureMarkClause(mark: string | undefined): string {
   const split = parts.flatMap((p) => (NOT_SENT_MARK_RE.test(p) ? p.split(/\s+and\s+/i).map((x) => x.trim()).filter((x) => x !== "") : [p]));
   const kept = split.filter((p) => SIGNATURE_MARK_RE.test(p) && !NOT_SENT_MARK_RE.test(p));
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
+}
+
+/** A word run that already carries its own grammatical subject: ", she stands", ". He grins", "; her gaze stays". */
+const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:(?:he|she|they|the houseguest)\s+[a-z]+|(?:his|her|their)\s+[a-z]+\s+(?:[a-z]+s|is|are|was|were|has|have|stay|rest|stand)\b)/i; // a possessive is a subject only with its verb ("her gaze stays"), never "hands in his pockets" (review of #2781)
+const OPENS_WITH_SPOT_RE = /^(?:kitchen|living room|dining room|backyard|lounge|bedroom)\b/i;
+
+/** Words ending in -s that are never a third-person verb after a name ("always stands"): a they/them line keeps them as they are. */
+const S_ADVERBS: ReadonlySet<string> = new Set([
+  "always", "sometimes", "perhaps", "nevertheless", "besides", "otherwise", "towards", "afterwards", "backwards", "forwards", "upwards",
+  "downwards", "regardless", "nowadays", "indoors", "outdoors", "overseas", "mostly", "thus", "anyways", "nonetheless", "meanwhile",
+]);
+/** The plural form of a third-person singular verb ("stands" to "stand"), or undefined when it cannot be done safely. */
+export function pluralVerb(v: string): string | undefined {
+  const w = v.toLowerCase();
+  if (S_ADVERBS.has(w)) return undefined;
+  const irregular: Record<string, string> = { is: "are", has: "have", does: "do", goes: "go", was: "were" };
+  if (irregular[w] !== undefined) return irregular[w];
+  if (!/^[a-z]+s$/.test(w) || /(?:ss|us|ous|ics)$/.test(w) || w.length < 4) return undefined;
+  if (w.length === 4 && /ies$/.test(w)) return w.slice(0, -1); // lies, ties, dies, vies: "lie", not "ly" (review of #2781)
+  if (/[^aeiou]uses$/.test(w) && w.length > 4) return undefined; // focuses, pauses, abuses: "focus" or "pause" cannot be told apart safely: the caller says "the houseguest"
+  if (/[^aeiou]ies$/.test(w)) return w.slice(0, -3) + "y";
+  if (/(?:ch|sh|x|z|ss|o)es$/.test(w)) return w.slice(0, -2);
+  return w.slice(0, -1);
+}
+
+/** After a "they" that stands where a name was, the verb must agree ("they stand"); else the safe wording "the houseguest". */
+function theyThenVerb(rest: string): { text: string; ok: boolean } {
+  if (/^\s*,/.test(rest)) return { text: rest, ok: false }; // "Name, arms folded, stands ...": the verb is not next, use "the houseguest"
+  const m = /^(\s+)((?:(?:[A-Za-z]+ly|always|sometimes|often|never|perhaps)\s+)?)([A-Za-z]+)/.exec(rest);
+  if (m === null) return { text: rest, ok: true }; // "they." or end of text: nothing to agree
+  const pv = pluralVerb(m[3]!);
+  if (pv === undefined) return { text: rest, ok: false };
+  const keep = /^[A-Z]/.test(m[3]!) ? pv[0]!.toUpperCase() + pv.slice(1) : pv;
+  return { text: m[1]! + m[2]! + keep + rest.slice(m[0].length), ok: true };
+}
+
+/** Words after which a name is the subject of a new clause ("... and Namea stands"). */
+const SUBJECT_INTRODUCERS: ReadonlySet<string> = new Set(["and", "but", "while", "as", "then", "when", "because", "so", "if", "that", "where", "though", "until"]);
+
+/** The houseguest's own first name never reaches the image provider: it becomes the pronoun (or the possessive). */
+function dropOwnName(t: string, ownName: string | undefined, subj: string): string {
+  const first = (ownName ?? "").trim().split(/\s+/)[0] ?? "";
+  if (first === "") return t;
+  const esc = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const poss = subj === "He" ? "his" : subj === "She" ? "her" : "their";
+  const plural = subj === "They";
+  // case-insensitive ("namea stands"), except for a given name that is also an everyday word ("May", "Will"): there only the capitalised form is the name
+  const flags = COMMON_WORD_NAMES.has(first.toLowerCase()) ? "u" : "iu";
+  let out = t.replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, `g${flags}`), poss);
+  const re = new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, flags);
+  for (let guard = 0, m = re.exec(out); m !== null && guard < 20; guard++, m = re.exec(out)) {
+    const head = out.slice(0, m.index);
+    const initial = head.trim() === "" || /[.!?]\s+$/.test(head);
+    let rest = out.slice(m.index + m[0].length);
+    // the name is a SUBJECT at the start of a sentence or clause; after a verb or preposition ("the camera catches Namea") a subject pronoun would be ungrammatical, so use the safe wording
+    const prev = /([A-Za-z]+)\s*$/.exec(head)?.[1]?.toLowerCase();
+    const subjectPosition = initial || /[,;:\u2014\u2013(-]\s*$/.test(head) || (prev !== undefined && SUBJECT_INTRODUCERS.has(prev));
+    let word: string;
+    if (!subjectPosition) word = "the houseguest";
+    else if (!plural) word = initial ? subj : subj.toLowerCase();
+    else {
+      const r = theyThenVerb(rest);
+      if (r.ok) { word = initial ? "They" : "they"; rest = r.text; } else word = initial ? "The houseguest" : "the houseguest";
+    }
+    out = head + word + rest;
+  }
+  return out;
+}
+
+/**
+ * Make the moment a sentence with a subject. A line that already carries one (it opens with a pronoun, or has a
+ * ", she stands" / ". He grins" / ", her gaze stays" clause) is kept; an -ing or preposition opener gets "He is" in front;
+ * a spot word ("Backyard, perched ...") gets "He is in the"; any other fragment (the writer's new openings: "Hands loose
+ * at his sides ...", "Gaze straight into the lens ...", "A heavy mug in one hand ...") gets "He is photographed with".
+ * The card's own first name is replaced by the pronoun first (review of #2781).
+ */
+function momentSentence(onCamera: string, subj: string, plural: boolean, ownName?: string): string {
+  const t = dropOwnName(onCamera.trim(), ownName, subj);
+  const be = plural ? "are" : "is";
+  if (/^(?:he|she|they|his|her|their|the houseguest)\b/i.test(t)) return sentence(upperFirst(t));
+  if (OWN_SUBJECT_RE.test(t)) return sentence(upperFirst(t));
+  if (OPENS_WITH_SPOT_RE.test(t)) return sentence(`${subj} ${be} in the ${lowerFirst(t)}`);
+  if (/^[A-Za-z-]+ing\b/.test(t) || /^(?:on|in|at|by|near|beside|against|under|over|inside|outside|behind|with)\b/i.test(t)) {
+    return sentence(`${subj} ${be} ${lowerFirst(t)}`);
+  }
+  return sentence(`${subj} ${be} photographed with ${lowerFirst(t)}`);
 }
 
 /** The realism wording (ORW-480 A/B): (A) a press-kit photograph, (B) a plain documentary portrait of a resident (the default, picked by Kevin), (C) a minimal candid photograph. */
@@ -257,13 +345,17 @@ export function buildPortraitPrompt(
   // The shot: place, light, the performance, any prop.
   const settingLine = sentence(`Setting: ${shot.place}`);
   const lightLine = variant === "minimal" ? "" : sentence(`Light: ${shot.light}`);
-  const momentLine = sentence(`The moment: ${shot.moment}`);
+  // ORW-441: a person dealt alone (no cast plan) whose card carries the cast writer's own onCamera moment keeps that moment, made a sentence with a subject and no name;
+  // inside a cast deal the dealt performance stands (one pose per person, spread across the cast)
+  const ownMoment = plan === undefined && clean(look?.onCamera) !== "" ? momentSentence(clean(look?.onCamera), pr.subj, pr.plural, name) : "";
+  // (only the dealt expression stays then, so the writer's pose and the dealt posture never double up)
+  const momentLine = sentence(`The moment: ${ownMoment !== "" ? (shot.moment.split(";")[0] ?? shot.moment).trim() : shot.moment}`);
   const propLine = shot.prop !== undefined ? sentence(`${pr.subj} ${pr.plural ? "are" : "is"} ${shot.prop}`) : "";
   const format = sentence(`Framing, the same for the whole series: ${shot.framing}, ${shot.angle}, on ${shot.lens}`);
 
   const opener = variant === "minimal" ? sentence(OPENER.minimal) : sentence(OPENER[variant]);
   const prompt = [
-    opener, sentence(`${who}${withClause}`), lifeLine, faceLine, hairLine, clothesLine, settingLine, lightLine, momentLine, propLine, format, TAIL[variant],
+    opener, sentence(`${who}${withClause}`), lifeLine, faceLine, hairLine, clothesLine, ownMoment, settingLine, lightLine, momentLine, propLine, format, TAIL[variant],
   ].filter((x) => x !== "").join(" ");
 
   return { houseguestId, name, prompt };

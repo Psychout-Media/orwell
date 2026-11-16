@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildPortraitPrompt, buildCastPortraitPrompts, trimWrittenHair, signatureMarkClause, stripWornWords, legacyAppearance } from "../../src/engine/portraitPrompts";
+import { dealPortraitPlans } from "../../src/engine/shotCards";
+import { buildPortraitPrompt, buildCastPortraitPrompts, castSheetOf, trimWrittenHair, signatureMarkClause, stripWornWords, legacyAppearance } from "../../src/engine/portraitPrompts";
 import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS } from "../../src/engine/imageConstants";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
@@ -255,13 +256,13 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   const base = { appearance: "legacy prose appearance", age: 27, presentation: "easygoing", ethnicity: "West African",
     genderPresentation: "man" as const, demeanor: "warm and guarded", identityConcept: "a chaos-agent podcaster", vocation: "podcaster" };
   const ID = "hg:7";
-  const full = buildPortraitPrompt(ID, "Fixture One", {
-    ...base,
-    physicalCharacteristics: {
-      ...facet, wardrobe: ["a faded grey hoodie", "dark jeans"], photoHair: "short dark curls, shaped and neat",
-      onCamera: "He leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
-    },
-  }, anchor).prompt;
+  const fullLook = {
+    ...facet, wardrobe: ["a faded grey hoodie", "dark jeans"], photoHair: "short dark curls, shaped and neat",
+    onCamera: "He leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
+  };
+  // inside a cast deal (the live path) the dealt shot card stands and the writer's on-camera line is not sent (a person dealt alone keeps it: tests/unit/orw441MomentSentence.test.ts)
+  const fullPlan = dealPortraitPlans([castSheetOf({ id: ID, name: "Fixture One", ...base, physicalCharacteristics: fullLook })]).get(ID)!;
+  const full = buildPortraitPrompt(ID, "Fixture One", { ...base, physicalCharacteristics: fullLook }, anchor, fullPlan).prompt;
   const none = buildPortraitPrompt(ID, "Fixture One", { ...base, physicalCharacteristics: facet }, anchor).prompt;
   const legacy = buildPortraitPrompt(ID, "Fixture One", base, anchor).prompt;
 
