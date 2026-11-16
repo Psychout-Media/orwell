@@ -5742,6 +5742,9 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
             return {"output": "No game is running yet.", "exit_code": 0}
         await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
         _note_narrator_view(owner, res)
+        if isinstance(res, dict) and res.get("room") and isinstance(res.get("present"), list):
+            # ORW-501 (review 4502563245): the HARD ROSTER in the turn's opening instructions was for the room the player just LEFT. The tool result carries the destination's own people; say so in the result itself (no change to the system prompt).
+            res = {**res, "rosterNote": "The player has moved. The HARD ROSTER you were given at the start of this turn was for the room they left; from here on the people in the room are `present` in this result, and `nearby` are the adjacent rooms."}
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

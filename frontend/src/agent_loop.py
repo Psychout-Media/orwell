@@ -9319,7 +9319,9 @@ async def _stream_agent_loop_impl(
         # Primary target + any configured fallback models. stream_llm_with_fallback
         # only switches on a pre-content failure, so streamed output is never
         # duplicated; the dead-host cooldown keeps repeat primary attempts cheap.
-        _candidates = [(endpoint_url, model, headers)] + list(fallbacks or [])
+        # ORW-502 (review 4535342398): the ORW-133 ruling is NO switch to another model. In a live game the narrator stays on the selected model, so the failure reaches the outage pause + account alert below instead of a
+        # configured fallback quietly answering in a different voice.
+        _candidates = [(endpoint_url, model, headers)] + ([] if game_mode in (True, "game") else list(fallbacks or []))
         # stream_llm enforces a per-read INACTIVITY timeout (httpx read=timeout),
         # which kills a wedged/silent endpoint. This wall-clock deadline is the
         # complementary cap for the rare stream that trickles bytes forever and
