@@ -452,3 +452,63 @@ def test_r5_clothes_fit_cold_or_wet_weather_with_a_layer_from_their_own_style():
     already = B.repair_brief(c, B.clean_brief({**thin, "wear": "a tropical shirt under a wool coat"}), cold)
     assert already["wear"].count("over it") == 0
     assert "add a layer from their own style" in B.SYSTEM
+
+
+# ---------------------------------------------------------------------------------------------------- round 9 (cast 0309)
+def test_n1_the_authored_look_signature_is_the_signature_when_the_card_has_one():
+    cs = cards()
+    for c in cs:
+        c["physicalCharacteristics"] = {**c["physicalCharacteristics"], **({"lookSignature": {"npc:2": "a dented thermos on a strap", "npc:7": "a chipped ocarina case"}[c["id"]]} if c["id"] in ("npc:2", "npc:7") else {})}
+    calls = []
+    res = run(B.author_briefs(cs, writer(calls=calls), seed=1))
+    assert res["briefs"]["npc:2"]["signature"] == "a dented thermos on a strap" and res["briefs"]["npc:7"]["signature"] == "a chipped ocarina case"
+    assert res["briefs"]["npc:3"]["signature"].endswith("that is always on them") or "keychain" in res["briefs"]["npc:3"]["signature"] or res["briefs"]["npc:3"]["signature"]     # the writer's own when the card has none
+    sent = json.dumps(calls[0])
+    assert "lookSignature" in sent and "write exactly that" in B.SYSTEM
+    assert B.look_signature({"physicalCharacteristics": {"lookSignature": "x" * 200}}) == "x" * 90 and B.look_signature({"physicalCharacteristics": {}}) == ""
+
+
+FLOOR_POSE = FLOOR.replace("The moment: a grin; arms folded.", "The moment: a closed-mouth half-smile, calm eyes on the lens; seated at the table with ankles crossed; one hand resting on the other wrist in her lap.")
+
+
+def test_n2_the_briefs_doing_replaces_the_floors_pose_and_only_the_expression_comes_from_the_floor():
+    c = cards()[0]
+    b = {**good_brief(c, 0), "doing": "paused setting down a dish of food on the table, one hand still on the dish", "expressionBody": "a warm smile; seated at the table with ankles crossed, one hand resting on the other wrist"}
+    fixed = B.repair_brief(c, B.clean_brief(b))
+    assert fixed["expressionBody"] == "a warm smile"                          # the body clauses are gone: doing says the body, once
+    out = B.compose_prompt(FLOOR_POSE, fixed)
+    moment = out.split("The moment: ")[1].split(". ")[0]
+    assert moment == "paused setting down a dish of food on the table, one hand still on the dish; a warm smile"
+    assert "ankles crossed" not in out and "resting on the other wrist" not in out
+    # no face line from the writer: the floor's EXPRESSION (not its pose) is used
+    none = B.compose_prompt(FLOOR_POSE, {k: v for k, v in fixed.items() if k != "expressionBody"})
+    assert none.split("The moment: ")[1].split(". ")[0] == "paused setting down a dish of food on the table, one hand still on the dish; a closed-mouth half-smile, calm eyes on the lens"
+    # a brief that is all body words has no face line, and is still accepted
+    allbody = B.repair_brief(c, B.clean_brief({**good_brief(c, 0), "expressionBody": "arms folded, standing upright, hands loose"}))
+    assert "expressionBody" not in allbody and B.check_brief(c, B.deal_anchors(cards(), 1)["npc:1"], allbody) == []
+    assert "FACE only" in B.SYSTEM and "doing already says them" in B.SYSTEM
+
+
+def test_n3_mid_action_poses_are_acted_the_person_pauses_from_the_activity():
+    c = cards()[0]
+    an = B.deal_anchors(cards(), 1)["npc:1"]
+    ok = good_brief(c, 0)
+    for doing in ("swinging a lasso overhead at a roping dummy", "throwing a ball against the wall", "mid-jump off the dock", "arms raised overhead, cheering", "kicking a stone along the lane", "casting a line into the water"):
+        assert "acted-or-odd-pose" in B.check_brief(c, an, {**ok, "doing": doing}), doing
+    for doing in ("paused beside the roping dummy, a coiled rope in one hand", "stopped on the trail between two runs, a water bottle in hand", "leaning on the dock rail, a rod beside them"):
+        assert "acted-or-odd-pose" not in B.check_brief(c, an, {**ok, "doing": doing}), doing
+    assert "nothing swung, thrown, cast, jumped, raised overhead" in B.SYSTEM
+
+
+def test_n4_quotes_match_after_case_and_punctuation_and_a_three_word_run_counts():
+    cs = cards()
+    c = cs[0]                                                 # "the person grew up near the clam docks in Cedar Key, Florida. Welding fills every weekend ..."
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    ok = good_brief(c, 0)
+    for why in ('"GREW UP near the CLAM docks!"', '"grew up near the clam docks in cedar key florida"', '"welding fills every weekend... and then some invented words"', '"clam docks in Cedar Key" and "something not there"'):
+        assert "no-sheet-quote" not in B.check_brief(c, an, {**ok, "why": why}), why
+    for why in ('"nothing from the sheet at all"', "no quotes here", '"two words"'):
+        assert "no-sheet-quote" in B.check_brief(c, an, {**ok, "why": why}), why
+    assert B._quote_in_sheet("the clam docks", B._norm("grew up near the clam docks")) and not B._quote_in_sheet("the clam shells", B._norm("grew up near the clam docks"))
+    # the place tie is matched the same way
+    assert "no-place-tie" not in B.check_brief(c, an, {**ok, "tie": '"Near The Clam Docks, in Cedar Key"'})

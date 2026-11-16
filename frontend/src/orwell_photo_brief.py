@@ -81,7 +81,7 @@ def deal_anchors(cards: list, seed=0) -> dict:
 
 # ---------------------------------------------------------------------------------------------------- the writer call
 FIELDS = ("where", "doing", "inFrame", "wear", "signature", "timeLight", "expressionBody", "why", "tie")
-REQUIRED = ("where", "doing", "inFrame", "wear", "timeLight", "expressionBody", "why", "tie")   # the signature is wanted but a brief without one is not rejected
+REQUIRED = ("where", "doing", "inFrame", "wear", "timeLight", "why", "tie")   # the signature is wanted but a brief without one is not rejected
 LIMITS = {"where": 200, "doing": 190, "wear": 190, "signature": 120, "timeLight": 150, "expressionBody": 230, "why": 320, "tie": 240}
 IN_FRAME_ITEM_MAX = 90
 
@@ -92,15 +92,16 @@ SYSTEM = (
     "Answer with JSON only: an object keyed by the person's id, each value an object with exactly these keys:\n"
     "where: one specific place from THIS person's own life that their biography names or implies, in concrete words (what and where it is, what is around it); never a "
     "bare category.\n"
-    "doing: what they are in the middle of, paused for the photo, natural and not acted.\n"
+    "doing: what they are in the middle of, paused for the photo: they have stopped for the camera and are not performing the activity (nothing swung, thrown, cast, jumped, raised overhead "
+    "or mid-motion); natural and not acted. This sentence alone says how they stand or sit and what their hands are doing.\n"
     "inFrame: an array of exactly two OBJECTS in the frame that belong to their life in this place, taken from their sheet; not clothes or jewellery or nails they are wearing and not the signature item.\n"
     "wear: what they wear today, taken from their wardrobe, in their own everyday clothes.\n"
-    "signature: one object or detail of theirs that makes them memorable and fits their life; it is not one of the clothes listed in wear. Anything worn (jewellery, painted nails, a chain, a patch on a sleeve) is part of wear, not an object.\n"
+    "signature: when the sheet has a lookSignature, write exactly that; otherwise one object or detail of theirs that makes them memorable and fits their life; it is not one of the clothes listed in wear. Anything worn (jewellery, painted nails, a chain, a patch on a sleeve) is part of wear, not an object.\n"
     "timeLight: the time of day, the light and the weather. The anchors given for each person (the facet of life to feature, the time, the season and weather, the "
     "energy) are fixed facts: follow them; if the weather does not fit the town and season, keep the time and use the nearest plausible weather. When the weather is cold, wet or windy "
     "and their clothes would not do for it, add a layer from their own style (a jacket, an overshirt, a cardigan), as a real person would.\n"
-    "expressionBody: the facial expression and body language, taken from their demeanor, their voice and their on-camera line, at the strength of a real person at ease: "
-    "upright and natural.\n"
+    "expressionBody: the FACE only (expression, gaze, how wide the smile is), taken from their demeanor, their voice and their on-camera line, at the strength of a real person at ease; "
+    "no arms, hands, legs or posture here, because doing already says them.\n"
     "why: one sentence that quotes, in double quotes, the exact phrases of their sheet that you used.\n"
     "tie: one sentence that quotes, in double quotes, the exact phrase of their sheet that this PLACE comes from: their home, their family, a hobby, a routine of their hometown, "
     "or a place next to their work. It is checked and never printed; a place with no tie to the sheet is rejected.\n"
@@ -138,6 +139,7 @@ def sheet_of(card: dict) -> dict:
         "onCamera": _scrub(phys.get("onCamera") or "", name),
         "wardrobe": [_scrub(w, name) for w in (phys.get("wardrobe") or []) if isinstance(w, str)],
         "style": _scrub(phys.get("style") or "", name),
+        **({"lookSignature": _scrub(phys.get("lookSignature"), name)} if isinstance(phys.get("lookSignature"), str) and phys.get("lookSignature").strip() else {}),
     }
 
 
@@ -196,7 +198,9 @@ def build_messages(cards: list, anchors: dict, used: Optional[dict] = None) -> l
 ACTED_RE = re.compile(
     r"hunch|slump|sprawl|lung(?:e|ing)|crouch|elbows? on (?:the |his |her |their )?knees|between (?:the |his |her |their )?knees|hanging|behind (?:the |his |her |their )?head|"
     r"chin resting|\bfists?\b|point\w* at|thumbs.?up|flex|jazz|snarl|bared|fierce|mugg|comic|disbelief|startled|wiggl|slapping|stretched out|"
-    r"eyes (?:shut|closed|squeezed)|squeezed shut|eyes closed|dejected|on all fours|doubled over|cross-legged on the (?:ground|steps)", re.I)
+    r"eyes (?:shut|closed|squeezed)|squeezed shut|eyes closed|dejected|on all fours|doubled over|cross-legged on the (?:ground|steps)|"
+    r"\b(?:swinging|throwing|hurling|tossing|jumping|leaping|twirling|casting (?:a|the|his|her|their)|punching|kicking|lunging|whipping|slinging)\b|"
+    r"mid-(?:swing|throw|jump|leap|spin|cast|kick|toss|motion|action|air)|arms? (?:raised|up|overhead|above)|overhead|above (?:the |his |her |their )?head|in the air", re.I)
 OPEN_PALM_RE = re.compile(r"palms? (?:up|open|out)|open (?:hand|palm)|hand open|hands open|palm facing up", re.I)
 TALKING_RE = re.compile(r"mid-sentence|talking to|telling (?:a|the) story|speaking to|laughing with|in conversation|chatting", re.I)
 WORK_GEAR_RE = re.compile(r"\b(?:scrubs|uniform|apron|badge|lanyard|hard hat|turnout gear|stethoscope|name ?tag|high-vis|hi-vis|chef'?s? (?:coat|jacket|whites))\b", re.I)
@@ -212,6 +216,7 @@ ACCESSORY_RE = re.compile(r"\b(?:earrings?|necklaces?|bracelets?|rings?|chains?|
 LAYER_RE = re.compile(r"\b(?:jacket|coat|overshirt|cardigan|sweater|fleece|hoodie|flannel|parka|vest|raincoat|windbreaker|wool|knit|long-sleeve|long sleeve|pullover|sweatshirt|corduroy)\b", re.I)
 COLD_WET_RE = re.compile(r"cold|damp|snow|rain|drizzle|raw|windy|crisp|grey overcast|low grey|wet|chill", re.I)
 OBJ_STOP = frozenset("small silver golden battered worn old large little faded scuffed wooden metal plastic favorite favourite vintage colorful colourful bright rusty chipped steaming tattered simple plain leather cotton heavy folding another beside behind their theirs there where which while resting leaning propped sitting standing nearby sleeping half-finished half-eaten around against beneath above lined filled always things these those being would could about after before still again often usually never every other others sticking hanging lying placed kept holding carried tucked stuck pinned worn-in focus blurred distance distant background softly".split())
+BODY_PART_RE = re.compile(r"\b(?:arms?|hands?|fingers?|legs?|ankles?|knees?|feet|foot|shoulders?|posture|stance|standing|sitting|seated|leaning|perched|crossed|folded|stretched|upright|torso|waist|hips?)\b", re.I)
 BODY_RE = re.compile(r"\b(?:arms?|shoulders?|chin|eyes?|dimples?|smil\w*|laugh\w*|gaze|gazing|hands|fingers|standing|sitting|seated|leaning|posture|stance|brows?|mouth|lips?|grin\w*|stare|looking)\b(?!-)", re.I)
 GENERIC_WHERE = re.compile(r"^(?:the |a |an |their |his |her )?(?:own )?(?:kitchen|living room|bedroom|dining room|backyard|back yard|front porch|porch|park|street|diner|coffee shop|cafe|café|yard|garden|house|home|apartment|bar|gym|shop|store|field|lake|beach|market|main street)\.?$", re.I)
 PLACE_KINDS = (
@@ -236,6 +241,20 @@ DARK_MAX = 4
 
 def _norm(t: str) -> str:
     return re.sub(r"[^a-z0-9 ]+", " ", str(t or "").lower()).strip()
+
+
+def _quote_in_sheet(quote: str, sheet_norm: str) -> bool:
+    """A quote counts when, after case and punctuation are normalised, it is in the sheet, or a run of 3 consecutive words of it is (fewer when the quote is shorter);
+    a quote cut with an ellipsis counts by its parts."""
+    for part in re.split(r"\.\.\.|\u2026", str(quote or "")):
+        words = _norm(part).split()
+        if not words:
+            continue
+        n = min(3, len(words))
+        if _norm(part) in sheet_norm or any(" ".join(words[k:k + n]) in sheet_norm for k in range(len(words) - n + 1)):
+            if len(" ".join(words)) >= 5:
+                return True
+    return False
 
 
 def _tokens(t: str) -> set:
@@ -264,7 +283,7 @@ def clean_brief(raw) -> Optional[dict]:
 
 def _sheet_text(card: dict) -> str:
     s = sheet_of(card)
-    return " ".join(str(v) for v in (s["biography"], s["identity"], s["demeanor"], s["voice"], s["castingType"], s["onCamera"], s["style"], s["hometown"], s["job"], " ".join(s["wardrobe"])))
+    return " ".join(str(v) for v in (s["biography"], s["identity"], s["demeanor"], s["voice"], s["castingType"], s["onCamera"], s["style"], s["hometown"], s["job"], " ".join(s["wardrobe"]), s.get("lookSignature", "")))
 
 
 _CLAUSE_SPLIT = re.compile(r"(?<=[,;])\s+")
@@ -325,6 +344,13 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
             kept = _drop_clauses(re.sub(r"\s+and\s+(?=(?:a|an|the|his|her|their)?\s*(?:arms?|shoulders?|chin|eyes?|dimples?|hands|gaze)\b)", ", ", out[k], flags=re.I), BODY_RE)
             if kept:
                 out[k] = kept
+    # the face line is the face only: a clause about arms, hands, legs or posture is dropped (doing says the body, once)
+    if isinstance(out.get("expressionBody"), str):
+        kept = _drop_clauses(out["expressionBody"], BODY_PART_RE)
+        if kept:
+            out["expressionBody"] = kept
+        else:
+            out.pop("expressionBody", None)
     wear = str(out.get("wear") or "")
     wear_words = {w for w in _norm(wear).split() if len(w) >= 4}
     # the signature: gone (not refilled by guessing) when it only repeats what is worn
@@ -377,7 +403,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
             codes.append(f"missing-{k}")
     if codes:
         return codes
-    brief = {**brief, "signature": brief.get("signature") or ""}
+    brief = {**brief, "signature": brief.get("signature") or "", "expressionBody": brief.get("expressionBody") or ""}
     if not 1 <= len(brief["inFrame"]) <= 2:
         codes.append("inframe-count")
     for k, lim in LIMITS.items():
@@ -411,7 +437,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("place-not-from-sheet")
     else:
         sheet_norm = _norm(_sheet_text(card))
-        tie_quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{4,})[\"\u201d]", brief["tie"]) if _norm(q) and _norm(q) in sheet_norm]
+        tie_quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{4,})[\"\u201d]", brief["tie"]) if _quote_in_sheet(q, sheet_norm)]
         if not tie_quotes:
             codes.append("no-place-tie")
         elif not any(_tokens(q) & _tokens(where) for q in tie_quotes):
@@ -442,9 +468,9 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         if job_words and (job_words & _tokens(brief["where"] + " " + brief["doing"])):
             codes.append("job-caption")
     # the trace: a quoted phrase that really is in the sheet
-    quotes = [q for q in re.findall(r"[\"“]([^\"”]{6,})[\"”]", brief["why"]) if q.strip()]
+    quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{5,})[\"\u201d]", brief["why"]) if q.strip()]
     sheet = _norm(_sheet_text(card))
-    if not any(_norm(q) and _norm(q) in sheet for q in quotes):
+    if not any(_quote_in_sheet(q, sheet) for q in quotes):
         codes.append("no-sheet-quote")
     return codes
 
@@ -574,6 +600,22 @@ def _find(obj: dict, i: str):
     return None
 
 
+def look_signature(card: dict) -> str:
+    """The authored per-person `physicalCharacteristics.lookSignature` (one thing that makes them memorable, at most 90 characters), when the card has one."""
+    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    v = phys.get("lookSignature")
+    return re.sub(r"\s+", " ", v).strip().rstrip(".")[:90] if isinstance(v, str) and v.strip() else ""
+
+
+def _prepare(card: dict, raw, anchors: dict) -> Optional[dict]:
+    """A writer or editor reply for one person, made a brief: cleaned, the card's own lookSignature used as the signature when it has one, then repaired."""
+    b = clean_brief(raw)
+    ls = look_signature(card)
+    if b and ls:
+        b["signature"] = ls
+    return repair_brief(card, b, anchors)
+
+
 def _drop_used(brief: dict, seen: set) -> dict:
     """Drop the objects and the signature that another person already has (never the last thing standing, never the place)."""
     out = dict(brief)
@@ -617,7 +659,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
         raw = await _call(llm_fn, build_messages([by_id[i] for i in part], anchors, used_summary(accepted)), ledger, "writer")
         raws.append(raw)
         for i in part:
-            briefs[i] = repair_brief(by_id[i], clean_brief(_find(raw, i)), anchors[i])
+            briefs[i] = _prepare(by_id[i], _find(raw, i), anchors[i])
             codes = check_brief(by_id[i], anchors[i], briefs[i])
             if not codes:
                 codes = check_cast(cards, anchors, {**accepted, i: briefs[i]}).get(i, [])
@@ -633,7 +675,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
         fixed = await _call(llm_fn, build_editor_messages(cards, anchors, {**{i: b for i, b in briefs.items() if b}, **accepted}, failures, complete), ledger, "editor")
         seen_before = lambda i, extra=None: set().union(*[_obj_tokens(" ".join(b.get("inFrame") or []) + " " + str(b.get("signature") or "")) for j, b in accepted.items() if j != i])  # noqa: E731
         for i in list(failures):
-            nb = repair_brief(by_id[i], clean_brief(_find(fixed, i)), anchors[i])
+            nb = _prepare(by_id[i], _find(fixed, i), anchors[i])
             if not nb:
                 rejected["editor-unusable"] = rejected.get("editor-unusable", 0) + 1
                 continue
@@ -650,7 +692,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
             else:
                 tally({i: codes})
         for i in complete:                                          # a top-up: only an improvement is kept, an accepted brief is never lost
-            nb = repair_brief(by_id[i], clean_brief(_find(fixed, i)), anchors[i])
+            nb = _prepare(by_id[i], _find(fixed, i), anchors[i])
             if nb and len(missing_parts(nb)) < len(missing_parts(accepted[i])) and not check_brief(by_id[i], anchors[i], nb) \
                     and not check_cast(cards, anchors, {**accepted, i: nb}).get(i):
                 accepted[i] = nb
@@ -708,7 +750,7 @@ def brief_sentences(brief: dict, proper: Optional[set] = None) -> str:
         _sentence(f"Setting: {lc(brief['where'])}"),
         _sentence(f"In the frame, theirs: {listed}") if listed else "",
         _sentence(f"Light: {lc(brief['timeLight'])}"),
-        _sentence(f"The moment: {lc(str(brief['doing']).rstrip('. '))}; {lc(str(brief['expressionBody']).rstrip('. '))}"),
+        _sentence(f"The moment: {lc(str(brief['doing']).rstrip('. '))}" + (f"; {lc(str(brief['expressionBody']).rstrip('. '))}" if brief.get("expressionBody") else "")),
     ) if s)
 
 
@@ -724,12 +766,22 @@ def floor_with_anchors(floor_prompt: str, anchors: Optional[dict]) -> str:
     return _LIGHT_RE.sub(lambda m: light, floor_prompt, count=1)
 
 
+_FLOOR_MOMENT_RE = re.compile(r"The moment: ([^.]*)\.")
+
+
+def floor_expression(floor_prompt: str) -> str:
+    """The expression of the engine's own moment sentence ("The moment: <expression>; <posture>; <hands>."): only the first part, never its pose."""
+    m = _FLOOR_MOMENT_RE.search(floor_prompt or "")
+    return m.group(1).split(";")[0].strip() if m else ""
+
+
 def compose_prompt(floor_prompt: str, brief: Optional[dict], proper: Optional[set] = None) -> str:
     """The final prompt: the engine's prompt with the span from the clothes sentence to the framing sentence replaced by the brief. Without a brief, or when the
     engine's prompt has no such span, the floor prompt stands untouched."""
     if not brief or not isinstance(floor_prompt, str) or not _SPAN_RE.search(floor_prompt):
         return floor_prompt
-    return _SPAN_RE.sub(lambda m: brief_sentences(brief, proper) + " ", floor_prompt, count=1)
+    face = str(brief.get("expressionBody") or "").strip() or floor_expression(floor_prompt)
+    return _SPAN_RE.sub(lambda m: brief_sentences({**brief, "expressionBody": face}, proper) + " ", floor_prompt, count=1)
 
 
 def final_prompt(floor_prompt: str, brief: Optional[dict], anchors: Optional[dict], card: Optional[dict] = None) -> str:
