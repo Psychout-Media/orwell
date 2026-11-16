@@ -586,6 +586,8 @@ export interface LiveSeasonState {
   beds?: import("./beds").BedsState;
   /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
   houseTheme?: string;
+  /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
+  priorHouseThemes?: string[];
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
   compIntent?: Intent;

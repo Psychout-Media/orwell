@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 // ORW-212: a seed-pinned tie-break; the calm re-seat (ORW-212) shifts the weighted occupancy that co-presence consumers read; this test pins the previous (non-calm) movement so its seeded premise holds. The calm movement has its own tests (calmPresence.test.ts).
 vi.hoisted(() => { process.env.ORWELL_CALM_PRESENCE = "0"; });
-import { freshTmpDir } from "../support/freshTmpDir";
+import { dropTmpDir, testTmpDir } from "../support/freshTmpDir";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -38,7 +38,7 @@ import { StaleBeatError } from "../../src/domain/errors";
  *
  * HARD rule: roles only — no names.
  */
-const freshDir = (): string => freshTmpDir("orwell-1106-");
+const freshDir = (): string => testTmpDir("orwell-1106-");   // per test (each makes a full-season save folder)
 
 function resolveLegally(s: GameSessionAdapter, p: PendingDecisionView): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
@@ -228,6 +228,7 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
       }
       if (tie && tie.by.id === PLAYER) break;
       tie = null;
+      dropTmpDir(dir); // a seed that did not tie: its full-season save goes at once, not at the end of the test
     }
     expect(tie).not.toBeNull();
     expect(tie!.by.id).toBe(PLAYER); // the player-HOH breaks the tie — the contested case

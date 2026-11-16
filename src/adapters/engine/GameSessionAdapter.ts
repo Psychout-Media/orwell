@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -55,7 +55,9 @@ import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
+import { askDisposition, askRoll } from "../../engine/askAround";
 import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
+import { isPrivateTalk, walkInReaction, walkInLine, WALK_IN_MAX_HOURS, WALK_IN_DONE_CAP, type WalkInReaction } from "../../engine/walkIn";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
@@ -265,7 +267,9 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
-import { roomLabel, themedRoomAliases } from "../../engine/roomLabels";
+import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme } from "../../engine/roomLabels";
+/** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
+const MAX_PRIOR_HOUSE_THEMES = 6;
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
@@ -324,7 +328,10 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
+import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
+import { buildRumorMill } from "../../engine/rumorMill";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
+import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1186,6 +1193,9 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
+    // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
+    // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
+    if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
@@ -1433,6 +1443,59 @@ export class GameSessionAdapter implements GameSession {
   /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
   claimsThePlayerHeard(): HeardClaim[] {
     return claimsHeardBy(this.live?.claims, PLAYER);
+  }
+  /**
+   * 0151 / ORW-330 (theme 2, slice 4a) - WHAT THE PLAYER HEARS. For each houseguest in the player's room the engine decides (`claimsToPlayer.ts`, its own `${seed}:claims-to-player` side stream, no shared rng) whether they
+   * confide ONE belief this turn; if so it is recorded as a claim the player heard (`tellClaim`, listener = the player, `isTrue` = the engine's check below) and handed to the narrator as the speaker's words only
+   * (`tellsYou`: kind, names, certainty band; never the truth, the intent or the claim id). One decision per houseguest per player turn (cached on the disclosure epoch). OFF unless `ORWELL_CLAIMS_TO_PLAYER` is on
+   * (default ON; `=0` opts out); needs the belief layer and a played game. The prompt build records the claim, so it is persisted by the next committed mutation (a prompt read must not bump the beat).
+   */
+  private claimsToPlayerEnabled = flagDefaultOn("ORWELL_CLAIMS_TO_PLAYER");
+  setClaimsToPlayerEnabled(on: boolean): void { this.claimsToPlayerEnabled = on; }
+  private claimsToPlayerDecided = new Map<EntityId, { epoch: number; tells?: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> }>();
+  private claimsToPlayerAttempts = new Map<string, number>();
+  /** The engine's own check of whether a believed thing is TRUE (never handed outward). going-after / targets-me: the subject holds an active get-them-out goal on the object; final-two: an open final-two deal binds
+   *  both; lying: the claim log holds a lie from the subject to the object; talking-about: the cheapest honest read, the subject trusts the object little (< 0.4). */
+  private believedThingIsTrue(b: SayableBelief): boolean {
+    const live = this.live;
+    if (!live) return false;
+    switch (b.kind) {
+      case "going-after": return (live.agendas?.[b.subject]?.goals ?? []).some((g) => g.status === "active" && g.kind === "get-them-out" && g.target === b.object);
+      case "final-two-with": return this.deals.open().some((d) => d.kind === "final-two" && d.parties.includes(b.subject) && b.object !== undefined && d.parties.includes(b.object));
+      case "lying-about": return (live.claims?.items ?? []).some((c) => !c.isTrue && c.speaker === b.subject && c.listener === b.object);
+      case "talking-about": return b.object !== undefined && this.rel.edge(b.subject, b.object).trust < 0.4;
+      default: return false;
+    }
+  }
+  private candorOf(id: EntityId): number {
+    const c = this.agendaCharacterOf(id);
+    return c ? Math.max(0, Math.min(1, (REASONS.candorByArchetype[c.archetype] ?? 0.5) + (REASONS.candorByStyle[c.strategyStyle] ?? 0))) : 0.5;
+  }
+  private claimsToPlayerFor(id: EntityId): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const live = this.live;
+    if (!this.claimsToPlayerEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || id === PLAYER) return undefined;
+    const done = this.claimsToPlayerDecided.get(id);
+    if (done && done.epoch === this.disclosureEpoch) return done.tells;
+    const day = live.dayNumber ?? 0;
+    const log = live.claims?.items ?? [];
+    const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
+    const attemptKey = `${id}:${live.week}:${day}`;
+    const attempt = this.claimsToPlayerAttempts.get(attemptKey) ?? 0;
+    this.claimsToPlayerAttempts.set(attemptKey, attempt + 1);
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}:${attempt}`));
+    const decided = decideTellToPlayer(live.beliefs?.[id] ?? [], {
+      holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id),
+      toldToday: told.some((c) => c.week === live.week && c.day === day),
+      alreadyTold: new Set(told.map((c) => toPlayerKey(c.kind, c.subject, c.object))), roll: rng.next(),
+    });
+    let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
+    if (decided) {
+      const b = decided.belief;
+      const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
+      if (claim) tells = { kind: b.kind, subject: this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), certainty: decided.band };
+    }
+    this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
+    return tells;
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
@@ -2917,6 +2980,35 @@ export class GameSessionAdapter implements GameSession {
    * and what is in view now. Written at persist time from what the player could see; never read from a closed room.
    */
   private lastSeenAt: Map<EntityId, { room: Room; tick: number; day: number; part: string }> | null = null;
+  /**
+   * ORW-475: each houseguest's OWN record of who they last saw where (their own line of sight, like the player's `lastSeenAt`): viewer -> subject -> room, tick, day, part, and `heading` when they watched the subject walk
+   * toward that room. Played games only; persisted beside the player's records; an older save loads empty. Never read by the player directly: only the answer an asked houseguest gives comes from it.
+   */
+  private npcSightings: Map<EntityId, Map<EntityId, { room: Room; tick: number; day: number; part: string; heading?: boolean }>> | null = null;
+  private noteNpcSighting(viewer: EntityId, subject: EntityId, room: Room, heading: boolean): void {
+    if (!this.live) return;
+    const day = this.live.dayNumber ?? 1;
+    const part = this.live.timeOfDay ?? "";
+    const mine = (this.npcSightings ??= new Map()).get(viewer) ?? new Map();
+    const cur = mine.get(subject);
+    if (cur && cur.room === room && cur.day === day && cur.part === part && !!cur.heading === heading) return;
+    mine.set(subject, { room, tick: this.presenceTickCount, day, part, ...(heading ? { heading: true } : {}) });
+    this.npcSightings.set(viewer, mine);
+  }
+  private captureNpcSightings(): void {
+    if (!this.presence) return;
+    const awake = this.awakeNow();
+    const ids = this.presenceActive().filter((id) => id !== this.house?.player.id && !(awake && !awake.has(id)));
+    for (const v of ids) {
+      const rv = this.presence.get(v);
+      if (rv === undefined) continue;
+      for (const sId of ids) {
+        if (sId === v) continue;
+        const rs = this.presence.get(sId);
+        if (rs !== undefined && (rs === rv || areVisible(rv, rs))) this.noteNpcSighting(v, sId, rs, false);
+      }
+    }
+  }
   private captureSeenWhereabouts(): void {
     if (this.live?.playedGame !== true || !this.house || !this.presence) return;
     const me = this.house.player.id;
@@ -2926,6 +3018,7 @@ export class GameSessionAdapter implements GameSession {
     const notHere = this.notYetArrived();
     const day = this.live.dayNumber ?? 1;
     const part = this.live.timeOfDay ?? "";
+    this.captureNpcSightings(); // ORW-475: what each houseguest could see now becomes their own last-known sighting
     for (const id of this.presenceActive()) {
       if (id === me || notHere?.has(id) || (awake && !awake.has(id))) continue;
       const room = this.presence.get(id);
@@ -4037,7 +4130,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.live?.finished) return null; // the structural gate: no finished season, no unsealing
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
-    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}) };
+    const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id)); // ORW-525 (spec 0157): reads the claim log only; same gate
+    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -4415,6 +4509,7 @@ export class GameSessionAdapter implements GameSession {
       // society's positions stay reproducible across a restart and never reseed from the weighted view.
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
+      ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -4432,6 +4527,8 @@ export class GameSessionAdapter implements GameSession {
        ...(this.trackedSightings && this.trackedSightings.size > 0
          ? { trackedSightings: Object.fromEntries(this.trackedSightings) as Record<EntityId, TrackedSighting> }
          : {}),
+       // ORW-475: each houseguest's own last-known sightings (absent/empty => omitted, byte-identical to an older save).
+       ...(this.npcSightings && this.npcSightings.size > 0 ? { npcSightings: Object.fromEntries([...this.npcSightings].map(([v, m]) => [v, Object.fromEntries(m)])) as NonNullable<SessionCore["npcSightings"]> } : {}),
        // ORW-462: the player's last-known sightings in view (absent/empty => omitted, byte-identical to an older save).
        ...(this.lastSeenAt && this.lastSeenAt.size > 0 ? { lastSeenAt: Object.fromEntries(this.lastSeenAt) as Record<EntityId, { room: Room; tick: number; day: number; part: string }> } : {}),
        // ORW-343: the mood words the player last saw (absent/empty => omitted, byte-identical to a pre-feature save).
@@ -4750,6 +4847,8 @@ export class GameSessionAdapter implements GameSession {
     // re-seeds it from the weighted positions, which `societyOccupancy` falls back to in the meantime).
     this.presenceBase = core.presenceBase ? new Map(Object.entries(core.presenceBase) as [EntityId, Room][]) : null;
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
+    this.walkIn = core.walkIn ? { ...core.walkIn } : null; // ORW-473
+    this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
@@ -4766,6 +4865,8 @@ export class GameSessionAdapter implements GameSession {
     this.trackedSightings = core.trackedSightings
       ? new Map(Object.entries(core.trackedSightings) as [EntityId, TrackedSighting][])
       : null;
+    // ORW-475: restore each houseguest's own sightings (absent on older saves => none).
+    this.npcSightings = core.npcSightings ? new Map(Object.entries(core.npcSightings).map(([v, m]) => [v as EntityId, new Map(Object.entries(m) as [EntityId, { room: Room; tick: number; day: number; part: string; heading?: boolean }][])] as const)) : null;
     // ORW-462: restore the player's last-known sightings (absent on older saves => an empty record).
     this.lastSeenAt = core.lastSeenAt ? new Map(Object.entries(core.lastSeenAt) as [EntityId, { room: Room; tick: number; day: number; part: string }][]) : null;
     // ORW-343: restore the mood words the player last saw (absent on older saves => none yet).
@@ -5383,6 +5484,18 @@ export class GameSessionAdapter implements GameSession {
         if (from && from !== room) this.observeMoveIntoPrivate(id, from, room, meRoom);
       }
     }
+    // ORW-475: a houseguest who watched another walk out of their sight (the origin was in their eyeshot) remembers where they were heading. Played games only; draws no rng.
+    if (prev && this.live?.playedGame === true) {
+      const awake = this.awakeNow();
+      for (const [sId, dest] of next) {
+        const from = prev.get(sId);
+        if (!from || from === dest || sId === me) continue;
+        for (const [v, pv] of prev) {
+          if (v === me || v === sId || (awake && !awake.has(v))) continue;
+          if (pv === from || areVisible(pv, from)) this.noteNpcSighting(v, sId, dest, true);
+        }
+      }
+    }
   }
 
   /**
@@ -5396,6 +5509,61 @@ export class GameSessionAdapter implements GameSession {
    * whereabouts unchanged (the model knows the valid rooms from the moment prompt, so this is rare).
    * Returns the resulting whereabouts so the caller can voice the move. Vault-free.
    */
+  /**
+   * ORW-473: the player just walked in on a private talk between two houseguests. Each one's reaction is chosen from their OWN sheet (`walkInReaction`); the narrator is handed who and the reaction's manner, never the talk's content; both
+   * remember the player walked in. Stamped with the message it happened on, like `playerMove`, so only that turn's state carries it. Played games only.
+   */
+  private walkInDone: string[] = [];
+  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
+  private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
+  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
+    const w = this.walkIn;
+    if (!w) return null;
+    const cur = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined;
+    return w.msg === cur ? w : null;
+  }
+  private walkedInView(w: NonNullable<GameSessionAdapter["walkIn"]>): WalkedInView {
+    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction) })) };
+  }
+  private detectWalkIn(dest: Room): void {
+    this.walkIn = null; // a new arrival replaces the last one
+    if (this.live?.playedGame !== true || !this.presence || !this.house) return;
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const there = new Set(this.presenceActive().filter((id) => id !== me && this.presence!.get(id) === dest && (!awake || awake.has(id))));
+    if (there.size < 2) return;
+    const events = this.record?.events() ?? [];
+    const nowHour = this.inGameAbsHour();
+    if (nowHour === undefined) return; // no running clock, so no way to tell a fresh talk from an old one
+    for (let i = events.length - 1; i >= Math.max(0, events.length - 40); i--) {
+      const e = events[i]!;
+      const hl = e.houseLife;
+      if (!e.hidden || !hl || hl.place !== dest || !isPrivateTalk(hl.action)) continue;
+      if (hl.at === undefined || nowHour - hl.at > WALK_IN_MAX_HOURS || nowHour < hl.at) continue; // recent in GAME time, not only by event count
+      if (this.walkInDone.includes(e.id)) continue; // a talk is walked in on once
+      const people = [...new Set(e.witnessSet)].filter((x) => x !== me);
+      if (people.length !== 2 || !people.every((x) => there.has(x))) continue;
+      const day = this.live.dayNumber ?? 1;
+      const reactions = people.map((id) => {
+        const other = people.find((x) => x !== id)!;
+        const character = this.agendaCharacterOf(id);
+        const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
+        const jitter = (hashSeed(`${this.gameSeed ?? ""}:walkin:${id}:${other}:${day}:${hl.stretch}`) % 800) / 10000;
+        return { id, reaction: walkInReaction({ candor, affinityToPlayer: this.rel.edge(id, me).affinity, affinityToOther: this.rel.edge(id, other).affinity }, jitter) };
+      });
+      this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
+      this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
+      // both remember it: a fact in each one's own memory (engine-side, never shown)
+      for (const id of people) {
+        const other = people.find((x) => x !== id)!;
+        const note = `the player walked in on my private talk with ${this.nameOf(other)}`;
+        const n = this.house.npcs.find((x) => x.id === id);
+        if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
+      }
+      return;
+    }
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -5408,7 +5576,7 @@ export class GameSessionAdapter implements GameSession {
     // Forgiving resolution (Vault-free, deterministic): natural names → a canonical room id; the
     // player's current room sharpens an ambiguous "bedroom". An ambiguous result still moves (we take
     // the best-guess first candidate) rather than no-op — never a silent failure into a retry loop.
-    const resolved = resolveRoom(room, here);
+    const resolved = resolveRoom(room, here, this.themedAliases());
     const dest =
       resolved.kind === "ok" ? resolved.room
       : resolved.kind === "ambiguous" ? resolved.candidates[0]!
@@ -5422,6 +5590,7 @@ export class GameSessionAdapter implements GameSession {
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
     this.sendAwake = null;
+    this.detectWalkIn(dest); // ORW-473: walking in on a private talk
     this.persist();
     return this.whereabouts();
   }
@@ -5442,10 +5611,11 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
+    if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here) ?? (claimedBed ? roomOfBed(claimedBed) : null);
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     let result: ResolvePlayerMoveResult;
@@ -5509,7 +5679,7 @@ export class GameSessionAdapter implements GameSession {
     if (here === undefined) return { status: "illegal", whereabouts: this.whereabouts() };
     // Forgiving resolution, then reject the unknown AND the non-walkable so the open occupancy stays
     // coherent (no one "hangs out" in the diary room — assignRooms/WALKABLE_ROOMS exclude it).
-    const resolved = resolveRoom(room, here);
+    const resolved = resolveRoom(room, here, this.themedAliases());
     const dest =
       resolved.kind === "ok" ? resolved.room
       : resolved.kind === "ambiguous" ? resolved.candidates[0]!
@@ -5763,6 +5933,10 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-466 themes: what a room is called this season (its themed name), or the plain label without a theme. */
   private roomName(room: Room): string { return roomLabel(room, this.live?.houseTheme); }
+  /** ORW-466: the room mid-sentence ("the Coral Reef Room", or "the kitchen" without a theme) - never "the the ...". */
+  private roomRefOf(room: Room, article = true): string { return roomRef(room, this.live?.houseTheme, article); }
+  /** ORW-466: this season's themed room phrases for the forgiving resolvers (moves, the nap's "bedroom"). */
+  private themedAliases(): ReadonlyArray<readonly [string, Room]> { return themedRoomAliases(this.live?.houseTheme); }
 
   /** ORW-466: who chose to room with whom is PUBLIC - a player-witnessed house fact (the bags on the beds are there for anyone to see), never the Vault. */
   private noteBedChoice(beds: BedsState, who: EntityId, room: Room, living: ReadonlySet<EntityId>, verb = "claims a bed in"): void {
@@ -5783,6 +5957,40 @@ export class GameSessionAdapter implements GameSession {
   /** The move-in pick itself: the premiere, or any time before the player owns a bed. The narrator's BEDS line runs every turn only here; after it, only on a turn the player's words touched a bed. */
   private moveInPickOpen(beds: BedsState): boolean {
     return this.phase === "premiere" || !beds.owner[PLAYER];
+  }
+
+  /** 0152: this turn's answer to "who told you that?", for the narrator (one engine-truth line). Memory-only, replaced by the next `resolvePlayerMove`. */
+  private claimSourceNote: string | null = null;
+
+  /**
+   * 0152 (theme 2 slice 4b): the player asks who told a houseguest what they just passed on. The rules live in `engine/claimSource.ts`; this is the thin hook. Only a claim TOLD TO the player by a houseguest
+   * in the player's room (and awake) can be asked about; the houseguest's recorded belief names the source (or says they saw it); the engine decides name / protect. A NAMED source reaches the player as
+   * `told-by:<houseguest>` knowledge (as askJuror does). Changes no relationship, belief or claim. Returns true when the player learned something new.
+   */
+  private resolveWhoToldYou(text: string): boolean {
+    this.claimSourceNote = null;
+    if (!this.house || !this.presence || !this.live?.claims || !parseWhoToldYou(text)) return false;
+    const here = this.presence.get(this.house.player.id);
+    if (here === undefined) return false;
+    const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
+    for (const claim of askableClaims(this.live.claims.items, present)) {
+      const held = heldBeliefFor(this.live.beliefs, claim);
+      if (!held) continue;
+      const answer = decideSourceAnswer({
+        seed: this.gameSeed ?? 0, holder: claim.speaker, claimId: claim.id, origin: held.origin, source: held.source,
+        sourceAffinity: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).affinity : 0.5,
+        sourceTrust: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).trust : 0.5,
+        playerTrust: this.rel.edge(claim.speaker, PLAYER).trust,
+      });
+      if (!answer) continue;
+      const holderName = this.nameOf(claim.speaker);
+      this.claimSourceNote = sourceNote(answer, holderName, held.source !== undefined ? this.nameOf(held.source) : undefined);
+      if (answer !== "name" || held.source === undefined || held.source === PLAYER || !this.onConfide) return false;
+      const content = namedSourceContent(holderName, this.nameOf(held.source), claimPhrase(claim, (id) => this.nameOf(id), this.nameOf(PLAYER)));
+      if ((this.playerKnowledgeReader?.() ?? []).some((k) => k.content === content)) return false; // already learned: asking again adds nothing
+      return this.onConfide(claim.speaker, content, 0.7);
+    }
+    return false;
   }
 
   /** ORW-466 slice 2: this turn's result of the player's own bed claim, for the narrator's BEDS line. Memory-only, replaced by the next `resolvePlayerMove`. */
@@ -6042,6 +6250,12 @@ export class GameSessionAdapter implements GameSession {
     // 0077: forget a tracked sighting once its subject leaves the house (an evictee is nowhere).
     if (this.trackedSightings) for (const id of [...this.trackedSightings.keys()]) if (!active.has(id)) this.trackedSightings.delete(id);
     if (this.lastSeenAt) for (const id of [...this.lastSeenAt.keys()]) if (!active.has(id)) this.lastSeenAt.delete(id);
+    if (this.npcSightings) {
+      for (const v of [...this.npcSightings.keys()]) {
+        if (!active.has(v)) { this.npcSightings.delete(v); continue; }
+        for (const sId of [...this.npcSightings.get(v)!.keys()]) if (!active.has(sId)) this.npcSightings.get(v)!.delete(sId);
+      }
+    }
   }
 
   /**
@@ -6145,19 +6359,47 @@ export class GameSessionAdapter implements GameSession {
     const sharedFirst = (name: string): boolean => this.presenceActive().filter((x) => x !== me && firstOf(this.nameOf(x)) === firstOf(name)).length > 1;
     const isTarget = (id: EntityId, name: string): boolean => want !== undefined && want !== "" && (id.toLowerCase() === want || name.toLowerCase() === want || (firstOf(name) === want && !sharedFirst(name)));
     const tracked = new Map(this.trackedNow().map((t) => [t.id, t] as const));
+    // ORW-475: houseguests the player can ask: awake and in the player's view (their own room first)
+    const rankOf = (id: EntityId): number => (gathered || this.presence!.get(id) === myRoom ? 0 : areVisible(myRoom, this.presence!.get(id) as Room) ? 1 : 2);
+    const askable = (): EntityId[] => this.presenceActive().filter((x) => x !== me && rankOf(x) < 2 && (!awake || awake.has(x)) && !notHere?.has(x)).sort((a, b) => rankOf(a) - rankOf(b) || (a < b ? -1 : 1));
+    const ageWords = (r: { tick: number; day: number; part: string }): string => (r.day === (this.live?.dayNumber ?? 1) ? (this.presenceTickCount - r.tick <= 1 ? "a moment ago" : r.part ? `around the ${r.part}` : "earlier today") : `on day ${r.day}`);
+    const playerLeadTick = (id: EntityId): number => Math.max(tracked.get(id)?.sighting.tick ?? -1, this.lastSeenAt?.get(id)?.tick ?? -1);
+    /** The houseguests present answer from their OWN record; the one with the freshest sighting speaks, in their own voice, as tells / dodges / misleads from their sheet. */
+    const askAround = (id: EntityId, name: string): HouseSearchEntry | undefined => {
+      const known = askable().filter((v) => v !== id && this.npcSightings?.get(v)?.get(id) !== undefined);
+      if (known.length === 0) return undefined;
+      known.sort((a, b) => this.npcSightings!.get(b)!.get(id)!.tick - this.npcSightings!.get(a)!.get(id)!.tick || (a < b ? -1 : 1));
+      const v = known[0]!;
+      const rec = this.npcSightings!.get(v)!.get(id)!;
+      if (rec.tick <= playerLeadTick(id)) return undefined; // the player's own record is as fresh: it stands
+      const speaker: NamedRef = { id: v, name: this.nameOf(v) };
+      const character = this.agendaCharacterOf(v);
+      const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
+      const key = hashSeed(`${this.gameSeed ?? ""}:ask:${v}:${id}:${this.live?.dayNumber ?? 1}:${this.live?.timeOfDay ?? ""}`);
+      const outcome = askDisposition({ candor, affinityToPlayer: this.rel.edge(v, me).affinity, affinityToSubject: this.rel.edge(v, id).affinity }, askRoll(key));
+      if (outcome === "dodges") return { id, name, status: "unknown", toldBy: speaker, fact: `${speaker.name} does not give a straight answer about where ${name} is: say they dodge or change the subject; nothing is given away` };
+      let room = rec.room;
+      if (outcome === "misleads") {
+        const truth = this.presence?.get(id);
+        const pool = WALKABLE_ROOMS.filter((r) => r !== rec.room && r !== truth && r !== myRoom);
+        room = pool[askRoll(hashSeed(`${key}:room`)) * pool.length | 0] ?? rec.room;
+      }
+      return { id, name, status: "told", room, toldBy: speaker, fact: `${speaker.name} says ${name} ${rec.heading ? "was heading into" : "was in"} ${this.roomRefOf(room)} ${ageWords(rec)}: in ${speaker.name}'s own voice, as something said that may be out of date - the player can go and look` };
+    };
     const record = (id: EntityId, name: string): HouseSearchEntry => {
       const t = tracked.get(id);
+      let own: HouseSearchEntry | undefined;
       if (t) {
-        const label = roomDisplayName(t.sighting.room);
-        return { id, name, status: "lead", room: t.sighting.room, fact: `last seen heading into the ${label} ${t.stale ? "a while ago" : "a moment ago"} - not confirmed: the player can go and look, or ask around` };
+                own = { id, name, status: "lead", room: t.sighting.room, fact: `last seen heading into ${this.roomRefOf(t.sighting.room)} ${t.stale ? "a while ago" : "a moment ago"} - not confirmed: the player can go and look, or ask around` };
+      } else {
+        const l = this.lastSeenAt?.get(id);
+        if (l) {
+          const sameDay = l.day === (this.live?.dayNumber ?? 1);
+          const when = sameDay ? (l.part ? `around the ${l.part}` : "earlier today") : `on day ${l.day}`;
+          own = { id, name, status: "lead", room: l.room, fact: `last seen in ${this.roomRefOf(l.room)} ${when} - not confirmed: the player can go and look, or ask around` };
+        }
       }
-      const l = this.lastSeenAt?.get(id);
-      if (l) {
-        const sameDay = l.day === (this.live?.dayNumber ?? 1);
-        const when = sameDay ? (l.part ? `around the ${l.part}` : "earlier today") : `on day ${l.day}`;
-        return { id, name, status: "lead", room: l.room, fact: `last seen in the ${roomDisplayName(l.room)} ${when} - not confirmed: the player can go and look, or ask around` };
-      }
-      return { id, name, status: "unknown", fact: "nobody here knows where they are: the player can look around the house or ask around" };
+      return askAround(id, name) ?? own ?? { id, name, status: "unknown", fact: "nobody here knows where they are: the player can look around the house or ask around" };
     };
     for (const id of this.presenceActive()) {
       if (id === me) continue;
@@ -6169,16 +6411,16 @@ export class GameSessionAdapter implements GameSession {
       const seen = where !== undefined && (where === myRoom || areVisible(myRoom, where));
       if (awake && !awake.has(id)) {
         // a sleeper is in bed: the room of the bed is not seen unless the bed is in view, and the houseguest looked for is answered from the player's record like anyone else
-        if (seen && where && (where.startsWith("bedroom-") || where === "hoh-room")) houseguests.push({ id, name, status: "asleep", room: where, fact: `asleep in ${roomDisplayName(where)}` });
+        if (seen && where && (where.startsWith("bedroom-") || where === "hoh-room")) houseguests.push({ id, name, status: "asleep", room: where, fact: `asleep in ${this.roomRefOf(where, false)}` });
         else if (target) houseguests.push(record(id, name));
         else houseguests.push({ id, name, status: "asleep", fact: "asleep, in bed" });
         continue;
       }
       if (!where) continue; // never expected (every active houseguest is seated); the invariant test pins it
       const access = this.roomAccessFor(where, me);
-      const label = roomDisplayName(where);
+      const label = this.roomName(where);
       if (where === myRoom) {
-        houseguests.push({ id, name, status: "here", room: where, access, fact: `here with you in the ${label}` });
+        houseguests.push({ id, name, status: "here", room: where, access, fact: `here with you in ${this.roomRefOf(where)}` });
         (byRoom.has(where) ? byRoom.get(where)! : byRoom.set(where, []).get(where)!).push({ id, name });
       } else if (seen) {
         houseguests.push({ id, name, status: "awake", room: where, access, fact: `${label}, in view - the player can walk in` });
@@ -6243,6 +6485,7 @@ export class GameSessionAdapter implements GameSession {
         ...(notHere?.has(me) ? {} : { counts: this.headCounts(others.length) }),
         tracked: [],
         houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
+        ...this.themedRoomsView(room as Room),
       };
     }
     // ADR 0006: as the night thins, houseguests who have turned in are no longer "around" — the house
@@ -6296,7 +6539,17 @@ export class GameSessionAdapter implements GameSession {
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
+      ...this.themedRoomsView(room),
     };
+  }
+
+  /** ORW-466: this season's room names (every room) and the look of the player's room, for the narrator and the front end. Empty without a theme (today's labels stand). */
+  private themedRoomsView(room: Room): { roomNames?: Partial<Record<Room, string>>; roomLook?: string } {
+    const theme = this.live?.houseTheme;
+    const names = roomNamesFor(theme);
+    if (!names) return {};
+    const look = roomLook(room, theme);
+    return { roomNames: names, ...(look ? { roomLook: look } : {}) };
   }
 
   /**
@@ -6402,7 +6655,7 @@ export class GameSessionAdapter implements GameSession {
     for (const [room, who] of byRoom) {
       if (who.length !== PRIVACY.conspicuousPairSize) continue;
       const names = who.map((id) => this.nameOf(id));
-      reads.push(`(You saw ${names.join(" and ")} slip into the ${roomDisplayName(room)} a while ago and haven't seen them come out.)`);
+      reads.push(`(You saw ${names.join(" and ")} slip into ${this.roomRefOf(room)} a while ago and haven't seen them come out.)`);
     }
     return reads;
   }
@@ -6437,6 +6690,7 @@ export class GameSessionAdapter implements GameSession {
       player,
       affinity: (a, b) => this.rel.edge(a, b).affinity,
       nameOf: (id) => this.nameOf(id),
+      roomRef: (r) => this.roomRefOf(r), // ORW-466: the season's room name
       knowledge,
       rng,
       ...(this.napAsleep ? { playerAsleep: true } : {}),
@@ -7041,11 +7295,16 @@ export class GameSessionAdapter implements GameSession {
     const priorCastNames = (this.house && req.confirmRestart)
       ? this.priorSeasonNames(req.priorCastNames)
       : req.priorCastNames;
+    // ORW-466: this season's house theme joins the player's recent themes, so the next season draws a different one (bounded; most recent first).
+    const priorHouseThemes = (this.house && req.confirmRestart)
+      ? [...new Set([...(this.live?.houseTheme ? [this.live.houseTheme] : []), ...(req.priorHouseThemes ?? [])])].slice(0, MAX_PRIOR_HOUSE_THEMES)
+      : req.priorHouseThemes;
     const effReq: CreateCharacterReq = {
       ...(carried ?? {}),
       ...req,
       ...(carried ? { keepCharacter: false } : {}),
       ...(priorCastNames && priorCastNames.length ? { priorCastNames } : {}),
+      ...(priorHouseThemes && priorHouseThemes.length ? { priorHouseThemes } : {}),
       // 0104 (R4) — signal a SAME-CHARACTER return so the registry folds this user's notoriety into the
       // new cast's day-one reads. Derived from `keepCharacter` here because the line above strips it to
       // false (the fresh session has no prior house to carry from, so the flag would otherwise be lost).
@@ -7208,6 +7467,7 @@ export class GameSessionAdapter implements GameSession {
     this.sendOccupancy = null; // the frozen send-time roster is the prior season's too
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
+    if (effReq.priorHouseThemes?.length) this.live.priorHouseThemes = [...effReq.priorHouseThemes]; // ORW-466: no repeat of a recent season's house theme
     // THE CHAMPAGNE CIRCLE (owner ruling 2026-07-14): mark the whole house met at the toast — deterministic,
     // engine-recorded, Vault-free and seed-neutral (projection sets only; no rng, no fold). The premiere's
     // introductions auto-happen at the champagne toast (the first thing that happens), NOT via a manual
@@ -11026,7 +11286,7 @@ export class GameSessionAdapter implements GameSession {
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex },
+          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}) },
         };
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
@@ -12577,7 +12837,7 @@ export class GameSessionAdapter implements GameSession {
     const came = now.filter((id) => !before.has(id)).map((id) => this.nameOf(id));
     const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
     const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
-    const parts = [`You just woke from a nap in the ${here.replace(/-/g, " ")}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
+    const parts = [`You just woke from a nap in ${this.roomRefOf(here as Room)}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
     // ORW-477: a nap cut short says so: how much was slept against how much was meant, and what cut it (the clock moved by the slept part only).
     const sleptH = nw.endHour - nw.startHour;
     if (nw.wokenBy && nw.askedHours !== undefined && sleptH < nw.askedHours - 0.05) {
@@ -15275,13 +15535,14 @@ export class GameSessionAdapter implements GameSession {
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
+          ...(juryMode ? {} : (() => { const t = this.claimsToPlayerFor(p.id); return t ? { tellsYou: t } : {}; })()),
         };
         return e;
       })
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined),
       );
   }
 
@@ -15310,7 +15571,8 @@ export class GameSessionAdapter implements GameSession {
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
-    const view = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
@@ -16202,6 +16464,7 @@ export class GameSessionAdapter implements GameSession {
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
       whereabouts: this.whereabouts(),
       ...(this.playerMoveThisTurn() ? { playerMove: this.playerMoveThisTurn() as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn (ORW-478: only on the message it was made for)
+      ...(this.walkInThisTurn() ? { walkedIn: this.walkedInView(this.walkInThisTurn()!) } : {}), // ORW-473: walked in on a private talk this turn
       week: this.week,
       phase: this.phase,
       ...(this.timeOfDayEnabled && this.live?.timeOfDay ? { timeOfDay: this.live.timeOfDay, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in
