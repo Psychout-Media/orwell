@@ -35,6 +35,7 @@ Feature: 0102 - Daily recap + cliffhanger (the day in review, fired at the playe
     Then the recap closes with no fabricated hook
     Given an in-motion thread
     Then the hook never asserts a future result
+    And the hook is in the player's own first person
     # tests/unit/dailyRecap0102.test.ts - "a quiet turn with no in-motion thread closes with no fabricated hook" and "a hook, when present, never asserts a future result"
 
   Scenario: The recap augments play and is reproducible

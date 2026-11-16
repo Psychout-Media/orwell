@@ -5405,7 +5405,10 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me) ?? null;
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here);
+    // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
+    // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
+    const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here) ?? (claimedBed ? roomOfBed(claimedBed) : null);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     let result: ResolvePlayerMoveResult;
@@ -11975,14 +11978,14 @@ export class GameSessionAdapter implements GameSession {
       if (d.vague || nearingExpiry) {
         candidates.push({
           thread: `deal:${d.id}`,
-          framing: `what you and ${this.nameOf(other)} agreed to feels like it's on borrowed time`,
+          framing: `what I agreed to with ${this.nameOf(other)} feels like it's on borrowed time`, // ORW-517: the player's own first person (Ryne, card 29)
         });
       }
     }
     if (surfacedToday.length > 0) {
       candidates.push({
         thread: `surfaced:${day}`,
-        framing: "what you heard today doesn't feel finished playing out",
+        framing: "what I heard today doesn't feel finished playing out",
       });
     }
     if (candidates.length === 0) return undefined;
