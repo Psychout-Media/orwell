@@ -69,6 +69,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
+import { brokenDealClaimId, brokenDealLieConfidence } from "../../engine/dealCredibility";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
@@ -1418,10 +1419,15 @@ export class GameSessionAdapter implements GameSession {
   /** The believed-bluff belief id for (holder, subject): its own id (never the gossip rumor's) so catching it can refute exactly this claim. */
   private bluffBeliefId(holder: EntityId, subject: EntityId, week: number): string { return `${holder}|heard-rumor|${subject}|bluff:${PLAYER}|${week}`; }
   /** `holder` was lied to by `liar`, caught with evidence of the given confidence. Never for the player as holder (nothing acts on the player's hidden read). */
-  private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told"): void {
+  private writeLieCaught(holder: EntityId, liar: EntityId, confidence: number, origin: "witnessed" | "told", id?: string): void {
     if (!this.liesCaughtWriting || holder === PLAYER) return;
-    recordClaim((this.live!.beliefs ??= {}), { holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
+    recordClaim((this.live!.beliefs ??= {}), { ...(id ? { id } : {}), holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
     this.agendaRecheck("caught-lying", [holder]); // ORW-312
+  }
+  /** ORW-545 - a broken formal deal is a caught lie for the wronged party (full weight) and for each formation witness (the witness factor); one claim per deal per holder (idempotent). Never for a sealed ballot break (the callers skip it). */
+  private writeDealBreakLie(holder: EntityId, breaker: EntityId, deal: Deal, role: "wronged" | "witness"): void {
+    if (holder === breaker || (role === "witness" && deal.parties.includes(holder))) return;
+    this.writeLieCaught(holder, breaker, brokenDealLieConfidence(deal, this.live?.week, role), role === "wronged" ? "witnessed" : "told", brokenDealClaimId(holder, breaker, deal));
   }
   /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
@@ -14153,7 +14159,8 @@ export class GameSessionAdapter implements GameSession {
       // #1802: at breach, seed the breach fact into each formation-witness via the standard
       // 0038 diffusion pathway. The registry wires this to the KnowledgeService/gossip;
       // standalone ⇒ no-op ⇒ byte-identical.
-      revealToWitness: (witness, breaker) => {
+      revealToWitness: (witness, breaker, deal) => {
+        this.writeDealBreakLie(witness, breaker, deal, "witness");
         this.onPlayerEvent?.(
           `${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`,
           [witness], "betrayal",
@@ -14187,6 +14194,7 @@ export class GameSessionAdapter implements GameSession {
         // 0024: an ATTRIBUTED break (a public action, or the player's own vote) is a memory the wronged party holds; the
         // sealed-ballot branch above deliberately writes none (it would de-anonymize the vote through behaviour).
         this.remember(wronged, breaker, "deal-broken", Math.min(1, 0.6 * breakSeverityScale(deal, this.live?.week)));
+        this.writeDealBreakLie(wronged, breaker, deal, "wronged");
         return this.onPlayerEvent?.(
           `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)}`,
           [wronged, breaker], "betrayal",
