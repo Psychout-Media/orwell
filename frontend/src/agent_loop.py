@@ -723,13 +723,13 @@ async def _heal_unstated_player_gender(owner, own_words: str) -> bool:
     if owner is None or owner in _GENDER_HEAL_DONE or not (own_words or "").strip():
         return False
     from src import orwell_engine as _oe
-    from src.orwell_player_gender import player_stated_genders
+    from src.orwell_player_gender import any_gender_stated
     st = await _oe.get_game_state(user=owner)
     if not isinstance(st, dict) or not st.get("started"):
         return False
     _GENDER_HEAL_DONE.add(owner)
     g = ((st.get("player") or {}).get("genderPresentation"))
-    if not g or g in player_stated_genders(own_words):
+    if not g or any_gender_stated(own_words):  # a disagreement with the latest reading never clears; only "no line states any gender" does
         return False
     await _oe.update_casting({"genderPresentation": "unset"}, user=owner)
     logger.info("[orwell] ORW-476: cleared a saved player gender that no words of the player's support")
