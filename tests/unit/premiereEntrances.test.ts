@@ -192,6 +192,18 @@ describe("A9 engine entrances", () => {
 
 /** ORW-205 - the engine supplies the one true headcount in the entrance payload. */
 describe("ORW-205 entrance headcount", () => {
+  it("with the player LAST in the order the roll-call is not complete until the player has walked in (review of ORW-196)", () => {
+    const sb = start(5);
+    const live = (sb.session as unknown as { live: { premiereEntrance: { order: string[]; playerPos: number; arrived: number; stage: string } } }).live;
+    const pe = live.premiereEntrance;
+    const me = sb.session.snapshot().house!.player.id;
+    pe.order = [...pe.order.filter((x) => x !== me), me]; pe.playerPos = pe.order.length - 1;
+    pe.arrived = pe.order.length - 1; // every NPC is inside, the player is not
+    expect(sb.session.premiereIntros()!.complete).toBe(false);
+    expect(sb.session.premiereIntros()!.powerReachable).toBe(false);
+    sb.session.advanceGame(); // the player's own entrance: the engine's real step, not a forced counter
+    expect(sb.session.premiereIntros()!.complete).toBe(true);
+  });
   it("insideCount/playerInside/headcount track the arrivals and say whether the player is counted", () => {
     // Across seeds, so BOTH states (player not yet in, player in) are seen and asserted for sure.
     const sawPlayerOutside = { v: false }, sawPlayerInside = { v: false };

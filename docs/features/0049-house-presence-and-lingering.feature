@@ -169,3 +169,40 @@ Feature: House presence and lingering play
     Given a played game where the player stands in the backyard, one houseguest is behind an unlocked bedroom door, one is in the HOH room held by another, and one is in the diary room
     When the player has watched a houseguest head into a closed room and asks for them
     Then the answer is a lead that names the room as last seen, not confirmed
+
+  # ORW-475 (Kevin with Ryne, 2026-11-15): asking around. Each houseguest keeps their own record of who they saw go where and answers from it; whether they tell it straight, dodge or mislead comes from their own character sheet.
+  Scenario: A candid houseguest who watched someone go says where, as something that may be out of date
+    Given a played game where the player stands in the backyard, a houseguest is in the kitchen in view, and another is behind a bedroom door
+    And the houseguest in the kitchen watched the other walk into the storage room
+    And the houseguest in the kitchen is candid and fond of everyone
+    When the player asks around for the other houseguest
+    Then the answer is told by the houseguest in the kitchen, naming the storage room, as something that may be out of date
+    And the other houseguest is really in the bedroom, so the lead is out of date
+
+  Scenario: Nobody here has seen them
+    Given a played game where the player stands in the backyard, a houseguest is in the kitchen in view, and another is behind a bedroom door
+    And the houseguest in the kitchen is candid and fond of everyone
+    When the player asks around for the other houseguest
+    Then nobody here knows where the other houseguest is and no room is named
+
+  Scenario: A guarded houseguest cold to the player dodges on some days and tells on others
+    Given a played game where the player stands in the backyard, a houseguest is in the kitchen in view, and another is behind a bedroom door
+    And the houseguest in the kitchen watched the other walk into the storage room
+    And the houseguest in the kitchen is guarded and cold to the player
+    When the player asks around for the other houseguest on every day of a long season
+    Then the guarded houseguest sometimes gives no straight answer and names no room
+  # ORW-473 (Kevin with Ryne, 2026-11-15: "That should be dynamic based on character sheets involved"): walking in on a private strategy talk. Each houseguest's reaction comes from their own sheet, not one rule for everyone.
+  Scenario Outline: Walking in on a private talk: the reaction comes from the houseguests' own sheets
+    Given a played game where two houseguests are in the kitchen in a private strategy talk and the player is in the backyard
+    And both houseguests have the sheet of one who <sheet>
+    When the player walks into the kitchen
+    Then each of them <sheet>
+    And the narrator is told the manner of each reaction and nothing about what the talk was
+    And both of them remember that the player walked in
+
+    Examples:
+      | sheet                |
+      | pulls the player in  |
+      | carries on guarded   |
+      | moves the talk       |
+      | goes quiet           |

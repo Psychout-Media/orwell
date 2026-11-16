@@ -94,6 +94,21 @@ describe("#1391 — narrator-prompt token budget (anti-re-bloat gate)", () => {
     expect(buildSystemPrompt("social", LIVE_VIEW).length).toBeLessThanOrEqual(BUDGET);
   });
 
+  // ORW-510: the per-turn "ALREADY USED" brief section is uncacheable (it changes every turn), so it has its own HARD budget: 800 characters, under 200 tokens by the brief's chars/4.1 estimate.
+  it("the ALREADY USED brief section stays under 200 tokens in its worst case", async () => {
+    const { emptyNarrationUse, narrationUsageSection, narrationAnchor, recordNarration, NU_SECTION_MAX_CHARS } = await import("../../src/engine/narrationUsage");
+    const roster = Array.from({ length: 16 }, (_, i) => ({ id: `npc:${i + 1}`, name: `Pxa${"abcdefghijklmnop"[i]}${"qrstuvwxyzabcdef"[i]} Sxb${"abcdefghijklmnop"[i]}` }));
+    let rec = emptyNarrationUse();
+    for (let t = 0; t < 200; t++) {
+      const who = roster[t % 16]!.name.split(" ")[0]!;
+      const w = "abcdefghijklmnopqrstuvwxyz"[t % 26]!.repeat(5);
+      rec = recordNarration(rec, `You walk into ${w}. ${who} tucks her hair behind ${w}. "Honestly, I could use ${w} now," ${who} says. Quiet follows ${w} around.`, roster).record;
+    }
+    const text = narrationUsageSection(rec, roster.map((r) => r.id), (id) => roster.find((r) => r.id === id)!.name, narrationAnchor(3, 200))!;
+    expect(text.length).toBeLessThanOrEqual(NU_SECTION_MAX_CHARS);
+    expect(Math.ceil(text.length / 4.1)).toBeLessThanOrEqual(200);
+  });
+
   // ── A floor guard: catch an ACCIDENTAL mass deletion of BASE (a botched dedup that silently drops
   //    load-bearing rules) — the content pins would catch a NAMED rule, but a big unnamed cut would
   //    slip past them while this trips. Keep it well below the current size.

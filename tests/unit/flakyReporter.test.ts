@@ -29,6 +29,10 @@ function fakeFile(tests: { name: string; state?: "pass" | "fail"; retryCount?: n
 }
 
 describe("flaky reporter", () => {
+  it("lists a test quarantined by its describe title too (the tag is on the full name)", () => {
+    const r = collectFlakes([fakeFile([{ name: "plain test", mode: "skip", suite: "a suite [quarantined ORW-1 since 2026-11-01]" }])]);
+    expect(r.quarantined).toHaveLength(1);
+  });
   it("lists a test that passed only on its retry, and one still red after it", () => {
     const r = collectFlakes([
       fakeFile([

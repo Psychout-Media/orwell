@@ -37,13 +37,12 @@ Feature: Houseguests live their own lives
     Then every houseguest's juror style comes from their own character and the player has none
 
   Scenario: A strategist Final HOH cuts the ally they would lose to; a loyalist keeps them
-    Given a Final 3 where the HOH's ally is beloved by the jury and their rival is disliked
-    When a strategist is the HOH and when a loyalist is the HOH
+    When a Final 3 where the HOH's ally is beloved by the jury and their rival is disliked is played with a strategist and then a loyalist as the HOH
     Then the strategist evicts the beloved ally
     And the loyalist evicts the rival
 
   Scenario: Pre-show ties behave by their nature
-    Given a houseguest with a pre-show tie
+    When a houseguest is seeded with each nature of pre-show tie
     Then a rival is a target from day one
     And family is protected hard through any number of quiet nights
     And an old friend's protection gives way when they become a real threat

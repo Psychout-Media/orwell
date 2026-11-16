@@ -29,13 +29,14 @@ def send(n, text, card):
         if r["n"] == n: return r
     return None
 n = N0; st = {}; card = None; turns = 0
-for t in CAST:
+for t in CAST[:max(MAXT, 0)]:   # never more cast turns than the turn budget
     n += 1; r = send(n, t, None); turns += 1
-    if r: st, card = r["status"], r["card"]
+    if not r: print("timeout at", n, "(casting) - aborting", flush=True); sys.exit(1)
+    st, card = r["status"], r["card"]
 while turns < MAXT:
     n += 1; turns += 1
     if card:
-        c = {"pick": [0]}
+        c = {"pick": [0, 1] if "nominat" in (card.get("title", "")).lower() else [0]}   # a nominations card needs exactly two
         if any(k in (card.get("title", "")).lower() for k in ("goodbye", "message")): c["text"] = "Take care out there."
         r = send(n, None, c)
     else:

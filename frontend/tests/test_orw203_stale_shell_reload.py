@@ -137,9 +137,12 @@ def _stop(proc):
 
 
 def test_old_shell_after_deploy_self_corrects_once_in_a_real_browser():
-    """Build A is served and cached by the SW; the app 'redeploys' as build B on the SAME origin;
-    the next load must end on the B shell after exactly one extra navigation, and a further
-    load must not reload again."""
+    """Build A's shell is served after the app 'redeploys' as build B on the SAME origin; the load must end on the B shell after
+    EXACTLY one corrective navigation, and a further load must not reload again.
+
+    Review of #2237: the service worker is registered at /static/sw.js, so its scope is /static/ and it never controls "/"; a plain
+    second goto simply fetched build B and `len(nav) <= 2` passed with no recovery at all. The stale shell is now served on purpose
+    (the build-A HTML captured before the restart, answered once for "/"), so the test fails if the purge-and-reload breaks."""
     try:
         from playwright.sync_api import sync_playwright
     except Exception:
@@ -152,42 +155,73 @@ def test_old_shell_after_deploy_self_corrects_once_in_a_real_browser():
         pytest.skip(str(e))
     base = f"http://127.0.0.1:{port}"
     try:
+        shell_a = urllib.request.urlopen(base + "/", timeout=10).read().decode("utf-8")
+        assert 'content="buildAAA"' in shell_a
+        _stop(proc)
+        proc = _boot("buildBBB", port, db)
         with sync_playwright() as pw:
             try:
                 browser = pw.chromium.launch()
             except Exception as e:
                 pytest.skip(f"chromium unavailable: {e}")
+            meta = "document.querySelector('meta[name=orwell-build]').content"
+
+            def _stale_once(page, served):
+                def handler(route):
+                    if route.request.resource_type == "document" and not served:
+                        served.append(route.request.url)
+                        return route.fulfill(status=200, content_type="text/html; charset=utf-8", body=shell_a)
+                    return route.continue_()
+                page.route(base + "/", handler)
+
+            # (1) the stale A shell self-corrects with exactly one reload
             ctx = browser.new_context()
             page = ctx.new_page()
             page.set_default_timeout(20000)
-            page.set_default_navigation_timeout(20000)
             nav = []
             page.on("framenavigated", lambda fr: nav.append(fr.url) if fr == page.main_frame else None)
-            meta = "document.querySelector('meta[name=orwell-build]').content"
-
+            served = []
+            _stale_once(page, served)
             page.goto(base + "/", wait_until="load")
-            assert page.evaluate(meta) == "buildAAA"
-            # Let the SW install and precache '/' (the old shell); bounded, never an unbounded evaluate.
-            # ORW-414: the event - the service worker is installed AND active (install precaches '/'), not a fixed 3 s
-            page.evaluate("() => Promise.race([navigator.serviceWorker.ready.then(() => true), new Promise((r) => setTimeout(() => r(false), 15000))])")  # bounded: never an unbounded evaluate
-
-            # --- 'deploy': same origin, new build ---
-            _stop(proc)
-            proc = _boot("buildBBB", port, db)
-            nav.clear()
-            page.goto(base + "/", wait_until="load")
+            assert served, "the stale build-A shell was served"
             page.wait_for_function(f"{meta} === 'buildBBB'", timeout=15000)
             page.wait_for_timeout(1000)
-            # one goto + exactly one corrective reload (never a loop)
-            assert len(nav) <= 2, nav
-            assert page.evaluate(meta) == "buildBBB"
-
-            # A further load is a match: no corrective reload.
+            assert len(nav) == 2, f"one goto + exactly one corrective reload: {nav}"
+            assert page.evaluate("() => sessionStorage.getItem('orwell-shell-reload')") == "buildBBB"
+            # a further load is a match: no corrective reload
             nav.clear()
             page.goto(base + "/", wait_until="load")
             page.wait_for_timeout(1500)
             assert len(nav) == 1, nav
             assert page.evaluate(meta) == "buildBBB"
+            ctx.close()
+
+            # (2) the player starts typing WHILE the cache purge runs: no reload, and the one-shot guard is given back
+            ctx = browser.new_context()
+            page = ctx.new_page()
+            page.set_default_timeout(20000)
+            page.add_init_script("""(() => {
+              if (!window.caches || !caches.keys) return;
+              const keys = caches.keys.bind(caches);
+              window.__purgeGate = new Promise((r) => { window.__releasePurge = r; });
+              caches.keys = () => window.__purgeGate.then(() => keys());
+            })();""")
+            nav = []
+            page.on("framenavigated", lambda fr: nav.append(fr.url) if fr == page.main_frame else None)
+            served = []
+            _stale_once(page, served)
+            page.goto(base + "/", wait_until="load")
+            for _ in range(100):  # the guard is taken just before the purge starts
+                if page.evaluate("() => sessionStorage.getItem('orwell-shell-reload')") == "buildBBB":
+                    break
+                page.wait_for_timeout(100)
+            else:
+                raise AssertionError("the stale check never started its purge")
+            page.evaluate("() => { const b = document.getElementById('message'); b.value = 'half a sentence'; window.__releasePurge(); }")
+            page.wait_for_timeout(1500)
+            assert len(nav) == 1, f"a reload interrupted the player's typing: {nav}"
+            assert page.evaluate(meta) == "buildAAA"
+            assert page.evaluate("() => sessionStorage.getItem('orwell-shell-reload')") is None, "the unused reload guard is given back"
             browser.close()
     finally:
         _stop(proc)
