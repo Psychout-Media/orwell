@@ -39,11 +39,19 @@ def test_clock_claim_follows_the_replys_own_pm_word():
     assert not ids("It is 8:10 at night. ", "8:10pm, Day 2")
 
 
+def _fake_home():
+    # a throwaway rig home that has an `orwell` dir (slot.sh insists on one) but nothing else: if validation ever stopped running first, the stage would fail harmlessly instead of starting a paid run
+    import tempfile
+    d = tempfile.mkdtemp(prefix="rigtest-")
+    os.mkdir(os.path.join(d, "orwell"))
+    return d
+
+
 def test_week_sh_refuses_a_bad_cap_or_week_count_before_starting_anything():
     import subprocess
     here = os.path.dirname(os.path.abspath(__file__))
     for env in ({"RIG_SPEND_CAP": "bogus"}, {"RIG_WEEKS": "x"}, {"RIG_WEEKS": "0"}):
-        r = subprocess.run(["bash", os.path.join(here, "week.sh")], capture_output=True, text=True, env={**os.environ, **env, "ORWELL_RIG_HOME": "/nonexistent-rig"})
+        r = subprocess.run(["bash", os.path.join(here, "week.sh")], capture_output=True, text=True, env={**os.environ, **env, "ORWELL_RIG_HOME": _fake_home()})
         assert r.returncode == 2 and "COULD-NOT-RUN" in r.stdout, (env, r.stdout, r.stderr)
 
 
