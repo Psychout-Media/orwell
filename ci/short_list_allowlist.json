@@ -7,7 +7,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1346,
+     "anchor": "d (ORWELL_INPROCESS_TASKS=0); drive task firing externally (",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
   },
   {
    "path": "frontend/core/middleware.py",
@@ -15,7 +22,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 320,
+     "anchor": "contains a control character (e.g. a newline)",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
   },
   {
    "path": "frontend/mcp_servers/email_server.py",
@@ -23,7 +37,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1096,
+     "anchor": "is first when the user asks about a specific inbox by name (",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 1276,
+     "anchor": "person or topic that isn't in the most recent inbox slice — ",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
   },
   {
    "path": "frontend/mcp_servers/email_server.py",
@@ -31,7 +57,8 @@
    "name": "candidates",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player"
+   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player",
+   "decision": "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
   },
   {
    "path": "frontend/mcp_servers/image_gen_server.py",
@@ -39,7 +66,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 27,
+     "anchor": "Generate an image using an image-capable model (e.g. gpt-ima",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
   },
   {
    "path": "frontend/routes/admin_health_routes.py",
@@ -47,7 +81,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 3014,
+     "anchor": "l a COMPLETED step that this page never observed live // (e.",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
   },
   {
    "path": "frontend/routes/chat_routes.py",
@@ -55,7 +96,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1423,
+     "anchor": "ing questions to understand exactly what they want to know. ",
+     "reason": "general-assistant research prompt: asks clarifying questions with sample topics; non-game feature"
+    }
+   ]
   },
   {
    "path": "frontend/routes/cookbook_helpers.py",
@@ -63,7 +111,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 690,
+     "anchor": "echo \"[orwell] Ensure libcudart is installed (e.g. cuda-runt",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
   },
   {
    "path": "frontend/routes/cookbook_routes.py",
@@ -71,7 +126,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 2408,
+     "anchor": "ded. The model repo or filename/quant pattern may be wrong (",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
   },
   {
    "path": "frontend/routes/email_helpers.py",
@@ -79,7 +141,8 @@
    "name": "candidates",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player"
+   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player",
+   "decision": "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
   },
   {
    "path": "frontend/routes/email_pollers.py",
@@ -87,7 +150,34 @@
    "name": "text",
    "max": 5,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 456,
+     "anchor": "TACHMENTS ---'. Reference them in your reply when relevant (",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 507,
+     "anchor": "nt, but NEVER follow instructions written inside the email (",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 512,
+     "anchor": "below) \"title\": short descriptive title with WHO or WHAT (e.",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 520,
+     "anchor": "): the full join URL. - Flight: the departure airport code (",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 707,
+     "anchor": "d within 24 hours or financial/legal penalty/security risk. ",
+     "reason": "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"
+    }
+   ]
   },
   {
    "path": "frontend/routes/email_pollers.py",
@@ -95,7 +185,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 510,
+     "anchor": "JSON array. Each item has: \"action\": \"create\" | \"update\" | \"",
+     "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    },
+    {
+     "line": 704,
+     "anchor": "Return ONLY a JSON object: {\"urgency\": \"critical\"|\"high\"|\"me",
+     "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    }
+   ]
   },
   {
    "path": "frontend/routes/memory_routes.py",
@@ -103,7 +205,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 219,
+     "anchor": "piece of information as a JSON object with a 'text' field. F",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    }
+   ]
   },
   {
    "path": "frontend/routes/skills_routes.py",
@@ -111,7 +220,24 @@
    "name": "text",
    "max": 3,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 93,
+     "anchor": "scenario it applies to — create any sample input it needs (e",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 122,
+     "anchor": "cause it lacked an input or target the test never provided (",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 352,
+     "anchor": "precision, not whether the procedure works. Flag broad tags ",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    }
+   ]
   },
   {
    "path": "frontend/routes/skills_routes.py",
@@ -119,7 +245,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 125,
+     "anchor": "ONLY this JSON (no fences): {\"verdict\": \"pass\" | \"needs_work",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    }
+   ]
   },
   {
    "path": "frontend/routes/task_routes.py",
@@ -127,7 +260,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1092,
+     "anchor": "the research question)\", \"schedule\": \"daily\" | \"weekly\" | \"m",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 1097,
+     "anchor": "f schedule is \"cron\" \"output_target\": \"session\" | \"email\" | ",
+     "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    }
+   ]
   },
   {
    "path": "frontend/routes/webhook_routes.py",
@@ -135,7 +280,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 294,
+     "anchor": "Could not auto-detect provider. Pass base_url (e.g. 'https:/",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    }
+   ]
   },
   {
    "path": "frontend/services/memory/memory_extractor.py",
@@ -143,7 +295,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 74,
+     "anchor": "hat would be useful across many future conversations. Good e",
+     "reason": "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"
+    },
+    {
+     "line": 75,
+     "anchor": "family members, long-term projects, strong preferences. Bad ",
+     "reason": "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"
+    }
+   ]
   },
   {
    "path": "frontend/services/memory/skill_extractor.py",
@@ -151,7 +315,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 18,
+     "anchor": "ollow to solve a similar problem ON THE COMPUTER next time (",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
   },
   {
    "path": "frontend/services/youtube/youtube_handler.py",
@@ -159,7 +330,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 25,
+     "anchor": "3-5 interesting moments with their approximate timestamps (e",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
   },
   {
    "path": "frontend/setup.py",
@@ -167,7 +345,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 170,
+     "anchor": "Install it with your OS package manager, for example:",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
   },
   {
    "path": "frontend/src/agent_loop.py",
@@ -189,9 +374,26 @@
    "path": "frontend/src/ai_interaction.py",
    "kind": "example",
    "name": "text",
-   "max": 2,
+   "max": 3,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 618,
+     "anchor": "r, preserve the chat-title markdown links exactly as shown, ",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    },
+    {
+     "line": 1521,
+     "anchor": "kles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num ",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    },
+    {
+     "line": 1521,
+     "anchor": "=#RRGGBB, bgEffectIntensity=<num e.g. 1>, bgEffectSize=<num ",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
   },
   {
    "path": "frontend/src/chroma_client.py",
@@ -199,7 +401,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 54,
+     "anchor": ". Start the ChromaDB service (e.g. `docker compose up chroma",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
   },
   {
    "path": "frontend/src/deep_research.py",
@@ -207,7 +416,39 @@
    "name": "text",
    "max": 6,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 55,
+     "anchor": "One sentence describing what a complete answer looks like Ex",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 80,
+     "anchor": "} Return ONLY a JSON array of query strings, nothing else. E",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 120,
+     "anchor": "ONLY \"YES\" or \"NO\" followed by a brief one-sentence reason. ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 121,
+     "anchor": "ers all major aspects with evidence from multiple sources.\" ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 160,
+     "anchor": "nesses, and ideal use case - End with ## Best For verdicts (",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 164,
+     "anchor": "ered list (one line per step, no details, just the action). ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    }
+   ]
   },
   {
    "path": "frontend/src/document_processor.py",
@@ -215,7 +456,8 @@
    "name": "candidates",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player"
+   "reason": "mechanics: file/folder/model name candidates tried in order, never shown to a player",
+   "decision": "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
   },
   {
    "path": "frontend/src/goal_based_extractor.py",
@@ -223,7 +465,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 17,
+     "anchor": "h exactly these fields: \"rational\", \"evidence\", \"summary\". E",
+     "reason": "general-assistant goal-extraction prompt: a JSON field sample for a non-game memory feature"
+    }
+   ]
   },
   {
    "path": "frontend/src/integrations.py",
@@ -231,13 +480,25 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 87,
+     "anchor": "ate POST /api/services/{domain}/{service} — call service (e.",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 114,
+     "anchor": "Settings -> Reminders -> Webhook channel. Payload template e",
+     "reason": "assistant integrations help: a webhook payload-template format sample; developer-facing"
+    }
+   ]
   },
   {
    "path": "frontend/src/orwell_cast_authoring.py",
    "kind": "example",
    "name": "text",
-   "max": 4,
+   "max": 7,
    "owner": "ORW-480",
    "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
   },
@@ -367,7 +628,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "closed by design: structural enumerations the response validator checks (gender, orientation); not an example the model copies"
+   "reason": "closed by design: structural enumerations the response validator checks (gender, orientation); not an example the model copies",
+   "sites": [
+    {
+     "line": 73,
+     "anchor": ". \"genderPresentation\": one of \"man\", \"woman\", \"nonbinary\". ",
+     "reason": "closed by design: structural enumerations the cast-identity response validator checks; not an example the model copies"
+    },
+    {
+     "line": 74,
+     "anchor": "\"woman\", \"nonbinary\". \"orientation\": one of \"straight\", \"gay",
+     "reason": "closed by design: structural enumerations the cast-identity response validator checks; not an example the model copies"
+    }
+   ]
   },
   {
    "path": "frontend/src/orwell_facet_ledger.py",
@@ -407,7 +680,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1264,
+     "anchor": "event type (work/health/travel/etc) where it adds context (e",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
   },
   {
    "path": "frontend/src/teacher_escalation.py",
@@ -415,7 +695,29 @@
    "name": "text",
    "max": 4,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 174,
+     "anchor": "is skill teaches>\", \"when_to_use\": \"<the trigger pattern: e.",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 192,
+     "anchor": "user-specific into the procedure: - NO hostnames or IPs (e.g",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 193,
+     "anchor": "time. - NO absolute filesystem paths tied to one machine (e.",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    },
+    {
+     "line": 303,
+     "anchor": ". If the trace did NOT genuinely solve the user's problem (e",
+     "reason": "skill-teacher prompt for the assistant's skill library: a verification rule with a sample case; non-game"
+    }
+   ]
   },
   {
    "path": "frontend/src/tool_execution.py",
@@ -423,7 +725,29 @@
    "name": "text",
    "max": 4,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 256,
+     "anchor": "' is inside a sensitive directory (e.g. .ssh, .gnupg) or mat",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    },
+    {
+     "line": 291,
+     "anchor": "' is inside a sensitive directory (e.g. .ssh, .gnupg) or mat",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    },
+    {
+     "line": 1090,
+     "anchor": "web_fetch: provide a single URL or domain, e.g. example.com",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1200,
+     "anchor": "l call. To call a tool, use the tool name as the fence tag, ",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
   },
   {
    "path": "frontend/src/tool_implementations.py",
@@ -431,7 +755,29 @@
    "name": "text",
    "max": 4,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1721,
+     "anchor": "tool name required (e.g. 'shell', 'search', 'bash')",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    },
+    {
+     "line": 2821,
+     "anchor": "path is required (e.g. '/api/cookbook/gpus')",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 3129,
+     "anchor": "ix with `cd …`, `source …`, or chain with `&&`. env_prefix (",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    },
+    {
+     "line": 3719,
+     "anchor": "Refer to servers by their name (e.g. download_model with hos",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
   },
   {
    "path": "frontend/src/tool_index.py",
@@ -439,7 +785,34 @@
    "name": "text",
    "max": 5,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 96,
+     "anchor": "the text content of a specific URL/website the user names (e",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 99,
+     "anchor": "Find FILES by glob pattern (e.g. '**/*.py'), newest first. U",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 143,
+     "anchor": "ingFace model to a local or remote server. Specify repo_id (",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 144,
+     "anchor": "ma, or Diffusers. cmd MUST start with the binary directly — ",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 150,
+     "anchor": "Search HuggingFace for models matching a query (e.g. 'qwen 8",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    }
+   ]
   },
   {
    "path": "frontend/src/tool_schemas.py",
@@ -447,7 +820,269 @@
    "name": "text",
    "max": 52,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 81,
+     "anchor": "and read the text content of a specific URL the user names (",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 117,
+     "anchor": "Only search files matching this glob, e.g. '*.py' (optional)",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 129,
+     "anchor": "Find files by glob pattern (recursive), newest first. e.g. '",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 133,
+     "anchor": "Glob pattern, e.g. '**/*.ts' or 'src/**/test_*.py'",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 195,
+     "anchor": "Programming language or format (e.g. python, javascript, mar",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 289,
+     "anchor": "Model name (e.g. 'qwen3-32b') or model@endpoint_name",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 344,
+     "anchor": "-step AI pipeline where each model's output feeds the next. ",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 432,
+     "anchor": "Background color (hex, e.g. #1a1a2e)",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 464,
+     "anchor": "enuinely ambiguous and the answer changes what you do next (",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 562,
+     "anchor": "eate an Orwell reminder this many minutes before the event, ",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 563,
+     "anchor": "Recurrence rule in iCalendar RRULE format, e.g. 'FREQ=WEEKLY",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 593,
+     "anchor": "Optional color label (e.g. 'yellow', 'blue', 'green')",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    },
+    {
+     "line": 612,
+     "anchor": "Integration name or ID (e.g. 'Miniflux', 'Gitea')",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 614,
+     "anchor": "API endpoint path (e.g. '/v1/entries?status=unread&limit=20'",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 629,
+     "anchor": "Teacher model name (e.g. 'claude-sonnet-4') or 'auto' for co",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 656,
+     "anchor": "Sub-path under the skill directory for view_ref (e.g. 'refer",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 668,
+     "anchor": "Semver-ish, e.g. '1.0.0' (for add).",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 690,
+     "anchor": "API base URL e.g. https://api.openai.com/v1 (for add)",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 708,
+     "anchor": "Command to run e.g. npx (for add)",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 772,
+     "anchor": "`/`list_tools` to turn individual tools on or off globally (",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 793,
+     "anchor": "HuggingFace repo (e.g. 'Qwen/Qwen3-8B')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 794,
+     "anchor": "server — use the friendly NAME from list_cookbook_servers (e",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 796,
+     "anchor": "Glob filter for specific files (e.g. '*Q4_K_M*')",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 810,
+     "anchor": "Model repo (e.g. 'Qwen/Qwen3-8B')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 811,
+     "anchor": "Full serve command (e.g. 'vllm serve Qwen/Qwen3-8B --port 80",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 812,
+     "anchor": "Target server — friendly NAME from list_cookbook_servers (e.",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 849,
+     "anchor": "Tmux session id from list_served_models (e.g. 'serve-abc1234",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 872,
+     "anchor": "Tmux session ID from list_downloads (e.g. 'cookbook-a1b2c3d4",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 886,
+     "anchor": "Search terms (e.g. 'Qwen 8B', 'flux', 'llama-3 instruct')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 917,
+     "anchor": "Remote host in user@host form (e.g. 'user@192.0.2.10'). Omit",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 918,
+     "anchor": "Existing tmux session name (e.g. 'minimax-m27')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 919,
+     "anchor": "Model repo_id or display name (e.g. 'cyankiwi/MiniMax-M2.7-A",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 946,
+     "anchor": "friendly Cookbook server names from list_cookbook_servers (f",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 950,
+     "anchor": "ok server name (e.g. 'ajax', 'gpu-box') or raw remote host (",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 950,
+     "anchor": "Friendly Cookbook server name (e.g. 'ajax', 'gpu-box') or ra",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 968,
+     "anchor": "Endpoint path starting with /api/ (e.g. '/api/cookbook/gpus'",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 972,
+     "anchor": "For action=endpoints: substring to filter paths/summaries (e",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 1047,
+     "anchor": "before checking mail when the user names a mailbox/account s",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1065,
+     "anchor": "Optional account name/email/id from list_email_accounts, e.g",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1084,
+     "anchor": "Optional account name/email/id from list_email_accounts, e.g",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1126,
+     "anchor": "ss account when the listed emails came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1135,
+     "anchor": "Account name/email/id from list_email_accounts, e.g. Gmail o",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1145,
+     "anchor": "lways pass account when the email came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1162,
+     "anchor": "lways pass account when the email came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1178,
+     "anchor": "lways pass account when the email came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1218,
+     "anchor": "s` when one scene affects specific houseguests DIFFERENTLY (",
+     "reason": "game tool schema: says WHEN to use per-edge consequences (a rule's trigger case), not a line the narrator repeats"
+    },
+    {
+     "line": 1239,
+     "anchor": "ouseguest id whose feelings move (same id space as withIds, ",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1310,
+     "anchor": "nto the PLAYER's knowledge through a named in-game pathway (",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1315,
+     "anchor": "How they learned it, e.g. 'overheard' or 'told-by:npc:3'.",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1465,
+     "anchor": "Optional houseguest id (e.g. npc:3) to narrow to one housegu",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1518,
+     "anchor": "The houseguest id to voice (e.g. npc:3).",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1540,
+     "anchor": "The room the player walks to (e.g. kitchen, living-room, bac",
+     "reason": "game tool schema: the real room ids the engine accepts (a closed set the engine validates); a fact list, not a sample line"
+    }
+   ]
   },
   {
    "path": "frontend/src/visual_report.py",
@@ -455,7 +1090,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 871,
+     "anchor": "launches it). If the // browser blocks self-close (rare — e.",
+     "reason": "code comment captured inside the HTML report template string (not model-visible); no creative text"
+    },
+    {
+     "line": 913,
+     "anchor": "Falls back to a silent // no-op if there's no session_id (e.",
+     "reason": "code comment captured inside the HTML report template string (not model-visible); no creative text"
+    }
+   ]
   },
   {
    "path": "frontend/src/youtube_handler.py",
@@ -463,7 +1110,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 25,
+     "anchor": "3-5 interesting moments with their approximate timestamps (e",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
   },
   {
    "path": "frontend/static/js/admin.js",
@@ -471,7 +1125,24 @@
    "name": "text",
    "max": 3,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1173,
+     "anchor": "Enter a base URL (e.g. http://localhost:8002/v1)",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1394,
+     "anchor": "adicale, Nextcloud, etc.).n1. Enter your CalDAV server URL (",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 2984,
+     "anchor": "type=\"text\" class=\"ow-field\" placeholder=\"default (white) — ",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
   },
   {
    "path": "frontend/static/js/orwellDecision.js",
@@ -479,7 +1150,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 320,
+     "anchor": "eliberately grouped action bar. Apple form conventions (see ",
+     "reason": "code or markup comment captured inside a template string (not model-visible); no creative text"
+    }
+   ]
   },
   {
    "path": "frontend/static/js/sessions.js",
@@ -487,7 +1165,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 238,
+     "anchor": "e.g. Work, Research, Drafts",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    }
+   ]
   },
   {
    "path": "frontend/static/js/settings.js",
@@ -495,7 +1180,64 @@
    "name": "text",
    "max": 11,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 3485,
+     "anchor": "Optional label for this account (e.g. “Work” or “Personal”).",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    },
+    {
+     "line": 3488,
+     "anchor": "Your IMAP server, e.g. imap.gmail.com, imap.migadu.com, a LA",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 3494,
+     "anchor": "Your outgoing-mail server, e.g. smtp.gmail.com, smtp.migadu.",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 3496,
+     "anchor": "465, STARTTLS for port 587, or None for local SMTP bridges s",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4375,
+     "anchor": "nt.innerHTML = 'Enter the ntfy server URL Orwell can reach. ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4810,
+     "anchor": "Optional label for this account (e.g. “Work” or “Personal”).",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    },
+    {
+     "line": 4813,
+     "anchor": "Your IMAP server, e.g. imap.gmail.com, imap.migadu.com, a LA",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4815,
+     "anchor": "Yes — your full email address goes here too (e.g. you@gmail.",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4819,
+     "anchor": "Your outgoing-mail server, e.g. smtp.gmail.com. Leave blank ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4821,
+     "anchor": "465, STARTTLS for port 587, or None for local SMTP bridges s",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 5590,
+     "anchor": "${esc(cfg.defaultName)} (e.g. ${esc(cfg.word)} on laptop)",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
   },
   {
    "path": "frontend/static/js/slashCommands.js",
@@ -503,7 +1245,19 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched"
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 4049,
+     "anchor": "You can just describe the task in plain chat language. Examp",
+     "reason": "assistant onboarding hint in the slash-command setup flow: a sample the user may type; not model output"
+    },
+    {
+     "line": 4758,
+     "anchor": "Paste your local endpoint URL, for example http://100.x.x.x:",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    }
+   ]
   },
   {
    "path": "src/adapters/mcp/McpServer.ts",
@@ -511,7 +1265,14 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "closed by design: tool argument schema message, not model-visible prose"
+   "reason": "closed by design: tool argument schema message, not model-visible prose",
+   "sites": [
+    {
+     "line": 91,
+     "anchor": "{ kind: 'safe' | 'vote' | 'loyal' } when present",
+     "reason": "closed by design: tool-argument validation message for a closed set (safe/vote/loyal), never model-visible prose"
+    }
+   ]
   },
   {
    "path": "src/domain/traitConsistency.ts",
@@ -631,7 +1392,8 @@
    "name": "order",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "mechanics: internal key order or archetype keys, never shown to a player"
+   "reason": "mechanics: internal key order or archetype keys, never shown to a player",
+   "decision": "not player text: the tie-break order of five internal drag keys when scoring a deal; no authoring needed"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -783,7 +1545,8 @@
    "name": "all",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "mechanics: internal key order or archetype keys, never shown to a player"
+   "reason": "mechanics: internal key order or archetype keys, never shown to a player",
+   "decision": "not player text: the five juror archetype keys scored and sorted; a closed enum, not a pick"
   },
   {
    "path": "src/engine/momentPrompts.ts",
@@ -815,7 +1578,8 @@
    "name": "PRODUCER_BACKSTORIES",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live (orwell_producer_authoring.py); offline floor, composed (5 x 8)"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -823,7 +1587,8 @@
    "name": "PRODUCER_BACKSTORY_TAILS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for backstory"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -831,7 +1596,8 @@
    "name": "PRODUCER_DISPOSITIONS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live: the producer is authored once per season start by the utility model (frontend/src/orwell_producer_authoring.py run_authoring, with seeded letter anchors); this list is the offline floor only, composed with a second clause (6 x 8)"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -839,7 +1605,8 @@
    "name": "PRODUCER_DISPOSITION_TAILS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for disposition"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -847,7 +1614,8 @@
    "name": "PRODUCER_QUIRKS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live (orwell_producer_authoring.py); offline floor, composed (6 x 8)"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -855,7 +1623,8 @@
    "name": "PRODUCER_QUIRK_TAILS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for quirk"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -863,7 +1632,8 @@
    "name": "PRODUCER_WITS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live (orwell_producer_authoring.py); offline floor, composed (6 x 8)"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -871,7 +1641,8 @@
    "name": "PRODUCER_WIT_TAILS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona"
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for wit"
   },
   {
    "path": "src/engine/reserveTwists.ts",

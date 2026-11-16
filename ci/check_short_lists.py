@@ -39,6 +39,65 @@ OWNER_RULES = [
 ]
 
 
+# Per-site review (ORW-511). A text site of an ORW-511 entry gets its own one-line reason: first matching rule on the text around the marker, then the path.
+# (ctx regex, reason). Every reason says what the example IS and why it cannot teach a game player's text a stock phrase.
+SITE_RULES = [
+    (r"e\.g\. (?:'|`)?(?:Qwen|vllm|gpu|ajax|serve-|cookbook-|minimax|cyankiwi|user@)|vllm serve|repo_id|tmux session", "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"),
+    (r"glob|\*\*/|\*\.py|\*\.ts|\*Q4", "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"),
+    (r"example\.com|https?://|imap\.|smtp\.|api\.openai|api\.deepseek|localhost|100\.x|you@gmail|user@example|Gmail|Proton Mail|Miniflux|Gitea|/v1/|/api/", "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"),
+    (r"npc:\d|houseguest id|told-by|overheard", "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"),
+    (r"kitchen, living-room", "game tool schema: the real room ids the engine accepts (a closed set the engine validates); a fact list, not a sample line"),
+    (r"warms one and threatens another", "game tool schema: says WHEN to use per-edge consequences (a rule's trigger case), not a line the narrator repeats"),
+    (r"RRULE|FREQ=|reminder 5 min|HH:MM|0\.0-1\.0|Semver|1\.0\.0|#1a1a2e|hex", "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"),
+    (r"yellow|Work, Research|Work” or|“Work|label for this account", "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"),
+    (r"Alice lives|Bob works|query one|YES —|NO —|Best for small|Install X|sub_questions|Quick Guide|Option A", "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"),
+    (r"Good examples|Bad examples|Examples: payment due|Examples: payment|court summons", "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"),
+    (r"Call with Sam|Flight to Berlin|NRT|Narita|WHAT \(e\.g\.|writing style|WRITING STYLE|acknowledge the invoice|instructions written inside|cancel, move", "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"),
+    (r"\"action\": \"create\"|\"urgency\"|\"verdict\"|\"schedule\": \"daily\"|output_target|needs_work", "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"),
+    (r"genderPresentation|orientation", "closed by design: structural enumerations the cast-identity response validator checks; not an example the model copies"),
+    (r"kind: 'safe'", "closed by design: tool-argument validation message for a closed set (safe/vote/loyal), never model-visible prose"),
+    (r"skill|when_to_use|metadata|tags such as|network, installation|sample input|sample data|no document/email|nothing the skill", "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"),
+    (r"hostnames or IPs|/home/<user>|gpu-box|placeholders|env_prefix|source ~/|docker compose|libcudart|CUDA_HOME|:Q4_K_M|cuda", "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"),
+    (r"newline|control character|cron|mid-run|ORWELL_INPROCESS|ChromaDB|base_url|sensitive directory|provide a single URL|tool name required|path is required|allowlisted binary|fence tag|tool use", "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"),
+    (r"Apple form conventions|opened via window|future renders|saved\.id|display:none|tokenRows|code>http|Examples: <code>", "code or markup comment captured inside a template string (not model-visible); no creative text"),
+    (r"deeply research|aspects matter most|deep web research", "general-assistant research prompt: asks clarifying questions with sample topics; non-game feature"),
+    (r"summarize unread email|describe the task in plain chat|Paste your local endpoint", "assistant onboarding hint in the slash-command setup flow: a sample the user may type; not model output"),
+    (r"leave 1h early|pre-tagged|future events|03:45|timestamps|chat-title markdown|Chat\]\(#session|bgEffect|bgPattern|accentError|bgPattern", "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"),
+    (r"\"rational\"|goal-based|exactly these fields", "general-assistant goal-extraction prompt: a JSON field sample for a non-game memory feature"),
+    (r"Payload template|Webhook channel", "assistant integrations help: a webhook payload-template format sample; developer-facing"),
+    (r"genuinely solve the user|did NOT genuinely", "skill-teacher prompt for the assistant's skill library: a verification rule with a sample case; non-game"),
+    (r"self-close|no-op if|no session_id", "code comment captured inside the HTML report template string (not model-visible); no creative text"),
+    (r"safety this week|a comp throw", "FIXED in this PR: replaced by a rule (name the concrete thing asked)"),
+]
+PATH_FALLBACK = [
+    (r"^frontend/static/js/", "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"),
+    (r"^frontend/src/tool_(schemas|index|implementations|execution)\.py$", "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"),
+    (r"^frontend/(routes|services|mcp_servers|core|app\.py|setup\.py)", "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"),
+]
+LIST_DECISIONS = {
+    ("src/engine/producerPersona.ts", "PRODUCER_DISPOSITIONS"): "(a) YES live: the producer is authored once per season start by the utility model (frontend/src/orwell_producer_authoring.py run_authoring, with seeded letter anchors); this list is the offline floor only, composed with a second clause (6 x 8)",
+    ("src/engine/producerPersona.ts", "PRODUCER_WITS"): "(a) YES live (orwell_producer_authoring.py); offline floor, composed (6 x 8)",
+    ("src/engine/producerPersona.ts", "PRODUCER_QUIRKS"): "(a) YES live (orwell_producer_authoring.py); offline floor, composed (6 x 8)",
+    ("src/engine/producerPersona.ts", "PRODUCER_BACKSTORIES"): "(a) YES live (orwell_producer_authoring.py); offline floor, composed (5 x 8)",
+    ("src/engine/producerPersona.ts", "PRODUCER_DISPOSITION_TAILS"): "(a) YES live; second clause of the offline floor for disposition",
+    ("src/engine/producerPersona.ts", "PRODUCER_WIT_TAILS"): "(a) YES live; second clause of the offline floor for wit",
+    ("src/engine/producerPersona.ts", "PRODUCER_QUIRK_TAILS"): "(a) YES live; second clause of the offline floor for quirk",
+    ("src/engine/producerPersona.ts", "PRODUCER_BACKSTORY_TAILS"): "(a) YES live; second clause of the offline floor for backstory",
+    ("src/engine/dealConsent.ts", "order"): "not player text: the tie-break order of five internal drag keys when scoring a deal; no authoring needed",
+    ("src/engine/juryMinds.ts", "all"): "not player text: the five juror archetype keys scored and sorted; a closed enum, not a pick",
+}
+
+
+def site_reason(h: "S.Hit") -> str:
+    for rx, reason in SITE_RULES:
+        if re.search(rx, h.ctx, re.I):
+            return reason
+    for rx, reason in PATH_FALLBACK:
+        if re.search(rx, h.path):
+            return reason
+    return "UNREVIEWED"
+
+
 def load_allowlist() -> list[dict]:
     return json.loads(ALLOWLIST.read_text(encoding="utf8"))["entries"]
 
@@ -76,6 +135,14 @@ def check(hits: list[S.Hit], entries: list[dict]) -> tuple[list[str], list[str]]
     for key, e in allowed.items():
         if got.get(key, 0) < int(e["max"]):
             notes.append(f"loose: {key[0]} {key[1]} {key[2]} ceiling {e['max']}, found {got.get(key, 0)} (owner {e['owner']}): lower or delete the entry")
+    for e in entries:
+        if e.get("owner") == "ORW-511":
+            if e["kind"] == "list" and len(str(e.get("decision", ""))) < MIN_REASON:
+                bad.append(f"ORW-511 list entry {e['path']}:{e['name']} needs a written decision (live path or why none)")
+            if e["kind"] != "list":
+                sites = e.get("sites", [])
+                if len(sites) < int(e["max"]) or any(len(str(x.get("reason", ""))) < MIN_REASON or x.get("reason") == "UNREVIEWED" for x in sites):
+                    bad.append(f"ORW-511 entry {e['path']}:{e['kind']} needs one reviewed reason per site ({e['max']} sites, {len(sites)} reasons)")
     return bad, notes
 
 
@@ -87,7 +154,12 @@ def seed_entries(hits: list[S.Hit]) -> list[dict]:
                 break
         else:
             owner, reason = "ORW-511", "unassigned at seed time: needs a reviewer"
-        out.append({"path": path, "kind": kind, "name": name, "max": n, "owner": owner, "reason": reason})
+        e = {"path": path, "kind": kind, "name": name, "max": n, "owner": owner, "reason": reason}
+        if owner == "ORW-511" and kind != "list":
+            e["sites"] = [{"line": h.line, "anchor": h.ctx[:60], "reason": site_reason(h)} for h in hits if (h.path, h.kind) == (path, kind)]
+        if owner == "ORW-511" and kind == "list":
+            e["decision"] = LIST_DECISIONS.get((path, name)) or "mechanics: an internal candidate list tried in order (file, folder or model names); not player text"
+        out.append(e)
     return out
 
 

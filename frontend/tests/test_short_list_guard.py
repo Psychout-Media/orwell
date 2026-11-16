@@ -89,3 +89,13 @@ def test_real_tree_is_green_and_every_entry_has_an_owner_and_reason():
     assert {e["owner"] for e in entries} <= {"ORW-508", "ORW-509", "ORW-510", "ORW-480", "ORW-511"}
     r = subprocess.run([sys.executable, str(ROOT / "ci" / "check_short_lists.py")], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_orw511_entries_carry_a_reviewed_reason_per_site_and_a_decision_per_list():
+    bad = G.check([], [{"path": "frontend/src/x.py", "kind": "example", "name": "text", "max": 2, "owner": "ORW-511", "reason": "a long enough owner reason text",
+                        "sites": [{"line": 1, "anchor": "a", "reason": "reviewed: a usage sample for a tool"}]},
+                       {"path": "src/x.ts", "kind": "list", "name": "L", "max": 1, "owner": "ORW-511", "reason": "a long enough owner reason text"}])[0]
+    assert len(bad) == 2 and any("one reviewed reason per site" in b for b in bad) and any("written decision" in b for b in bad)
+    for e in G.load_allowlist():
+        if e["owner"] == "ORW-511" and e["kind"] != "list":
+            assert len(e["sites"]) >= e["max"] and all(x["reason"] != "UNREVIEWED" for x in e["sites"])
