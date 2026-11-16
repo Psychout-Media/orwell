@@ -702,21 +702,30 @@ async def ws_session(websocket: WebSocket) -> None:
             # `update-holding`: nothing was written, so the client re-sends the same clientMsgId unchanged once the restart is over (no double send is possible). A turn that passes is
             # counted as in flight from this line (atomically with the check) until its stream registers, so the updater's "0 in flight" can never miss it.
             _tok = d.get("clientMsgId") if isinstance(d.get("clientMsgId"), str) else None
-            _held_until = _turn_inflight.check_and_admit(_tok or cid)
+            _adm_key = _tok or (str(cid) if cid is not None else f"ws-{id(frame)}")
+            _held_until = _turn_inflight.check_and_admit(_adm_key)
             if _held_until is not None:
                 await send({"t": "error", "ch": "chat", "cid": cid,
                             "d": {"code": "update-holding", "retryAfterMs": _turn_inflight.HOLD_RETRY_AFTER_MS, "untilMs": int(_held_until * 1000)}})
                 return
+            # ORW-491: the admission is handed to the queued run. It stays counted for as long as that run is alive (a turn queued behind a long one outlives the TTL), whatever
+            # key it was admitted under, and is released by the run's own end on every path (finished, failed, cancelled while queued, session delete). The registration
+            # (chat_routes admit_end) still releases it earlier by token when the stream registers; the release by stamp is then a no-op.
+            _adm_stamp = _turn_inflight.admit_pin(_adm_key)
+            _run_started = False
             try:
                 producer = _turn_stream_factory(d, sock["canonical"], user)
                 # queue-don't-cancel for GAME turns (ADR 0012 / 0064-C) — two windows serialize behind
                 # one canonical run; the result fans out as chat ``event`` frames (not inline on cid).
-                agent_runs.start(sock["canonical"], producer, queue=True)
+                agent_runs.start(sock["canonical"], producer, queue=True,
+                                 on_finish=lambda k=_adm_key, st=_adm_stamp: _turn_inflight.admit_release_pinned(k, st))
+                _run_started = True
                 session_events.publish(sock["canonical"], "run-started")
                 await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True}})
             except Exception as e:
                 logger.warning("[ws] turn relay failed: %s", e)
-                _turn_inflight.admit_end(_tok or cid)
+                if not _run_started:
+                    _turn_inflight.admit_release_pinned(_adm_key, _adm_stamp)   # never became a run: release it now (a started run releases itself)
                 await send({"t": "error", "ch": "chat", "cid": cid, "d": {"code": "turn-failed"}})
 
         async def _handle_decision(frame: dict) -> None:

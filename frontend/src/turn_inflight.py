@@ -66,6 +66,9 @@ _admitting: Dict[str, List[float]] = {}
 # admit_end releases THIS record, oldest first, never a newer admission's live stamp under the same clientMsgId (review of #2854).
 _expired: Dict[str, List[float]] = {}
 _EXPIRED_KEEP_S = 600.0
+# ORW-491: an admission whose turn is QUEUED behind a running one (agent_runs.start(queue=True)) is pinned: it counts for as long as that queued run is alive, however long the run
+# ahead of it takes, and is released by the run's own end (admit_release_pinned). The TTL is only the backstop for an admission with no live queued run behind it.
+_pinned: set = set()   # (key, stamp) of pinned admissions
 _registry_size = 0
 _lock = threading.Lock()
 
@@ -73,8 +76,8 @@ _lock = threading.Lock()
 def _total_locked() -> int:
     now = time.monotonic()
     for k in list(_admitting):
-        live = [t for t in _admitting[k] if now - t <= _ADMIT_TTL_S]
-        dead = [t for t in _admitting[k] if now - t > _ADMIT_TTL_S]
+        live = [t for t in _admitting[k] if now - t <= _ADMIT_TTL_S or (k, t) in _pinned]
+        dead = [t for t in _admitting[k] if now - t > _ADMIT_TTL_S and (k, t) not in _pinned]
         if dead:
             _expired.setdefault(k, []).extend(dead)
         if live:
@@ -87,6 +90,8 @@ def _total_locked() -> int:
             _expired[k] = keep
         else:
             del _expired[k]
+    for pk in [p for p in _pinned if p[1] not in _admitting.get(p[0], ())]:
+        _pinned.discard(pk)
     return _registry_size + sum(len(v) for v in _admitting.values())
 
 
@@ -114,9 +119,35 @@ def admit_end(token: Optional[str]) -> None:
         stamps = _admitting.get(token)
         if not stamps:
             return
-        stamps.pop(0)
+        _pinned.discard((token, stamps.pop(0)))   # handed over to the registry: its pin (if any) is spent
         if not stamps:
             del _admitting[token]
+        publish_inflight(_total_locked())
+
+
+def admit_pin(key: str) -> Optional[float]:
+    """Pin the admission just made under `key` (the newest): it stops expiring while its queued run is alive. Returns its stamp (the handle for admit_release_pinned), or None."""
+    with _lock:
+        stamps = _admitting.get(key)
+        if not stamps:
+            return None
+        _pinned.add((key, stamps[-1]))
+        return stamps[-1]
+
+
+def admit_release_pinned(key: str, stamp: Optional[float]) -> None:
+    """Release exactly the pinned admission `stamp` under `key`, once. A no-op when it was already handed over to the registry (admit_end popped it) or already released."""
+    if stamp is None:
+        return
+    with _lock:
+        if (key, stamp) not in _pinned:
+            return
+        _pinned.discard((key, stamp))
+        stamps = _admitting.get(key)
+        if stamps and stamp in stamps:
+            stamps.remove(stamp)
+            if not stamps:
+                del _admitting[key]
         publish_inflight(_total_locked())
 
 
