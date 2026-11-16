@@ -6618,6 +6618,8 @@ _ANNOUNCE_TAIL_WORDS = frozenset({"now", "backyard", "the backyard", "living roo
 
 def is_announcement_tail(part: str) -> bool:
     """A bare fragment made only of the held call's own words ("Now.", "Backyard.", "Houseguests."): never a real sentence."""
+    if re.search("[\"\u201c\u201d]", part or ""):
+        return False  # a character's quoted line ("Now.") is never production's call, even when it is exactly a tail word
     t = re.sub(r"[^\w ]+", " ", part or "").strip().lower()
     return " ".join(t.split()) in _ANNOUNCE_TAIL_WORDS
 
