@@ -1076,6 +1076,8 @@ export interface SeasonCtx {
   moodTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B3 / #2017 — the holder's belief that `subject` is targeting them, as a nomination tilt (`ORWELL_NPC_BELIEF_NOMS`, default ON; `=0` opts out). Absent ⇒ byte-identical. */
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
+  /** 0158 / ORW-539: the bond between two OTHER houseguests as `holder` can see it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
+  perceivedBondFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
   pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): does `holder` hold a casual assurance toward `target` that they decided to KEEP? Absent => no protection (byte-identical). */
@@ -3340,6 +3342,8 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
+        ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
         ...(ctx.dealNomPushFor || ctx.tieNomPushFor ? { dealPush: (t: EntityId) => (ctx.dealNomPushFor?.(t, s.hoh!) ?? 0) + (ctx.tieNomPushFor?.(t, s.hoh!) ?? 0) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
@@ -3629,6 +3633,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.moodTiltFor ? { moodPush: (t: EntityId) => ctx.moodTiltFor!(t, s.hoh!) } : {}),
     ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
+    ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
     why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
