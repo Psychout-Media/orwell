@@ -6,7 +6,7 @@ import { clampGuarded } from "../domain/num";
  * kept/broken verdict machinery, no jury demerit, it DECAYS. Whether the assurer keeps it is self-interested and personality-scaled (`decideKeep`): a loyal, low-aggression houseguest
  * keeps it unless breaking pays a lot; a ruthless one breaks as soon as it pays; an insincere (strategic-lie) one is never kept for its own sake. The engine decides - the model
  * never rules on whether a promise was kept (anti-sycophancy). Pure data + deterministic predicates: no I/O, no rng, no Vault. Wiring (recording, the binding-decision reads, the
- * fold) is slice 2, behind a default-OFF flag.
+ * fold) is slice 2, behind `ORWELL_ASSURANCES` (default ON; `=0` turns it off).
  */
 export type AssuranceKind = "safe" | "vote" | "loyal";
 export type AssuranceStatus = "open" | "kept" | "broken" | "lapsed";
