@@ -18,6 +18,7 @@ describe("ORW-356 — the houseguest as someone's grandchild is coherent", () =>
     ["the youngest grandkid of a large farming family, still calls every Sunday", 24],
     ["he is the favorite grandkid of a retired judge", 29],
     ["raised by her loving grandmother in a small town", 22],
+    ["grew up the only grandkid, raised by a piano teacher", 22], // ORW-501: the descriptor alone (no "of") carries the singular form
   ] as const)("passes: %s (age %i)", (text, age) => {
     const res = dossier(text, age);
     expect(res.ok, JSON.stringify(res.contradictions)).toBe(true);
