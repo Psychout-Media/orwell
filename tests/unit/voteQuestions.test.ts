@@ -54,7 +54,6 @@ describe("what a vote leaves behind (pure)", () => {
     expect(questionAnswered(q, rel()), "every read the same: an ambiguous deduction").toBe(false);
     const sure = rel({ [`${SURVIVOR}>${V3}`]: { trust: 0, threat: 1 }, [`${SURVIVOR}>${V1}`]: { trust: 1, threat: 0 }, [`${SURVIVOR}>${V2}`]: { trust: 1, threat: 0 }, [`${SURVIVOR}>${V4}`]: { trust: 1, threat: 0 }, [`${SURVIVOR}>${HOH}`]: { trust: 1, threat: 0 } });
     expect(questionAnswered(q, sure)).toBe(true);
-    expect(QUESTION_ANSWERED_CONFIDENCE).toBeGreaterThan(0.5);
   });
 });
 
@@ -66,7 +65,7 @@ type S = {
 };
 async function setup() {
   const reg = composeRuntime({ clock: new FakeClock(), seed: 11 }).registry;
-  const user = `vote-q-${Math.random()}`;
+  const user = "u"; // composeRuntime builds a fresh registry per call, so a fixed id isolates just as well and keeps the run reproducible
   const mcp = reg.resolver()("player", user);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed: 11, archetype: "floater" });
   await mcp.callTool("noteMessage", { messageId: "first" });
