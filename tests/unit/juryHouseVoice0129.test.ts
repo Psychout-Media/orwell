@@ -60,18 +60,28 @@ describe("0129 slice 2 — each juror is voiced from THEIR OWN knowledge block",
     const [a, b] = sb.session.getGameState().juryHouse!.jurors;
     hold(sb, a!.id, "jv:fa", "MARK-ALPHA kept a quiet pact");
     hold(sb, b!.id, "jv:fb", "MARK-BRAVO saw the veto go unused");
+    hold(sb, PLAYER, "jv:fa", "MARK-ALPHA kept a quiet pact"); // ORW-514: a juror voices only what the player also holds
+    hold(sb, PLAYER, "jv:fb", "MARK-BRAVO saw the veto go unused");
     const p = prompt(sb);
     const blockOf = (name: string) => {
       const at = p.indexOf(`· ${name}:`);
       expect(at).toBeGreaterThan(-1);
       const rest = p.slice(at + 1);
       const next = rest.search(/\n\s{4}· /);
-      return next < 0 ? rest.slice(0, 600) : rest.slice(0, next);
+      return (next < 0 ? rest.slice(0, 600) : rest.slice(0, next)).split(/\n\s*-/)[0]!; // this juror's own lines only (the player's held facts are listed after)
     };
     expect(blockOf(a!.name)).toContain("MARK-ALPHA");
     expect(blockOf(a!.name)).not.toContain("MARK-BRAVO");
     expect(blockOf(b!.name)).toContain("MARK-BRAVO");
     expect(blockOf(b!.name)).not.toContain("MARK-ALPHA");
+  });
+  it("ORW-514: a juror's block hands the narrator only what the juror-player also holds", () => {
+    const sb = jurorGame();
+    const [a] = sb.session.getGameState().juryHouse!.jurors;
+    hold(sb, a!.id, "jv:secret", "MARK-SECRET was said behind a closed door");
+    expect(prompt(sb)).not.toContain("MARK-SECRET");
+    hold(sb, PLAYER, "jv:secret", "MARK-SECRET was said behind a closed door");
+    expect(prompt(sb)).toContain("MARK-SECRET");
   });
   it("an ACTIVE player (not a juror) is unchanged: no juror blocks", () => {
     const sb = new GameSessionRegistry().sandboxFor(`jv-act${seq++}`);
