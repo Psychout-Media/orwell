@@ -2477,7 +2477,7 @@ export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose
 export interface RetrospectiveView {
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
   rumorMill?: RumorMill;
-  /** ORW-551 (spec 0162): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */
+  /** ORW-551 (spec 0168): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */
   houseCulture?: { leans: string[] };
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they

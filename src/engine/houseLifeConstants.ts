@@ -58,3 +58,12 @@ export const HOUSE_LIFE = {
     analyst: ["early-riser", "neat-freak"], hothead: ["gym-rat", "camera-talker"], peacemaker: ["house-cook", "devout"],
   } as Readonly<Record<Archetype, readonly Habit[]>>,
 } as const;
+
+/**
+ * ORW-551 / spec 0159 slice 2: the season's house culture as plain multipliers on the house BASELINE of four dials (the caller reads them from `dialMult`; this module stays pure).
+ * Absent (a headless game, the flag off, a load with no culture) = every multiplier exactly 1 = byte-identical house life. `conflict` is a THRESHOLD multiplier
+ * (below 1 = a lower threshold = MORE conflict), so the chance is divided by it. The culture scales the baseline BEFORE the per-person terms (temper, mood, candor), so an individual still pushes against it.
+ */
+export interface HouseCulture { gossip: number; conflict: number; flirting: number; lying: number }
+/** How far a culture's lying multiplier (1 = none) shifts a speaker's candor, additively: (lying - 1) x this, so at the 1.35 clamp about 0.09 less candid. */
+export const CULTURE_CANDOR_SHIFT = 0.25;

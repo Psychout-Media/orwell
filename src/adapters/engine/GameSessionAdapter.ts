@@ -337,7 +337,7 @@ import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type H
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
-import { drawHouseLeans, describeHouseLeans } from "../../engine/houseLeans";
+import { drawHouseLeans, describeHouseLeans, dialMult } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -1208,7 +1208,7 @@ export class GameSessionAdapter implements GameSession {
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
     const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
     if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
-    // ORW-551 / spec 0162: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
+    // ORW-551 / spec 0168: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
     if (this.live && firstPlayedMessage && this.houseCultureEnabled && !this.live.houseLeans) this.live.houseLeans = drawHouseLeans(`${this.gameSeed ?? 0}`);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
@@ -1637,7 +1637,7 @@ export class GameSessionAdapter implements GameSession {
    * Draws come from the `${seed}:house-meeting` side stream. ON unless `ORWELL_HOUSE_MEETINGS=0`; needs the belief layer and a played game.
    */
   private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
-  /** ORW-551 / spec 0162 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
+  /** ORW-551 / spec 0168 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
   private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
   setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
@@ -4413,7 +4413,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
-    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0162): texture words only, same crown gate; absent when no culture was drawn
+    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
     return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
@@ -11601,6 +11601,8 @@ export class GameSessionAdapter implements GameSession {
     const plans: PlannedAction[] = [];
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
+    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0159 slice 2): the culture's baseline multipliers; undefined = byte-identical
+    const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -11619,6 +11621,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, where),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
+        ...(houseCulture ? { culture: houseCulture } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
