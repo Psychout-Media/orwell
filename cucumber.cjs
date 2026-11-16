@@ -139,6 +139,7 @@ module.exports = {
       "docs/features/0152-who-told-you-that.feature",
       "docs/features/0156-house-meetings.feature",
       "docs/features/0157-rumor-mill-retrospective.feature",
+      "docs/features/0155-ledger-claims-net.feature",
       "docs/features/0162-broken-deal-credibility.feature",
       "docs/features/0161-alliance-history.feature",
       "docs/features/0158-theme-2-end-to-end.feature",
