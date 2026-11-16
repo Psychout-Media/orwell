@@ -34,6 +34,10 @@ describe("the season's house theme", () => {
     const here = wa.room as keyof typeof OCEAN.rooms; // wherever the player stands (gathered for the premiere, a move is held)
     expect(wa.roomNames?.["bedroom-a"]).toBe("the Coral Reef Room");
     expect(wa.roomLook).toBe(OCEAN.rooms[here].look);
+    // the house search's facts use the season's name too ("here with you in the Coral Reef Room", never "the bedroom a")
+    const withMe = (s.whereabouts({ search: true })?.search?.houseguests ?? []).filter((h) => h.status === "here");
+    expect(withMe.length).toBeGreaterThan(0);
+    for (const h of withMe) expect(h.fact).toContain(OCEAN.rooms[here].name);
     const prompt = s.getMomentPrompt({}).systemPrompt;
     expect(prompt).toContain(OCEAN.rooms[here].name);
     expect(prompt).toContain("the Captain's Quarters");
