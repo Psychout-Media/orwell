@@ -7,6 +7,7 @@ import { recordClaim, type BeliefStore } from "../../src/engine/beliefStore";
 import { CONVICTION, testRef } from "../../src/engine/beliefConviction";
 import { REASONS } from "../../src/engine/agendaConstants";
 import type { Agenda, Goal } from "../../src/engine/agenda";
+import { DEAL_NOMS } from "../../src/engine/dealNomConstants";
 
 /**
  * Feature 0160 - conviction (Ryne's ruling on Theme 2 question 2). Drives the REAL adapter through a registry sandbox: credulity comes from
@@ -110,4 +111,25 @@ Then("as the nights pass their conviction falls, until they stop believing it", 
 Then("a doubted belief that is true grows into a conviction instead", function () {
   const b = belief(this, "doubt-true");
   assert.ok(!b.refuted && b.confidence >= CONVICTION.asFact, `a true doubted belief did not grow into a conviction (${b.confidence})`);
+});
+
+// ---- a low-trust deal ----
+type DealSeam = { deals: { make: (...a: unknown[]) => unknown }; dealNomPushFor(target: string, holder: string): number };
+Given("an HOH who promised two houseguests safety, one they trust and one they do not", function () {
+  const s = played(this); const b = bag(this);
+  [b.holder, b.subject, b.other] = npcs(s);
+  const live = seam(s).live;
+  for (const [t, trust] of [[b.subject!, 0.8], [b.other!, 0.1]] as const) {
+    seam(s).rel.edge(b.holder!, t).trust = trust;
+    (s as unknown as DealSeam).deals.make([b.holder!, t], "safety", "you are safe with me", undefined, live.week);
+  }
+});
+Then("the promise to the trusted houseguest protects them fully", function () {
+  const b = bag(this);
+  assert.equal((b.s! as unknown as DealSeam).dealNomPushFor(b.subject!, b.holder!), DEAL_NOMS.protectivePush);
+});
+Then("the promise to the distrusted houseguest protects them less", function () {
+  const b = bag(this);
+  const weak = (b.s! as unknown as DealSeam).dealNomPushFor(b.other!, b.holder!);
+  assert.ok(weak < 0 && weak > DEAL_NOMS.protectivePush, `a distrusted deal pushed ${weak}`);
 });

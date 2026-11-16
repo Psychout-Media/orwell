@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONVICTION, convictionFor, credulityOf, evidenceStep, underTest } from "../../src/engine/beliefConviction";
+import { CONVICTION, convictionFor, credulityOf, dealTrust, evidenceStep, underTest } from "../../src/engine/beliefConviction";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
 
 /** 0160 / ORW-330 - conviction (Ryne's Q2 ruling): pure rules. Roles only. */
@@ -32,5 +32,11 @@ describe("0160 conviction", () => {
     expect(evidenceStep(true, 0.9)).toBe(CONVICTION.step);
     expect(evidenceStep(false, 0.9)).toBe(-CONVICTION.step);
     expect(evidenceStep(true, 0.05)).toBe(-CONVICTION.step);
+  });
+
+  it("a deal weighs as far as its holder trusts the other party (Ryne Q3)", () => {
+    expect(dealTrust(0.8)).toBe(1);
+    expect(dealTrust(0.25)).toBeCloseTo(0.5);
+    expect(dealTrust(0)).toBe(0);
   });
 });

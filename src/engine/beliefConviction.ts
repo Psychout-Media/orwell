@@ -70,3 +70,10 @@ export function evidenceStep(isTrue: boolean, roll: number): number {
   const toward = isTrue ? 1 : -1;
   return (roll < CONVICTION.misleadP ? -toward : toward) * CONVICTION.step;
 }
+
+/** 0160 / Ryne's Q3 ruling ("Low trust in the person would create a low trust deal"): a deal is a claim, and it weighs as far as its holder
+ *  trusts the other party - full at `DEAL_TRUST.full` trust or more, proportionally less below, nothing at no trust. */
+export const DEAL_TRUST = { full: 0.5 } as const;
+export function dealTrust(trustInOther: number): number {
+  return Math.max(0, Math.min(1, trustInOther / DEAL_TRUST.full));
+}

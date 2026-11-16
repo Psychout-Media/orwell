@@ -23,3 +23,8 @@ Feature: Conviction - a houseguest acts on a belief as far as they believe it
     Then they take up a goal to find out
     And as the nights pass their conviction falls, until they stop believing it
     And a doubted belief that is true grows into a conviction instead
+
+  Scenario: A deal with someone you do not trust weighs less (Ryne on question 3: "Low trust in the person would create a low trust deal")
+    Given an HOH who promised two houseguests safety, one they trust and one they do not
+    Then the promise to the trusted houseguest protects them fully
+    And the promise to the distrusted houseguest protects them less
