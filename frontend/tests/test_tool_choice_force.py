@@ -468,7 +468,6 @@ def test_loop_forces_named_advance_at_a_ceremony_beat(monkeypatch):
     assert cap.get("tool_choice") == {"type": "function", "function": {"name": "advanceGame"}}, cap.get("tool_choice")
 
 
-@pytest.mark.quarantine(card="ORW-515", added="2026-11-16")
 def test_loop_forces_under_no_auth_owner_none(monkeypatch):
     # #1154 no-auth fix: under AUTH_ENABLED=false the chat path has owner=None and the game lives under
     # the engine "default" sandbox. The gate must STILL engage (it previously short-circuited on the
