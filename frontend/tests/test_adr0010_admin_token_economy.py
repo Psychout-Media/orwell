@@ -38,6 +38,8 @@ _ALLOWED_ENTRY_KEYS = {
     # ADR 0010 follow-on #3: the applied output cap (count) + terminal stop reason (short token).
     "appliedMaxTokens", "finishReason",
     "cost", "costEstimated", "contextPercent", "provider",
+    # ORW-554: the call site / model (short ids) and cache-miss / calls / played-day (counts).
+    "callSite", "model", "cacheMissTokens", "calls", "day",
 }
 _SENTINEL = "VAULT_SECRET_SENTINEL_must_never_cross"
 
@@ -158,6 +160,11 @@ def test_response_carries_no_content_or_secret_field(monkeypatch, tmp_ledger):
         provider=_SENTINEL,
         input_tokens=_SENTINEL,
         cost=_SENTINEL,
+        call_site=_SENTINEL,  # ORW-554's id fields (the model can come from the provider's response) and counts
+        model=_SENTINEL,
+        cache_miss_tokens=_SENTINEL,
+        calls=_SENTINEL,
+        day=_SENTINEL,
     )
     client = TestClient(_app(), raise_server_exceptions=False)
     r = client.get("/api/admin/token-economy", params={"user": "player"})
@@ -173,6 +180,10 @@ def test_response_carries_no_content_or_secret_field(monkeypatch, tmp_ledger):
     # The numeric fields rejected the smuggled string; the sentinel never persisted as a number.
     assert body["entries"][0]["inputTokens"] == 0
     assert body["entries"][0]["cost"] == 0.0
+    e0 = body["entries"][0]
+    assert e0["cacheMissTokens"] == 0 and e0["calls"] == 1 and e0["day"] == 0
+    for f in ("callSite", "model"):  # ids are clipped short tokens, like session / provider
+        assert isinstance(e0[f], str) and len(e0[f]) <= tmp_ledger._MAX_ID_LEN
 
 
 # ── (5) the settings keys exist with the right default types ─────────────────────────────────

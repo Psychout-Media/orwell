@@ -452,6 +452,11 @@ def kickoff_after_turn_in(owner, result) -> None:
         day = closed_day_from_turn_in(result)
         if not day:
             return
+        try:  # ORW-554: the day just closed, so the next one is being played (token ledger costs per played day)
+            from src import orwell_token_ledger
+            orwell_token_ledger.note_game_day(owner, day + 1)
+        except Exception:  # failsoft-ok: telemetry only
+            pass
         sid = _game_sid(owner)
         k = f"{_key(owner)}:{sid}:{day}"  # keyed by game too: a new season reusing the day number is a different task
         if k in _IN_FLIGHT:

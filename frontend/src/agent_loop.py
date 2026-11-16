@@ -8616,6 +8616,12 @@ async def _stream_agent_loop_impl(
             from src import orwell_day_condense, orwell_engine as _oe_dc
             if orwell_day_condense.enabled():
                 _ledger_dc = await _oe_dc.day_ledger(user=owner)
+                try:  # ORW-554: the played day the game is on = the last closed day + 1 (day 1 on an empty ledger), so the token ledger can cost a day
+                    from src import orwell_token_ledger as _tl_day
+                    _tl_day.note_game_day(owner, 1 + max([e.get("day") for e in (_ledger_dc or [])
+                                                          if isinstance(e, dict) and isinstance(e.get("day"), int)] or [0]))
+                except Exception:  # failsoft-ok: telemetry only
+                    pass
                 if _ledger_dc:
                     _pre_view_dc = messages
                     messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
@@ -8737,6 +8743,8 @@ async def _stream_agent_loop_impl(
     real_input_tokens = 0   # Accumulated real usage from API
     real_output_tokens = 0
     real_cached_tokens = 0       # ADR 0010 meter: cached-prompt tokens (cheap reads)
+    real_cache_miss_tokens = None  # ORW-554: the provider-reported uncached prompt tokens, summed over rounds (None until one reports)
+    _usage_rounds = 0            # ORW-554: provider calls folded into this turn's one ledger entry
     real_reasoning_tokens = 0    # ADR 0010 meter: reasoning/thinking tokens (the cost driver)
     real_cost = 0.0              # ADR 0010 meter: authoritative per-request cost (usage.cost)
     real_cost_estimated = False  # A-3: True when any round's cost is the FE's price-table estimate (DeepSeek)
@@ -9529,6 +9537,9 @@ async def _stream_agent_loop_impl(
                         real_output_tokens += u.get("output_tokens", 0)
                         # ADR 0010 meter: accumulate the rest of the envelope per round.
                         real_cached_tokens += u.get("cached_tokens", 0) or 0
+                        _usage_rounds += 1
+                        if u.get("cache_miss_tokens") is not None:
+                            real_cache_miss_tokens = (real_cache_miss_tokens or 0) + (u.get("cache_miss_tokens") or 0)
                         real_reasoning_tokens += u.get("reasoning_tokens", 0) or 0
                         if u.get("cost") is not None:
                             try:
@@ -12920,6 +12931,8 @@ async def _stream_agent_loop_impl(
                 cost_estimated=real_cost_estimated,
                 context_percent=metrics.get("context_percent", 0),
                 provider=_usage_provider,
+                call_site="narrator-turn", model=actual_model, calls=max(1, _usage_rounds),
+                cache_miss_tokens=real_cache_miss_tokens,
             )
         except Exception as _tl_err:
             logger.debug(f"[orwell] token-ledger record failed: {_tl_err}")
