@@ -246,3 +246,32 @@ def test_helper_ignores_a_wrapping_turn_wait(tmp_path):
     # a 20-digit value falls back to the default bound (120 s => 60 two-second naps), never wraps to a 1 s wait
     out = bash(_run(f, ":", force_now="0"), env={var: "99999999999999999999"})
     assert "SLEEPS=60" in out
+
+
+@needs_bash
+@pytest.mark.parametrize("name", ["ORWELL_UPDATE_LOCK_WAIT", "ORWELL_UPDATE_TURN_WAIT_SECONDS", "ORWELL_UPDATE_WARM_WAIT_SECONDS"])
+@pytest.mark.parametrize("value,forwarded", [("000000090", "90"), ("0090", "90"), ("08", "8"), ("0000000", "0"), ("000086400", "86400")])
+def test_orw465_a_zero_padded_wait_is_accepted_at_its_value_not_dropped(name, value, forwarded):
+    # leading zeros used to count against the six-digit length ("000000090" was dropped as too long although it is 90)
+    assert f"{name}='{forwarded}'" in _bridge_forward({name: value})
+    assert "ignored" in _bridge_forward({name: "000086401"})
+
+
+@needs_bash
+@pytest.mark.parametrize("value,waits", [("000000090", "90"), ("0000000", "3600"), ("000086401", "3600")])
+def test_orw465_the_lock_wait_reads_a_zero_padded_value_at_its_value(value, waits):
+    i = UPDATE.index('    local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"')
+    blk = UPDATE[i:UPDATE.index("    _flock_args=(-w", i)]
+    r = subprocess.run(["bash", "-c", f"set -euo pipefail\nf() {{\n{blk}\necho \"W=$_w\"\n}}\nf"], capture_output=True, text=True, timeout=30,
+                       env={**os.environ, "ORWELL_UPDATE_LOCK_WAIT": value})
+    assert r.returncode == 0, r.stderr
+    # 0 is a valid number (the wait is then 0 s = do not wait): only a value over the cap falls back to the default
+    assert f"W={waits}" in r.stdout or (value == "0000000" and "W=0" in r.stdout), r.stdout
+
+
+@needs_bash
+def test_orw465_the_helper_reads_a_zero_padded_turn_wait_at_its_value(tmp_path):
+    f = tmp_path / "turns-in-flight"
+    f.write_text("1\n")
+    out = bash(_run(f, ":", force_now="0"), env={"ORWELL_UPDATE_TURN_WAIT_SECONDS": "000000010"})
+    assert "SLEEPS=5" in out and "restarting anyway" in out   # 10 s bound = 5 two-second naps, not the 120 s default

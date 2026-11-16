@@ -91,7 +91,7 @@ def test_line_is_written_once_when_stdout_is_the_log(tmp_path):
 @pytest.mark.parametrize("allowed,host", [("", ""), ("*", ""), ("game.example.com,www.example.com", "game.example.com"),
                                           # Starlette matches "*.x" only for a subdomain, never the bare domain: probe a label in front of it
                                           ("*.example.com", "probe.example.com"), ("*.example.com,game.example.com", "game.example.com"),
-                                          ("*,game.example.com", "game.example.com"), ('"game.example.com"', "game.example.com")])
+                                          ("*,game.example.com", "game.example.com"), ("game.example.com:8443", "game.example.com"), ("*.example.com:8443", "probe.example.com"), ('"game.example.com"', "game.example.com")])
 def test_probe_host_comes_from_allowed_hosts(allowed, host):
     assert run(f"update_probe_host '{allowed}'") == host
 

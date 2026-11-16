@@ -135,6 +135,27 @@ describe("0148 - the nap lever: waking", () => {
     expect(priv(s).live.playerRetired).toBe(false);
     expect(priv(s).live.lastSleepDepth).toBe(28); // only a bed re-stamps the night
   });
+  it("ORW-477: a nap cut at the band edge says so: the result carries the asked length and the narrator's wake-up read names what was slept, what was meant and why", () => {
+    const { s } = setup(3, (x) => quiet(x) && ["nominations", "veto-ceremony", "eviction"].includes(priv(x).live.beat!));
+    at(s, 15 + 40 / 60); // 3:40pm: twenty minutes to the evening
+    const r = s.nap({ hours: 2 });
+    expect(r).toMatchObject({ ok: true, wokenBy: "evening", asked: 2 });
+    expect(r.slept).toBeCloseTo(1 / 3, 2);
+    const read = s.getMomentPrompt({ moment: "social" }).systemPrompt;
+    const line = /- WHILE YOU SLEPT[^\n]*/.exec(read)?.[0] ?? "";
+    expect(line).toMatch(/cut short/);
+    expect(line).toMatch(/about 20 minutes of the 2 hours you meant to/);
+    expect(line).toMatch(/evening/);
+  });
+  it("ORW-477: a full-length nap is not described as cut short", () => {
+    const { s } = setup();
+    at(s, 8);
+    const r = s.nap({ hours: 1 });
+    expect(r.wokenBy).toBeUndefined();
+    expect(r.asked).toBeUndefined();
+    const line = /- WHILE YOU SLEPT[^\n]*/.exec(s.getMomentPrompt({ moment: "social" }).systemPrompt)?.[0] ?? "";
+    expect(line).not.toMatch(/cut short/);
+  });
   it("the player sleeps in a bedroom, and in the HOH room when they hold the crown", () => {
     const { s } = setup();
     at(s, 8);
@@ -265,15 +286,6 @@ describe("0148 - the house lives it, unseen; houseguests see it; nobody else nap
     expect(first).toMatch(/- WHILE YOU SLEPT \(voice only/);
     expect(first).toMatch(/woke from a nap/);
     expect(s.getMomentPrompt({}).systemPrompt).not.toMatch(/- WHILE YOU SLEPT \(voice only/); // consumed once
-  });
-  it("ORW-477: a shortened nap tells the narrator how long the player really slept; a full nap says nothing of the cut", () => {
-    const cutRun = setup(3, (x) => quiet(x) && ["nominations", "veto-ceremony", "eviction"].includes(priv(x).live.beat!));
-    at(cutRun.s, 15);
-    cutRun.s.nap({ hours: 3 });
-    expect(cutRun.s.getMomentPrompt({}).systemPrompt).toMatch(/cut short: you slept only about 60 minutes/);
-    const full = setup(); at(full.s, 8);
-    full.s.nap({ hours: 2 });
-    expect(full.s.getMomentPrompt({}).systemPrompt).not.toMatch(/cut short/);
   });
   it("no houseguest ever naps: napHoursToday is the PLAYER's alone and no NPC rest deficit reads it", () => {
     const { s } = setup(); at(s, 8);

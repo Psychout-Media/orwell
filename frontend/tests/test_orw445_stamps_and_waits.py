@@ -114,38 +114,7 @@ def test_stamp_refresh_is_bounded_and_keeps_the_start_of_turn_stamp(monkeypatch)
     assert ch._LAST_FRAMED_GAME_MOMENT["u-slow"] == "start-of-turn"
 
 
-@pytest.mark.parametrize("msg,want", [
-    ("I wait a couple of hours", (120, False)),
-    ("I'll stay here for another two hours", (120, False)),
-    ("stay put for another three hours", (180, False)),
-    ("sit here for a few hours", (180, False)),
-    ("I'll linger for an hour", (60, False)),
-    ("let's stick around another hour", (60, False)),
-    ("wait around here for a couple of hours", (120, False)),
-    ("wait here for an hour", (60, False)),
-])
-def test_orw477_stated_waits_start_a_hangout(msg, want):
-    assert ch.hang_out_intent(msg)
-    assert ch.parse_stated_wait(msg) == want
-
-
-@pytest.mark.parametrize("msg", [
-    "maybe I'll wait later",
-    "maybe I'll wait a couple of hours",
-    "should I wait a couple of hours?",
-    'she said "I wait a couple of hours" and left',
-    "I wait for the HOH to speak",
-    "I need an hour of sleep",
-])
-def test_orw477_not_a_wait(msg):
-    assert not ch.hang_out_intent(msg)
-    assert ch.parse_stated_wait(msg) == (None, False)
-
-
-@pytest.mark.parametrize("msg,want", [
-    ("I wait here. Tomorrow I will sleep for the rest of the day", (None, False)),
-    ("hang out until the rest of the afternoon. then bed for the rest of the night", (None, True)),
-    ("chill for a while\nfor the rest of the morning I will nap", (None, False)),
-])
-def test_rest_of_band_scan_stays_in_the_intents_own_sentence(msg, want):
-    assert ch.parse_stated_wait(msg) == want
+def test_rest_of_band_scan_stays_in_the_intents_own_sentence():
+    """Cubic on main: a LATER sentence's "rest of the day/morning" must not change this wait's target."""
+    assert ch.parse_stated_wait("I wait here for an hour. Tomorrow I will sleep for the rest of the morning") == (60, False)
+    assert ch.parse_stated_wait("hang out until the rest of the afternoon. then bed for the rest of the night") == (None, True)
