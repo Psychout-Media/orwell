@@ -330,7 +330,8 @@ import {
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
-import { avoidFromWire } from "../../domain/recentSeasons";
+import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
+import { dealEraGivenNames } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -7147,6 +7148,9 @@ export class GameSessionAdapter implements GameSession {
       // #1140 — NOW the name-keyed deep layer is fixed off the original names; apply the deferred gender-
       // coherent renames onto the byte-stable Character (no-op when nothing was renamed).
       this.applyDiversityRenames();
+      // ORW-508: a played season (no explicit seed) deals given names from the real birth-decade table; an explicit seed
+      // (tests, replays) keeps the seeded floor names.
+      if (effReq.seed === undefined) this.applyEraNames(seed, avoidFromWire(effReq.avoid));
       // 0116 — a plain (non-adopted) start has no model-authored genesis: the floor tie draw stands.
       this.genesisTies = null;
       this.seasonBrief = null;
@@ -7408,6 +7412,7 @@ export class GameSessionAdapter implements GameSession {
     this.seedDiversity(seed);    // folds public diversity facets + seals private orientations to the Vault
     this.seedDeepProfiles(seed); // folds the §3 deep layer + seals the hidden profile/threads to the Vault
     this.applyDiversityRenames(); // #1140 — apply gender-coherent renames AFTER the name-keyed deep layer
+    if (req.seed === undefined) this.applyEraNames(seed, warmAvoid); // ORW-508: a played season's given names, by birth decade; an explicit seed keeps the floor
     // Capture the finished cast into the holding store, then RESET back to a clean pre-game state (the
     // cast lives in `prewarm` from here; the live house does not exist until `createCharacter`).
     this.prewarm = {
@@ -7727,6 +7732,28 @@ export class GameSessionAdapter implements GameSession {
    * byte-identical with the rename on vs. off). From here the renamed name is the houseguest's stable
    * public name. A no-op when no draft was renamed (the common case). Mirrors at both seed sites.
    */
+  /**
+   * ORW-508 Layer 1: re-deal every houseguest's GIVEN name from the real baby-name table for their birth decade and
+   * presented gender (unique in the cast, off the recent-seasons memory), keeping the surname. Runs AFTER the name-keyed
+   * deep layer is fixed, through the same `renameHouseguest` the gender-coherence rename uses (so prose follows), on its own
+   * `:era-names` sub-stream. Only for a played season: an explicit seed keeps the seeded floor names.
+   */
+  private applyEraNames(seed: number, avoid?: AvoidSets): void {
+    if (!this.house) return;
+    const npcs = this.house.npcs;
+    const taken = new Set<string>([this.house.player.name.split(" ")[0]!]);
+    const given = dealEraGivenNames(
+      new SeededRandom(hashSeed(`${seed}:era-names`)),
+      npcs.map((n) => ({ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) })),
+      taken, avoid,
+    );
+    npcs.forEach((n, i) => {
+      const parts = n.name.split(" ");
+      if (parts[0] === given[i]) return;
+      this.renameHouseguest(n, [given[i]!, ...parts.slice(1)].join(" "));
+    });
+  }
+
   private applyDiversityRenames(): void {
     if (!this.house) return;
     for (const n of this.house.npcs) {

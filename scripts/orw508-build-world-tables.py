@@ -6,7 +6,12 @@ Inputs (fetched once by hand, not by the build; pass the paths):
             https://www2.census.gov/programs-surveys/popest/datasets/2020-2023/cities/totals/sub-est2023.csv
   --oews    Bureau of Labor Statistics Occupational Employment and Wage Statistics, national, May 2023:
             https://www.bls.gov/oes/special-requests/oesm23nat.zip   (the xlsx inside)
-Outputs (committed): src/engine/data/world/places.json, src/engine/data/world/jobs.json
+  --names   SSA national baby-name counts by year of birth, sex and name (the yearly yobYYYY.txt files combined into one
+            name,year,sex,count CSV), as mirrored by the jsvine/babynames repository (data/name-counts.csv, births 1880
+            to 2012; the SSA site itself refused a generic client with 403). Public domain. Checked against the SSA's own
+            published 2012 top names (Sophia, Emma, Isabella, Olivia, Ava; Jacob, Mason, Ethan, Noah, William) and the 1990
+            count for Michael (65,270).
+Outputs (committed): src/engine/data/world/places.json, jobs.json, given-names.json
 Only the standard library is used (the xlsx is read as zip plus xml).
 """
 import argparse, csv, json, re, sys, zipfile
@@ -33,6 +38,25 @@ def places(path, min_pop):
             if not key[0] or (key in best and best[key] >= pop): continue
             best[key] = pop
     return sorted(([n, s, p] for (n, s), p in best.items()), key=lambda x: (-x[2], x[0], x[1]))
+
+# Birth-year buckets for adults 21 to 60 in a 2026 season (born 1966 to 2005), by decade of birth.
+DECADES = [(1966, 1975), (1976, 1985), (1986, 1995), (1996, 2005)]
+NAME_MIN_COUNT = 1500  # a name enters the table when it reaches this many births (one sex) in any one decade
+
+def given_names(path):
+    counts = {}  # (sex, name) -> [per-decade counts]
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            y = int(r["year"])
+            d = next((i for i, (a, b) in enumerate(DECADES) if a <= y <= b), None)
+            n = r["name"]
+            if d is None or not re.fullmatch(r"[A-Z][a-z]{2,11}", n): continue
+            counts.setdefault((r["sex"], n), [0] * len(DECADES))[d] += int(r["count"])
+    out = {"F": [], "M": []}
+    for (sex, n), c in counts.items():
+        if max(c) >= NAME_MIN_COUNT: out[sex].append([n] + c)
+    for sex in out: out[sex].sort(key=lambda r: (-sum(r[1:]), r[0]))
+    return out
 
 def xlsx_rows(zpath):
     z = zipfile.ZipFile(zpath); inner = zipfile.ZipFile(z.open([n for n in z.namelist() if n.endswith(".xlsx")][0]))
@@ -118,10 +142,12 @@ def jobs(zpath):
     return sorted((r for r in out.values() if r[1] > 0), key=lambda r: (-r[1], r[0]))
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--places", required=True); ap.add_argument("--oews", required=True); ap.add_argument("--out", required=True)
+    ap = argparse.ArgumentParser(); ap.add_argument("--places", required=True); ap.add_argument("--oews", required=True); ap.add_argument("--names", required=True); ap.add_argument("--out", required=True)
     ap.add_argument("--min-pop", type=int, default=1000)
     a = ap.parse_args()
     p = places(a.places, a.min_pop); j = jobs(a.oews)
     json.dump({"source": "US Census Bureau Population Estimates, cities and towns, vintage 2023 (SUMLEV 162, incorporated places with 1,000 or more residents). Public domain.", "columns": ["name", "state", "population"], "rows": p}, open(a.out + "/places.json", "w"), separators=(",", ":"), ensure_ascii=False)
     json.dump({"source": "US Bureau of Labor Statistics, Occupational Employment and Wage Statistics, national, May 2023, detailed occupations. Weight is employment in thousands times an authored castability lean per major group. Public domain.", "columns": ["job", "weightK", "socCode", "minAge", "maxSize"], "rows": j}, open(a.out + "/jobs.json", "w"), separators=(",", ":"), ensure_ascii=False)
-    print(len(p), "places;", len(j), "jobs", file=sys.stderr)
+    g = given_names(a.names)
+    json.dump({"source": "US Social Security Administration national baby-name counts (births 1966 to 2005 in four decade buckets), via the jsvine/babynames mirror of the SSA yob files. Public domain.", "decades": [list(d) for d in DECADES], "columns": ["name", "count per decade bucket"], "F": g["F"], "M": g["M"]}, open(a.out + "/given-names.json", "w"), separators=(",", ":"))
+    print(len(p), "places;", len(j), "jobs;", len(g["F"]), "female and", len(g["M"]), "male names", file=sys.stderr)
