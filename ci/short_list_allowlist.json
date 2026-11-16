@@ -1,0 +1,2989 @@
+{
+ "limit": 40,
+ "entries": [
+  {
+   "path": "frontend/app.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1346,
+     "anchor": "d (ORWELL_INPROCESS_TASKS=0); drive task firing externally (",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
+  },
+  {
+   "path": "frontend/core/auth.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 670,
+     "anchor": "' (by Deleted user ' ' Failed to revoke API tokens for delet",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/core/middleware.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 320,
+     "anchor": "contains a control character (e.g. a newline)",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
+  },
+  {
+   "path": "frontend/mcp_servers/email_server.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1096,
+     "anchor": "is first when the user asks about a specific inbox by name (",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 1276,
+     "anchor": "person or topic that isn't in the most recent inbox slice \u2014 ",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/mcp_servers/email_server.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1270,
+     "anchor": "'mark all as read', 'archive these', 'delete all spam', etc.",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/mcp_servers/image_gen_server.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 27,
+     "anchor": "Generate an image using an image-capable model (e.g. gpt-ima",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/admin_health_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 11,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 2515,
+     "anchor": "\u00b7 up \" + esc(up(eng.uptimeSeconds)) : \"\") + (eng.error ? \" \u00b7",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2515,
+     "anchor": "? \" \u00b7 \" + esc(eng.latencyMs) + \" ms\" : \"\") + (eng.uptimeSeco",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2517,
+     "anchor": "gs\", emb ? esc(emb.provider || \"?\") + \" \" + B(!emb.degraded,",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2518,
+     "anchor": "(img.model ? \" \u00b7 \" + esc(img.model) : \"\") + (img.portraits &",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2518,
+     "anchor": "esc(img.portraits.total) + \"</span>\" : \"\") + (img.lastRun &&",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2521,
+     "anchor": "+ esc(st.messages ?? \"?\") + \" message(s)\" + (st.database_siz",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2521,
+     "anchor": "raded ? B(false, \"DEGRADED\") + \" \u00b7 \" : \"\") + esc(st.sessions",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2812,
+     "anchor": "j++) out.push(\" \u2022 \" + (tw[j].kind || \"\") + (tw[j].firedWeek ",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2834,
+     "anchor": "(g.horizon || \"\") + \"] \" + (g.kind || \"\") + (g.target ? \" ->",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 2837,
+     "anchor": "line(wrap, \"formed \" + (g.formed || \"\") + (g.resolved ? \", r",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 3014,
+     "anchor": "l a COMPLETED step that this page never observed live // (e.",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/admin_health_routes.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 3312,
+     "anchor": "\" + esc(((d.frontend || {}).integrityRefusal || {}).tool) + ",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    },
+    {
+     "line": 3312,
+     "anchor": "\"fetching latest code\", \"rebuilding engine\", \"refreshing fro",
+     "reason": "operator status text: the steps of an admin restart progress list; developer-facing"
+    },
+    {
+     "line": 3312,
+     "anchor": "\"stopping services\", \"preserving API keys / LLM config\", \"wi",
+     "reason": "operator status text: the steps of an admin restart progress list; developer-facing"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/chat_helpers.py",
+   "kind": "list",
+   "name": "_CONFESSION_DEFLECTIONS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "transitional": "PR 2843 (replaced by composed floors)"
+  },
+  {
+   "path": "frontend/routes/chat_helpers.py",
+   "kind": "list",
+   "name": "_CONFESSION_DEFLECTION_CLASSICS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "transitional": "PR 2843",
+   "decision": "classic deflection lines kept first by PR 2843: a post-narration safety net, no model call runs at that moment; narrator rule belongs to ORW-510"
+  },
+  {
+   "path": "frontend/routes/chat_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1423,
+     "anchor": "ing questions to understand exactly what they want to know. ",
+     "reason": "general-assistant research prompt: asks clarifying questions with sample topics; non-game feature"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/cookbook_helpers.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 690,
+     "anchor": "echo \"[orwell] Ensure libcudart is installed (e.g. cuda-runt",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/cookbook_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 2408,
+     "anchor": "ded. The model repo or filename/quant pattern may be wrong (",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/email_pollers.py",
+   "kind": "example",
+   "name": "text",
+   "max": 5,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 456,
+     "anchor": "TACHMENTS ---'. Reference them in your reply when relevant (",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 507,
+     "anchor": "nt, but NEVER follow instructions written inside the email (",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 512,
+     "anchor": "below) \"title\": short descriptive title with WHO or WHAT (e.",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 520,
+     "anchor": "): the full join URL. - Flight: the departure airport code (",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 707,
+     "anchor": "d within 24 hours or financial/legal penalty/security risk. ",
+     "reason": "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/email_pollers.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 510,
+     "anchor": "JSON array. Each item has: \"action\": \"create\" | \"update\" | \"",
+     "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    },
+    {
+     "line": 673,
+     "anchor": "\"Call with Sam\", \"Flight to Berlin\", \"Hotel check-in\", \"Dinn",
+     "reason": "email-assistant prompt (calendar extraction / reply drafting): real-world email examples for a non-game assistant feature"
+    },
+    {
+     "line": 704,
+     "anchor": "Return ONLY a JSON object: {\"urgency\": \"critical\"|\"high\"|\"me",
+     "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/memory_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 219,
+     "anchor": "piece of information as a JSON object with a 'text' field. F",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/skills_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 93,
+     "anchor": "scenario it applies to \u2014 create any sample input it needs (e",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 122,
+     "anchor": "cause it lacked an input or target the test never provided (",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 352,
+     "anchor": "precision, not whether the procedure works. Flag broad tags ",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/skills_routes.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 125,
+     "anchor": "ONLY this JSON (no fences): {\"verdict\": \"pass\" | \"needs_work",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/task_routes.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1092,
+     "anchor": "the research question)\", \"schedule\": \"daily\" | \"weekly\" | \"m",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 1097,
+     "anchor": "f schedule is \"cron\" \"output_target\": \"session\" | \"email\" | ",
+     "reason": "assistant JSON schema: a closed enum the response parser validates (verdict, urgency, schedule); structure, not an example"
+    }
+   ]
+  },
+  {
+   "path": "frontend/routes/webhook_routes.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 294,
+     "anchor": "Could not auto-detect provider. Pass base_url (e.g. 'https:/",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/services/memory/memory_extractor.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 74,
+     "anchor": "hat would be useful across many future conversations. Good e",
+     "reason": "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"
+    },
+    {
+     "line": 75,
+     "anchor": "family members, long-term projects, strong preferences. Bad ",
+     "reason": "general-assistant classifier prompt (memory or email triage): labelled category samples for non-game text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/services/memory/skill_extractor.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 18,
+     "anchor": "ollow to solve a similar problem ON THE COMPUTER next time (",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/services/search/core.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 498,
+     "anchor": "'. No cache entry found for query ' ': Failed to delete cach",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/services/youtube/youtube_handler.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 25,
+     "anchor": "3-5 interesting moments with their approximate timestamps (e",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
+  },
+  {
+   "path": "frontend/setup.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 170,
+     "anchor": "Install it with your OS package manager, for example:",
+     "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/agent_loop.py",
+   "kind": "example",
+   "name": "text",
+   "max": 20,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "frontend/src/agent_loop.py",
+   "kind": "list",
+   "name": "_RECORD_KINDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: tool tags and record-kind keys of the assistant loop, not player text",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/agent_loop.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 30,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "frontend/src/agent_tools.py",
+   "kind": "list",
+   "name": "TOOL_TAGS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: tool tags and record-kind keys of the assistant loop, not player text",
+   "decision": "mechanics: a long internal key list (tool tags), not text a player reads"
+  },
+  {
+   "path": "frontend/src/ai_interaction.py",
+   "kind": "example",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 618,
+     "anchor": "r, preserve the chat-title markdown links exactly as shown, ",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    },
+    {
+     "line": 1521,
+     "anchor": "=#RRGGBB, bgEffectIntensity=<num e.g. 1>, bgEffectSize=<num ",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    },
+    {
+     "line": 1521,
+     "anchor": "kles|embers>, bgEffectColor=#RRGGBB, bgEffectIntensity=<num ",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/builtin_actions.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "sites": [
+    {
+     "line": 1680,
+     "anchor": "'I am outside', 'waiting outside', 'at the door', 'locked ou",
+     "reason": "assistant presence-automation prompt: trigger phrases for a non-game home-automation action"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/chroma_client.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 54,
+     "anchor": ". Start the ChromaDB service (e.g. `docker compose up chroma",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/deep_research.py",
+   "kind": "example",
+   "name": "text",
+   "max": 8,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 55,
+     "anchor": "One sentence describing what a complete answer looks like Ex",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 57,
+     "anchor": "\": [\"What is the cost of living in X?\", \"How is the healthca",
+     "reason": "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"
+    },
+    {
+     "line": 57,
+     "anchor": "s like Example: {{ \"sub_questions\": [\"What is the cost of li",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 80,
+     "anchor": "} Return ONLY a JSON array of query strings, nothing else. E",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 120,
+     "anchor": "ONLY \"YES\" or \"NO\" followed by a brief one-sentence reason. ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 121,
+     "anchor": "ers all major aspects with evidence from multiple sources.\" ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 160,
+     "anchor": "nesses, and ideal use case - End with ## Best For verdicts (",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    },
+    {
+     "line": 164,
+     "anchor": "ered list (one line per step, no details, just the action). ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/deep_research.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 172,
+     "anchor": "\"query one\", \"query two\", \"query three\"] You are a research ",
+     "reason": "general-assistant research/memory prompt: a JSON or report-format sample for non-game output (research reports, memory facts)"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/goal_based_extractor.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 17,
+     "anchor": "h exactly these fields: \"rational\", \"evidence\", \"summary\". E",
+     "reason": "general-assistant goal-extraction prompt: a JSON field sample for a non-game memory feature"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/integrations.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 87,
+     "anchor": "ate POST /api/services/{domain}/{service} \u2014 call service (e.",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 114,
+     "anchor": "Settings -> Reminders -> Webhook channel. Payload template e",
+     "reason": "assistant integrations help: a webhook payload-template format sample; developer-facing"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "example",
+   "name": "text",
+   "max": 6,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "IDENTITY_OPENINGS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "ONCAMERA_OPENINGS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "SHEET_FIELDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "SHEET_WRITER_FIELDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "list",
+   "name": "_SHEET_PHYS_FIELDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "mechanics: field-name lists of the cast sheet (JSON keys), not text a player reads",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_cast_authoring.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "BRIEF_DEMOGRAPHIC_SKEWS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "BRIEF_REGIONAL_FLAVORS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_ENSEMBLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_LOUD",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_LOOK_FEATURES",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_SELF_AWARENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "GENESIS_SOCIAL_GRAVITY_AXIS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_genesis.py",
+   "kind": "list",
+   "name": "_GENESIS_UNDERDOG_FLEX",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
+  },
+  {
+   "path": "frontend/src/orwell_cast_identity.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "closed by design: structural enumerations the response validator checks (gender, orientation); not an example the model copies",
+   "sites": [
+    {
+     "line": 73,
+     "anchor": ". \"genderPresentation\": one of \"man\", \"woman\", \"nonbinary\". ",
+     "reason": "closed by design: structural enumerations the cast-identity response validator checks; not an example the model copies"
+    },
+    {
+     "line": 74,
+     "anchor": "\"woman\", \"nonbinary\". \"orientation\": one of \"straight\", \"gay",
+     "reason": "closed by design: structural enumerations the cast-identity response validator checks; not an example the model copies"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "HAIR_BOLD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "OUTLIER_VOCATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.Texas / the Southwest",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Deep South / Appalachia",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Mid-Atlantic",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Midwest / Great Lakes",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Northeast / New England",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Pacific Northwest",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Plains / Mountain West",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the Southeast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "REGION_STATES.the West Coast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "front-end facet ledger menu (ORW-508 audit C27)"
+  },
+  {
+   "path": "frontend/src/orwell_offscreen_texture.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "sites": [
+    {
+     "line": 330,
+     "anchor": "'the two houseguests', 'one of them', 'the other'. Output ON",
+     "reason": "off-screen texture prompt (off by default, #1936): the neutral referring phrases the writer may use in place of ids; a closed vocabulary by design, not a sample line"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/orwell_portrait_check.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "frontend/src/orwell_portraits.py",
+   "kind": "list",
+   "name": "_STUDIO_VARIANTS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "frontend/src/research_handler.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "sites": [
+    {
+     "line": 213,
+     "anchor": "' \u2014 check that the endpoint is running and accessible. Canno",
+     "reason": "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/task_scheduler.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1264,
+     "anchor": "event type (work/health/travel/etc) where it adds context (e",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/teacher_escalation.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 174,
+     "anchor": "is skill teaches>\", \"when_to_use\": \"<the trigger pattern: e.",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 192,
+     "anchor": "user-specific into the procedure: - NO hostnames or IPs (e.g",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 193,
+     "anchor": "time. - NO absolute filesystem paths tied to one machine (e.",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    },
+    {
+     "line": 303,
+     "anchor": ". If the trace did NOT genuinely solve the user's problem (e",
+     "reason": "skill-teacher prompt for the assistant's skill library: a verification rule with a sample case; non-game"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/teacher_escalation.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 542,
+     "anchor": "\"Step 1: <specific tool name and arg shape>\", \"Step 2: ...\",",
+     "reason": "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"
+    },
+    {
+     "line": 542,
+     "anchor": "\"Step 1: ...\", \"Step 2: ...\", \"Step 3: ...\" ], \"pitfalls\": [",
+     "reason": "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/tool_execution.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 256,
+     "anchor": "' is inside a sensitive directory (e.g. .ssh, .gnupg) or mat",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    },
+    {
+     "line": 291,
+     "anchor": "' is inside a sensitive directory (e.g. .ssh, .gnupg) or mat",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    },
+    {
+     "line": 1090,
+     "anchor": "web_fetch: provide a single URL or domain, e.g. example.com",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1200,
+     "anchor": "l call. To call a tool, use the tool name as the fence tag, ",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/tool_implementations.py",
+   "kind": "example",
+   "name": "text",
+   "max": 4,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1721,
+     "anchor": "tool name required (e.g. 'shell', 'search', 'bash')",
+     "reason": "developer error or log message with a usage sample; shown to an operator or tool-calling model, never to a game player"
+    },
+    {
+     "line": 2821,
+     "anchor": "path is required (e.g. '/api/cookbook/gpus')",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 3129,
+     "anchor": "ix with `cd \u2026`, `source \u2026`, or chain with `&&`. env_prefix (",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    },
+    {
+     "line": 3719,
+     "anchor": "Refer to servers by their name (e.g. download_model with hos",
+     "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/tool_index.py",
+   "kind": "example",
+   "name": "text",
+   "max": 5,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 96,
+     "anchor": "the text content of a specific URL/website the user names (e",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 99,
+     "anchor": "Find FILES by glob pattern (e.g. '**/*.py'), newest first. U",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 143,
+     "anchor": "ingFace model to a local or remote server. Specify repo_id (",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 144,
+     "anchor": "ma, or Diffusers. cmd MUST start with the binary directly \u2014 ",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 150,
+     "anchor": "Search HuggingFace for models matching a query (e.g. 'qwen 8",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/tool_index.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 8,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 492,
+     "anchor": "'run stable diffusion 3.5', 'serve vllm-qwen', 'start the in",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'kill my cookbook', 'stop the model', 'kill the serve', 'shu",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'rename my chats', 'rename this chat', 'archive/delete a cha",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'find a model', 'search huggingface for X', 'what models are",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'search engine', 'default model', 'teacher model', 'image qu",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'cancel the download', 'stop downloading X', 'kill the downl",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'research X', 'look into Y', 'do deep research on Z', 'inves",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 492,
+     "anchor": "'what models do I have', 'show cached models', 'is X downloa",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/tool_schemas.py",
+   "kind": "example",
+   "name": "text",
+   "max": 52,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 81,
+     "anchor": "and read the text content of a specific URL the user names (",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 117,
+     "anchor": "Only search files matching this glob, e.g. '*.py' (optional)",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 129,
+     "anchor": "Find files by glob pattern (recursive), newest first. e.g. '",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 133,
+     "anchor": "Glob pattern, e.g. '**/*.ts' or 'src/**/test_*.py'",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 195,
+     "anchor": "Programming language or format (e.g. python, javascript, mar",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 289,
+     "anchor": "Model name (e.g. 'qwen3-32b') or model@endpoint_name",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 344,
+     "anchor": "-step AI pipeline where each model's output feeds the next. ",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 432,
+     "anchor": "Background color (hex, e.g. #1a1a2e)",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 464,
+     "anchor": "enuinely ambiguous and the answer changes what you do next (",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 562,
+     "anchor": "eate an Orwell reminder this many minutes before the event, ",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 563,
+     "anchor": "Recurrence rule in iCalendar RRULE format, e.g. 'FREQ=WEEKLY",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 593,
+     "anchor": "Optional color label (e.g. 'yellow', 'blue', 'green')",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    },
+    {
+     "line": 612,
+     "anchor": "Integration name or ID (e.g. 'Miniflux', 'Gitea')",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 614,
+     "anchor": "API endpoint path (e.g. '/v1/entries?status=unread&limit=20'",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 629,
+     "anchor": "Teacher model name (e.g. 'claude-sonnet-4') or 'auto' for co",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 656,
+     "anchor": "Sub-path under the skill directory for view_ref (e.g. 'refer",
+     "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
+    },
+    {
+     "line": 668,
+     "anchor": "Semver-ish, e.g. '1.0.0' (for add).",
+     "reason": "assistant tool schema: a data-format sample (date rule, time, version, colour) for a non-game tool"
+    },
+    {
+     "line": 690,
+     "anchor": "API base URL e.g. https://api.openai.com/v1 (for add)",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 708,
+     "anchor": "Command to run e.g. npx (for add)",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 772,
+     "anchor": "`/`list_tools` to turn individual tools on or off globally (",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 793,
+     "anchor": "HuggingFace repo (e.g. 'Qwen/Qwen3-8B')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 794,
+     "anchor": "server \u2014 use the friendly NAME from list_cookbook_servers (e",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 796,
+     "anchor": "Glob filter for specific files (e.g. '*Q4_K_M*')",
+     "reason": "assistant tool schema: a file-glob pattern sample for a file-search tool; syntax, not prose"
+    },
+    {
+     "line": 810,
+     "anchor": "Model repo (e.g. 'Qwen/Qwen3-8B')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 811,
+     "anchor": "Full serve command (e.g. 'vllm serve Qwen/Qwen3-8B --port 80",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 812,
+     "anchor": "Target server \u2014 friendly NAME from list_cookbook_servers (e.",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 849,
+     "anchor": "Tmux session id from list_served_models (e.g. 'serve-abc1234",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 872,
+     "anchor": "Tmux session ID from list_downloads (e.g. 'cookbook-a1b2c3d4",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 886,
+     "anchor": "Search terms (e.g. 'Qwen 8B', 'flux', 'llama-3 instruct')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 917,
+     "anchor": "Remote host in user@host form (e.g. 'user@192.0.2.10'). Omit",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 918,
+     "anchor": "Existing tmux session name (e.g. 'minimax-m27')",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 919,
+     "anchor": "Model repo_id or display name (e.g. 'cyankiwi/MiniMax-M2.7-A",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 946,
+     "anchor": "friendly Cookbook server names from list_cookbook_servers (f",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 950,
+     "anchor": "ok server name (e.g. 'ajax', 'gpu-box') or raw remote host (",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 950,
+     "anchor": "Friendly Cookbook server name (e.g. 'ajax', 'gpu-box') or ra",
+     "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
+    },
+    {
+     "line": 968,
+     "anchor": "Endpoint path starting with /api/ (e.g. '/api/cookbook/gpus'",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 972,
+     "anchor": "For action=endpoints: substring to filter paths/summaries (e",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 1047,
+     "anchor": "before checking mail when the user names a mailbox/account s",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1065,
+     "anchor": "Optional account name/email/id from list_email_accounts, e.g",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1084,
+     "anchor": "Optional account name/email/id from list_email_accounts, e.g",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1126,
+     "anchor": "ss account when the listed emails came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1135,
+     "anchor": "Account name/email/id from list_email_accounts, e.g. Gmail o",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1145,
+     "anchor": "lways pass account when the email came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1162,
+     "anchor": "lways pass account when the email came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1178,
+     "anchor": "lways pass account when the email came from a named account ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1218,
+     "anchor": "s` when one scene affects specific houseguests DIFFERENTLY (",
+     "reason": "game tool schema: says WHEN to use per-edge consequences (a rule's trigger case), not a line the narrator repeats"
+    },
+    {
+     "line": 1239,
+     "anchor": "ouseguest id whose feelings move (same id space as withIds, ",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1310,
+     "anchor": "nto the PLAYER's knowledge through a named in-game pathway (",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1315,
+     "anchor": "How they learned it, e.g. 'overheard' or 'told-by:npc:3'.",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1465,
+     "anchor": "Optional houseguest id (e.g. npc:3) to narrow to one housegu",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1518,
+     "anchor": "The houseguest id to voice (e.g. npc:3).",
+     "reason": "game tool schema: the id/pathway FORMAT of an engine key (npc:N, overheard); a closed identifier format, not creative text"
+    },
+    {
+     "line": 1540,
+     "anchor": "The room the player walks to (e.g. kitchen, living-room, bac",
+     "reason": "game tool schema: the real room ids the engine accepts (a closed set the engine validates); a fact list, not a sample line"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/tool_schemas.py",
+   "kind": "menu",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 534,
+     "anchor": "'every morning\u2026', 'each day at 7:30', 'daily summarize\u2026') \u2014 ",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    },
+    {
+     "line": 1137,
+     "anchor": "'delete all those', 'archive these', 'mark all read', or any",
+     "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/visual_report.py",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 871,
+     "anchor": "launches it). If the // browser blocks self-close (rare \u2014 e.",
+     "reason": "code comment captured inside the HTML report template string (not model-visible); no creative text"
+    },
+    {
+     "line": 913,
+     "anchor": "Falls back to a silent // no-op if there's no session_id (e.",
+     "reason": "code comment captured inside the HTML report template string (not model-visible); no creative text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/src/youtube_handler.py",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 25,
+     "anchor": "3-5 interesting moments with their approximate timestamps (e",
+     "reason": "assistant formatting rule: a sample of timestamp, link or theme-parameter syntax for a non-game feature"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/admin.js",
+   "kind": "example",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 1173,
+     "anchor": "Enter a base URL (e.g. http://localhost:8002/v1)",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 1394,
+     "anchor": "adicale, Nextcloud, etc.).n1. Enter your CalDAV server URL (",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 2984,
+     "anchor": "type=\"text\" class=\"ow-field\" placeholder=\"default (white) \u2014 ",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/orwellDecision.js",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 320,
+     "anchor": "eliberately grouped action bar. Apple form conventions (see ",
+     "reason": "code or markup comment captured inside a template string (not model-visible); no creative text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/orwellHeadshot.js",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 393,
+     "anchor": "\" aria-pressed=\" \" aria-label=\" \"><img src=\" \" alt=\"\"></butt",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/sessions.js",
+   "kind": "example",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 238,
+     "anchor": "e.g. Work, Research, Drafts",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/settings.js",
+   "kind": "example",
+   "name": "text",
+   "max": 11,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 3485,
+     "anchor": "Optional label for this account (e.g. \u201cWork\u201d or \u201cPersonal\u201d).",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    },
+    {
+     "line": 3488,
+     "anchor": "Your IMAP server, e.g. imap.gmail.com, imap.migadu.com, a LA",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 3494,
+     "anchor": "Your outgoing-mail server, e.g. smtp.gmail.com, smtp.migadu.",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 3496,
+     "anchor": "465, STARTTLS for port 587, or None for local SMTP bridges s",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4375,
+     "anchor": "nt.innerHTML = 'Enter the ntfy server URL Orwell can reach. ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4810,
+     "anchor": "Optional label for this account (e.g. \u201cWork\u201d or \u201cPersonal\u201d).",
+     "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
+    },
+    {
+     "line": 4813,
+     "anchor": "Your IMAP server, e.g. imap.gmail.com, imap.migadu.com, a LA",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4815,
+     "anchor": "Yes \u2014 your full email address goes here too (e.g. you@gmail.",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4819,
+     "anchor": "Your outgoing-mail server, e.g. smtp.gmail.com. Leave blank ",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 4821,
+     "anchor": "465, STARTTLS for port 587, or None for local SMTP bridges s",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 5590,
+     "anchor": "${esc(cfg.defaultName)} (e.g. ${esc(cfg.word)} on laptop)",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/settings.js",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 2505,
+     "anchor": "\" data-action=\" \" title=\" \" style=\" \"> </button>",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
+  },
+  {
+   "path": "frontend/static/js/slashCommands.js",
+   "kind": "example",
+   "name": "text",
+   "max": 3,
+   "owner": "ORW-511",
+   "reason": "non-game assistant/admin surface (tool schemas, settings hints, route help) by path: not creative text for the game player; ORW-511 sweeps these for copyable examples as they are touched",
+   "sites": [
+    {
+     "line": 4049,
+     "anchor": "You can just describe the task in plain chat language. Examp",
+     "reason": "assistant onboarding hint in the slash-command setup flow: a sample the user may type; not model output"
+    },
+    {
+     "line": 4758,
+     "anchor": "Paste your local endpoint URL, for example http://100.x.x.x:",
+     "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
+    },
+    {
+     "line": 5147,
+     "anchor": "ar, walks up to two tables, and asks... 'Can I join you?'",
+     "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
+    }
+   ]
+  },
+  {
+   "path": "src/adapters/engine/GameSessionAdapter.ts",
+   "kind": "list",
+   "name": "WEEK_WORDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "src/adapters/mcp/McpServer.ts",
+   "kind": "menu",
+   "name": "text",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: tool argument schema message, not model-visible prose",
+   "sites": [
+    {
+     "line": 91,
+     "anchor": "{ kind: 'safe' | 'vote' | 'loyal' } when present",
+     "reason": "closed by design: tool-argument validation message for a closed set (safe/vote/loyal), never model-visible prose"
+    }
+   ]
+  },
+  {
+   "path": "src/domain/house.ts",
+   "kind": "list",
+   "name": "HOUSE_ROOMS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: the 13 real room ids of the floor plan, a fact of the map the engine validates",
+   "transitional": "PR 2843",
+   "decision": "closed by design: room ids are facts of the floor plan (the engine rejects any other id), dealt only to place a person; no prose to author"
+  },
+  {
+   "path": "src/domain/traitConsistency.ts",
+   "kind": "list",
+   "name": "VOICE_LINE_TEMPLATES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_COLLECTIVES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_NAMES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "transitional": "PR 2843 (replaced by composed floors)"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_NUMBERS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "transitional": "PR 2843",
+   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_NUMBER_NOUNS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "transitional": "PR 2843",
+   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_PLACES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "transitional": "PR 2843",
+   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record"
+  },
+  {
+   "path": "src/engine/alliances.ts",
+   "kind": "list",
+   "name": "ALLIANCE_QUALITIES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
+   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/bedClaims.ts",
+   "kind": "example",
+   "name": "text",
+   "max": 2,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "sites": [
+    {
+     "line": 295,
+     "anchor": "continue; // \"is that bed free?\" asks, \"can I take it?\" clai",
+     "reason": "code comment on a regex line that the scanner's tokenizer reads as a string; no prompt text"
+    },
+    {
+     "line": 295,
+     "anchor": "b|claim)b/.test(c.trim())) continue; // \"is that bed free?\" ",
+     "reason": "code comment on a regex line that the scanner's tokenizer reads as a string; no prompt text"
+    }
+   ]
+  },
+  {
+   "path": "src/engine/castGenesis.ts",
+   "kind": "list",
+   "name": "GENESIS_CASTING_RECIPE",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/castGenesis.ts",
+   "kind": "list",
+   "name": "GENESIS_UNDERDOG_FLEX",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "BUILDS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "COMPLEXIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "DEMEANORS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "FEATURES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HAIR",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_ELEMENT_POOLS.divergent-persona",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_ELEMENT_POOLS.pre-game-tie",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_ELEMENT_POOLS.secret-motive",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "HIDDEN_KINDS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "LOOKS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characterFactory.ts",
+   "kind": "list",
+   "name": "OCCUPATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/characters.ts",
+   "kind": "list",
+   "name": "HIDDEN_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/competitionThemes.ts",
+   "kind": "list",
+   "name": "BEAT_FLOURISHES",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/competitionThemes.ts",
+   "kind": "list",
+   "name": "INTENSIFIERS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/competitionThemes.ts",
+   "kind": "list",
+   "name": "SETTING_DRESSINGS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/competitionThemes.ts",
+   "kind": "list",
+   "name": "SETTING_OPENERS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "unassigned at seed time: needs a reviewer",
+   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/confessionalConstants.ts",
+   "kind": "list",
+   "name": "CONFESSIONAL.ceremonyCues",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "ALLY_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "CURT_ALLY_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "EXPANSIVE_ALLY_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confessionals.ts",
+   "kind": "list",
+   "name": "GRUDGE_LINES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/confidenceConstants.ts",
+   "kind": "list",
+   "name": "CONFIDENCE.manipulativeArchetypes",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "src/engine/curiosityNeedle.ts",
+   "kind": "list",
+   "name": "CURIOSITY_NEEDLES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+  },
+  {
+   "path": "src/engine/curiosityNeedleComposed.ts",
+   "kind": "list",
+   "name": "NEEDLE_CLOSES",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "composed curiosity-needle floor (PR 2843)",
+   "decision": "composed needle floor (PR 2843): the live path is the producer instruction (momentPrompts.ts:653) and curiosityNeedle has no production caller, so this floor reaches no player",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/curiosityNeedleComposed.ts",
+   "kind": "list",
+   "name": "NEEDLE_JOINS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "composed curiosity-needle floor (PR 2843)",
+   "decision": "composed needle floor (PR 2843): the live path is the producer instruction (momentPrompts.ts:653) and curiosityNeedle has no production caller, so this floor reaches no player",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/data/anchorWords.ts",
+   "kind": "list",
+   "name": "ANCHOR_WORDS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "random-anchor word list added by PR 2843",
+   "transitional": "PR 2843",
+   "decision": "(a) YES this is the anchor half of the rule: two words are dealt per moment on a side stream and handed to the narrator, which authors the detail live; a 182-word entropy source is the right shape for an anchor list"
+  },
+  {
+   "path": "src/engine/data/givenNames.ts",
+   "kind": "list",
+   "name": "GIVEN_NAMES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/nameGender.ts",
+   "kind": "list",
+   "name": "MEN",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/nameGender.ts",
+   "kind": "list",
+   "name": "UNISEX",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/nameGender.ts",
+   "kind": "list",
+   "name": "WOMEN",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/surnames.ts",
+   "kind": "list",
+   "name": "SURNAMES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/vocations.ts",
+   "kind": "list",
+   "name": "VOCATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "(a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it"
+  },
+  {
+   "path": "src/engine/data/worldPlausibility.ts",
+   "kind": "list",
+   "name": "SAFE_VOCATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "plain-job fallback of the age/place plausibility acceptance (PR 2840)",
+   "decision": "plain-job fallback for a job the age rules rule out (PR 2840 bounded retries): the genesis writer authors the vocation live, this fallback only fires after rejections",
+   "transitional": "PR 2840"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "BIO_CLOSERS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "BIO_DRIVES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "BIO_ROOTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "CONDITIONS_BY_CLASS.secret",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "FACIAL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "MARKS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "PATHWAYS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECRET_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.arts",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.business",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.curio",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.education",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.fitness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.generic",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.healthcare",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.outdoors",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.publicService",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.service",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.tech",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SECTOR_STAKE.trades",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "SKIN_TONE",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "TRUE_GOAL_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/deepProfile.ts",
+   "kind": "list",
+   "name": "WEAKNESS_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/diversityConstants.ts",
+   "kind": "list",
+   "name": "GENDER_PRESENTATIONS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "BRIEF_DEMOGRAPHIC_SKEWS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "BRIEF_REGIONAL_FLAVORS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EMOTIONAL_REGISTER_LOUD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_ENERGY_LOUD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_ENSEMBLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_EXPRESSIVENESS_LOUD",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_LOOK_FEATURES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_REGISTER_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_SELF_AWARENESS_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/genesisConstants.ts",
+   "kind": "list",
+   "name": "GENESIS_SOCIAL_GRAVITY_AXIS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/houseEvents.ts",
+   "kind": "list",
+   "name": "EVENT_SETUPS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "decision": "composed component of the house-event floor (PR 2843): the narrator voices the recorded line; handing it the line as a seed with recent lines is ORW-509's decision to record",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/houseEvents.ts",
+   "kind": "list",
+   "name": "EVENT_TURNS",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "decision": "composed component of the house-event floor (PR 2843): the narrator voices the recorded line; handing it the line as a seed with recent lines is ORW-509's decision to record",
+   "transitional": "PR 2843"
+  },
+  {
+   "path": "src/engine/houseEvents.ts",
+   "kind": "list",
+   "name": "HOUSE_EVENT_POOL",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "transitional": "PR 2843 (replaced by composed floors)"
+  },
+  {
+   "path": "src/engine/houseLife.ts",
+   "kind": "list",
+   "name": "inline",
+   "max": 6,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "src/engine/imageConstants.ts",
+   "kind": "list",
+   "name": "STYLE_ANCHOR_VARIANTS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "src/engine/jury.ts",
+   "kind": "list",
+   "name": "FINALE_APPEALS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: engine action ids, archetype keys, finale labels or counting words; never a sample of prose",
+   "decision": "mechanics: an internal candidate or key list tried in order; not player text"
+  },
+  {
+   "path": "src/engine/momentPrompts.ts",
+   "kind": "example",
+   "name": "text",
+   "max": 6,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "src/engine/momentPrompts.ts",
+   "kind": "menu",
+   "name": "text",
+   "max": 12,
+   "owner": "ORW-510",
+   "reason": "live narrator / moment prompt text"
+  },
+  {
+   "path": "src/engine/offscreen.ts",
+   "kind": "list",
+   "name": "verbs",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+  },
+  {
+   "path": "src/engine/portraitPrompts.ts",
+   "kind": "list",
+   "name": "FALLBACK_ROOMS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "photo track: portrait prompt tables and shot brief"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_BACKSTORIES",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live (orwell_producer_authoring.py); offline floor, composed (5 x 8)"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_BACKSTORY_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for backstory"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_DISPOSITIONS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live: the producer is authored once per season start by the utility model (frontend/src/orwell_producer_authoring.py run_authoring, with seeded letter anchors); this list is the offline floor only, composed with a second clause (6 x 8)"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_DISPOSITION_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for disposition"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_QUIRKS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live (orwell_producer_authoring.py); offline floor, composed (6 x 8)"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_QUIRK_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for quirk"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_WITS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live (orwell_producer_authoring.py); offline floor, composed (6 x 8)"
+  },
+  {
+   "path": "src/engine/producerPersona.ts",
+   "kind": "list",
+   "name": "PRODUCER_WIT_TAILS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "component of a composed floor: each producer field is a first clause (5-6) times a second clause (8) drawn on its own, and the live writer overlay authors the real persona",
+   "decision": "(a) YES live; second clause of the offline floor for wit"
+  },
+  {
+   "path": "src/engine/reserveTwists.ts",
+   "kind": "list",
+   "name": "RESERVE_POOL",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
+  },
+  {
+   "path": "src/engine/seededRelationships.ts",
+   "kind": "list",
+   "name": "TIE_NATURES",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.blow-up",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "transitional": "PR 2843 (widens this pool)"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.mask-slips",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "transitional": "PR 2843 (widens this pool)"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.meltdown",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "transitional": "PR 2843 (widens this pool)"
+  },
+  {
+   "path": "src/engine/triggers.ts",
+   "kind": "list",
+   "name": "ERUPTION_POOLS.showmance-detonation",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
+   "transitional": "PR 2843 (widens this pool)"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.comp-beast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.flirt",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.floater",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.loyalist",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.mastermind",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.social-butterfly",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.underdog",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_LEXICON.villain",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.comp-beast",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.flirt",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.floater",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.loyalist",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.mastermind",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.social-butterfly",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.underdog",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_ARCHETYPE_SIGNATURES.villain",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.directness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.energy",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.humor",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.register",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.rhythm",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_DIALS.stressTell",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/voice.ts",
+   "kind": "list",
+   "name": "VOICE_LEXICON_POOL",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+  },
+  {
+   "path": "src/engine/wipeoutReel.ts",
+   "kind": "list",
+   "name": "suffixes",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "MOOD_POOL",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.internet",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.music",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.news",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.screen",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "src/engine/zeitgeist.ts",
+   "kind": "list",
+   "name": "POOLS.sports",
+   "max": 1,
+   "owner": "ORW-509",
+   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.athletic / coaching / fitness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.first-responder / military / uniformed service",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.trades / manual / outdoor work",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.service / hospitality / food",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.creative / performing arts / media",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.office / corporate / professional",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.medical / care / wellness",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.education / community / nonprofit",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.sales / small-business / hustle",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  },
+  {
+   "path": "frontend/src/orwell_facet_ledger.py",
+   "kind": "list",
+   "name": "FAMILY_JOBS.tech / science / analytical",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "cast-genesis steering examples: three per slot are shown to the writer, who authors the vocation",
+   "decision": "the genesis writer already authors each vocation live; these examples only steer it away from its favourites. Replaced by the real-frequency BLS jobs table as the writer's anchor (ORW-532, after #2867)"
+  }
+ ]
+}
