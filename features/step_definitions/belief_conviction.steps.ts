@@ -90,7 +90,7 @@ Given("a houseguest who doubts something they were told that is false", function
   seam(s).agendaRecheck("week-start", [b.holder!]);
 });
 
-Then("they keep testing it quietly, with no asking-around scenes until Ryne re-agrees the house mix", function () {
+Then("they take up a goal to find out, asking around", function () {
   const b = bag(this);
   const live = seam(b.s!).live;
   const doubt = (live.beliefs?.[b.holder!] ?? []).find((c) => c.id === "doubt-false")!;

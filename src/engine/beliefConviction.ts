@@ -30,11 +30,11 @@ export const CONVICTION = {
   /** How hard a houseguest pursues testing a doubted belief (the find-out goal's weight; a vote question's is 0.5). Tuned to the agreed house mix. */
   testDrive: 0.5,
   /**
-   * Whether testing is VISIBLE: a doubted belief becomes a find-out goal (asking around: fish / test-a-rumor scenes). Off for now: testing
-   * is quiet - the evidence still moves the conviction each night, but no asking-around scenes are staged - because visible testing pushes
-   * the week-1 house mix out of its agreed band (gossip 24.9 vs 19 +-5). Turned on once Ryne re-agrees the Theme 2 mix.
+   * Whether testing is VISIBLE: a doubted belief becomes a find-out goal (asking around: fish / test-a-rumor scenes). ON (Ryne 2026-11-16,
+   * on the gossipier week 1 this makes: "is a gossipy house that big of a deal? I don't think it is"). Off = quiet testing: the evidence
+   * still moves the conviction each night, with no asking-around scenes.
    */
-  askAround: false,
+  askAround: true,
   /** A small fixed personal offset, so two of the same type are not identical (+/- this). */
   personalSpread: 0.08,
 } as const;
