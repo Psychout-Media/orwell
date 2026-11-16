@@ -13,7 +13,7 @@ afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
 type Internals = {
   presence: Map<EntityId, string> | null;
-  live: { npcMemory?: Record<string, Record<string, { kind: string; severity: number }[]>> };
+  live: { npcMemory?: Record<string, Record<string, { kind: string; week?: number; severity: number }[]>> };
   rel: { edge(a: string, b: string): { trust: number; affinity: number; threat: number } };
   setNpcMemoryEnabled(on: boolean): void;
   setDealsWitnessesEnabled(on: boolean): void;

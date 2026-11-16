@@ -18,6 +18,7 @@ let n = 0;
 function start(w: unknown): void {
   const sb = new GameSessionRegistry().sandboxFor(`rumor0157-${n++}`);
   sb.session.setNpcBeliefsEnabled(true);
+  sb.session.setVoteTalkEnabled(false); // these scenarios seed their own lies (and 'nobody lied' means it): vote talk's lies would be extra
   sb.session.createCharacter({ playerName: "The Player", seed: 7 });
   const b = bag(w);
   b.sb = sb; b.s = sb.session;
