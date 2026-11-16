@@ -58,6 +58,13 @@ CANNED_BODY = ("an easy half-smile, shoulders loose, standing upright", "a stead
                "a calm, level look, arms relaxed at the sides", "a small shy smile, eyes dropping away, shoulders a little in", "a dry half-smile, one brow slightly raised")
 
 
+CANNED_OBJ = ("lantern", "ladder", "kettle", "trowel", "binder", "bucket", "spade", "saddle", "anvil", "tripod", "hamper", "canoe", "hammock", "radio", "easel")
+CANNED_FAR = ("a heron standing", "a dog asleep", "a pickup parked", "a neighbour walking", "a cat sitting", "a tractor idling", "a rowboat drifting", "a bicycle leaning",
+              "a goat grazing", "a delivery van parked", "a child on a scooter", "a horse standing", "a kite flying", "a cart parked", "a gull perched")
+CANNED_SIG = ("a pocketknife on a lanyard-free cord", "a pocket notebook", "a harmonica", "a stopwatch", "a bone whistle", "a dented lunchbox", "a brass telescope", "a paperweight",
+              "a ring of old keys", "a tin pinwheel", "a medallion", "a travel ukulele", "a silver thimble", "a pressed-flower scrapbook", "a small compass")
+
+
 def canned_llm(cards):
     """An offline writer: a plausible, DIFFERENT brief per person built from their sheet (for the unit tests and --dry). Never a real model."""
     async def fn(messages):
@@ -75,9 +82,9 @@ def canned_llm(cards):
             out[i] = {
                 "where": CANNED_PLACES[n % len(CANNED_PLACES)].format(town=town, thing=thing),
                 "doing": CANNED_DOING[n % len(CANNED_DOING)],
-                "inFrame": [f"a worn {thing} basket", "an animal asleep far off, out of focus"],
+                "inFrame": [f"a {CANNED_OBJ[n % len(CANNED_OBJ)]} left out", f"{CANNED_FAR[n % len(CANNED_FAR)]} far off, out of focus"],
                 "wear": ", ".join(wardrobe[:2]),
-                "signature": f"a faded cord bracelet number {n}",
+                "signature": CANNED_SIG[n % len(CANNED_SIG)],
                 "timeLight": f"{a.get('time', 'mid-morning')}, {a.get('weather', 'clear')}",
                 "expressionBody": CANNED_BODY[n % len(CANNED_BODY)],
                 "why": f'"{q}"',
