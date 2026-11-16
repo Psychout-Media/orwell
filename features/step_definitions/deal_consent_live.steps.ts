@@ -40,6 +40,6 @@ Then("no deal is recorded", function (this: BbWorld) {
 
 Then("the refusal carries no numbers", function (this: BbWorld) {
   const r = st(this).result as DealRefusal;
-  assert.doesNotMatch(JSON.stringify(r), /\d\.\d/);
+  assert.doesNotMatch(JSON.stringify(r), /\d/, "no digit of any kind in the refusal");
   assert.deepEqual(Object.keys(r).sort(), ["narratable", "reason", "refused"]);
 });

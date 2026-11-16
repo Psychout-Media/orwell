@@ -104,3 +104,27 @@ def test_maybe_hang_out_is_fail_open(monkeypatch):
 
     monkeypatch.setattr(orwell_engine, "hang_out", broken)
     assert _run(ch.maybe_hang_out("u", {"started": True}, "chill until the comp")) is False
+
+
+def test_orw477_steer_says_cut_short_only_when_the_wait_was_interrupted():
+    cut = {"ok": True, "stopReason": "npc-approach", "minutes": 45, "detail": {"npc": "Role"}}
+    assert "CUT SHORT" in ch._hang_out_steer(cut, 240)
+    assert "CUT SHORT" not in ch._hang_out_steer(cut)  # no stated wait
+    assert "CUT SHORT" not in ch._hang_out_steer(cut, None)
+    ran = {"ok": True, "stopReason": "max-beats", "minutes": 240}
+    assert "CUT SHORT" not in ch._hang_out_steer(ran, 240)  # the wait ran its length
+    exact = {"ok": True, "stopReason": "npc-approach", "minutes": 240, "detail": {"npc": "Role"}}
+    assert "CUT SHORT" not in ch._hang_out_steer(exact, 240)  # nothing short (the engine reports whole minutes, so a direct compare needs no tolerance)
+
+
+def test_orw477_maybe_hang_out_stores_the_cut_short_steer(monkeypatch):
+    from src import orwell_engine
+
+    async def fake(expected_beat_seq=None, max_beats=None, user=None, **kw):
+        return {"ok": True, "stopReason": "npc-approach", "minutes": 45, "detail": {"npc": "Role"}, "beatSeq": 9}
+
+    monkeypatch.setattr(orwell_engine, "hang_out", fake)
+    ch._HANGOUT_STEER.clear()
+    assert _run(ch.maybe_hang_out("u", {"started": True}, "I wait here for four hours")) is True
+    assert "CUT SHORT" in ch._HANGOUT_STEER[ch._runway_key("u")]
+    ch._HANGOUT_STEER.clear()

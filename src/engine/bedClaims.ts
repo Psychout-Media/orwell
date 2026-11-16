@@ -22,8 +22,9 @@ import { BED_CROWD_PULL, EMPTY_DOUBLE_PENALTY, NOISE_WEIGHT, SHARE_DOUBLE_AT, pi
 export const BED_RULES = {
   /** Q4: a player who never picks gets the bed left over at their first bedtime (as on the show). false: they own no bed until they pick one. */
   leftoverAtFirstBedtime: true,
-  /** Q5: when the player may claim a free bed in their own words. "move-in": during the premiere, or any time before they own one (slice 2). "any-time": whenever a bed is free. */
-  playerClaimWindow: "move-in" as "move-in" | "any-time",
+  /** Q5: when the player may claim a free bed in their own words. "move-in": during the premiere, or any time before they own one (slice 2). "any-time": whenever a bed is free (slice 3, Ryne 2026-11-15: "You are also welcome to swap or change beds as people get evicted. You don't need
+   *  permission if they are no longer present."): a free spot (an evictee's included) is taken without asking anyone; an occupied one only by a swap its owner (and a double's other half) agrees to. */
+  playerClaimWindow: "any-time" as "move-in" | "any-time",
   /** Q5: the player may ask the owner of a taken bed to swap; false: a taken bed is simply taken. */
   swapsAllowed: true,
   /** Q5: the owner says yes when (affinity to the player above a stranger's) - SWAP_CARE_WEIGHT * (how much more they want their room than the one they would get) >= this. */
@@ -136,6 +137,95 @@ export function swapBeds(state: BedsState, player: EntityId, owner: EntityId, ow
   }
   if (!ownerTo || !claimBed(state, owner, ownerTo, day, "swap", inHouse, layout)) return false;
   return claimBed(state, player, theirs, day, "swap", inHouse, layout);
+}
+
+// ---- later moves (slice 3) ------------------------------------------------------------------------------------------------------------------------------------
+
+/**
+ * ORW-466 slice 3 - later moves, as data. An NPC moves only for a GOAL (toward an ally or a showmance, away from someone who betrayed them, or into a spot an evicted houseguest left), only into a FREE
+ * spot, and rarely: the house gets one seeded roll per in-game day (`dailyChance`), at most `maxPerDay` goal moves on a day it hits, and the new spot must beat the old one by more than `careAbove`.
+ * No season cap. Every magnitude of the relationship folds lives here (the B59 rule: never an inline number at a call site).
+ */
+export const BED_MOVES = {
+  /** The chance, per in-game day, that anyone moves at all (one roll per day, side stream `${seed}:bed-moves:${day}`). */
+  dailyChance: 0.25,
+  /** Goal moves on one day, at most. */
+  maxPerDay: 1,
+  /** How much better (goal-weighted spot value) the new spot must be before anyone bothers to move. */
+  careAbove: 0.3,
+  /** Per goal person (a named-alliance co-member, the showmance) sleeping in the new spot's room. */
+  towardPull: 0.6,
+  /** Per betrayer sleeping in the spot's room (a recorded betrayal against the mover). */
+  awayPush: 0.8,
+  /** Without a seeded showmance, the strongest MUTUAL affinity counts as one only at or above this. */
+  showmanceAffinity: 0.7,
+  /** Moving away from someone: a tiny slight on their edge toward the mover. */
+  slight: { affinity: -0.02, trust: -0.01 },
+  /** Moving toward someone: a tiny warm signal on their edge toward the mover. */
+  signal: { affinity: 0.015 },
+  /** Move-in day: the spot they wanted most was taken by an earlier arrival and they wanted it this much more than what they got: a tiny grudge toward the taker. */
+  lostBedGrudgeAbove: 0.3,
+  lostBedGrudge: { affinity: -0.015 },
+} as const;
+
+/** Who an NPC wants to sleep near (`toward`) and away from (`away`). */
+export interface BedGoals { toward: readonly EntityId[]; away: readonly EntityId[] }
+
+export interface BedMove {
+  who: EntityId;
+  from: BedId;
+  to: BedId;
+  /** Goal people the move brings them in with (the new room's / the new double's), and the ones it leaves behind (the old room's betrayers, the old bedmate). */
+  joined: EntityId[];
+  left: EntityId[];
+  /** The evicted houseguest whose spot this was, when it was one. */
+  freedBy?: EntityId;
+}
+
+/** `who`'s goal-weighted value of `spot`: the spot itself (`spotScore`) plus the goal people in that room. */
+function goalValue(state: BedsState, who: EntityId, spot: BedId, inHouse: ReadonlySet<EntityId>, r: BedReader, share: (who: EntityId, other: EntityId) => number, g: BedGoals): number {
+  const mates = roommatesIn(state, roomOfBed(spot), inHouse).filter((m) => m !== who);
+  const count = (xs: readonly EntityId[]) => xs.filter((x) => mates.includes(x)).length;
+  return spotScore(state, who, spot, inHouse, r, share) + BED_MOVES.towardPull * count(g.toward) - BED_MOVES.awayPush * count(g.away);
+}
+
+/**
+ * The one goal move worth making now, if any (the mover who gains the most over `careAbove`). Free spots only; a move needs a reason (a goal person joined or left behind, or an evicted houseguest's
+ * spot) - a vague "slightly nicer bed" never moves anyone. Pure; changes nothing. Ties break by id order.
+ */
+export function planGoalMove(
+  state: BedsState, movers: readonly EntityId[], inHouse: ReadonlySet<EntityId>, r: BedReader, share: (who: EntityId, other: EntityId) => number,
+  goalsOf: (who: EntityId) => BedGoals, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT,
+): BedMove | undefined {
+  const free = freeBeds(state, inHouse, layout);
+  if (!free.length) return undefined;
+  const lastOwner = (spot: BedId): EntityId | undefined => Object.entries(state.owner).find(([o, s]) => s === spot && !inHouse.has(o))?.[0];
+  let best: { move: BedMove; gain: number } | undefined;
+  for (const who of [...movers].sort()) {
+    const from = state.owner[who];
+    if (!from || !inHouse.has(who)) continue;
+    const g = goalsOf(who);
+    const cur = goalValue(state, who, from, inHouse, r, share, g);
+    const oldMates = roommatesIn(state, roomOfBed(from), inHouse).filter((m) => m !== who);
+    const oldMate = otherHalf(state, from, inHouse, who);
+    for (const to of free) {
+      const gain = goalValue(state, who, to, inHouse, r, share, g) - cur;
+      if (gain <= BED_MOVES.careAbove || (best && gain <= best.gain)) continue;
+      const newMates = roomOfBed(to) === roomOfBed(from) ? oldMates : roommatesIn(state, roomOfBed(to), inHouse).filter((m) => m !== who);
+      const newMate = otherHalf(state, to, inHouse, who);
+      const joined = g.toward.filter((x) => (newMates.includes(x) && !oldMates.includes(x)) || (x === newMate && x !== oldMate));
+      const left = [...new Set([...g.away.filter((x) => oldMates.includes(x) && !newMates.includes(x)), ...(oldMate !== undefined && oldMate !== newMate ? [oldMate] : [])])];
+      const freedBy = lastOwner(to);
+      if (!joined.length && !g.away.some((x) => left.includes(x)) && freedBy === undefined) continue; // no goal behind it
+      best = { move: { who, from, to, joined, left, ...(freedBy !== undefined ? { freedBy } : {}) }, gain };
+    }
+  }
+  return best?.move;
+}
+
+/** Make the move (a free spot only; appended as a "move" claim). False and nothing changed when the spot is not free. */
+export function applyMove(state: BedsState, m: BedMove, day: number, inHouse: ReadonlySet<EntityId>, layout: readonly BedroomSpec[] = BEDROOM_LAYOUT): boolean {
+  return claimBed(state, m.who, m.to, day, "move", inHouse, layout);
 }
 
 // ---- the player's own words -------------------------------------------------------------------------------------------------------------------------------

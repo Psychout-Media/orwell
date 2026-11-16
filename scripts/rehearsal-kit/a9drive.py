@@ -5,13 +5,15 @@ from playwright.sync_api import sync_playwright
 def _rig_base(run):
     """The front-end base URL for this run's slot: RIG_BASE from the environment, else the run's slot.env, else the slot-1 default (a run staged before slots existed has no slot.env)."""
     import shlex
-    if os.environ.get("RIG_BASE"): return os.environ["RIG_BASE"]
-    try:
+    rec = None
+    try:   # the run's own slot.env is authoritative: a stray exported RIG_BASE must never point the daemon at the other rig
         for ln in open(f"{run}/slot.env"):
             k, _, v = ln.strip().partition("=")
-            if k == "RIG_BASE" and v: return shlex.split(v)[0]
+            if k == "RIG_BASE" and v: rec = shlex.split(v)[0]
     except OSError: pass
-    return "http://127.0.0.1:17000"  # slot-1 default
+    env = os.environ.get("RIG_BASE")
+    if rec and env and env != rec: sys.exit(f"FATAL: RIG_BASE={env} disagrees with this run's slot.env ({rec}); refusing to drive the wrong rig")
+    return rec or env or "http://127.0.0.1:17000"  # slot-1 default (a run staged before slots existed has no slot.env)
 RUN = sys.argv[1]; BASE = _rig_base(RUN)
 lines = [l.rstrip("\n") for l in open(f"{RUN}/script.txt") if l.strip() and not l.startswith("#")]
 out = open(f"{RUN}/a9.log", "a")
@@ -35,7 +37,7 @@ with sync_playwright() as p:
         while time.time() - t0 < 240:
             page.wait_for_timeout(2000)
             bs = page.evaluate(BUB); sig = json.dumps([x["txt"] for x in bs])
-            busy = page.evaluate("!!document.querySelector('.send-btn[data-mode=\"stop\"], .send-btn[data-mode=\"cancel\"]')")
+            busy = page.evaluate("!!document.querySelector('.send-btn[data-mode=\"streaming\"]')")
             if sig == prev and not busy: stable += 1
             else: stable = 0
             prev = sig

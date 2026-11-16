@@ -33,14 +33,14 @@ def _boot(env, port):
     proc.terminate(); raise RuntimeError("server never ready")
 
 
-def _nm(*names):
+def _nm(*names):  # role placeholders, never real names (repo rule; review of #2678)
     return [{"id": f"npc:{i}", "name": n} for i, n in enumerate(names)]
 
 
 STATES = [
-    {"started": True, "timeOfDay": "evening", "dayNumber": 1, "awake": _nm("Ada Q", "Bo R", "Cy S"), "asleep": []},
-    {"started": True, "timeOfDay": "night", "dayNumber": 1, "awake": _nm("Ada Q", "Bo R"), "asleep": _nm("Cy S")},
-    {"started": True, "timeOfDay": "morning", "dayNumber": 2, "awake": _nm("Ada Q", "Bo R", "Cy S"), "asleep": []},
+    {"started": True, "timeOfDay": "evening", "dayNumber": 1, "awake": _nm("NpcA Houseguest", "NpcB Houseguest", "NpcC Houseguest"), "asleep": []},
+    {"started": True, "timeOfDay": "night", "dayNumber": 1, "awake": _nm("NpcA Houseguest", "NpcB Houseguest"), "asleep": _nm("NpcC Houseguest")},
+    {"started": True, "timeOfDay": "morning", "dayNumber": 2, "awake": _nm("NpcA Houseguest", "NpcB Houseguest", "NpcC Houseguest"), "asleep": []},
 ]
 
 
@@ -73,6 +73,6 @@ def test_widget_lists_who_is_awake_and_follows_the_night():
             proc.terminate()
             try: proc.wait(timeout=10)
             except Exception: proc.kill()
-    assert "Ada" in seen[0] and "Cy" in seen[0] and "turned in" not in seen[0].lower(), seen
-    assert "Cy" not in seen[1] and "Ada" in seen[1] and "Bo" in seen[1], seen          # night: only the two still up
-    assert "Cy" in seen[2] and "Ada" in seen[2] and "turned in" not in seen[2].lower(), seen  # morning: everyone up again
+    assert "NpcA" in seen[0] and "NpcC" in seen[0] and "turned in" not in seen[0].lower(), seen
+    assert "NpcC" not in seen[1] and "NpcA" in seen[1] and "NpcB" in seen[1], seen          # night: only the two still up
+    assert "NpcC" in seen[2] and "NpcA" in seen[2] and "turned in" not in seen[2].lower(), seen  # morning: everyone up again

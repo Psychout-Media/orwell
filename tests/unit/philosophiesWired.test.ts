@@ -9,7 +9,7 @@ import { NOMINATION_STYLE_BY_ARCHETYPE } from "../../src/engine/decisionConstant
  * ORW-37 / B40 - the lasting game philosophy is WIRED: with ORWELL_PHILOSOPHIES on (default) each NPC's nomination style comes from their seeded philosophy draw (most keep their archetype's default, some play
  * against type); off => the archetype table. Deterministic per (seed, houseguest). Roles only.
  */
-type G = { nominationStyleFor(id: string): string; setPhilosophiesEnabled(on: boolean): void; philosophyOf(id: string): string; archetypeReadOf(id: string): string | undefined };
+type G = { ctx(): { nominationStyleOf(id: string): string }; nominationStyleFor(id: string): string; setPhilosophiesEnabled(on: boolean): void; philosophyOf(id: string): string; archetypeReadOf(id: string): string | undefined };
 
 function house(seed: number) {
   const sb = new GameSessionRegistry().sandboxFor(`phil-${seed}-${Math.random()}`);
@@ -45,5 +45,23 @@ describe("the philosophy draw decides the nomination style (ORW-37)", () => {
   it("wiring pin: the nomination-style read in the adapter goes through the philosophy when the flag is on, else the archetype table", () => {
     const src = readFileSync("src/adapters/engine/GameSessionAdapter.ts", "utf8");
     expect(src).toMatch(/this\.philosophiesEnabled \? styleOfPhilosophy\(this\.philosophyOf\(id\)\) : NOMINATION_STYLE_BY_ARCHETYPE/);
+  });
+  // ORW-507: the runtime read the adapter really hands the nomination engine (the source pin above cannot see a disabled flag or a broken ctx()).
+  it("runtime: ctx().nominationStyleOf follows the philosophy when ON and the archetype table when OFF, for an NPC drawn against type", () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 12 && checked === 0; seed++) {
+      const { g, ids } = house(seed);
+      const against = ids.find((id) => STYLE_OF(g, id) !== (NOMINATION_STYLE_BY_ARCHETYPE[g.archetypeReadOf(id) ?? ""] ?? "threat-hunter"));
+      if (!against) continue;
+      const table = NOMINATION_STYLE_BY_ARCHETYPE[g.archetypeReadOf(against) ?? ""] ?? "threat-hunter";
+      g.setPhilosophiesEnabled(true);
+      expect(g.ctx().nominationStyleOf(against), "ON: the philosophy's style").toBe(STYLE_OF(g, against));
+      g.setPhilosophiesEnabled(false);
+      expect(g.ctx().nominationStyleOf(against), "OFF: the archetype table").toBe(table);
+      g.setPhilosophiesEnabled(true);
+      expect(g.ctx().nominationStyleOf(PLAYER), "the player's proxy is always a threat hunter").toBe("threat-hunter");
+      checked++;
+    }
+    expect(checked, "found an NPC who plays against type").toBe(1);
   });
 });

@@ -18,6 +18,21 @@ export function roomLabel(room: Room, themeId?: string): string {
   return houseTheme(themeId)?.rooms[room]?.name ?? roomDisplayName(room);
 }
 
+/**
+ * The room as it reads mid-sentence: the themed name exactly as written ("the Coral Reef Room", "Main Street"), or the plain label, with "the" in front when `article` (the default) - so a
+ * caller never writes "the the Coral Reef Room".
+ */
+export function roomRef(room: Room, themeId?: string, article = true): string {
+  const themed = houseTheme(themeId)?.rooms[room]?.name;
+  return themed ?? `${article ? "the " : ""}${roomDisplayName(room)}`;
+}
+
+/** Every room's name this season (undefined without a theme), for a projection the narrator and the front end read. */
+export function roomNamesFor(themeId?: string): Partial<Record<Room, string>> | undefined {
+  const t = houseTheme(themeId);
+  return t ? Object.fromEntries(Object.entries(t.rooms).map(([r, v]) => [r, v.name])) as Partial<Record<Room, string>> : undefined;
+}
+
 /** The one-line look of `room` this season, for the narrator; undefined without a theme. */
 export function roomLook(room: Room, themeId?: string): string | undefined {
   return houseTheme(themeId)?.rooms[room]?.look;
