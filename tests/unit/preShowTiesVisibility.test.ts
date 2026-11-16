@@ -82,6 +82,8 @@ describe("through the live game: a public tie is a house fact from Day 1, a secr
     const house = [PLAYER, ...sb.session.snapshot().house!.npcs.map((n) => n.id)];
     for (const e of ev) { expect(e.hidden, "a public tie is not Vault content").toBe(false); expect(e.witnessSet.slice().sort()).toEqual(house.slice().sort()); }
     expect(sb.engine.events.query({ witnessedBy: PLAYER }).some((e) => e.type === "pre-show-tie")).toBe(true);
+    const names = sb.session.snapshot().house!.npcs.filter((n) => n.id === tie.a || n.id === tie.b).map((n) => n.name);
+    expect(ev.some((e) => names.every((nm) => e.content.includes(nm)) && e.content.includes(tieNatureProse(tie.nature))), "the SELECTED tie was announced, not some other pair").toBe(true);
   });
   it("SECRET: stays sealed, no announcement event, and nothing in the player's sweep names the pair's connection", () => {
     const { sb, tie } = findSeason("secret");

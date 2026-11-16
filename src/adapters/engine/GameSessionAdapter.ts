@@ -2916,7 +2916,7 @@ export class GameSessionAdapter implements GameSession {
   private disclosureEngineEnabled = flagDefaultOn("ORWELL_DISCLOSURE_ENGINE");
   setDisclosureEngineEnabled(on: boolean): void { this.disclosureEngineEnabled = on; }
   private disclosureEngineOn(): boolean { return this.disclosureEngineEnabled && this.live?.playedGame === true; }
-  /** The facts `holder` knows, cut to what the player also holds when the disclosure engine is on (by lineage when both copies carry one, else by identical content). */
+  /** The facts `holder` knows, cut to what the player also holds when the disclosure engine is on (a match by lineage when both copies carry a `factId`, OR by identical content). */
   private voiceKnownFacts(holder: EntityId): ReadonlyArray<{ content: string; factId?: string }> {
     const mine = this.npcKnowledge?.known(holder) ?? [];
     if (!this.disclosureEngineOn()) return mine;
