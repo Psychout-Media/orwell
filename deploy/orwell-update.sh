@@ -258,11 +258,14 @@ ops_log_invocation() {
       "$FORCE" "$([[ $FORCE_NOW -eq 1 ]] && echo force-now || { [[ $FORCE -eq 1 ]] && echo force || echo normal; })" "$ROLLBACK" "$SET_TOKEN" "$NO_RESTART" "${REF:-none}" "$$"
   } >> "$log" 2>/dev/null || true
 }
+# The helper sourced above may be the OLDER installed copy (a host-pushed first update): give the newer helpers a safe stand-in.
+declare -F update_fe_db_path >/dev/null || update_fe_db_path() { printf '%s' "$3"; }
+declare -F _update_abs_path >/dev/null || _update_abs_path() { local p="$1"; [[ -n "$p" && "$p" != /* ]] && p="$(pwd)/${p#./}"; printf '%s' "$p"; }
 ops_log_invocation "$@"
 __UD_WAITED=0; __UD_SUPERSEDED=0
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   __ud_rc=0; __ud_superseded=0
-  update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
+  update_wait_for_idle_game "$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db")" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
   if [[ $__ud_rc -eq 10 ]]; then
     # ORW-398/406: a later run went ahead. It may have FAILED and reverted, so do not assume it did this update:
     # the under-lock check below exits only if HEAD is at the requested ref AND the services were restarted on it.
@@ -570,6 +573,11 @@ play_inputs_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
   { node -v || true; npm -v || true; printf 'updater=%s\nnpmenv=%s\n%s\n' "$__UPDATER_FP" "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
 }
+# ORW-498: the same inputs WITHOUT the updater's own text: what a --rollback matches a kept build on (the new updater's hash can never equal the old one's).
+play_source_fp() {
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
+  { node -v || true; npm -v || true; printf 'npmenv=%s\n%s\n' "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
+}
 # Every entry under a tree: directories by name, files and links by name + size + mtime (+ link target), so a file
 # edited in place shows even when npm's / pip's own records stay the same. Bytecode caches are not package content.
 _tree_listing() {
@@ -643,7 +651,13 @@ write_deps_stamp() {
 # inputs (PLAY_STAMP).
 play_build_fp() {   # the inputs fingerprint a /play build dir was made from; "" unless it is a complete build
   [[ -f "${1}/index.html" && -f "${1}/${PLAY_STAMP}" && ! -L "${1}/${PLAY_STAMP}" ]] || return 0
+  # ORW-497: believed only when the dir and its stamp belong to whoever runs this updater (root) and no group/other can write them
+  _owned_by_us "$1" && _owned_by_us "${1}/${PLAY_STAMP}" || return 0
   head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
+}
+play_build_src_fp() {   # ORW-498: the SOURCE part of the stamp (2nd line; no updater text in it), under the same trust rule; "" for a build without one
+  [[ -n "$(play_build_fp "$1")" ]] || return 0
+  sed -n 2p "${1}/${PLAY_STAMP}" | head -c 64 | tr -cd '0-9a-f'
 }
 # Copy a finished /play build to dist.next. dist.next must not exist when the copy starts (removed, then
 # checked), so a leftover — or anything planted there — is never merged into or nested under. A build is plain
@@ -713,7 +727,7 @@ build_play_app() {
      && _play_run_build "$out" \
      && [[ -f "${out}/dist/index.html" && ! -L "${out}/dist" ]] \
      && rm -f "${out}/dist/${PLAY_STAMP}" \
-     && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
+     && printf '%s\n%s\n' "$fp" "$(play_source_fp)" > "${out}/dist/${PLAY_STAMP}" \
      && _stage_play_build "${out}/dist"; then
     echo "==> /play built — it goes live when the update commits"
   else
@@ -745,9 +759,10 @@ swap_play_app() {
 play_follow_rollback() {
   local fp
   [[ -f "${PLAY_DIR}/package.json" ]] || return 0
-  fp="$(play_inputs_fp)"
-  if _same "$(play_build_fp "$PLAY_DIST")" "$fp"; then return 0; fi
-  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && _stage_play_build "$PLAY_PREV"; then
+  fp="$(play_source_fp)"   # ORW-498: source only; a build stamped by an older updater (no 2nd line) matches on its full fingerprint instead
+  _play_src_match() { _same "$(play_build_src_fp "$1")" "$fp" || _same "$(play_build_fp "$1")" "$(play_inputs_fp)"; }
+  if _play_src_match "$PLAY_DIST"; then return 0; fi
+  if _play_src_match "$PLAY_PREV" && _stage_play_build "$PLAY_PREV"; then
     swap_play_app
     return 0
   fi
@@ -1134,7 +1149,8 @@ _svc_cleanup_mcp_rows_py() {
       return 4
     fi
   fi
-  # `cd /`: the service user may not be able to enter the directory the updater was started in.
+  # `cd /`: the service user may not be able to enter the directory the updater was started in. ORW-496: so the path is made absolute first.
+  db="$(_update_abs_path "$db")"
   ( cd / && timeout 20 "${runner[@]}" python3 -I -c "$_CRUFT_MCP_PY" "$db" "$_CRUFT_MCP_WHERE" )
 }
 
@@ -1317,7 +1333,7 @@ cleanup_inherited_cruft() {
   # unprivileged FE hit "readonly database" / "database is locked"; the DELETE is the same hazard.
   # Running as the DB's owner keeps every sidecar owned by that user. python3's sqlite3 module first
   # (the production box has no sqlite3 CLI); the CLI path only on a box without python3.
-  local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"   # the FE store (frontend/data), not engine data/
+  local db; db="$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db")"   # the FE store (frontend/data, or its DATABASE_URL), not engine data/
   local removed="" rc=0 errf="" why=""
   if [[ -f "$db" ]]; then
     # Keep the writer's stderr so a failure note can say WHY (locked, corrupt, permission): its first line,
@@ -1706,11 +1722,10 @@ else
       # copy (a host-pushed first update), which has no hold: then the update runs as before.
       __HOLD_ON=0
       if [[ $FORCE_NOW -ne 1 ]] && declare -F update_turn_hold_begin >/dev/null; then
-        # the same validated, clamped bound update_wait_for_no_turn uses (1..300 s; "08", "0090" or "1x" never reach the arithmetic as written), plus time for the restart and warm-up
-        __tw="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}"; [[ "$__tw" =~ ^[0-9]{1,6}$ ]] || __tw=120
-        __tw=$(( 10#$__tw )); (( __tw < 1 )) && __tw=1; (( __tw > 300 )) && __tw=300
+        # ORW-490: turn wait + warm-up wait + restart allowance, from the same shared clamp the waits use (the page's HOLD_MAX_WAIT_MS must stay at or above the maximum, 750 s)
+        __hold="$(update_hold_seconds 2>/dev/null || echo 450)"
         __HOLD_ON=1
-        update_turn_hold_begin "$(( __tw + 150 ))" || true
+        update_turn_hold_begin "$__hold" || true
       fi
       if [[ $FORCE_NOW -eq 1 ]]; then
         echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
