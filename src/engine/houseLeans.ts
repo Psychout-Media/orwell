@@ -1,5 +1,5 @@
 /**
- * ORW-551 / spec 0162 (slice 1 of the season house culture): a loose, seeded blend of a few "leans" (gossipy, strategic, flirty, catty ...) that, in
+ * ORW-551 / spec 0168 (slice 1 of the season house culture): a loose, seeded blend of a few "leans" (gossipy, strategic, flirty, catty ...) that, in
  * later slices, will skew the house dials a little. NEVER a label or a fixed script: individual houseguests still vary and can push against it.
  *
  * SLICE 1 IS THE FOUNDATION ONLY: this module draws, stores and (in texture words) describes the blend. NOTHING consumes `dialMult` yet, so the house

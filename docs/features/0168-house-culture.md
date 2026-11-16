@@ -1,6 +1,6 @@
-# 0162 - Season house culture (slice 1: the foundation)
+# 0168 - Season house culture (slices 1-2: the foundation, then the house-life dials)
 
-Card: ORW-551. Executable spec: `0162-house-culture.feature`. Unit gate: `tests/unit/houseLeans.test.ts`.
+Card: ORW-551. Executable spec: `0168-house-culture.feature`. Unit gate: `tests/unit/houseLeans.test.ts`.
 
 ## What it is
 
@@ -18,8 +18,25 @@ can push against it. The player is never told the culture while the season is li
 - The draw uses its own side stream `${seed}:culture`, so it cannot shift any shared random stream. It is stored as `live.houseLeans = {leans:[{id,w}]}`
   (ids and weights only, never multipliers), **write-once**, drawn at the same moment as the house theme (the first played message), only in a played game
   and only with `ORWELL_HOUSE_CULTURE` on (default ON). A season already under way when this ships, and any headless or calibration game, never gains one.
-- **Nothing consumes `dialMult` yet** (slices 2+ wire the dials), so the house mix and every seeded sim are byte-identical: a played game with the flag on
-  or off differs only in the `houseLeans` field.
+- Slice 1 itself consumed nothing; slice 2 (below) is the first reader. With no culture (flag off, a headless game, a load lacking `houseLeans`) every
+  multiplier is exactly 1 and every seeded sim is byte-identical.
+
+## Slice 2: the house-life dials
+
+`HourView.culture?: HouseCulture` (`{gossip, conflict, flirting, lying}`, plain multipliers; type and `CULTURE_CANDOR_SHIFT` in `houseLifeConstants.ts`) is
+filled at ONE call site (`GameSessionAdapter` house-life hour, from `dialMult(live.houseLeans, ...)`, only when the flag is on and a culture exists), so
+`houseLife.ts` stays pure and imports no lean module. The multiplier scales the house BASELINE; the per-person terms (temper, mood, candor, goals) then apply
+unchanged, so a hothead in a family house still fights. All draws are the existing keyed `agendaRoll` hashes: only a threshold moves, never an rng order.
+
+- gossip: `gossipChance` x `dialMult('gossip')`.
+- conflict: a THRESHOLD dial (a negative nudge = a lower threshold = more conflict), so `frictionChance` is DIVIDED by `dialMult('conflict')` (both the free-hour
+  fight and the roommate squabble). `frictionAffinity` is left as it is (scaling it too would double the effect).
+- flirting: `romanceChance` x `dialMult('flirting')` (the showmance pair's free hour only).
+- lying: `schemingLieBoost` x `dialMult('lying')`, plus an additive shift of the speaker's own candor by `(lying - 1) x CULTURE_CANDOR_SHIFT` (0.25, so at most
+  about 0.09 at the clamp), applied BEFORE the candor-minus-boost comparison.
+
+Nothing moves further than the 1.35 factor from baseline. The house-mix guard (12 seasons, which draw cultures) is the mean-neutrality proof; if its average leaves
+the band the fix is `HOUSE_LEAN_TUNING` (K) or the LEANS nudges, never the guard.
 
 ## The wall
 
@@ -35,5 +52,5 @@ unchanged. The front-end retrospective window renders it as plain text; the host
 
 ## Later slices (not this spec)
 
-2: the house-life dials. 3: baseline trust / bonding, loyalty, alliance size, meeting frequency. 4: the house-mix guard rework (an across-seed average
+2: the house-life dials (built, above). 3: baseline trust / bonding, loyalty, alliance size, meeting frequency. 4: the house-mix guard rework (an across-seed average
 within a band plus a minimum between-season spread; numbers go to the owner). 5: credulity, after the conviction work merges.
