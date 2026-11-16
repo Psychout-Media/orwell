@@ -626,3 +626,27 @@ def test_the_pre_emission_guard_drops_only_the_invented_night(monkeypatch):
     out = asyncio.get_event_loop().run_until_complete(al._pre_emission_outcome_guard(text, "u"))
     assert "slept through" not in out
     assert "You lie back" in out and "The hall is still loud." in out
+
+
+# ── review of #2870 (Cubic P2s on the ORW-520 screen) ──
+@pytest.mark.parametrize("text", [
+    "You slept through the night; now it is the afternoon.",   # A: an accurate recollection of a committed night
+    "You slept through the whole night last night.",
+    "The pale hands then turned golden in the lamplight.",     # B: a colour change is not dawn
+    "It wasn't the dead middle of the night, just late.",      # C: negated
+    "It is not the dead of night yet.",
+])
+def test_orw520_screen_does_not_hold_recollection_colour_or_negation(monkeypatch, text):
+    ok, stashed = _screen(monkeypatch, text, "evening", "6:15pm, Day 2")
+    assert ok is True and not stashed, text
+
+
+@pytest.mark.parametrize("text", [
+    "You slept through the whole afternoon.",
+    "The light through the blinds has gone gray and then gold.",
+    "The sky went pale, then golden light spilled in.",
+    "It is the dead middle of the night.",
+])
+def test_orw520_real_phrasings_still_held(monkeypatch, text):
+    ok, stashed = _screen(monkeypatch, text, "evening", "6:15pm, Day 2")
+    assert ok is False and stashed, text

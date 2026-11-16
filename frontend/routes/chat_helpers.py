@@ -6481,9 +6481,32 @@ _UNBACKED_MORNING_RE = re.compile(
     # ORW-520: a night that never happened (the engine held the bed / never committed a sleep): production's morning call, "slept through the afternoon", a grey-then-gold dawn
     r"|\bgood\s+morning,?\s+(?:house\s?guests|house)\b"
     r"|\bslept\s+(?:right\s+)?through\s+(?:the\s+)?(?:whole\s+|entire\s+|rest\s+of\s+the\s+)?(?:afternoon|night|day)\b"
-    r"|\b(?:gr[ae]y|pale)\b[^.!?\n]{0,25}\b(?:and\s+)?then\s+(?:gold|golden)\b",
+    # a colour change is dawn only with light/sky context (review of #2870 B): "the pale hands then turned golden" is not
+    r"|\b(?:light|sky|sun\w*|blinds?|windows?|glow|dawn)\b[^.!?\n]{0,40}\b(?:gr[ae]y|pale)\b[^.!?\n]{0,25}\b(?:and\s+)?then\s+(?:gold|golden)\b"
+    r"|\b(?:gr[ae]y|pale)\b[^.!?\n]{0,25}\b(?:and\s+)?then\s+(?:gold|golden)\s+(?:light|sky|sun\w*|glow|dawn)\b",
     re.IGNORECASE,
 )
+# review of #2870 A: "slept through the night; now it is the afternoon" can be an accurate recollection of a committed night; a past-night recollection marker exempts the slept-through alternative only.
+_PAST_NIGHT_RECOLLECTION_RE = re.compile(r"\b(?:last\s+night|earlier|this\s+morning|yesterday|now\s+it(?:'s|\u2019s|\s+is)|by\s+now|had\s+slept)\b", re.IGNORECASE)
+_NEGATION_RE = re.compile(r"\b(?:not|never|no\s+longer)\b|n['\u2019]t\b", re.IGNORECASE)
+
+
+def _morning_claim_hit(text: str) -> bool:
+    for m in _UNBACKED_MORNING_RE.finditer(text):
+        if m.group(0).lower().startswith("slept") and _PAST_NIGHT_RECOLLECTION_RE.search(text):
+            continue
+        return True
+    return False
+
+
+def _night_claim_hit(text: str) -> bool:
+    """review of #2870 C: a NEGATED mention ("it wasn't the dead middle of the night") is no claim; polarity is read from the clause before the phrase."""
+    for m in _UNBACKED_NIGHT_RE.finditer(text):
+        clause = re.split(r"[.!?;\n]", text[:m.start()])[-1]
+        if _NEGATION_RE.search(clause):
+            continue
+        return True
+    return False
 # ORW-520: "the dead middle of the night" is a clock claim too; held only while the engine clock reads afternoon/evening (it is true at night / late-night).
 _UNBACKED_NIGHT_RE = re.compile(r"\b(?:dead\s+(?:middle\s+)?of\s+(?:the\s+)?night|(?:dead\s+)?middle\s+of\s+the\s+night|dead\s+of\s+night)\b", re.IGNORECASE)
 _UNBACKED_NIGHT_BOARD_TIMES = frozenset({"afternoon", "evening"})
@@ -6498,7 +6521,7 @@ _UNBACKED_MORNING_BOARD_TIMES = frozenset({"afternoon", "evening", "night", "lat
 def _sentence_has_unbacked_morning_claim(text: str) -> bool:
     """Cheap synchronous pre-filter: does `text` assert the morning / next day has arrived (and is not a
     future / hypothetical / dream sentence)? Keeps the ORW-310 guard off every other sentence."""
-    if not text or not (_UNBACKED_MORNING_RE.search(text) or _UNBACKED_NIGHT_RE.search(text)):
+    if not text or not (_morning_claim_hit(text) or _night_claim_hit(text)):
         return False
     return not _UNBACKED_MORNING_EXEMPT_RE.search(text)
 
@@ -6533,7 +6556,7 @@ async def screen_streamed_unbacked_morning(user, sentence: str) -> bool:
         lab = status.get("clockLabel")
         # ORW-355: an EVENING bed wakes the player at bed+8h (4:15am), which the engine bands "morning" - but the clock is still the
         # pre-dawn small hours, so "morning comes in bright and early" is just as unbacked as it is at night.
-        _night_only = bool(_UNBACKED_NIGHT_RE.search(sentence)) and not _UNBACKED_MORNING_RE.search(sentence)
+        _night_only = _night_claim_hit(sentence) and not _morning_claim_hit(sentence)
         if _night_only:  # ORW-520: "the dead middle of the night" is false only in the daytime/evening bands
             if tod not in _UNBACKED_NIGHT_BOARD_TIMES:
                 return True
