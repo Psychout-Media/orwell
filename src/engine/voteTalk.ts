@@ -1,3 +1,4 @@
+import { clamp01Raw as clamp01 } from "../domain/num";
 import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
 import type { ClaimInput, SpokenClaimKind } from "./spokenClaims";
@@ -46,7 +47,6 @@ const CUNNING_BY_ARCHETYPE: Readonly<Record<string, number>> = {
 };
 export function voteTalkCunning(archetype: string | undefined): number { return (archetype !== undefined ? CUNNING_BY_ARCHETYPE[archetype] : undefined) ?? 0.4; }
 
-const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 
 /** The three rolls (each in [0,1)) the caller draws from its own seeded side stream for one speaker. */
 export interface VoteTalkRolls { tell: number; pick: number; lie: number }

@@ -14256,7 +14256,7 @@ export class GameSessionAdapter implements GameSession {
       reveal: (wronged, breaker, deal, actionKind) => {
         if (actionKind === "vote-evict" && breaker !== PLAYER) {
           this.onPlayerEvent?.(
-            `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)}`,
+            `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)} by their sealed ballot`, // distinct wording: the same breaker may later break the same deal in PUBLIC (a nomination), and the identical sentence would read as a Vault echo to the integrity checkpoint
             [breaker], "betrayal", // no player witness ⇒ Vault-held until the 0048 unseal
           );
           return this.onPlayerEvent?.(
@@ -15014,7 +15014,7 @@ export class GameSessionAdapter implements GameSession {
           juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
           revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
           // Vault-held: no player witness, so the event-visibility invariant keeps it hidden until a pathway or the 0048 unseal.
-          reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)}`, [breaker], "betrayal"),
+          reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"), // distinct wording from the later PUBLIC break of the same deal (identical words would read as a Vault echo to the integrity checkpoint)
         });
       } else {
         const kind = renegotiatedKind(deal.kind)!;
