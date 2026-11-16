@@ -76,6 +76,10 @@ SITE_RULES = [
     (r"self-close|no-op if|no session_id", "code comment captured inside the HTML report template string (not model-visible); no creative text"),
     (r"fetching latest code|rebuilding engine|stopping services", "operator status text: the steps of an admin restart progress list; developer-facing"),
     (r"data-intg-id|data-intg-type|data-intg-na", "markup attribute names inside an HTML template string in a settings form; not prose"),
+    (r"I am outside|waiting outside|locked ou", "assistant presence-automation prompt: trigger phrases for a non-game home-automation action"),
+    (r"the two houseguests|one of them|the other", "off-screen texture prompt (off by default, #1936): the neutral referring phrases the writer may use in place of ids; a closed vocabulary by design, not a sample line"),
+    (r"What is the cost of living|check that the endpoint|Step 1:|\"Step 2", "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"),
+    (r"is that bed free|b\|claim\)", "code comment on a regex line that the scanner's tokenizer reads as a string; no prompt text"),
     (r"safety this week|a comp throw", "FIXED in this PR: replaced by a rule (name the concrete thing asked)"),
 ]
 PATH_FALLBACK = [

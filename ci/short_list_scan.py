@@ -26,7 +26,13 @@ MENU_ONEOF_RE = re.compile(
     r"\b(?:one of|pick from|choose from|chosen from|select from|from this list|from among|options?:|menu:)\b[^\n]{0,60}?"
     r"(?:[\"“'`][^\"”'`\n]{1,40}[\"”'`]\s*(?:,|/|\||or)\s*){2,}[\"“'`][^\"”'`\n]{1,40}[\"”'`]", re.I)
 # three or more quoted sentences in a row inside one string: sample lines the model will copy, even with no "e.g." marker (ORW-511 review)
-QUOTED_SAMPLES_RE = re.compile(r"(?:[\"“][^\"”\n]{14,140}[\"”]\s*[,;/]?\s*){3,}")
+_Q = (r"(?:(?<![\w'\"])'(?=[^'\n]*\s)[^'\n]{5,110}'(?![\w'])"      # 'a quoted sample' with a space in it (so an apostrophe in prose is not one)
+      r"|(?<![\w\"])\"(?=[^\"\n]*\s)[^\"\n]{5,110}\"(?![\w\"])"
+      r"|“[^”\n]{5,110}”)")
+# three or more quoted samples in a row, joined by a comma, "or", "and", a slash, a dash, a bullet or just whitespace; single or double quotes, short or long
+QUOTED_SAMPLES_RE = re.compile(rf"(?:{_Q}\s*(?:,|;|/|\||\bor\b|\band\b|—|-|\u2022)?\s*){{3,}}")
+# one quoted spoken line of four or more words ending in ? or ! (the sample line a model repeats verbatim); found as a quoted span, then filtered, so there is no nested quantifier
+QUOTED_SPAN_RE = re.compile(r"[\"“']([^\"”'\n]{12,160})[\"”']")
 MENU_PIPE_RE = re.compile(r"(?:[\"“'`][^\"”'`|\n]{1,40}[\"”'`]\s*\|\s*){2,}[\"“'`][^\"”'`|\n]{1,40}[\"”'`]")
 
 
@@ -124,15 +130,42 @@ def js_strings(src: str) -> list[tuple[int, str]]:
 
 
 # --------------------------------------------------------------------------- text hits (example / menu)
+def _grouped(strings: list[tuple[int, str]]) -> list[tuple[list[tuple[int, int]], str]]:
+    """Adjacent string literals (the lines of one prompt array or a `+` chain) joined with a space, so a quoted sample that wraps across literals is seen as one.
+    Each group is ([(offset in the joined text, source line)], text)."""
+    groups: list[tuple[list[tuple[int, int]], str]] = []
+    marks: list[tuple[int, int]] = []
+    cur = ""
+    last_end = -10
+    for line, text in strings:
+        if cur and line <= last_end + 1:
+            marks.append((len(cur) + 1, line)); cur += " " + text
+        else:
+            if cur: groups.append((marks, cur))
+            marks, cur = [(0, line)], text
+        last_end = line + text.count("\n")
+    if cur: groups.append((marks, cur))
+    return groups
+
+
 def text_hits(lang: str, path: str, strings: list[tuple[int, str]]) -> list[Hit]:
     out: list[Hit] = []
+    for marks, text in _grouped(strings):
+        if len(text) < 25 or " " not in text:
+            continue
+        for m in QUOTED_SAMPLES_RE.finditer(text):
+            line = max((ln for off, ln in marks if off <= m.start()), default=marks[0][1])
+            out.append(Hit("menu", lang, path, line, "menu", 0, " ".join(text[m.start():m.start() + 80].split())))
     for line, text in strings:
         if len(text) < 25 or " " not in text:
             continue
+        for m in QUOTED_SPAN_RE.finditer(text):
+            inner = m.group(1).strip()
+            if len(inner.split()) < 4 or inner[-1] not in "?!" or (m.start() > 0 and (text[m.start() - 1].isalnum())):
+                continue
+            out.append(Hit("example", lang, path, line + text[:m.start()].count("\n"), "example@quoted-line", 0, " ".join(text[max(0, m.start() - 40):m.end() + 40].split())))
         for k, m in enumerate(EXAMPLE_RE.finditer(text)):
             out.append(Hit("example", lang, path, line + text[:m.start()].count("\n"), f"example@{m.group(0).lower()}", 0, " ".join(text[max(0, m.start() - 60):m.end() + 70].split())))
-        for m in QUOTED_SAMPLES_RE.finditer(text):
-            out.append(Hit("menu", lang, path, line + text[:m.start()].count("\n"), "menu", 0, " ".join(text[m.start():m.start() + 80].split())))
         for m in list(MENU_ONEOF_RE.finditer(text)) + list(MENU_PIPE_RE.finditer(text)):
             out.append(Hit("menu", lang, path, line + text[:m.start()].count("\n"), "menu", 0, " ".join(text[max(0, m.start() - 40):m.end() + 40].split())))
     return out
