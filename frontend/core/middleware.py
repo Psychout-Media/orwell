@@ -274,7 +274,14 @@ def allowed_hosts_from_env(env=None) -> list:
     raw = (env.get("ALLOWED_HOSTS") or "").strip()
     if not raw:
         return ["*"]
-    hosts = [h.strip() for h in raw.split(",") if h.strip()]
+    hosts = []
+    for h in (x.strip() for x in raw.split(",")):
+        if not h:
+            continue
+        # ORW-465: Starlette strips the port from the request Host BEFORE comparing, so an entry written with a port ("game.example.com:8443") matches no Host and every request is
+        # refused (400). The port is not part of the host name: drop it ([v6]:port keeps its brackets).
+        m = re.match(r"^(\[[0-9A-Fa-f:.]+\]|[^:\s]+):\d{1,5}$", h)
+        hosts.append(m.group(1) if m else h)
     return hosts or ["*"]
 
 
