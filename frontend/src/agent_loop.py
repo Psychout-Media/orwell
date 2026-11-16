@@ -1930,7 +1930,7 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
         except Exception:
             _early = False
         if _early:
-            lines.append("- It is still the dark small hours, before the house's 8am wake-up (engine truth): the house is quiet and asleep. Write NO morning light, daylight, dawn, sunrise or sun; morning comes at the wake-up call.")
+            lines.append("- It is still the dark small hours, before the house's 8am wake-up (engine truth)" + (": the house is quiet and asleep" if names else "") + ". Write NO morning light, daylight, dawn, sunrise or sun; morning comes at the wake-up call.")
         elif tod and not stated:
             lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
         if names:

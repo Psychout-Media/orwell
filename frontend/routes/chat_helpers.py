@@ -6446,12 +6446,15 @@ _MORNING_LIGHT_RE = re.compile(
     re.IGNORECASE,
 )
 _LIGHT_COLOUR_RE = re.compile(r"\b(?:grey|gray|pale|golden)\s+(?:morning\s+)?light\b", re.IGNORECASE)
-_LIGHT_WAKE_CTX_RE = re.compile(r"\bwak\w+|\bwoke\b|\bopen\w*\s+your\s+eyes\b|\bstir\w*\b|\bfirst\b|\bsun\w*\b|\bdawn\b|\bmorning\b", re.IGNORECASE)
+_LIGHT_WAKE_CTX_RE = re.compile(r"\bwak\w+|\bwoke\b|\bopen\w*\s+your\s+eyes\b|\bdawn\b|\bsunrise\b", re.IGNORECASE)
+# a light-specific negation / still-to-come assertion ("Dawn is still hours away", "no daylight", "the sun has not come up"): true and kept. Quiet / dark / asleep are NOT negations of the light.
+_LIGHT_NEGATION_RE = re.compile(
+    r"\b(?:not|never|no|nor|without|yet|hours?\s+away|still\s+(?:down|dark|hours|far|below))\b|n't|n\u2019t", re.IGNORECASE)
 
 
 def _sentence_has_morning_light_claim(text: str) -> bool:
     return bool(text and (_MORNING_LIGHT_RE.search(text) or (_LIGHT_COLOUR_RE.search(text) and _LIGHT_WAKE_CTX_RE.search(text)))
-                and not _HOUSE_AWAKE_EXEMPT_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
+                and not _LIGHT_NEGATION_RE.search(text) and not _UNBACKED_MORNING_EXEMPT_RE.search(text))
 
 
 def _sentence_has_house_awake_claim(text: str) -> bool:

@@ -34,16 +34,48 @@ def test_small_hours_wake_drops_morning_light_shown_and_stored(monkeypatch, stat
     shown, stored, stashed = _loop(monkeypatch, raw, status)
     assert stashed
     for t in (shown, stored):
-        assert "light" not in t.lower().replace("daylight", "light") or "The kettle" in t
         for w in ("morning light", "Daylight", "sun is", "Dawn", "golden"):
             assert w not in t
         assert "The kettle ticked." in t and "Rain tapped the glass." in t
     assert stored == shown
 
 
-def test_wake_at_or_after_house_wake_still_reads_as_morning(monkeypatch):
-    shown, stored, stashed = _loop(monkeypatch, WAKE, EIGHT)
+@pytest.mark.parametrize("label", ["8:00am, Day 3", "8:05am, Day 3", "11:30am, Day 3"])
+def test_wake_at_or_after_house_wake_still_reads_as_morning(monkeypatch, label):
+    shown, stored, stashed = _loop(monkeypatch, WAKE, {"timeOfDay": "morning", "clockLabel": label, "asleep": []})
     assert "morning light" in shown and "morning light" in stored and not stashed
+
+
+def test_a_minute_before_the_house_wake_is_still_the_small_hours(monkeypatch):
+    shown, stored, stashed = _loop(monkeypatch, WAKE, {"timeOfDay": "morning", "clockLabel": "7:59am, Day 3", "asleep": ["a"]})
+    assert stashed and "morning light" not in shown and "morning light" not in stored
+
+
+@pytest.mark.parametrize("claim", [
+    "The house is quiet, and the first grey morning light slips in. ",
+    "It is dark and silent, but daylight is already spilling across the floor. ",
+    "You wake to dawn light, the house still. ",
+])
+def test_quiet_or_dark_words_do_not_excuse_a_real_light_claim(monkeypatch, claim):
+    shown, stored, stashed = _loop(monkeypatch, "Rain fell. " + claim, EARLY)
+    assert stashed and "Rain fell." in shown and "light" not in shown.lower() and "light" not in stored.lower()
+
+
+@pytest.mark.parametrize("text", [
+    "Dawn is still hours away. ",
+    "There is no daylight yet. ",
+    "Neither sunrise nor anyone is near. ",
+    "The streetlamp throws a golden light on the first step of the stairs, and the sunset photo hangs crooked. ",
+])
+def test_negated_or_ordinary_light_prose_passes(monkeypatch, text):
+    shown, stored, stashed = _loop(monkeypatch, text, EARLY)
+    assert shown == text and stored == text and not stashed
+
+
+def test_post_turn_in_block_does_not_claim_a_sleeping_house_when_the_roster_is_empty():
+    from src import agent_loop as al
+    out = al._post_turn_in_asleep_block(json.dumps({"status": {"timeOfDay": "morning", "earlyMorning": True, "clockLabel": "4:15am, Day 3", "asleep": []}}))
+    assert "NO morning light" in out and "asleep" not in out
 
 
 def test_light_claim_reground_names_the_small_hours(monkeypatch):
