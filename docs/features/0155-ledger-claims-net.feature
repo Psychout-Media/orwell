@@ -12,7 +12,7 @@ Feature: The open ledger catches claims the narrator writes
     When the narration has a houseguest tell the player and another houseguest that a third houseguest is targeting them
     Then the engine records the claim with its speaker and its listeners, as narrated
     And the houseguest who heard it holds it as a belief, sourced to the speaker
-    And the player is handed no belief
+    And the player, who heard it too, is handed no belief
     And a houseguest who only overheard it holds it as said about the one it was told to, never about themself
 
   Scenario: The engine settles what it can check

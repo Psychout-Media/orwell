@@ -65,7 +65,7 @@ Then("a houseguest who only overheard it holds it as said about the one it was t
   assert.ok(!theirs.some((c) => c.kind === "targets-me" && c.subject === b.subject), "the bystander came to believe the subject is targeting THEM");
 });
 
-Then("the player is handed no belief", function () {
+Then("the player, who heard it too, is handed no belief", function () {
   assert.equal((live(bag(this).s!).beliefs?.[PLAYER] ?? []).length, 0);
 });
 
