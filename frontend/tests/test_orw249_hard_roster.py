@@ -67,4 +67,4 @@ def test_the_asleep_list_rides_names_only_and_the_call_site_passes_it():
     out = ch._whereabouts_barrier_directive(WA, [{"id": "npc:1", "name": "Houseguest Four", "secret": "x"}, {"name": ""}, "junk"])
     assert "npc:1" not in out and "secret" not in out.lower().replace("secrets", "")
     src = open(ch.__file__, encoding="utf-8").read()
-    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"))' in src
+    assert '_whereabouts_barrier_directive(game_state.get("whereabouts"), game_state.get("asleep"), game_state.get("playerMove"))' in src
