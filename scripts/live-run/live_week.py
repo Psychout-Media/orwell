@@ -52,7 +52,7 @@ class Week(Chat):
         title = (c.get("title") or "").lower(); opts = c["opts"]
         pick = [0]
         try: me = self.name_fn() if self.name_fn else None
-        except Exception: me = None
+        except Exception as e: me = None; print(f"[live_week] could not read the player's name from the engine ({e}); a nominee's veto card will not pick Save", file=sys.stderr)
         mine = next((i for i, o in enumerate(opts) if me and re.fullmatch(r"(?i)save\s+" + re.escape(me), o.strip())), None)
         if "veto" in title and mine is not None: pick = [mine]  # the runner is a player, not a saboteur: a nominee who holds the veto uses it on themselves (two runs lost the player in week 1 to "Don't use the veto")
         elif "nominat" in title and len(opts) > 1: pick = [0, 1]
@@ -95,11 +95,12 @@ class Week(Chat):
         # ORW-348: a reply read as unsettled (no footer yet) gets a GRACE window, polled once a second, before it is called stuck. Recorded: did the footer appear late (and when), did the text keep growing (the wait loop quit between
         # rounds), or is the bubble still without a footer after the grace (a reply the player would see hang). Tells a runner that gave up too early from a real stuck reply.
         late = {}
-        if new and not new[-1]["done"]:
+        if new and not new[-1]["done"] and time.time() - t0 < limit:   # the grace is for a reply that went quiet, never a second wait on a turn that already timed out
             g0 = time.time(); txt0 = "\n".join(x["txt"] for x in new)
             while time.time() - g0 < 45:
                 self.page.wait_for_timeout(1000)
                 bs2 = self.page.evaluate(BUB); new2 = bs2[before:] if len(bs2) >= before else bs2
+                if time.time() - g0 > 45: break   # a poll that overran the deadline is not a late completion
                 if new2 and new2[-1]["done"]:
                     late = {"late_done_s": round(time.time() - g0), "late_grew_chars": len("\n".join(x["txt"] for x in new2)) - len(txt0), "late_busy": bool(self.page.evaluate(BUSY_JS))}; new = new2; break
             else:
@@ -188,6 +189,8 @@ def main():
         wk = 1; per_week = 0; last_week = eng.call("getGameState").get("week", 2); facts["weeks"] = []
         while not over(eng.call("getGameState")) and len(turns) < a.max_turns_total:
             cur = eng.call("getGameState").get("week", last_week)
+            if a.stop_after_week and cur > a.stop_after_week:   # Week 1 is already over when the bound is 1: never start the next week
+                facts["stopped_after_week"] = cur - 1; return
             ok = play_until(lambda s: over(s) or s.get("week", cur) > cur, f"w{cur}", a.max_turns_per_week)
             facts["weeks"].append({"week": cur, "advanced": ok, "turns_total": len(turns)})
             check(f"S-week-{cur}-advanced", ok, f"week {cur} ended within {a.max_turns_per_week} turns (total turns {len(turns)})")

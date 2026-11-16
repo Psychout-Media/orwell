@@ -23,7 +23,7 @@ def text_of(x):
 def block(r, prefix):
     for x in msgs(r):
         c = text_of(x)
-        if x.get("role") == "system" and c.startswith(prefix): return c
+        if x.get("role") == "system" and prefix in c: return c   # anywhere in the system content: with the volatile-tail wire off the block is not at offset zero
     return ""
 
 
@@ -37,6 +37,8 @@ def parse_items(seg_lines):
             rest = m.group(2)
             km = re.search(r"knows: (.*?)(?:; suspects.*)?$", rest)
             if km: out[cur] += [i.strip() for i in re.split(r"; (?=\(|[A-Za-z])", km.group(1)) if i.strip()]
+            sm = re.search(r"suspects[^:]*: (.*)$", rest)   # the terminal block emits the hunches beside the knows items: they count against the ceiling too
+            if sm: out[cur] += [i.strip() for i in re.split(r"; (?=\(|[A-Za-z])", sm.group(1)) if i.strip()]
             continue
         km = re.match(r"\s+knows: (.*)$", ln)
         if km and cur: out[cur] += [i.strip() for i in re.split(r"; (?=\(|[A-Za-z])", km.group(1)) if i.strip()]
@@ -66,7 +68,7 @@ def words(item, own):
 def referenced(item, own, reply):
     ws = words(item, own)
     if not ws: return False
-    low = reply.lower(); hit = sum(1 for w in ws if w in low)
+    low = reply.lower(); hit = sum(1 for w in ws if re.search(r"\b" + re.escape(w) + r"\b", low))   # whole words: "arguments" is not a reference to "argue"
     return hit >= min(2, len(ws))
 
 
@@ -77,13 +79,13 @@ def main(argv):
     big = [r for r in rows if r.get("kind") == "stream" and len(json.dumps(r.get("request"))) > 100000]
     older_total = older_ref = calls_with_older = calls_ref = ceiling_bad = 0
     for r in big:
-        g, b = block(r, "GAME CONTEXT"), block(r, "SHOW BRIEF")
+        g, b = block(r, "GAME CONTEXT"), block(r, "HARD CONSTRAINTS")   # KNOWLEDGE SCOPE is emitted in the HARD CONSTRAINTS message
         reply = (r.get("response") or {}).get("text") or ""
         if not g or not reply: continue
         full = ctx_lists(g); term = terminal_lists(b)
         for name, items in term.items():
             allowed = set(full.get(name, []))
-            if allowed and any(i not in allowed for i in items): ceiling_bad += 1
+            ceiling_bad += sum(1 for i in items if i not in allowed)   # each terminal item outside the full list counts, whether or not the full list was found
         hit_call = False; has_older = False
         for name, items in full.items():
             older = items[:-n] if len(items) > n else []

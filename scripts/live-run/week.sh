@@ -9,6 +9,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd); KIT=${ORWELL_KIT:-$HERE/../rehearsal-kit}; . "$KIT/slot.sh"
 STATE=$RIG_STATE_DIR; mkdir -p "$STATE"; REF=${1:-main}; CAP=${RIG_SPEND_CAP:-3}
 python3 -c 'import sys; c=float(sys.argv[1]); assert c>0 and c==c' "$CAP" 2>/dev/null || { echo "LIVE-WEEK COULD-NOT-RUN RIG_SPEND_CAP must be a positive number (got '$CAP'); nothing was started"; exit 2; }   # fail closed: never a paid run without a working guard
+case "${RIG_WEEKS:-1}" in ''|*[!0-9]*|0) echo "LIVE-WEEK COULD-NOT-RUN RIG_WEEKS must be a positive integer (got '${RIG_WEEKS:-}'); nothing was started"; exit 2;; esac   # validated before anything is staged or spent
 exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-WEEK BUSY (another live run holds rig slot $RIG_SLOT)"; exit 3; }
 git -C "$RIG_HOME/orwell" fetch -q origin "$REF" || { echo "LIVE-WEEK COULD-NOT-RUN fetch failed"; exit 2; }
 SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 "origin/$REF")

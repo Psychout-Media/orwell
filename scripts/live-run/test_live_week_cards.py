@@ -37,3 +37,22 @@ def test_clock_claim_follows_the_replys_own_pm_word():
     ids = lambda text, clock: [c for c in _score([_turn("a", text * 30, clock)]) if c["id"].startswith("C3") and not c["ok"]]
     assert ids("It is 8:10 at night. ", "8:10am, Day 2"), "8:10 at night against an 8:10am engine clock must warn"
     assert not ids("It is 8:10 at night. ", "8:10pm, Day 2")
+
+
+def test_week_sh_refuses_a_bad_cap_or_week_count_before_starting_anything():
+    import subprocess
+    here = os.path.dirname(os.path.abspath(__file__))
+    for env in ({"RIG_SPEND_CAP": "bogus"}, {"RIG_WEEKS": "x"}, {"RIG_WEEKS": "0"}):
+        r = subprocess.run(["bash", os.path.join(here, "week.sh")], capture_output=True, text=True, env={**os.environ, **env, "ORWELL_RIG_HOME": "/nonexistent-rig"})
+        assert r.returncode == 2 and "COULD-NOT-RUN" in r.stdout, (env, r.stdout, r.stderr)
+
+
+def test_fidelity_read_ceiling_and_reference_rules():
+    import fidelity_read as fr
+    assert fr.referenced("they argue about the dishes", "Host", "an argument over the dishes broke out") is False   # 'argument' is not the word 'argue'
+    assert fr.referenced("they argue about the dishes", "Host", "they argue loudly about the dishes") is True
+    r = {"request": {"messages": [{"role": "system", "content": "preamble\nHARD CONSTRAINTS\n- KNOWLEDGE SCOPE\n  · Alpha — knows: one fact; two fact; suspects (a hunch): a hunch\n- BOARD"}]}}
+    term = fr.terminal_lists(fr.block(r, "HARD CONSTRAINTS"))
+    assert term == {"Alpha": ["one fact", "two fact", "a hunch"]}
+    full = {"Alpha": ["one fact"]}
+    assert sum(1 for i in term["Alpha"] if i not in set(full.get("Alpha", []))) == 2
