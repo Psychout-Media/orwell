@@ -10,7 +10,9 @@
  *
  * Region comes from the state (Census regions). Size class comes from the population.
  */
-import type { Hometown } from "./hometowns";
+
+/** The four Census regions (the hometown spread key; the legacy list adds "International"). */
+export type PlaceRegion = "Northeast" | "Midwest" | "South" | "West";
 
 export type SizeClass = "big-city" | "city" | "small-city" | "town";
 
@@ -18,13 +20,13 @@ export interface WorldPlace {
   /** "City, ST" (the string the card and the narrator use). */
   readonly city: string;
   readonly state: string;
-  readonly region: Hometown["region"];
+  readonly region: PlaceRegion;
   /** Residents in thousands (the draw weight before flattening). */
   readonly popK: number;
   readonly size: SizeClass;
 }
 
-const REGION_OF_STATE: Readonly<Record<string, Hometown["region"]>> = {
+const REGION_OF_STATE: Readonly<Record<string, PlaceRegion>> = {
   CT: "Northeast", ME: "Northeast", MA: "Northeast", NH: "Northeast", RI: "Northeast", VT: "Northeast", NJ: "Northeast", NY: "Northeast", PA: "Northeast",
   IL: "Midwest", IN: "Midwest", MI: "Midwest", OH: "Midwest", WI: "Midwest", IA: "Midwest", KS: "Midwest", MN: "Midwest", MO: "Midwest", NE: "Midwest", ND: "Midwest", SD: "Midwest",
   DE: "South", FL: "South", GA: "South", MD: "South", NC: "South", SC: "South", VA: "South", DC: "South", WV: "South", AL: "South", KY: "South", MS: "South", TN: "South", AR: "South", LA: "South", OK: "South", TX: "South",
