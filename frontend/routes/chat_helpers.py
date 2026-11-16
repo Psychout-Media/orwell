@@ -6692,6 +6692,10 @@ def _status_names(v) -> list:
     return [n.strip() for n in ((x.get("name") if isinstance(x, dict) else x) for x in (v or [])) if isinstance(n, str) and n.strip()]
 
 
+_QUOTED_RE = re.compile(r"[\u201c\"][^\u201d\"]*[\u201d\"]|(?<!\w)[\u2018'][^\u2019']*[\u2019'](?!\w)")
+_ADDRESSEE_RE = re.compile(r"\b(?:to|at|toward|towards|with|for)\s+(?:[A-Z][\w'-]*\s*){1,3}")
+
+
 def _greeted_by_an_awake_houseguest(sentence: str, status: dict) -> bool:
     """True when `sentence` is a greeting (not a whole-house claim) that names a houseguest the engine's own status lists as awake and names nobody it lists as asleep. Reads only the status the screen already holds."""
     if _HOUSE_WHOLE_RE.search(sentence or "") or not isinstance(status, dict) or not isinstance(status.get("awake"), list):
@@ -6700,7 +6704,10 @@ def _greeted_by_an_awake_houseguest(sentence: str, status: dict) -> bool:
     firsts = [n.split()[0] for n in awake + asleep]
     word = lambda w: re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", sentence) is not None
     # the narrator says first names: a first name counts for an AWAKE houseguest only when it is unique in the whole roster (two Anas: stay on the safe side and drop), while ANY first name of a sleeper marks a sleeper
-    awake_hit = any(word(n) for n in awake) or any(word(n.split()[0]) and firsts.count(n.split()[0]) == 1 for n in awake)
+    # ORW-493: the awake houseguest must be the SPEAKER, named outside the quotes and not as an addressee ("to X", "at X"): "'Good morning, Riser,' someone whispers" names the awake one only as the person greeted
+    outside = _ADDRESSEE_RE.sub(" ", _QUOTED_RE.sub(" ", sentence))
+    owd = lambda w: re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", outside) is not None
+    awake_hit = any(owd(n) for n in awake) or any(owd(n.split()[0]) and firsts.count(n.split()[0]) == 1 for n in awake)
     asleep_hit = any(word(n) or word(n.split()[0]) for n in asleep)
     return awake_hit and not asleep_hit
 

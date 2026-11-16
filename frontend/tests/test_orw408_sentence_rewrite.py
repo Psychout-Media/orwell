@@ -486,6 +486,10 @@ EARLY_STATUS = {"timeOfDay": "late-night", "earlyMorning": True, "clockLabel": "
     ("The house is awake. ", False),
     ("'Good morning,' someone whispers. ", False),
     ("'Good morning,' Riser Role whispers to Napper Role. ", False),
+    ("'Good morning, Riser Role,' someone whispers. ", False),                      # ORW-493: the awake houseguest is only the one addressed
+    ("'Good morning, Riser,' someone whispers. ", False),
+    ("Someone whispers to Riser Role, 'Good morning.' ", False),
+    ("Riser Role whispers, 'Good morning.' ", True),
 ])
 def test_orw454_a_greeting_by_a_named_awake_houseguest_is_kept_and_the_house_up_claim_is_dropped(monkeypatch, line, kept):
     emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [TRUE3, line, "The kettle ticks. "]}], redo="X", flag="0", status=EARLY_STATUS)
