@@ -53,6 +53,9 @@ def good_brief(c, n):
     }
 
 
+OBJ3 = ["sprocket", "gourd", "pennant", "beehive", "satchel", "abacus", "cooler", "spindle", "trumpet", "wheelbarrow", "cauldron", "parasol", "fiddle", "hatchet", "sundial", "bellows", "thermometer", "gramophone"]
+
+
 def writer(bad=None, editor=None, calls=None):
     cs = cards()
 
@@ -60,6 +63,8 @@ def writer(bad=None, editor=None, calls=None):
         if calls is not None:
             calls.append(messages)
         user = json.loads(messages[-1]["content"])
+        if "needObjects" in user:
+            return json.dumps({i: [f"a gizmo{i.split(':')[1]}a by the door", f"a widget{i.split(':')[1]}b on the ground"][:v["needCount"]] for i, v in user["needObjects"].items()})
         if "rewrite" in user or "complete" in user:
             ids = list(user.get("rewrite") or {}) + list(user.get("complete") or {})
             return json.dumps({i: (editor or good_brief)(cs[int(i.split(":")[1]) - 1], int(i.split(":")[1]) - 1) for i in ids})
@@ -280,7 +285,7 @@ def test_fix2_a_brief_is_repaired_before_it_is_rejected_and_the_editor_can_land(
     res = run(B.author_briefs(cs, wrapped, seed=1))
     assert res["floor"] == [] and len(res["briefs"]["npc:3"]["inFrame"]) == 2 and res["calls"] == 3
     res_nofill = run(B.author_briefs(cs, writer(bad=wrong, editor=lambda c2, n: {**good_brief(c2, n), "inFrame": good_brief(c2, n)["inFrame"][:1]}), seed=1))
-    assert res_nofill["floor"] == [] and len(res_nofill["briefs"]["npc:3"]["inFrame"]) == 1      # no top-up: the one object stands, the brief is not lost
+    assert res_nofill["floor"] == [] and len(res_nofill["briefs"]["npc:3"]["inFrame"]) in (1, 2)      # the editor's top-up fails, the targeted ask may fill it; the brief is never lost
     # a dry run where the editor can reduce the floor count (through the probe's own run())
     here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
     sys.path.insert(0, here)
@@ -512,3 +517,72 @@ def test_n4_quotes_match_after_case_and_punctuation_and_a_three_word_run_counts(
     assert B._quote_in_sheet("the clam docks", B._norm("grew up near the clam docks")) and not B._quote_in_sheet("the clam shells", B._norm("grew up near the clam docks"))
     # the place tie is matched the same way
     assert "no-place-tie" not in B.check_brief(c, an, {**ok, "tie": '"Near The Clam Docks, in Cedar Key"'})
+
+
+# ---------------------------------------------------------------------------------------------------- round 10 (cast 0309, run at c3b38e9f)
+def test_o1_a_look_signature_is_never_dropped_and_a_collision_changes_the_later_objects():
+    cs = cards()
+    for c in cs:
+        c["physicalCharacteristics"] = {**c["physicalCharacteristics"], **({"lookSignature": "a dark green beanie worn pulled down low, even indoors"} if c["id"] == "npc:7" else {}),
+                                         **({"lookSignature": "work boots polished the night before"} if c["id"] == "npc:2" else {}), **({"lookSignature": "a single beaded leather anklet that never comes off"} if c["id"] == "npc:9" else {})}
+    # the beanie repeats a word of the clothes, is a hat on an indoor day, and is clothing: none of it drops it
+    bad = {"npc:7": lambda b: {**b, "wear": "a dark green zip-up hoodie, baggy faded jeans", "where": "the kitchen table of the apartment near the " + PLACES[6][0] + " in " + PLACES[6][1]},
+           "npc:2": lambda b: {**b, "wear": "a rust work jacket, brown leather work boots"},
+           "npc:3": lambda b: {**b, "inFrame": ["a polished boot on the step", b["inFrame"][1]]}}          # a later person's object collides with the boots
+    res = run(B.author_briefs(cs, writer(bad=bad), seed=1))
+    assert res["briefs"]["npc:7"]["signature"] == "a dark green beanie worn pulled down low, even indoors"
+    assert res["briefs"]["npc:2"]["signature"] == "work boots polished the night before" and res["briefs"]["npc:9"]["signature"].startswith("a single beaded leather anklet")
+    assert "npc:7" not in res["floor"] and "hat-indoors" not in res["rejected"] and "signature-repeats-wear" not in res["rejected"]
+    # it is printed: a worn one joins the clothes even when it shares a word with them
+    out = B.compose_prompt(FLOOR, res["briefs"]["npc:7"])
+    assert "Wearing a dark green zip-up hoodie, baggy faded jeans, and a dark green beanie worn pulled down low, even indoors, in their own everyday clothes" in out.replace("Wearing ", "Wearing ", 1) or "dark green beanie worn pulled down low" in out.split("Setting:")[0]
+    # a collision with the card's own signature changes the OTHER person's objects, never the signature
+    assert "boot" not in " ".join(res["briefs"]["npc:3"]["inFrame"]).lower() and res["briefs"]["npc:3"].get("signature")
+
+
+def test_o2_autumn_and_winter_days_need_a_layer_unless_it_is_hot():
+    cs = cards()
+    c = cs[0]
+    thin = {**good_brief(c, 0), "wear": "a short-sleeve lace blouse, light trousers"}
+    base = B.deal_anchors(cs, 1)["npc:1"]
+    assert "weather-layer" in B.check_brief(c, {**base, "season": "autumn", "weather": "leaves down on the ground"}, thin)      # not 'cold' in words, but autumn
+    assert "weather-layer" in B.check_brief(c, {**base, "season": "winter", "weather": "thin pale sun"}, thin)
+    assert "weather-layer" not in B.check_brief(c, {**base, "season": "autumn", "weather": "dry heat"}, thin)
+    assert "weather-layer" not in B.check_brief(c, {**base, "season": "summer", "weather": "hazy sun"}, thin)
+    fixed = B.repair_brief(c, B.clean_brief(thin), {"season": "autumn", "weather": "leaves down on the ground"})
+    assert "over it" in fixed["wear"] and "weather-layer" not in B.check_brief(c, {**base, "season": "autumn", "weather": "leaves down on the ground"}, fixed)
+
+
+def test_o3_one_targeted_ask_gives_a_different_object_when_the_replacement_also_repeats():
+    cs = cards()
+    rod = {f"npc:{i}": (lambda b: {**b, "inFrame": ["a fishing rod leaned on the rail", b["inFrame"][1]]}) for i in (9, 14, 15)}
+    stubborn = lambda c, n: {**good_brief(c, n), "inFrame": ["a fishing rod again", good_brief(c, n)["inFrame"][1]]}   # noqa: E731
+    calls = []
+    res = run(B.author_briefs(cs, writer(bad=rod, editor=stubborn, calls=calls), seed=1))
+    assert res["floor"] == [] and res["calls"] <= 4
+    assert all(len(b["inFrame"]) == 2 for b in res["briefs"].values()), res["oneObject"]            # two objects each
+    asks = [c for c in calls if "needObjects" in c[-1]["content"]]
+    assert asks and "notAnyOf" in asks[0][-1]["content"] and res["objectsLanded"] >= 2
+    assert sum(1 for b in res["briefs"].values() if "fishing" in " ".join(b["inFrame"])) <= 1
+    # an ask that returns clothes or a repeat lands nothing: the one object stands, the brief is not lost
+    async def clothes(messages):
+        user = json.loads(messages[-1]["content"])
+        if "needObjects" in user:
+            return json.dumps({i: ["a denim jacket", "a fishing rod"] for i in user["needObjects"]})
+        return await writer(bad=rod, editor=stubborn)(messages)
+    res2 = run(B.author_briefs(cs, clothes, seed=1))
+    assert res2["floor"] == [] and res2["oneObject"] and res2["objectsLanded"] == 0
+
+
+def test_o4_the_floor_reasons_say_which_codes_put_each_person_on_the_floor():
+    cs = cards()
+    generic = {"npc:12": lambda b: {**b, "where": "the kitchen"}, "npc:14": lambda b: {**b, "tie": "no quotes"}}
+    res = run(B.author_briefs(cs, writer(bad=generic, editor=lambda c, n: {**good_brief(c, n), "wear": "scrubs"}), seed=1))
+    assert sorted(res["floor"]) == ["npc:12", "npc:14"]
+    assert "generic-place" in res["floorReasons"]["npc:12"] and "editor:work-gear" in res["floorReasons"]["npc:12"]
+    assert any(c in res["floorReasons"]["npc:14"] for c in ("no-place-tie", "missing-tie")) and "editor:work-gear" in res["floorReasons"]["npc:14"]
+    assert set(res["floorReasons"]) == set(res["floor"])
+
+    async def dead(messages):
+        raise RuntimeError("x")
+    assert all("missing" in v for v in run(B.author_briefs(cs, dead, seed=1))["floorReasons"].values())

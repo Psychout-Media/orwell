@@ -139,7 +139,7 @@ def emit(args, cards, floor, res, finals):
             raise RuntimeError(f"--out was not written: {args.out}")
     if args.briefs:
         with open(args.briefs, "w", encoding="utf-8") as f:
-            json.dump({"briefs": res["briefs"], "floor": res["floor"], "anchors": res["anchors"], "rejected": res["rejected"], "rewritten": res["rewritten"],
+            json.dump({"briefs": res["briefs"], "floor": res["floor"], "floorReasons": res.get("floorReasons"), "oneObject": res.get("oneObject"), "anchors": res["anchors"], "rejected": res["rejected"], "rewritten": res["rewritten"],
                        "raw": res.get("raw"), "finalPrompts": {i: finals.get(i) for i in ids}, "floorPrompts": {i: (floor.get(i) or {}).get("prompt") for i in ids}},
                       f, indent=1, ensure_ascii=False)
         if not os.path.exists(args.briefs):
@@ -221,6 +221,7 @@ def main():
         res, finals = asyncio.run(run(args, cards, floor, llm_fn))
         emit(args, cards, floor, res, finals)
         log(f"[photobrief] briefs accepted={len(res['briefs'])} (rewritten {res['rewritten']}) floor={len(res['floor'])} rejected={json.dumps(res['rejected'], sort_keys=True)}")
+        log(f"[photobrief] floor reasons: {json.dumps(res.get('floorReasons'), sort_keys=True)}; objects landed {res.get('objectsLanded')}; one object left on {res.get('oneObject')}")
     except Exception as e:
         log(f"[photobrief] ERROR: {type(e).__name__}: {e}")
         code = 2

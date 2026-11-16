@@ -214,6 +214,7 @@ DARK_TOP_RE = re.compile(r"\b(?:black|charcoal|navy|dark (?:grey|gray|blue))\b",
 CLOTHING_RE = re.compile(r"\b(?:jackets?|jeans|trousers|pants|slacks|shorts|skirts?|dress(?:es)?|shirts?|t-?shirts?|tees?|tops?|tunics?|blouses?|hoodies?|sweaters?|cardigans?|knits?|vests?|coats?|parkas?|boots?|sneakers?|shoes?|loafers?|sandals?|flats?|socks?|scarf|scarves|hats?|caps?|beanies?|gloves?|earrings?|necklaces?|bracelets?|rings?|watch|belt|overalls|leggings|fleece|pullover|henley|polo|corduroy|denim|jumpsuit|apron|hoops?|jewelry|jewellery|sleeves?|collars?|cuffs?|nails?|nail polish|chains?|pendants?|anklets?|glasses|piercings?|studs?|clothes|clothing|garments?|outfits?|wardrobe)\b", re.I)
 ACCESSORY_RE = re.compile(r"\b(?:earrings?|necklaces?|bracelets?|rings?|chains?|pendants?|anklets?|watch|glasses|piercings?|hoops?|studs?|jewelry|jewellery|nails?|nail polish|scarf|scarves)\b", re.I)
 LAYER_RE = re.compile(r"\b(?:jacket|coat|overshirt|cardigan|sweater|fleece|hoodie|flannel|parka|vest|raincoat|windbreaker|wool|knit|long-sleeve|long sleeve|pullover|sweatshirt|corduroy)\b", re.I)
+HOT_RE = re.compile(r"hot|heat|warm|humid", re.I)
 COLD_WET_RE = re.compile(r"cold|damp|snow|rain|drizzle|raw|windy|crisp|grey overcast|low grey|wet|chill", re.I)
 OBJ_STOP = frozenset("small silver golden battered worn old large little faded scuffed wooden metal plastic favorite favourite vintage colorful colourful bright rusty chipped steaming tattered simple plain leather cotton heavy folding another beside behind their theirs there where which while resting leaning propped sitting standing nearby sleeping half-finished half-eaten around against beneath above lined filled always things these those being would could about after before still again often usually never every other others sticking hanging lying placed kept holding carried tucked stuck pinned worn-in focus blurred distance distant background softly".split())
 BODY_PART_RE = re.compile(r"\b(?:arms?|hands?|fingers?|legs?|ankles?|knees?|feet|foot|shoulders?|posture|stance|standing|sitting|seated|leaning|perched|crossed|folded|stretched|upright|torso|waist|hips?)\b", re.I)
@@ -315,6 +316,15 @@ def _obj_tokens(text: str) -> set:
     return out
 
 
+def _needs_layer(anchors: Optional[dict]) -> bool:
+    """Cold, wet or windy weather, or an autumn or winter day that is not hot: a real person wears a layer."""
+    a = anchors or {}
+    weather = str(a.get("weather") or "")
+    if COLD_WET_RE.search(weather):
+        return True
+    return str(a.get("season") or "") in ("autumn", "winter") and not HOT_RE.search(weather)
+
+
 def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = None) -> Optional[dict]:
     """Deterministic repair before the checks (it never leaves a field empty that a check then rejects): strip trailing periods, take the person's name out, drop a
     clause that shows work gear, text, a brand or sunglasses, drop a clause about the body from the clothes and the signature, move a worn accessory (earrings, nails,
@@ -340,6 +350,8 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
             out[k] = _drop_clauses(out[k], bad_rx) or out[k]
     # the clothes line is clothes only, the signature is a thing: a clause about the body (arms, shoulders, chin, eyes, smile ...) is dropped
     for k in ("wear", "signature"):
+        if k == "signature" and out.get("_look"):
+            continue
         if isinstance(out.get(k), str) and BODY_RE.search(out[k]):
             kept = _drop_clauses(re.sub(r"\s+and\s+(?=(?:a|an|the|his|her|their)?\s*(?:arms?|shoulders?|chin|eyes?|dimples?|hands|gaze)\b)", ", ", out[k], flags=re.I), BODY_RE)
             if kept:
@@ -357,7 +369,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     sig = str(out.get("signature") or "")
     if sig:
         sw = {w for w in _norm(sig).split() if len(w) >= 4}
-        if CLOTHING_RE.search(sig) and sw & wear_words:
+        if CLOTHING_RE.search(sig) and sw & wear_words and not out.get("_look"):
             sig = ""
     # the objects: a worn accessory joins the clothes; a garment, a repeat of the clothes or of the signature is dropped
     objects, moved = [], []
@@ -383,7 +395,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     else:
         out.pop("signature", None)
     # the weather: cold or wet and the clothes do not fit it: a layer from their own style, as a real person would
-    if anchors and COLD_WET_RE.search(str(anchors.get("weather") or "")) and out.get("wear") and not LAYER_RE.search(out["wear"]):
+    if anchors and _needs_layer(anchors) and out.get("wear") and not LAYER_RE.search(out["wear"]):
         wardrobe = [w for w in ((card.get("physicalCharacteristics") or {}).get("wardrobe") or []) if isinstance(w, str) and LAYER_RE.search(w)]
         out["wear"] = f"{out['wear']}, with {wardrobe[0].strip().rstrip('.')} over it" if wardrobe else f"{out['wear']}, with a plain overshirt over it"
     for k, lim in LIMITS.items():
@@ -404,6 +416,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     if codes:
         return codes
     brief = {**brief, "signature": brief.get("signature") or "", "expressionBody": brief.get("expressionBody") or ""}
+    look = bool(brief.get("_look"))
     if not 1 <= len(brief["inFrame"]) <= 2:
         codes.append("inframe-count")
     for k, lim in LIMITS.items():
@@ -426,7 +439,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     if SUNGLASSES_RE.search(brief["wear"] + " " + brief["signature"]):
         codes.append("sunglasses")
     indoor = bool(INDOOR_RE.search(brief["where"])) and not OUTDOOR_RE.search(brief["where"])
-    if indoor and HAT_RE.search(brief["wear"] + " " + brief["signature"]):
+    if indoor and HAT_RE.search(brief["wear"] + " " + ("" if look else brief["signature"])):
         codes.append("hat-indoors")
     where = brief["where"].strip()
     if GENERIC_WHERE.match(where) or len(where.split()) < 5:
@@ -445,13 +458,13 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     # the clothes sentence holds clothes only; the signature is a thing, not a pose and not a repeat of what is worn
     if BODY_RE.search(brief["wear"]):
         codes.append("body-in-wear")
-    if BODY_RE.search(brief["signature"]):
+    if BODY_RE.search(brief["signature"]) and not look:
         codes.append("body-in-signature")
     wear_words = {w for w in _norm(brief["wear"]).split() if len(w) >= 4}
     sig_words = {w for w in _norm(brief["signature"]).split() if len(w) >= 4}
-    if sig_words and CLOTHING_RE.search(brief["signature"]) and (sig_words & wear_words):
+    if sig_words and CLOTHING_RE.search(brief["signature"]) and (sig_words & wear_words) and not look:
         codes.append("signature-repeats-wear")
-    if COLD_WET_RE.search(str(anchors.get("weather") or "")) and not LAYER_RE.search(brief["wear"]):
+    if _needs_layer(anchors) and not LAYER_RE.search(brief["wear"]):
         codes.append("weather-layer")
     # the two own objects are things from their life in this place: not clothing they wear, and not the signature item again
     worn = _tokens(brief["wear"]) | wear_words
@@ -464,7 +477,7 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     # the job is not a caption (unless the facet is near work)
     job = str(card.get("vocation") or "")
     if job and anchors.get("facet") != NEAR_WORK:
-        job_words = {w for w in _norm(job).split() if len(w) >= 5 and w not in ("night", "head", "manager", "assistant", "senior", "junior", "small", "local", "county", "commercial")}
+        job_words = {w for w in _norm(job).split() if len(w) >= 5 and w not in ("night", "head", "manager", "assistant", "senior", "junior", "small", "local", "county", "commercial", "league", "community", "college", "academic", "recreation", "family", "service", "services", "general", "associate", "assistant", "director", "specialist", "coordinator")}
         if job_words and (job_words & _tokens(brief["where"] + " " + brief["doing"])):
             codes.append("job-caption")
     # the trace: a quoted phrase that really is in the sheet
@@ -523,10 +536,16 @@ def check_cast(cards: list, anchors: dict, briefs: dict) -> dict:
             dark += 1
             if dark > DARK_MAX:
                 code.append("dark-palette")
-        toks = _obj_tokens(" ".join(b.get("inFrame") or []) + " " + str(b.get("signature") or ""))
-        if toks & objs_seen:
+        obj_toks = _obj_tokens(" ".join(b.get("inFrame") or []))
+        sig_toks = _obj_tokens(str(b.get("signature") or ""))
+        foreign_look: set = set()
+        for j, bj in briefs.items():
+            if j != i and bj and bj.get("_look") and bj.get("signature"):
+                foreign_look |= _obj_tokens(str(bj["signature"]))
+        # a card's own signature is never the offender: the later person's OBJECTS change instead
+        if (obj_toks & (objs_seen | foreign_look)) or (not b.get("_look") and sig_toks & (objs_seen | foreign_look)):
             code.append("object-repeat")
-        objs_seen |= toks
+        objs_seen |= obj_toks | sig_toks
         if anchors.get(i, {}).get("facet") == NEAR_WORK or re.search(r"near (?:where )?(?:they|he|she) work|outside (?:the |their )work", b["where"], re.I):
             near += 1
             if near > NEAR_WORK_MAX:
@@ -613,6 +632,7 @@ def _prepare(card: dict, raw, anchors: dict) -> Optional[dict]:
     ls = look_signature(card)
     if b and ls:
         b["signature"] = ls
+        b["_look"] = True          # the card's own signature: never dropped, never printed twice, exempt from the worn-repeat and hat-indoors rules
     return repair_brief(card, b, anchors)
 
 
@@ -621,13 +641,61 @@ def _drop_used(brief: dict, seen: set) -> dict:
     out = dict(brief)
     objs = [x for x in out.get("inFrame") or [] if not (_obj_tokens(x) & seen)]
     out["inFrame"] = objs or (out.get("inFrame") or [])[:1]
-    if out.get("signature") and _obj_tokens(out["signature"]) & seen:
+    if out.get("signature") and not out.get("_look") and _obj_tokens(out["signature"]) & seen:
         out.pop("signature", None)
     return out
 
 
 def _natural(ids: list) -> list:
     return sorted(ids, key=lambda x: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", x)])
+
+
+OBJECTS_SYSTEM = (
+    "You give a person's missing objects for a cast photo. For each person you get their sheet, the objects they already have in the frame, how many more are needed, "
+    "and a list of things 'notAnyOf' that other people already have or that are clothes. Answer with JSON only: an object keyed by the person's id, each value an array of the "
+    "requested number of short object phrases: things of THEIRS in the place they are photographed, taken from their sheet; not clothes, not jewellery, not anything worn, "
+    "and not anything in notAnyOf or like it."
+)
+
+
+async def _objects_pass(cards: list, anchors: dict, accepted: dict, llm_fn: LlmFn, ledger: list) -> int:
+    """One targeted ask for the people left with fewer than two objects: 'give a different object, not any of: ...'. Returns how many objects landed."""
+    by_id = {str(c["id"]): c for c in cards}
+    need = {i: 2 - len(b.get("inFrame") or []) for i, b in accepted.items() if len(b.get("inFrame") or []) < 2}
+    if not need:
+        return 0
+    taken = used_summary(accepted)
+    avoid = sorted({*taken["objects"], *taken["signatures"]})
+    payload = {i: {**sheet_of(by_id[i]), "anchors": anchors.get(i, {}), "alreadyInFrame": accepted[i].get("inFrame") or [], "needCount": n,
+                   "notAnyOf": avoid + [accepted[i].get("wear", ""), str(accepted[i].get("signature") or "")]} for i, n in need.items() if i in by_id}
+    raw = await _call(llm_fn, [{"role": "system", "content": OBJECTS_SYSTEM}, {"role": "user", "content": json.dumps({"needObjects": payload}, ensure_ascii=False)}], ledger, "objects")
+    landed = 0
+    for i in need:
+        got = raw.get(i) if isinstance(raw, dict) else None
+        if not isinstance(got, list):
+            got = (_find(raw, i) or {}).get("inFrame") if isinstance(_find(raw, i), dict) else None
+        if not isinstance(got, list):
+            continue
+        b = accepted[i]
+        wear_words = {w for w in _norm(b.get("wear") or "").split() if len(w) >= 4}
+        seen = set()
+        for j, bj in accepted.items():
+            if j != i:
+                seen |= _obj_tokens(" ".join(bj.get("inFrame") or []) + " " + str(bj.get("signature") or ""))
+        seen |= _obj_tokens(str(b.get("signature") or ""))
+        objs = list(b.get("inFrame") or [])
+        for item in got:
+            item = _trim(re.sub(r"\s+", " ", str(item)).strip(), IN_FRAME_ITEM_MAX)
+            toks = _obj_tokens(item)
+            iw = {w for w in _norm(item).split() if len(w) >= 4}
+            if not item or len(objs) >= 2 or CLOTHING_RE.search(item) or ACCESSORY_RE.search(item) or (iw & wear_words) or WORK_GEAR_RE.search(item) \
+                    or TEXT_RE.search(item) or BRAND_RE.search(item) or not toks or (toks & seen) or (toks & _obj_tokens(" ".join(objs))):
+                continue
+            objs.append(item)
+            seen |= toks
+            landed += 1
+        accepted[i] = {**b, "inFrame": objs}
+    return landed
 
 
 async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) -> dict:
@@ -668,6 +736,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
             else:
                 accepted[i] = briefs[i]
     tally(failures)
+    last_codes: dict = {i: list(c) for i, c in failures.items()}
     complete = {i: missing_parts(b) for i, b in accepted.items() if missing_parts(b)}
     rewritten = 0
     fixed: dict = {}
@@ -678,6 +747,7 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
             nb = _prepare(by_id[i], _find(fixed, i), anchors[i])
             if not nb:
                 rejected["editor-unusable"] = rejected.get("editor-unusable", 0) + 1
+                last_codes[i] = [c for c in (last_codes.get(i) or []) if not c.startswith("editor")] + ["editor-unusable"]
                 continue
             codes = check_brief(by_id[i], anchors[i], nb)
             if not codes:
@@ -691,16 +761,23 @@ async def author_briefs(cards: list, llm_fn: LlmFn, seed=0, batches: int = 2) ->
                 rewritten += 1
             else:
                 tally({i: codes})
+                last_codes[i] = [c for c in (last_codes.get(i) or []) if not c.startswith("editor")] + [f"editor:{c}" for c in codes]
         for i in complete:                                          # a top-up: only an improvement is kept, an accepted brief is never lost
             nb = _prepare(by_id[i], _find(fixed, i), anchors[i])
             if nb and len(missing_parts(nb)) < len(missing_parts(accepted[i])) and not check_brief(by_id[i], anchors[i], nb) \
                     and not check_cast(cards, anchors, {**accepted, i: nb}).get(i):
                 accepted[i] = nb
+    # one targeted ask for everyone left with fewer than two objects (a repeat dropped, a garment dropped)
+    objects_landed = 0
+    if accepted and any(len(b.get("inFrame") or []) < 2 for b in accepted.values()):
+        objects_landed = await _objects_pass(cards, anchors, accepted, llm_fn, ledger)
     floor = [i for i in ids if i not in accepted]
-    logger.info(f"[photo-brief] {len(ids)} briefs: accepted {len(ids) - len(floor) - rewritten}, rewritten {rewritten}, floor {len(floor)}; "
-                f"rejected by code {json.dumps(rejected, sort_keys=True)}; writer calls {len(ledger)}")
-    return {"briefs": accepted, "floor": floor, "anchors": anchors, "rejected": rejected, "calls": len(ledger), "rewritten": rewritten,
-            "raw": {"writer": raws, "editor": fixed or None}}
+    floor_reasons = {i: (last_codes.get(i) or ["no-reply"]) for i in floor}
+    one_object = [i for i, b in accepted.items() if len(b.get("inFrame") or []) < 2]
+    logger.info(f"[photo-brief] {len(ids)} briefs: accepted {len(ids) - len(floor) - rewritten}, rewritten {rewritten}, floor {len(floor)} {json.dumps(floor_reasons, sort_keys=True)}; "
+                f"rejected by code {json.dumps(rejected, sort_keys=True)}; objects landed {objects_landed}, one object left on {len(one_object)}; writer calls {len(ledger)}")
+    return {"briefs": accepted, "floor": floor, "floorReasons": floor_reasons, "anchors": anchors, "rejected": rejected, "calls": len(ledger), "rewritten": rewritten,
+            "objectsLanded": objects_landed, "oneObject": one_object, "raw": {"writer": raws, "editor": fixed or None}}
 
 
 # ---------------------------------------------------------------------------------------------------- the prompt
@@ -740,7 +817,7 @@ def brief_sentences(brief: dict, proper: Optional[set] = None) -> str:
         pass
     elif CLOTHING_RE.search(sig):
         # a worn signature (earrings, a patched sleeve) is part of the clothes, said once; anything else is one of their objects
-        if not ({w for w in _norm(sig).split() if len(w) >= 4} & {w for w in _norm(wear).split() if len(w) >= 4}):
+        if brief.get("_look") or not ({w for w in _norm(sig).split() if len(w) >= 4} & {w for w in _norm(wear).split() if len(w) >= 4}):
             wear = f"{wear}, and {lc(sig)}"
     else:
         objs.append(sig)
