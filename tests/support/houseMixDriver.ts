@@ -22,7 +22,7 @@ export async function playMixGame(seed: number, messages: number): Promise<MixGa
     await mcp.callTool("noteMessage", { messageId: `${user}-${i}` });
     if (i % 12 === 11) {
       const adv = (await mcp.callTool("advanceGame", {})) as { pending?: { kind: string; options?: Array<{ id: string }> }; held?: unknown };
-      if (adv.held) await endHeldNight((n, a) => mcp.callTool(n, a), `md${seed}`);
+      if (adv.held) await endHeldNight((n, a) => mcp.callTool(n, a), `md${seed}`, undefined, { stopWhenDue: true }); // ORW-445: a due 4pm event must fire, not be slept through (the phase now agrees with milestoneDue at the edge)
       if (adv.pending) {
         const k = adv.pending.kind, o = (j: number) => adv.pending!.options?.[j]?.id;
         if (k === "ceremony-step") await mcp.callTool("advanceGame", {});

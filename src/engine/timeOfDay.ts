@@ -79,9 +79,16 @@ export function isLateNight(phase: TimeOfDay): boolean {
 
 // --- The hour clock <-> the public phase band ------------------------------------------------------
 
+/** Float tolerance (hours) for crossing a phase edge: the same 1e-6h `milestoneDue` uses. */
+export const PHASE_EDGE_EPSILON_H = 1e-6;
+
 /** Project a clock-HOUR (8..32) onto the public 5-phase band. Clamps to the day's bounds. */
 export function phaseForHour(hour: number): TimeOfDay {
-  const h = clamp(hour, WAKE_HOUR, DAY_END_HOUR - 0.0001);
+  // ORW-445: the clock accrues in 5-minute float steps (11.999999999999 prints as "12:00pm" yet is < 12), so each edge is crossed within PHASE_EDGE_EPSILON_H - the SAME 1e-6h tolerance
+  // `milestoneDue` uses, applied per comparison (not by rounding the hour, which snaps only within 0.5e-6), so the phase and "the scheduled moment is due" agree exactly at every edge.
+  // (The CI hang this change first caused was a DRIVER loop, not the engine: tests/support/heldNight.ts read the drifted 15.9999999 as "afternoon, event due: stop"; once the phase read "evening" at that instant it turned
+  // in instead, slept the due 4pm event away (bed 4pm wakes 4am) and re-ticked to the same edge forever - postGoodbyeBeatChain's `advanceGame` loop. It now opts into `stopWhenDue`.)
+  const h = clamp(hour, WAKE_HOUR, DAY_END_HOUR - 0.0001) + PHASE_EDGE_EPSILON_H;
   const p = CLOCK.phaseStartsHour;
   if (h < p.afternoon) return "morning";
   if (h < p.evening) return "afternoon";

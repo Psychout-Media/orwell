@@ -122,6 +122,19 @@ US_REGIONS = (
     ("the West Coast", 2),
     ("the Pacific Northwest", 1),
 )
+#: ORW-464: the states each dealt region spans. The deal gives every slot a DIFFERENT state (a state repeats only when a region runs
+#: out of fresh ones), so the cast does not draw "three from Texas" out of one writer's habits. Steering only, like the region.
+REGION_STATES = {
+    "the Northeast / New England": ("Massachusetts", "Connecticut", "Maine", "Vermont", "New Hampshire", "Rhode Island"),
+    "the Mid-Atlantic": ("New York", "New Jersey", "Pennsylvania", "Maryland", "Delaware", "Virginia"),
+    "the Southeast": ("Florida", "Georgia", "South Carolina", "North Carolina"),
+    "the Deep South / Appalachia": ("Alabama", "Mississippi", "Louisiana", "Tennessee", "Kentucky", "West Virginia", "Arkansas"),
+    "the Midwest / Great Lakes": ("Ohio", "Michigan", "Illinois", "Indiana", "Wisconsin", "Minnesota", "Iowa", "Missouri"),
+    "Texas / the Southwest": ("Texas", "Arizona", "New Mexico", "Oklahoma"),
+    "the Plains / Mountain West": ("Colorado", "Utah", "Idaho", "Montana", "Wyoming", "Nebraska", "Kansas", "North Dakota", "South Dakota"),
+    "the West Coast": ("California", "Hawaii", "Nevada"),
+    "the Pacific Northwest": ("Washington", "Oregon", "Alaska"),
+}
 TOWN_SIZES = (
     ("a big city", 2),
     ("a mid-size city", 2),
@@ -297,6 +310,17 @@ def mint_facet_ledger(seed, count: int, physical: Optional[list] = None) -> list
     regions = _deal_budgeted(r_rng, count, US_REGIONS)
     town_sizes = _deal_budgeted(r_rng, count, TOWN_SIZES)
 
+    # ORW-464: a state inside each slot's region, distinct across the cast. Its OWN side stream, so no other dealt value moves.
+    st_rng = _Mulberry32(_hash_seed(f"{seed}:ledger:state"))
+    states: list = []
+    used_states: set = set()
+    for region in regions:
+        pool = [x for x in REGION_STATES.get(region, ()) if x not in used_states] or list(REGION_STATES.get(region, ()))
+        pick = pool[st_rng.int(len(pool))] if pool else None
+        states.append(pick)
+        if pick:
+            used_states.add(pick)
+
     b_rng = _Mulberry32(_hash_seed(f"{seed}:ledger:build"))
     builds = _deal_budgeted(b_rng, count, HEIGHT_BUILDS)
 
@@ -321,6 +345,7 @@ def mint_facet_ledger(seed, count: int, physical: Optional[list] = None) -> list
         "vocationFamily": families[i],
         "region": regions[i],
         "townSize": town_sizes[i],
+        "state": states[i],
         "heightBuild": builds[i],
         "skinToneCue": skins[i],
         "hair": hairs[i],
@@ -342,13 +367,14 @@ def hand_for(seed, count: int, houseguest_id, physical: Optional[list] = None) -
     return ledger[n - 1] if ledger else None
 
 
-def render_hand(hand: dict) -> str:
+def render_hand(hand: dict, hometown: bool = True) -> str:
     """One compact fixed-input clause rendering a dealt hand into a casting card."""
     if not isinstance(hand, dict):
         return ""
     return (
         f"vocation family: {hand.get('vocationFamily')} (pick a specific job inside it); "
-        f"hometown: {hand.get('townSize')} in {hand.get('region')}; "
+        + (f"hometown: {hand.get('townSize')} in {hand.get('state') + ' (' + str(hand.get('region')) + ')' if hand.get('state') else hand.get('region')}; "
+           if hometown else "") +
         f"height/build: {hand.get('heightBuild')}; "
         f"complexion depth (steering — heritage coherence wins): {hand.get('skinToneCue')}; "
         f"hair: {hand.get('hair')}; "
@@ -364,20 +390,22 @@ def render_taken(ledger: list, exclude_index: Optional[int] = None) -> str:
     fams: list = []
     regions: list = []
     phons: list = []
+    states: list = []
     for i, hand in enumerate(ledger or []):
         if exclude_index is not None and i == exclude_index:
             continue
         if not isinstance(hand, dict):
             continue
-        for coll, key in ((fams, "vocationFamily"), (regions, "region"), (phons, "namePhonology")):
+        for coll, key in ((fams, "vocationFamily"), (regions, "region"), (phons, "namePhonology"), (states, "state")):
             v = hand.get(key)
             if v and v not in coll:
                 coll.append(v)
-    if not (fams or regions or phons):
+    if not (fams or regions or phons or states):
         return ""
     return (
         "DEALT ACROSS THE REST OF THE CAST (their ground is taken — stay distinct on yours): "
         f"vocation families in play: {', '.join(fams)}. "
         f"home regions in play: {', '.join(regions)}. "
+        + (f"home states taken: {', '.join(states)}. " if states else "") +
         f"name shapes in play: {'; '.join(phons)}."
     )

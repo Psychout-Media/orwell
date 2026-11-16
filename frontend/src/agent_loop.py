@@ -11,6 +11,7 @@ import collections
 import collections.abc
 import json
 import os
+import functools
 import re
 import time
 import logging
@@ -1921,7 +1922,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
                 names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
-        if tod and not stated:
+        try:  # ORW-474 (the clock wins): a wake before the house wake-up is the dark small hours, whatever band name the status carries ("morning")
+            from routes.chat_helpers import _clock_is_before_house_wake
+            _d = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+            _s = _d.get("status") if isinstance(_d, dict) and isinstance(_d.get("status"), dict) else (_d if isinstance(_d, dict) else {})
+            _early = _s.get("earlyMorning") is True or _clock_is_before_house_wake(_s.get("clockLabel"))
+        except Exception:
+            _early = False
+        if _early:
+            lines.append("- It is still the dark small hours, before the house's 8am wake-up (engine truth)" + (": the house is quiet and asleep" if names else "") + ". Write NO morning light, daylight, dawn, sunrise or sun; morning comes at the wake-up call.")
+        elif tod and not stated:
             lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
         if names:
             lines.append(f"- Still asleep ({len(names)}): {', '.join(names)}. They are NOT awake in this scene: do not write them up, talking or moving about; only the houseguests not listed are awake.")
@@ -5737,10 +5747,28 @@ _TOOL_MARKUP_SAFE_TAG_RE = re.compile(
 )
 
 
+_OPENING_PUNCT = "([{\u201c\u2018"
+
+
+@functools.lru_cache(maxsize=8)
+def _combined_cut_re(rx):
+    """The run form of a cut pattern (a regex cache: not per-owner state)."""
+    return re.compile("(?:" + rx.pattern + ")+", rx.flags)
+
+
 def _cut_markup_keeping_one_space(rx, text: str) -> str:
     """Remove every `rx` match (each already swallows the spaces around it). One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a
-    word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.")."""
-    return rx.sub(lambda m: " " if (not (m.start() > 0 and text[m.start() - 1].isspace()) and m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'") else "", text)
+    word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet."), and never right after an opening bracket or quote ("(<tool result>word" stays "(word"). Matches that touch each
+    other are cut as ONE run, so two placeholders in a row leave one space, not two (reviews of #2803)."""
+    combined = _combined_cut_re(rx)
+
+    def repl(m) -> str:
+        i = m.start() - 1
+        opens = i >= 0 and (text[i] in _OPENING_PUNCT or (text[i] in "\"'" and (i == 0 or text[i - 1].isspace() or text[i - 1] in _OPENING_PUNCT)))  # a straight quote that opens a quoted run
+        before_ok = not (i >= 0 and text[i].isspace()) and not opens
+        after_ok = m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'"
+        return " " if before_ok and after_ok else ""
+    return combined.sub(repl, text)
 
 
 def _scrub_game_leak(text: str) -> str:
@@ -6113,11 +6141,16 @@ async def _headcount_wall_guard(text: str, owner) -> str:
         return text
 
 
+_PROTECTED_BLOCK_RE = re.compile(r"(```.*?(?:```|\Z)|<parameter\b[^>]*>.*?</parameter>|<invoke\b[^>]*>.*?</invoke>)", re.DOTALL | re.IGNORECASE)
+
+
 def _mirror_placeholder_cut(round_response: str, text: str):
     """ORW-442 / ORW-472: `_scrub_game_leak` cuts an echoed "<tool result ...>" placeholder, and a stray result/use tag (`_TOOL_MARKUP_SAFE_TAG_RE`), out of the MIDDLE of a sentence part, which the sentence-level
     mirror (`_mirror_wall_drop`) reads as that whole part being dropped and erases from the stored text with its narration. Apply the same cuts (one-space rule included) to `text` inside `round_response` first, and
     return the cut `text` as the mirror's `before`: only real drops are left for the sentence-level walk. Returns (round_response, text); both unchanged when there is nothing to cut."""
-    cut = _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text))
+    # Review of #2807: never edit EXECUTABLE text. A fenced block, a `<parameter>` value or an `<invoke>` body can hold a literal "<tool_use>" in a command (`printf '<tool_use>'`); the cut runs on the segments between them only.
+    parts = _PROTECTED_BLOCK_RE.split(text)
+    cut = "".join(seg if i % 2 else _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, seg)) for i, seg in enumerate(parts))
     if cut == text:
         return round_response, text
     idx = round_response.rfind(text)
