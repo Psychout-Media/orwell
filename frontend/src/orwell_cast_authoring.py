@@ -3531,8 +3531,11 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                                 "input_tokens": _ud.get("input_tokens", 0),
                                 "output_tokens": _ud.get("output_tokens", 0),
                                 "cached_tokens": _ud.get("cached_tokens", 0) or 0,
+                                "cache_miss_tokens": _ud.get("cache_miss_tokens"),
                                 "reasoning_tokens": _ud.get("reasoning_tokens", 0) or 0,
                                 "cost": _ud.get("cost"),
+                                "cost_estimated": bool(_ud.get("cost_estimated")),
+                                "model": _ud.get("model"),
                                 "provider": _ud.get("provider"),
                             }
                     elif isinstance(_d, dict) and _d.get("type") == "finish":
@@ -3556,6 +3559,8 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
                     # the ledger shows appliedMaxTokens=cap, not cap=0. Omitting it mis-logged cap=0.
                     applied_max_tokens=cap, finish_reason=_finish,
                     cost=float(_usage.get("cost") or 0), provider=_usage.get("provider"),
+                    cost_estimated=_usage.get("cost_estimated"), model=_usage.get("model"),
+                    cache_miss_tokens=_usage.get("cache_miss_tokens"),
                 )
             except Exception:
                 pass

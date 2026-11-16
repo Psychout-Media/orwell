@@ -38,6 +38,8 @@ _ALLOWED_ENTRY_KEYS = {
     # ADR 0010 follow-on #3: the applied output cap (count) + terminal stop reason (short token).
     "appliedMaxTokens", "finishReason",
     "cost", "costEstimated", "contextPercent", "provider",
+    # ORW-554: the call site / model (short ids) and cache-miss / calls / played-day (counts).
+    "callSite", "model", "cacheMissTokens", "calls", "day",
 }
 _SENTINEL = "VAULT_SECRET_SENTINEL_must_never_cross"
 

@@ -17,6 +17,7 @@ _ALLOWED_KEYS = {
     "ts", "turnId", "session", "callClass",
     "inputTokens", "cachedTokens", "reasoningTokens", "outputTokens",
     "appliedMaxTokens", "finishReason",
+    "callSite", "model", "cacheMissTokens", "calls", "day",  # ORW-554
     "cost", "costEstimated", "contextPercent", "provider",
 }
 
