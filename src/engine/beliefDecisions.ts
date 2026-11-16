@@ -1,6 +1,7 @@
 import type { EntityId } from "../domain/ids";
 import { claimsOf, targetsMeTilt, type BeliefClaim, type BeliefStore } from "./beliefStore";
 import { REASONS } from "./agendaConstants";
+import { CONVICTION } from "./beliefConviction";
 
 /**
  * Feature 0150 / ORW-330 (theme 2, slice 2) - BELIEFS DRIVE DECISIONS. What a houseguest BELIEVES about someone (that they are targeting
@@ -48,7 +49,9 @@ export function grievanceOf(c: BeliefClaim, holder: EntityId): GrievanceKind | u
 /** One belief's weight now: kind x confidence x decay. */
 function weightNow(c: BeliefClaim, kind: GrievanceKind, week: number): number {
   const age = Math.max(0, week - c.week);
-  return BELIEF_PULL.kindWeight[kind] * Math.max(0, Math.min(1, c.confidence)) * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
+  // 0160 (conviction): a belief held at or above CONVICTION.asFact is acted on as a fact (full weight); below it, in proportion.
+  const conviction = c.confidence >= CONVICTION.asFact ? 1 : Math.max(0, Math.min(1, c.confidence));
+  return BELIEF_PULL.kindWeight[kind] * conviction * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
 }
 
 /** How strongly `holder` believes they have a grievance against `subject`, 0..1 (several beliefs stack with diminishing returns). */

@@ -98,7 +98,11 @@ Given("a started season with a person playing", async function () {
   const b = bag(this);
   b.sb = sb; b.s = sb.session;
   const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
-  [b.liar, b.holder, b.accused] = npcs;
+  // 0160 (conviction): the holder is the most credulous houseguest, so one trusted tell is held as a fact (a suspicious one would test it first)
+  const cred = (id: string) => (sb.session as unknown as { credulityOf(id: string): number }).credulityOf(id);
+  const byCred = [...npcs].sort((x, y) => cred(y) - cred(x) || x.localeCompare(y));
+  b.holder = byCred[0];
+  [b.liar, b.accused] = npcs.filter((id) => id !== b.holder);
   b.before = await surfaces(sb);
 });
 

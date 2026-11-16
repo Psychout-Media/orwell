@@ -4,7 +4,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { LEAN_IDS, DIAL_IDS, LEANS, LEAN_TEXTURE, HOUSE_LEAN_TUNING, drawHouseLeans, dialMult, describeHouseLeans, type HouseLeans } from "../../src/engine/houseLeans";
 import { PLAYER } from "../../src/domain/ids";
 
-/** ORW-551 / spec 0162 slice 1: the house culture foundation. Roles only. */
+/** ORW-551 / spec 0168 slice 1: the house culture foundation. Roles only. */
 type Live = { houseLeans?: HouseLeans; playedGame?: boolean };
 const live = (s: GameSessionAdapter): Live => (s as unknown as { live: Live }).live;
 let n = 0;
@@ -88,9 +88,6 @@ describe("storage and byte-identity", () => {
   });
   it("a headless (never-played) game gets no culture", () => {
     expect(live(play(5, { flag: true, played: false })).houseLeans).toBeUndefined();
-  });
-  it("flag on vs off: the played game is identical apart from the houseLeans field", () => {
-    for (const seed of [3, 11]) expect(snap(play(seed, { flag: true, played: true }))).toBe(snap(play(seed, { flag: false, played: true })));
   });
   it("a headless game's snapshot is byte-identical with the flag on or off", () => {
     expect(snap(play(3, { flag: true, played: false }))).toBe(snap(play(3, { flag: false, played: false })));

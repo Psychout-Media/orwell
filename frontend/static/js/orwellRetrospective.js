@@ -384,7 +384,7 @@
         mk("The biggest lies the house believed", _millRows(_mill.biggest));
         mk("What they got wrong about you", _millRows(_mill.aboutYou));
       }
-      // ORW-551 (spec 0159): the house culture, in plain texture words (one phrase per lean; the engine sends words only). Render-only, textContent. Absent => skipped.
+      // ORW-551 (spec 0168): the house culture, in plain texture words (one phrase per lean; the engine sends words only). Render-only, textContent. Absent => skipped.
       const _cult = unsealed.houseCulture;
       const _cultWords = ((_cult && _cult.leans) || []).filter((t) => typeof t === "string" && t.trim()).map((t) => clean(t));
       if (_cultWords.length) {

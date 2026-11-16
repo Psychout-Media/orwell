@@ -54,9 +54,9 @@ export function nominationScore(hoh: EntityId, target: EntityId, rel: Relationsh
 }
 
 /** ORW-305: the two named terms `nominationScore` sums - the threat read and the rattled-paranoia term (one pass; the score is their sum). */
-export function nominationBaseVals(hoh: EntityId, target: EntityId, rel: RelationshipModel, mood: number): [number, number] {
+export function nominationBaseVals(hoh: EntityId, target: EntityId, rel: RelationshipModel, mood: number, paranoiaMult = 1): [number, number] { // ORW-551 slice 3: `paranoiaMult` is the house culture's paranoia dial (1 = none, byte-identical)
   const paranoia = Math.max(0, (0.5 - mood) * 2); // 0 when calm … 1 when fully rattled
-  return [rel.edge(hoh, target).threat, paranoia * NOMINATION_PARANOIA_WEIGHT * (1 - rel.edge(hoh, target).trust)];
+  return [rel.edge(hoh, target).threat, paranoia * (NOMINATION_PARANOIA_WEIGHT * paranoiaMult) * (1 - rel.edge(hoh, target).trust)];
 }
 
 /** ORW-305: the term names of the strategic nomination score, in the exact order the score adds them. */
@@ -72,7 +72,7 @@ export function nominationTermVals(
   hoh: EntityId, t: EntityId, rel: RelationshipModel, mood: number, blocs: readonly Bloc[], read: NominationRead,
   shape?: { floaterWeight: number; duoWeight: number; active: readonly EntityId[] },
 ): number[] {
-  const [threat, paranoia] = nominationBaseVals(hoh, t, rel, mood);
+  const [threat, paranoia] = nominationBaseVals(hoh, t, rel, mood, read.paranoiaMult);
   const out = [threat, paranoia, blocTerm(blocs, hoh, t)];
   if (shape) out.push(shape.floaterWeight * floaterRead(t, shape.active, rel, read.bondOf), shape.duoWeight * duoRead(t, hoh, shape.active, rel, read.bondOf));
   out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0);
@@ -151,6 +151,8 @@ export interface NominationRead {
   blocs?: readonly Bloc[];
   /** The HOH's live soul emotional state (0041); rattled ⇒ the paranoia term bends the ranking. */
   mood?: number;
+  /** ORW-551 slice 3: the house culture's paranoia multiplier on the rattled-HOH term (absent = 1, byte-identical). */
+  paranoiaMult?: number;
   /** The HOH's static disposition — gates WHICH tactic they play (a loyalist ≠ a schemer). */
   disposition?: RelationshipDisposition;
   /** The HOH's own nomination style (PO 2026-11-02) — weights the floater / duo reads. Absent ⇒ threat hunter. */

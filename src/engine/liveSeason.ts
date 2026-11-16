@@ -607,7 +607,7 @@ export interface LiveSeasonState {
   npcMemory?: NpcMemoryLedger;
   /** ORW-319 (ORW-253 slice 5): what the utility model wrote at cast time - habits + aim hints per houseguest, and the house culture. Write-once; engine-side. */
   npcMindsAuthored?: NpcMindsAuthored;
-  /** ORW-551 / spec 0162: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
+  /** ORW-551 / spec 0168: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
@@ -1005,6 +1005,8 @@ export interface SeasonCtx {
    * blocs themselves are recomputed every read and NEVER stored (decision 0002).
    */
   loyaltyOf?: (id: EntityId) => number;
+  /** ORW-551 slice 3: the house culture's paranoia dial (multiplies the rattled-voter / rattled-HOH terms). Absent = 1, byte-identical. */
+  paranoiaMult?: number;
   /**
    * 0107 — the NAMED-ALLIANCE cement fed into bloc detection: a bounded boost to a pair's mutual bond
    * when they share a named alliance. Optional: omitted ⇒ 0 for every pair ⇒ the bloc read (and the
@@ -1082,6 +1084,8 @@ export interface SeasonCtx {
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** 0163 / ORW-539: the bond between two OTHER houseguests as `holder` can see it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   perceivedBondFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
+  dealTrustFor?: (holder: EntityId, other: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
   pitchTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): does `holder` hold a casual assurance toward `target` that they decided to KEEP? Absent => no protection (byte-identical). */
@@ -2137,7 +2141,7 @@ export function voteChoice(
   // ORW-305: one pass - the named terms, in the exact order the score adds them; the score IS their left-to-right sum
   // (`a - b` is `a + (-b)` bit for bit, so the signed terms reproduce the original expression).
   const termVals = (n: EntityId): number[] => [
-    ctx.rel.edge(voter, n).threat * (1 + paranoia * V.moodSelfProtectWeight),
+    ctx.rel.edge(voter, n).threat * (1 + paranoia * (V.moodSelfProtectWeight * (ctx.paranoiaMult ?? 1))),
     blocTerm(blocs, voter, n),
     // ORW-37 half 2 (B41): a pre-show tie this voter holds with `n` (positive evicts, negative keeps: family keeps, a rival evicts). Absent provider => 0 => byte-identical.
     ctx.tieVotePushFor?.(n, voter) ?? 0,
@@ -2152,7 +2156,7 @@ export function voteChoice(
     ctx.beliefTiltFor?.(n, voter) ?? 0,
     // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
     -(ctx.assuranceVoteFor?.(n, voter) ?? 0),
-    -(dealBound(n) ? V.dealHonorWeight : 0),
+    -(dealBound(n) ? V.dealHonorWeight * (ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
     -(V.juryManagementWeight * ctx.rel.edge(n, voter).trust),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
     n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
@@ -3343,7 +3347,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // disposition-gated tactic (pawn / backdoor / direct). Legality still binds downstream.
       const plan = nominationPlan(s.hoh!, s.active, ctx.rel, {
         blocs: currentBlocs(s, ctx),
-        mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+        mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
         disposition: ctx.dispositionOf?.(s.hoh!) ?? "neutral",
         style: ctx.nominationStyleOf?.(s.hoh!),
         ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
@@ -3529,7 +3533,7 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
   const hoh = s.hoh!;
   const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
   // ORW-87: + the HOH's memory of the option. ORW-305: the named terms (threat, paranoia, memory); the score is their sum.
-  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
+  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood, ctx.paranoiaMult), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
   const replaceScore = (t: EntityId): number => sumVals(replaceVals(t));
   const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
   {
@@ -3633,7 +3637,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
 function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[]): EntityId {
   return replacementPick(s.hoh!, otherNominee(s, saved), options, s.active, ctx.rel, {
     blocs: currentBlocs(s, ctx),
-    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5,
+    mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
     style: ctx.nominationStyleOf?.(s.hoh!),
     target: s.nominationTarget,
     ...(ctx.campaignPushFor ? { campaignPush: (t: EntityId) => ctx.campaignPushFor!(t, s.hoh!) } : {}),
@@ -3714,7 +3718,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       // The same strategic read the loop's own NPC HOHs use (no second rulebook).
       const [a, b] = nominationStrategy(p.by, s.active, ctx.rel, {
         blocs: currentBlocs(s, ctx),
-        mood: ctx.emotionalOf?.(p.by) ?? 0.5,
+        mood: ctx.emotionalOf?.(p.by) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
         disposition: ctx.dispositionOf?.(p.by) ?? "neutral",
         style: ctx.nominationStyleOf?.(p.by),
       });
@@ -3736,7 +3740,7 @@ export function autoDecision(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomness
       return {
         kind: "replacement",
         replacement: replacementPick(p.by, otherNominee(s), p.options, s.active, ctx.rel, {
-          blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(p.by) ?? 0.5, style: ctx.nominationStyleOf?.(p.by),
+          blocs: currentBlocs(s, ctx), mood: ctx.emotionalOf?.(p.by) ?? 0.5, paranoiaMult: ctx.paranoiaMult, style: ctx.nominationStyleOf?.(p.by),
           target: s.nominationTarget,
         }),
       };

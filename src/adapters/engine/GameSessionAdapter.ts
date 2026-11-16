@@ -284,6 +284,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
+import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
 import {
@@ -331,13 +332,13 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { beliefTruth, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
-import { drawHouseLeans, describeHouseLeans } from "../../engine/houseLeans";
+import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -1208,7 +1209,7 @@ export class GameSessionAdapter implements GameSession {
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
     const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
     if (this.live && !this.live.houseTheme) this.live.houseTheme = drawHouseTheme(`${this.gameSeed ?? 0}`, this.live.priorHouseThemes ?? []);
-    // ORW-551 / spec 0162: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
+    // ORW-551 / spec 0168: the season's house culture, drawn once (write-once) when a person starts playing, from its own side stream. A headless or calibration game never draws one.
     if (this.live && firstPlayedMessage && this.houseCultureEnabled && !this.live.houseLeans) this.live.houseLeans = drawHouseLeans(`${this.gameSeed ?? 0}`);
     this.seedAgendas(); // ORW-312: every NPC's agenda forms the moment a person starts playing (cast + pre-show ties already exist)
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
@@ -1462,6 +1463,7 @@ export class GameSessionAdapter implements GameSession {
       week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
+      ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
     });
     if (told) this.catchContradiction(told);
     return told;
@@ -1525,9 +1527,14 @@ export class GameSessionAdapter implements GameSession {
     const told: SpokenClaim[] = [];
     type Base = { speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId };
     const said: Base[] = [];
+    // ORW-558: "they've been talking about you" names no object: a kind that needs one, said without it, is about the person it was told to (each addressee,
+    // never the subject). Everyone who heard it hears it that way; an addressee hears it about themself.
+    const aboutAddressee = c.object === undefined && (kind === "talking-about" || kind === "going-after");
     for (const listener of heard) {
       const third = ABOUT_YOU[kind];
-      if (third && !addressed.includes(listener)) {
+      if (aboutAddressee) {
+        for (const to of addressed.filter((a) => a !== c.subject)) said.push({ speaker, listener, kind, subject: c.subject, object: to });
+      } else if (third && !addressed.includes(listener)) {
         // a bystander hears it as said about each person it was told to (the player included), never about themself
         for (const to of addressed.filter((a) => a !== c.subject && a !== listener)) said.push({ speaker, listener, kind: third, subject: c.subject, object: to });
       } else {
@@ -1546,6 +1553,12 @@ export class GameSessionAdapter implements GameSession {
       if (t) told.push(t);
     }
     return told;
+  }
+  /** 0160: how readily `id` believes what they are told, from their own sheet (0.5 for anyone without one). */
+  private credulityOf(id: EntityId): number {
+    const n = this.house?.npcs.find((x) => x.id === id);
+    if (!n) return 0.5;
+    return credulityOf({ archetype: n.character.archetype, disposition: dispositionOf(n.character.archetype), temperamentDrift: this.soulObj(id)?.temperamentDrift }, id, this.gameSeed ?? 0);
   }
   /**
    * 0154 / ORW-330 slice 5b - LYING ABOUT YOUR VOTE. Once an eviction is over (the count is public, the ballots are not) each NPC voter may tell ONE other NPC how they voted: true or not, decided by the engine
@@ -1598,6 +1611,7 @@ export class GameSessionAdapter implements GameSession {
       week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
+      ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
     });
   }
   /** 0153 / ORW-330 slice 3: the engine's truth for checking a claim - goals, recorded ballots, open final-two deals, the claim log. Engine-only reads. */
@@ -1640,9 +1654,11 @@ export class GameSessionAdapter implements GameSession {
    * Draws come from the `${seed}:house-meeting` side stream. ON unless `ORWELL_HOUSE_MEETINGS=0`; needs the belief layer and a played game.
    */
   private houseMeetingsEnabled = flagDefaultOn("ORWELL_HOUSE_MEETINGS");
-  /** ORW-551 / spec 0162 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
+  /** ORW-551 / spec 0168 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
   private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
   setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
+  /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
+  private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
   holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
@@ -1717,7 +1733,7 @@ export class GameSessionAdapter implements GameSession {
     for (const n of this.house.npcs) {
       if (!this.livingIds().includes(n.id) || (awake && !awake.has(n.id))) continue;
       const g = strongestGrievance(live.beliefs?.[n.id] ?? [], n.id, PLAYER);
-      if (!npcWouldCall(g, false, rng.next()) || !g) continue;
+      if (!npcWouldCall(g, false, rng.next(), this.cultureMult("meetings")) || !g) continue;
       if (this.holdHouseMeeting({ caller: n.id, accused: g.subject, claim: { kind: g.kind, subject: g.subject, object: g.object } })) return;
     }
   }
@@ -4416,7 +4432,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
-    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0162): texture words only, same crown gate; absent when no culture was drawn
+    const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
     return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
@@ -6096,9 +6112,11 @@ export class GameSessionAdapter implements GameSession {
    * IDENTICAL; the asymmetric fold fires only on the live clock-ON game. Pure — no rng, no number crosses.
    */
   socialFoldValence(id: EntityId): { warm: number; sore: number } {
-    if (!this.socialFatigueEnabled) return { warm: 1, sore: 1 };
-    const deficit = this.restDeficitOf(id);
-    return { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) };
+    // ORW-551 slice 3: the house culture's bonding dial scales how fast bonds form (warming folds x b) and how hard slights land (souring folds / b), on top of the fatigue valence. b === 1 (no culture) leaves the valence untouched.
+    const b = this.cultureMult("bonding");
+    let v = { warm: 1, sore: 1 };
+    if (this.socialFatigueEnabled) { const deficit = this.restDeficitOf(id); v = { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) }; }
+    return b === 1 ? v : { warm: v.warm * b, sore: v.sore / b };
   }
 
   /** The hidden rest deficit (0..1) a houseguest carries TODAY: tonight's immediate deficit (graded by how
@@ -9801,6 +9819,7 @@ export class GameSessionAdapter implements GameSession {
       // 0124 (part A): with soul-depth on, the COMPOSED read (confidence lifts, distress drags harder)
       // stands in for the single scalar — so "confident AND rattled" competes worse. Off ⇒ the plain state.
       emotionalOf: (id) => this.emotionalReadOf(id),
+      paranoiaMult: this.cultureMult("paranoia"), // ORW-551 slice 3: the house culture's paranoia dial (1 = none)
       // The hidden REST deficit (ADR 0006): the player's from how late THEY stayed up last night, an
       // NPC's from the latest phase they were ACTUALLY awake last night (ENG-NEW-1 — the earlier of
       // their character bedtime and how far the night ran, not a static aptitude tax). Feeds the comp
@@ -9817,7 +9836,7 @@ export class GameSessionAdapter implements GameSession {
           ? (this.house.player.id === id ? this.house.player : this.house.npcs.find((n) => n.id === id))
           : undefined;
         if (!hg) return 0.55;
-        return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id));
+        return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id), this.cultureMult("loyalty"));
       },
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
@@ -9848,6 +9867,8 @@ export class GameSessionAdapter implements GameSession {
       // 0024 — this NPC holder's own residual memory of a subject (+grudge − favor), only while the layer is on.
       ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
+      // 0160 (Ryne Q3): a deal weighs as far as its holder trusts the other party (full strength only; capped keeps the fixed weight).
+      ...(BELIEF_RULES.strength === "full" ? { dealTrustFor: (h: EntityId, other: EntityId) => dealTrust(this.rel.edge(h, other).trust) } : {}),
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
@@ -10941,7 +10962,7 @@ export class GameSessionAdapter implements GameSession {
         const goal = goals[0];
         if (!goal || !this.alliances.byId(al.id)) continue;
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
-        if (roll >= ALLIANCE.goalClashBreak) continue;
+        if (roll >= ALLIANCE.goalClashBreak / this.cultureMult("loyalty")) continue; // ORW-551 slice 3: a loyal house breaks over a goal clash less often (threshold only; the draw is unchanged)
         const target = goal.target!;
         this.alliances.stamp(this.beatSeqNow(), day);
         this.alliances.removeMember(al.id, m); // FIRST: the member is out before any side effect can re-enter the tick (recording the scene commits, and a commit runs the tick again)
@@ -10973,13 +10994,16 @@ export class GameSessionAdapter implements GameSession {
     const founders = npcs
       .filter((id) => (this.drives.get(id)?.motivation === "build" || (agendaOpen && buildsByAim(id))) && !this.alliances.all().some((a) => a.founder === id))
       .sort();
-    const npcFloor = { ...ALLIANCE, joinBondFloor: ALLIANCE.npcAllyFloor };
+    // ORW-551 slice 3: the culture's allianceSize dial lowers/raises the NPC ally FLOOR (a bigger-bloc house joins at a lower mutual bond), never a loop count; the integer cap moves by at most one, via a rounded dial.
+    const sizeMult = this.cultureMult("allianceSize");
+    const maxSize = ALLIANCE.maxNpcSize + Math.max(-1, Math.min(1, Math.round(ALLIANCE.maxNpcSize * sizeMult) - ALLIANCE.maxNpcSize));
+    const npcFloor = { ...ALLIANCE, joinBondFloor: ALLIANCE.npcAllyFloor / sizeMult };
     const holds = (ms: readonly EntityId[]): boolean => cohesionOf([...new Set(ms)], mutual) >= ALLIANCE.cohesionFloor;
     for (const founder of founders) {
       const proposed = npcs
         .filter((m) => m !== founder)
         .sort((a, b) => mutual(founder, b) - mutual(founder, a) || a.localeCompare(b))
-        .slice(0, ALLIANCE.maxNpcSize - 1);
+        .slice(0, maxSize - 1);
       const willing = willingMembers(founder, proposed, (m) => mutual(founder, m), npcFloor);
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
       if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
@@ -11003,14 +11027,14 @@ export class GameSessionAdapter implements GameSession {
         const warm = this.live!.pitched?.[`${holder}>${target}`] === week ? ALLIANCE.pitchedWarmth : 0;
         const bond = (m: EntityId): number => mutual(holder, m) + (m === target ? warm : 0);
         if (bond(target) < npcFloor.joinBondFloor) continue; // the target declines: an unwilling target never joins
-        const open = this.alliances.forMember(holder).filter((a) => a.members.length < ALLIANCE.maxNpcSize);
+        const open = this.alliances.forMember(holder).filter((a) => a.members.length < maxSize);
         // The join must hold too (ORW-353's not-hollow rule): a target cold to the other members would drag the alliance's cohesion under the floor and fade the WHOLE alliance, not just the newcomer.
         const mine = open.find((a) => holds([...a.members, target]));
         if (open.length > 0 && !mine) continue;
         if (mine) { this.alliances.join(mine.id, target); }
         else {
           if (this.alliances.all().some((x) => x.founder === holder)) continue; // ORW-507 (#2613): one foundership per NPC, as in the founder loop above
-          const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, ALLIANCE.maxNpcSize - 2);
+          const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, maxSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
           this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
@@ -11607,6 +11631,8 @@ export class GameSessionAdapter implements GameSession {
     const plans: PlannedAction[] = [];
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
+    const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0168 slice 2): the culture's baseline multipliers; undefined = byte-identical
+    const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -11625,6 +11651,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, where),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
+        ...(houseCulture ? { culture: houseCulture } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
@@ -11714,8 +11741,44 @@ export class GameSessionAdapter implements GameSession {
     const believed = this.npcBeliefsEnabled ? believedGrievances(s.beliefs, owner, others, s.week) : [];
     return {
       owner, character: character2, threats, affinity, grudges, ...(believed.length ? { believedGrievances: believed } : {}), emotional: this.soulObj(owner)?.emotionalState ?? 0.5,
-      allianceMates: [...mates].sort(), secretExposed, ...this.voteQuestionsFor(owner), powerWins: s.resume?.[owner] ?? 0,
+      allianceMates: [...mates].sort(), secretExposed, ...this.questionsFor(owner), powerWins: s.resume?.[owner] ?? 0,
     };
+  }
+  /**
+   * 0160 / ORW-330 (conviction): the open questions are the vote questions plus the beliefs the holder is still TESTING (doubted, testable,
+   * at most CONVICTION_TESTS_MAX, strongest first, about someone still in the house); a tested belief is answered once it became a fact to
+   * them or they let it go. Only in full strength (capped: the vote questions alone, byte-identical).
+   */
+  private questionsFor(owner: EntityId): { openQuestions: Array<{ ref: string; suspect?: EntityId }>; answered: string[] } {
+    const vq = this.voteQuestionsFor(owner);
+    if (BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled || !CONVICTION.askAround) return vq; // quiet testing: no find-out goals (see CONVICTION.askAround)
+    const living = new Set(this.livingIds());
+    const mine = claimsOf(this.live?.beliefs, owner);
+    const testing = mine.filter((b) => underTest(b) && living.has(b.subject)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX);
+    const settled = mine.filter((b) => b.confidence >= CONVICTION.asFact || b.refuted || !b.value).map(testRef);
+    return { openQuestions: [...vq.openQuestions, ...testing.map((b) => ({ ref: testRef(b), suspect: b.subject, weight: CONVICTION.testDrive }))], answered: [...vq.answered, ...settled] };
+  }
+  private static readonly CONVICTION_TESTS_MAX = 2;
+  /** 0160: one night of looking into each belief a holder is testing (an active find-out goal for it): the evidence moves the conviction toward the truth. */
+  private weighEvidenceOvernight(): void {
+    const s = this.live;
+    if (!s?.agendas || !s.beliefs || BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return;
+    const facts = this.truthFacts();
+    const day = s.dayNumber ?? s.week;
+    for (const [holder, agenda] of Object.entries(s.agendas)) {
+      const looking = new Set(agenda.goals.filter((g) => g.status === "active" && g.kind === "find-out" && g.test.kind === "question-answered").map((g) => (g.test as { ref: string }).ref));
+      // Visible testing: the beliefs they have a find-out goal for. Quiet testing: the strongest few doubts they keep an eye on (CONVICTION_TESTS_MAX).
+      const quiet = new Set((CONVICTION.askAround ? [] : (s.beliefs[holder] ?? []).filter((b) => underTest(b)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX)).map((b) => b.id));
+      for (const b of s.beliefs[holder] ?? []) {
+        if (!underTest(b) || !(quiet.has(b.id) || looking.has(testRef(b)))) continue;
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:evidence:${day}:${holder}:${b.id}`)).next();
+        b.confidence = Math.max(0, Math.min(1, b.confidence + evidenceStep(beliefTruth(b, holder, facts), roll)));
+        if (b.confidence < CONVICTION.dropBelow) {
+          refuteClaim(s.beliefs, holder, b.id, (h, sub) => this.rel.edge(h, sub));
+          b.refuted = true; // a belief that moved no edge is still let go
+        }
+      }
+    }
   }
   /** ORW-342: this houseguest's open "who voted against me / who flipped" questions (live through the week after the vote), and which of them their own deduction has since made confident (answered). */
   private voteQuestionsFor(owner: EntityId): { openQuestions: Array<{ ref: string; suspect?: EntityId }>; answered: string[] } {
@@ -11786,6 +11849,7 @@ export class GameSessionAdapter implements GameSession {
       if (!s.agendas) return;
       const board = this.agendaBoard();
       const seed = this.gameSeed ?? 0;
+      this.weighEvidenceOvernight(); // 0160: what they looked into today moves what they believe, before the night's mull
       for (const id of Object.keys(s.agendas)) {
         const view = this.agendaView(id);
         if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed); this.appraiseSettled(id, before, s.agendas[id]!); }
@@ -12421,6 +12485,67 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * The clock/night bookkeeping a resolved beat charges (ADR 0006; the comments below carry the history). Shared by `advanceOneBeat` and by `submitDecision` for the one beat a
+   * player's answer resolves itself without going through the advance loop: the first staged `comp-elimination` (ORW-550: it was resolved by the player's `comp-round` answer and
+   * never charged its share of the competition's hours, so the crown paid it late). Clock path only: no rng, no fold.
+   */
+  private chargeBeatClock(ev: BeatEvent | null, ceremonyHours: number | null, weekBefore: number): void {
+    // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
+    // toward late-night and wrapping to a new morning (banking a late night the player never ended).
+    // The diegetic bound + sleep cost ride this; dormant (byte-identical) unless the clock is enabled.
+    //
+    // #537: the clock advances by SUBSTANTIVE PLAY — once per resolved ceremony/eviction/finale
+    // beat — never on a staged competition's per-round PRESENTATION (the `comp-round` PAUSES, which
+    // emit no event, and the inert `comp-elimination` reveal beats: no rng, no fold, no soul
+    // inflection — see `advanceCompetition`/`stagedTrajectoryNeutral`). Advancing on each of those
+    // cycled most of a day inside ONE competition (the HOH crowned at late-night the morning it
+    // began). The clock still INITIALIZES on the first advance (so the HUD/rest cue are live from
+    // turn one) even before the first substantive beat lands.
+    //
+    // 0066 Phase-2 (PR #715): the graded sleep economy — chronotype bedtimes + continuous night
+    // depth + the night-end fatigue/conflict bookkeeping — rides this SAME substantive-play gate, so
+    // it never over-advances on inert staged-comp beats either. On the bare init advance `advanceClock`
+    // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
+    // deficit is 0 (no night ran) and the conflict tally is still empty.
+    // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
+    const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+      ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
+      : null;
+    if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat) && ceremonyHours === null) || (compRoundHours !== null && compRoundHours > 0) || (ceremonyHours !== null && ceremonyHours > 0))) {
+      const wasRetired = this.live!.playerRetired ?? false;
+      const depthBefore = this.live!.nightDepth;
+      // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
+      // comp ~3h, an eviction ~2h (beatFeltHours), instead of a flat +3h. Applied ONLY when the
+      // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
+      // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
+      // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
+      let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
+      if (ceremonyHours !== null) feltHours = ceremonyHours; // ORW-281 4a: a staged ceremony's hours are SPREAD over its steps (one helper, like a comp's rounds)
+      if (ev?.beat === "veto-draw" && !this.playedGameNow()) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
+      if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
+      // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
+      // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
+      // so one eviction night ran most of a day and the finale ran for days).
+      // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
+      // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
+      const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
+        ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
+        : null;
+      if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
+      else if (eventHours !== null) advanceClock(this.live!, eventHours);
+      else if (feltHours !== null) advanceClock(this.live!, feltHours);
+      else advanceClock(this.live!);
+      // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning
+      // after a turnIn (that night already accrued). Detect: a fresh morning (back at the wake hour) we
+      // did NOT reach via retirement.
+      // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
+      // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
+      if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
+      this.rollNightConflicts();
+    }
+  }
+
+  /**
    * The deterministic "one more step" of the live loop: offer the LULL-gated NPC deal check (0123),
    * then draw the CURRENT beat's outcome (or raise its pending), apply the SAME ADR-0006 clock/night
    * bookkeeping a plain `advanceGame` call would, and commit. A no-op (returns `null`, mutates
@@ -12458,59 +12583,7 @@ export class GameSessionAdapter implements GameSession {
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
-      // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
-      // toward late-night and wrapping to a new morning (banking a late night the player never ended).
-      // The diegetic bound + sleep cost ride this; dormant (byte-identical) unless the clock is enabled.
-      //
-      // #537: the clock advances by SUBSTANTIVE PLAY — once per resolved ceremony/eviction/finale
-      // beat — never on a staged competition's per-round PRESENTATION (the `comp-round` PAUSES, which
-      // emit no event, and the inert `comp-elimination` reveal beats: no rng, no fold, no soul
-      // inflection — see `advanceCompetition`/`stagedTrajectoryNeutral`). Advancing on each of those
-      // cycled most of a day inside ONE competition (the HOH crowned at late-night the morning it
-      // began). The clock still INITIALIZES on the first advance (so the HUD/rest cue are live from
-      // turn one) even before the first substantive beat lands.
-      //
-      // 0066 Phase-2 (PR #715): the graded sleep economy — chronotype bedtimes + continuous night
-      // depth + the night-end fatigue/conflict bookkeeping — rides this SAME substantive-play gate, so
-      // it never over-advances on inert staged-comp beats either. On the bare init advance `advanceClock`
-      // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
-      // deficit is 0 (no night ran) and the conflict tally is still empty.
-      // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
-      const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-        ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
-        : null;
-      if (this.timeOfDayEnabled && (this.live!.timeOfDay === undefined || (ev !== null && !isInertBeat(ev.beat) && ceremonyHours === null) || (compRoundHours !== null && compRoundHours > 0) || (ceremonyHours !== null && ceremonyHours > 0))) {
-        const wasRetired = this.live!.playerRetired ?? false;
-        const depthBefore = this.live!.nightDepth;
-        // 0119 — different events cost different amounts of the in-game day: a quick ceremony ~1h, a
-        // comp ~3h, an eviction ~2h (beatFeltHours), instead of a flat +3h. Applied ONLY when the
-        // per-conversation clock is live, so golden replay (that clock off, master on) keeps the flat
-        // default and the recorded time-of-day stream is byte-identical (no re-record); calibration
-        // (master off) skips this whole block. A beat with no distinct felt duration ⇒ the flat default.
-        let feltHours = this.perConversationClockLive() ? beatFeltHours(ev?.beat) : null;
-        if (ceremonyHours !== null) feltHours = ceremonyHours; // ORW-281 4a: a staged ceremony's hours are SPREAD over its steps (one helper, like a comp's rounds)
-        if (ev?.beat === "veto-draw" && !this.playedGameNow()) feltHours = null; // ORW-281: the draw's ceremony hours are for a game a person is PLAYING; a headless clock-live driver keeps its flat default (seeded trajectory byte-identical)
-        if (feltHours !== null && this.playedGameNow() && ev && (ev.beat === "hoh-competition" || ev.beat === "veto-competition") && this.live!.timeOfDay !== undefined) feltHours = competitionCrownHours(this.live!, ev.beat, feltHours); // ORW-232 slice 3: the crown pays only what the rounds left
-        // PO ruling 2026-11-01 — an eviction night / the finale costs ~2h IN TOTAL: its first step
-        // charges the event's budget, every later presentation step costs 0 (it used to be +3h a step,
-        // so one eviction night ran most of a day and the finale ran for days).
-        // Not while the player is turned in: that advance only WAKES them (no hours move), so the event's
-        // budget must not be marked spent on it — the next step charges it for real (cubic #1912).
-        const eventHours = ev !== null && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
-          ? eventBeatHours(this.live!, ev.beat, weekBefore, eventSpanHours("eviction"), this.playedGameNow() ? EVENT_SPREAD_STEPS : undefined)
-          : null;
-        if (compRoundHours !== null && compRoundHours > 0) advanceClock(this.live!, compRoundHours);
-        else if (eventHours !== null) advanceClock(this.live!, eventHours);
-        else if (feltHours !== null) advanceClock(this.live!, feltHours);
-        else advanceClock(this.live!);
-        // A genuine night-end is the 8am-wake WRAP (the house ran to the bitter end) — NOT the morning
-        // after a turnIn (that night already accrued). Detect: a fresh morning (back at the wake hour) we
-        // did NOT reach via retirement.
-        // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
-        // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-        if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
-        this.rollNightConflicts();
-      }
+      this.chargeBeatClock(ev, ceremonyHours, weekBefore);
       this.commit(ev);
       return ev;
     }
@@ -12600,6 +12673,7 @@ export class GameSessionAdapter implements GameSession {
         const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
         if (h !== null && h > 0) advanceClock(this.live!, h);
       }
+      if (ev?.beat === "comp-elimination") this.chargeBeatClock(ev, null, this.live!.week); // ORW-550: the round the player's answer resolved pays its share of the comp's hours, like every later round
       this.commit(ev);
       // T0-2 ("beats terminate themselves") — for the CLOSED-SET ceremony/comp pending kinds
       // (`AUTO_ADVANCE_PENDING_KINDS`, documented above), the resolution's own commit IS the exit: the
@@ -14931,7 +15005,7 @@ export class GameSessionAdapter implements GameSession {
   dealNomPushFor(target: EntityId, holder: EntityId): number {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
-    return bound ? DEAL_NOMS.protectivePush : 0;
+    return bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
   }
 
   /** B26 - a juror's finale lean reads their memory of the finalist too. ON unless `ORWELL_JURY_MEMORY=0`. OFF => no ctx provider => byte-identical. */
