@@ -39,6 +39,8 @@ export type SpokenClaimKind = typeof SPOKEN_CLAIM_KINDS[number];
 
 const NEEDS_OBJECT: ReadonlySet<SpokenClaimKind> = new Set(["final-two-with", "going-after", "talking-about", "voted-against", "voted-to-keep"]);
 const ABOUT_LISTENER: ReadonlySet<SpokenClaimKind> = new Set(["targets-you", "voted-to-evict-you"]);
+/** 0153: the kinds a speaker may tell about THEMSELVES - their own ballot ("I voted to keep you", "I voted against them"); slice 5 lies about it. */
+const ABOUT_OWN_VOTE: ReadonlySet<SpokenClaimKind> = new Set(["voted-to-keep", "voted-against"]);
 
 /** What the speaker really meant by it (engine-only, like ORW-305's real reason): never handed to the narrator. */
 export type ClaimIntent = "inform" | "warn" | "recruit" | "mislead" | "deflect" | "protect";
@@ -93,7 +95,7 @@ export function claimProblem(c: ClaimInput, living: readonly EntityId[]): string
   const inHouse = (id: EntityId | undefined) => id !== undefined && living.includes(id);
   if (!inHouse(c.speaker) || !inHouse(c.listener) || !inHouse(c.subject)) return "not in the house";
   if (c.speaker === c.listener) return "speaker is the listener";
-  if (c.subject === c.speaker) return "a claim is about someone else";
+  if (c.subject === c.speaker && !ABOUT_OWN_VOTE.has(c.kind)) return "a claim is about someone else"; // a houseguest may claim their OWN vote ("I voted to keep you")
   if (ABOUT_LISTENER.has(c.kind) && c.subject === c.listener) return "a claim is about someone else";
   if (NEEDS_OBJECT.has(c.kind)) {
     if (!inHouse(c.object) || c.object === c.subject) return "needs a second houseguest";
