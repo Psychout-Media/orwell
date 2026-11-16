@@ -274,3 +274,20 @@ def test_mirror_without_semicolon_aware_pattern_would_over_delete_survivors():
         "pins the pre-fix behavior: without the semicolon-aware split_pattern the whole sentence "
         "is wiped from round_response, not just the dropped clause"
     )
+
+
+# ── ORW-541: "get a read on the room" planning opener ─────────────────────────
+
+def test_orw541_get_a_read_planning_line_dropped_narration_survives():
+    text = ("Let me get a real read on the room before I put words in their mouths. "
+            "Delia sets down her mug and looks up.")
+    out = _scrub_inline_planning_leak(text, reasoning_empty=True, at_bubble_start=True)
+    assert "get a real read" not in out
+    assert "Delia sets down her mug and looks up." in out
+
+
+def test_orw541_get_a_read_inside_dialogue_or_mid_bubble_untouched():
+    quoted = '"Let me get a read on you first," the HOH says.'
+    assert _scrub_inline_planning_leak(quoted, reasoning_empty=True, at_bubble_start=True) == quoted
+    mid = "Let me get a real read on the room."
+    assert _scrub_inline_planning_leak(mid, reasoning_empty=True, at_bubble_start=False) == mid
