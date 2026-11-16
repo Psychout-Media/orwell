@@ -11,6 +11,7 @@ import { GIVEN_NAMES } from "./data/givenNames";
 import { SURNAMES } from "./data/surnames";
 import { VOCATIONS } from "./data/vocations";
 import { HOMETOWNS } from "./data/hometowns";
+import { labelFitWeight } from "../domain/styleFit";
 import type { Hometown } from "./data/hometowns";
 import { TRIGGER, type EruptionKind } from "./triggerConstants";
 
@@ -598,12 +599,26 @@ export const MAX_PER_PRESENTATION = 1;
  * rejection loop): the draw count on the side rng is exactly `count`, and when `count` exceeds the pool
  * the used set resets so a larger cast still spreads. Deterministic per rng stream.
  */
-export function dealPresentationFamilies(rng: RandomnessSource, count: number): string[] {
+export function dealPresentationFamilies(
+  rng: RandomnessSource, count: number, fit?: (slot: number, label: string) => number,
+): string[] {
   const out: string[] = [];
   let remaining = PRESENTATION.slice();
   for (let i = 0; i < count; i++) {
     if (remaining.length === 0) remaining = PRESENTATION.slice();
-    const idx = rng.int(remaining.length);
+    let idx: number;
+    if (fit) {
+      // ORW-480: still ONE draw per houseguest, but weighted by how well each unused family fits THIS life (job sector, hometown, age),
+      // so a look is one the person could own; a family never repeats (cap 1) and a poor fit is rare, not impossible.
+      const r = rng.int(1_000_000) / 1_000_000;
+      const ws = remaining.map((l) => Math.max(0.0001, fit(i, l)));
+      const total = ws.reduce((a, b) => a + b, 0);
+      let acc = 0;
+      idx = ws.length - 1;
+      for (let k = 0; k < ws.length; k++) { acc += ws[k]! / total; if (r < acc) { idx = k; break; } }
+    } else {
+      idx = rng.int(remaining.length);
+    }
     out.push(remaining[idx]!);
     remaining.splice(idx, 1);
   }
@@ -889,7 +904,8 @@ export function generateHouse(
   // houseguests at once. Same discipline as builds: a dedicated names-keyed side rng (seed-stable,
   // player-INDEPENDENT, off the main stream), capped ≤MAX_PER_PRESENTATION.
   const presentationRng = new SeededRandom(hashSeed(`presentation:${npcs.map((n) => n.name).join("|")}`));
-  const presentations = dealPresentationFamilies(presentationRng, npcs.length);
+  const presentations = dealPresentationFamilies(presentationRng, npcs.length,
+    (slot, label) => labelFitWeight(label, { vocation: facets[slot]!.vocation, hometown: facets[slot]!.hometown, age: npcs[slot]!.character.age }));
   // 0084: deal each houseguest a distinct VOICE fingerprint cast-wide off a names-keyed side rng — one
   // advancing stream, archetype-biased per NPC, so the cast sounds like sixteen people. Player-INDEPENDENT
   // and off the main stream (no calibration impact), byte-stable for the season (voice is identity).

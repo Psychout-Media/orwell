@@ -36,3 +36,17 @@ describe("ORW-480 casting-director table (TypeScript half)", () => {
     for (const k of ["sector", "role", "prop", "expression", "smile-kind", "gaze", "pose", "room", "closing-read", "garment", "colour"]) expect(CAST_REALISM.kinds[k]).toBeDefined();
   });
 });
+
+describe("ORW-480 style fit (TypeScript half) agrees with the Python half on one fixture", () => {
+  it("styleFitWeight matches the shared cases", async () => {
+    const { styleFitWeight } = await import("../../src/domain/styleFit");
+    const cases = JSON.parse(readFileSync(new URL("../fixtures/orw480_style_fit_cases.json", import.meta.url), "utf8")) as [string, string, string, number, number][];
+    expect(cases.length).toBeGreaterThan(60);
+    for (const [fam, vocation, hometown, age, want] of cases) expect(styleFitWeight(fam, { vocation, hometown, age }), `${fam} ${vocation}`).toBeCloseTo(want, 5);
+  });
+  it("a line cook from a small town is not dealt a model's minimalism by weight", async () => {
+    const { styleFitWeight } = await import("../../src/domain/styleFit");
+    expect(styleFitWeight("minimalist", { vocation: "line cook", hometown: "Sidney, Nebraska", age: 36 })).toBeLessThan(0.3);
+    expect(styleFitWeight("skater", { vocation: "line cook", hometown: "Sidney, Nebraska", age: 24 })).toBeGreaterThan(1);
+  });
+});

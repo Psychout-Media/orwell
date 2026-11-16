@@ -189,14 +189,14 @@ describe("ORW-432 what moved and what did not", () => {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0 } : {}) } }));
-        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0 } : v.physicalCharacteristics, castingType: 0 }]));
+        const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, presentation: 0 } : {}) } }));
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0, distinguishingMark: 0, facialFeatures: 0 } : v.physicalCharacteristics, castingType: 0 }]));
         all += JSON.stringify([blanked, pub, l.hidden, l.threads]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("8a61f606ec7a35bc281611bf2721572f36f19daf86a45af19340bc9d97af686f"); // identical on main and on this branch with the background, the biographies and the style line blanked: no random draw moved
-    expect(run(false)).toBe("a4b37006d0609bbb00d5df20a4414646b80e25b53287d0a608e3224bdf48a566"); // re-pinned on purpose: ORW-458 (the background text and the biography built from it) and ORW-480 (the corporate style family sample lost "a lanyard on show": 35 of 900 seeded cards, only physicalCharacteristics.style)
+    expect(run(true)).toBe("9754005645fdb3f32250ff15e49c44b50033fc3b4ee36b910894a4860d9bf6ad"); // identical on main and on this branch with the background, biographies, style line, mark, face line and presentation blanked: no random draw moved // identical on main and on this branch with the background, the biographies and the style line blanked: no random draw moved
+    expect(run(false)).toBe("988707a7b2bcd9ddc6412a36d04b430b25122ce7e30a0ec5624a69c83ff8be75"); // re-pinned on purpose: ORW-458 (the background text and the biography built from it) and ORW-480 (the corporate style family sample lost "a lanyard on show"), and ORW-480 (a 44-mark pool dealt to about 4 of 15, 40 face lines, the style family weighted by job sector, hometown and age)
   });
 });
 

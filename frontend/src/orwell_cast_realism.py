@@ -185,3 +185,63 @@ def is_multi_garment(item: str) -> bool:
     if len(groups) < 2:
         return False
     return bool(re.search(r"\b(?:" + "|".join(re.escape(j) for j in table()["garment-joiners"]) + r")\b|,", item or "", re.I))
+
+
+# ── ORW-480: the look fits the life (the engine deal in src/domain/styleFit.ts uses the same numbers) ──────────
+
+def _fit():
+    return table()["look-fit"]
+
+
+def is_big_city(hometown) -> bool:
+    city = str(hometown or "").split(",")[0].strip().lower()
+    return any(c.lower() == city for c in _fit()["big-cities"])
+
+
+def life_sector(vocation) -> str:
+    return (tag_kind("sector", {"vocation": vocation or ""}) or ["other"])[0]
+
+
+def life_affluence(vocation) -> float:
+    return _fit()["sector-affluence"].get(life_sector(vocation), 1)
+
+
+def style_fit_weight(family_id: str, vocation=None, hometown=None, age=None) -> float:
+    """The fit of a style family to a life: 1 neutral, below about 0.3 a poor fit, above 1 a good one (same maths as styleFitWeight in TS)."""
+    f = _fit()
+    w = 1.0
+    fam = f["family-affluence"].get(family_id)
+    if fam is not None:
+        gap = abs(fam - life_affluence(vocation))
+        w *= 1 if gap <= 0.5 else (0.4 if gap <= 1 else 0.12)
+    band = f["family-age"].get(family_id)
+    if band and age is not None and (age < band[0] or age > band[1]):
+        w *= 0.25
+    town = f["family-town"].get(family_id)
+    if town == "small" and is_big_city(hometown):
+        w *= 0.4
+    if town == "big" and hometown and not is_big_city(hometown):
+        w *= 0.4
+    if family_id in f["sector-families"].get(life_sector(vocation), []):
+        w *= 2
+    return w
+
+
+def _upscale_words(text: str) -> list:
+    return [w for w in _fit()["upscale-words"] if re.search(r"\b" + re.escape(w), text or "", re.I)]
+
+
+def look_fits_life(card: dict) -> list:
+    """Why a card's look does not fit its life: [] when it does. "family": the dealt style family is a poor fit for the job sector, hometown
+    and age (reported; only the engine deal can change it). "upscale": two or more expensive-look words in the wardrobe or style line on a
+    modest life (what a rewrite of the wardrobe can fix)."""
+    from src.orwell_style_families import family_for_label
+    out = []
+    fam = family_for_label(str(card.get("presentation") or ""))
+    if fam is not None and style_fit_weight(fam["id"], card.get("vocation"), card.get("hometown"), card.get("age")) < _fit()["min-weight"]:
+        out.append("family")
+    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    text = field_text(card, "wardrobe") + " | " + str(phys.get("style") or "")
+    if life_affluence(card.get("vocation")) <= 0.5 and len(set(_upscale_words(text))) >= 2:
+        out.append("upscale")
+    return out

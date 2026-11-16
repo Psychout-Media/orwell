@@ -335,3 +335,56 @@ def test_the_mark_lives_in_distinguishing_mark_only_and_the_season_line_names_th
 def test_the_writer_prompt_keeps_the_mark_out_of_the_face_line():
     from src import orwell_cast_authoring as ca
     assert "THE MARK LIVES IN distinguishingMark ONLY" in ca._SYSTEM
+
+
+# ---- the look fits the life ----------------------------------------------------------------------------------
+def _lf_card(**kw):
+    d = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "woman", "age": 36, "vocation": "line cook",
+         "hometown": "Sidney, Nebraska", "presentation": "minimalist monochrome",
+         "physicalCharacteristics": {"style": "one tone head to toe, clean lines, no accessories",
+                                     "wardrobe": ["charcoal linen button-down shirt", "black straight-leg trousers", "simple black leather flats"]}}
+    d.update(kw)
+    return d
+
+
+def test_the_live_season_line_cook_in_monochrome_minimalism_fails_and_a_plausible_look_does_not():
+    assert R.look_fits_life(_lf_card()) == ["family", "upscale"]  # a polished big-city family and a model-like styling line, on a line cook from a small town
+    ok = _lf_card(presentation="skater", age=24, physicalCharacteristics={"style": "baggy jeans and a faded tee", "wardrobe": ["faded grey tee", "baggy jeans", "canvas sneakers"]})
+    assert R.look_fits_life(ok) == []
+    rich = _lf_card(presentation="skater", age=24, physicalCharacteristics={"style": "baggy jeans", "wardrobe": ["silk shirt", "tailored trousers", "leather loafers"]})
+    assert R.look_fits_life(rich) == ["upscale"]
+
+
+def test_the_style_weight_leans_toward_a_look_the_person_could_own():
+    assert R.style_fit_weight("minimalist", "line cook", "Sidney, Nebraska", 36) < 0.3
+    assert R.style_fit_weight("skater", "line cook", "Sidney, Nebraska", 24) > 1
+    assert R.style_fit_weight("quiet-luxury", "insurance agent", "Boston, Massachusetts", 45) >= 1
+    assert R.style_fit_weight("western", "welder", "Boston, Massachusetts", 30) < R.style_fit_weight("western", "welder", "Sidney, Nebraska", 30)
+
+
+def test_an_upscale_wardrobe_on_a_modest_life_is_rewritten_with_the_ask_and_the_style_line_travels_with_it():
+    g = gate.SeasonGate("t")
+    cast = [_card(i, "He sits with his arms folded.")[0] for i in (1, 2)]
+    for n in cast:
+        n.update(vocation="line cook", hometown="Sidney, Nebraska", presentation="skater", age=24)
+    asked = []
+
+    async def rw(npc, codes, message=None):
+        asked.append(message)
+        p = _card(2, "He sits with his arms folded.")[1]
+        p["physicalCharacteristics"]["wardrobe"] = ["faded grey tee", "dark work jeans", "scuffed sneakers"]
+        p["physicalCharacteristics"]["style"] = "plain tees and jeans from the big-box store"
+        return p
+    rich = _card(2, "He sits with his arms folded.")[1]
+    rich["physicalCharacteristics"]["wardrobe"] = ["silk shirt", "tailored trousers", "leather loafers"]
+    rich["physicalCharacteristics"]["style"] = "one tone head to toe"
+    got, _ = _go(gate.run_gate(g, rich, cast[1], cast, rw))
+    assert asked and "could really own and buy where they live" in asked[0]
+    assert got["physicalCharacteristics"]["wardrobe"][0] == "faded grey tee" and got["physicalCharacteristics"]["style"].startswith("plain tees")
+
+
+def test_the_python_style_weight_matches_the_shared_cases_the_typescript_half_checks():
+    cases = json.load(open(os.path.join(ROOT, "tests", "fixtures", "orw480_style_fit_cases.json")))
+    assert len(cases) > 60
+    for fam, vocation, hometown, age, want in cases:
+        assert abs(R.style_fit_weight(fam, vocation, hometown, age) - want) < 1e-5, (fam, vocation)

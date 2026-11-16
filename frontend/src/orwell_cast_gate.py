@@ -275,7 +275,7 @@ def rewrite_message(codes: list) -> str:
 
 
 _REALISM_ONCAMERA_KINDS = ("prop", "expression", "smile-kind", "gaze", "pose", "closing-read")  # the room is no longer asked of the writer
-_REALISM_WARDROBE_KINDS = ("garment", "colour")
+_REALISM_WARDROBE_KINDS = ("garment", "colour", "look-fit")
 
 
 def _realism_tags(card: dict) -> dict:
@@ -286,7 +286,17 @@ def _realism_tags(card: dict) -> dict:
         return {}
 
 
+def _look_fit_failures(card: dict) -> list:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.look_fits_life(card)
+    except Exception:  # failsoft-ok: the realism table never blocks a card
+        return []
+
+
 _REALISM_ASK = {
+    "look-fit": lambda v: ("clothes this person could really own and buy where they live on an ordinary income: nothing expensive-looking "
+                           "(no silk, cashmere, tailoring, designer pieces or one-tone head-to-toe styling)"),
     "prop": lambda v: f"nothing in hand that reads as a {v} prop (no {v})",
     "expression": lambda v: "no smile, grin or smirk: a serious, wry, guarded, thoughtful or amused-without-smiling face",
     "smile-kind": lambda v: f"no {v} smile",
@@ -337,6 +347,8 @@ class SeasonGate:
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
             if rec[key] and any(r.get(key) == rec[key] for o, r in self.registry.items() if o != hid):
                 self.count([code])
+        if "family" in _look_fit_failures(card):
+            self.count(["realism-look-fit:family"])  # the dealt style family is a poor fit for this life (only the engine deal changes it)
         for kind, vals in self.realism_offenders(hid, card).items():
             for v in vals:
                 self.count([f"realism-{kind}:{v}"])  # what the casting director found on this card, whether or not a rewrite cleared it
@@ -367,6 +379,8 @@ class SeasonGate:
         off = self.realism_offenders(hid, card)
         cam = {k: v for k, v in off.items() if k in _REALISM_ONCAMERA_KINDS}
         wd = {k: v for k, v in off.items() if k in _REALISM_WARDROBE_KINDS}
+        if "upscale" in _look_fit_failures(card):  # ORW-480: expensive-looking clothes on a modest life: the wardrobe is rewritten
+            wd["look-fit"] = ["upscale"]
         if cam:
             out["realism-oncamera"] = cam
         if wd:
@@ -516,6 +530,9 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
                 base["onCamera"] = new_cam
             else:
                 base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
+                new_style = new_phys.get("style") if isinstance(new_phys, dict) else None
+                if "look-fit" in (rep.get("realism-wardrobe") or {}) and isinstance(new_style, str) and new_style.strip():
+                    base["style"] = " ".join(new_style.split())  # the style line travels with the clothes it describes
             cand["physicalCharacteristics"] = base
         mend(cand, npc, cast)
         if any(is_blocking(c) for c in card_codes(cand, npc, cast, gate.registry)):

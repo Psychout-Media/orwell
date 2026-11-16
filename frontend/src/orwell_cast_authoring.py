@@ -136,7 +136,7 @@ _SYSTEM = (
     "THE MARK LIVES IN distinguishingMark ONLY: never repeat it in facialFeatures, the biography or any other field (no gap-toothed grin in "
     "the face line when the mark says so), and keep the face line to bone structure and expression, "
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
-    "personality, would really own and wear to be photographed for TV, and write that. The skeleton's presentation is only a "
+    "personality, would really own and wear to be photographed for TV, and could buy in an ordinary shop in or near their hometown on their income, and write that. The skeleton's presentation is only a "
     "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
     "with another family (no rocker edge layered over bohemian). Write \"style\" as those real clothes in a phrase. Every piece is ONE "
     "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
