@@ -58,7 +58,7 @@ const HELD_AS: Record<SpokenClaimKind, readonly BeliefClaim["kind"][]> = {
   "targets-you": ["targets-me"],
   "voted-to-evict-you": ["voted-against-me"],
   "final-two-with": ["allied-with"],
-  "going-after": ["heard-rumor"],
+  "going-after": ["heard-rumor", "targets-me"], // slice 4a says a held targets-me as going-after, the speaker being the object
   "talking-about": ["heard-rumor"],
   "lying-about": ["lied-to-me", "heard-rumor"],
 };

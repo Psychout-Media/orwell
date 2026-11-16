@@ -82,3 +82,12 @@ describe("the Vault Wall around the answer", () => {
     expect(askableClaims(undefined, new Set(["a"]))).toEqual([]);
   });
 });
+
+describe("slice 4a and 4b agree: a held targets-me told as going-after is askable", () => {
+  it("heldBeliefFor finds a targets-me belief behind a going-after claim whose object is the speaker", () => {
+    const store = {} as Parameters<typeof heldBeliefFor>[0] & object;
+    recordClaim(store as never, { holder: "a", kind: "targets-me", subject: "b", object: "a", value: true, origin: "told", source: "c", confidence: 0.7, week: 2 });
+    const got = heldBeliefFor(store as never, { speaker: "a", kind: "going-after", subject: "b", object: "a" });
+    expect(got?.source).toBe("c");
+  });
+});
