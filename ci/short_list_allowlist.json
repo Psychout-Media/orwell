@@ -2142,9 +2142,8 @@
    "name": "SAFE_VOCATIONS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "plain-job fallback of the age/place plausibility acceptance (PR 2840)",
-   "decision": "plain-job fallback for a job the age rules rule out (PR 2840 bounded retries): the genesis writer authors the vocation live, this fallback only fires after rejections",
-   "transitional": "PR 2840"
+   "reason": "plain-job fallback of the age/place plausibility acceptance",
+   "decision": "plain-job fallback for a job the age rules rule out (PR 2840 bounded retries): the genesis writer authors the vocation live, this fallback only fires after rejections"
   },
   {
    "path": "src/engine/deepProfile.ts",

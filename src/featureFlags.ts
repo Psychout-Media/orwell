@@ -107,6 +107,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
+  // 0154 / ORW-330 slice 5b: after an eviction NPC voters tell one NPC how they voted ("I voted to keep you"), true or a lie, engine-decided on its own seeded stream. Needs ORWELL_NPC_BELIEFS. `=0` turns it off.
+  { envKey: 'ORWELL_VOTE_TALK', key: 'voteTalk', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
   // A49 / #2017 E1a: npcVoice hands the narrator each PRESENT houseguest's observable tells (top 2, words only). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

@@ -56,6 +56,11 @@ A stage writes `slot.env` into the run directory it creates, so the scripts copi
     RIG_SLOT=2 RIG_DRY=1 scripts/live-run/week.sh          # prove a slot
     RIG_SLOT=2 RIG_SPEND_CAP=3 scripts/live-run/week.sh    # one capped week
 
+## Forced eviction night, card-aware hang-out driver (ORW-506)
+
+- `RIG_EVICTION=1 scripts/live-run/run_short.sh` (or `live_short.py --eviction [--eviction-turns N]`, N clamped to 1..20, default 8): after the veto morning the engine's closed set is driven to the eviction phase (stopping AT it), then the night is played through the real chat, answering any decision card in the UI first. Checks `E1` (reached), `E2` (the engine recorded an evictee or the week moved on), `E3` (no card left open). Same `RIG_SPEND_CAP` guard as every short run; not combinable with `RIG_CROSSOVER=1`.
+- `scripts/rehearsal-kit/a21-sync-run.sh SCRIPT.txt` drives a hang-out script against the run already staged on the slot (it does not stage or stop the rig), under `RIG_SPEND_CAP` (default $0.50) via `spend_guard.py`. The driver answers decision cards before each message and sends `@toast <text>` script lines only when the engine says the player's toast slot is now (format: `sync_lib.py`). Bounded by `--max-messages` (default 60, ceiling 120).
+
 ## Pass bar (short tier)
 
 A run PASSES when every FAIL check holds. WARN checks are listed in the report and do not fail the run.

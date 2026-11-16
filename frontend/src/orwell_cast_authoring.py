@@ -22,6 +22,7 @@ never echoes a hidden value). This module only authors + forwards; it never seal
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import os
 import re
@@ -3730,7 +3731,7 @@ async def run_authoring(cast: list[dict], owner: Optional[str],
     narration-model-first at the runtime `cast_authoring_temperature`, explicit utility fallback.
     Under the STRICT enrichment policy a missing model is LOUD (an ERROR + a failure-ledger entry,
     never a silent floor); under `soft` the legacy silent no-op stands byte-identical."""
-    clear_strict_failed(owner)  # ORW-260: a fresh run re-evaluates from clean
+    begin_authoring_run(owner)  # ORW-260: a fresh run re-evaluates from clean (and supersedes any older run still in flight)
     llm_fn = await resolve_authoring_llm_fn(owner)
     if llm_fn is None:
         try:
@@ -4102,12 +4103,28 @@ def _skey(user: Optional[str]) -> str:
     return str(user) if user else "default"
 
 
+# Review of #2375: an OLD, slow authoring run that fails after a newer run (a new season, or a retry) finished must not latch the flag against the new cast. Every clear
+# bumps the user's run sequence; a run remembers the sequence it started under (a ContextVar, copied into its task) and its failure is ignored once it is superseded.
+_RUN_SEQ: dict = {}
+_RUN_ID: "contextvars.ContextVar[Optional[int]]" = contextvars.ContextVar("cast_authoring_run", default=None)
+
+
 def mark_strict_failed(user: Optional[str]) -> None:
+    rid = _RUN_ID.get()
+    if rid is not None and _RUN_SEQ.get(_skey(user), 0) != rid:
+        return  # a superseded run (the season was reset or a newer run started): its failure is not this cast's
     _STRICT_FAILED.add(_skey(user))
 
 
 def clear_strict_failed(user: Optional[str]) -> None:
     _STRICT_FAILED.discard(_skey(user))
+    _RUN_SEQ[_skey(user)] = _RUN_SEQ.get(_skey(user), 0) + 1  # any run still in flight is now superseded
+
+
+def begin_authoring_run(user: Optional[str]) -> None:
+    """A fresh run re-evaluates from clean and owns the current sequence."""
+    clear_strict_failed(user)
+    _RUN_ID.set(_RUN_SEQ[_skey(user)])
 
 
 def strict_failed(user: Optional[str]) -> bool:

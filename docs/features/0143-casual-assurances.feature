@@ -3,6 +3,7 @@
 # ballot and week-roll scenarios play a REAL seeded game through the live adapter and compare one engine snapshot played twice
 # (a control without the assurance, a branch with it).
 
+@no-vote-talk
 Feature: Casual Assurances
 
   Retrospective scenarios describing the shipped behavior.

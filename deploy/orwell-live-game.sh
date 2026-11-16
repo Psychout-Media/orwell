@@ -111,11 +111,51 @@ if row and row[0] is not None:
     print(int(row[0]))
 '
 
+# ORW-496: an absolute form of a path, resolved against the CURRENT directory (the readers below `cd /` before they open it).
+_update_abs_path() {
+  local p="$1"
+  [[ -n "$p" && "$p" != /* ]] && p="$(pwd)/${p#./}"
+  printf '%s' "$p"
+}
+# ORW-487: the SQLite file the front end really uses. $1 app dir, $2 data/.env, $3 the default file. A DATABASE_URL in the
+# environment, else in data/.env, of the form sqlite:///<path> names it (sqlite:////abs = absolute; a relative path is relative to the
+# front end's working directory, <app>/frontend, as the systemd unit runs it). Anything else (unset, another database) = the default.
+update_fe_db_path() {
+  local app="${1%/}" envf="${2:-}" def="$3" url="${DATABASE_URL:-}" p
+  if [[ -z "$url" && -n "$envf" && -r "$envf" ]]; then
+    url="$(sed -n 's/^DATABASE_URL=[[:space:]]*//p' "$envf" 2>/dev/null | tail -n1 || true)"
+    url="${url%"${url##*[![:space:]]}"}"; url="${url#[\"\']}"; url="${url%[\"\']}"
+  fi
+  if [[ "$url" == sqlite:///* ]]; then
+    p="${url#sqlite:///}"; p="${p%%\?*}"
+    if [[ -n "$p" && "$p" != :memory:* ]]; then
+      [[ "$p" == /* ]] || p="${app}/frontend/${p#./}"
+      printf '%s' "$p"; return 0
+    fi
+  fi
+  printf '%s' "$def"
+}
+# ORW-490: ONE bound helper for every wait: $1 value, $2 default, $3 max (min 1). Non-numeric -> default; leading zeros and
+# long digit strings never reach the arithmetic as written.
+update_bound() {
+  local v="$1" d="$2" mx="$3"
+  [[ "$v" =~ ^[0-9]+$ ]] && { v="${v#"${v%%[!0]*}"}"; v="${v:-0}"; }
+  [[ "$v" =~ ^[0-9]{1,6}$ ]] || v="$d"
+  (( v = 10#$v, v < 1 )) && v=1
+  (( v > mx )) && v=$mx
+  printf '%s' "$v"
+}
+# The most seconds the new-turn hold must last: the turn wait + the warm-up wait + a restart allowance (ORW-490).
+update_hold_seconds() {
+  echo $(( $(update_bound "${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" 120 300) + $(update_bound "${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" 60 300) + 150 ))
+}
+
 # One reader each. $1 db, then the privilege-dropping prefix (empty unless root). Prints <integer> | none | error,
 # or "unavailable" when this reader cannot run on this box (the caller then tries the next one).
 _live_game_read_python() {
   local db="$1" out rc=0; shift
   command -v python3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  db="$(_update_abs_path "$db")"   # ORW-496: a relative path would be read from / after the cd below
   # `|| rc=$?`: a failing read must not trip the caller's `set -e`. `cd /`: the service user may not be able to
   # enter the directory the updater was started in.
   out="$(cd / && timeout 10 "$@" python3 -I -c "$_LG_PY" "$db" "$_LG_SQL" 2>/dev/null)" || rc=$?
@@ -132,6 +172,7 @@ _live_game_read_python() {
 _live_game_read_cli() {
   local db="$1" out err rc=0; shift
   command -v sqlite3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  db="$(_update_abs_path "$db")"   # ORW-496
   err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
   out="$(cd / && timeout 10 "$@" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$_LG_SQL" 2>"$err")" || rc=$?
   if (( rc != 0 )); then
@@ -189,14 +230,37 @@ update_force_flag_present() {
   [[ -n "$(find "$f" -maxdepth 0 -mmin -60 2>/dev/null)" ]]
 }
 
+# ORW-489: ONE way to get the root-owned run dir ready, used by every writer below. `mkdir -p -m` only applies the mode
+# when mkdir CREATES the dir, so a dir another writer already made under a restrictive root umask (077 -> 0700) stayed
+# unreadable to the front end (another user), which then read "no hold". Returns 1 for a symlink, a dir root does not own,
+# or one that cannot be made; otherwise the dir exists and is 755.
+_update_run_dir_ready() {
+  local dir="$ORWELL_RUN_DIR"
+  [[ -L "$dir" ]] && return 1
+  mkdir -p "$dir" 2>/dev/null || return 1
+  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 1; fi   # only ever write inside a dir WE own
+  [[ -O "$dir" ]] && { chmod 755 "$dir" 2>/dev/null || true; }
+  return 0
+}
+
+# ORW-485: a web force request is meant for a DEFERRED waiter. A run that is already past the wait never reads it, so it must not
+# outlive that run (the next ordinary update inside the hour would honour it and restart a live game without waiting). Called when
+# an update run ends. A waiter that is still deferred (its status file exists) keeps the flag: the request may be for it.
+# $1 ops dir
+update_force_flag_clear() {
+  local f="${1%/}/update-force-requested" st="${ORWELL_RUN_DIR}/update-deferred"
+  [[ -f "$st" && ! -L "$st" ]] && return 0
+  [[ -e "$f" || -L "$f" ]] || return 0
+  rm -rf --one-file-system -- "$f" 2>/dev/null || true
+  return 0
+}
+
 # Write/refresh the visible status in the ROOT-owned run dir (atomic; temp file beside the target in that
 # same root-owned dir, O_EXCL via mktemp, then mv -fT; no chmod after creation).
 # $1 reason  $2 since(iso)  $3 give-up-by(iso)  $4 give-up-by(epoch)  $5 run token the waiter started under (ownership: only that waiter clears it)
 update_defer_write_status() {
   local dir="$ORWELL_RUN_DIR" reason="$1" since="$2" until_="$3" until_epoch="$4" seq="${5:-}" tmp
-  [[ -L "$dir" ]] && return 0
-  mkdir -p "$dir" 2>/dev/null || return 0
-  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi   # only ever write inside a dir WE own
+  _update_run_dir_ready || return 0
   tmp="$(umask 022; mktemp "${dir}/.update-deferred.XXXXXX" 2>/dev/null)" || return 0
   {
     printf 'deferred=true\n'
@@ -229,16 +293,20 @@ update_run_seq_read() {
   [[ -f "$f" && ! -L "$f" ]] || { printf 0; return 0; }
   head -c 80 "$f" 2>/dev/null | tr -d '\r\n' || true
 }
+# $1 (optional) kind: "rollback" marks the token so a deferred plain update that wakes later knows a rollback ran after it was
+# deferred and must not redeploy the tip the rollback rejected (ORW-488). Every run that takes the update lock writes one.
 update_run_supersede() {
-  local dir="$ORWELL_RUN_DIR" tmp
-  [[ -L "$dir" ]] && return 0
-  mkdir -p "$dir" 2>/dev/null || return 0
-  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi
+  local dir="$ORWELL_RUN_DIR" tmp kind="${1:-}"
+  [[ "$kind" =~ ^[a-z-]{1,20}$ ]] || kind=''
+  [[ -z "$kind" ]] || kind="-${kind}"
+  _update_run_dir_ready || return 0
   tmp="$(umask 022; mktemp "${dir}/.update-run-seq.XXXXXX" 2>/dev/null)" || return 0
-  printf '%s-%s-%s\n' "$$" "$(date +%s%N 2>/dev/null || date +%s)" "$RANDOM" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  printf '%s-%s-%s%s\n' "$$" "$(date +%s%N 2>/dev/null || date +%s)" "$RANDOM" "$kind" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   mv -fT "$tmp" "${dir}/update-run-seq" 2>/dev/null || rm -f "$tmp"
   return 0
 }
+
+update_superseded_by_rollback() { [[ "$(update_run_seq_read)" == *-rollback ]]; }
 
 # Block until the update may proceed; returns 0 (the update then runs), or 10 when a later run that proceeded
 # superseded this deferred one (the caller exits without restarting). A run that proceeds supersedes any deferred run. Seams for tests:
@@ -352,9 +420,7 @@ update_restarted_sha_read() {
 }
 update_restarted_sha_write() {
   local dir="$ORWELL_RUN_DIR" tmp
-  [[ -L "$dir" ]] && return 0
-  mkdir -p "$dir" 2>/dev/null || return 0
-  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi
+  _update_run_dir_ready || return 0
   tmp="$(umask 022; mktemp "${dir}/.restarted-sha.XXXXXX" 2>/dev/null)" || return 0
   printf '%s\n' "$1" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   mv -fT "$tmp" "${dir}/restarted-sha" 2>/dev/null || rm -f "$tmp"
@@ -394,9 +460,7 @@ update_turn_in_flight() {
 update_turn_hold_begin() {
   local secs="${1:-240}" dir="$ORWELL_RUN_DIR" tmp
   [[ "$secs" =~ ^[0-9]{1,5}$ ]] || secs=240
-  [[ -L "$dir" ]] && return 0
-  mkdir -p -m 755 "$dir" 2>/dev/null || return 0   # 755 whatever the caller's umask: the front end (another user) must be able to traverse it
-  if [[ "$(id -u)" -eq 0 && ! -O "$dir" ]]; then return 0; fi   # only ever write inside a dir WE own
+  _update_run_dir_ready || return 0   # 755 whatever the umask or who made the dir first: the front end (another user) must be able to traverse it
   tmp="$(umask 022; mktemp "${dir}/.turns-hold.XXXXXX" 2>/dev/null)" || return 0
   printf 'until=%s\n' "$(( $(_update_defer_now) + 10#$secs ))" > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   # mktemp creates 0600 whatever the umask, and the front end reads this as another user: make it world-readable. Safe: the temp file sits in a root-owned dir nobody else can write.
@@ -404,7 +468,9 @@ update_turn_hold_begin() {
   mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || { rm -f "$tmp"; return 0; }
   echo "==> holding new turns (the game restarts in a moment; players see 'one moment')"
   # A turn admitted in the same instant as the hold may not be in the in-flight count yet: give it a moment to register before the first count is read.
-  _update_defer_sleep "${ORWELL_UPDATE_HOLD_SETTLE_SECONDS:-2}"
+  local settle="${ORWELL_UPDATE_HOLD_SETTLE_SECONDS:-2}"
+  [[ "$settle" =~ ^[0-9]{1,2}$ ]] || settle=2   # ORW-490: validated like the other bounds
+  _update_defer_sleep "$settle"
   return 0
 }
 update_turn_hold_end() {
@@ -417,10 +483,7 @@ update_turn_hold_end() {
 # $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).
 update_wait_for_no_turn() {
   local f="$1" force_now="${2:-0}" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
-  [[ "$max" =~ ^[0-9]+$ ]] && { max="${max#"${max%%[!0]*}"}"; max="${max:-0}"; }   # ORW-465: leading zeros do not count against the length
-  [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=120   # at most six digits: a 20-digit value would wrap the arithmetic below
-  (( max = 10#$max, max < 1 )) && max=1
-  (( max > 300 )) && max=300
+  max="$(update_bound "$max" 120 300)"   # ORW-490: the one shared clamp (also sizes the hold)
   if [[ "$force_now" == "1" ]]; then
     echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
     return 0
@@ -473,10 +536,7 @@ update_probe_host() {
 _warm_log() { [[ -n "$1" ]] || return 0; [[ /proc/self/fd/1 -ef "$1" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
   local eng="${1:-}" fe="${2:-}" log="${3:-}" fehost="${4:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
-  [[ "$max" =~ ^[0-9]+$ ]] && { max="${max#"${max%%[!0]*}"}"; max="${max:-0}"; }   # ORW-465: leading zeros do not count against the length
-  [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=60
-  (( max = 10#$max, max < 1 )) && max=1
-  (( max > 300 )) && max=300
+  max="$(update_bound "$max" 60 300)"   # ORW-490: the one shared clamp
   start="$(_update_defer_now)"
   _warm_left() { local l=$(( max - ($(_update_defer_now) - start) )); (( l < 1 )) && l=1; (( l > 3 )) && l=3; echo "$l"; }
   local eng_done=0 fe_done=0
