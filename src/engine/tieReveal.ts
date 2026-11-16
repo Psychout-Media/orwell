@@ -11,7 +11,7 @@
  * entry to; the strong fold belongs to direct witnessing, never to hearsay.
  *
  * CALIBRATION (sacred — mandate #4): the caller (`GameSessionAdapter.advanceTieReveal`) runs this ONLY
- * behind the default-OFF `ORWELL_TIE_REVEAL` flag, on a DEDICATED rng (never the shared society/
+ * behind the default-ON `ORWELL_TIE_REVEAL` flag, on a DEDICATED rng (never the shared society/
  * competition/vote stream) — so with it off, or with no eligible tie, the seeded juryReach/gradient/UAT
  * sims never enter this code at all (byte-identical to the pre-feature build).
  */

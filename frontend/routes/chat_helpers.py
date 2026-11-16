@@ -1189,8 +1189,9 @@ _PENDING_KIND_HINTS = {
         "submitDecision (kind 'comp-round', intent=...). This approach is declared ONCE, up front, and "
         "covers the whole comp: it is committed before the round resolves and locked once it does. The "
         "later elimination rounds narrow the field as DRAMA over an already-decided result — they are "
-        "NOT a fresh choice each round, so never re-ask the player's approach as the field thins. Never "
-        "resolve a winner yourself and never re-label a finished round."
+        "NOT a fresh choice each round, so never re-ask the player's approach as the field thins. A "
+        "non-answer (\"next\") gets one or two in-fiction lines that the approach is waiting, never a "
+        "re-narrated scene. Never resolve a winner yourself and never re-label a finished round."
     ),
 }
 

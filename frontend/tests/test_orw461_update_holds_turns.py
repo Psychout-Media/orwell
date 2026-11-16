@@ -109,7 +109,7 @@ _update_defer_now() {{ echo 1000; }}
 def test_the_hold_wraps_the_wait_the_restart_and_the_warm_up_and_every_exit_lifts_it():
     base = UPDATE.index("RESTART_SCOPE=both")
     blk = UPDATE[base:UPDATE.index("update complete (", base)]
-    begin = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
+    begin = blk.index('update_turn_hold_begin "$__hold"')
     wait = blk.index('update_wait_for_no_turn "${INFLIGHT_DIR:-')
     restart = blk.index('systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"')
     warm = blk.index("update_wait_for_warm ", restart)
@@ -132,14 +132,14 @@ _update_defer_now() {{ echo 1000; }}; _update_defer_sleep() {{ echo 0 > '{tmp_pa
     assert r.returncode == 0, (value, r.stdout, r.stderr)
     assert "AFTER-WAIT hold=present" in r.stdout
     stamp = int((tmp_path / "turns-hold").read_text().split("=")[1])
-    assert 1000 + 151 <= stamp <= 1000 + 300 + 150, f"the hold lasts the clamped wait (1..300 s) plus 150 s: {stamp - 1000}"
+    assert 1000 + 1 + 60 + 150 <= stamp <= 1000 + 300 + 60 + 150, f"the hold lasts the clamped wait (1..300 s) + the warm-up wait (default 60 s) + 150 s: {stamp - 1000}"  # ORW-490
 
 
 def test_the_updater_uses_the_run_dir_and_the_validated_wait_for_the_hold():
     base = UPDATE.index("RESTART_SCOPE=both")
     blk = UPDATE[base:UPDATE.index("update complete (", base)]
-    i = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
-    assert "__tw" in blk[i - 600:i] and "10#$__tw" in blk[i - 600:i], "the hold length comes from the validated, clamped value"
+    i = blk.index('update_turn_hold_begin "$__hold"')
+    assert "update_hold_seconds" in blk[i - 600:i], "the hold length comes from the shared, clamped bound helper (ORW-490)"
     assert "$(( ${ORWELL_UPDATE_TURN_WAIT_SECONDS" not in UPDATE
 
 
