@@ -366,6 +366,24 @@
           vaultWrap.appendChild(d);
         }
       }
+      // ORW-525 (spec 0157, theme 2 slice 8): the rumor mill. Render-only, textContent, plain sentences (the engine sends names, never truth or intent;
+      // every row is a lie by construction). Absent => skipped (fail-open).
+      const _mill = unsealed.rumorMill;
+      const _millRows = (rows) => (rows || []).filter((r) => r && r.claim && r.starter && r.starter.name).map((r) =>
+        `${clean(r.starter.name)} started it (week ${r.startedWeek}): ${clean(r.claim)}. Believed by ${(r.believers || []).map((b) => clean(b.name)).join(", ") || "no one in the house"}`
+        + ((r.passedOn || []).length ? `; passed on by ${r.passedOn.map((b) => clean(b.name)).join(", ")}` : "") + (r.toldToYou ? "; you heard it too" : "") + ".");
+      if (_mill && (_millRows(_mill.biggest).length || _millRows(_mill.aboutYou).length)) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "The rumor mill"));
+        const mk = (title, items) => {
+          if (!items.length) return;
+          vaultWrap.appendChild(el("div", "margin:6px 0 2px;font-weight:600", title));
+          const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+          for (const t of items) ul.appendChild(el("li", "", t));
+          vaultWrap.appendChild(ul);
+        };
+        mk("The biggest lies the house believed", _millRows(_mill.biggest));
+        mk("What they got wrong about you", _millRows(_mill.aboutYou));
+      }
       // ENDGAME-1: the full hidden story, not just the latest 40 — a completed season with off-screen
       // sim, gossip diffusion, confessionals, threads, and seeded ties easily runs to hundreds of rows,
       // and dropping the early/mid season silently guts the "you were blindsided, and it was real all

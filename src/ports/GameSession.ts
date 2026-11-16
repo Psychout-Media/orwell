@@ -2387,7 +2387,29 @@ export interface HouseStory {
 export interface RecordNpcReflectionsReq { reflections: Array<{ id: EntityId; night: number; reflection: string }> }
 export interface RecordNpcReflectionsResult { accepted: number; rejected: number; reason?: string }
 
+/**
+ * ORW-525 (spec 0157, theme 2 slice 8): one false belief of the season, told in plain words. Present ONLY on the post-season retrospective
+ * (`RetrospectiveView.rumorMill`, behind the `finished` gate). Covers claim-planted beliefs only. No truth flag or intent is carried: every row IS a lie.
+ */
+export interface RumorMillBelief {
+  /** What was believed, in words ("that <name> was targeting them"; "them" = each believer). */
+  claim: string;
+  /** Who told it first (the earliest false claim of its kind). */
+  starter: NamedRef;
+  startedWeek: number;
+  /** Later tellers who passed it on without meaning to mislead (leaks, not starters). */
+  passedOn: NamedRef[];
+  /** The houseguests it was told to. */
+  believers: NamedRef[];
+  tellings: number;
+  /** The player was told it too. */
+  toldToYou: boolean;
+}
+export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose subject is the player: what the house got wrong about you. */ aboutYou: RumorMillBelief[] }
+
 export interface RetrospectiveView {
+  /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
+  rumorMill?: RumorMill;
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
    * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
