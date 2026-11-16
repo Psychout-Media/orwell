@@ -168,7 +168,7 @@ BUMPING_WRITES = frozenset({
 #: bump - GameSessionAdapter `backgroundPersist`), the admin / sandbox levers, and the non-PURE_READS read tools. A tool listed here is
 #: classified (a decision was made) and is never counted.
 NON_BUMPING_WRITES = frozenset({
-    "recordRoomCanon", "recordOpenLedger", "resolveOpenLedger", "recordDaySummary", "recordLookExtras", "recordNpcTraits",
+    "recordRoomCanon", "recordNarrationUse", "recordOpenLedger", "resolveOpenLedger", "recordDaySummary", "recordLookExtras", "recordNpcTraits",
     "recordNpcReflections", "recordHouseCulture", "recordWorldSnapshot", "recordCastProfile", "recordCastIdentity",
     "recordProducerProfile", "recordCompetitionFiction", "recordOffscreenSceneTexture",
     # admin / sandbox levers and next-season warm-up: not turn-time writes, no beatSeq bump counted

@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
@@ -247,6 +247,7 @@ import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
+import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
 import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
@@ -329,6 +330,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
+import { buildRumorMill } from "../../engine/rumorMill";
 import { claimProblem, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
@@ -600,6 +602,8 @@ const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRIT
 const ROOM_CANON_ENABLED_DEFAULT = flagDefaultOn("ORWELL_ROOM_CANON");
 /** ORW-407: the open ledger (commitments and claims made to or by the player, kept as free text). ON by default; `ORWELL_OPEN_LEDGER=0` turns it off. */
 const OPEN_LEDGER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_OPEN_LEDGER");
+/** ORW-510: the live narration-use record (the `recordNarrationUse` write-back + the Show Brief "ALREADY USED" section). ON by default; `ORWELL_NARRATION_USAGE=0` turns it off. */
+const NARRATION_USAGE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NARRATION_USAGE");
 
 /**
  * 0122 — whether the DEEPER, DAILY confessional layer runs by DEFAULT (the five triggered facets +
@@ -1264,6 +1268,9 @@ export class GameSessionAdapter implements GameSession {
   private npcMemoryWritersEnabled = NPC_MEMORY_WRITERS_ENABLED_DEFAULT;
   private roomCanonEnabled = ROOM_CANON_ENABLED_DEFAULT;
   private openLedgerEnabled = OPEN_LEDGER_ENABLED_DEFAULT;
+  private narrationUsageEnabled = NARRATION_USAGE_ENABLED_DEFAULT;
+  /** ORW-510: the rolling record of what the narration already used. Persisted in `SessionCore.narrationUse`; absent from the save until a turn is recorded. */
+  private narrationUse: NarrationUse = emptyNarrationUse();
   /** ORW-407: the open ledger. Persisted in `SessionCore.openLedger`; absent from the save until something is kept. */
   private openLedger: OpenLedger = emptyOpenLedger();
   /** A loaded `openLedger` that failed the shape check: saved back exactly as loaded; nothing may write while set. */
@@ -4215,7 +4222,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.live?.finished) return null; // the structural gate: no finished season, no unsealing
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
-    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}) };
+    const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id)); // ORW-525 (spec 0157): reads the claim log only; same gate
+    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -4752,6 +4760,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.openLedgerAsLoaded !== undefined
         ? { openLedger: cloneSession(this.openLedgerAsLoaded) as OpenLedger }
         : this.openLedger.entries.length > 0 ? { openLedger: cloneSession(this.openLedger) } : {}),
+      // ORW-510: the narration-use record. Absent until a turn is recorded (byte-identical saves); bounded by constants.
+      ...(this.narrationUse.turns > 0 ? { narrationUse: cloneSession(this.narrationUse) } : {}),
     };
   }
 
@@ -5140,6 +5150,8 @@ export class GameSessionAdapter implements GameSession {
     this.ledgerVetoFlaggedWeek = undefined;
     this.openLedgerAsLoaded = ol.problems > 0 ? cloneSession(core.openLedger) : undefined;
     if (ol.problems > 0) console.warn(`[orwell] open ledger loaded with ${ol.problems} problem(s), kept exactly as saved`); // counts only, never a recorded word
+    // ORW-510: restore the narration-use record (absent on an older save => empty; a malformed one is bounded or emptied, never thrown on).
+    this.narrationUse = restoreNarrationUse(core.narrationUse);
     // lastTickOffscreenIds is TRANSIENT (never persisted) — starts empty on every restore; the FE
     // re-fans-out on the next off-screen tick.
     this.lastTickOffscreenIds = [];
@@ -9948,6 +9960,7 @@ export class GameSessionAdapter implements GameSession {
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
   setOpenLedgerEnabled(on: boolean): void { this.openLedgerEnabled = on; }
+  setNarrationUsageEnabled(on: boolean): void { this.narrationUsageEnabled = on; }
   setNpcBeliefNomsEnabled(on: boolean): void { this.npcBeliefNomsEnabled = on; }
   setNpcBeliefsEnabled(on: boolean): void { this.npcBeliefsEnabled = on; }
   npcMemoryEnabledNow(): boolean { return this.npcMemoryEnabled; }
@@ -15718,7 +15731,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
@@ -16002,6 +16015,23 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     }
     return { accepted: true, ...(r.entryId ? { entryId: r.entryId } : {}) };
+  }
+
+  /**
+   * ORW-510 - see the port doc. The roster is the engine's own (id and display name of every houseguest and the player); the text is
+   * the narration the player already saw, so nothing hidden can enter the record. No model call, no rng, no clock; durable through
+   * the background seam (no beatSeq bump). Counts only in the result.
+   */
+  recordNarrationUse(req: RecordNarrationUseReq): RecordNarrationUseResult {
+    if (!this.narrationUsageEnabled) return { recorded: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { recorded: false, reason: "no-game" };
+    if (typeof req?.text !== "string" || req.text.trim().length === 0) return { recorded: false, reason: "empty" };
+    const roster = [this.house.player, ...this.house.npcs].map((h) => ({ id: h.id as string, name: h.name }));
+    const out = recordNarration(this.narrationUse, req.text, roster);
+    if (out.record === this.narrationUse) return { recorded: false, reason: "no-sentences" };
+    this.narrationUse = out.record;
+    this.backgroundPersist();
+    return { recorded: true, sentences: out.check.sentences, repeated: out.check.repeated, seasonLine: narrationSeasonLine(this.narrationUse) };
   }
 
   /** ORW-448: the beat each deal with the player was made at (memory only; used to link an open-ledger entry to a deal made moments before it). */

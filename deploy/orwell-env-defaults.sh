@@ -71,6 +71,7 @@
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
 #   ORWELL_DISCLOSURE_ENGINE    A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a PLAYED game npcVoice.knows is only what the player also holds; a declined press carries deflect. ON 2026-11-14; read-only projection, moves no outcome.
+#   ORWELL_NARRATION_USAGE      ORW-510: the live narration-use record (what the narrator already used: sentence openings, scene closers, per-houseguest gestures and lines) handed back as the Show Brief's ALREADY USED section, capped at 200 tokens, plus a counts-only repetition season line. No model call. ON by default; 0 turns it off.
 #   ORWELL_NAP                  0148 / ORW-417 (Ryne 2026-11-15): the player's daytime nap - 0.5-3h in the morning/afternoon, every 2h halves the sleep deficit (never to zero), an event always wakes the player. ON 2026-11-15; off => the lever refuses 'not available'.
 #   ORWELL_CLAIMS_TO_PLAYER     0151 / ORW-330 slice 4a: a houseguest who trusts the player may pass on one belief a day, hedged by certainty (engine-decided, no outcome moves). ON.
 #   ORWELL_HOUSE_MEETINGS       0156 / ORW-330 slice 7a: house meetings - an accusation in front of the house, the accused answers, listeners decide who to believe; NPCs call at most one a week. ON (house-mix and late guards pass).
@@ -208,6 +209,7 @@ ORWELL_NO_HARD_CAPS=1
 ORWELL_JURY_MEMORY=1
 ORWELL_ROOM_CANON=1
 ORWELL_OPEN_LEDGER=1
+ORWELL_NARRATION_USAGE=1
 ORWELL_CLAIMS_TO_PLAYER=1
 ORWELL_MEMORY_FRIENDS=1
 ORWELL_ACCUSE_COST=1

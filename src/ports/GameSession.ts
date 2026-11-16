@@ -1212,6 +1212,24 @@ export interface RecordOpenLedgerResult {
   duplicate?: boolean;
 }
 
+/** ORW-510: the narration-use write-back request. Exactly one field; the text is the narration the player already saw. */
+export interface RecordNarrationUseReq {
+  /** The visible narration of one finished turn (out-of-character asides removed). The engine cuts it at 6000 characters. */
+  text: string;
+}
+
+/** ORW-510: counts only. Never an echo of the text or of any recorded phrase. */
+export interface RecordNarrationUseResult {
+  recorded: boolean;
+  /** Present when `recorded` is false: a code. */
+  reason?: string;
+  sentences?: number;
+  /** What the check found repeated against the record as it stood before this turn. */
+  repeated?: { opener: number; closer: number; gesture: number; line: number };
+  /** The season line, counts only (turns, sentences, repeats per kind, repeats per 1,000 sentences). */
+  seasonLine?: string;
+}
+
 export interface RecordRoomCanonResult {
   accepted: boolean;
   /** Present when `accepted` is false: a code, never an echo of the text. */
@@ -1226,7 +1244,7 @@ export interface ShowBriefView {
   beatSeq: number;
   /** chars / 4.1 (the K6 estimator). */
   tokens: number;
-  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; tokens: number }>;
+  sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open" | "used"; tokens: number }>;
 }
 
 export interface MomentPromptView {
@@ -2426,7 +2444,29 @@ export interface HouseStory {
 export interface RecordNpcReflectionsReq { reflections: Array<{ id: EntityId; night: number; reflection: string }> }
 export interface RecordNpcReflectionsResult { accepted: number; rejected: number; reason?: string }
 
+/**
+ * ORW-525 (spec 0157, theme 2 slice 8): one false belief of the season, told in plain words. Present ONLY on the post-season retrospective
+ * (`RetrospectiveView.rumorMill`, behind the `finished` gate). Covers claim-planted beliefs only. No truth flag or intent is carried: every row IS a lie.
+ */
+export interface RumorMillBelief {
+  /** What was believed, in words ("that <name> was targeting them"; "them" = each believer). */
+  claim: string;
+  /** Who told it first (the earliest false claim of its kind). */
+  starter: NamedRef;
+  startedWeek: number;
+  /** Later tellers who passed it on without meaning to mislead (leaks, not starters). */
+  passedOn: NamedRef[];
+  /** The houseguests it was told to. */
+  believers: NamedRef[];
+  tellings: number;
+  /** The player was told it too. */
+  toldToYou: boolean;
+}
+export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose subject is the player: what the house got wrong about you. */ aboutYou: RumorMillBelief[] }
+
 export interface RetrospectiveView {
+  /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
+  rumorMill?: RumorMill;
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
    * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
@@ -3395,6 +3435,14 @@ export interface GameSession {
    * Not a model lever (FE-driven, like `recordWorldSnapshot`).
    */
   recordRoomCanon(req: RecordRoomCanonReq): RecordRoomCanonResult;
+  /**
+   * ORW-510 - the live counterpart of season memory. The FE hands the narration of a finished turn back; the engine reads it
+   * (no model call: string work), checks it against a short bounded rolling record of what the narrator already used (sentence
+   * openings, scene closers, each houseguest's gestures and lines), counts the repeats, and folds it into the record. The Show
+   * Brief then lists the record as "ALREADY USED". Accepts only `{ text }`; the record is persisted in the session core, bounded
+   * by constants. A played game only; no rng; no Vault handle; the result is counts only.
+   */
+  recordNarrationUse(req: RecordNarrationUseReq): RecordNarrationUseResult;
   /** ORW-407: keep a commitment or claim made to or by the player, as free text with provenance. No relationship change. Bounds the ENGINE enforces: per-field length caps, up to OPEN_LEDGER_MAX_ENTRIES (200) entries in total. The per-turn limits (3 entries, 2 resolutions) live only in the front-end extractor; the engine does not count writes per turn. */
   recordOpenLedger(req: RecordOpenLedgerReq): RecordOpenLedgerResult;
   /** ORW-407 slice 2: mark an open entry kept, broken or withdrawn with a note (the turn is stored; no relationship number changes). */
