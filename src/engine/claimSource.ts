@@ -125,6 +125,20 @@ export function sourceNote(answer: SourceAnswer, holderName: string, sourceName?
   return `the player asked ${holderName} who told them that; ${holderName} saw it themself (engine truth: voice that, name no one as the source)`;
 }
 
+/** ORW-560: the player asked a houseguest who told them something the engine has no record of them saying to the player (the narration's own words). They name no one. */
+export function noRecordNote(holderName: string): string {
+  return `the player asked ${holderName} who told them that; the engine has no record of ${holderName} passing anything like it on (engine truth: ${holderName} names no one as a source - a shrug, a deflection or "I just heard it around"; never invent who)`;
+}
+
+/** ORW-560: whether the player's words name this houseguest (full name, or first name as a whole word: "Cara" is not found in "Carla"). */
+export function namedInText(text: string, fullName: string): boolean {
+  const fold = (x: string): string => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const t = fold(String(text ?? ""));
+  const names = [fullName, fullName.split(/\s+/)[0] ?? ""].map((n) => fold(n).trim()).filter((n) => n.length >= 2);
+  const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return names.some((n) => new RegExp("(?<![a-z0-9])" + esc(n) + "(?![a-z0-9])").test(t));
+}
+
 /** What the player learns when a source is named: a told-by sentence, kept as something the houseguest said. */
 export function namedSourceContent(holderName: string, sourceName: string, claimText: string): string {
   return `${holderName} said ${sourceName} told them that ${claimText}`;

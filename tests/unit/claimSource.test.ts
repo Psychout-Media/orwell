@@ -91,3 +91,40 @@ describe("slice 4a and 4b agree: a held targets-me told as going-after is askabl
     expect(got?.source).toBe("c");
   });
 });
+
+describe("ORW-560: the houseguest asked is the one answering", () => {
+  const nameOf = (s: GameSessionAdapter, id: string) => s.getGameState().house.find((h) => h.id === id)!.name;
+  function setup() {
+    const { s, ids } = season();
+    const [a, b, c, d] = ids as [string, string, string, string];
+    // a told the player something, with a belief behind it sourced to b; d is in the room too and never told the player anything
+    recordClaim(((s as unknown as { live: { beliefs: Record<string, unknown[]> } }).live.beliefs ??= {}) as never, { holder: a, kind: "targets-me", subject: c, object: a, value: true, origin: "told", source: b, confidence: 0.7, week: 1 });
+    s.tellClaim({ speaker: a, listener: PLAYER, kind: "targets-you", subject: c, isTrue: true, intent: "warn" });
+    here(s, a); here(s, d);
+    return { s, a, b, d };
+  }
+  it("a named houseguest who never told the player anything names no one, never someone else's source", () => {
+    const { s, a, d } = setup();
+    s.resolvePlayerMove({ text: `${nameOf(s, d).split(" ")[0]}, who told you that?` });
+    const note = priv(s).claimSourceNote!;
+    expect(note).toContain(nameOf(s, d));
+    expect(note).toMatch(/names no one/);
+    expect(note).not.toContain(nameOf(s, a));
+  });
+  it("the named houseguest who did tell the player is the one who answers", () => {
+    const { s, a } = setup();
+    s.resolvePlayerMove({ text: `${nameOf(s, a).split(" ")[0]}, who told you that?` });
+    expect(priv(s).claimSourceNote).toContain(`the player asked ${nameOf(s, a)}`);
+  });
+  it("with no name, whoever last told the player something answers", () => {
+    const { s, a } = setup();
+    s.resolvePlayerMove({ text: "who told you that?" });
+    expect(priv(s).claimSourceNote).toContain(`the player asked ${nameOf(s, a)}`);
+  });
+  it("names are whole words: Cara is not found in Carla", async () => {
+    const { namedInText } = await import("../../src/engine/claimSource");
+    expect(namedInText("Carla, who told you that?", "Cara Doe")).toBe(false);
+    expect(namedInText("Carla, who told you that?", "Carla Roe")).toBe(true);
+    expect(namedInText("hey carla roe", "Carla Roe")).toBe(true);
+  });
+});
