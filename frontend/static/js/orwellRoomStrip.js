@@ -360,6 +360,7 @@
       if (!state || !state.started) { render(null); _failures = 0; return; }
       const whereData = await getJSON("/api/orwell/whereabouts");
       if (superseded()) return;
+      if (whereData && whereData.unavailable) throw new Error("whereabouts unavailable"); // the route's fail-open null is a failed read, not "no room": keep the last valid strip
       const w = whereData ? whereData.whereabouts : null;
       if (!w || !w.room) { render(null); _failures = 0; return; }
 

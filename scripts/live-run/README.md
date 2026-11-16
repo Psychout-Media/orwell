@@ -8,8 +8,7 @@ narration that runs ahead of the engine, and stalls. Roles only; no cast name is
 - **Short tier (this slice, `live_short.py`):** after every dev update. Casting -> premiere -> an early "run the competition" ask -> the engine clock is jumped
   with the engine's own player API (turn-in / time-passing) to the veto morning of Week 1 -> four real chat turns (the draw, then the house waiting for the
   competition). About 10 minutes, a few cents on DeepSeek, images OFF.
-- **Full week (not built yet):** a whole week played like a real player, before each playtest and release. The short tier should grow eviction night and the
-  finale before this one is started.
+- **Full week:** `week.sh` (below) plays a whole week like a real player under a spend cap.
 
 ## Automatic run: `run_short.sh`
 
@@ -52,7 +51,7 @@ The rehearsal kit used to have exactly one rig. It now has two, picked by ONE va
 
 A stage writes `slot.env` into the run directory it creates, so the scripts copied there keep following THEIR run's slot. Slot 2 never creates, edits or reads slot 1's worktree, lock, pointer or run directories.
 
-`scripts/live-run/week.sh` plays one whole Week 1 on the real narrator under a spend cap (`RIG_SPEND_CAP`, default $3, estimated from the model-call archive at a deliberately high rate; `spend_guard.py` stops the run by PID file when it is reached) and writes `spend.json` and `rig-stats.md` (the sent size per call and per turn, and the E22 rate) into the run directory. `RIG_DRY=1` stands the slot up, checks the front end and engine answer, and tears it down: no model calls, nothing spent.
+`scripts/live-run/week.sh` plays one whole Week 1 on the real narrator under a spend cap (`RIG_SPEND_CAP`, default $3, estimated from the model-call archive at a deliberately high rate; `spend_guard.py` stops the run by PID file when it is reached) and writes `spend.json` and `rig-stats.md` (the sent size per call and per turn, and the E22 rate) into the run directory. `RIG_WEEKS=N` plays on through week N (default 1 = Week 1 only; the cap and the checks run the same; it must be a positive integer). `RIG_DRY=1` stands the slot up, checks the front end status endpoint and the engine `/health` status code (a health check, not an engine request), and tears it down: no model calls, nothing spent.
 
     RIG_SLOT=2 RIG_DRY=1 scripts/live-run/week.sh          # prove a slot
     RIG_SLOT=2 RIG_SPEND_CAP=3 scripts/live-run/week.sh    # one capped week

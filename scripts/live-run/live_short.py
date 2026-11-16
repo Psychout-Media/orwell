@@ -59,6 +59,17 @@ BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el =>
   return {txt:(c.innerText||'').trim(), done:!!el.querySelector('.msg-footer')}; })"""
 
 
+def slot_default(run_dir, key, fallback):
+    """The rig URL for a run: the run's own slot.env wins (a staged slot-2 run), else an inherited environment value, else the slot-1 default."""
+    try:
+        import shlex
+        for ln in open(os.path.join(run_dir, "slot.env")):
+            k, _, v = ln.strip().partition("=")
+            if k == key and v: return shlex.split(v)[0]   # the run's own slot.env wins over a stale inherited variable
+    except OSError: pass
+    return os.environ.get(key) or fallback
+
+
 class Engine:
     def __init__(self, base, token):
         self.jumps = 0  # runner-made clock moves (night sleeps, tick-to-due, entrance advances) since the last turn was recorded
@@ -250,12 +261,12 @@ def widgets(eng, check, chat, where):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=os.environ.get("RIG_BASE", "http://127.0.0.1:17000"))
-    ap.add_argument("--engine", default=os.environ.get("RIG_ENGINE_URL", "http://127.0.0.1:18765")); ap.add_argument("--token", default="rehlocal")
+    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=None)
+    ap.add_argument("--engine", default=None); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
     ap.add_argument("--crossover", action="store_true", help="ORW-433: after the veto morning, play on to eviction night and cross into Week 2 through the real chat bed")
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
-    a = ap.parse_args()
+    a = ap.parse_args(); a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     if a.rescore:
         turns = json.load(open(f"{a.run_dir}/report.json"))["turns"]; checks = []
         _rc = lambda cid, ok, detail, severity="fail": checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
@@ -343,6 +354,12 @@ def draw_voiced(text):
     return bool(re.search(r"(?i)veto", text or "") and re.search(r"(?i)draw|chip|pull|playing for", text or ""))
 
 
+def eviction_voiced(text):
+    """The reply plays eviction-night steps (ballots read, a vote tally, the evictee's exit): the evidence the K1 ceremony allowance needs beyond the phase name (ORW-506)."""
+    t = text or ""
+    return bool(re.search(r"(?i)\bvotes?\b|ballots?|\bevict", t) and re.search(r"(?i)ballots?|tally|goodbye|walks? out|leaves the house|by a vote|evicted", t))
+
+
 def abs_hours(label):
     m = re.match(r"^(\d{1,2}):(\d{2})(am|pm), Day (\d+)$", label or "")
     if not m: return None
@@ -358,13 +375,14 @@ def clock_hour(label):
 def score(turns, checks, check, turn_limit):
     for t in turns:
         lab = t["label"]
-        if lab.endswith("-card"): continue  # a decision-card click (live_week) is not a chat turn: no bubble, no scene, by design
-        check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
-        if t.get("finalized") is False and t["settled"]: check(f"T1c-finalized[{lab}]", False, "the reply arrived but its bubble never got its footer (copy / retry actions): an unfinalized live holder", "warn")
+        is_card = lab.endswith("-card")  # a decision-card click (live_week) is not a chat turn: no bubble and no scene is REQUIRED of it, but anything it did narrate is still scored (machinery, clocks)
+        if is_card and not t["text"] and not t["new_bubbles"]: continue
+        if not is_card: check(f"T1-answered[{lab}]", t["new_bubbles"] > 0 and t["settled"] and not t["timed_out"], f"bubbles={t['new_bubbles']} settled={t['settled']} timed_out={t['timed_out']}")
+        if not is_card and t.get("finalized") is False and t["settled"]: check(f"T1c-finalized[{lab}]", False, "the reply arrived but its bubble never got its footer (copy / retry actions): an unfinalized live holder", "warn")
         short_ok = lab.startswith("early-ask")  # a one-line deflection of an out-of-schedule request is legitimate; still reported
         shell = SHELL_RE.search(t["text"])
-        check(f"T2-real-scene[{lab}]", not shell and (len(t["text"]) >= 200 or short_ok), f"{len(t['text'])} chars" + (" (guard shell text)" if shell else ""))
-        if short_ok and len(t["text"]) < 200: check(f"T2b-thin-reply[{lab}]", False, f"only {len(t['text'])} chars for a player request - a thin answer, not a scene", "warn")
+        if not is_card: check(f"T2-real-scene[{lab}]", not shell and (len(t["text"]) >= 200 or short_ok), f"{len(t['text'])} chars" + (" (guard shell text)" if shell else ""))
+        if not is_card and short_ok and len(t["text"]) < 200: check(f"T2b-thin-reply[{lab}]", False, f"only {len(t['text'])} chars for a player request - a thin answer, not a scene", "warn")
         m = LEAK_RE.search(t["text"]); check(f"T3-no-machinery[{lab}]", not m, f"leak: {m.group(0)!r}" if m else "clean")
         check(f"T4-latency[{lab}]", t["secs"] <= turn_limit, f"{t['secs']}s (warn > {turn_limit}s)", "warn")
         check(f"T5-latency-hard[{lab}]", t["secs"] <= 240, f"{t['secs']}s (fail > 240s)")
@@ -379,8 +397,11 @@ def score(turns, checks, check, turn_limit):
         if cm:
             nh = int(cm.group(1)) + int(cm.group(2)) / 60
             pm_word = re.search(re.escape(cm.group(0)) + r"\s+(?:at night|in the (?:evening|afternoon)|tonight)", body, flags=re.I)  # "8:10 at night" is 8:10pm
-            nh = nh + 12 if (nh < 12 and eh >= 12 and (nh < 8 or pm_word)) else nh
-            check(f"C3-clock-claim[{lab}]", abs(nh - eh) <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
+            if pm_word:   # the reply's own words decide: "8:10 at night" is 20:10, and "12:10 at night" is just after midnight
+                nh = nh % 12 + (0 if (int(cm.group(1)) == 12 and re.search(r"at night|tonight", pm_word.group(0), flags=re.I)) else 12)
+            elif nh < 8 and eh >= 12: nh += 12
+            d_ = abs(nh - eh); d_ = min(d_, 24 - d_)
+            check(f"C3-clock-claim[{lab}]", d_ <= 1.0, f"reply says {cm.group(0)}, engine clock {t['clock']}", "warn")
     # NO SKIPPED TIME (Ryne: "It shouldn't ever skip time"): between two consecutive player turns the clock may not move more than ~1 hour unless the
     # player went to bed (a bed message) or the night reached 8am. Jumps the RUNNER made itself (night sleeps, tick-to-due, entrance advances) are tagged
     # `harness_jump` and listed separately, never blamed on the game. A competition played inside one message moves the clock by its own length: reported as a note.
@@ -398,7 +419,7 @@ def score(turns, checks, check, turn_limit):
                 # which also moves the clock by hours spent its hours inside ONE reply.
                 if gap <= 1.5: check(f"K1-clock-jump-competition[{t['label']}]", True, f"+{gap:.1f}h: the crown's share on top of the spread rounds (a competition that spans several messages)", "note")
                 else: check(f"K2-competition-in-one-message[{t['label']}]", False, f"{t.get('phase_before')} was crowned in a single message and the clock jumped +{gap:.1f}h ({t.get('msg')!r})")
-            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5:
+            elif t.get("phase_before") == t.get("phase") == "eviction" and gap <= 2.5 and eviction_voiced(t.get("text")):
                 # ORW-347: a staged eviction night reads its ballots one per engine step (5 minutes each, up to 15 voters ~ 75 min, more when the reply also plays the goodbye steps) and a reply may play several steps. Same phase, same evening, never across a night: the scheduled ceremony playing out, not skipped time.
                 check(f"K1-clock-jump-ceremony[{t['label']}]", True, f"+{gap:.1f}h: the eviction night's ballots read inside one reply (5 min per staged step)", "note")
             elif t.get("phase_before") == t.get("phase") == "veto-competition" and gap <= 1.5 and draw_voiced(t.get("text")):

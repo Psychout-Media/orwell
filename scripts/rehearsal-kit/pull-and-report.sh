@@ -9,7 +9,7 @@ SINCE="${2:-$(date -u -d '14 hours ago' '+%Y-%m-%d %H:%M')}"
 UNTIL="${3:-}"
 OUTDIR="$(cd "$(dirname "$0")/.." && pwd)/reports"
 mkdir -p "$OUTDIR"
-OUT="$OUTDIR/session-$(date -u +%Y%m%d-%H%M).md"
+OUT="$OUTDIR/session-$(date -u +%Y%m%d-%H%M%S)-$$.md"
 ARGS=(--ssh "$HOST" --since "$SINCE" --out "$OUT")
 [ -n "$UNTIL" ] && ARGS+=(--until "$UNTIL")
 python3 "$(dirname "$0")/post_session_analyzer.py" "${ARGS[@]}"

@@ -2284,7 +2284,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 const errMsg = isGameBuild()
                   ? _ENGINE_INTERRUPT_LINE
                   : rawErrMsg;
-                _beaconStreamError(json.status, rawErrMsg, sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId());
+                _beaconStreamError(json.status, rawErrMsg, streamSessionId);
                 typewriterInto(roundHolder.querySelector('.body'), errMsg);
                 // ADR 0012 (GAP 2): keep the immediate live feedback, but mark the turn so the finally
                 // FORCE-reconciles this bubble to the persisted fallback — the agent loop saves a
@@ -3819,7 +3819,7 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
                 // (`.body`, not a separate note) as the sibling branch above. Outside the game build
                 // (the general assistant) keep the raw, informative text for debuggability.
                 const errText = isGameBuild() ? _ENGINE_INTERRUPT_LINE : `[Error: ${json.error}]`;
-                _beaconStreamError(json.status, typeof json.error === 'string' ? json.error : (json.error && json.error.message), sessionModule.getCurrentSessionId && sessionModule.getCurrentSessionId());
+                _beaconStreamError(json.status, typeof json.error === 'string' ? json.error : (json.error && json.error.message), streamSessionId);
                 const errDiv = document.createElement('div');
                 errDiv.style.cssText = 'color: var(--color-error); font-style: italic; padding: 4px 0;';
                 errDiv.textContent = errText;
