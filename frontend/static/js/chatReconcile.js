@@ -347,6 +347,14 @@ export function _setReconcileDeps(deps) {
     return n;
   }
 
+  /** ORW-502: a Retry holder (a dropped stream's notice) is the newest turn's recourse. If the server log already ends in an assistant answer, the server finished the turn the drop interrupted, so the
+   * holder is stale and must not be carried across the rebuild (it would sit below the real answer and invite a duplicate retry). */
+  export function _retryHolderSuperseded(el, visible) {
+    if (!el || !el.querySelector || !el.querySelector('.stream-drop-retry')) return false;
+    const last = (visible || [])[(visible || []).length - 1];
+    return !!(last && last.role === 'assistant');
+  }
+
   /** #836 — a still-pending optimistic user send: carries a clientMsgId but has not yet been adopted
    * (no dbId). Mirrors the sessions.js `wouldWipe` guard — such a bubble must SURVIVE any reconcile so
    * "what I typed goes in the bubble, verbatim, every time" can never be violated by the rebuild. */
@@ -563,7 +571,7 @@ export function _setReconcileDeps(deps) {
       visible.map(m => m.metadata && m.metadata.client_msg_id).filter(Boolean)
     );
     const _pendingToPreserve = Array.from(box.querySelectorAll('.msg'))
-      .filter(el => _isPendingOptimisticBubble(el) && !_serverClientIds.has(el.dataset.clientMsgId));
+      .filter(el => _isPendingOptimisticBubble(el) && !_serverClientIds.has(el.dataset.clientMsgId) && !_retryHolderSuperseded(el, visible));
 
     const nearBottom = (box.scrollHeight - box.scrollTop - box.clientHeight) < 120;
     const prevScrollTop = box.scrollTop;

@@ -70,3 +70,19 @@ def test_the_drawn_names_must_be_voiced_or_the_next_turn_regrounds(monkeypatch):
     _run(ch._pre_resolve_npc_ceremony("u250b", {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
     note = ch._CEREMONY_UNVOICED.get(ch._desync_key("u250b")) or {}
     assert "Houseguest One" in (note.get("names") or []) and len(note.get("names") or []) == 6
+
+
+def test_the_draw_turn_holds_the_same_turn_competition_force_and_the_next_turn_releases_it(monkeypatch):
+    """ORW-505 (provisional default, Ryne to confirm): the draw is its own beat whatever the clock says - the agent loop's forced advanceGame must not start the competition in the draw's own turn."""
+    _rig(monkeypatch, "u250c", [("veto-draw", DRAW), ("veto-competition", "x")])
+    _run(ch._pre_resolve_npc_ceremony("u250c", {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
+    assert ch.veto_draw_holds_force("u250c") is True
+    _run(ch._pre_resolve_npc_ceremony("u250c", {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
+    assert ch.veto_draw_holds_force("u250c") is False
+
+
+def test_the_draw_hold_reads_the_same_key_for_an_auth_off_owner(monkeypatch):
+    """Review of #2839: the write keyed the hold under None while the agent loop reads an empty owner."""
+    _rig(monkeypatch, None, [("veto-draw", DRAW), ("veto-competition", "x")])
+    _run(ch._pre_resolve_npc_ceremony(None, {"phase": "veto-competition", "week": 1, "beatSeq": 1}, retry=False, player_msg="go"))
+    assert ch.veto_draw_holds_force("") is True and ch.veto_draw_holds_force(None) is True
