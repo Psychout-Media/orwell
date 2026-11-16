@@ -109,7 +109,7 @@ _update_defer_now() {{ echo 1000; }}
 def test_the_hold_wraps_the_wait_the_restart_and_the_warm_up_and_every_exit_lifts_it():
     base = UPDATE.index("RESTART_SCOPE=both")
     blk = UPDATE[base:UPDATE.index("update complete (", base)]
-    begin = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
+    begin = blk.index('update_turn_hold_begin "$__hold"')
     wait = blk.index('update_wait_for_no_turn "${INFLIGHT_DIR:-')
     restart = blk.index('systemctl restart "$ENGINE_SVC" "$FRONTEND_SVC"')
     warm = blk.index("update_wait_for_warm ", restart)
@@ -132,14 +132,14 @@ _update_defer_now() {{ echo 1000; }}; _update_defer_sleep() {{ echo 0 > '{tmp_pa
     assert r.returncode == 0, (value, r.stdout, r.stderr)
     assert "AFTER-WAIT hold=present" in r.stdout
     stamp = int((tmp_path / "turns-hold").read_text().split("=")[1])
-    assert 1000 + 151 <= stamp <= 1000 + 300 + 150, f"the hold lasts the clamped wait (1..300 s) plus 150 s: {stamp - 1000}"
+    assert 1000 + 1 + 60 + 150 <= stamp <= 1000 + 300 + 60 + 150, f"the hold lasts the clamped wait (1..300 s) + the warm-up wait (default 60 s) + 150 s: {stamp - 1000}"  # ORW-490
 
 
 def test_the_updater_uses_the_run_dir_and_the_validated_wait_for_the_hold():
     base = UPDATE.index("RESTART_SCOPE=both")
     blk = UPDATE[base:UPDATE.index("update complete (", base)]
-    i = blk.index('update_turn_hold_begin "$(( __tw + 150 ))"')
-    assert "__tw" in blk[i - 600:i] and "10#$__tw" in blk[i - 600:i], "the hold length comes from the validated, clamped value"
+    i = blk.index('update_turn_hold_begin "$__hold"')
+    assert "update_hold_seconds" in blk[i - 600:i], "the hold length comes from the shared, clamped bound helper (ORW-490)"
     assert "$(( ${ORWELL_UPDATE_TURN_WAIT_SECONDS" not in UPDATE
 
 
@@ -152,3 +152,15 @@ def test_the_hold_and_its_dir_are_readable_by_the_front_end_user_whatever_the_um
     assert oct(run.stat().st_mode & 0o777) == "0o755", "the run dir must be traversable by other users"
     assert oct((run / "turns-hold").stat().st_mode & 0o777) == "0o644", "the hold must be world-readable"
     assert not list(run.glob(".turns-hold.*"))
+
+
+@needs_bash
+def test_a_run_dir_another_writer_made_0700_is_made_traversable_when_the_hold_begins(tmp_path):
+    # ORW-489: `mkdir -p -m 755` only applies the mode when it creates the dir; update_run_supersede runs first under root's umask
+    run = tmp_path / "run"
+    run.mkdir(exist_ok=True)
+    run.chmod(0o700)
+    r = _hb(run, 240, "umask 077")
+    assert r.returncode == 0, r.stderr
+    assert oct(run.stat().st_mode & 0o777) == "0o755", "a pre-existing 0700 run dir must be 755 once the hold begins"
+    assert (run / "turns-hold").is_file()

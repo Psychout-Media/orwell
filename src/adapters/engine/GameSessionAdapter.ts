@@ -267,6 +267,7 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
+import { decideVoteTalk, voteTalkCunning } from "../../engine/voteTalk";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
 import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme } from "../../engine/roomLabels";
 /** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
@@ -280,7 +281,7 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
-import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, type EdgeDelta } from "../../engine/beliefStore";
 import { beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
@@ -329,13 +330,15 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { planSpeech, speechActionOf, type TruthFacts } from "../../engine/houseSpeech";
+import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
+import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
-import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim } from "../../engine/spokenClaims";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
-import { decideTellToPlayer, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
   generateDiversityLayer, repairDiversityLayer, privateOrientationToVaultContent, ORIENTATION_DISCLOSURE, orientationDisclosureText, showmancePlausible,
@@ -1447,7 +1450,39 @@ export class GameSessionAdapter implements GameSession {
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
     });
+    if (told) this.catchContradiction(told);
     return told;
+  }
+  /**
+   * 0154 / ORW-330 slice 5a - the ONE catch: `holder` caught `liar` in a lie. Takes back the belief(s) the told claim(s) planted (`refuteToldBelief`: refuteClaim + `refuted = true`, id kept) and writes
+   * `lied-to-me` at the evidence's confidence (`writeLieCaught`, flag `ORWELL_LIES_CAUGHT`, which also makes the liar's word count for less, B48, and can form a revenge goal, 0150). No rng, no narration.
+   */
+  private catchLie(p: { holder: EntityId; liar: EntityId; claimId?: string | readonly string[]; confidence: number }): void {
+    if (!this.liesCaughtWriting || !this.live) return;
+    const ids = p.claimId === undefined ? [] : typeof p.claimId === "string" ? [p.claimId] : p.claimId;
+    for (const id of ids) refuteToldBelief(this.live.beliefs, p.holder, id, (h, s) => this.rel.edge(h, s));
+    this.writeLieCaught(p.holder, p.liar, p.confidence, "told");
+  }
+  /** 0154 trigger 3: a claim just told that cannot be true beside one the same speaker already told the same listener: the listener caught the lie (both planted beliefs are taken back; they cannot know which was false). */
+  private catchContradiction(told: SpokenClaim): void {
+    if (!this.liesCaughtWriting || !this.live?.claims || told.listener === PLAYER) return;
+    const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told));
+    if (prior.length === 0) return;
+    const held = (id: string): boolean => (this.live!.beliefs?.[told.listener] ?? []).some((b) => b.id.endsWith(`|${id}`) && !b.refuted);
+    if (!prior.some((c) => held(c.id)) && !held(told.id)) return;   // already caught: never write the same lie twice
+    this.catchLie({ holder: told.listener, liar: told.speaker, claimId: [told.id, ...prior.map((c) => c.id)], confidence: CAUGHT_LIE.contradiction });
+  }
+  /**
+   * 0154 trigger 1: the eviction count has just become PUBLIC (the staged reveal's last ballot). Reads the public count only (who left, how many votes read "evict", who was eligible) - never a ballot.
+   * Every "I voted to keep <the evictee>" told this week that the count rules out is a caught lie.
+   */
+  evictionCountPublic(tally: PublicTally): void {
+    if (!this.liesCaughtWriting || !this.live?.claims) return;
+    for (const c of this.live.claims.items) {
+      if (c.week !== this.live.week || c.listener === PLAYER || !voteCountRulesOut(tally, c)) continue;
+      if (!(this.live.beliefs?.[c.listener] ?? []).some((b) => b.id.endsWith(`|${c.id}`) && !b.refuted)) continue;   // already caught
+      this.catchLie({ holder: c.listener, liar: c.speaker, claimId: c.id, confidence: CAUGHT_LIE.impossible });
+    }
   }
   /** 0153 / ORW-330 slice 3: what a house-life speech action SAYS, as a claim the engine decides and checks against its truth; nothing for other actions. Returns the claim told, if any. */
   private sayInHouseLife(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): SpokenClaim | undefined {
@@ -1458,6 +1493,59 @@ export class GameSessionAdapter implements GameSession {
       roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
     });
     return said ? this.tellClaim(said) : undefined;
+  }
+  /**
+   * 0154 / ORW-330 slice 5b - LYING ABOUT YOUR VOTE. Once an eviction is over (the count is public, the ballots are not) each NPC voter may tell ONE other NPC how they voted: true or not, decided by the engine
+   * from the speaker's real ballot (read here, never handed out), cunning/candor and need, on its own `${seed}:vote-talk` side stream. Told as a claim (`tellClaim`, the listener's belief is the speaker's word).
+   * At most one per speaker per eviction (`votesTalked`). `ORWELL_VOTE_TALK`; OFF => byte-identical (no draws, no claims).
+   */
+  private voteTalkEnabled = flagDefaultOn("ORWELL_VOTE_TALK");
+  setVoteTalkEnabled(on: boolean): void { this.voteTalkEnabled = on; }
+  private votesTalked = new Set<string>();
+  /** Tell the vote claims for the latest recorded eviction. Returns the claims told (engine-side; tests read them). */
+  private talkAboutTheVote(): SpokenClaim[] {
+    const live = this.live;
+    const rec = live?.voteRecord?.[live.voteRecord.length - 1];
+    if (!this.voteTalkEnabled || !live || !rec || !this.npcBeliefsEnabled) return [];
+    const key = `${rec.week}:${rec.evictee}`;
+    if (this.votesTalked.has(key)) return [];
+    this.votesTalked.add(key);
+    const digest = (live.weekDigests ?? []).filter((d) => d.week === rec.week && d.evictee === rec.evictee).pop();
+    const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
+    const living = this.livingIds().filter((id) => id !== PLAYER);
+    const out: SpokenClaim[] = [];
+    const log = (live.claims ??= { seq: 0, items: [] });
+    for (const speaker of Object.keys(rec.voteOf).sort()) {
+      if (speaker === PLAYER || !living.includes(speaker)) continue;
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:vote-talk:${rec.week}:${rec.evictee}:${speaker}`));
+      const character = this.agendaCharacterOf(speaker);
+      const said = decideVoteTalk({
+        speaker, candidates: living, real: rec.voteOf[speaker]!, nominees,
+        cunning: voteTalkCunning(character?.archetype),
+        candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0))),
+        likes: (listener, of) => Math.max(0, Math.min(1, this.rel.edge(listener, of).affinity)),
+        rolls: { tell: rng.next(), pick: rng.next(), lie: rng.next() },
+      });
+      if (!said) continue;
+      // The evictee has just left the house, so the claim is told against the house as it stood at the vote.
+      const told = this.tellClaimIn(said.claim, [...living, ...nominees.filter((n) => !living.includes(n))]);
+      if (told) out.push(told);
+    }
+    // The count was public before anyone spoke: a vote claim it rules out (a unanimous count, "I voted to keep" the evictee) is caught the moment it is told (0154 trigger 1; the PUBLIC tally only, never a ballot).
+    if (out.length > 0) this.evictionCountPublic({ evictee: rec.evictee, evictVotes: Object.values(rec.voteOf).filter((t) => t === rec.evictee).length, voters: Object.keys(rec.voteOf) });
+    if (log.items.length === 0) delete live.claims;
+    return out;
+  }
+  /** `tellClaim` against an explicit house (vote talk names the evictee, who has already left `livingIds()`). */
+  private tellClaimIn(input: ClaimInput, living: readonly EntityId[]): SpokenClaim | undefined {
+    const live = this.live!;
+    const log = (live.claims ??= { seq: 0, items: [] });
+    const beliefs = this.npcBeliefsEnabled ? (live.beliefs ??= {}) : undefined;
+    return tellClaim(log, beliefs, input, {
+      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
+      trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
+      credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
+    });
   }
   /** 0153 / ORW-330 slice 3: the engine's truth for checking a claim - goals, recorded ballots, open final-two deals, the claim log. Engine-only reads. */
   private truthFacts(): TruthFacts {
@@ -1487,18 +1575,10 @@ export class GameSessionAdapter implements GameSession {
   setClaimsToPlayerEnabled(on: boolean): void { this.claimsToPlayerEnabled = on; }
   private claimsToPlayerDecided = new Map<EntityId, { epoch: number; tells?: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> }>();
   private claimsToPlayerAttempts = new Map<string, number>();
-  /** The engine's own check of whether a believed thing is TRUE (never handed outward). going-after / targets-me: the subject holds an active get-them-out goal on the object; final-two: an open final-two deal binds
-   *  both; lying: the claim log holds a lie from the subject to the object; talking-about: the cheapest honest read, the subject trusts the object little (< 0.4). */
+  /** The engine's own check of whether a believed thing is TRUE (never handed outward): the ONE truth rule, slice 3's `truthOf` over `truthFacts()` (review by the claims-core owner: slice 4 used its own cheaper reads before). */
   private believedThingIsTrue(b: SayableBelief): boolean {
-    const live = this.live;
-    if (!live) return false;
-    switch (b.kind) {
-      case "going-after": return (live.agendas?.[b.subject]?.goals ?? []).some((g) => g.status === "active" && g.kind === "get-them-out" && g.target === b.object);
-      case "final-two-with": return this.deals.open().some((d) => d.kind === "final-two" && d.parties.includes(b.subject) && b.object !== undefined && d.parties.includes(b.object));
-      case "lying-about": return (live.claims?.items ?? []).some((c) => !c.isTrue && c.speaker === b.subject && c.listener === b.object);
-      case "talking-about": return b.object !== undefined && this.rel.edge(b.subject, b.object).trust < 0.4;
-      default: return false;
-    }
+    if (!this.live) return false;
+    return truthOf({ kind: b.kind, listener: PLAYER, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}) }, this.truthFacts());
   }
   /**
    * 0156 / ORW-330 (theme 2, slice 7a) - HOUSE MEETINGS (`houseMeeting.ts` holds the rules). `caller` accuses `accused` (an NPC; the claim is about them) in front of the awake house: the accusation is `tellClaim`ed from the
@@ -1603,7 +1683,7 @@ export class GameSessionAdapter implements GameSession {
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}:${attempt}`));
     const decided = decideTellToPlayer(live.beliefs?.[id] ?? [], {
       holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id),
-      toldToday: told.some((c) => c.week === live.week && c.day === day),
+      toldToday: toldTodayBy(told, live.week, day),
       alreadyTold: new Set(told.map((c) => toPlayerKey(c.kind, c.subject, c.object))), roll: rng.next(),
     });
     let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
@@ -1612,8 +1692,36 @@ export class GameSessionAdapter implements GameSession {
       const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
       if (claim) tells = { kind: b.kind, subject: this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), certainty: decided.band };
     }
+    if (!tells) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
+  }
+  /**
+   * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
+   * (`plantToPlayer.ts` decides whether/about whom; slice 3's `planSpeech` makes the false claim). Own side stream `${seed}:plant-to-player:${id}:${week}:${day}`, no trust gate. Told as a claim (listener =
+   * the player, no belief); the narrator gets the SAME `tellsYou` fields as a true claim, the band a draw over the range a held belief spans (`presentedBand(undefined, roll)`): no tell, no truth, no intent.
+   */
+  private plantOnPlayer(id: EntityId, day: number, toldToday: boolean): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const live = this.live;
+    if (!live || toldToday) return undefined;
+    const AGAINST = new Set(["get-them-out", "revenge", "long-con"]);
+    const living = this.livingIds();
+    const candidates = (live.agendas?.[id]?.goals ?? [])
+      .filter((g) => g.status === "active" && AGAINST.has(g.kind) && g.target !== undefined && g.target !== PLAYER && g.target !== id && living.includes(g.target))
+      .map((g) => g.target as EntityId);
+    if (candidates.length === 0) return undefined;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:plant-to-player:${id}:${live.week}:${day}`));
+    const roll = rng.next(), pick = rng.next(), planKind = rng.next(), bandRoll = rng.next();
+    const decided = decidePlantToPlayer({
+      holder: id, candidates, cunning: cunningOf(this.agendaCharacterOf(id)?.archetype), candor: this.candorOf(id), audience: this.audienceAround(id), toldToday, roll, pick,
+    });
+    if (!decided) return undefined;
+    const said = planSpeech("plant", id, PLAYER, decided.about, false, { living, beliefs: live.beliefs, facts: this.truthFacts(), roll: planKind });
+    if (!said) return undefined;
+    const claim = this.tellClaim(said);
+    if (!claim) return undefined;
+    const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
+    return { kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
@@ -4588,6 +4696,8 @@ export class GameSessionAdapter implements GameSession {
       deals: this.deals.serialize(),
       // 0107: persist named alliances so they survive a restart (accumulate, never thin). Engine-only.
       ...(this.alliances.all().length ? { alliances: this.alliances.serialize() } : {}),
+      // ORW-544: the append-only alliance history (ended alliances included) - never thinned.
+      ...(this.alliances.history().length ? { allianceHistory: this.alliances.serializeHistory() } : {}),
       // 0085: persist live campaigns so a multi-week agenda + its history survive a restart (accumulate,
       // never thin). Engine-only hidden strategy — already inside the never-outward snapshot.
       ...(this.campaigns.length ? { campaigns: this.campaigns.map((c) => ({ ...c, owners: [...c.owners], plan: [...c.plan], knownTo: [...c.knownTo] })) } : {}),
@@ -4926,7 +5036,7 @@ export class GameSessionAdapter implements GameSession {
     this.live = core.live ? cloneSession(core.live) : null;
     this.deals.load(core.deals ?? []);
     // 0107: restore named alliances (absent on pre-0107 saves ⇒ none).
-    this.alliances.load(core.alliances ?? []);
+    this.alliances.load(core.alliances ?? [], core.allianceHistory ?? []);
     // 0085: restore live campaigns (absent on pre-0085 saves ⇒ none).
     this.campaigns = (core.campaigns ?? []).map((c) => ({ ...c, owners: [...c.owners], plan: [...c.plan], knownTo: [...c.knownTo] }));
     this.campaignTickCount = core.campaignTickCount ?? 0;
@@ -6101,7 +6211,11 @@ export class GameSessionAdapter implements GameSession {
     const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
     for (const claim of askableClaims(this.live.claims.items, present)) {
       const held = heldBeliefFor(this.live.beliefs, claim);
-      if (!held) continue;
+      if (!held) {
+        // 0159: a lie planted on the player has no belief behind it. The liar says they saw it themself (names no one; the note never hints it is untrue).
+        if (claim.intent === "mislead" && claim.isTrue === false) { this.claimSourceNote = sourceNote("witnessed", this.nameOf(claim.speaker)); return false; }
+        continue;
+      }
       const answer = decideSourceAnswer({
         seed: this.gameSeed ?? 0, holder: claim.speaker, claimId: claim.id, origin: held.origin, source: held.source,
         sourceAffinity: held.source !== undefined ? this.rel.edge(claim.speaker, held.source).affinity : 0.5,
@@ -9694,6 +9808,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
+      ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
@@ -10708,6 +10823,7 @@ export class GameSessionAdapter implements GameSession {
   private fadeAlliances(): void {
     if (!this.live || this.alliances.all().length === 0) return;
     const day = this.live.dayNumber ?? this.live.week;
+    this.alliances.stamp(this.beatSeqNow(), day);
     // 0107 (prune-on-eviction, never wired until the cubic sweep): an evicted houseguest leaves every alliance they were in, and one left with a single member dissolves.
     const pruned = this.alliances.prune(new Set(this.presenceActive()));
     const gone = this.alliances.fade(
@@ -10718,7 +10834,29 @@ export class GameSessionAdapter implements GameSession {
     let changed = pruned || gone.length > 0;
     if (this.breakAlliancesOverGoals(day)) changed = true;
     // No persist() here: this runs INSIDE the off-screen tick, and a persist is a commit, which runs the tick again (a recursion that never ended). The tick's own commit saves the change.
+    this.flushAllianceEvents();
     if (changed) this.agendaRecheck("alliance-changed");
+  }
+
+  /**
+   * ORW-544 / 0161: record an engine event for each alliance change that has none yet - an NPC alliance FORMING, FADING, DISSOLVING (the betrayal and the player's own founding already record theirs at their own sites, so they are marked, not doubled; joins and leaves are history only).
+   * The event is hidden unless the player was a member or had been told of the alliance (`playerKnew`): the registry's recorder hides any event whose witness set leaves the player out, so a pact the player never heard of stays in the Vault (mandate #2).
+   */
+  private flushAllianceEvents(): void {
+    if (!this.onPlayerEvent) return;
+    for (const e of this.alliances.unrecorded()) {
+      if (e.kind === "joined" || e.kind === "left") { this.alliances.markRecorded(e.seq, "none"); continue; }
+      if (e.kind === "betrayed" || (e.kind === "formed" && e.founder === PLAYER)) { this.alliances.markRecorded(e.seq, "existing"); continue; }
+      const who = e.members.map((m) => this.nameOf(m)).join(", ");
+      const witnesses = e.playerKnew && !e.members.includes(PLAYER) ? [...e.members, PLAYER] : [...e.members];
+      // A DISSOLUTION the player witnesses never lists the roster that ended it: the member who left (a sealed eviction ballot, E12 / A7) would be named by elimination. The Vault-side copy keeps the full roster.
+      const roster = e.kind === "dissolved" && witnesses.includes(PLAYER) ? "" : `: ${who}`;
+      const content = e.kind === "formed" ? `The alliance "${e.name}" formed${roster}`
+        : e.kind === "faded" ? `The alliance "${e.name}" faded apart${roster}`
+        : `The alliance "${e.name}" dissolved (${e.why ?? "ended"})${roster}`;
+      const id = this.onPlayerEvent(content, witnesses, `alliance-${e.kind}`);
+      this.alliances.markRecorded(e.seq, id ?? "recorded");
+    }
   }
 
   /**
@@ -10745,12 +10883,14 @@ export class GameSessionAdapter implements GameSession {
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
         if (roll >= ALLIANCE.goalClashBreak) continue;
         const target = goal.target!;
+        this.alliances.stamp(this.beatSeqNow(), day);
         this.alliances.removeMember(al.id, m); // FIRST: the member is out before any side effect can re-enter the tick (recording the scene commits, and a commit runs the tick again)
         const e = this.rel.edge(target, m);
         e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump);
         e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump);
         recordDealBetrayal(live, target, m);
         this.onPlayerEvent?.(`${this.nameOf(m)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)}`, [target, m], "betrayal");
+        this.flushAllianceEvents();
         changed = true;
       }
     }
@@ -10759,6 +10899,7 @@ export class GameSessionAdapter implements GameSession {
 
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
+    this.alliances.stamp(beat, this.live?.dayNumber ?? this.live?.week);
     const npcs = this.livingIds().filter((id) => id !== PLAYER);
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a));
@@ -10787,6 +10928,7 @@ export class GameSessionAdapter implements GameSession {
       const a = this.alliances.add(name, founder, willing, beat);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
       if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER);
+      this.flushAllianceEvents(); // after the player pitch above, so a pitched player is told
       this.agendaRecheck("alliance-changed"); // ORW-312
       this.persist();
       return; // one new alliance per tick (bounded)
@@ -10813,6 +10955,7 @@ export class GameSessionAdapter implements GameSession {
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
           this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name))), holder, willing, beat);
         }
+        this.flushAllianceEvents();
         this.agendaRecheck("alliance-changed");
         this.persist();
         return; // one change per tick (bounded)
@@ -13597,6 +13740,7 @@ export class GameSessionAdapter implements GameSession {
       `${this.nameOf(PLAYER)} forms an alliance "${name}" with ${others.map((m) => this.nameOf(m)).join(", ")}`,
       willing, "alliance",
     );
+    this.alliances.stamp(this.beatSeqNow(), this.live?.dayNumber ?? this.live?.week);
     const a = this.alliances.add(name, PLAYER, willing, this.beatSeqNow());
     this.agendaRecheck("alliance-changed"); // ORW-312
     this.persist();
@@ -13630,6 +13774,7 @@ export class GameSessionAdapter implements GameSession {
     if (!a || a.members.includes(PLAYER) || !a.knownTo.includes(PLAYER)) return null; // not an open pitch
     const bondOf = (x: EntityId, y: EntityId): number => (this.rel.edge(x, y).trust + this.rel.edge(x, y).affinity) / 2;
     if (Math.min(bondOf(PLAYER, a.founder), bondOf(a.founder, PLAYER)) < ALLIANCE.joinBondFloor) return null; // not close enough
+    this.alliances.stamp(this.beatSeqNow(), this.live?.dayNumber ?? this.live?.week);
     const joined = this.alliances.join(a.id, PLAYER)!;
     this.onPlayerEvent?.(`${this.nameOf(PLAYER)} joins the alliance "${joined.name}"`, [...joined.members], "alliance");
     this.agendaRecheck("alliance-changed"); // ORW-312
@@ -13696,7 +13841,9 @@ export class GameSessionAdapter implements GameSession {
             [target, action.actor], "betrayal",
           );
         }
+        this.alliances.stamp(this.beatSeqNow(), this.live?.dayNumber ?? this.live?.week);
         this.alliances.removeMember(al.id, action.actor); // the betrayer is out — the alliance fractures
+        this.flushAllianceEvents();
         this.agendaRecheck("alliance-changed"); // ORW-312
       }
     }
@@ -14176,7 +14323,7 @@ export class GameSessionAdapter implements GameSession {
       reveal: (wronged, breaker, deal, actionKind) => {
         if (actionKind === "vote-evict" && breaker !== PLAYER) {
           this.onPlayerEvent?.(
-            `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)}`,
+            `${this.nameOf(breaker)} broke a ${deal.kind} deal with ${this.nameOf(wronged)} by their sealed ballot`, // distinct wording: the same breaker may later break the same deal in PUBLIC (a nomination), and the identical sentence would read as a Vault echo to the integrity checkpoint
             [breaker], "betrayal", // no player witness ⇒ Vault-held until the 0048 unseal
           );
           return this.onPlayerEvent?.(
@@ -14313,6 +14460,7 @@ export class GameSessionAdapter implements GameSession {
     if (ev && ev.beat === "eviction-result") {
       this.rel.decay(RELATIONSHIP_CONSTANTS.DECAY_RATE);
       this.deals.expireWeekScoped(this.live?.week ?? 0);
+      this.talkAboutTheVote(); // 0154 slice 5b: after the eviction the voters may tell each other how they voted (flag-gated, own seeded stream)
     }
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
     // `ev` + the now-committed `this.live` (every read/mutation above this line is either read-only
@@ -14933,7 +15081,7 @@ export class GameSessionAdapter implements GameSession {
           juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
           revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
           // Vault-held: no player witness, so the event-visibility invariant keeps it hidden until a pathway or the 0048 unseal.
-          reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)}`, [breaker], "betrayal"),
+          reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"), // distinct wording from the later PUBLIC break of the same deal (identical words would read as a Vault echo to the integrity checkpoint)
         });
       } else {
         const kind = renegotiatedKind(deal.kind)!;

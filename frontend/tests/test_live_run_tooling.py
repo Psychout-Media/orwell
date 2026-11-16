@@ -288,3 +288,17 @@ def test_only_a_real_final_hoh_part_transition_excuses_a_clock_jump():
     assert [k for k in _score([a, moved]) if k.startswith("K1-clock-jump-competition")]
     assert not [k for k in _score([a, same]) if k.startswith("K1-clock-jump-competition")]
 
+
+
+def test_a_rescore_keeps_the_live_only_checks_and_the_saved_error():
+    """Review of the ORW-109 rescore: G1/G2/P1 are made only while the game plays; a rescore that drops them turned a failed run into a PASS."""
+    saved = {"error": None, "checks": [
+        {"id": "G1-game-started", "ok": True, "severity": "fail", "detail": "x"},
+        {"id": "G2-reached-veto-morning", "ok": False, "severity": "fail", "detail": "phase premiere"},
+        {"id": "P1-production-hold", "ok": False, "severity": "fail", "detail": "hoh set"},
+        {"id": "A2-arrivals-progress", "ok": True, "severity": "fail", "detail": "recomputed by score(), not kept"}]}
+    checks = []
+    ls.keep_live_checks(saved, checks)
+    assert [c["id"] for c in checks] == ["G1-game-started", "G2-reached-veto-morning", "P1-production-hold"]
+    assert [c for c in checks if not c["ok"] and c["severity"] == "fail"], "the saved failures still fail the rescored run"
+    keep = []; ls.keep_live_checks({}, keep); assert keep == []

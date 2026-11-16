@@ -77,24 +77,44 @@ CT_HOSTNAME="${CT_HOSTNAME:-orwell}"
 # tui_active is false and the plain-text prompts below run unchanged. The lib is searched beside
 # this file first, then the installed checkout, so even the pushed copy finds it.
 __here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
-for __lib in "${__here}/orwell-tui.sh" /opt/orwell/deploy/orwell-tui.sh /opt/bbai/deploy/orwell-tui.sh; do
-  if [[ -n "${__lib:-}" && -r "$__lib" ]]; then . "$__lib"; break; fi
-done
+# ORW-484: this script runs as root, and the host bridge pushes it to /tmp (world-writable) in the container, so
+# "beside this file" is /tmp there. A library is sourced from beside this file ONLY when the file and its directory are
+# regular, non-symlink, owned by root (or by whoever runs this) and not other-writable (and, as root, not group-writable); /tmp (mode 1777) never
+# qualifies, so a file a local user plants at /tmp/orwell-live-game.sh is never sourced as root. The installed
+# checkout copies (a root-owned code tree) are the fallback and the normal source for the pushed copy.
+__lib_trusted() {
+  local f="$1" p m o
+  [[ -f "$f" && ! -L "$f" && -r "$f" ]] || return 1
+  for p in "$f" "$(dirname "$f")"; do
+    o="$(stat -c %u "$p" 2>/dev/null)" || return 1
+    [[ "$o" == "0" || "$o" == "$(id -u)" ]] || return 1
+    m="$(stat -c %a "$p" 2>/dev/null)" || return 1
+    (( (8#$m & 8#002) == 0 )) || return 1                                 # never writable by everyone (so never /tmp)
+    [[ "$(id -u)" != "0" ]] || (( (8#$m & 8#020) == 0 )) || return 1      # as root: nor by a group
+  done
+}
+__source_lib() {
+  local name="$1" d
+  for d in "$__here" /opt/orwell/deploy /opt/bbai/deploy; do
+    [[ -n "$d" ]] || continue
+    if [[ "$d" == "$__here" ]]; then __lib_trusted "${d}/${name}" || continue
+    else [[ -r "${d}/${name}" ]] || continue; fi
+    . "${d}/${name}"; return 0
+  done
+  return 1
+}
+__source_lib orwell-tui.sh || true
 type tui_active >/dev/null 2>&1 || tui_active() { return 1; }
 
 # ── live-game guard lib (ORW-206). Missing ⇒ the check is simply skipped (fail open: an update must never
 # be blocked by its own guard). Searched like the libs above, so the pushed /tmp copy finds it too.
-for __lg in "${__here}/orwell-live-game.sh" /opt/orwell/deploy/orwell-live-game.sh /opt/bbai/deploy/orwell-live-game.sh; do
-  if [[ -n "${__lg:-}" && -r "$__lg" ]]; then . "$__lg"; break; fi
-done
+__source_lib orwell-live-game.sh || true
 
 # ── ops-progress lane: step-by-step progress to data/ops/<action>-status.json (sourced helper) ──
 # Lets the admin health page render a live timeline for THIS update (fetching → rebuilding →
 # refreshing deps → restarting → updated). Best-effort; missing helper ⇒ no-op stubs. The
 # in-container run is the one that does the work, so the steps fire there (the host bridge exits).
-for __pf in "${__here}/orwell-ops-progress.sh" /opt/orwell/deploy/orwell-ops-progress.sh /opt/bbai/deploy/orwell-ops-progress.sh; do
-  if [[ -n "${__pf:-}" && -r "$__pf" ]]; then . "$__pf"; break; fi
-done
+__source_lib orwell-ops-progress.sh || true
 type ops_progress_init >/dev/null 2>&1 || { ops_progress_init() { :; }; ops_progress_step() { :; }; ops_progress_done() { :; }; ops_progress_fail() { :; }; }
 
 # Interactive front door: with no action chosen and a TTY, offer the same actions as the flags.
@@ -238,11 +258,14 @@ ops_log_invocation() {
       "$FORCE" "$([[ $FORCE_NOW -eq 1 ]] && echo force-now || { [[ $FORCE -eq 1 ]] && echo force || echo normal; })" "$ROLLBACK" "$SET_TOKEN" "$NO_RESTART" "${REF:-none}" "$$"
   } >> "$log" 2>/dev/null || true
 }
+# The helper sourced above may be the OLDER installed copy (a host-pushed first update): give the newer helpers a safe stand-in.
+declare -F update_fe_db_path >/dev/null || update_fe_db_path() { printf '%s' "$3"; }
+declare -F _update_abs_path >/dev/null || _update_abs_path() { local p="$1"; [[ -n "$p" && "$p" != /* ]] && p="$(pwd)/${p#./}"; printf '%s' "$p"; }
 ops_log_invocation "$@"
 __UD_WAITED=0; __UD_SUPERSEDED=0
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   __ud_rc=0; __ud_superseded=0
-  update_wait_for_idle_game "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
+  update_wait_for_idle_game "$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db")" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
   if [[ $__ud_rc -eq 10 ]]; then
     # ORW-398/406: a later run went ahead. It may have FAILED and reverted, so do not assume it did this update:
     # the under-lock check below exits only if HEAD is at the requested ref AND the services were restarted on it.
@@ -250,6 +273,12 @@ if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update
     __ud_rc=0; __ud_superseded=1; __UD_SUPERSEDED=1
   fi
   [[ $__ud_rc -eq 0 ]] || exit "$__ud_rc"
+  # ORW-488: a --rollback that ran while this update was deferred is an operator decision to leave the tip it rejected: a waiter that
+  # wakes up must not fetch and redeploy that tip (the under-lock "already at the ref" check would fail, HEAD being the rolled-back commit).
+  if [[ $__ud_superseded -eq 1 ]] && type update_superseded_by_rollback >/dev/null 2>&1 && update_superseded_by_rollback; then
+    echo "==> a --rollback ran after this update was deferred; not redeploying the tip it rejected. Run the update again to deploy."
+    exit 0
+  fi
   # A run that actually waited (or was superseded) must not redo work another run finished (checked after the lock, below). A run that never deferred
   # (--force, an idle game, no signal) keeps the full update and reconcile even when HEAD already equals the target (review of #2689).
   if [[ "${UPDATE_WAIT_DEFERRED:-0}" == 1 || $__ud_superseded -eq 1 ]]; then __UD_WAITED=1; fi
@@ -299,6 +328,11 @@ acquire_update_lock() {
   export ORWELL_UPDATE_LOCK_FD
 }
 acquire_update_lock
+# ORW-488: EVERY run that takes the lock writes a fresh run token, so a deferred update sees that something else changed the box. A plain
+# update already wrote one when it went ahead of the wait; the runs that skip the wait (--rollback, --set-token, --no-restart) write theirs here.
+if [[ $ROLLBACK -eq 1 || $SET_TOKEN -eq 1 || $NO_RESTART -eq 1 ]] && type update_run_supersede >/dev/null 2>&1; then
+  update_run_supersede "$([[ $ROLLBACK -eq 1 ]] && echo rollback || true)" || true
+fi
 
 # Service names follow the install: prefer orwell-*, fall back to the legacy bbai-* units when
 # that's what is registered (a container provisioned before the rename).
@@ -539,6 +573,11 @@ play_inputs_fp() {
   local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
   { node -v || true; npm -v || true; printf 'updater=%s\nnpmenv=%s\n%s\n' "$__UPDATER_FP" "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
 }
+# ORW-498: the same inputs WITHOUT the updater's own text: what a --rollback matches a kept build on (the new updater's hash can never equal the old one's).
+play_source_fp() {
+  local tree; tree="$(git -C "$APP_DIR" ls-tree HEAD -- frontend/web frontend/static/js 2>/dev/null)" || { echo none; return 0; }
+  { node -v || true; npm -v || true; printf 'npmenv=%s\n%s\n' "$(npm_env_fp)" "$tree"; } 2>/dev/null | _fp_sum
+}
 # Every entry under a tree: directories by name, files and links by name + size + mtime (+ link target), so a file
 # edited in place shows even when npm's / pip's own records stay the same. Bytecode caches are not package content.
 _tree_listing() {
@@ -612,7 +651,14 @@ write_deps_stamp() {
 # inputs (PLAY_STAMP).
 play_build_fp() {   # the inputs fingerprint a /play build dir was made from; "" unless it is a complete build
   [[ -f "${1}/index.html" && -f "${1}/${PLAY_STAMP}" && ! -L "${1}/${PLAY_STAMP}" ]] || return 0
+  # ORW-497: believed only when the dir and its stamp belong to whoever runs this updater (root) and no group/other can write them
+  _owned_by_us "$1" && _owned_by_us "${1}/${PLAY_STAMP}" || return 0
   head -c 64 "${1}/${PLAY_STAMP}" | tr -cd '0-9a-f'
+}
+play_build_src_fp() {   # ORW-498: the SOURCE fingerprint kept beside the stamp (no updater text in it), under the same trust rule; "" for a build without one
+  [[ -n "$(play_build_fp "$1")" && -f "${1}/${PLAY_STAMP}.src" ]] || return 0
+  _owned_by_us "${1}/${PLAY_STAMP}.src" || return 0
+  head -c 64 "${1}/${PLAY_STAMP}.src" | tr -cd '0-9a-f'
 }
 # Copy a finished /play build to dist.next. dist.next must not exist when the copy starts (removed, then
 # checked), so a leftover — or anything planted there — is never merged into or nested under. A build is plain
@@ -683,6 +729,7 @@ build_play_app() {
      && [[ -f "${out}/dist/index.html" && ! -L "${out}/dist" ]] \
      && rm -f "${out}/dist/${PLAY_STAMP}" \
      && printf '%s\n' "$fp" > "${out}/dist/${PLAY_STAMP}" \
+     && printf '%s\n' "$(play_source_fp)" > "${out}/dist/${PLAY_STAMP}.src" \
      && _stage_play_build "${out}/dist"; then
     echo "==> /play built — it goes live when the update commits"
   else
@@ -714,9 +761,10 @@ swap_play_app() {
 play_follow_rollback() {
   local fp
   [[ -f "${PLAY_DIR}/package.json" ]] || return 0
-  fp="$(play_inputs_fp)"
-  if _same "$(play_build_fp "$PLAY_DIST")" "$fp"; then return 0; fi
-  if _same "$(play_build_fp "$PLAY_PREV")" "$fp" && _stage_play_build "$PLAY_PREV"; then
+  fp="$(play_source_fp)"   # ORW-498: source only; a build stamped by an older updater (no .src file) matches on its full fingerprint instead
+  _play_src_match() { _same "$(play_build_src_fp "$1")" "$fp" || _same "$(play_build_fp "$1")" "$(play_inputs_fp)"; }
+  if _play_src_match "$PLAY_DIST"; then return 0; fi
+  if _play_src_match "$PLAY_PREV" && _stage_play_build "$PLAY_PREV"; then
     swap_play_app
     return 0
   fi
@@ -884,6 +932,7 @@ revert_failed_update() {
 on_update_exit() {
   local rc=$? rrc=0
   trap - EXIT
+  ! declare -F update_force_flag_clear >/dev/null || update_force_flag_clear "${APP_DIR%/}/data/ops"   # ORW-485: a force request made after the wait must not outlive this run
   [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: never leave new turns held when the update fails or is killed
   [[ "$rc" -ne 0 ]] || return 0
   if [[ "$UPDATE_ARMED" -eq 1 ]]; then
@@ -1102,7 +1151,8 @@ _svc_cleanup_mcp_rows_py() {
       return 4
     fi
   fi
-  # `cd /`: the service user may not be able to enter the directory the updater was started in.
+  # `cd /`: the service user may not be able to enter the directory the updater was started in. ORW-496: so the path is made absolute first.
+  ! declare -F _update_abs_path >/dev/null || db="$(_update_abs_path "$db")"
   ( cd / && timeout 20 "${runner[@]}" python3 -I -c "$_CRUFT_MCP_PY" "$db" "$_CRUFT_MCP_WHERE" )
 }
 
@@ -1285,7 +1335,7 @@ cleanup_inherited_cruft() {
   # unprivileged FE hit "readonly database" / "database is locked"; the DELETE is the same hazard.
   # Running as the DB's owner keeps every sidecar owned by that user. python3's sqlite3 module first
   # (the production box has no sqlite3 CLI); the CLI path only on a box without python3.
-  local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"   # the FE store (frontend/data), not engine data/
+  local db="${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db"; ! declare -F update_fe_db_path >/dev/null || db="$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "$db")"   # the FE store (frontend/data, or its DATABASE_URL), not engine data/
   local removed="" rc=0 errf="" why=""
   if [[ -f "$db" ]]; then
     # Keep the writer's stderr so a failure note can say WHY (locked, corrupt, permission): its first line,
@@ -1644,6 +1694,7 @@ if [[ "$NO_RESTART" -eq 1 ]]; then
   # that runs next will publish its own restart/OOBE-ready progress. Mark the update phase done.
   echo "==> --no-restart: build is in place but services were NOT restarted (the caller restarts)."
   trap - EXIT
+  ! declare -F update_force_flag_clear >/dev/null || update_force_flag_clear "${APP_DIR%/}/data/ops"   # ORW-485
   ops_progress_done "updated — handing off to the reset for the final restart"
 else
   # ORW-406: restart only what changed, and swap between turns.
@@ -1673,11 +1724,10 @@ else
       # copy (a host-pushed first update), which has no hold: then the update runs as before.
       __HOLD_ON=0
       if [[ $FORCE_NOW -ne 1 ]] && declare -F update_turn_hold_begin >/dev/null; then
-        # the same validated, clamped bound update_wait_for_no_turn uses (1..300 s; "08", "0090" or "1x" never reach the arithmetic as written), plus time for the restart and warm-up
-        __tw="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}"; [[ "$__tw" =~ ^[0-9]{1,6}$ ]] || __tw=120
-        __tw=$(( 10#$__tw )); (( __tw < 1 )) && __tw=1; (( __tw > 300 )) && __tw=300
+        # ORW-490: turn wait + warm-up wait + restart allowance, from the same shared clamp the waits use (the page's HOLD_MAX_WAIT_MS must stay at or above the maximum, 750 s)
+        __hold="$(update_hold_seconds 2>/dev/null || echo 450)"
         __HOLD_ON=1
-        update_turn_hold_begin "$(( __tw + 150 ))" || true
+        update_turn_hold_begin "$__hold" || true
       fi
       if [[ $FORCE_NOW -eq 1 ]]; then
         echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
@@ -1706,6 +1756,7 @@ else
     fi
     [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: the new build is warm: let the held turns through
     trap - EXIT
+    ! declare -F update_force_flag_clear >/dev/null || update_force_flag_clear "${APP_DIR%/}/data/ops"   # ORW-485
     ops_progress_done "updated — services restarting"
   fi
 fi
