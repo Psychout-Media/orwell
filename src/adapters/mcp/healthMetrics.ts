@@ -37,6 +37,7 @@ export class HealthMetrics {
   private readonly failures: ToolFailureEntry[] = [];
   private total = 0;
   private failed = 0;
+  private readonly refusals = new Map<string, number>();
 
   constructor(private readonly now: () => number = Date.now) {
     this.startedAt = this.now();
@@ -63,16 +64,25 @@ export class HealthMetrics {
     }
   }
 
+  /** A call the engine ANSWERED but refused as a no-op (e.g. `noteMessage:no-game`): a counted label only - never args, never a user. Bounded: at most 32 distinct labels. */
+  recordRefusal(label: string): void {
+    const k = String(label).slice(0, 64);
+    if (!this.refusals.has(k) && this.refusals.size >= 32) return;
+    this.refusals.set(k, (this.refusals.get(k) ?? 0) + 1);
+  }
+
   /** The `/health` projection: uptime + counters + the recent-failure ring (oldest first). */
   snapshot(): {
     uptimeSeconds: number;
     toolCalls: { total: number; failed: number };
     recentFailures: ToolFailureEntry[];
+    refusals: Record<string, number>;
   } {
     return {
       uptimeSeconds: Math.max(0, Math.floor((this.now() - this.startedAt) / 1000)),
       toolCalls: { total: this.total, failed: this.failed },
       recentFailures: this.failures.map((f) => ({ ...f })),
+      refusals: Object.fromEntries(this.refusals),
     };
   }
 }
