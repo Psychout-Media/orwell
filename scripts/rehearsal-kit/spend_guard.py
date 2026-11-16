@@ -19,7 +19,7 @@ def _num(v):
     try:
         f = float(v)
         return f if f == f and f >= 0 else 0.0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.0
 
 
@@ -65,15 +65,19 @@ def stop_run(run):
         try:
             pid = int(open(f"{run}/{name}.pid").read().strip())
             cmd = open(f"/proc/{pid}/cmdline", "rb").read().replace(b"\0", b" ").decode("utf-8", "replace")
-            if any(h in cmd for h in hints[name]): os.kill(pid, signal.SIGTERM)   # a stale or reused pid of an unrelated process is never signalled
+            cwd = os.path.realpath(f"/proc/{pid}/cwd"); wt = os.environ.get("WT", "")
+            # identity: the command line names the process AND (engine/fe) it runs inside this rig's worktree; the daemon's names this run
+            own = (run in cmd) if name in ("daemon", "driver") else (not wt or cwd == wt or cwd.startswith(wt + "/"))
+            if own and any(h in cmd for h in hints[name]): os.kill(pid, signal.SIGTERM)   # a stale or reused pid of an unrelated process is never signalled
         except (OSError, ValueError): pass
 
 
 def main(argv):
     if len(argv) < 3: print(__doc__); return 2
     path, run = argv[0], argv[2]
-    try: cap = float(argv[1]); assert cap > 0 and cap == cap
-    except (ValueError, AssertionError): print(f"spend_guard: the cap must be a positive number (got {argv[1]!r})", file=sys.stderr); return 2
+    try: cap = float(argv[1])
+    except ValueError: cap = float("nan")
+    if not (0 < cap < float("inf")):     print(f"spend_guard: the cap must be a finite positive number (got {argv[1]!r})", file=sys.stderr); return 2
     interval = 15.0; once = "--once" in argv
     if "--interval" in argv: interval = float(argv[argv.index("--interval") + 1])
     while True:

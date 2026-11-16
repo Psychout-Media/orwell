@@ -4,7 +4,7 @@ import json, os, sys, time, re
 from playwright.sync_api import sync_playwright
 
 def _rig_base(run):
-    """The front-end base URL for this run's slot: RIG_BASE from the environment, else the run's slot.env, else the slot-1 default (a run staged before slots existed has no slot.env)."""
+    """The front-end base URL for this run's slot: the run's own slot.env RIG_BASE is authoritative (an exported RIG_BASE that disagrees is refused); the environment is used only when there is no slot.env, then the slot-1 default (a run staged before slots existed has no slot.env)."""
     import shlex
     rec = None
     try:   # the run's own slot.env is authoritative: a stray exported RIG_BASE must never point the daemon at the other rig

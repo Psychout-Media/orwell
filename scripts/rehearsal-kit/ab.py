@@ -29,7 +29,7 @@ def send(n, text, card):
         if r["n"] == n: return r
     return None
 n = N0; st = {}; card = None; turns = 0
-for t in CAST[:MAXT]:   # never more cast turns than the turn budget
+for t in CAST[:max(MAXT, 0)]:   # never more cast turns than the turn budget
     n += 1; r = send(n, t, None); turns += 1
     if not r: print("timeout at", n, "(casting) - aborting", flush=True); sys.exit(1)
     st, card = r["status"], r["card"]
