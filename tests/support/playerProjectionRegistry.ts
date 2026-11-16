@@ -76,6 +76,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "recordHouseCulture", coveredBy: "write-back", note: "ORW-319 FE write-back; bare {accepted, reason} status" },
   { method: "recordLookExtras", coveredBy: "write-back", note: "ORW-369 FE write-back; bare {accepted, fields} status" },
   { method: "recordRoomCanon", coveredBy: "write-back", note: "FE write-back; bare status result" },
+  { method: "recordNarrationUse", coveredBy: "write-back", note: "ORW-510 FE write-back; counts and a season line only, never a recorded phrase" },
   { method: "recordOpenLedger", coveredBy: "write-back", note: "FE write-back; bare status result" },
   { method: "resolveOpenLedger", coveredBy: "write-back", note: "ORW-407 slice 2 FE write-back; bare status result (accepted + reason code, no text)" },
   { method: "openLedgerHere", coveredBy: "read", note: "ORW-407 slice 2 FE read; player-visible words and public ids only" },

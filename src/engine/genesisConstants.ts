@@ -243,17 +243,26 @@ export const GENESIS_AMPLIFIED_SPAN = 2; // 4 or 5 amplified per cast (owner: gu
 
 // ── The seeded AGE CURVE (owner casting-craft upgrade — a real-world cast age distribution) ──────────
 /**
- * A believable BB age spread: a young-skewing cast that EXPLICITLY fills the 27–45 middle (the zone the
- * un-tuned cast left empty). Each band is `[lo, hi]` with a target `count` for a 15-NPC cast; the counts
- * sum to the cast size (padded/trimmed for other sizes), then shuffled onto slots. The model picks the
- * exact integer age inside the band AND a given name from that birth ERA.
+ * ORW-480: the REAL age distribution of reality-competition casts. Each stratum is `[lo, hi]` with the number of contestants in it, counted
+ * from the Wikipedia season pages of American Big Brother (seasons 11 to 26) and Survivor (36 to 39, 41 to 48): 28 casts, 465 contestants
+ * aged 21 or more (the engine's eligibility floor; 8 younger left out). The counts are the file `castAges.json` (sources listed there; a test
+ * pins this table to it). Every slot DRAWS its stratum independently at those frequencies (not a fixed count per band), so the oldest person
+ * of a cast varies the way real casts do: mostly the forties, often the fifties, now and then the sixties. The exact age is then drawn
+ * uniformly inside the stratum (the writer's age proposal never moves it) and the writer picks a given name from that birth ERA.
  */
 export interface GenesisAgeBand { lo: number; hi: number; count: number; }
 export const GENESIS_AGE_BANDS: readonly GenesisAgeBand[] = [
-  { lo: 21, hi: 26, count: 4 },
-  { lo: 27, hi: 33, count: 5 },
-  { lo: 34, hi: 45, count: 4 },
-  { lo: 46, hi: 60, count: 2 },
+  { lo: 21, hi: 23, count: 61 },
+  { lo: 24, hi: 26, count: 108 },
+  { lo: 27, hi: 29, count: 90 },
+  { lo: 30, hi: 32, count: 73 },
+  { lo: 33, hi: 35, count: 38 },
+  { lo: 36, hi: 39, count: 28 },
+  { lo: 40, hi: 44, count: 31 },
+  { lo: 45, hi: 49, count: 19 },
+  { lo: 50, hi: 54, count: 10 },
+  { lo: 55, hi: 59, count: 5 },
+  { lo: 60, hi: 70, count: 2 },
 ];
 
 // ── The CASTING-ROLE vocabulary + quota (owner casting-craft upgrade) ────────────────────────────────

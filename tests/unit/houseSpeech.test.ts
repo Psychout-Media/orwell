@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { recordClaim, type BeliefStore } from "../../src/engine/beliefStore";
 import { claimFromBelief, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../src/engine/houseSpeech";
-import { beliefFor } from "../../src/engine/spokenClaims";
+import { beliefFor, claimProblem } from "../../src/engine/spokenClaims";
 
 /** 0153 / ORW-330 slice 3 - house-life speech as claims the engine decides. Roles only (an actor, a listener, a target, a bystander). */
 const ACTOR = "npc:a", EAR = "npc:e", TARGET = "npc:t", OTHER = "npc:o";
@@ -25,6 +25,10 @@ describe("0153: what house-life speech says", () => {
     expect(truthOf({ kind: "voted-to-keep", listener: EAR, subject: TARGET, object: EAR }, f)).toBe(false);
     expect(beliefFor({ kind: "voted-to-keep", listener: EAR, subject: TARGET, object: EAR })).toEqual({ kind: "assured-me", subject: TARGET });
     expect(beliefFor({ kind: "voted-to-keep", listener: OTHER, subject: TARGET, object: EAR })).toEqual({ kind: "heard-rumor", subject: TARGET, object: EAR, nature: "voted-to-keep" });
+    // a speaker may claim their OWN vote, and nothing else about themselves
+    expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "voted-to-keep", subject: TARGET, object: EAR, isTrue: false, intent: "deflect" }, living)).toBeUndefined();
+    expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "voted-against", subject: TARGET, object: OTHER, isTrue: true, intent: "inform" }, living)).toBeUndefined();
+    expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "going-after", subject: TARGET, object: OTHER, isTrue: true, intent: "inform" }, living)).toBeDefined();
   });
 
   it("an untruthful plant is a lie the engine knows is false; a truthful one tells something true, or nothing", () => {

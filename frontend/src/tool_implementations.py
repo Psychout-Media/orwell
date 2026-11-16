@@ -5081,7 +5081,7 @@ async def do_create_character(
                     # #544 — AI-seed the cast's descriptive identity FIRST (engine validates/repairs/folds),
                     # THEN deep-author. Best-effort/fail-soft: no model ⇒ the engine's deterministic floor
                     # stands and `then` still chains authoring (which also degrades gracefully).
-                    orwell_cast_identity.kickoff_identity(cast, owner, then=_author_then_refresh)
+                    orwell_cast_identity.kickoff_identity(cast, owner, then=_author_then_refresh, seed=_cast_seed)
         except Exception:
             pass  # authoring + portraits are augmentation — never let them affect game start
         # #1313 — THE HOUSE-ENTRY GATE (P0): the game must NEVER start on the deterministic FLOOR cast.
@@ -5670,6 +5670,7 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
         # ORW-320: "the house you never saw" is the retrospective WINDOW's per-houseguest story (long); it stays off the host model's context.
         if isinstance(res, dict):
             res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
+            res.pop("rumorMill", None)  # ORW-525: the rumor mill is the retrospective WINDOW's too, off the host model's context
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

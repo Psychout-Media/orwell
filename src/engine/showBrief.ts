@@ -125,7 +125,7 @@ const QUIETING_QUIET_MINUTES = 120;
  * Build the brief for this turn, or `undefined` when there is nothing to brief (pre-game, the player out of the
  * house, no whereabouts). `req` carries only the FE's optional echoes; the facts come from `view`.
  */
-export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, canonSection?: (room: Room) => string | undefined, threadLines?: readonly string[], openLedgerSection?: (hereIds: readonly EntityId[]) => string | undefined): ShowBriefView | undefined {
+export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, canonSection?: (room: Room) => string | undefined, threadLines?: readonly string[], openLedgerSection?: (hereIds: readonly EntityId[]) => string | undefined, usedSection?: (hereIds: readonly EntityId[]) => string | undefined): ShowBriefView | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts;
   if (!wa || !isRoom(wa.room)) return undefined;
@@ -250,7 +250,7 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
     "SHOW BRIEF. Built by the engine for this turn from what the player can see; it is the truth about the show right now.",
     "If it disagrees with the chat above, THE BRIEF WINS. The headings below always come in this order.",
   ].join("\n");
-  const sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open"; text: string }> = [
+  const sections: Array<{ id: "header" | "now" | "changed" | "established" | "canon" | "threads" | "open" | "used"; text: string }> = [
     { id: "header" as const, text: header },
     { id: "now" as const, text: now.join("\n") },
     { id: "changed" as const, text: changed.join("\n") },
@@ -265,6 +265,9 @@ export function buildShowBrief(view: GameStateView, req: ShowBriefReq = {}, cano
   // 6. OPEN LEDGER (ORW-407): what the player said or heard (including claims and pacts between houseguests they overheard) and is still standing, for those here now.
   const open = openLedgerSection?.(hereIds);
   if (open) sections.push({ id: "open" as const, text: open });
+  // 7. ALREADY USED (ORW-510): the narration's own recent openings, closers and per-houseguest habits (those HERE only), so it varies.
+  const used = usedSection?.(hereIds);
+  if (used) sections.push({ id: "used" as const, text: used });
   const text = sections.map((s) => s.text).join("\n\n");
   const nextSeen: BriefSeenState = {
     v: 1,

@@ -1658,11 +1658,11 @@ async def record_look_extras(houseguest_id: str, look: dict, user: str | None = 
     public physical facet (same closed-facet guard as recordCastProfile); touches no other field and not the
     narrator's appearance string. ``look["clear"]`` (a list of those three field names) clears stale fields. Answers ``{accepted, fields, reason?}``. Public fields only; Vault-free."""
     args = {"houseguestId": houseguest_id}
-    for k in ("wardrobe", "onCamera", "photoHair"):
+    for k in ("wardrobe", "onCamera", "photoHair", "lookSignature", "style"):
         if look.get(k):
             args[k] = look[k]
     if look.get("clear"):
-        args["clear"] = [c for c in look["clear"] if c in ("wardrobe", "onCamera", "photoHair")]
+        args["clear"] = [c for c in look["clear"] if c in ("wardrobe", "onCamera", "photoHair", "lookSignature")]
     return await _call("recordLookExtras", args, user=user)
 
 
@@ -1672,6 +1672,13 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
     120-char cap and the content fence (no events, outcomes, secrets, places, devices, relationships, numbers) and
     answers ``{accepted, reason?, entryId?}``. Vault-free; played games only."""
     return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
+
+
+async def record_narration_use(text: str, user: str | None = None) -> dict:
+    """ORW-510 (live season memory): hand the VISIBLE narration of one finished turn back to the engine (``recordNarrationUse``). Sends exactly
+    ``{text}``; the engine reads it (no model call), checks it against its short rolling record of what the narration already used, counts the
+    repeats and folds it in. Answers ``{recorded, reason?, sentences?, repeated?, seasonLine?}`` (counts only). Vault-free; played games only."""
+    return await _call("recordNarrationUse", {"text": text}, user=user)
 
 
 async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
