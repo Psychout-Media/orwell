@@ -909,11 +909,11 @@
    "field": "shotCard",
    "multi": false,
    "cap": {
-    "share": 0.34,
+    "share": 0.4,
     "min": 2
    },
    "dealt": true,
-   "note": "ORW-480 photo: close-up, half-length, three-quarter, seated wide, full length; none on more than 5 of 15"
+   "note": "ORW-480 photo: close-up, half-length, three-quarter (no full-body, no wide seated shot: the face is the photo); none on more than 6 of 15, three-quarter on at most 3"
   },
   "light": {
    "field": "shotCard",

@@ -14,7 +14,7 @@ C = importlib.import_module("src.orwell_portrait_check")
 t362 = importlib.import_module("test_orw362_gpt_image_route")
 
 NEW_PROMPT = (
-    "A real photograph by a reality show's unit photographer, taken during the season: half-length, framed at the waist, at eye level, "
+    "An official cast photo for a reality show, made by the production's unit photographer, taken during the season: half-length, framed at the waist, at eye level, "
     "on a 35mm lens. The subject is a 31-year-old multiracial man with warm skin. Face: an oval face, a straight nose. "
     "Hair: dark curls, neatly styled. Wearing black button-down, fitted jeans. Setting: the backyard, lawn and fence behind. "
     "Light: low golden-hour sun. The moment: caught mid-laugh at something off-camera, head tipped back. "

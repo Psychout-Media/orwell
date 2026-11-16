@@ -160,15 +160,16 @@ export function signatureMarkClause(mark: string | undefined): string {
   return kept.length === 0 ? "" : sentence(upperFirst(kept.join(", ")));
 }
 
-const SHOT_OPENER = "A real photograph by a reality show's unit photographer, taken during the season";
+const SHOT_OPENER = "An official cast photo for a reality show, made by the production's unit photographer during the season: "
+  + "the person knows they are being photographed and is presented well, and it is a real photograph, not a stock headshot or a snapshot";
 /**
  * The shared closing asks (ORW-480). They replace the old studio recipe (85mm portrait lens, shallow depth of field,
  * soft flattering light, hair and makeup done for the shoot, "softly out of focus behind"): a real photograph, a
  * readable place, real skin, an unposed moment; the hard protections stay (the only person in frame, no text or logos).
  */
 const REAL_PHOTO_TAIL =
-  "Keep the stated age and build exactly. Real skin with visible pores, fine lines and small natural asymmetries, loose hairs "
-  + "and creased clothes, no retouching or beauty filter. The place stays sharp enough to read, never blurred away. Natural hands "
+  "Keep the stated age and build exactly. The face stays large, sharp and clear, also in a square crop. Real skin with visible pores, fine lines and small natural asymmetries, loose hairs "
+  + "and creased clothes, no retouching or beauty filter. The place behind stays readable but is never the subject. Natural hands "
   + "with five fingers, ordinary real garments with proper seams and fit, nothing held beyond what is stated. "
   + "The only person in the frame; no text or logos.";
 
@@ -236,7 +237,7 @@ export function buildPortraitPrompt(
   // 6. The shot: place and light, then the moment and any prop.
   const settingLine = `${sentence(`Setting: ${shot.place}`)} ${sentence(`Light: ${shot.light}`)}`;
   const momentLine = sentence(`The moment: ${shot.moment}`);
-  const propLine = shot.prop !== undefined ? sentence(`${pr.subj} has ${shot.prop} with ${pr.obj}`) : "";
+  const propLine = shot.prop !== undefined ? sentence(`${pr.subj} ${pr.plural ? "are" : "is"} ${shot.prop}`) : "";
 
   const prompt = [
     sentence(`${SHOT_OPENER}: ${shot.framing}, ${shot.angle}, on ${shot.lens}`),
@@ -260,6 +261,7 @@ function sheetOf(id: string, name: string, f: PublicAppearanceFacets): ShotSheet
     ...(f.vocation !== undefined ? { vocation: f.vocation } : {}),
     ...(f.identityConcept !== undefined ? { identityConcept: f.identityConcept } : {}),
     ...(look?.facialFeatures !== undefined ? { facialFeatures: look.facialFeatures } : {}),
+    ...(look?.heightBuild !== undefined ? { heightBuild: look.heightBuild } : {}),
   };
 }
 
