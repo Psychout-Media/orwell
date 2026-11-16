@@ -1156,7 +1156,10 @@ export class GameSessionAdapter implements GameSession {
    */
   private messageMode = false;
   private seenMessageIds: string[] = [];
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number } {
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string } {
+    // A message announced before any game exists (the casting interview) steps no in-game clock and changes nothing: refuse it plainly (accepted false + a reason; the transport counts it on /health) instead of
+    // answering accepted:true with a small rising counter that makes pre-game chat look like in-game time.
+    if (!this.house || !this.live) return { accepted: false, beatSeq: this.beatSeq, reason: "no-game" };
     const id = String(req.messageId);
     if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
     this.seenMessageIds.push(id);

@@ -36,3 +36,32 @@ describe("the status on premiere night", () => {
     expect(s.gameStatus().timeOfDay).toBeUndefined();
   });
 });
+
+describe("a message announced before any game exists", () => {
+  it("is refused (accepted false, a reason, nothing changed) and then works once the game exists", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const s = new GameSessionRegistry().sandboxFor(`pre-note-${Math.random()}`).session as GameSessionAdapter;
+    const before = s.noteMessage({ messageId: "casting-1" });
+    expect(before).toMatchObject({ accepted: false, reason: "no-game" });
+    expect(s.noteMessage({ messageId: "casting-1" }).beatSeq, "no state change: the counter did not move").toBe(before.beatSeq);
+    s.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
+    s.setPerConversationClockEnabled(true);
+    expect(s.noteMessage({ messageId: "casting-1" }), "the same id was NOT remembered while there was no game").toMatchObject({ accepted: true });
+    expect(s.gameStatus().timeOfDay).toBe("evening");
+  });
+
+  it("during premiere entrances (created, none advanced yet: the clock has not started) the status names the part of day", () => {
+    GameSessionAdapter.setTimeOfDayEnabled(true);
+    const s = new GameSessionRegistry().sandboxFor(`pre-ent-${Math.random()}`).session as GameSessionAdapter;
+    s.setPremiereEntrancesEnabled(true); // the unit lane pins the flag off; the shipped game has it on
+    s.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
+    s.setPerConversationClockEnabled(true);
+    const live = s.snapshot().live as { nightDepth?: number; premiereEntrance?: { stage: string; arrived: number; playerPos: number } };
+    expect(live.premiereEntrance?.stage).toBe("entrances");
+    expect(live.premiereEntrance?.arrived, "the houseguests seated at creation are not clock steps").toBe(live.premiereEntrance?.playerPos);
+    expect(live.nightDepth).toBeUndefined();
+    expect(s.gameStatus()).toMatchObject({ phase: "premiere", timeOfDay: "evening", dayNumber: 1 });
+    s.advanceGame(); // the first ADVANCED entrance starts the clock
+    expect((s.snapshot().live as { nightDepth?: number }).nightDepth).toBeDefined();
+  });
+});

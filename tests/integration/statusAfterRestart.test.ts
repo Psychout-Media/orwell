@@ -45,3 +45,15 @@ describe("the status after an engine restart over a saved game", () => {
     await close(b.server);
   });
 });
+
+describe("pre-game chat announced to the in-game clock", () => {
+  it("is refused (accepted false) and counted on /health, not answered accepted:true", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "orwell-pregame-note-"));
+    const a = await boot(dir);
+    const r1 = await a.post("noteMessage", { messageId: "casting-1" });
+    expect(r1).toMatchObject({ accepted: false, reason: "no-game" });
+    const health = await (await fetch(`http://127.0.0.1:${(a.server.address() as AddressInfo).port}/health`)).json() as { refusals?: Record<string, number> };
+    expect(health.refusals?.["noteMessage:no-game"]).toBe(1);
+    await close(a.server);
+  });
+});

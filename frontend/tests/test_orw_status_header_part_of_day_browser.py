@@ -21,6 +21,8 @@ def _status(**kw):
 
 CASES = [
     ("premiere night", _status(phase="premiere", timeOfDay="evening", dayNumber=1), "Week 1", "Premiere", "Evening, Day 1"),
+    # created, premiere entrances in progress, no in-game message yet (the clock has not started): the part of day comes from the engine's premiere preview
+    ("premiere entrances in progress", _status(phase="premiere", timeOfDay="evening", dayNumber=1, asleep=[], awake=[], entrance={"stage": "entrances", "arrived": 14, "total": 16}), "Week 1", "Premiere", "Evening, Day 1"),
     # the shape the engine sends once the player has spoken and the entrances are done: the clock runs, the day number rides along, the house list is present
     ("premiere night after the player has spoken", _status(phase="premiere", timeOfDay="night", dayNumber=1, asleep=[], awake=[{"id": "npc:1", "name": "Houseguest A"}]), "Week 1", "Premiere", "Night, Day 1"),
     ("a normal evening", _status(week=2, phase="hoh-competition", timeOfDay="evening", dayNumber=8), "Week 2", "HOH competition", "Evening, Day 8"),
@@ -62,7 +64,7 @@ def test_the_status_header_shows_week_phase_and_part_of_day(fe):
                 got = None
                 for _ in range(40):
                     got = _header(page)
-                    if got["week"].strip() == week and got["phase"].strip() == phase and (got["tod"] or "").endswith(tod):
+                    if got["week"].strip() == week and got["phase"].strip() == phase and (got["tod"] or "").endswith(tod) and got["todShown"]:  # (the chip can be mid-reveal for a moment after its text changes)
                         break
                     page.wait_for_timeout(250)
                 assert got["week"].strip() == week and got["phase"].strip() == phase, (label, got)
