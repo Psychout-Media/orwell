@@ -129,7 +129,7 @@ def facts_from_prompt(prompt: str) -> dict:
         facts["candid"] = True
         mm = re.search(r"The moment: ([^.]+)\.", prompt)
         facts["moment"] = mm.group(1).strip()[:200] if mm else ""
-        if re.search(r"\b(?:into|at|on) the lens\b", facts["moment"], re.I):
+        if re.search(r"\b(?:into|at|on|toward|towards) the (?:lens|camera)\b", facts["moment"], re.I):
             facts["eyes_on_camera"] = True
         feats = visible_features(prompt)
         if feats:

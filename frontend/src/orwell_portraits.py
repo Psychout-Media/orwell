@@ -2174,6 +2174,13 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     cast panel's "generating" UI never lights), no last-run verdict, no look-alike pass; the swap
     still pushes the one WS arrival edge so open pages refetch the new face.
     """
+    # ORW-480: per-person authored shot briefs (setting off by default): the engine's prompt is the floor when no brief is available.
+    try:
+        from src import orwell_photo_brief as _PB
+        if _PB.brief_enabled(user) and isinstance(prompts, list) and prompts:
+            prompts = await _PB.apply_briefs(prompts, user)
+    except Exception as e:  # failsoft-ok: best-effort-enrichment (the engine's own prompts stand)
+        logger.info("[portraits] photo briefs skipped: %s", type(e).__name__)
     if not isinstance(prompts, list) or not prompts:
         return {"generated": 0, "skipped": 0, "total": 0}
 

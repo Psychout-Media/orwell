@@ -5,6 +5,7 @@
  *
  *   npx tsx scripts/orw480-three.ts <cards.json> npc:6 npc:3 npc:15
  *   npx tsx scripts/orw480-three.ts <cards.json> --ab npc:3        # realism A/B on ONE person: keys npc_3_a (press kit), npc_3_b (documentary), npc_3_c (minimal)
+ *   npx tsx scripts/orw480-three.ts <cards.json> --all --json     # the floor prompts as JSON { id: { name, prompt } } (input of photobrief_probe.py)
  *   npx tsx scripts/orw480-three.ts <cards.json> --all            # every card of the file, in order (a full cast of 15)
  *
  * `<cards.json>`: a flat list of public cards (cards-s3.json, casts/live-*.json, casts/0008-*.json), or the older casts/*.json wrapper
@@ -19,6 +20,7 @@ const args = process.argv.slice(2);
 const cardsPath = args.shift();
 const ab = args.includes("--ab");
 const all = args.includes("--all");
+const asJson = args.includes("--json");
 const ci = args.indexOf("--cast");
 const castN = ci >= 0 ? Number(args[ci + 1]) : 0;
 const ri = args.indexOf("--realism");
@@ -38,6 +40,14 @@ const cast = cards.map((c) => ({
   ...(c.voice ? { voiceEnergy: typeof c.voice === "string" ? c.voice : (c.voice.energy ?? "") } : {}),
 }));
 const variants: Array<[string, RealismVariant]> = ab ? [["_a", "press"], ["_b", "documentary"], ["_c", "minimal"]] : [["", realism]];
+if (asJson) {
+  // machine-readable floor prompts for the photo-brief probe: { "<id>": { name, prompt } }
+  const all2 = buildCastPortraitPrompts(cast, "anchor", realism);
+  const o: Record<string, { name: string; prompt: string }> = {};
+  for (const id of ids) { const p = all2.find((x) => x.houseguestId === id); if (p) o[id] = { name: p.name, prompt: p.prompt }; }
+  console.log(JSON.stringify(o, null, 1));
+  process.exit(0);
+}
 for (const [suffix, v] of variants) {
   const all = buildCastPortraitPrompts(cast, "anchor", v);
   for (const id of ids) {
