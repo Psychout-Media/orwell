@@ -344,6 +344,12 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     expect(trimWrittenHair("a tidy fade")).toBe("a tidy fade");
   });
 
+  it("the gloss strip leaves no dangling preposition or stray comma in the hair line", () => {
+    const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, hair: "close black buzz with a sharp, freshly edged hairline", photoHair: "close black buzz with a sharp, freshly edged hairline" } }, anchor).prompt;
+    expect(p).toContain("Hair: close black buzz, freshly edged hairline");
+    expect(p).not.toMatch(/with,|with a,/);
+  });
+
   it("age-look is dropped when it says weathered, worn, tired, haggard or lived-in", () => {
     for (const w of ["weathered and sun-creased", "a worn look", "tired around the eyes", "haggard", "a lived-in face"]) {
       const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: w } }, anchor).prompt;

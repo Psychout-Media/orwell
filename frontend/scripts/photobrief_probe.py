@@ -111,7 +111,7 @@ async def run(args, cards, floor, llm_fn):
     for c in cards:
         i = str(c["id"])
         fp = (floor.get(i) or {}).get("prompt", "")
-        finals[i] = B.compose_prompt(fp, res["briefs"].get(i)) if fp else ""
+        finals[i] = B.final_prompt(fp, res["briefs"].get(i), res["anchors"].get(i), c) if fp else ""
     return res, finals
 
 
@@ -123,13 +123,19 @@ def emit(args, cards, floor, res, finals):
         lines.append(f"\n--- {i.replace(':', '_')} ({names.get(i, '?')})\n{finals.get(i, '')}")
     text = "\n".join(lines) + "\n"
     sys.stdout.write(text)
+    # the paths were made absolute against the launch directory before any chdir; a failed write is fatal, never silent
     if args.out:
         with open(args.out, "w", encoding="utf-8") as f:
             f.write(text)
+        if not os.path.exists(args.out):
+            raise RuntimeError(f"--out was not written: {args.out}")
     if args.briefs:
         with open(args.briefs, "w", encoding="utf-8") as f:
             json.dump({"briefs": res["briefs"], "floor": res["floor"], "anchors": res["anchors"], "rejected": res["rejected"], "rewritten": res["rewritten"],
-                       "floorPrompts": {i: (floor.get(i) or {}).get("prompt") for i in ids}}, f, indent=1, ensure_ascii=False)
+                       "raw": res.get("raw"), "finalPrompts": {i: finals.get(i) for i in ids}, "floorPrompts": {i: (floor.get(i) or {}).get("prompt") for i in ids}},
+                      f, indent=1, ensure_ascii=False)
+        if not os.path.exists(args.briefs):
+            raise RuntimeError(f"--briefs was not written: {args.briefs}")
 
 
 def main():
@@ -147,6 +153,11 @@ def main():
     ap.add_argument("--max-usd", type=float, default=0.05)
     ap.add_argument("--max-calls", type=int, default=4)
     args = ap.parse_args()
+    # relative paths mean the directory the probe was launched from, whatever it chdirs into later
+    for attr in ("cards", "floor", "out", "briefs", "fe_data", "app"):
+        v = getattr(args, attr, None)
+        if v:
+            setattr(args, attr, os.path.abspath(v))
     cards, floor = load_cards(args.cards), parse_floor(args.floor)
     if len(cards) < 3:
         sys.exit("photobrief_probe: no cards found")

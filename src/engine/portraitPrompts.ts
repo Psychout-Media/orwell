@@ -188,7 +188,7 @@ const ALWAYS_OUT_RE = /\b(?:sunglasses|shades|goggles)\b/i;
 const INDOOR_OUT_RE = /\b(?:hat|cap|beanie|fedora|visor|bonnet|scarf|gloves?|coat|parka|puffer|trench|anorak|poncho|windbreaker)\b/i;
 const GLOSS_WORD_RE = /\b(?:glossy|sleek|polished|immaculate|pristine|flawless|perfect|perfectly|stunning|gorgeous|glamorous|glam|camera-ready|airbrushed|designer|sharp|neat|neatly|crisp)\b/gi;
 export function stripGlossWords(t: string): string {
-  return stripWornWords(t.replace(GLOSS_WORD_RE, "").replace(/[\s,]+(?:and|or)\s*(?=[,;.]|$)/gi, "").replace(/^\s*(?:and|or)\s+/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").replace(/\s{2,}/g, " ").replace(/\b(?:a|an|the)\s*(?=[,;.])/gi, "").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ").replace(/^[\s,;]+|[\s,;]+$/g, "").trim());
+  return stripWornWords(t.replace(GLOSS_WORD_RE, "").replace(/[\s,]+(?:and|or)\s*(?=[,;.]|$)/gi, "").replace(/^\s*(?:and|or)\s+/i, "").replace(/\b(and|or)\s+(?:and|or)\b/gi, "$1").replace(/\s{2,}/g, " ").replace(/(?:\b(?:a|an|the|with|of|to|in|and|or)\s*)+(?=[,;.])/gi, "").replace(/\s+([,;.])/g, "$1").replace(/(?:,\s*){2,}/g, ", ").replace(/^[\s,;]+|[\s,;]+$/g, "").trim());
 }
 
 /**

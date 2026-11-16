@@ -146,11 +146,12 @@ def test_a_failing_brief_gets_one_editor_rewrite_then_the_floor():
     leak = {"npc:3": lambda b: {**b, "doing": "Person3 paused at the vines"}, "npc:5": lambda b: {**b, "where": "the kitchen"}}
     calls = []
     res = run(B.author_briefs(cards(), writer(bad=leak, calls=calls), seed=1))
-    assert res["calls"] == 2 and res["rewritten"] == 2 and res["floor"] == [] and res["rejected"].get("name-leak") == 1 and res["rejected"].get("generic-place") == 1
-    assert "failedCodes" in calls[1][-1]["content"] and "Person3" not in calls[1][-1]["content"]
+    # a name in a brief is repaired in place (the name becomes "the person"); a generic place goes to the editor
+    assert res["calls"] == 2 and res["rewritten"] == 1 and res["floor"] == [] and "name-leak" not in res["rejected"] and res["rejected"].get("generic-place") == 1
+    assert "failedCodes" in calls[1][-1]["content"] and "Person5" not in calls[1][-1]["content"] and "Person3" not in calls[1][-1]["content"]
     # an editor that cannot fix it: the person goes to the floor, and the rest are untouched
     res2 = run(B.author_briefs(cards(), writer(bad=leak, editor=lambda c, n: {**good_brief(c, n), "wear": "scrubs"}), seed=1))
-    assert sorted(res2["floor"]) == ["npc:3", "npc:5"] and len(res2["briefs"]) == 13 and res2["calls"] == 2
+    assert res2["floor"] == ["npc:5"] and len(res2["briefs"]) == 14 and res2["calls"] == 2
 
     async def dead(messages):
         raise RuntimeError("no writer")
@@ -222,3 +223,131 @@ def test_the_setting_is_off_by_default_and_generate_and_store_is_unchanged_when_
     from src import settings
     assert settings.DEFAULT_SETTINGS["portrait_brief_enabled"] is False
     assert B.brief_enabled("u") is False
+
+
+# ---------------------------------------------------------------------------------------------------- the coordinator's six fixes (2026-11-16)
+def test_fix1_probe_relative_out_and_briefs_are_written_against_the_launch_directory(tmp_path):
+    import subprocess
+    repo = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    probe = os.path.join(repo, "frontend", "scripts", "photobrief_probe.py")
+    cs = cards()
+    (tmp_path / "cards.json").write_text(json.dumps(cs))
+    (tmp_path / "floor.json").write_text(json.dumps({c["id"]: {"name": c["name"], "prompt": FLOOR} for c in cs}))
+    run_dir = tmp_path / "launch"
+    run_dir.mkdir()
+    for f in ("cards.json", "floor.json"):
+        (run_dir / f).write_text((tmp_path / f).read_text())
+    r = subprocess.run([sys.executable, probe, "--cards", "cards.json", "--floor", "floor.json", "--ids", "npc:2", "--dry", "--app", repo, "--out", "out.txt", "--briefs", "b.json"],
+                       cwd=str(run_dir), capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stderr[-400:]
+    assert (run_dir / "out.txt").read_text().startswith("\n--- npc_2 (") and "anchors" in json.loads((run_dir / "b.json").read_text())
+    # a write that cannot happen fails loudly (a non-zero exit and a message), never silently
+    bad = subprocess.run([sys.executable, probe, "--cards", "cards.json", "--floor", "floor.json", "--ids", "npc:2", "--dry", "--app", repo, "--out", "no/such/dir/out.txt"],
+                         cwd=str(run_dir), capture_output=True, text=True, timeout=60)
+    assert bad.returncode != 0 and ("No such file" in bad.stderr or "not written" in bad.stderr)
+
+
+def test_fix2_a_brief_is_repaired_before_it_is_rejected_and_the_editor_can_land(tmp_path):
+    cs = cards()
+    c = cs[0]
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    long = {**good_brief(c, 0), "signature": "a hand-sewn patch on the cuff, a faded stitch of red thread, and a long story about where it was bought, ending with a note", "where": good_brief(c, 0)["where"] + ", with " + ", ".join(["a very long list of other things around"] * 6),
+            "wear": "a cream knit, olive trousers, a hard hat for the walk"}
+    fixed = B.repair_brief(c, B.clean_brief(long))
+    assert len(fixed["signature"]) <= B.LIMITS["signature"] and len(fixed["where"]) <= B.LIMITS["where"] and "hard hat" not in fixed["wear"]
+    assert B.check_brief(c, an, fixed) == []                 # repaired, not rejected: no editor call is needed for these
+    # work boots, tools and ordinary objects are not a uniform tell
+    assert "work-gear" not in B.check_brief(c, an, {**good_brief(c, 0), "wear": "a rust work jacket, work boots"})
+    # an editor reply in another shape (wrapped under 'rewrite', ids spelled npc_3) still lands
+    wrong = {"npc:3": lambda b: {**b, "inFrame": [b["wear"].split(",")[0], b["inFrame"][1]]}}
+
+    async def wrapped(messages):
+        user = json.loads(messages[-1]["content"])
+        if "rewrite" in user:
+            return json.dumps({"rewrite": {i.replace(":", "_"): good_brief(cs[int(i.split(":")[1]) - 1], int(i.split(":")[1]) - 1) for i in user["rewrite"]}})
+        return await writer(bad=wrong)(messages)
+    res = run(B.author_briefs(cs, wrapped, seed=1))
+    assert res["floor"] == [] and res["rewritten"] == 1 and "inframe-worn-or-signature" in res["rejected"]
+    # a dry run where the editor can reduce the floor count (through the probe's own run())
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
+    sys.path.insert(0, here)
+    try:
+        P = importlib.import_module("photobrief_probe")
+    finally:
+        sys.path.remove(here)
+    floor = {x["id"]: {"name": x["name"], "prompt": FLOOR} for x in cs}
+
+    class A:  # noqa: N801
+        seed = 1
+    first = run(P.run(A, cs, floor, writer(bad=wrong, editor=lambda c2, n: {**good_brief(c2, n), "wear": "scrubs"})))[0]
+    second = run(P.run(A, cs, floor, wrapped))[0]
+    assert len(first["floor"]) == 1 and len(second["floor"]) == 0
+
+
+def test_fix3_the_assembled_sentences_read_cleanly_and_the_signature_is_an_object_not_clothing():
+    c = cards()[0]
+    b = {**good_brief(c, 0), "wear": "Plain charcoal zip hoodie, baggy dark-wash jeans, low-top canvas sneakers.", "signature": "A skateboard with scuffed wheels, a constant companion.",
+         "where": "The old drainage ditches behind the shopping center in Provo, Utah, with concrete banks", "timeLight": "Early afternoon in spring, a first warm day.",
+         "doing": "Standing with one hand curled loose around a board.", "expressionBody": "Gaze just past the lens, mouth set in a wry line.", "inFrame": ["a battered rail", "a scuffed helmet."]}
+    out = B.compose_prompt(FLOOR, B.repair_brief(c, b), B.proper_words(c))
+    assert "Wearing plain charcoal zip hoodie, baggy dark-wash jeans, low-top canvas sneakers, in their own everyday clothes" in out
+    assert "skateboard" not in out.split("Setting:")[0].split("Wearing")[1]                      # the signature object is not in the clothes clause
+    assert "In the frame, theirs: a battered rail, a scuffed helmet and a skateboard with scuffed wheels, a constant companion." in out
+    assert "Setting: the old drainage ditches behind the shopping center in Provo, Utah, with concrete banks." in out      # the town keeps its capitals
+    assert "Light: early afternoon in spring, a first warm day." in out
+    assert "The moment: standing with one hand curled loose around a board; gaze just past the lens" in out
+    for bad in (".,", "..", ".;", ", and A ", "Wearing Plain", "; Gaze"):
+        assert bad not in out
+
+
+def test_fix4_the_two_own_objects_are_not_clothes_or_the_signature():
+    cs = cards()
+    c, an = cs[0], B.deal_anchors(cs, 1)["npc:1"]
+    ok = good_brief(c, 0)
+    assert B.check_brief(c, an, ok) == []
+    for items in (["a plain charcoal hoodie", "a mug"], [ok["inFrame"][0], "the same patch on the cuff again"], ["low-top sneakers", "a rail"]):
+        code = B.check_brief(c, an, {**ok, "wear": "a charcoal hoodie, low-top canvas sneakers", "inFrame": items})
+        assert "inframe-worn-or-signature" in code, items
+    assert "two OBJECTS in the frame" in B.SYSTEM and "not clothes they are wearing and not the signature item" in B.SYSTEM
+
+
+def test_fix5_the_floor_uses_the_random_anchors_so_fallbacks_do_not_converge():
+    cs = cards()
+    an = B.deal_anchors(cs, 1)
+    lights = {B.floor_with_anchors(FLOOR, an[c["id"]]).split("Light: ")[1].split(".")[0] for c in cs}
+    assert len(lights) >= 8 and "Light: window." not in B.floor_with_anchors(FLOOR, an["npc:1"])
+    assert B.floor_with_anchors("no light here", an["npc:1"]) == "no light here" and B.floor_with_anchors(FLOOR, None) == FLOOR
+
+    async def dead(messages):
+        raise RuntimeError("no writer")
+    P = importlib.import_module("src.orwell_portraits")  # noqa: F841
+    res = run(B.author_briefs(cs, dead, seed=1))
+    assert len(res["floor"]) == 15
+    two = [B.final_prompt(FLOOR, None, res["anchors"][i], cs[int(i.split(":")[1]) - 1]) for i in ("npc:14", "npc:15")]
+    assert two[0] != two[1] and all("Light: " in t and "Light: window." not in t for t in two)
+    # the stray comma the gloss strip used to leave (engine side) is covered by the TypeScript test
+
+
+def test_run2_assembly_examples_the_clothes_clause_holds_clothes_only():
+    c = cards()[0]
+    an = B.deal_anchors(cards(), 1)["npc:1"]
+    ok = good_brief(c, 0)
+    # the real writer put a pose inside wear, repeated a worn item as the signature, and listed worn clothes as objects
+    raw = {**ok, "wear": "a flowing printed tunic top, wide-leg dark-wash jeans, and long hoop earrings", "signature": "long hoop earrings and a chin dipped, eyes up, dimples just starting",
+           "inFrame": ["a worn black leather jacket and dark straight-leg jeans", "a steaming pot"]}
+    fixed = B.repair_brief(c, B.clean_brief(raw))
+    codes = B.check_brief(c, an, fixed)
+    assert "missing-signature" in codes or "signature-repeats-wear" in codes      # a repeat is emptied, never stuffed again
+    assert "inframe-worn-or-signature" in B.check_brief(c, an, {**ok, "inFrame": raw["inFrame"]})
+    body = B.repair_brief(c, B.clean_brief({**ok, "wear": "a gray cotton pocket t-shirt, dark straight-leg jeans, and arms loose at her sides and shoulders squared"}))
+    assert body["wear"] == "a gray cotton pocket t-shirt, dark straight-leg jeans" and "body-in-wear" not in B.check_brief(c, an, body)
+    assert "body-in-wear" in B.check_brief(c, an, {**ok, "wear": "a tunic, shoulders squared"})
+    assert "body-in-signature" in B.check_brief(c, an, {**ok, "signature": "a chin dipped, eyes up"})
+    # the assembly: clothes in the clothes clause, once; a worn signature joins them once; an object joins the objects; nothing of the pose in Wearing
+    good = {**ok, "wear": "a flowing printed tunic top, wide-leg jeans", "signature": "long hoop earrings", "inFrame": ["a heron mug", "a shell-lined rail"], "expressionBody": "chin dipped, eyes up, dimples just starting"}
+    out = B.compose_prompt(FLOOR, good)
+    wearing = out.split("Wearing ")[1].split(" Setting:")[0]
+    assert wearing.count("hoop earrings") == 1 and "chin dipped" not in wearing and "heron mug" not in wearing
+    assert "In the frame, theirs: a heron mug and a shell-lined rail." in out and "chin dipped, eyes up" in out.split("The moment:")[1]
+    obj = B.compose_prompt(FLOOR, {**good, "signature": "a heron-blue skateboard"})
+    assert "In the frame, theirs: a heron mug, a shell-lined rail and a heron-blue skateboard." in obj and "skateboard" not in obj.split("Setting:")[0]
