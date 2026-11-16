@@ -237,6 +237,21 @@ describe("an ACCEPTED ledger write goes through McpServer.callTool (boundary)", 
     expect(res).toEqual({ accepted: true });
     expect(await server.callTool("openLedgerHere", {})).toEqual([]);
   });
+
+  it("ORW-448: `lapsed` is engine-only: refused through the tool surface and the entry stays open; `offered` on an entry that is not due is refused", async () => {
+    const { McpServer } = await import("../../src/adapters/mcp/McpServer");
+    const { GameSessionRegistry } = await import("../../src/composition/registry");
+    const sb = new GameSessionRegistry().sandboxFor(`ol-mcp-lapsed-${Math.random()}`);
+    sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+    sb.session.noteMessage({ messageId: "m-1" });
+    sb.session.setOpenLedgerEnabled(true);
+    const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands: sb.commands, session: sb.session });
+    const here = sb.session.whereabouts()!.present[0]!.id as string;
+    await server.callTool("recordOpenLedger", { text: "I will keep your secret", speaker: here, addressedTo: ["player"], kind: "promise" });
+    expect(await server.callTool("resolveOpenLedger", { entryId: "open:1", status: "lapsed", note: "x" })).toMatchObject({ accepted: false, reason: "bad-status" });
+    expect(await server.callTool("resolveOpenLedger", { entryId: "open:1", status: "offered", note: "" })).toMatchObject({ accepted: false, reason: "not-due" });
+    expect((await server.callTool("openLedgerHere", {})) as unknown[]).toHaveLength(1);
+  });
 });
 
 describe("openLedgerSuperset keeps order and rejects non-resolution rewrites (review of #2747)", () => {

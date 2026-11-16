@@ -139,6 +139,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "whereabouts":
       // ORW-386: the optional house-search switch must be a boolean when present.
       if (args["search"] !== undefined && typeof args["search"] !== "boolean") refuse("search", "a boolean when present");
+      if (args["lookingFor"] !== undefined && (typeof args["lookingFor"] !== "string" || (args["lookingFor"] as string).length > 80)) refuse("lookingFor", "a short string when present"); // ORW-462
       return;
     case "getMomentPrompt": {
       // Showrunner memory — the OPTIONAL Show Brief request (ORWELL_SHOW_BRIEF on the FE). Shape-guard only; the
@@ -730,7 +731,7 @@ export class McpServer {
       case "socialInitiatives":
         return this.deps.session.socialInitiatives();
       case "whereabouts":
-        return this.deps.session.whereabouts(args["search"] === true ? { search: true } : undefined); // ORW-386: the house search rides the same read
+        return this.deps.session.whereabouts(args["search"] === true ? { search: true, ...(typeof args["lookingFor"] === "string" && args["lookingFor"].trim() ? { lookingFor: args["lookingFor"] } : {}) } : undefined); // ORW-386: the house search rides the same read
       case "moveTo":
         // 0065 Part A — optional expectedBeatSeq CAS token rides the args.
         return this.deps.session.movePlayer(

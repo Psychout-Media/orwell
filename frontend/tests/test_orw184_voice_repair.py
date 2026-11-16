@@ -347,15 +347,38 @@ def test_the_clause_parser_inverts_the_engine_fingerprint_template():
     repair = importlib.import_module("src.orwell_voice_repair")
     dials = VOCAB["dials"]
     words = VOCAB["humorWords"]
-    assert len(VOCAB["fingerprintTemplates"]) == 4  # ORW-432: exactly four sentence shapes
+    assert len(VOCAB["fingerprintTemplates"]) == 8  # ORW-432: four sentence shapes; ORW-464: four more, so one shape opens 1 card in 8
     for template in VOCAB["fingerprintTemplates"]:
         for humor in dials["humor"]:
             for tell in dials["stressTell"]:
                 sample = {"register": dials["register"][0], "rhythm": dials["rhythm"][-1],
                           "directness": dials["directness"][1], "energy": dials["energy"][2],
                           "humor": humor, "stressTell": tell}
-                rendered = template.format(**{**sample, "humor": words.get(humor, humor)})
+                rendered = _render_template(template, {**sample, "humor": words.get(humor, humor)})
                 assert repair.parse_voice_clause(rendered) == sample
+
+
+def _render_template(template, slots):
+    """The engine's rendering: `{a:slot}` is "a" or "an" plus the word, by the next sound (ORW-464)."""
+    import re as _re
+    return _re.sub(r"\{(a:)?(\w+)\}", lambda m: (("an " if slots[m.group(2)][:1].lower() in "aeiou" else "a ") if m.group(1) else "") + slots[m.group(2)], template)
+
+
+def test_every_article_slot_reads_back_for_every_dial_value_with_a_or_an():
+    repair = importlib.import_module("src.orwell_voice_repair")
+    dials = VOCAB["dials"]
+    base = {"register": dials["register"][0], "rhythm": dials["rhythm"][0], "directness": dials["directness"][0],
+            "energy": dials["energy"][0], "humor": "dry", "stressTell": dials["stressTell"][0]}
+    for template in VOCAB["fingerprintTemplates"]:
+        for dial in ("register", "rhythm", "directness", "energy"):
+            for value in dials[dial]:
+                sample = {**base, dial: value}
+                rendered = _render_template(template, sample)
+                assert " a evasive" not in rendered and " a even" not in rendered, rendered
+                assert repair.parse_voice_clause(rendered) == sample, rendered
+        # an older saved line that says "a evasive" still reads
+        old = _render_template(template, {**base, "directness": "evasive"}).replace("an evasive", "a evasive")
+        assert repair.parse_voice_clause(old) == {**base, "directness": "evasive"}
 
 
 def test_no_humor_reads_back_as_the_humor_dial_none():

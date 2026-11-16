@@ -122,6 +122,19 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     expect(beds.owner[b!], "the other half keeps their spot").toBe("bedroom-c#d1:2");
   });
 
+  it("a swap is recorded as a swap in the claim history, and a player who shares the owner's double is not their own veto", () => {
+    const s = premiere();
+    walkIn(s);
+    const beds = liveOf(s).beds!;
+    const [a] = Object.keys(beds.owner).filter((id) => id !== "player");
+    const seat = (who: string, spot: string) => { const held = Object.keys(beds.owner).find((o) => beds.owner[o] === spot); if (held && held !== who) beds.owner[held] = beds.owner[who]!; beds.owner[who] = spot; };
+    seat(a!, "bedroom-c#d1:1"); seat("player", "bedroom-c#d1:2");
+    relOf(s).edge(a!, "player").affinity = 0.95;
+    s.resolvePlayerMove({ text: `Could I swap beds with ${nameOf(s, a!)}?` });
+    expect(beds.owner["player"], "sharing the double never vetoes the player's own ask").toBe("bedroom-c#d1:1");
+    expect(beds.claims.slice(-2).map((c) => c.why)).toEqual(["swap", "swap"]);
+  });
+
   it("a player who never picks gets the last free bed at their first bedtime", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     try {

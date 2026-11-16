@@ -99,3 +99,39 @@ def test_they_guard_for_s_adverbs_and_a_comma_after_the_name():
         prof = {"physicalCharacteristics": {"onCamera": cam}}
         gate.mend(prof, npc, [npc])
         assert prof["physicalCharacteristics"]["onCamera"] == want, cam
+
+
+def test_review_of_2781_case_variants_objects_and_conjugation_edges():
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "woman", "age": 30}
+    they = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "nonbinary", "age": 30}
+    for cam, want, n in (
+        ("namea stands in the kitchen, chin lifted.", "She stands in the kitchen, chin lifted.", npc),
+        ("NAMEA stands in the kitchen, chin lifted.", "She stands in the kitchen, chin lifted.", npc),
+        ("In the kitchen, the camera catches Namea by the counter.", "In the kitchen, the camera catches the houseguest by the counter.", npc),
+        ("Namea lies back on the sofa, hands folded.", "They lie back on the sofa, hands folded.", they),
+        ("Namea focuses on the lens, chin lifted.", "The houseguest focuses on the lens, chin lifted.", they),
+        ("Hands loose, and Namea stands by the door.", "Hands loose, and she stands by the door.", npc),
+    ):
+        prof = {"physicalCharacteristics": {"onCamera": cam}}
+        gate.mend(prof, n, [n])
+        assert prof["physicalCharacteristics"]["onCamera"] == want, cam
+    assert gate.plural_verb("lies") == "lie" and gate.plural_verb("tries") == "try" and gate.plural_verb("focuses") is None
+
+
+def test_an_everyday_word_given_name_keeps_its_case_rule():
+    may = {"id": "npc:1", "name": "May Surnamea", "genderPresentation": "woman", "age": 30}
+    prof = {"physicalCharacteristics": {"onCamera": "She may lean on the counter while May stands by the door."}}
+    gate.mend(prof, may, [may])
+    assert prof["physicalCharacteristics"]["onCamera"] == "She may lean on the counter while she stands by the door."
+
+
+def test_photohair_openings_already_used_reach_the_next_writers_prompt():
+    g = gate.SeasonGate("t")
+    npc = {"id": "npc:1", "name": "Namea Surnamea", "genderPresentation": "man", "age": 30}
+    prof = {"biography": "Namea welds boats and keeps lists of everything. He sleeps badly on Sundays.", "identityConcept": "Namea welds.",
+            "physicalCharacteristics": {"photoHair": "close cropped and neat, edges crisp for the shoot"}}
+    g.accept("npc:1", prof, npc, [npc])
+    ph = g.taken_phrases("npc:2")
+    assert ph["photohair_openings"] == ["close cropped"]
+    text = _msg({"vocations": [], "hometowns": [], "phrases": ph})
+    assert "photoHair lines already open: close cropped" in text

@@ -895,9 +895,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "CLOSE THE REVEAL IN THE SHOW'S OWN GRAMMAR — never a recited script, always the ACTUAL evictee the " +
     "game just handed you: once the `eviction-result` beat names the evictee, deliver it in the classic " +
     "host cadence, naming the evictee plainly — '<the evictee>, you are evicted from the Big Brother " +
-    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally, so do NOT " +
-    "reach for a 'by a vote of <count>' line here (the rules on the rare case where a count may be voiced " +
-    "are below); if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
+    "house' — WITHOUT inventing a vote count. The `eviction-result` beat carries NO tally of its own, so do NOT " +
+    "reach for a 'by a vote of <count>' line from your own arithmetic; when the moment lists a TALLY line (engine-counted; the engine lists it only once the result is committed), you may " +
+    "state exactly that count, and no other; if you have no exact count, deliver the eviction with NO number. Before the walk, give the " +
     "evictee their own beat to say goodbye to the room (some version of 'you have a few seconds to say " +
     "your goodbyes'), then the door, the hug line, and the house watching them go. " +
     "EXIT INTERVIEW (0130): when the game hands you an `exit-interview` beat, play the producers' " +
@@ -915,7 +915,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "and do NOT say the vote hasn't happened or that you're waiting to reach it: it HAS happened and the " +
     "result is being read out beat by beat. If it feels like nothing new is coming, call advanceGame — " +
     "the next ballot (or the eviction result) is waiting on the game, never on the player. " +
-    "STATE A TALLY OR NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you " +
+    "NAME THE EVICTEE ONLY FROM THE GAME'S LITERAL `eviction-result` BEAT handed to you, and state a count ONLY from the engine's own TALLY line " +
     "THIS turn — never from your own running count, and never as a prediction. Until that result beat " +
     "names who leaves, you do NOT know the evictee or the majority: do not say \"the majority votes to " +
     "evict <name>\", do not name who is going home, and never name a houseguest as evicted whom the game " +
@@ -1578,7 +1578,7 @@ export function renderGameContext(view: GameStateView): string {
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
               ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`
-              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming, so let the run-up conversations angle toward it; nobody is surprised when production calls them in.`,
+              : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming; nobody is surprised when production calls them in.`,
         ]
       : []),
   ].join("\n");

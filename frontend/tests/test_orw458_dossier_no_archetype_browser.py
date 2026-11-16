@@ -1,4 +1,4 @@
-"""ORW-458 - the cast card (dossier) never shows the archetype, even when the route sends it. Real app + real scripts in headless
+"""ORW-458 / ORW-466 - the cast card (dossier) never shows the archetype or the strategy style, even when the route sends them. Real app + real scripts in headless
 Chromium, routes stubbed. No model. Own module so conftest routes it to the serial browser lane."""
 import json
 import os
@@ -27,7 +27,7 @@ def fe():
 
 
 @pytest.mark.browser
-def test_the_dossier_shows_strategy_but_never_the_archetype(fe):
+def test_the_dossier_never_shows_the_archetype_or_the_strategy_style(fe):
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         browser = p.chromium.launch()
@@ -40,7 +40,7 @@ def test_the_dossier_shows_strategy_but_never_the_archetype(fe):
             page.route("**/api/orwell/dossier/**", lambda r: r.fulfill(**_j({
                 "found": True, "id": "npc:1", "name": "Namea Surnamea", "status": "active", "isPlayer": False, "portrait": None,
                 # a (hypothetical) older server that still sends the label: the page must not render it either
-                "persona": {"archetype": "The Strategist", "strategyStyle": "social", "vocation": "Nurse", "hometown": "Macon, Georgia"},
+                "persona": {"archetype": "The Strategist", "strategyStyle": "StrategySentinelValue", "vocation": "Nurse", "hometown": "Macon, Georgia"},
                 "history": [], "deals": [], "alliances": []})))
             page.goto(fe, wait_until="domcontentloaded")
             for _ in range(60):
@@ -55,7 +55,8 @@ def test_the_dossier_shows_strategy_but_never_the_archetype(fe):
                 if "Nurse" in text:
                     break
                 page.wait_for_timeout(150)
-            assert "Nurse" in text and "Strategy" in text and "social" in text
+            assert "Nurse" in text and "Macon" in text
             assert "Archetype" not in text and "The Strategist" not in text
+            assert "StrategySentinelValue" not in text and "Strategy" not in text
         finally:
             browser.close()

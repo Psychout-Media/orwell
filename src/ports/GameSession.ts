@@ -1180,10 +1180,11 @@ export interface RecordOpenLedgerReq {
 }
 
 /** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
-export interface ResolveOpenLedgerReq { entryId: string; status: "kept" | "broken" | "withdrawn"; note: string }
+/** `offered` / `unjudged` (ORW-448) are the front end's report on a DUE entry's judgment pass, not resolutions: `offered` = judged (drops the flag), `unjudged` = the model call failed (keeps it, at most 3 times). `lapsed` is engine-only and is refused. */
+export interface ResolveOpenLedgerReq { entryId: string; status: "kept" | "broken" | "withdrawn" | "offered" | "unjudged"; note: string }
 export interface RecordOpenLedgerResolutionResult { accepted: boolean; reason?: string }
 /** One open entry that matters to whoever is here now (player-visible fields only). */
-export interface OpenLedgerItemView { id: string; text: string; speaker: string; parties: string[]; about?: string; kind: string }
+export interface OpenLedgerItemView { id: string; text: string; speaker: string; parties: string[]; about?: string; kind: string; /** ORW-448: present on an entry DUE for one judgment: the public result line of the ceremony that just happened. */ due?: string }
 
 export interface RecordOpenLedgerResult {
   accepted: boolean;
@@ -1889,10 +1890,14 @@ export interface MarkHouseguestMetOpts {
 export interface HouseSearchEntry {
   id: EntityId;
   name: string;
-  status: "here" | "awake" | "asleep" | "arriving";
-  /** The room id (absent for a sleeper whose bed is not a known bedroom, and for one who has not walked in yet at the premiere entrances). */
+  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "unknown";
+  /**
+   * The room id. ORW-462 (Kevin, 2026-11-15: the game must not confirm where someone is if the player does not know): named only where the player can SEE now (their own room and the rooms in sightline), or, for the
+   * houseguest they are LOOKING FOR, as a `lead` from the player's own record (a witnessed "walked into X", or the last-known sighting in view): never confirmed. Absent for everyone else ("unseen"), for a houseguest nobody here
+   * can place (`unknown`), for a sleeper not being looked for, and for one who has not walked in yet at the premiere entrances.
+   */
   room?: string;
-  /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Absent for a sleeper. */
+  /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Present only for a houseguest in view. */
   access?: "open" | "closed";
   /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
   fact: string;
@@ -1902,7 +1907,7 @@ export interface HouseSearchView {
   houseguests: HouseSearchEntry[];
   /** How many NPC houseguests are asleep (the HUD's `asleep` list length); absent when the clock is off. */
   asleepCount?: number;
-  /** Each room that holds at least one awake houseguest (the player excluded), with its names. Empty rooms are not listed. */
+  /** Each room the player can SEE into (their own and those in sightline) that holds at least one awake houseguest (the player excluded), with its names. ORW-462: a room behind a door is never listed with its occupants. */
   rooms: Array<{ room: string; access: "open" | "closed"; present: NamedRef[] }>;
 }
 
@@ -1914,8 +1919,8 @@ export interface HouseSearchView {
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
 export type PlayerMoveView =
-  | { from: string; to: string; refused?: undefined }
-  | { refused: true; reason: string; from?: string; to?: string };
+  | { from: string; to: string; refused?: undefined; msg?: string }
+  | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
 export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
@@ -2582,6 +2587,8 @@ export interface NapView {
   slept: number;
   /** Why the nap ended before the asked-for length, when it did. */
   wokenBy?: "event" | "evening";
+  /** ORW-477: the length asked for (rounded to the nap's half-hour steps), in-game hours; present when the nap ended before it (`wokenBy`). */
+  asked?: number;
   /** Vault-free: where the player slept and who is in the room (the open presence read). */
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
@@ -2598,6 +2605,7 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
+/** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
 export interface HangOutView {
   /** false = nothing happened (no state change): see `reason`. */
@@ -3001,7 +3009,7 @@ export interface GameSession {
    * Clock-per-message (2026-11-05): the front-end announces ONE player message ({messageId}, its stable id); the announcement steps the in-game clock one message-step (~5 minutes), idempotent per id
    * (`accepted: false` for a repeat). From the first announcement on, commits bill the clock nothing - the clock is paid per PLAYER MESSAGE, not per engine mutation. FE clock infra, not a model lever.
    */
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number };
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string };
   /** Resolve the current pending decision and continue the loop (validated; 0011). `req` may carry the
    *  optional 0065 `expectedBeatSeq` / `idempotencyKey` (absent ⇒ byte-identical to today). */
   submitDecision(req: SubmitDecisionReq): AdvanceView;
@@ -3198,7 +3206,8 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(opts?: { search?: boolean }): WhereaboutsView | null;
+  /** `lookingFor` only means something on a search: it is typed so a named lookup cannot be passed without `search: true` (review of #2804). */
+  whereabouts(opts?: { search?: boolean; lookingFor?: undefined } | { search: true; lookingFor?: string }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;

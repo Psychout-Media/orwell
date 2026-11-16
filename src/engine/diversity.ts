@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { COMMON_WORD_NAMES } from "./commonWordNames";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "./characterFactory";
@@ -529,12 +530,6 @@ export function showmancePlausible(a: ShowmanceIdentity, b: ShowmanceIdentity): 
 // re-export so the cap is a single source of truth in tests/imports
 export { MAX_PER_AGE_BAND };
 
-/** Given names that are also everyday words or months: only these need the context rule below. */
-const COMMON_WORD_NAMES: ReadonlySet<string> = new Set([
-  "may", "will", "grace", "hope", "summer", "faith", "mark", "art", "rose", "june", "april", "august", "dawn", "joy", "ivy", "pearl",
-  "amber", "frank", "lane", "chase", "cliff", "drew", "gene", "guy", "hunter", "miles", "autumn", "winter", "storm", "river", "sky",
-  "rain", "bill", "jack", "rich", "ray", "jay", "pat",
-]);
 /** A word before the name that makes a common-word reading ("in May", "the will", "her faith", "last summer") the likelier one. */
 const COMMON_USE_BEFORE: ReadonlySet<string> = new Set([
   "in", "of", "on", "last", "next", "this", "every", "each", "since", "until", "during", "early", "late", "mid", "the", "a", "an",
@@ -552,6 +547,21 @@ const RELATIONS: ReadonlySet<string> = new Set([
   "mom", "dad", "mum", "mother-in-law", "father-in-law", "stepmother", "stepfather", "boss", "mentor", "coach", "neighbour",
   "neighbor", "student", "teacher", "care",
 ]);
+
+/** ORW-463: capitalised words that start a sentence rather than name a person when they follow a given name at a sentence start. */
+const NOT_A_SURNAME: ReadonlySet<string> = new Set([
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "january", "february", "july", "september", "october", "november", "december",   // (March, April, May, June, August are also surnames or given names: not listed)
+  "she", "he", "they", "it", "we", "i", "you", "now", "then", "later", "today", "tonight", "tomorrow", "yesterday", "still", "always", "never", "often", "also", "just", "only", "even", "once",
+  "when", "while", "after", "before", "because", "since", "if", "but", "and", "so", "as", "at", "in", "on", "with", "from", "for", "by", "every", "each", "some", "all", "no",
+  "alabama", "alaska", "arizona", "arkansas", "california", "colorado", "connecticut", "delaware", "florida", "hawaii", "idaho", "illinois", "indiana", "iowa", "kansas", "kentucky",
+  "louisiana", "maine", "maryland", "massachusetts", "michigan", "minnesota", "mississippi", "missouri", "montana", "nebraska", "nevada", "ohio", "oklahoma", "oregon", "pennsylvania",
+  "tennessee", "texas", "utah", "vermont", "wisconsin", "wyoming",   // (Georgia, Virginia, Washington are also names: not listed)
+]);
+/** True when `offset` starts a sentence: the start of the text, a line start, or after . ! ? (and any closing quote) plus blanks, or after an opening quote at such a position. */
+function atSentenceStart(text: string, offset: number): boolean {
+  return /(?:^|[.!?\n][)"'\u201d\u2019]*[ \t]*["'\u201c\u2018(]?)$/.test(text.slice(0, offset));
+}
 
 /**
  * ORW-430: carry a given-name change into a public prose string. Swaps the old FIRST name (whole word, with its
@@ -582,7 +592,12 @@ export function renameGivenNameInProse(text: string, priorName: string, nextName
   return text.replace(new RegExp(`(?<![\\p{L}\\p{N}_'\u2019-])${esc}(?![\\p{L}\\p{N}_-])`, "gu"), (m, offset: number) => {
     const rest = text.slice(offset + m.length);
     const sur = /^[ \t]+([A-Z][\p{L}'\u2019-]*)/u.exec(rest); // spaces and tabs only: a capitalised word on the NEXT line is not a surname (review of #2775)
-    if (sur && !ownSurname.has(sur[1]!.replace(/['\u2019]s$/i, ""))) return m; // another person's full name ("Lola Other")
+    if (sur && !ownSurname.has(sur[1]!.replace(/['\u2019]s$/i, ""))) {
+      // ORW-463: at a sentence start the capitalised word is often just the next sentence word, not a surname ("Lola Monday mornings are slow", "Lola Now sings", "Lola She says", "Lola Texas born"):
+      // a day, month, pronoun, common sentence opener or state name that continues into lower-case text is not another person's name.
+      const after = rest.slice(sur[0].length);
+      if (!(NOT_A_SURNAME.has(sur[1]!.toLowerCase()) && atSentenceStart(text, offset) && /^[ \t]+[a-z]/.test(after))) return m; // another person's full name ("Lola Other")
+    }
     if (!common) return newGiven;
     if (/^['\u2019]s\b/i.test(rest)) return newGiven; // a possessive is a person
     const before = text.slice(0, offset);

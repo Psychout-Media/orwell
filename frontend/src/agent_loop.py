@@ -11,6 +11,7 @@ import collections
 import collections.abc
 import json
 import os
+import functools
 import re
 import time
 import logging
@@ -711,6 +712,43 @@ def _extract_last_user_message(messages: List[Dict]) -> str:
                 content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
             return content
     return ""
+
+
+_GENDER_HEAL_DONE: set = set()
+
+
+async def _heal_unstated_player_gender(owner, own_words: str) -> bool:
+    """ORW-476: once per owner per process, when the saved player card holds a gender and NONE of the player's own typed words
+    state it, clear it (the engine's updateCasting `unset`). A conversation with no player words at all (history not loaded) heals
+    nothing: silence is not evidence. Returns True when it cleared one."""
+    if _belt_key(owner) in _GENDER_HEAL_DONE or not (own_words or "").strip():  # owner None = single-tenant, keyed like the other belts
+        return False
+    from src import orwell_engine as _oe
+    from src.orwell_player_gender import any_genderish_token
+    st = await _oe.get_game_state(user=owner)
+    if not isinstance(st, dict) or not st.get("started"):
+        return False
+    _GENDER_HEAL_DONE.add(_belt_key(owner))
+    g = ((st.get("player") or {}).get("genderPresentation"))
+    if not g or any_genderish_token(own_words):  # a disagreement with the latest reading never clears; only "no gender-ish token anywhere" does
+        return False
+    await _oe.update_casting({"genderPresentation": "unset"}, user=owner)
+    logger.info("[orwell] ORW-476: cleared a saved player gender that no words of the player's support")
+    return True
+
+
+def _player_own_words(messages) -> str:
+    """ORW-476: the player's own typed words across the conversation (user turns that are not hidden production cues)."""
+    parts = []
+    for msg in messages or []:
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(b.get("text", "") for b in content if isinstance(b, dict))
+        if isinstance(content, str) and content.strip() and not _is_production_cue(content):
+            parts.append(content)
+    return "\n".join(parts)[-20000:]
 
 
 def _recent_context_for_retrieval(messages: List[Dict], max_user: int = 3, max_chars: int = 600) -> str:
@@ -1921,7 +1959,16 @@ def _post_turn_in_asleep_block(turn_in_output, briefing=None, volatile: str = ""
                 names = [str(a.get("name")) for a in (st.get("asleep") or []) if isinstance(a, dict) and a.get("name")]
         stated = "- Time of day:" in volatile or "- Part of the day:" in volatile
         lines = []
-        if tod and not stated:
+        try:  # ORW-474 (the clock wins): a wake before the house wake-up is the dark small hours, whatever band name the status carries ("morning")
+            from routes.chat_helpers import _clock_is_before_house_wake
+            _d = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+            _s = _d.get("status") if isinstance(_d, dict) and isinstance(_d.get("status"), dict) else (_d if isinstance(_d, dict) else {})
+            _early = _s.get("earlyMorning") is True or _clock_is_before_house_wake(_s.get("clockLabel"))
+        except Exception:
+            _early = False
+        if _early:
+            lines.append("- It is still the dark small hours, before the house's 8am wake-up (engine truth)" + (": the house is quiet and asleep" if names else "") + ". Write NO morning light, daylight, dawn, sunrise or sun; morning comes at the wake-up call.")
+        elif tod and not stated:
             lines.append(f"- The night is over: it is now {tod} (engine truth, after the player's turnIn).")
         if names:
             lines.append(f"- Still asleep ({len(names)}): {', '.join(names)}. They are NOT awake in this scene: do not write them up, talking or moving about; only the houseguests not listed are awake.")
@@ -2123,7 +2170,7 @@ def _nap_applied(result) -> bool:
 
 _NAP_DIRECT_NOTE = (
     "(Production note, not for the player.) The player took a nap and the game has just run it: the nap result above is what the game shows. Voice them waking ONLY from that result and the WHILE YOU SLEPT line "
-    "below; never invent what happened elsewhere in the house, and do not call nap again.")
+    "below; never invent what happened elsewhere in the house, and do not call nap again. If the result shows the nap ended early (wokenBy) or that line says it was cut short, voice that: how long they actually slept and what woke them.")
 
 
 def _note_belt(owner, belt: str, n: int = 1) -> None:
@@ -5680,11 +5727,12 @@ _GAME_LEAK_START_RE = re.compile(
 )
 
 
-def _split_complete_sentences(buf: str):
+def _split_complete_sentences(buf: str, release_number_dot: bool = False):
     """Split a streaming buffer into (complete_prefix, remainder) at the LAST sentence boundary —
     so we only ever judge whole sentences, never a half-streamed one. A newline also ends a unit."""
     last = -1
-    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE))
+    # ORW-455: also a bare "9." (the "15am" of "9.15am" is in the next chunk) - unless `release_number_dot`: the stream is being cut at a tool-call opener, so nothing more can follow and "He was 9." is a finished sentence
+    mid_time = bool(re.search(r"\d\s?[ap]\.$", buf, re.IGNORECASE) or (not release_number_dot and re.search(r"(?<![\d.])\d{1,2}\.$", buf)))
     for m in re.finditer(r"[.!?](?=\s|$)|\n", buf):
         # ORW-437: a buffer that ENDS at "3 a." / "9 p." is mid-time (the "m." is in the next chunk): that dot is not a boundary yet, or the two halves were judged as separate sentences
         # (the clock check never saw "3 a.m." and the stored-text mirror cut between them). The round's flush resolves it if nothing follows.
@@ -5711,6 +5759,9 @@ def _chunk_ended_in_drop(raw: str, shown: str) -> bool:
     if not parts:
         return False
     last = parts[-1].strip()
+    shown_parts = [p.strip() for p in _split_sentences_keep_dotted_times(shown or "") if p.strip()]
+    if shown_parts and not any(shown_parts[-1] in (p or "") for p in parts):
+        return False  # ORW-455: what was shown ends in text that is NOT in the raw chunk: a later guard REWROTE a sentence (it was not dropped), so a following "; and" opener stays
     return last[:20] not in (shown or "")[-(len(last) + 40):]
 
 
@@ -5727,15 +5778,34 @@ _TOOL_MARKUP_TAG_RE = re.compile(
 # ORW-472: the SAFE subset of the ORW-440 tags for the raw-text mirror cut: result / use wrappers only (open or close). `tool_calls?`, `function_calls?` and `antml:*` are deliberately NOT here: they can carry a call the parser
 # needs, so they are never cut out of the raw round text (independently checked: `parse_tool_blocks` returned the same blocks for a `<tool_call>` and a `<function_calls>` call wrapped in every combination of these tags, with and without them).
 _TOOL_MARKUP_SAFE_TAG_RE = re.compile(
-    r"[ \t]*</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>[ \t]*",
+    r"[ \t]*(?:</?\s*(?:tool_use(?:_id)?|tool_results?|function_results?)\b[^<>\n]{0,120}/?>"
+    r"|</\s*(?:tool_calls|function_calls)\s*>)[ \t]*",  # ORW-455: the CLOSERS of the plural wrappers only (never `<tool_calls>`, `<function_calls>`, nor a singular `</tool_call>` the parser pairs with its opener)
     re.IGNORECASE,
 )
 
 
+_OPENING_PUNCT = "([{\u201c\u2018"
+
+
+@functools.lru_cache(maxsize=8)
+def _combined_cut_re(rx):
+    """The run form of a cut pattern (a regex cache: not per-owner state)."""
+    return re.compile("(?:" + rx.pattern + ")+", rx.flags)
+
+
 def _cut_markup_keeping_one_space(rx, text: str) -> str:
     """Remove every `rx` match (each already swallows the spaces around it). One space is kept only where two words would otherwise join: text (or a chunk start, the previous streamed chunk may have ended in a
-    word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet.")."""
-    return rx.sub(lambda m: " " if (not (m.start() > 0 and text[m.start() - 1].isspace()) and m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'") else "", text)
+    word) before, a word after; never before punctuation ("quiet</tool_use>." stays "quiet."), and never right after an opening bracket or quote ("(<tool result>word" stays "(word"). Matches that touch each
+    other are cut as ONE run, so two placeholders in a row leave one space, not two (reviews of #2803)."""
+    combined = _combined_cut_re(rx)
+
+    def repl(m) -> str:
+        i = m.start() - 1
+        opens = i >= 0 and (text[i] in _OPENING_PUNCT or (text[i] in "\"'" and (i == 0 or text[i - 1].isspace() or text[i - 1] in _OPENING_PUNCT)))  # a straight quote that opens a quoted run
+        before_ok = not (i >= 0 and text[i].isspace()) and not opens
+        after_ok = m.end() < len(text) and not text[m.end()].isspace() and text[m.end()] not in ".,;:!?)]}\u2019\u201d\"'"
+        return " " if before_ok and after_ok else ""
+    return combined.sub(repl, text)
 
 
 def _scrub_game_leak(text: str) -> str:
@@ -5879,6 +5949,13 @@ def _scrub_inline_planning_leak(text: str, *, reasoning_empty: bool,
     )
 
 
+# ORW-479: the stream hands the pre-emission guard one sentence at a time, so after an early event announcement was held the REST of the call ("Backyard." "Now.") arrives in the next chunk(s):
+# while the held announcement is recent (this turn, 8 s), a bare fragment made ONLY of the call's own words (chat_helpers.is_announcement_tail) is held with it; nothing else ever is.
+# Per-owner state: cleared when the turn ends, and reset with the season (it is in _SEASON_PACING_STORES).
+_ANN_HELD: dict = {}
+_ANN_FRAGMENT_WINDOW_S = 8.0
+
+
 def _split_sentences_keep_dotted_times(text: str) -> list:
     """`re.split(r"(?<=[.!?\\n])", text)`, but a dotted clock suffix ("3 a.m.", "9 p.m.") is kept in ONE part, so the per-sentence
     zero-clock check still sees the whole time (review of #2657). Concatenating the result is always the original text."""
@@ -5894,6 +5971,46 @@ def _split_sentences_keep_dotted_times(text: str) -> list:
         else:
             out.append(p)
     return out
+
+
+_CLOSER_OPENERS = {"'": "'\u2018", "\u2019": "'\u2018", '"': '"\u201c', "\u201d": '"\u201c', ")": "(", "]": "["}
+_LEAD_CLOSER_RE = re.compile(r"^(\s*)(['\"\u2019\u201d)\]]+)(?=\s)")
+
+
+def _has_opener_for(closer: str, dropped: str) -> bool:
+    """Does `dropped` contain an OPENING quote/bracket for `closer`? A single quote counts only when it is not inside a word ("It's" is a contraction, not an opener)."""
+    if closer in ("'", "\u2019"):
+        return re.search(r"(?<!\w)['\u2018]", dropped) is not None
+    return any(o in dropped for o in _CLOSER_OPENERS.get(closer, ""))
+
+
+def _strip_orphan_closer(part: str, dropped: str) -> str:
+    """ORW-455: `dropped` (the part before this one) was removed. If it OPENED a quote or bracket that this part starts by closing ("'It was 3 a.m." | "' You nod."), the leading closer is an orphan: remove it
+    (`_mirror_wall_drop` reads the same edit, see `_lead_closer_stripped`). Otherwise the part is returned unchanged."""
+    m = _LEAD_CLOSER_RE.match(part)
+    if not m:
+        return part
+    if not all(_has_opener_for(c, dropped) for c in set(m.group(2))):
+        return part
+    return m.group(1) + part[m.end():]
+
+
+def _opens_unclosed_quote(text: str) -> bool:
+    """ORW-479: does `text` leave a double quote OPEN (an unmatched straight quote, or more curly openers than closers)? The sentence that opens a quote and is dropped orphans its closer."""
+    return (text.count('"') % 2 == 1) or (text.count("\u201c") > text.count("\u201d"))
+
+
+def _lead_closer_stripped(before_part: str, after_part: str) -> bool:
+    """True when `after_part` is `before_part` with only edge edits applied: a leading closing quote/bracket removed (the ORW-455 edit) and/or leading blanks trimmed (ORW-479: the blank a
+    dropped sentence leaves at a line start). The stored-text mirror reads the same edits."""
+    base = before_part.lstrip(" \t")
+    if after_part == base and before_part != after_part:
+        return True
+    m = _LEAD_CLOSER_RE.match(before_part)
+    if not m:
+        return False
+    stripped = m.group(1) + before_part[m.end():]
+    return after_part in (stripped, stripped.lstrip(" \t"))
 
 
 async def _pre_emission_outcome_guard(text: str, owner) -> str:
@@ -5934,6 +6051,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
                 and not chat_helpers._sentence_has_in_the_clock_claim(text)
                 and not chat_helpers._sentence_has_house_awake_claim(text)  # review of #2735: a standalone house-awake claim must reach its screen
                 and not chat_helpers.sentence_states_zero_clock_time(text)
+                and not chat_helpers._text_may_announce_an_event_start(text)  # ORW-479
+                and not (time.monotonic() - _ANN_HELD.get(owner, -1e9) < _ANN_FRAGMENT_WINDOW_S)  # ORW-479: just held an early announcement: its tail fragments must reach the loop
                 # review of #2751: these predicates carry a whole-text "exempt" word list ("not", "quiet", "asleep"), so a negative word in a
                 # NEIGHBOURING sentence hid a positive claim here; ask each sentence on its own before declaring the chunk claim-free
                 and not any(chat_helpers._sentence_has_house_awake_claim(_p) or chat_helpers._sentence_has_unbacked_morning_claim(_p)
@@ -5948,7 +6067,49 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     # byte-identically.
     parts = _split_sentences_keep_dotted_times(text)  # review of #2657: "3 a.m." / "9 p.m." must not be cut into "3 a." + "m."
     out = []
-    for part in parts:
+    # ORW-479: announcements that the next event is starting NOW while the engine says it is minutes away: whole parts inside such a span are held before emission
+    try:
+        _ann_spans = await chat_helpers.screen_event_start_announcements(owner, text)
+    except Exception:
+        _ann_spans = []
+    _ann_held = False
+    _drop_blank_after = 0
+    _ann_active = (time.monotonic() - _ANN_HELD.get(owner, -1e9)) < _ANN_FRAGMENT_WINDOW_S
+    _starts, _o = [], 0
+    for _pp in parts:
+        _starts.append(_o)
+        _o += len(_pp)
+    _last_part, _last_n = None, 0
+    _debt = ""  # ORW-479: the dropped text that left a quote open; its closer may lead a LATER kept part (the sentences between survived), and goes with it
+    for _pi, part in enumerate(parts):
+        _p_start, _p_end = _starts[_pi], _starts[_pi] + len(part)
+        _prev_dropped = _last_part is not None and len(out) == _last_n
+        if _prev_dropped:
+            if _opens_unclosed_quote(_last_part):
+                _debt += _last_part
+            part = _strip_orphan_closer(part, _last_part)  # ORW-455: the previous part was dropped and opened a quote/bracket: its closer leads this part and goes with it
+        if _debt and _LEAD_CLOSER_RE.match(part) and all(_has_opener_for(c, _debt) for c in set(_LEAD_CLOSER_RE.match(part).group(2))):
+            _m = _LEAD_CLOSER_RE.match(part)
+            part = _m.group(1) + part[_m.end():]
+            _debt = ""
+        if _prev_dropped and out and out[-1].endswith("\n"):
+            part = part.lstrip(" \t")  # ORW-479: a dropped sentence at a line start left its blank behind: the line starts at its first word
+        _last_part, _last_n = part, len(out)
+        if _drop_blank_after > 0 and part == "\n":
+            _drop_blank_after -= 1
+            continue  # ORW-479: the held line left blank line(s) behind it: its separators go with it (the stored-text mirror reads the same count)
+        _drop_blank_after = 0
+        if _ann_spans and any(a < _p_end and b > _p_start for a, b in _ann_spans) and part.strip():
+            _ann_held = True
+            _so_far = "".join(out)
+            _want = 2 if _so_far.endswith("\n\n") else (1 if _so_far.endswith("\n") else 0)   # newlines to remove: only when the held text started a line
+            _drop_blank_after = max(0, _want - (1 if part.endswith("\n") else 0))
+            continue  # ORW-479: an announcement that the next event starts now, while the engine says it is minutes away
+        if part.strip() and _ann_active and chat_helpers.is_announcement_tail(part):
+            continue  # ORW-479: the rest of the call ("Backyard." "Now.") arriving in the next chunk of the same announcement
+        if part.strip():
+            _ann_active = False
+            _ANN_HELD.pop(owner, None)
         try:
             # T0-3 (issue #1778, D1 2026-07-21) — the HARD-DROP rail: a weekly-loop closed-set claim
             # (HOH/noms/veto/eviction — the kinds an engine `BeatAnnouncement` chyron now carries
@@ -5998,6 +6159,8 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
         except Exception:
             pass  # any screening hiccup falls through to emit (conservatism)
         out.append(part)
+    if _ann_held:
+        _ANN_HELD[owner] = time.monotonic()
     return "".join(out)
 
 
@@ -6076,11 +6239,16 @@ async def _headcount_wall_guard(text: str, owner) -> str:
         return text
 
 
+_PROTECTED_BLOCK_RE = re.compile(r"(```.*?(?:```|\Z)|<parameter\b[^>]*>.*?</parameter>|<invoke\b[^>]*>.*?</invoke>)", re.DOTALL | re.IGNORECASE)
+
+
 def _mirror_placeholder_cut(round_response: str, text: str):
     """ORW-442 / ORW-472: `_scrub_game_leak` cuts an echoed "<tool result ...>" placeholder, and a stray result/use tag (`_TOOL_MARKUP_SAFE_TAG_RE`), out of the MIDDLE of a sentence part, which the sentence-level
     mirror (`_mirror_wall_drop`) reads as that whole part being dropped and erases from the stored text with its narration. Apply the same cuts (one-space rule included) to `text` inside `round_response` first, and
     return the cut `text` as the mirror's `before`: only real drops are left for the sentence-level walk. Returns (round_response, text); both unchanged when there is nothing to cut."""
-    cut = _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, text))
+    # Review of #2807: never edit EXECUTABLE text. A fenced block, a `<parameter>` value or an `<invoke>` body can hold a literal "<tool_use>" in a command (`printf '<tool_use>'`); the cut runs on the segments between them only.
+    parts = _PROTECTED_BLOCK_RE.split(text)
+    cut = "".join(seg if i % 2 else _cut_markup_keeping_one_space(_TOOL_MARKUP_SAFE_TAG_RE, _cut_markup_keeping_one_space(_TOOL_RESULT_PLACEHOLDER_RE, seg)) for i, seg in enumerate(parts))
     if cut == text:
         return round_response, text
     idx = round_response.rfind(text)
@@ -6131,11 +6299,35 @@ def _mirror_wall_drop(round_response: str, before: str, after: str,
         b_parts = re.split(split_pattern, before)
         a_parts = re.split(split_pattern, after)
     ai = 0
-    for bp in b_parts:
+    _skip_blank = 0
+    for _bi, bp in enumerate(b_parts):
+        if _skip_blank > 0 and bp == "\n":
+            _skip_blank -= 1
+            continue  # ORW-479: separators that went with a held line (erased together with it below)
+        _skip_blank = 0
         if ai < len(a_parts) and a_parts[ai] == bp:
             ai += 1
             continue
+        if ai < len(a_parts) and _lead_closer_stripped(bp, a_parts[ai]):
+            idx = round_response.rfind(bp)  # ORW-455: the part survived minus an orphan closing quote: make the same edit in the raw text instead of erasing the part
+            if idx >= 0:
+                round_response = round_response[:idx] + a_parts[ai] + round_response[idx + len(bp):]
+            ai += 1
+            continue
         if not bp.strip():
+            continue
+        # ORW-479: a dropped line whose following newline separators were dropped with it (the guard's pair): erase line and separators together from the raw text
+        _j = 0
+        while _bi + 1 + _j < len(b_parts) and b_parts[_bi + 1 + _j] == "\n":
+            _j += 1
+        _a = 0
+        while ai + _a < len(a_parts) and a_parts[ai + _a] == "\n":
+            _a += 1
+        _k = max(0, _j - _a)
+        if _k > 0 and round_response.rfind(bp + "\n" * _k) >= 0:
+            idx = round_response.rfind(bp + "\n" * _k)
+            round_response = round_response[:idx] + round_response[idx + len(bp) + _k:]
+            _skip_blank = _k
             continue
         idx = round_response.rfind(bp)
         if idx >= 0:
@@ -7269,7 +7461,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
 )
 
 
@@ -7831,6 +8023,17 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         _ptt.set(_extract_last_user_message(_msgs or []) or "")
     except Exception:
         _ptt = None
+    _pow = None
+    try:  # ORW-476: heal a saved season whose player gender no words of theirs support (a guess from the name, saved before the check)
+        _msgs_h = kwargs.get("messages") if "messages" in kwargs else (args[2] if len(args) > 2 else None)
+        await _heal_unstated_player_gender(kwargs.get("owner"), _player_own_words(_msgs_h))
+    except Exception as _e:  # failsoft-ok: healing is best-effort; the next turn tries again
+        logger.debug("ORW-476: gender heal failed: %s", _e)
+    try:  # ORW-476: every word the player typed this conversation (no production cues), for the player-gender check
+        from src.tool_implementations import PLAYER_OWN_WORDS as _pow
+        _pow.set(_player_own_words(_msgs))
+    except Exception:
+        _pow = None
     _mut0 = None
     try:
         from src import orwell_engine as _oe_mut
@@ -7851,6 +8054,7 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
                 from src import orwell_sync_ledger as _led_end
@@ -7861,6 +8065,8 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
             _ttfw.end_turn(_ttfw_rec, _ttfw_tok)
         if _ptt is not None:
             _ptt.set("")
+        if _pow is not None:
+            _pow.set("")
         try:  # ORW-202: persist the pacing / re-ground bookkeeping at turn end (debounced, off the hot path)
             from src import belt_state_persist
             belt_state_persist.save_soon()
@@ -8824,6 +9030,9 @@ async def _stream_agent_loop_impl(
                     _candidate_choice = _forced_tool_choice_for_beat(
                         _framed_key, _turn_tool_names_force, pending_open=_pending_open,
                         required_lever=_framed_required_lever)
+                    from routes import chat_helpers as _ch_draw
+                    if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
+                        _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
                     if _candidate_choice is not None and _model_honors_forced_tool_choice(model):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
@@ -8902,7 +9111,7 @@ async def _stream_agent_loop_impl(
                 and bool(get_setting("force_tool_choice_at_beats", True))):
             try:
                 from routes import chat_helpers as _ch_esc
-                if _ch_esc.advance_escalation_armed(owner):
+                if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
                     if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
@@ -9259,7 +9468,7 @@ async def _stream_agent_loop_impl(
                             if not _visible_halted:
                                 _game_buf += data["delta"]
                                 _visible_emitted_len = len(round_response)
-                            _complete, _game_buf = _split_complete_sentences(_game_buf)
+                            _complete, _game_buf = _split_complete_sentences(_game_buf, release_number_dot=_opener_halt)
                             if _complete:
                                 _clean = _scrub_game_leak(_complete)
                                 # T0-5: the inline-planning/debugger-monologue scrub, gated on this
@@ -11106,6 +11315,9 @@ async def _stream_agent_loop_impl(
                             # double-advance silently skips a beat). The per-turn cap still holds (one force).
                             _force_ok = True
                             try:
+                                from routes import chat_helpers as _ch_hold
+                                if _ch_hold.veto_draw_holds_force(owner or ""):
+                                    _force_ok = False  # ORW-505: the veto draw was voiced this turn; the stall force waits for a later one
                                 _gs_now = await _oe.get_game_state(owner)
                                 _beat_now = ((_gs_now or {}).get("week"),
                                              (_gs_now or {}).get("phase"),

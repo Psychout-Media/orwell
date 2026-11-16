@@ -152,3 +152,93 @@ def test_directive_tells_the_narrator_an_unarrived_houseguest_is_not_behind_a_do
     d = chat_helpers._house_search_directive(sv, "where is Marisol?")
     assert "Marisol Ashwood: has not walked into the house yet" in d
     assert "never place them in a room or behind a door" in d
+
+
+# --- ORW-462 (Kevin 2026-11-15): the search never sees through a door, and a named houseguest is always found ---
+
+def _closed_search():
+    return {"room": "backyard", "present": [], "nearby": [], "search": {"asleepCount": 0, "rooms": [], "houseguests": [
+        {"id": "npc:10", "name": "Miguel Ortega", "status": "unseen", "fact": "not in view; behind a door in the house (the player can open doors and look)"},
+        {"id": "npc:14", "name": "Marisol Vega", "status": "lead", "room": "bedroom-a", "fact": "last seen heading into the bedroom A a moment ago - not confirmed: the player can go and look, or ask around"},
+        {"id": "npc:11", "name": "Jett Wooten", "status": "unknown", "fact": "nobody here knows where they are: the player can look around the house or ask around"},
+    ]}}
+
+
+def test_search_target_is_the_named_houseguest_from_the_roster():
+    gs = {"player": {"id": "player"}, "house": [{"id": "player", "name": "Pat Lee"}, {"id": "npc:10", "name": "Miguel Ortega"}, {"id": "npc:11", "name": "Jett Wooten"}]}
+    assert chat_helpers._search_target("Look for Miguel. Where is he?", gs) == "Miguel Ortega"
+    assert chat_helpers._search_target("where is jett wooten", gs) == "Jett Wooten"  # a full name matches in any case
+    assert chat_helpers._search_target("Check every room", gs) is None
+    assert chat_helpers._search_target("Where is Pat?", gs) is None  # the player is not searched for
+    assert chat_helpers._search_target(None, gs) is None and chat_helpers._search_target("Where is Miguel?", None) is None
+
+
+def test_directive_never_names_a_room_for_an_unseen_houseguest_and_voices_leads_and_unknowns_honestly():
+    d = chat_helpers._house_search_directive(_closed_search(), "Where is everybody")
+    assert "Miguel Ortega: not in view" in d
+    assert "bedroom" not in d.split("Miguel Ortega: not in view")[1].split("\n")[0]
+    assert "Marisol Vega: last seen heading into the bedroom A a moment ago - not confirmed" in d
+    assert "Jett Wooten: nobody here knows where they are" in d
+    voice = d.split("VOICE THIS")[1]
+    assert "not omniscient" in voice and "never confirms where someone is" in voice
+    assert "as a lead" in voice and "nobody here knows" in voice and "never name the diary room or the HOH room" in voice
+    assert "Every other room has no awake houseguest" not in d  # out-of-view rooms are unknown, never "empty"
+
+
+def test_engine_wrapper_sends_looking_for_only_when_given(monkeypatch):
+    seen = []
+
+    async def call(name, args, user=None):
+        seen.append((name, args))
+        return None
+    monkeypatch.setattr(orwell_engine, "_call", call)
+    _run(orwell_engine.whereabouts(user=_USER, search=True))
+    _run(orwell_engine.whereabouts(user=_USER, search=True, looking_for="Miguel Ortega"))
+    _run(orwell_engine.whereabouts(user=_USER))
+    assert seen == [("whereabouts", {"search": True}), ("whereabouts", {"search": True, "lookingFor": "Miguel Ortega"}), ("whereabouts", {})]
+
+
+def _roster(*names, evicted=()):
+    return {"player": {"id": "player"}, "house": [{"id": "player", "name": "Pat Lee", "status": "active"}] + [
+        {"id": f"npc:{i}", "name": n, "status": "evicted" if n in evicted else "active"} for i, n in enumerate(names, 1)]}
+
+
+def test_search_target_full_name_beats_a_first_name_match_earlier_in_the_roster():
+    gs = _roster("Alex Smith", "Alex Jones", "Miguel Ortega")
+    assert chat_helpers._search_target("Where is Alex Jones?", gs) == "Alex Jones"
+    assert chat_helpers._search_target("Where is Alex Smith?", gs) == "Alex Smith"
+
+
+def test_search_target_a_first_name_shared_by_two_active_houseguests_names_nobody():
+    gs = _roster("Alex Smith", "Alex Jones", "Miguel Ortega")
+    assert chat_helpers._search_target("Where is Alex?", gs) is None
+    assert chat_helpers._search_target("Where is Alex?", _roster("Alex Smith", "Alex Jones", evicted=("Alex Jones",))) == "Alex Smith"
+
+
+def test_search_target_ignores_lowercase_words_that_are_first_names():
+    gs = _roster("Will Baker", "Miguel Ortega")
+    assert chat_helpers._search_target("where is Miguel, will you check", gs) == "Miguel Ortega"
+    assert chat_helpers._search_target("where is will", gs) is None
+    assert chat_helpers._search_target("where is miguel?", gs) == "Miguel Ortega"  # an ordinary first name matches in any case (review of #2804)
+    assert chat_helpers._search_target("WHERE IS MIGUEL", gs) == "Miguel Ortega"
+    assert chat_helpers._search_target("Where is Will?", gs) == "Will Baker"
+
+
+def test_search_target_is_the_earliest_named_in_the_message_not_the_roster_order():
+    gs = _roster("Miguel Ortega", "Ana Ruiz")
+    assert chat_helpers._search_target("where are Ana and Miguel?", gs) == "Ana Ruiz"
+    assert chat_helpers._search_target("where are Miguel Ortega and Ana?", gs) == "Miguel Ortega"
+
+
+def test_search_target_skips_evicted_houseguests():
+    gs = _roster("Miguel Ortega", "Ana Ruiz", evicted=("Miguel Ortega",))
+    assert chat_helpers._search_target("Where is Miguel Ortega?", gs) is None
+    assert chat_helpers._search_target("where are Miguel and Ana", gs) == "Ana Ruiz"
+
+
+def test_search_target_ordinary_word_first_names_need_a_capital():
+    gs = _roster("Wade Cole", "Penny Marsh", "Willow Reed", "Violet Ames", "Trinity Cho", "Griffin Lee")
+    for text in ("how do I wade through this crowd", "a penny for your thoughts", "the willow by the gate", "a violet dress", "the trinity of rules", "a griffin on the crest"):
+        assert chat_helpers._search_target(text, gs) is None, text
+    assert chat_helpers._search_target("Where is Wade?", gs) == "Wade Cole"
+    assert chat_helpers._search_target("where is Penny", gs) == "Penny Marsh"

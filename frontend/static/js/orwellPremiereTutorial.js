@@ -96,6 +96,10 @@
     const started = (status && status.started !== false && typeof status.week === "number" && status.week >= 1) ||
                     (state && state.started === true);
     if (!started) return false;
+    // ORW-479: the premiere's phase can still read "premiere" on Day 2 (a player who went to bed before the first HOH wakes into it), but the move-in welcome ("you'll meet all fifteen as they
+    // walk in") is a Day 1 card: from Day 2 on it is stale whatever the phase says.
+    const day = (status && Number.isInteger(status.dayNumber)) ? status.dayNumber : ((state && Number.isInteger(state.dayNumber)) ? state.dayNumber : null);
+    if (day !== null && day > 1) return false;
     const moment = (state && state.moment) || "";
     return moment === "premiere";
   }

@@ -179,9 +179,10 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
     [[ "${!__k:-}" =~ ^[0-9]+$ ]] || continue
     # The wait bounds are capped (24 h): a huge value would make flock fail and be reported as "another update is running".
     case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT)
-      __v="${!__k}"; if (( ${#__v} > 6 )) || (( 10#$__v > 86400 )); then echo "==> ${__k}=${__v} ignored (more than 86400); the default applies"; continue; fi ;;
+      __v="${!__k}"; __v="${__v#"${__v%%[!0]*}"}"; __v="${__v:-0}"   # ORW-465: leading zeros do not count against the length ("000000090" is 90)
+      if (( ${#__v} > 6 )) || (( 10#$__v > 86400 )); then echo "==> ${__k}=${__v} ignored (more than 86400); the default applies"; continue; fi ;;
     esac
-    FWD_LG="${FWD_LG} ${__k}='${!__k}'"
+    case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT) FWD_LG="${FWD_LG} ${__k}='${__v}'" ;; *) FWD_LG="${FWD_LG} ${__k}='${!__k}'" ;; esac
   done
   FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
   if [[ -n "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]:-}" ]]; then
@@ -284,6 +285,7 @@ acquire_update_lock() {
   local _flock_args=(-n)
   if [[ "${__UD_SUPERSEDED:-0}" == 1 ]]; then
     local _w="${ORWELL_UPDATE_LOCK_WAIT:-3600}"
+    [[ "$_w" =~ ^[0-9]+$ ]] && { _w="${_w#"${_w%%[!0]*}"}"; _w="${_w:-0}"; }   # ORW-465: leading zeros do not count against the length
     if ! [[ "$_w" =~ ^[0-9]{1,6}$ ]] || (( 10#$_w > 86400 )); then echo "==> ORWELL_UPDATE_LOCK_WAIT=${ORWELL_UPDATE_LOCK_WAIT:-} ignored (not 0 to 86400); using 3600"; _w=3600; fi
     _w=$((10#$_w))
     _flock_args=(-w "$_w")
@@ -881,6 +883,7 @@ revert_failed_update() {
 on_update_exit() {
   local rc=$? rrc=0
   trap - EXIT
+  [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: never leave new turns held when the update fails or is killed
   [[ "$rc" -ne 0 ]] || return 0
   if [[ "$UPDATE_ARMED" -eq 1 ]]; then
     revert_failed_update "$rc" || rrc=$?
@@ -1664,6 +1667,17 @@ else
       [[ -n "$INFLIGHT_DIR" ]] || INFLIGHT_DIR="$(__envval ORWELL_DATA_DIR_FE)"
       # The helper sourced at the top may be the OLDER installed copy (a host-pushed first update runs the new script
       # against the pre-update /opt/orwell helper), whose one-argument form ignores $2. So --force-now is decided HERE, never left to the helper.
+      # ORW-461: hold new turns FIRST, then wait for the ones already running. Without the hold a turn could start between the wait's "0 in flight" and the restart and be cut.
+      # The hold is lifted after the restart and warm-up (or by the exit trap on any failure) and expires by itself if this script is killed. The helper may be the older installed
+      # copy (a host-pushed first update), which has no hold: then the update runs as before.
+      __HOLD_ON=0
+      if [[ $FORCE_NOW -ne 1 ]] && declare -F update_turn_hold_begin >/dev/null; then
+        # the same validated, clamped bound update_wait_for_no_turn uses (1..300 s; "08", "0090" or "1x" never reach the arithmetic as written), plus time for the restart and warm-up
+        __tw="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}"; [[ "$__tw" =~ ^[0-9]{1,6}$ ]] || __tw=120
+        __tw=$(( 10#$__tw )); (( __tw < 1 )) && __tw=1; (( __tw > 300 )) && __tw=300
+        __HOLD_ON=1
+        update_turn_hold_begin "$(( __tw + 150 ))" || true
+      fi
       if [[ $FORCE_NOW -eq 1 ]]; then
         echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
       else
@@ -1689,6 +1703,7 @@ else
         "${WARM_FE_PORT:+http://127.0.0.1:${WARM_FE_PORT}/api/orwell/health}" "${APP_DIR}/data/ops-update.log" \
         "$(! declare -F update_probe_host >/dev/null || update_probe_host "${ALLOWED_HOSTS:-$(sed -n 's/^ALLOWED_HOSTS=//p' "$ENV_FILE" 2>/dev/null | tail -n1 || true)}")" || true
     fi
+    [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: the new build is warm: let the held turns through
     trap - EXIT
     ops_progress_done "updated — services restarting"
   fi
