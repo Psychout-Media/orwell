@@ -55,6 +55,7 @@ import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
+import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
@@ -9270,6 +9271,17 @@ export class GameSessionAdapter implements GameSession {
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
   private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
     const live = this.live!;
+    // ORW-452 point 2 (Kevin with Ryne: "dynamic based on character sheets"): a houseguest the same-purpose cap HELD BACK decides what to do next from THEIR OWN sheet: come straight back (the want is kept: no cooldown is stamped, so they are
+    // eligible again as soon as the cap allows), wait (the normal spent want and 3-hour cooldown), or give up (a second cooldown on top). Played games only: the cap exists nowhere else, so headless output is unchanged.
+    if (capped && live.playedGame === true) {
+      const character = this.agendaCharacterOf(npc);
+      const jitter = (hashSeed(`${this.gameSeed ?? ""}:held:${npc}:${Math.floor(this.absHour())}`) % 500) / 10000;
+      const reaction = heldApproachReaction(heldSheetOf(character?.archetype, this.rel.edge(npc, PLAYER).affinity), jitter);
+      if (reaction === "comes-straight-back") return; // the want stands, nothing is spent
+      (live.desireApproachedAt ??= {})[npc] = this.absHour() + (reaction === "gives-up" ? DESIRE.cooldownHours : 0);
+      if (live.goalApproaches) delete live.goalApproaches[npc];
+      return;
+    }
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
     if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
