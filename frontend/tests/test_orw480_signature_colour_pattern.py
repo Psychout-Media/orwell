@@ -17,7 +17,7 @@ def _card(i, wardrobe, sig=None, job="line cook"):
 def test_the_signature_kinds_tag_what_a_friend_would_say():
     tag = lambda s: R.tag_card({"physicalCharacteristics": {"lookSignature": s}}).get("signature")
     assert tag("a long single braid") == ["hair"]
-    assert tag("silver crop and big hoops") == ["hair", "jewellery"]
+    assert tag("silver crop and big hoops") == ["hair"]  # one thing: the first category word
     assert tag("a shell necklace she never takes off") == ["jewellery"]
     assert tag("wire glasses") == ["glasses"]
     assert tag("a faded denim jacket") == ["outerwear"]
@@ -242,3 +242,34 @@ def test_a_rewrite_answered_at_the_top_level_or_with_only_the_signature_is_read(
     # a signature-only ask is answered by a signature-only reply (the clothes stay)
     pc = _run("a braided ponytail", {"lookSignature": "a plain field watch"}, ["rust flannel", "dark jeans"])
     assert pc["wardrobe"][0] == "rust flannel" and pc["lookSignature"] == "a plain field watch"
+
+
+def test_the_prompts_show_plain_colour_and_signature_words_never_the_internal_labels():
+    g = G.SeasonGate("u"); g.n = 15; g.want_signature = True
+    cast = [_card(i, ["red cardigan", "grey trousers"], "a braided ponytail" if i < 3 else None) for i in range(1, 7)]
+    for c in cast[:5]:
+        g.accept(c["id"], {}, c, cast)
+    taken = g.taken_phrases("npc:6")
+    msg = G.repetition_message({"realism-wardrobe": {"colour": ["red-pink"], "colour-any": ["green"], "signature": ["hair"]}}, taken)
+    user = A.build_authoring_messages({"id": "npc:6", "vocation": "welder"}, taken={"phrases": taken})[1]["content"]
+    for text in (msg, user, str(taken)):
+        assert not R.label_leaks(text) and "red-pink" not in text and "facial-hair" not in text and "nails-makeup" not in text, text
+    assert "red or pink" in msg and R.plain_label("signature", "scarf-tie") == "a scarf or tie"
+
+
+def test_an_internal_label_in_a_card_text_is_a_look_problem_and_is_scrubbed_to_a_plain_word():
+    for text in ("a red-pink cotton cardigan", "A bright red-pink knit beanie", "brown_tan boots"):
+        assert R.label_leaks(text)
+    assert R.scrub_labels("a red-pink canvas tote bag") == "a red canvas tote bag" and R.scrub_labels("a navy-blue shirt") == "a navy-blue shirt"
+    prof = {"physicalCharacteristics": {"wardrobe": ["red-pink cotton cardigan", "grey trousers"], "lookSignature": "red-pink knit cardigans", "style": "tidy"}}
+    npc = {"id": "npc:1", "age": 30}
+    assert "label-leak" in A.look_problems(prof, npc)
+    assert G._scrub_leaked_labels(prof) and not A.look_problems(prof, npc)
+    assert prof["physicalCharacteristics"]["lookSignature"] == "red knit cardigans"
+
+
+def test_a_signature_is_classified_by_its_first_category_word():
+    tag = lambda s: R.tag_card({"physicalCharacteristics": {"lookSignature": s}}).get("signature")
+    assert tag("a thin braided leather anklet worn with his boat shoes") == ["jewellery"]
+    assert tag("A bright knit beanie pulled low over her fade") == ["headwear"]
+    assert tag("long straight jet-black hair worn down") == ["hair"] and tag("a long single braid") == ["hair"]

@@ -85,6 +85,35 @@ def tag_card(card: dict) -> dict:
     return out
 
 
+def plain_label(kind_id: str, value: str) -> str:
+    """The plain-words form of an internal category label ("red-pink" is "red or pink"): what a writer is shown. The internal names never go
+    into a prompt or a card."""
+    v = (table()["kinds"].get(kind_id, {}).get("values", {}) or {}).get(value) or {}
+    return v.get("plain") or str(value).replace("-", " ")
+
+
+# the internal labels that are not plain English (a leak into card text means the prompt showed them); the natural ones ("navy-blue") are not checked
+_LEAK_LABELS = ("red-pink", "brown-tan", "black-charcoal", "white-cream", "nails-makeup", "scarf-tie", "colour-any", "look-fit", "smile-kind", "closing-read")
+_LEAK_PLAIN = {"red-pink": "red", "brown-tan": "tan", "black-charcoal": "charcoal", "white-cream": "cream", "nails-makeup": "nails",
+               "scarf-tie": "scarf", "colour-any": "colour", "look-fit": "fit", "smile-kind": "smile", "closing-read": "read"}
+
+
+def label_leaks(text: str) -> list:
+    """The internal category labels found in a card text (whole-token match, hyphen or underscore variants)."""
+    out = []
+    for lab in _LEAK_LABELS:
+        if re.search(r"(?<![A-Za-z])" + re.escape(lab).replace(r"\-", r"[-_]") + r"(?![A-Za-z])", text or "", re.I):
+            out.append(lab)
+    return out
+
+
+def scrub_labels(text: str) -> str:
+    """Replace each leaked internal label with its plain word ("a red-pink cardigan" -> "a red cardigan")."""
+    for lab in label_leaks(text):
+        text = re.sub(r"(?<![A-Za-z])" + re.escape(lab).replace(r"\-", r"[-_]") + r"(?![A-Za-z])", _LEAK_PLAIN[lab], text, flags=re.I)
+    return text
+
+
 def signature_categories() -> list:
     """The signature categories of the table (everything but the open "other" bucket), in table order."""
     return [v for v in table()["kinds"]["signature"]["values"] if v != "other"]

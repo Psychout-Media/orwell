@@ -1144,7 +1144,8 @@
       "charcoal",
       "jet",
       "onyx"
-     ]
+     ],
+     "plain": "black or charcoal"
     },
     "white-cream": {
      "words": [
@@ -1154,7 +1155,8 @@
       "ecru",
       "oatmeal",
       "off-white"
-     ]
+     ],
+     "plain": "white or cream"
     },
     "grey": {
      "words": [
@@ -1163,7 +1165,8 @@
       "heather",
       "slate",
       "silver"
-     ]
+     ],
+     "plain": "grey"
     },
     "navy-blue": {
      "words": [
@@ -1172,7 +1175,8 @@
       "indigo",
       "cobalt",
       "teal"
-     ]
+     ],
+     "plain": "navy or blue"
     },
     "brown-tan": {
      "words": [
@@ -1191,7 +1195,8 @@
       "mocha",
       "earth tone",
       "earth-tone"
-     ]
+     ],
+     "plain": "brown or tan"
     },
     "green": {
      "words": [
@@ -1207,7 +1212,8 @@
       "camo",
       "camouflage",
       "mint"
-     ]
+     ],
+     "plain": "green"
     },
     "red-pink": {
      "words": [
@@ -1218,7 +1224,8 @@
       "coral",
       "magenta",
       "crimson"
-     ]
+     ],
+     "plain": "red or pink"
     },
     "bright": {
      "words": [
@@ -1232,7 +1239,8 @@
       "neon",
       "print",
       "floral"
-     ]
+     ],
+     "plain": "a bright colour"
     }
    },
    "scope": "first-item",
@@ -1344,17 +1352,16 @@
   },
   "signature": {
    "field": "lookSignature",
-   "multi": true,
+   "multi": false,
    "cap": {
     "share": 0.0,
     "min": 2
    },
    "fallback": "other",
-   "note": "the one memorable thing about how this person looks or dresses (authored, never dealt): at most 2 cards share a category (12 categories for a cast of 15, so one each is impossible); the writer is told the kinds still free",
+   "note": "the one memorable thing about how this person looks or dresses (authored, never dealt), tagged by the FIRST category word in the line (a braided leather anklet is jewellery, not hair); at most 2 cards share a category (12 categories for a cast of 15, so one each is impossible); the writer is told the kinds still free in plain words. Every value has a plain-words label (`plain`) for prompts: the internal category names never go to the writer or into a card.",
    "values": {
     "hair": {
      "words": [
-      "braid*",
       "buzz*",
       "bleached",
       "dyed",
@@ -1381,8 +1388,23 @@
       "waves",
       "fade",
       "twist*",
-      "cornrow*"
-     ]
+      "cornrow*",
+      "hair",
+      "haircut",
+      "hairstyle",
+      "hairdo",
+      "braid",
+      "braids",
+      "plait",
+      "plaits",
+      "braided hair",
+      "braided ponytail",
+      "braided crown",
+      "crown braid",
+      "pigtails",
+      "dreadlocks"
+     ],
+     "plain": "hair"
     },
     "jewellery": {
      "words": [
@@ -1404,7 +1426,8 @@
       "choker",
       "locket",
       "charm*"
-     ]
+     ],
+     "plain": "jewellery"
     },
     "glasses": {
      "words": [
@@ -1413,7 +1436,8 @@
       "frames",
       "sunglasses",
       "shades"
-     ]
+     ],
+     "plain": "glasses"
     },
     "facial-hair": {
      "words": [
@@ -1424,7 +1448,8 @@
       "goatee",
       "sideburns",
       "soul patch"
-     ]
+     ],
+     "plain": "facial hair"
     },
     "headwear": {
      "words": [
@@ -1439,7 +1464,8 @@
       "hijab",
       "durag",
       "bonnet"
-     ]
+     ],
+     "plain": "a hat or headwear"
     },
     "outerwear": {
      "words": [
@@ -1454,7 +1480,8 @@
       "poncho",
       "blazer",
       "fleece"
-     ]
+     ],
+     "plain": "a jacket or coat"
     },
     "footwear": {
      "words": [
@@ -1467,7 +1494,8 @@
       "shoes",
       "trainers",
       "slippers"
-     ]
+     ],
+     "plain": "shoes or boots"
     },
     "top": {
      "words": [
@@ -1483,7 +1511,8 @@
       "tank",
       "henley",
       "sweater vest"
-     ]
+     ],
+     "plain": "a shirt or top"
     },
     "bottom": {
      "words": [
@@ -1498,7 +1527,8 @@
       "cargo",
       "slacks",
       "dress"
-     ]
+     ],
+     "plain": "trousers or a skirt"
     },
     "bag": {
      "words": [
@@ -1510,7 +1540,8 @@
       "lunchbox",
       "fanny pack",
       "purse"
-     ]
+     ],
+     "plain": "a bag"
     },
     "nails-makeup": {
      "words": [
@@ -1522,7 +1553,8 @@
       "lip colour",
       "lip color",
       "eyeshadow"
-     ]
+     ],
+     "plain": "nails or makeup"
     },
     "scarf-tie": {
      "words": [
@@ -1535,7 +1567,8 @@
       "suspenders",
       "bolo",
       "lanyard"
-     ]
+     ],
+     "plain": "a scarf or tie"
     },
     "other": {
      "words": [],
@@ -1544,7 +1577,8 @@
       "min": 15
      }
     }
-   }
+   },
+   "rule": "earliest"
   },
   "colour-any": {
    "field": "wardrobe",
@@ -1569,7 +1603,8 @@
       "camo",
       "camouflage",
       "mint"
-     ]
+     ],
+     "plain": "green"
     },
     "red-pink": {
      "words": [
@@ -1580,7 +1615,8 @@
       "coral",
       "magenta",
       "crimson"
-     ]
+     ],
+     "plain": "red or pink"
     },
     "bright": {
      "words": [
@@ -1594,7 +1630,8 @@
       "neon",
       "print",
       "floral"
-     ]
+     ],
+     "plain": "a bright colour"
     }
    }
   }

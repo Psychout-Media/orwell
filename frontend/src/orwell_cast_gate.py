@@ -105,6 +105,8 @@ def mend(profile: dict, npc: dict, cast=None) -> list:
         done.append("oncamera-name")
     if _drop_foreign_mark_words(profile, npc):
         done.append("mark-words-elsewhere")
+    if _scrub_leaked_labels(profile):
+        done.append("label-scrubbed")
     return done
 
 
@@ -157,6 +159,31 @@ def _dealt_mark(profile: dict, npc: dict) -> bool:
         return False
     phys["distinguishingMark"] = dealt
     return True
+
+
+def _scrub_leaked_labels(profile: dict) -> bool:
+    """An internal category label ("red-pink", "brown-tan", "colour-any" ...) in any card text becomes its plain word: real people say red, pink,
+    coral or tan. The prompts show only plain words; this is the net under them."""
+    phys = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(phys, dict):
+        return False
+    try:
+        from src import orwell_cast_realism as _R
+    except Exception:  # failsoft-ok: the table never blocks a card
+        return False
+    changed = False
+    for field in ("wardrobe", "style", "lookSignature", "onCamera", "photoHair", "facialFeatures", "hair"):
+        v = phys.get(field)
+        if isinstance(v, list):
+            new = [_R.scrub_labels(x) if isinstance(x, str) else x for x in v]
+        elif isinstance(v, str):
+            new = _R.scrub_labels(v)
+        else:
+            continue
+        if new != v:
+            phys[field] = new
+            changed = True
+    return changed
 
 
 _FACE_MARK_WORDS = re.compile(r"\b(?:dimples?|dimpled|freckles?|freckled|beauty marks?)\b", re.I)
@@ -342,6 +369,14 @@ def _look_fit_failures(card: dict) -> list:
         return []
 
 
+def _plain(kind: str, value: str) -> str:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.plain_label(kind, value)
+    except Exception:  # failsoft-ok: the table never blocks a card
+        return str(value).replace("-", " ")
+
+
 _REALISM_ASK = {
     "look-fit": lambda v: ("clothes this person could really own and buy where they live on their own income, for their job, age and the "
                            "weather and coast of their hometown (nothing expensive-looking, no costume of a style family, no winter layers in a hot "
@@ -354,12 +389,12 @@ _REALISM_ASK = {
     "room": lambda v: f"not in the {v.replace('-', ' ')}: another house spot",
     "closing-read": lambda v: 'no closing "the one who ..." read',
     "garment": lambda v: f"no {v.replace('-', ' ')} among the pieces",
-    "colour": lambda v: f"a main piece that is not in {v.replace('-', ' ')} tones",
-    "colour-any": lambda v: f"less {v.replace('-', ' ')} anywhere in the outfit (another colour for at least two pieces)",
+    "colour": lambda v: f"a main piece that is not {_plain('colour', v)}",
+    "colour-any": lambda v: f"less {_plain('colour-any', v)} anywhere in the outfit (another colour for at least two pieces)",
     "pattern": lambda v: ("at least one piece with a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear "
                           "(faded, worn-in), the way people really dress"),
     "signature": lambda v: ("a lookSignature (ONE memorable thing about how they look or dress, drawn from their life, that nobody else in the "
-                            "cast has)" if v == "missing" else f"a lookSignature that is not about {v.replace('-', ' ')}: another card already has that"),
+                            "cast has)" if v == "missing" else f"a lookSignature that is not about {_plain('signature', v)}: another card already has that"),
 }
 
 
@@ -477,15 +512,26 @@ class SeasonGate:
                         _cnt[v] = _cnt.get(v, 0) + 1
         sigs = sorted(v for v, n_ in _cnt.items() if n_ >= _cap)  # only the kinds already FULL are named as taken
         if sigs:
-            out["signatures"] = sigs  # signature categories already taken (hair, jewellery, glasses ...)
+            out["signatures"] = [_plain("signature", v) for v in sigs]  # plain words, never the internal category names
             try:
                 from src import orwell_cast_realism as _R
-                out["signatures_free"] = [c for c in _R.signature_categories() if c not in sigs]
+                out["signatures_free"] = [_plain("signature", c) for c in _R.signature_categories() if c not in sigs]
             except Exception:  # failsoft-ok: the table never blocks a card
                 pass
-        cols = sorted({v for o, r in self.registry.items() if o != hid for v in (r.get("tags") or {}).get("colour-any", [])})
-        if cols:
-            out["colours"] = cols
+        full: list = []
+        try:
+            from src import orwell_cast_realism as _R2
+            for kind in ("colour", "colour-any"):
+                counts: dict = {}
+                for o, r in self.registry.items():
+                    if o != hid:
+                        for v in set((r.get("tags") or {}).get(kind, [])):
+                            counts[v] = counts.get(v, 0) + 1
+                full += [_plain(kind, v) for v, n_ in counts.items() if n_ >= _R2.cap_for(kind, v, self.n or 15)]
+        except Exception:  # failsoft-ok: the table never blocks a card
+            pass
+        if full:
+            out["colours"] = sorted(set(full))  # the colour families already at their cap, in plain words
         return {k: v for k, v in out.items() if v}
 
     def marks_dealt(self) -> str:
@@ -531,7 +577,7 @@ def repetition_message(repeats: dict, taken: dict) -> str:
                      "lookSignature is one thing someone would use to describe them to a friend, bought or done where they live"
                      + (f" (signature kinds already taken, do NOT use these: {', '.join(taken['signatures'])}; kinds still free, pick one that fits "
                         f"their life: {', '.join(taken.get('signatures_free') or [])})" if taken.get("signatures") else "")
-                     + (f" (colours worn: {', '.join(taken['colours'])})" if taken.get("colours") else ""))
+                     + (f" (no more {', '.join(taken['colours'])}: use other colours)" if taken.get("colours") else ""))
     return ("Only this needs fixing: " + " and ".join(parts) + ". Reply with ONLY a JSON object holding just the field or fields "
             "named above (identityConcept, and/or physicalCharacteristics with onCamera and/or wardrobe, style and lookSignature; when the wardrobe is asked, give a short \"style\" line too that describes these very clothes in plain words and names no style family), for the same person: same "
             "pronouns, age and look; change nothing except the wording named above.")

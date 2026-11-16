@@ -1259,6 +1259,9 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
             out.append("wardrobe-not-garment")
         elif any(_R.is_multi_garment(x) for x in items):
             out.append("wardrobe-multi")
+    from src import orwell_cast_realism as _RL
+    if any(_RL.label_leaks(" ".join(str(x) for x in (v if isinstance(v, list) else [v]))) for v in (pc.get("wardrobe"), pc.get("style"), pc.get("lookSignature"), pc.get("onCamera"), pc.get("photoHair"))):
+        out.append("label-leak")  # an internal category name ("red-pink") in a card text: the gate scrubs it, a first pass is asked again
     if "lookSignature" in pc:
         sg = pc.get("lookSignature")
         if (not isinstance(sg, str) or not sg.strip() or len(sg) > 90 or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
@@ -1316,6 +1319,14 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
             pc.pop("wardrobe", None)
         elif code == "signature-shape":
             pc.pop("lookSignature", None)
+        elif code == "label-leak":
+            from src import orwell_cast_realism as _RS
+            for _f in ("wardrobe", "style", "lookSignature", "onCamera", "photoHair"):
+                _v = pc.get(_f)
+                if isinstance(_v, list):
+                    pc[_f] = [_RS.scrub_labels(str(x)) for x in _v]
+                elif isinstance(_v, str):
+                    pc[_f] = _RS.scrub_labels(_v)
         elif code == "wardrobe-multi":
             # ORW-480: split each two-things piece at its joiner ("a vest over a polo" -> "a vest", "a polo") rather than lose the clothes
             from src import orwell_cast_realism as _R
@@ -2096,6 +2107,8 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
                 cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
                 if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
                     new["lookSignature"] = " ".join(sig.split())[:90]
+            from src import orwell_cast_realism as _RS2
+            new = {k: ([_RS2.scrub_labels(x) for x in v] if isinstance(v, list) else _RS2.scrub_labels(v)) for k, v in new.items()}
             if not new:
                 logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, "
                             f"wardrobe pieces={len(wd)}, signature kinds={[c for c in _R.tag_card({'physicalCharacteristics': {'lookSignature': str(fresh.get('lookSignature') or '')}}).get('signature', []) if c != 'other']}, "
@@ -2259,7 +2272,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             parts.append("lookSignature categories already taken (do NOT use these): " + ", ".join(ph["signatures"])
                          + ("; still free (pick one that fits their life): " + ", ".join(ph["signatures_free"]) if ph.get("signatures_free") else ""))
         if ph.get("colours"):
-            parts.append("main-piece colour families already worn (spread the colours; no family on more than a fifth of the cast): " + ", ".join(ph["colours"]))
+            parts.append("colours already worn by enough people (no more " + ", ".join(ph["colours"]) + "; use other colours)")
         op = taken.get("openings") if isinstance(taken.get("openings"), dict) else {}
         if op:
             # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
