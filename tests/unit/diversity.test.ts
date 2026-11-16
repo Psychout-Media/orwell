@@ -513,7 +513,8 @@ describe("0063 — the portrait generator reflects the unique person (no private
     );
     expect(result.prompt).toContain("Korean American");
     expect(result.prompt).toContain("34-year-old Korean American woman");
-    expect(result.prompt).toContain("The moment: "); // v4: the moment comes from the shot card (ORW-480), not a demeanor keyword
+    // v4: the moment comes from the shot card (ORW-480), not a demeanor keyword: it is a real sentence (an expression, a posture and hands), not an empty label
+    expect(result.prompt).toMatch(/The moment: [^.]{30,};[^.]{10,}\./);
   });
 });
 

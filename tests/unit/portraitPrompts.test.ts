@@ -288,6 +288,38 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     expect(full).toMatch(/Face: [^.]*, with a tattoo half-sleeve on the left forearm, dimples\./);
   });
 
+  it("full photo sheet: the exact sentences in the exact order (restored strength: every sentence is pinned, the dealt face card and the dealt shot are read from the cast deal)", () => {
+    const OPEN = "A plain, honest portrait of a local resident by a newspaper documentary photographer, taken where they live on an ordinary day.";
+    const WHO = "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks his age.";
+    const LIFE = "An ordinary person, not a model: a 27-year-old podcaster; their grooming, hands, build and clothes fit that life.";
+    const TAIL_FULL = "Taken the way a local paper would: available light, the real place in normal focus, nothing retouched, the person looking like themselves, real skin and hair, worn everyday clothes. "
+      + "Keep the stated age exactly. The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim. Clothes are worn the way this person would on an ordinary day. The only person in the frame; no text or logos.";
+    const shot = fullPlan.shot;
+    const face = /Face: [^.]*, with a tattoo half-sleeve on the left forearm, dimples\./.exec(full)![0];
+    expect(full).toBe([
+      OPEN, WHO, LIFE, face, "Hair: short dark curls, shaped.",
+      "Wearing a faded grey hoodie, dark jeans, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear.",
+      `Setting: ${shot.place}.`, `Light: ${shot.light}.`, `The moment: ${shot.moment}.`,
+      `Framing, the same for the whole series: ${shot.framing}, ${shot.angle}, on ${shot.lens}.`, TAIL_FULL,
+    ].join(" "));
+  });
+
+  it("setting, light and moment come from the dealt shot card (restores the spot-and-light and demeanor-pose checks for the new deal)", () => {
+    const sheet = (id: string, demeanor: string) => castSheetOf({ id, name: "X " + id, ...base, demeanor, physicalCharacteristics: facet });
+    const plans = dealPortraitPlans(["hg:1", "hg:2", "hg:3", "hg:4"].map((id, i) => sheet(id, ["bubbly and loud", "quiet, watchful", "dry", "warm"][i]!)));
+    const seenLights = new Set<string>();
+    for (const [id, plan] of plans) {
+      const p = buildPortraitPrompt(id, "X", { ...base, physicalCharacteristics: facet }, anchor, plan).prompt;
+      expect(p).toContain(`Setting: ${plan.shot.place}.`);
+      expect(p).toContain(`Light: ${plan.shot.light}.`);
+      expect(p).toContain(`The moment: ${plan.shot.moment}.`);
+      seenLights.add(plan.shot.light);
+    }
+    expect(seenLights.size).toBeGreaterThan(1);                                   // a cast does not share one light
+    const again = dealPortraitPlans(["hg:1", "hg:2", "hg:3", "hg:4"].map((id, i) => sheet(id, ["bubbly and loud", "quiet, watchful", "dry", "warm"][i]!)));
+    expect([...again.values()].map((x) => x.shot.moment)).toEqual([...plans.values()].map((x) => x.shot.moment));   // deterministic
+  });
+
   it("no photo sheet and legacy cards still build every part (the shot and face are dealt alone)", () => {
     expect(none).toContain("Hair: short dark curls.");
     expect(none).toContain("Wearing everyday clothes in this style: relaxed streetwear.");
@@ -393,7 +425,7 @@ describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prom
     expect(after).not.toBe(before);
     expect(after).toContain("faded grey hoodie");
     expect(after).toContain("a low bun");
-    expect(after).toContain("Setting: ");
+    expect(after).toMatch(/Setting: [^.]{15,}\./);
     expect(after).not.toContain("kitchen island"); // ORW-480: the writer's on-camera line is no longer sent; the shot card sets the place and the moment
   });
 });
