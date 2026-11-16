@@ -54,7 +54,17 @@ def test_a_wrapped_tool_call_still_parses_and_runs_exactly_once(monkeypatch):
 
 def test_only_the_safe_subset_is_cut_from_the_raw_text():
     from src.agent_loop import _mirror_placeholder_cut as cut
-    raw = "Role A nods. <tool_call>x</tool_call> Role B waits. <function_calls> <tool_calls> <invoke> "
+    raw = "Role A nods. <tool_call>x</tool_call> Role B waits. <function_calls> <tool_calls> <invoke> <invoke name=\"bash\"> </invoke> "
     assert cut(raw, raw) == (raw, raw), "tool_call, function_calls, tool_calls and antml tags are never touched"
     rr, before = cut("Role A nods. </tool_use> Role B waits.", "Role A nods. </tool_use> Role B waits.")
     assert rr == before == "Role A nods. Role B waits."
+
+
+def test_review_of_2807_executable_text_is_never_edited_by_the_mirror_cut():
+    from src.agent_loop import _mirror_placeholder_cut as cut
+    for raw in ("Role A nods. ```bash\nprintf '<tool_use>'\n``` Role B waits.",
+                "Role A nods. <invoke name=\"bash\"><parameter name=\"command\">printf '</tool_use>'</parameter></invoke> Role B waits.",
+                "Role A nods. ```sh\necho <tool_result>x"):
+        assert cut(raw, raw) == (raw, raw), raw
+    rr, before = cut("Role A nods. </tool_use> Role B waits. ```\nprintf '</tool_use>'\n```", "Role A nods. </tool_use> Role B waits. ```\nprintf '</tool_use>'\n```")
+    assert rr == before == "Role A nods. Role B waits. ```\nprintf '</tool_use>'\n```"  # prose outside the block is still cut, the command is not
