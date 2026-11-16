@@ -15186,7 +15186,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

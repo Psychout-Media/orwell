@@ -67,43 +67,6 @@ describe("#2617 the disclosure lineage match never hands over a claim the player
   });
 });
 
-describe("#2617 the 'voice only what they know' rule is not applied in the jury house", () => {
-  it("the moment prompt for a seated juror-player omits the disclosure instruction", () => {
-    const resolve = (p: NonNullable<AdvanceView["pending"]>): SubmitDecisionReq => {
-      if (p.kind === "nominations") return { kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] };
-      if (p.kind === "veto-decision") return { kind: "veto-decision", use: false };
-      if (p.kind === "replacement") return { kind: "replacement", replacement: p.options[0]!.id };
-      if (p.kind === "comp-intent") return { kind: "comp-intent", intent: "compete" };
-      if (p.kind === "comp-round") return { kind: "comp-round", intent: "compete" };
-      if (p.kind === "finale-statement") return { kind: "finale-statement", statement: "x" };
-      if (p.kind === "finale-answer") return { kind: "finale-answer", appeal: p.appeals![0]! };
-      if (p.kind === "juror-vote") return { kind: "juror-vote", vote: p.options[0]!.id };
-      if (p.kind === "exit-interview") return { kind: "exit-interview", vote: p.stances![0]! };
-      if (p.kind === "spectator-choice") return { kind: "spectator-choice", vote: "watch" };
-      if (p.kind === "finale-interview") return { kind: "finale-interview", vote: "gracious" };
-      return { kind: p.kind, vote: p.options[0]!.id } as never;
-    };
-    for (let seed = 1; seed <= 120; seed++) {
-      const sb = new GameSessionRegistry().sandboxFor(`o507j-${seed}`);
-      sb.session.createCharacter({ playerName: "P", seed });
-      for (let i = 0; i < 8000; i++) {
-        const v = sb.session.advanceGame();
-        const st = sb.session.getGameState();
-        if (st.player?.status === "jury" && (st.juryHouse?.jurors.length ?? 0) >= 2 && !v.pending) {
-          (sb.session as unknown as S).live.playedGame = true;
-          const p = sb.session.getMomentPrompt({}).systemPrompt;
-          expect(p).not.toContain("only what the engine has put on the table");
-          return;
-        }
-        if (v.pending) sb.session.submitDecision(resolve(v.pending));
-        if (v.finished) break;
-      }
-    }
-    throw new Error("no seed seated the player on the jury");
-  });
-});
-
-
 describe("#2614 the vote questions follow the FINAL eviction block, one per holder per week", () => {
   it("a replacement nominee who survives with votes against them is left with a question; refs are unique", () => {
     type L = { playedGame?: boolean; voteRecord?: unknown[]; voteQuestions?: Array<{ holder: string; ref: string; week: number }>; eviction?: { nominees: string[]; evictee?: string; voteOf: Record<string, string> } };
