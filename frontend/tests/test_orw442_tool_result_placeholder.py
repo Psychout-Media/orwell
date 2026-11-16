@@ -47,3 +47,19 @@ def test_ordinary_prose_about_results_is_untouched():
     from src.agent_loop import _scrub_game_leak
     for s in ("The results of the vote are in the envelope.", "Nobody likes the result.", "She reads the tool shed sign."):
         assert _scrub_game_leak(s) == s
+
+
+def test_reviews_of_2803_trailing_buffer_consecutive_placeholders_and_opening_punctuation():
+    from src.agent_loop import _cut_markup_keeping_one_space as cut, _TOOL_RESULT_PLACEHOLDER_RE as rx
+    assert cut(rx, f"foo{PH}{PH}bar") == "foo bar"                       # two in a row leave ONE space
+    assert cut(rx, f"foo {PH} {PH} bar") == "foo bar"
+    assert cut(rx, f'He said ("{PH}word")') == 'He said ("word")'         # nothing is inserted after an opening quote or bracket
+    assert cut(rx, f"A ({PH}word) and {PH}done") == "A (word) and done"
+    assert cut(rx, f"Role A waits{PH}, then leaves") == "Role A waits, then leaves"
+
+
+def test_a_placeholder_in_an_unterminated_trailing_buffer_is_cut_shown_and_stored(monkeypatch):
+    emitted, _cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [f"Role A waits {PH} Role B leaves"]}], redo="X", flag="0")
+    first = emitted.split("done.")[0].strip()
+    assert first == "Role A waits Role B leaves", first
+    assert stored[0] == "Role A waits Role B leaves", stored

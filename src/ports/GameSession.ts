@@ -1919,8 +1919,8 @@ export interface HouseSearchView {
  */
 /** ORW-419 - the engine-resolved move of the player's own, this turn (Vault-free; room ids + an in-fiction reason). */
 export type PlayerMoveView =
-  | { from: string; to: string; refused?: undefined }
-  | { refused: true; reason: string; from?: string; to?: string };
+  | { from: string; to: string; refused?: undefined; msg?: string }
+  | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
 export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
@@ -2587,6 +2587,8 @@ export interface NapView {
   slept: number;
   /** Why the nap ended before the asked-for length, when it did. */
   wokenBy?: "event" | "evening";
+  /** ORW-477: the length asked for (rounded to the nap's half-hour steps), in-game hours; present when the nap ended before it (`wokenBy`). */
+  asked?: number;
   /** Vault-free: where the player slept and who is in the room (the open presence read). */
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
@@ -2603,6 +2605,7 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
+/** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
 export interface HangOutView {
   /** false = nothing happened (no state change): see `reason`. */
@@ -3006,7 +3009,7 @@ export interface GameSession {
    * Clock-per-message (2026-11-05): the front-end announces ONE player message ({messageId}, its stable id); the announcement steps the in-game clock one message-step (~5 minutes), idempotent per id
    * (`accepted: false` for a repeat). From the first announcement on, commits bill the clock nothing - the clock is paid per PLAYER MESSAGE, not per engine mutation. FE clock infra, not a model lever.
    */
-  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number };
+  noteMessage(req: { messageId: string }): { accepted: boolean; beatSeq: number; reason?: string };
   /** Resolve the current pending decision and continue the loop (validated; 0011). `req` may carry the
    *  optional 0065 `expectedBeatSeq` / `idempotencyKey` (absent ⇒ byte-identical to today). */
   submitDecision(req: SubmitDecisionReq): AdvanceView;
@@ -3203,7 +3206,8 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null;
+  /** `lookingFor` only means something on a search: it is typed so a named lookup cannot be passed without `search: true` (review of #2804). */
+  whereabouts(opts?: { search?: boolean; lookingFor?: undefined } | { search: true; lookingFor?: string }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;
