@@ -12,6 +12,12 @@ exec 9>"$RIG_LOCK"; flock -n 9 || { echo "LIVE-SHORT BUSY (another live run hold
 git -C "$RIG_HOME/orwell" fetch -q origin "${REF%%~*}" || { echo "LIVE-SHORT COULD-NOT-RUN fetch failed"; exit 2; }
 SHA=$(git -C "$RIG_HOME/orwell" rev-parse --short=8 "origin/$REF")
 [ "$IF_NEW" = 1 ] && [ "$(cat "$STATE/last-sha$RIG_SUFFIX" 2>/dev/null)" = "$SHA" ] && { echo "LIVE-SHORT SKIPPED $SHA (already run)"; exit 0; }
+CANCELLED=0
+cleanup() {  # a cancelled run ends its own children (the driver and the spend guard, by recorded pid) and THEN stops the rig
+  if [ "$CANCELLED" = 1 ] && [ -n "${RUN:-}" ]; then for n in driver spend; do [ -f "$RUN/$n.pid" ] && { kill "$(cat "$RUN/$n.pid")" 2>/dev/null; wait "$(cat "$RUN/$n.pid")" 2>/dev/null; }; done; fi
+  "$KIT/stop.sh" >/dev/null 2>&1
+}
+trap cleanup EXIT; trap 'CANCELLED=1; exit 143' TERM; trap 'CANCELLED=1; exit 130' INT   # a cancelled run stops the rig AND ends (a bare TERM trap would let the script carry on against a stopped rig)
 if ! STAGE_REF="$REF" "$KIT/stage2.sh" > "$STATE/stage$RIG_SUFFIX.log" 2>&1; then echo "LIVE-SHORT COULD-NOT-RUN $SHA stage failed (see $STATE/stage$RIG_SUFFIX.log)"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; fi
 RUN=$(cat $RIG_RUN_PTR)
 python3 - <<P || { echo "LIVE-SHORT COULD-NOT-RUN $SHA could not switch images off"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2; }
@@ -41,7 +47,9 @@ kill "$(cat "$RUN/spend.pid")" 2>/dev/null
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" --once >/dev/null 2>&1   # a final spend.json for the report
 short_patch_spend "$RUN"; [ -f "$RUN/SPEND-CAP-HIT" ] && short_partial_report "$RUN" "$SHA" "$CAP"
 "$KIT/stop.sh" >/dev/null 2>&1
-echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"; cp "$RUN/report.md" "$STATE/last-report$RIG_SUFFIX.md" 2>/dev/null
+# a COULD-NOT-RUN revision stays untested, so --if-new tries it again; a CAPPED run (the guard TERMs the driver: RC 143) DID run and spend its cap, so it is recorded or every poll would re-spend the cap on the same build
+if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"; else case $RC in 0|1) echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX";; esac; fi
+cp "$RUN/report.md" "$STATE/last-report$RIG_SUFFIX.md" 2>/dev/null
 if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "LIVE-SHORT CAPPED $SHA $RUN/report.md (spend cap \$$CAP hit; see $RUN/spend.json)"; exit 4; fi
 case $RC in 0) V=PASS;; 1) V=FAIL;; *) V=COULD-NOT-RUN;; esac
 echo "LIVE-SHORT $V $SHA $RUN/report.md"; exit $RC

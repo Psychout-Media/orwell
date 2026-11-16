@@ -586,6 +586,8 @@ export interface LiveSeasonState {
   beds?: import("./beds").BedsState;
   /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
   houseTheme?: string;
+  /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
+  priorHouseThemes?: string[];
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
   compIntent?: Intent;
@@ -681,6 +683,12 @@ export interface LiveSeasonState {
    * this `live` state, so it is persisted and restored with the season exactly like `juryGrudge`.
    */
   beliefs?: BeliefStore;
+  /**
+   * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
+   * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
+   * Append-only for the season. Absent until the first claim is told (absent => byte-identical season state).
+   */
+  claims?: import("./spokenClaims").ClaimLog;
   /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
   assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**
@@ -2474,7 +2482,7 @@ export function tickPremiereClock(s: LiveSeasonState, hours: number): void {
   s.nightDepth = Math.min(s.nightDepth + hours, DAY_END_HOUR - 0.0001);
   s.timeOfDay = phaseForHour(s.nightDepth);
 }
-/** ORW-116: the houseguests ENTER in the afternoon - the in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
+/** ORW-116: the houseguests ENTER at 4pm - the evening band starts at this same hour (`CLOCK.phaseStartsHour.evening`), so the premiere and the toast are the EVENING. The in-game clock starts here at the premiere entry and runs for real through the entrances and the toast (no jump). */
 export const PREMIERE_ENTRY_HOUR = 16;
 /** Hours each premiere entrance / toast release costs (time passing, not a skip): 16 entrances put the toast in the evening. */
 export const PREMIERE_STEP_HOURS = 0.15;
@@ -2953,7 +2961,11 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
   // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
-  if (s.playedGame === true) (s.voteQuestions ??= []).push(...questionsAfterVote({ week: s.week, evictee, nominees: s.nominees ?? [], voteOf: e.voteOf, player: ctx.player }, ctx.rel));
+  if (s.playedGame === true) {
+    // The FINAL eviction block (after the veto and any replacement), not the original nominees; one question per holder per week (a double eviction must not collide on the same ref).
+    const have = (s.voteQuestions ??= []);
+    for (const q of questionsAfterVote({ week: s.week, evictee, nominees: e.nominees, voteOf: e.voteOf, player: ctx.player }, ctx.rel)) if (!have.some((h) => h.ref === q.ref)) have.push(q);
+  }
   // 0025 reactive: track the lopsided-eviction streak (the secret-veto trigger's "steamroll" signal).
   // A near-unanimous eviction (all-but-≤1 of a meaningful vote) extends the streak; a close vote resets it.
   const totalVoters = Object.keys(e.voteOf).length;

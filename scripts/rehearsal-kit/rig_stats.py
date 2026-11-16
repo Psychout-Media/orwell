@@ -17,7 +17,7 @@ def main(llm, run):
             try: row = json.loads(ln)
             except ValueError: continue
             c = usage_of(row)
-            if c["in"] or c["out"]: calls.append({"kind": row.get("kind") or "", "in": c["in"], "cached": c["cached"], "out": c["out"], "usd": row_usd(c)})
+            if c["in"] or c["out"] or c["cost"]: calls.append({"kind": row.get("kind") or "", "in": c["in"], "cached": c["cached"], "out": c["out"], "usd": row_usd(c)})
     except OSError: pass
     turns = 0
     try: turns = sum(1 for l in open(f"{run}/turns.jsonl") if l.strip())
@@ -27,7 +27,7 @@ def main(llm, run):
     except OSError: pass
     ins = sorted(c["in"] for c in calls)
     def pct(p): return ins[min(len(ins) - 1, int(p * len(ins)))] if ins else 0
-    chat = [c for c in calls if "chat" in c["kind"] or not c["kind"]]
+    chat = [c for c in calls if "chat" in c["kind"] or "stream" in c["kind"] or not c["kind"]]
     out = ["# Rig run stats", "",
            f"- model calls: {len(calls)} (chat-kind: {len(chat)}); player turns: {turns or 'n/a'}",
            f"- estimated spend: ${sum(c['usd'] for c in calls):.3f}",

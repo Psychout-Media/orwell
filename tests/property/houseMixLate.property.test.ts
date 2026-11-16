@@ -12,14 +12,16 @@ import { playMixGame, mixShares, type MixScene } from "../support/houseMixDriver
  * Thresholds, from the 12-seed data (the per-seed late read ranges bonding 25-64, strategy 10-60, gossip 0-38, conflict 0-14; pooled it reads 32-40 / 37-42 / 13-16 / 9-10, the pre-fix game 17 / 13 / 65-81 / 5): wide enough to pass any healthy
  * season shape, tight enough to be red on the pre-#2627 state.
  */
-const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-const MESSAGES = 800;
+const SEEDS = [1, 2, 3, 4, 5]; // ORW-518: five seeds at the faster pace read well over the floor (the old ten at the old pace read ~360, from one lucky seed)
+const MESSAGES = 450;
 const WINDOW = 200;
+/** ORW-518: at the week-1 guard's pace (an advance every 12th message) a played week runs ~400 messages, so the late window held scenes only for the one seed whose player was evicted early (a spectator season fast-forwards) and the "enough scenes" floor passed or failed on THAT seed's trajectory. Advancing every 4th message (450 messages, five seeds) lets every seed reach the late weeks in ~1.5 minutes. Thresholds and floor are unchanged. */
+const ADVANCE_EVERY = 4;
 
 it("no activity swallows the late-game house, and its conflict has goal or vote sources", async () => {
   const all: MixScene[] = [];
   let betrayals = 0;
-  for (const seed of SEEDS) { const g = await playMixGame(seed, MESSAGES); all.push(...g.scenes); betrayals += g.betrayals; }
+  for (const seed of SEEDS) { const g = await playMixGame(seed, MESSAGES, { advanceEvery: ADVANCE_EVERY }); all.push(...g.scenes); betrayals += g.betrayals; }
   const lateScenes = all.filter((s) => s.msg >= MESSAGES - WINDOW);
   const late = mixShares(lateScenes);
   const playedLate = mixShares(lateScenes.filter((s) => !s.playerOut)); // while the player is still in: the window the drift was found in (a spectator's house reads differently: gossip 38 vs 65 in the broken game)

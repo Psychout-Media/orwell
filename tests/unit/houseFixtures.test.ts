@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { HOUSE_ROOMS, type Room } from "../../src/domain/house";
 import { HOUSE_EVENT_POOL } from "../../src/engine/houseEvents";
 import {
-  BASE_HOUSE_MAP, FORBIDDEN_FIXTURE_TERMS, HOUSE_MAP_STATUS, MAX_FIXTURES_PER_ROOM, PROP_CATEGORIES,
+  BASE_HOUSE_MAP, FORBIDDEN_FIXTURE_TERMS, HOUSE_MAP_STATUS, MAX_FIXTURES_PER_ROOM, MIN_FIXTURES_PER_ROOM, PROP_CATEGORIES,
   PROP_CATEGORY_LABELS, fixturesForBrief, forbiddenFixtureTerm, roomMapEntry, roomPhrase, validateHouseMap,
   type HouseMap, type RoomFixture, type RoomMapEntry,
 } from "../../src/domain/houseFixtures";
@@ -40,8 +40,11 @@ function withRoom(room: Room, entry: RoomMapEntry): HouseMap {
   m.set(room, entry);
   return m;
 }
-function withFixtures(room: Room, fixtures: RoomFixture[]): HouseMap {
-  return withRoom(room, { ...BASE_HOUSE_MAP.get(room)!, fixtures });
+/** A room holding `fixtures`; a short non-empty list is padded with plain fillers up to the K9 minimum, so a case trips only its own problem. */
+function withFixtures(room: Room, fixtures: RoomFixture[], pad = true): HouseMap {
+  const short = pad && fixtures.length > 0 && room !== "diary-room" ? Math.max(0, MIN_FIXTURES_PER_ROOM - fixtures.length) : 0;
+  const filler = Array.from({ length: short }, (_, i) => fx(`${room}.filler-${i}`, `filler ${i}`));
+  return withRoom(room, { ...BASE_HOUSE_MAP.get(room)!, fixtures: [...fixtures, ...filler] });
 }
 const fx = (id: string, label: string, extra: Partial<RoomFixture> = {}): RoomFixture => ({ id, label, aliases: [], kind: "furniture", ...extra });
 
@@ -136,6 +139,12 @@ describe("validateHouseMap catches every problem class", () => {
     expect(one(withFixtures("kitchen", []))).toBe("kitchen: lists no fixtures");
     const many = Array.from({ length: MAX_FIXTURES_PER_ROOM + 1 }, (_, i) => fx(`kitchen.item-${i}`, `item ${i}`));
     expect(one(withFixtures("kitchen", many))).toBe("kitchen: lists more than 12 fixtures");
+  });
+
+  it("a thin room (K9: 6-12), while the bare diary room may list fewer", () => {
+    const few = BASE_HOUSE_MAP.get("kitchen")!.fixtures.slice(0, 3);
+    expect(one(withFixtures("kitchen", few, false))).toBe("kitchen: lists fewer than 6 fixtures");
+    expect(validateHouseMap(withFixtures("diary-room", BASE_HOUSE_MAP.get("diary-room")!.fixtures.slice(0, 2), false))).toEqual([]);
   });
 
   it("a malformed, foreign or duplicated fixture id", () => {

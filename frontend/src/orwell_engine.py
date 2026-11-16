@@ -1702,6 +1702,13 @@ async def record_room_canon(room_id: str, feature: str, user: str | None = None)
     return await _call("recordRoomCanon", {"roomId": room_id, "feature": feature}, user=user)
 
 
+async def record_narration_use(text: str, user: str | None = None) -> dict:
+    """ORW-510 (live season memory): hand the VISIBLE narration of one finished turn back to the engine (``recordNarrationUse``). Sends exactly
+    ``{text}``; the engine reads it (no model call), checks it against its short rolling record of what the narration already used, counts the
+    repeats and folds it in. Answers ``{recorded, reason?, sentences?, repeated?, seasonLine?}`` (counts only). Vault-free; played games only."""
+    return await _call("recordNarrationUse", {"text": text}, user=user)
+
+
 async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
     """ORW-407 (open ledger, first slice): keep ONE commitment or claim made to or by the player, as free text
     (``recordOpenLedger``). Sends ``{text, speaker, addressedTo, kind}`` plus, when present, ``parties`` (a group pact) and ``about`` (free text); the engine re-validates, derives the

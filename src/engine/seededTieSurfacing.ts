@@ -95,6 +95,7 @@ export function surfaceSeededTies(deps: TieSurfacingDeps): SurfacedTie[] {
   //    mutual affinity has warmed past the floor — the two have genuinely grown close in the house, so an
   //    onlooker could plausibly read it. A tie that hasn't warmed into the open stays fully Vault-sealed.
   const observable = ties.filter((t) => {
+    if (t.visibility === "public") return false; // ORW-132: a tie public from Day 1 is already a house fact - nothing to discover
     if (!alive.has(t.a) || !alive.has(t.b)) return false;
     const mutual = Math.min(affinity(t.a, t.b), affinity(t.b, t.a));
     return mutual >= C.observableAffinity;

@@ -118,9 +118,15 @@ def test_orphan_check_matches_text_enabled_endpoint(monkeypatch):
         c.execute(text("INSERT INTO model_endpoints (id,name,base_url,is_enabled,owner,created_at,updated_at) "
                        "VALUES ('e1','A','https://api.example.test/v1','1','u1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP),"
                        "('e2','B','https://off.example.test/v1','0','u1',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"))
+    # The sessions table too (review of #2238): without it the unmatched path errored, was caught and returned False, so a broken
+    # endpoint match could still pass this test. With it, an unmatched session really is cleared (the control below).
+    d.Base.metadata.create_all(eng, tables=[d.Session.__table__])
     S = sessionmaker(bind=eng)
     with S() as s:
         by_id = {e.id: e.is_enabled for e in s.query(d.ModelEndpoint).all()}
+        for sid, url in (("s1", "https://api.example.test/v1/chat/completions"), ("s2", "https://off.example.test/v1/chat/completions")):
+            s.add(d.Session(id=sid, name=sid, endpoint_url=url, model="m", owner="u1"))
+        s.commit()
     assert by_id == {"e1": True, "e2": False}
     monkeypatch.setattr(chat_routes, "SessionLocal", S)
 
@@ -128,3 +134,12 @@ def test_orphan_check_matches_text_enabled_endpoint(monkeypatch):
                                  model="m", headers={"Authorization": "Bearer x"})
     assert chat_routes._clear_orphaned_session_endpoint(sess, "u1") is False
     assert sess.model == "m" and sess.headers
+    with S() as s:
+        assert s.get(d.Session, "s1").model == "m"
+    # control: the only endpoint for s2 is the TEXT '0' (disabled) one, so s2 is orphaned and cleared, in memory and in the row
+    off = types.SimpleNamespace(id="s2", endpoint_url="https://off.example.test/v1/chat/completions",
+                                model="m", headers={"Authorization": "Bearer x"})
+    assert chat_routes._clear_orphaned_session_endpoint(off, "u1") is True
+    assert off.model == "" and off.headers == {}
+    with S() as s:
+        assert s.get(d.Session, "s2").model == ""
