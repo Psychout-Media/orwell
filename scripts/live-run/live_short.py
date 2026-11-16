@@ -393,6 +393,7 @@ _NUM = r"(\d{1,2}|" + "|".join(sorted(_NUMW, key=len, reverse=True)) + r")"
 _HC_HOUSE_RE = re.compile(r"(?i)\b(all\s+(?:the\s+)?)?" + _NUM + r"\s+(of us|of you|houseguests|people|players)\b(?=(\s+(?:are\s+|were\s+)?(?:left(?!\s+(?:the|a|an|their|his|her|its|to|for|at|with|through|by|on|and)\b)|remain\w*|still\s+(?:here|standing|in\s+(?:the|this)\s+(?:house|game))|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)\b)?)")
 # a place right after the number is a ROOM count ("the four of us at the table"), never a house total
 _HC_PLACE_RE = re.compile(r"(?i)^\s*(?:at|around|on|by|near|in|inside|out|outside|over|crammed|squeezed|huddled|sitting|sat|left\s+(?:at|in|on|by))\b")
+_HC_REMAINDER_RE = re.compile(r"(?i)\b(?:other|rest|remaining|remainder|others)\s+(?:of\s+(?:the\s+)?)?$")
 _HC_WORLD_RE = re.compile(r"(?i)^\s*(?:left|remain\w*|still|in\s+(?:the|this)\s+(?:house|game)|under\s+(?:this|one)\s+roof)")
 
 
@@ -405,6 +406,7 @@ def headcount_claims(text):
         raw, noun, house_words = m.group(2).lower(), m.group(3).lower(), m.group(4)
         n = int(raw) if raw.isdigit() else _NUMW[raw]
         rest = text[m.end():m.end() + 30]
+        if _HC_REMAINDER_RE.search(text[max(0, m.start() - 24):m.start()]): continue  # "the other ten of you", "the rest of you": the remainder beside a named sub-group, never a house total (ORW-549)
         if house_words: sev = "fail"
         elif _HC_PLACE_RE.match(rest) and not _HC_WORLD_RE.match(rest): continue
         elif m.group(1) and noun in ("of us", "of you", "houseguests", "people", "players"): sev = "fail"
