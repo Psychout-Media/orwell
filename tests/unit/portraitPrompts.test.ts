@@ -277,6 +277,7 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     expect(full).toMatch(/never a uniform, scrubs, apron, badge or work gear/);
     expect(full).not.toMatch(/laugh lines|distinguished|forties ease|crisp and youthful/);
     expect(full).toMatch(/The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim\./);   // ORW-480: no frame or border
+    expect(full).toMatch(/Clothes are worn the way this person would on an ordinary day, done up as usual, nothing styled or revealing beyond their own look\./);
     expect(full).toMatch(/real skin and hair, worn everyday clothes/);   // documentary is the default realism wording (Kevin's pick, 2026-11-16)
     // no beautifying or quality word, no hair-and-makeup line
     expect(full).not.toMatch(/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|airbrushed|no retouching/i);
@@ -303,7 +304,7 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: {
       ...facet, heightBuild: "rugged and tall", facialFeatures: "a rough jaw and tired eyes", hair: "worn dark curls, usually pinned",
       wardrobe: ["a worn grey hoodie", "dark jeans"], style: "rough streetwear" } }, anchor).prompt;
-    expect(p.replace("clothes that have been worn and washed, with creases", "").replace("worn everyday clothes", "")).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);   // the realism tails ask for worn everyday clothes on purpose
+    expect(p.replace("clothes that have been worn and washed, with creases", "").replace("worn everyday clothes", "").replace("Clothes are worn the way this person would on an ordinary day", "")).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);   // the realism tails ask for worn everyday clothes on purpose
     expect(p).toContain("with warm brown skin, tall,");
     expect(p).toContain("Hair: dark curls.");
     const legacyP = buildPortraitPrompt(ID, "X", { ...base, appearance: "athletic, a scar over the left eye, close-cropped hair usually under a cap, a birthmark on the neck, a warm smile" }, anchor).prompt;
@@ -359,14 +360,14 @@ describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
     }
   });
 
-  it("every built prompt is free of the banned words and is at most 340 words", () => {
+  it("every built prompt is free of the banned words and is at most 360 words", () => {
     // ORW-480 on purpose: "unretouched", "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (Kevin then wanted a polished look);
     // Kevin's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
     const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|blemishes|tired|\brough\b|Big Brother/i;
     const hairy = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired and weathered" } }, anchor).prompt;
     for (const p of [full, none, legacy, hairy]) {
       expect(p).not.toMatch(BANNED);
-      expect(p.split(/\s+/).length).toBeLessThanOrEqual(340);
+      expect(p.split(/\s+/).length).toBeLessThanOrEqual(360);
     }
     for (const a of STYLE_ANCHOR_VARIANTS) expect(a).not.toMatch(BANNED);
   });

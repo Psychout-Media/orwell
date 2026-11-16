@@ -171,6 +171,7 @@ def test_the_prompt_closers_forbid_frames_and_borders(tmp_path):
     import re
     src = open(importlib.import_module("src.orwell_photo_brief").__file__.replace("frontend/src/orwell_photo_brief.py", "src/engine/portraitPrompts.ts")).read()
     assert src.count("The picture runs to all four edges") == 3          # press, documentary, minimal
+    assert src.count("done up as usual") == 3
 
 
 def test_a_hair_signature_overrides_the_hair_line_and_is_not_listed_twice():

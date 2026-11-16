@@ -719,3 +719,58 @@ def test_q5_gloves_held_or_hung_up_are_objects_and_worn_ones_are_clothing():
     c = cards()[0]
     fixed = B.repair_brief(c, B.clean_brief({**good_brief(c, 0), "inFrame": ["a pair of boxing gloves and a jump rope", "a rusty bike pump"]}))
     assert fixed["inFrame"][0] == "a pair of boxing gloves and a jump rope" and len(fixed["inFrame"]) == 2
+
+
+# ---------------------------------------------------------------------------------------------------- round 15 (cast 1206, run at 3c66a740)
+def test_s1_an_object_is_never_a_person_or_a_pet_with_its_owner():
+    cs = cards()
+    c = cs[0]
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    ok = good_brief(c, 0)
+    for obj in ("a neighbor leaning on the fence", "a friend waving from the porch", "her son kicking a ball", "a customer at the counter", "a woman walking a dog"):
+        assert "person-in-objects" in B.check_brief(c, an, {**ok, "inFrame": [obj, ok["inFrame"][1]]}), obj
+    for obj in ("a framed photo of her mother", "a worn tin mug", "a dog bowl by the door"):
+        assert "person-in-objects" not in B.check_brief(c, an, {**ok, "inFrame": [obj, ok["inFrame"][1]]}), obj
+    fixed = B.repair_brief(c, B.clean_brief({**ok, "inFrame": ["a neighbor leaning on the fence", "a battered welding bag"]}))
+    assert fixed["inFrame"] == ["a battered welding bag"]
+    assert "no other person appears anywhere in the frame" in B.SYSTEM and "never a person or a pet with its owner" in B.SYSTEM
+
+
+def test_s3_the_body_angle_and_placement_are_dealt_with_a_cast_spread():
+    cs = cards()
+    for seed in range(1, 8):
+        a = B.deal_anchors(cs, seed)
+        counts = {}
+        for x in a.values():
+            counts[x["body"]] = counts.get(x["body"], 0) + 1
+        assert set(counts) == set(B.BODY_ANGLES) and max(counts.values()) <= 3, (seed, counts)
+    assert "doing follows the body anchor" in B.SYSTEM
+    # the writer is given the anchor, and clasped or folded hands are capped across the cast
+    calls = []
+    run(B.author_briefs(cs, writer(calls=calls), seed=1))
+    assert '"body"' in calls[0][-1]["content"]
+    clasped = {c["id"]: {**good_brief(c, n), "doing": "standing squared to the camera, hands loosely clasped in front"} for n, c in enumerate(cs)}
+    flagged = B.check_cast(cs, B.deal_anchors(cs, 1), clasped)
+    assert "gesture-repeat-clasped-hands" in flagged["npc:3"] and "gesture-repeat-clasped-hands" not in flagged.get("npc:2", [])
+
+
+def test_s4_a_missing_object_list_is_built_from_the_place_and_a_missing_quote_from_the_sheet():
+    cs = cards()
+    c = cs[0]                      # "Person1 grew up near the clam docks in Cedar Key, Florida. Welding fills every weekend ..."
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    ok = good_brief(c, 0)
+    bare = {k: v for k, v in ok.items() if k != "inFrame"}
+    bare["where"] = "the dock behind the old fish house in Cedar Key, wooden pilings and a moored dinghy tied off at the end, a heron out of focus"
+    fixed = B.repair_brief(c, B.clean_brief(bare))
+    assert fixed["inFrame"][0] == "the wooden pilings" and fixed["inFrame"][1].startswith("a moored dinghy") and len(fixed["inFrame"]) == 2
+    assert not any(B.PERSON_OBJ_RE.search(x) for x in fixed["inFrame"])
+    # a place sentence that names no objects stays empty and the brief fails, never invents
+    assert B.repair_brief(c, B.clean_brief({**bare, "where": "the dock behind the old fish house in Cedar Key"}))["inFrame"] == []
+    # a why with no quote that is in the sheet is built from the sheet
+    nowhy = B.repair_brief(c, B.clean_brief({**ok, "why": "she likes boats and the sea"}))
+    assert B._why_ok(c, nowhy["why"]) and nowhy["why"].startswith("It draws on \"")
+    assert "no-sheet-quote" not in B.check_brief(c, an, nowhy)
+    # through the whole pipeline: an editor that also forgets the objects and the quote does not send anyone to the floor
+    gone = lambda b: {k: v for k, v in {**b, "why": "no quote here"}.items() if k != "inFrame"}      # noqa: E731
+    res = run(B.author_briefs(cs, writer(bad={"npc:2": gone, "npc:8": gone}, editor=lambda c2, n: gone(good_brief(c2, n))), seed=1))
+    assert res["floor"] == [] and len(res["briefs"]["npc:2"]["inFrame"]) >= 1 and B._why_ok(cs[7], res["briefs"]["npc:8"]["why"])

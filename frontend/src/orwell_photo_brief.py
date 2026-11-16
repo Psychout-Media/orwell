@@ -51,6 +51,10 @@ SEASONS = {
     "autumn": ("low grey overcast", "crisp and clear", "leaves down on the ground", "a cool, damp day", "a windy day"),
     "winter": ("crisp and cold", "low grey overcast", "snow still on the ground where it belongs, else bare ground", "thin pale sun", "a raw, damp day"),
 }
+BODY_ANGLES = (
+    "a three-quarter turn toward the camera", "squared to the camera but off-centre in the frame", "turned a little away with the head back to the camera",
+    "leaning lightly on something from the place", "seated on something from the place, at a normal height", "standing side-on with the face to the camera",
+)
 ENERGIES = ("lively", "easy", "focused", "restless", "warm", "dry and amused", "tired but content", "playful", "steady", "wide awake")
 
 
@@ -78,13 +82,14 @@ def deal_anchors(cards: list, seed=0) -> dict:
     parts = _spread(ids, tuple(TIME_PARTS), "part", seed)
     times = {i: TIME_PARTS[parts[i]][_h("time", seed, i) % len(TIME_PARTS[parts[i]])] for i in ids}
     energies = _spread(ids, ENERGIES, "energy", seed)
+    bodies = _spread(ids, BODY_ANGLES, "body", seed)
     seasons = _spread(ids, tuple(SEASONS), "season", seed)
     out = {}
     for i in ids:
         facet = NEAR_WORK if i in near else FACETS[_h("facet", seed, i) % len(FACETS)]
         season = seasons[i]
         out[i] = {"facet": facet, "time": times[i], "season": season,
-                  "weather": SEASONS[season][_h("weather", seed, i) % len(SEASONS[season])], "energy": energies[i]}
+                  "weather": SEASONS[season][_h("weather", seed, i) % len(SEASONS[season])], "energy": energies[i], "body": bodies[i]}
     return out
 
 
@@ -107,7 +112,7 @@ SYSTEM = (
     "wear: what they wear today, taken from their wardrobe, in their own everyday clothes.\n"
     "signature: when the sheet has a lookSignature, write exactly that; otherwise one object or detail of theirs that makes them memorable and fits their life; it is not one of the clothes listed in wear. Anything worn (jewellery, painted nails, a chain, a patch on a sleeve) is part of wear, not an object.\n"
     "timeLight: the time of day, the light and the weather. The anchors given for each person (the facet of life to feature, the time, the season and weather, the "
-    "energy) are fixed facts: follow them; if the weather does not fit the town and season, keep the time and use the nearest plausible weather. When the weather is cold, wet or windy "
+    "energy, and the body: how they stand or sit in the frame) are fixed facts: follow them (doing follows the body anchor: not squared and centred with the hands clasped or folded unless the anchor says so); if the weather does not fit the town and season, keep the time and use the nearest plausible weather. When the weather is cold, wet or windy "
     "and their clothes would not do for it, add a layer from their own style (a jacket, an overshirt, a cardigan), as a real person would.\n"
     "expressionBody: the FACE only (expression, gaze, how wide the smile is), taken from their demeanor, their voice and their on-camera line, at the strength of a real person at ease; "
     "no arms, hands, legs or posture here, because doing already says them.\n"
@@ -120,7 +125,8 @@ SYSTEM = (
     "their own clothes and nothing shows the job: no uniform, scrubs, apron, badge, work gear or work prop. The job is never a caption for the photo anywhere else either; "
     "a hobby or a family object is welcome. Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
     "nothing is acted. Never change their hair or its styling, whatever the activity. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
-    "background (other people, animals, vehicles) is welcome and wanted but out of focus. No readable brand names, signs or text. Do not write the person's name: say "
+    "background (animals, vehicles, a view) is welcome and wanted but out of focus; no other person appears anywhere in the frame, and an object is always a thing, never a person or a pet with its owner. "
+    "Clothes are what they would wear on an ordinary day, done up as they usually would, nothing styled or revealing. No readable brand names, signs or text. Do not write the person's name: say "
     "'the person'. Do not describe framing, lens or camera. Invent from the sheet; do not reuse wording between people. Every object, signature item and place is used by ONE "
     "person only: when 'alreadyUsed' lists things, choose different ones."
 )
@@ -169,6 +175,7 @@ CODE_WORDS = {
     "body-in-signature": "the signature is a thing or a detail of theirs, not a pose or an expression",
     "signature-repeats-wear": "the signature must not repeat something already listed in wear",
     "job-objects": "at most one object (of the two in the frame and the signature) may hint at the job; the rest come from home, a hobby or family",
+    "person-in-objects": "an object is a thing, never a person (no neighbour, friend, child, customer ...) and never a pet with its owner",
     "no-place-tie": "the tie must quote, in double quotes, the exact phrase of the sheet this place comes from",
     "place-not-tied": "the place must come from the phrase quoted in tie (they share content words): home, family, a hobby, a hometown routine or next to their work",
     "weather-layer": "the weather is cold or wet: add a layer from their own style to wear",
@@ -236,6 +243,7 @@ class _Brand:
 
 BRAND_RE = _Brand()
 HAT_RE = re.compile(r"\b(?:hat|cap|beanie|fedora|visor|bonnet)\b", re.I)
+PERSON_OBJ_RE = re.compile(r"\b(?:neighbou?rs?|friends?|kids?|child|children|sons?|daughters?|boys?|girls?|mans?|men|womans?|women|customers?|clients?|patients?|mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|babys?|baby|couple|crowd|people|passers?-?by|strangers?|someone|somebody|persons?|dog walker|owner|worker|workers|coach|teammates?|teacher|students?|family members?)\b", re.I)
 SUNGLASSES_RE = re.compile(r"\b(?:sunglasses|shades|goggles)\b", re.I)
 INDOOR_RE = re.compile(r"\b(?:indoors?|inside|kitchen|living room|bedroom|dining|diner|booth|café|cafe|studio|shop(?! (?:window|front))|church (?:hall|basement|kitchen)|garage|hallway|stairwell|apartment|bar|kitchenette|bathroom|office|classroom|gym|locker|barn)\b", re.I)
 OUTDOOR_RE = re.compile(r"\b(?:outdoors?|outside|yard|garden|porch|steps|stoop|dock|pier|beach|river|lake|trail|field|street|sidewalk|road|park|lot|ditch|bank|roof|balcony|patio|driveway|hill|dune|farm|orchard|court)\b", re.I)
@@ -263,7 +271,7 @@ TIME_BUCKET_MAX = 4
 GESTURES = (
     ("arms-crossed", r"arms (?:folded|crossed)"), ("hand-to-head", r"(?:back of (?:the |his |her |their )?neck|(?:the |his |her |their )hair)\b"),
     ("hips", r"hands? on (?:the |his |her |their )?hips?"), ("open-palm", r"palms? (?:up|open|out)|hand open|hands open"),
-    ("pockets", r"pockets?\b"), ("holding-arm", r"holding (?:the |his |her |their )?(?:other|opposite) (?:wrist|arm|forearm|elbow)"),
+    ("pockets", r"pockets?\b"), ("clasped-hands", r"hands? (?:loosely |lightly )?(?:clasped|folded|laced)|fingers (?:loosely )?laced|hands together"), ("holding-arm", r"holding (?:the |his |her |their )?(?:other|opposite) (?:wrist|arm|forearm|elbow)"),
 )
 GESTURE_MAX = 2
 DARK_MAX = 4
@@ -419,6 +427,33 @@ def _needs_layer(anchors: Optional[dict]) -> bool:
     return str(a.get("season") or "") in ("autumn", "winter") and not HOT_RE.search(weather)
 
 
+def _why_ok(card: dict, why) -> bool:
+    quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{5,})[\"\u201d]", str(why or "")) if q.strip()]
+    sheet = _norm(_sheet_text(card))
+    return any(_quote_in_sheet(q, sheet) for q in quotes)
+
+
+def objects_from_where(card: dict, where: str, sig_text: str = "", wear: str = "") -> list:
+    """Up to two objects from the place sentence itself: the things it names after the place (its first clause): 'the dock behind her shop, wooden pilings and a moored dinghy' gives
+    'wooden pilings' and 'a moored dinghy'. Never a person, a garment, the signature or the clothes."""
+    parts = [p.strip(" .") for p in re.split(r",|;|\bwith\b|\band\b|\bbeside\b|\balong\b", str(where or ""))][1:]
+    town = {w.lower() for w in re.findall(r"[A-Za-z]{3,}", str(card.get("hometown") or ""))}
+    out: list = []
+    sig = _obj_tokens(sig_text)
+    for part in parts:
+        if not 4 <= len(part) <= 70 or re.match(r"(?:in|on|at|of|near|behind|outside|under|over|out of|the (?:street|road|town|city)\b)", part, re.I):
+            continue
+        toks = _obj_tokens(part)
+        if not toks or PERSON_OBJ_RE.search(part) or _worn_like(part) or (toks & sig) or (_cw(part) & _cw(wear)) or {w for w in _norm(part).split()} & town or WORK_GEAR_RE.search(part):
+            continue
+        if re.search(r"\b(?:focus|distance|background|view|sky)\b", part, re.I):
+            continue
+        out.append(part if re.match(r"(?:a|an|the|some)\b", part, re.I) else f"the {part}")
+        if len(out) == 2:
+            break
+    return out
+
+
 def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = None) -> Optional[dict]:
     """Deterministic repair before the checks (it never leaves a field empty that a check then rejects): strip trailing periods, take the person's name out, drop a
     clause that shows work gear, text, a brand or sunglasses, drop a clause about the body from the clothes and the signature, move a worn accessory (earrings, nails,
@@ -474,6 +509,8 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for item in (out.get("inFrame") or []):
         if bad_rx.search(item):
             continue
+        if PERSON_OBJ_RE.search(item) and not re.search(r"\b(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b", item, re.I):
+            continue                                                  # a person is not an object (the closers say the only person in the frame)
         iw = _cw(item)
         if ACCESSORY_RE.search(item) and not HELDABLE_RE.search(item) and not (iw & wear_words):
             moved.append(item)
@@ -500,6 +537,14 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
         if k != "why" and isinstance(out.get(k), str):
             out[k] = _trim(out[k], lim)
     out["inFrame"] = [_trim(x, IN_FRAME_ITEM_MAX) for x in out["inFrame"]]
+    # no object left: built from the place sentence's own objects (the things it names after the place itself)
+    if not out["inFrame"] and out.get("where"):
+        out["inFrame"] = objects_from_where(card, out["where"], sig_text=str(out.get("signature") or ""), wear=str(out.get("wear") or ""))
+    # the why line: a quote that is really in the sheet; built from the sheet when the writer's is not
+    if out.get("where") and not _why_ok(card, out.get("why")):
+        t = repair_tie(card, out["where"]) or repair_tie(card, str(out.get("doing") or "")) or repair_tie(card, " ".join(str(card.get(k) or "") for k in ("hometown", "vocation")))
+        if t:
+            out["why"] = f"It draws on {t}."
     # the tie: when it does not hold, built from the sheet itself (the clause closest to the place), never sent to the floor for it
     if out.get("where") and (not out.get("tie") or tie_ok(card, out["where"], out["tie"])):
         t = repair_tie(card, out["where"])
@@ -566,6 +611,8 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("signature-repeats-wear")
     if _needs_layer(anchors) and not LAYER_RE.search(brief["wear"]):
         codes.append("weather-layer")
+    if any(PERSON_OBJ_RE.search(x) and not re.search(r"\b(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b", x, re.I) for x in brief["inFrame"]):
+        codes.append("person-in-objects")
     # the two own objects are things from their life in this place: not clothing they wear, and not the signature item again
     worn = _tokens(brief["wear"]) | wear_words
     sig = _tokens(brief["signature"])
