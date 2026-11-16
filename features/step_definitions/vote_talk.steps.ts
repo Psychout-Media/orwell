@@ -113,7 +113,7 @@ When("houseguests claim how they voted and lies about votes are caught", functio
   if (world.seasons.length === 0) for (const seed of SEEDS.slice(0, 2)) world.seasons.push(playSeason(seed));
 });
 
-Then("no view shows any houseguest's actual ballot before the retrospective", function () {
+export function voteTalkBallot(this: unknown): void {
   for (const x of w(this).seasons) {
     const rec = live(x.s)!.voteRecord ?? [];
     assert.ok(rec.length > 0, "the season held no eviction");
@@ -126,7 +126,7 @@ Then("no view shows any houseguest's actual ballot before the retrospective", fu
       assert.ok(!shown.includes(`"${voter}":"${target}"`), "a real ballot pair is in a player view");
     }
   }
-});
+}
 
 Then("the narrator is handed nothing about a caught lie it was not present for", function () {
   for (const x of w(this).seasons) {
@@ -156,13 +156,13 @@ When("seeded seasons play with caught lies and vote claims on", { timeout: 1_200
 });
 
 const KINDS = ["bonding", "strategy", "gossip", "conflict"] as const;
-Then("the week-one house mix stays within the agreed reference", function () {
+export function voteTalkWeekOne(this: unknown): void {
   const { on, off } = (this as unknown as { arms: Arms }).arms;
   for (const k of KINDS) assert.ok(Math.abs(on.w1[k] - off.w1[k]) <= 2, `week-one ${k}: ${on.w1[k].toFixed(1)} on against ${off.w1[k].toFixed(1)} off`);
-});
+}
 
-Then("the late-game guard stays green", function () {
+export function voteTalkLate(this: unknown): void {
   const { on, off } = (this as unknown as { arms: Arms }).arms;
   assert.ok(on.late.gossip <= 60 && on.late.bonding >= 10 && on.late.strategy <= 75 && on.late.conflict <= 30, `late mix ${JSON.stringify(on.late)}`);
   for (const k of KINDS) assert.ok(Math.abs(on.late[k] - off.late[k]) <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
-});
+}
