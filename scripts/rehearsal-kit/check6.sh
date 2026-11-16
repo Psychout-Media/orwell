@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # §6 N-5 transport checks. usage: check6.sh [label]  -> appends to $RUN/n5-checks.txt
 . "$(dirname "$(readlink -f "$0")")/slot.sh"   # slot values (a run dir carries its own slot.env)
-RUN=$(cat $RIG_RUN_PTR); P=$RIG_ENGINE_PORT; F=$RIG_FE_PORT
+RUN=$(cd "$(dirname "$(readlink -f "$0")")" && pwd); [ -f "$RUN/slot.env" ] || RUN=$(cat $RIG_RUN_PTR);   # a copied run keeps measuring ITS OWN directory, never the newer run the pointer names
+ P=$RIG_ENGINE_PORT; F=$RIG_FE_PORT
 { echo "== $1 $(date +%T)"
 echo "close-wait: $(ss -tn state close-wait "( dport = :$P or sport = :$P )" | tail -n +2 | wc -l)"
-echo "cold status s: $(curl -s -o /dev/null -w '%{time_total}' http://127.0.0.1:$F/api/orwell/status)"
-echo "page load s: $(curl -s -o /dev/null -w '%{time_total}' http://127.0.0.1:$F/)"
+echo "cold status s: $(curl -s --max-time 10 -o /dev/null -w '%{time_total}' http://127.0.0.1:$F/api/orwell/status)"
+echo "page load s: $(curl -s --max-time 10 -o /dev/null -w '%{time_total}' http://127.0.0.1:$F/)"
 L=$WT/frontend/data/llm-io.jsonl
 [ -f $L ] && python3 - $L <<'P'
 import json,sys,collections

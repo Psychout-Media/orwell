@@ -17,7 +17,7 @@ _WITH_RE = re.compile(r"^\s*With you:\s*(.+?)\.?\s*$", re.IGNORECASE | re.MULTIL
 _LEFT_RE = re.compile(r"MOVEMENT IN THE ROOM[^\n]*?—\s*([^\n]*?)(?:\.\s+Voice it as a natural beat|$)", re.MULTILINE)  # the clauses only: the cue's own instruction sentence holds a ";" that must not be read as a clause
 _ASLEEP_RE = re.compile(r"Still asleep \(\d+\):\s*(.+?)\.\s", re.IGNORECASE)
 _INTERRUPT_RE = re.compile(r"AN INTERRUPTION \(engine-decided\):\s*(.+?) steps into")
-_ROOM_RE = re.compile(r"^\s*Your room: the ([A-Za-z -]+?) \(", re.MULTILINE)
+_ROOM_RE = re.compile(r"^\s*Your room: (?:the )?([^\n(]+?) \(", re.MULTILINE)  # ORW-466: a themed name may have no "the", an apostrophe or an accent ("Main Street", "the Séance Room")
 _MOVE_ROOM_RE = re.compile(r"(?:left|come into) the ([A-Za-z -]+?)(?:;|\.\s|$)")
 _GONE_RE = re.compile(r"\b(?:left|gone to sleep)\b")  # a movement clause whose people are no longer awake in the room
 _DAY_RE = re.compile(r"-\s*Clock:[^\n]*?\bDay (\d+)", re.IGNORECASE)
@@ -103,7 +103,10 @@ def _audit_against(t: str, parts: set, b) -> list:
         out.append({"fact": "event-due", "detail": "a block says the event is on now but the briefing says it is not due"})
     if b.location:
         rooms = {r.strip().lower().replace(" ", "-") for r in _ROOM_RE.findall(t)}
-        if rooms and rooms != {b.location.lower()}:
+        # ORW-466: with a house theme the engine names the room by this season's name ("Your room: the Coral Reef Room"), which is the same room
+        same = {b.location.lower()} | ({re.sub(r"^the\s+", "", b.location_name, flags=re.IGNORECASE).strip().lower().replace(" ", "-")}
+                                       if getattr(b, "location_name", "") else set())
+        if rooms and not rooms <= same:
             out.append({"fact": "player-room", "detail": "a block's room differs from the briefing's (" + b.location + ")"})
     if b.day is not None:
         days = set(_DAY_RE.findall(t))

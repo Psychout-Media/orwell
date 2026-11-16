@@ -57,6 +57,10 @@ describe("ceremony moment-prompt fragments carry the show's ritual-language cues
     expect(p).toMatch(/ballots add up to EXACTLY that split/i);
   });
 
+  it("eviction: the prompt lets the narrator state the engine's TALLY line count after the full reveal, and no other (ORW-504, provisional)", () => {
+    expect(MOMENT_PROMPTS.eviction).toMatch(/TALLY line[^.]*engine-counted[^.]*state exactly that count/i);
+  });
+
   it("jury-finale: cues the crowning cadence, grounded in the game's real tally", () => {
     const p = MOMENT_PROMPTS["jury-finale"];
     expect(p).toMatch(/by a vote of/i);

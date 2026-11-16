@@ -135,11 +135,12 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         if _module_launches_browser(str(item.fspath)):
             item.add_marker("browser")
-            # ORW-414: the CI browser lane runs `-n 2 --dist loadgroup`. A file's tests share ONE worker (an xdist_group named by the file) so its module-scoped stack boots once,
-            # except the files in _BROWSER_SPREAD_FILES, whose tests are independent and slow: those carry no group, so xdist spreads them over the workers (each worker boots
-            # its own stack on its own free ports and data dir; nothing is shared). The marker only matters under `--dist loadgroup`; every other run ignores it.
-            if item.fspath.basename not in _BROWSER_SPREAD_FILES and item.get_closest_marker("xdist_group") is None:
-                item.add_marker(pytest.mark.xdist_group(name=item.fspath.basename))
+        # ORW-414: the CI browser lane runs `-n 2 --dist loadgroup`. A file's tests share ONE worker (an xdist_group named by the file) so its module-scoped stack boots once,
+        # except the files in _BROWSER_SPREAD_FILES, whose tests are independent and slow: those carry no group, so xdist spreads them over the workers (each worker boots
+        # its own stack on its own free ports and data dir; nothing is shared). The marker only matters under `--dist loadgroup`; every other run ignores it.
+        # Every browser file is grouped, including the real-stack files marked `browser` by their own `pytestmark` that never name sync_playwright (review of #2785).
+        if item.get_closest_marker("browser") is not None and item.fspath.basename not in _BROWSER_SPREAD_FILES and item.get_closest_marker("xdist_group") is None:
+            item.add_marker(pytest.mark.xdist_group(name=item.fspath.basename))
     yield  # every other modifyitems hook (notably `-m` deselection) has run once we resume
     # ORW-193: optional CI sharding (ORWELL_CI_SHARD="i/n"), by test file, so each shard balances exactly the lane being run. Done here (not later in
     # pytest_collection_finish) because xdist workers report their collected ids from that later hook. Deselects (never skips) the other shards' files.
@@ -354,6 +355,20 @@ def _reset_scene_cut_streak():
     ch = sys.modules.get("routes.chat_helpers")
     if ch is not None and hasattr(ch, "_CUT_STREAK"):
         ch._CUT_STREAK.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_veto_draw_holds():
+    """ORW-515: the ORW-505 veto-draw hold (`chat_helpers._VETO_DRAW_HOLDS`) is process-global, keyed per owner, and only cleared when that
+    owner's next framed turn begins. A test that commits a draw for the auth-off owner (None/"") left the hold set, so a later owner=None
+    test in the same xdist worker lost its forced advanceGame (`test_tool_choice_force::test_loop_forces_under_no_auth_owner_none`). Reset it per test."""
+    ch = sys.modules.get("routes.chat_helpers")
+    if ch is not None and hasattr(ch, "_VETO_DRAW_HOLDS"):
+        ch._VETO_DRAW_HOLDS.clear()
+    yield
+    ch = sys.modules.get("routes.chat_helpers")
+    if ch is not None and hasattr(ch, "_VETO_DRAW_HOLDS"):
+        ch._VETO_DRAW_HOLDS.clear()
 
 
 @pytest.fixture(autouse=True)

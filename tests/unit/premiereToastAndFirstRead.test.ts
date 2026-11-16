@@ -78,10 +78,16 @@ describe("item 5 - the toast", () => {
     expect(sp.length).toBe(TOAST_BATCH);
     expect(sp[0]).toBe("host");
     expect(sb.engine.events.query({ type: "toast-speech" })[0]!.content).toMatch(/^The host/);
+    const sizes: number[] = [sp.length];
     for (let i = 0; i < 20 && stage(sb) !== "done"; i++) {
       const d = sb.session.advanceGame().event?.detail as { speakers?: unknown[] } | undefined;
-      expect(d?.speakers?.length ?? 0).toBeLessThanOrEqual(TOAST_BATCH);
+      const n = d?.speakers?.length ?? 0;
+      expect(n).toBeLessThanOrEqual(TOAST_BATCH);
+      if (n > 0) sizes.push(n);
     }
+    // review of ORW-68: a slower pace would still satisfy "at most"; every batch but the last is exactly full
+    expect(sizes.length, JSON.stringify(sizes)).toBeGreaterThan(1); // else the every() below is vacuous
+    expect(sizes.slice(0, -1).every((n) => n === TOAST_BATCH), JSON.stringify(sizes)).toBe(true);
   });
   it("movePlayer is a no-op during an entrances-ON toast", () => {
     const sb = start(32);

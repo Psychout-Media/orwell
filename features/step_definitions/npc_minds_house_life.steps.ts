@@ -33,19 +33,31 @@ When("the house lives through several hours", function () {
   const c = nm(this);
   const s = c.s as GameSessionAdapter, sb = c.sb;
   const live = (s as unknown as { live: { nightDepth?: number } }).live;
-  const awake = s.livingIds();
-  const stretches: Array<{ actors: string[]; scenes: Array<{ initiator: string; hasLife: boolean }> }> = [];
+  const presence = (s as unknown as { presence: Map<EntityId, string> }).presence;
+  const stretches: Array<{ actors: string[]; awake: string[]; playerRoom: string | undefined; rooms: Record<string, string | undefined>; scenes: Array<{ initiator: string; hasLife: boolean }> }> = [];
   for (let i = 0; i < 10; i++) {
     live.nightDepth = (live.nightDepth ?? 8) + 1; // the in-game hour moves on between stretches
+    // ORW-507: the awake set is recomputed from the clock each stretch (sleepers must not act as the night deepens); with no clock it is every living houseguest.
+    const awakeSet = s.awakeIds();
+    const awake = awakeSet ? [...awakeSet] : s.livingIds();
+    const playerRoom = presence.get(PLAYER);
+    const rooms = Object.fromEntries(awake.map((id) => [id, presence.get(id)]));
     const scenes = s.houseLifeStretch(sb.engine.events, awake, i);
-    stretches.push({ actors: scenes.map((x) => x.initiator), scenes: scenes.map((x) => ({ initiator: x.initiator, hasLife: x.event.houseLife !== undefined })) });
+    stretches.push({ actors: scenes.map((x) => x.initiator), awake, playerRoom, rooms, scenes: scenes.map((x) => ({ initiator: x.initiator, hasLife: x.event.houseLife !== undefined })) });
   }
   c.stretches = stretches;
 });
 Then("every awake houseguest outside the player's room acts at most once an hour", function () {
   const c = nm(this);
-  assert.ok(c.stretches.some((x: { actors: string[] }) => x.actors.length > 0), "somebody acted");
-  for (const st of c.stretches as Array<{ actors: string[] }>) assert.equal(new Set(st.actors).size, st.actors.length, "nobody acts twice in one hour");
+  type St = { actors: string[]; awake: string[]; playerRoom: string | undefined; rooms: Record<string, string | undefined> };
+  assert.ok((c.stretches as St[]).some((x) => x.actors.length > 0), "somebody acted");
+  for (const st of c.stretches as St[]) {
+    assert.equal(new Set(st.actors).size, st.actors.length, "nobody acts twice in one hour");
+    for (const a of st.actors) {
+      assert.ok(st.awake.includes(a), "only an awake houseguest acts");
+      assert.notEqual(st.rooms[a], st.playerRoom, "nobody in the player's room acts (they are the player's to talk to)");
+    }
+  }
 });
 Then("every scene they make is a house-life action, never a stock scene", function () {
   const c = nm(this);
@@ -131,9 +143,11 @@ Then("the holder's mood is lifted and the cause is recorded in their own words",
 });
 Then("the holder tells that cause to a player they trust but not to one they do not", function () {
   const c = nm(this), s = c.ms as MoodS;
-  s.rel.edge(c.holder, PLAYER).affinity = 0.1;
+  // ORW-507: the gate reads the edge's affinity (mayShareCause); trust moves with it so the scenario stays honest if the gate ever reads either signal.
+  const e = s.rel.edge(c.holder, PLAYER) as { affinity: number; trust: number };
+  e.affinity = 0.1; e.trust = 0.1;
   assert.equal(s.npcVoice(c.holder)!.moodCause, undefined, "low trust: the cause is not told");
-  s.rel.edge(c.holder, PLAYER).affinity = 0.95;
+  e.affinity = 0.95; e.trust = 0.95;
   const said = s.npcVoice(c.holder)!.moodCause;
   assert.match(said ?? "", /^I got .+ out, like I planned$/);
 });
@@ -211,8 +225,7 @@ async function finalThree(user: string, hohType: { archetype: Archetype; style: 
   const evicted = l.ceremony?.finalEvictee ?? l.evictionOrder[l.evictionOrder.length - 1]!;
   return evicted === ally.id ? "ally" : evicted === rival.id ? "rival" : evicted;
 }
-Given("a Final 3 where the HOH's ally is beloved by the jury and their rival is disliked", function () { /* the crafted Final 3 is built per HOH type below */ });
-When("a strategist is the HOH and when a loyalist is the HOH", async function () {
+When("a Final 3 where the HOH's ally is beloved by the jury and their rival is disliked is played with a strategist and then a loyalist as the HOH", async function () {
   nm(this).strategist = await finalThree(`nm-fh-a-${Math.random()}`, { archetype: "mastermind", style: "strategic" });
   nm(this).loyalist = await finalThree(`nm-fh-b-${Math.random()}`, { archetype: "loyalist", style: "loyal" });
 });
@@ -225,25 +238,33 @@ const tChar = (archetype: Archetype, nature: string, friendly: boolean): AgendaC
 const tView = (character: AgendaCharacter, over: Partial<AgendaView> = {}): AgendaView => ({ owner: HOLDER, character, threats: [], affinity: [], grudges: [], emotional: 0.5, allianceMates: [], secretExposed: false, openQuestions: [], answered: [], powerWins: 0, ...over });
 const tBoard = (over: Partial<AgendaBoard> = {}): AgendaBoard => ({ day: 2, week: 1, inHouse: T_HOUSE, evicted: [], juryStarted: false, finalFive: false, nominees: [], weekClosed: false, ...over });
 const tActive = (a: Agenda, kind: string, target?: string): Goal | undefined => a.goals.find((g) => g.kind === kind && (target === undefined || g.target === target));
-Given("a houseguest with a pre-show tie", function () { /* each nature is seeded in its own step */ });
+When("a houseguest is seeded with each nature of pre-show tie", function () {
+  nm(this).tieAgendas = {
+    rival: seedAgenda(tView(tChar("analyst", "rival", false)), tBoard(), T_SEED),
+    family: seedAgenda(tView(tChar("floater", "family", true)), tBoard(), T_SEED),
+    oldFriend: seedAgenda(tView(tChar("analyst", "old-friend", true)), tBoard(), T_SEED),
+    ex: seedAgenda(tView(tChar("analyst", "ex", false)), tBoard(), T_SEED),
+  };
+  assert.ok(Object.values(nm(this).tieAgendas as Record<string, Agenda>).every((a) => a.goals.length > 0), "every seeded houseguest has an agenda");
+});
 Then("a rival is a target from day one", function () {
-  const g = tActive(seedAgenda(tView(tChar("analyst", "rival", false)), tBoard(), T_SEED), "get-them-out", RIVAL)!;
+  const g = tActive((nm(this).tieAgendas as Record<string, Agenda>).rival!, "get-them-out", RIVAL)!;
   assert.ok(g, "a rival becomes a get-them-out goal");
   assert.equal(g.horizon, "season");
   assert.equal(g.why[0]!.ref, "rival");
 });
 Then("family is protected hard through any number of quiet nights", function () {
   const v = tView(tChar("floater", "family", true));
-  let a = seedAgenda(v, tBoard(), T_SEED);
+  let a = (nm(this).tieAgendas as Record<string, Agenda>).family!;
   assert.ok(tActive(a, "protect-my-person", RIVAL)!.commitment >= 0.9);
   for (let d = 3; d < 15; d++) a = mullAgenda(a, v, tBoard({ day: d }), T_SEED);
   assert.ok(tActive(a, "protect-my-person", RIVAL), "still protecting them after a dozen quiet nights");
-  const fam = recheckAgenda(seedAgenda(v, tBoard(), T_SEED), { ...v, threats: [{ toward: RIVAL, threat: 0.95 }] }, tBoard({ day: 4 }), "comp-result", T_SEED);
+  const fam = recheckAgenda((nm(this).tieAgendas as Record<string, Agenda>).family!, { ...v, threats: [{ toward: RIVAL, threat: 0.95 }] }, tBoard({ day: 4 }), "comp-result", T_SEED);
   assert.ok(tActive(fam, "protect-my-person", RIVAL), "and even a real threat does not end it");
 });
 Then("an old friend's protection gives way when they become a real threat", function () {
   const v = tView(tChar("analyst", "old-friend", true));
-  const a = seedAgenda(v, tBoard(), T_SEED);
+  const a = (nm(this).tieAgendas as Record<string, Agenda>).oldFriend!;
   assert.ok(tActive(a, "protect-my-person", RIVAL));
   const pressured = recheckAgenda(a, { ...v, threats: [{ toward: RIVAL, threat: 0.95 }] }, tBoard({ day: 4 }), "comp-result", T_SEED);
   assert.equal(tActive(pressured, "protect-my-person", RIVAL), undefined);
@@ -251,7 +272,7 @@ Then("an old friend's protection gives way when they become a real threat", func
   assert.equal(ended.status, "replaced");
 });
 Then("an ex is neither protected nor targeted and is avoided in free time", function () {
-  const a = seedAgenda(tView(tChar("analyst", "ex", false)), tBoard(), T_SEED);
+  const a = (nm(this).tieAgendas as Record<string, Agenda>).ex!;
   assert.equal(tActive(a, "protect-my-person"), undefined);
   assert.ok(!a.goals.some((g) => g.target === RIVAL && g.horizon === "season"));
   assert.deepEqual(tieAvoids(tChar("analyst", "ex", false)), [RIVAL]);
