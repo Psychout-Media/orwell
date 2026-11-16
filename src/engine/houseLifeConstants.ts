@@ -12,12 +12,12 @@ export const HOUSE_LIFE = {
   goalDrive: 1.0,
   /** ORW-350: the most hours (share) a houseguest spends on their goals; the rest are ordinary life whatever their goals are. A pressing goal's commitment climbs toward 0.85+ as the weeks go (get-them-out 0.54 in the first days, 0.85-0.88 by
    *  week 2), and past the pull of ordinary life (0.5-0.9 by time of day) it won every hour, so the house turned into scheming: bonding 55% to 18%, gossip 13% to 69% across 800 chat-paced messages. */
+  goalHourCeiling: 0.7,
   /** ORW-353 (A's live week: 16 of 588 off-screen scenes were conflict and ALL were chore fights, none from a goal, though 64 get-them-out goals existed): a HOT get-them-out goal (commitment above `hotGoal`) sharing a room with its target adds
    *  up to this much to the chance of a direct confrontation, whatever the holder's temper. */
   hotConfront: 0.22,
   /** The commitment above which a goal counts as hot (it climbs to 0.85+ when the target is a real threat). */
   hotGoal: 0.7,
-  goalHourCeiling: 0.7,
   /** A season-long MAIN aim (run the house, be liked...) pulls at this share of a pressing goal's drive (ORW-315 tuning: it dominated hours). */
   mainAimDrive: 0.35,
   /** The pull of ordinary house life by time of day (a goal must beat this x a seeded roll to be pursued this hour). Mornings and late nights are for living. */

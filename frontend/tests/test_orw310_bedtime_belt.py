@@ -329,7 +329,7 @@ def test_rejecter_never_runs_turn_in_for_talk_about_bed(monkeypatch, text):
 @pytest.mark.parametrize("tod", ["morning", "afternoon", "evening"])
 def test_rejecter_never_runs_turn_in_where_the_engine_would_hold(monkeypatch, tod):
     rounds, belts, _, executed = _drive(monkeypatch, text="I sleep.", model=DEEPSEEK, status={**_NIGHT, "timeOfDay": tod}, turn_in_result=_res("morning"))
-    assert executed == [] and set(belts) <= {"bedtime-held-note"}
+    assert executed == [] and belts == {"bedtime-held-note": 1}  # review of #2730: the held note must actually fire, once
 
 
 def test_rejecter_never_runs_turn_in_with_a_pending_decision(monkeypatch):

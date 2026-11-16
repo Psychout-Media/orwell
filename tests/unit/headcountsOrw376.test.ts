@@ -135,4 +135,16 @@ describe("whereabouts.counts after the player is evicted (ORW-447)", () => {
     expect(c.voters).toBe(s.livingIds().filter((id) => !off.has(id)).length);
     expect(c.voters).toBe(c.house - 3);
   });
+
+  it("an evicted player who has left the room is never gathered back into the house for the ceremony", () => {
+    const s = evictionNightPlayerVoting();
+    const core = JSON.parse(JSON.stringify(s.snapshot())) as { live: { evictionOrder: string[]; active: string[] }; presence?: Record<string, string> };
+    core.live.evictionOrder.push(PLAYER);
+    core.live.active = core.live.active.filter((id) => id !== PLAYER);
+    if (core.presence) delete core.presence[PLAYER];
+    const resumed = new GameSessionRegistry().sandboxFor(`hc376-resume-${n++}`).session; // a resumed process: no in-memory ceremony hold
+    resumed.restore(core as never);
+    expect(resumed.whereabouts()).toBeNull();
+    expect(resumed.witnessOccupancy()?.get(PLAYER)).toBeUndefined();
+  });
 });

@@ -70,10 +70,20 @@ describe("a pull-them-in goal forms an alliance with its target (ORW-341)", () =
   it("a holder already in an alliance extends it with the target instead of founding a second", async () => {
     const { s, holder, target, third, bond, goal, give, rng } = await setup();
     const a = s.alliances.add("The Pact", holder, [holder, third], 1);
-    bond(holder, target, 0.7); give(goal("pull-them-in", holder, target));
+    bond(holder, third, 0.7); bond(holder, target, 0.7); bond(target, third, 0.5); give(goal("pull-them-in", holder, target));
     s.formNpcAlliances(rng());
     expect(s.alliances.all().find((x) => x.id === a.id)!.members, "the holder's own alliance grew").toEqual([holder, third, target]);
     expect(s.alliances.all().filter((x) => x.founder === holder).length, "and no second alliance was founded by them").toBe(1);
+  });
+
+  it("a target cold to a fellow member does not join: the alliance would turn hollow and fade whole (cubic, #2635)", async () => {
+    const { s, holder, target, third, bond, goal, give, rng } = await setup();
+    const a = s.alliances.add("The Pact", holder, [holder, third], 1);
+    bond(holder, third, 0.7); bond(holder, target, 0.7); // target and third stay at 0.2: under the cohesion floor together
+    give(goal("pull-them-in", holder, target));
+    s.formNpcAlliances(rng());
+    expect(s.alliances.all().find((x) => x.id === a.id)!.members, "the pact is untouched").toEqual([holder, third]);
+    expect(allied(s, holder, target), "and no hollow second alliance either").toBe(false);
   });
 
   it("the player is never auto-added: a goal aimed at the player forms nothing", async () => {
@@ -173,6 +183,8 @@ describe("an alliance that does not hold fades (ORW-353; the measure is the bloc
     const rows = JSON.parse(JSON.stringify(st.serialize()));
     expect(rows[0]).toMatchObject({ lowDays: 1, checkedDay: 5 });
     const old = rows.map((r: Record<string, unknown>) => { const { lowDays, checkedDay, ...rest } = r; void lowDays; void checkedDay; return rest; });
+    const cur = new AllianceStore(); cur.load(JSON.parse(JSON.stringify(rows)));
+    expect(cur.all()[0], "a current save keeps its counters").toMatchObject({ lowDays: 1, checkedDay: 5 });
     const st2 = new AllianceStore(); st2.load(old);
     expect(st2.all()).toHaveLength(1);
     expect(st2.fade(6, () => 0.9, () => false)).toHaveLength(0);
@@ -186,6 +198,32 @@ describe("a hollow alliance is not founded (ORW-353)", () => {
     a.bond(a.holder, a.target, 0.75); a.bond(a.holder, a.third, 0.75); // target and third stay at 0.2 with each other
     a.give(a.goal("last-alliance-standing", a.holder));
     a.s.formNpcAlliances(a.rng());
-    expect(a.s.alliances.all().some((x) => x.founder === a.holder && x.members.includes(a.target) && x.members.includes(a.third))).toBe(false);
+    expect(a.s.alliances.all().some((x) => x.founder === a.holder), "no alliance at all for the founder, not even a smaller one").toBe(false);
+  });
+});
+
+describe("evictions and gaps (0107 prune-on-eviction; alliance ids; cubic sweep of #2615/#2635)", () => {
+  type F = S & { fadeAlliances(): void; live: S["live"] & { dayNumber?: number; evictionOrder?: EntityId[] } };
+  it("an evicted houseguest leaves their alliances, and an alliance left with one member dissolves", async () => {
+    const { s, holder, target, third, bond } = await setup();
+    const f = s as unknown as F;
+    bond(holder, target, 0.7); bond(holder, third, 0.7); bond(target, third, 0.7);
+    s.alliances.add("Trio", holder, [holder, target, third], 1);
+    s.alliances.add("Duo", target, [target, third], 1);
+    f.live.evictionOrder = [...(f.live.evictionOrder ?? []), third];
+    f.live.dayNumber = 1; f.fadeAlliances();
+    expect(s.alliances.all().map((x) => x.members), "the evictee is out of the trio and the duo is gone").toEqual([[holder, target]]);
+  });
+
+  it("restoring a save with a gap in the alliance ids never reuses a live id", async () => {
+    const { AllianceStore } = await import("../../src/engine/alliances");
+    const st = new AllianceStore();
+    st.add("One", "npc:1" as EntityId, ["npc:1", "npc:2"] as EntityId[], 1);
+    st.add("Two", "npc:3" as EntityId, ["npc:3", "npc:4"] as EntityId[], 1);
+    st.removeMember("alliance:1", "npc:2" as EntityId); // alliance:1 dissolves: only alliance:2 is left
+    const st2 = new AllianceStore(); st2.load(JSON.parse(JSON.stringify(st.serialize())));
+    const next = st2.add("Three", "npc:5" as EntityId, ["npc:5", "npc:6"] as EntityId[], 2);
+    expect(next.id).not.toBe("alliance:2");
+    expect(new Set(st2.all().map((x) => x.id)).size).toBe(st2.all().length);
   });
 });
