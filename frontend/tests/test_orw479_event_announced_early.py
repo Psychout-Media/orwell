@@ -123,3 +123,12 @@ def test_dialogue_and_questions_about_the_event_are_not_held(monkeypatch, line):
     shown, stored = _round(monkeypatch, [T3 + line + "Rain keeps falling. "])
     expected = (T3 + line + "Rain keeps falling.").strip()
     assert shown == expected and stored == expected, (shown, stored)
+
+
+def test_a_characters_quoted_line_that_is_a_tail_word_is_not_eaten(monkeypatch):
+    # after a held call, a quoted one-word line arriving as its own chunk is a character speaking, not the call's tail
+    _schedule(monkeypatch)
+    shown, stored = _round(monkeypatch, [T3, "Head of Household competition. ", "Now. ", '"Now." ', "Ana laughs. "])
+    assert '"Now."' in shown and "Head of Household" not in shown, shown
+    assert shown.count("Now.") == 1, shown   # only the quoted one survives; the call's own "Now." was held
+    assert stored == shown, (shown, stored)
