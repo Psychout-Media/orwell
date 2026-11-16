@@ -623,7 +623,8 @@ def parse_stated_wait(player_msg) -> tuple:
     if not m:
         return (None, False)
     span = m.group(0).lower()
-    if _REST_OF_BAND_RE.search(span):
+    # Review of #2772: the match span ends at "until"/"till", so "hang out until the rest of the afternoon" lost its band; test the message from the intent on.
+    if _REST_OF_BAND_RE.search(span) or _REST_OF_BAND_RE.search(str(player_msg)[m.start():]):
         return (None, True)
     d = _STATED_DURATION_RE.search(span)
     if not d:
@@ -1259,6 +1260,12 @@ def _is_house_search(msg) -> bool:
     return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_FIND_RE.search(text))
 
 
+# Given names that are also everyday words or months (same list as src/engine/diversity.ts COMMON_WORD_NAMES): only the capitalised form is the name.
+_COMMON_WORD_FIRST_NAMES = frozenset((
+    "may will grace hope summer faith mark art rose june april august dawn joy ivy pearl amber frank lane chase cliff drew gene guy hunter miles "
+    "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
+
+
 def _search_target(player_msg, game_state) -> Optional[str]:
     """ORW-462: the houseguest the player's message names, from the ACTIVE roster, so the engine search can ALWAYS resolve that one person. Full names first (the earliest in the message);
     then CAPITALISED first names only (case-sensitive, word-bounded, more than two letters), the earliest by position in the message. A first name shared by two active houseguests, with no
@@ -1286,7 +1293,9 @@ def _search_target(player_msg, game_state) -> Optional[str]:
         first = full.split()[0]
         if len(first) <= 2:
             continue
-        m = re.search(r"\b" + re.escape(first) + r"\b", msg)  # case-sensitive: "will" the verb is not Will
+        # Ordinary first names match in any case ("where is miguel?"); a first name that is also an everyday word ("will", "may", "mark") only as written with a capital ("will you check" is not Will).
+        flags = 0 if first.lower() in _COMMON_WORD_FIRST_NAMES else re.IGNORECASE
+        m = re.search(r"\b" + re.escape(first) + r"\b", msg, flags)
         if m:
             firsts.append((m.start(), first))
     if not firsts:
@@ -1318,10 +1327,6 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
     shown = named or [e for e in entries if e.get("status") != "asleep"]
     lines = ["HOUSE SEARCH (engine truth - the player is asking where someone is or searching the house, and the game has looked in every room for them):"]
     for e in shown:
-        if e.get("status") == "told" and not e.get("toldBy"):
-            # nobody the player can see is there to say it: the house knows, and no speaker is invented
-            lines.append(f"- {e['name']}: {str(e.get('room') or '').replace('-', ' ')}, door closed to the player. Nobody in view is there to say it: it is common knowledge in the house; do NOT invent a speaker.")
-            continue
         lines.append(f"- {e['name']}: {e['fact']}")
     if not named:
         lines.append("(Those are all the houseguests who are awake. Anyone not listed is asleep, below.)")
@@ -1335,9 +1340,10 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
             f"{str(r['room']).replace('-', ' ')}{' (door closed)' if r.get('access') == 'closed' else ''}: "
             + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Rooms out of view are not known: never say an out-of-view room is empty or name who is in it.")
     lines.append(
-        "VOICE THIS: report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one (the player cannot see through doors). A houseguest listed 'not in view' is somewhere behind a door in the house: "
-        "name no room for them, never say they are nowhere, hidden, or cannot be found, and let the player know they can open doors and look. A houseguest the game says is behind a door you can open: name that room and that opening the door shows who is inside. "
-        "For the diary room or the HOH room (closed to the player) the game names a houseguest who can say where they are: have THAT houseguest say it in their own voice (\"Oh, he's in the diary room.\"), never as a readout, and the door stays closed. "
+        "VOICE THIS: the player is not omniscient and the game never confirms where someone is if the player does not know. Report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one. "
+        "A houseguest listed 'not in view' is somewhere behind a door in the house: name no room for them, never say they are nowhere or hidden, and let the player know they can open doors and look. "
+        "A houseguest the game gives as a LEAD ('last seen ...'): say it as a lead, what the player last saw, never as where they are now; the player can go and look or ask around. "
+        "A houseguest the game says nobody here knows about: say that nobody here knows where they are, and offer to look around the house or ask around; never guess a room, and never name the diary room or the HOH room as an answer. "
         "A houseguest the game says has not walked into the house yet is outside it (the premiere entrances): never place them in a room or behind a door. A houseguest in view can be walked to (the player chooses whether to go; do not march them there). Say nothing about what anyone is doing in there or "
         "who they are with - you are not told, so never invent it. Count only with the numbers above.")
     return "\n".join(lines)
@@ -6396,7 +6402,7 @@ _HOUSE_AWAKE_RE = re.compile(
     r"\bthe\s+house\s+(?:is|was)\s+(?:already\s+|now\s+)?(?:up|awake|stirring|alive|waking|moving)\b"
     r"|\bthe\s+house\s+(?:wakes|woke|stirs|stirred)\b"
     r"|\b(?:everyone|everybody)(?:'s|\u2019s|\s+is|\s+was)\s+(?:already\s+)?(?:up|awake)\b"
-    r"|(?<!\w)[\"\u201c']\s*(?:good\s+)?morning\b[,.!]?"  # an OPENING quote: never an apostrophe that follows a letter ("the twins' morning routine"; review of #2767)
+    r"|(?<!\w)[\"\u201c\u2018']\s*(?:good\s+)?morning\b[,.!]?"  # an OPENING quote: never an apostrophe that follows a letter ("the twins' morning routine"; review of #2767)
     r"|\bI\s+know\s+it(?:'s|\u2019s)\s+early\b"
     r"|\bwak\w+\s+to\s+(?:grey|gray|pale|golden|bright)\s+(?:morning\s+)?light\b",
     re.IGNORECASE,
@@ -7840,12 +7846,16 @@ def current_game_day(user) -> Optional[int]:
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
+_STAMP_REFRESH_TIMEOUT = 2.0  # seconds: the persist-time stamp refresh is best-effort and must stay short
+
+
 async def refresh_framed_game_stamps(user) -> None:
     """ORW-445: re-stamp the bubble's moment/week/day from a state read AFTER the turn's tools ran (persist time). The framing stash is read at the START of the turn, so a
     tool that moves the clock (a nap 11am -> 2pm) left the header one band behind. Fail-soft: any hiccup / pre-game / non-started read keeps the start-of-turn stamp, never blocks the save."""
     try:
         from src import orwell_engine
-        gs = await orwell_engine.get_game_state(user=user)
+        # Review of #2772: bounded, so a stalled engine read can never hold the save for the full framing timeout (the start-of-turn stamp stands).
+        gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
         if not isinstance(gs, dict) or not gs.get("started"):
             return
         key = user or "default"

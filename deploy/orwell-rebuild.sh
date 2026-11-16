@@ -16,7 +16,7 @@
 #
 # FAIL-SAFE ORDERING — it NEVER destroys the old container until BOTH are true:
 #   1. the deploy GIT_TOKEN was salvaged from the old data/.env (so the rebuild can fetch the
-#      private repo), AND
+#      repo with the deploy token, as every deploy does; the repo itself is public, ORW-426), AND
 #   2. a timestamped safety-net backup of the old data/ + frontend/data/ was written to the host.
 # If either fails, it ABORTS and leaves the old container completely untouched.
 #
@@ -157,7 +157,7 @@ ow_ok "UI port:  ${OLD_PORT}"
 ow_ok "app dir:  ${OLD_APP_DIR}"
 
 # ── 4. Salvage GIT_TOKEN (without ever printing it) ─────────────────────────────────────────────
-# Capture the deploy PAT from the old data/.env so the rebuild can fetch the private repo. The
+# Capture the deploy PAT from the old data/.env so the rebuild can fetch the repo the way every deploy does (the repo is public, ORW-426; the deploy path still uses a token). The
 # value is read into a variable over pct exec and NEVER echoed/logged; `set -x` is never enabled.
 # An explicit GIT_TOKEN=<pat> in the environment wins (lets an operator rebuild a box whose old
 # .env lost the token, e.g. a wedged container that won't `pct exec`).
@@ -222,7 +222,7 @@ fi
 # these are advisory (we change nothing regardless).
 if [[ "$DRY_RUN" -eq 0 ]]; then
   if [[ -z "$GIT_TOKEN" ]]; then
-    die "no GIT_TOKEN recovered — the rebuilt box could not fetch the private repo. NOTHING destroyed. Set GIT_TOKEN=<pat> and retry, or fix the old container's data/.env first."
+    die "no GIT_TOKEN recovered — the rebuilt box could not fetch the repo with the deploy token. NOTHING destroyed. Set GIT_TOKEN=<pat> and retry, or fix the old container's data/.env first."
   fi
   if [[ "$BACKUP_OK" -ne 1 ]]; then
     die "safety-net backup FAILED — refusing to destroy without a recoverable backup. NOTHING destroyed. Check ${BACKUP_DIR} is writable and the container is running, then retry."
@@ -281,7 +281,7 @@ PERMANENTLY DESTROYED (the whole container):
   • the front-end store (ALL accounts, chats, sessions, settings, uploads, portraits)
   • the LLM / provider configuration
 PRESERVED:
-  • ONLY the deploy GIT_TOKEN (so the new box can fetch the private repo)
+  • ONLY the deploy GIT_TOKEN (so the new box can fetch the repo the way every deploy does)
 Safety-net backup (kept regardless): ${BACKUP_TGZ}
 The rebuilt box lands at first-run OOBE — re-enter the LLM key once.
 EOF

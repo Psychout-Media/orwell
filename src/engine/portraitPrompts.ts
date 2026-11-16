@@ -10,6 +10,7 @@
  * no hidden-layer content. This module is the gate; the tests are the proof.
  */
 
+import { COMMON_WORD_NAMES } from "./commonWordNames";
 import type { PhysicalCharacteristics } from "../domain/physicalCharacteristics";
 import { genderPresentationPhrase } from "../domain/gender";
 import { fnv1a } from "../domain/num";
@@ -194,21 +195,23 @@ function spotOf(onCamera: string): string | undefined {
 }
 
 /** A word run that already carries its own grammatical subject: ", she stands", ". He grins", "; her gaze stays". */
-const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:he|she|they|his|her|their|the houseguest)\s+[a-z]+/i;
+const OWN_SUBJECT_RE = /(?:^|[,.;\u2014\u2013-])\s*(?:(?:he|she|they|the houseguest)\s+[a-z]+|(?:his|her|their)\s+[a-z]+\s+(?:[a-z]+s|is|are|was|were|has|have|stay|rest|stand)\b)/i; // a possessive is a subject only with its verb ("her gaze stays"), never "hands in his pockets" (review of #2781)
 const OPENS_WITH_SPOT_RE = /^(?:kitchen|living room|dining room|backyard|lounge|bedroom)\b/i;
 
-/** The plural form of a third-person singular verb ("stands" to "stand"), or undefined when it cannot be done safely. */
 /** Words ending in -s that are never a third-person verb after a name ("always stands"): a they/them line keeps them as they are. */
 const S_ADVERBS: ReadonlySet<string> = new Set([
   "always", "sometimes", "perhaps", "nevertheless", "besides", "otherwise", "towards", "afterwards", "backwards", "forwards", "upwards",
   "downwards", "regardless", "nowadays", "indoors", "outdoors", "overseas", "mostly", "thus", "anyways", "nonetheless", "meanwhile",
 ]);
+/** The plural form of a third-person singular verb ("stands" to "stand"), or undefined when it cannot be done safely. */
 export function pluralVerb(v: string): string | undefined {
   const w = v.toLowerCase();
   if (S_ADVERBS.has(w)) return undefined;
   const irregular: Record<string, string> = { is: "are", has: "have", does: "do", goes: "go", was: "were" };
   if (irregular[w] !== undefined) return irregular[w];
   if (!/^[a-z]+s$/.test(w) || /(?:ss|us|ous|ics)$/.test(w) || w.length < 4) return undefined;
+  if (w.length === 4 && /ies$/.test(w)) return w.slice(0, -1); // lies, ties, dies, vies: "lie", not "ly" (review of #2781)
+  if (/[^aeiou]uses$/.test(w) && w.length > 4) return undefined; // focuses, pauses, abuses: "focus" or "pause" cannot be told apart safely: the caller says "the houseguest"
   if (/[^aeiou]ies$/.test(w)) return w.slice(0, -3) + "y";
   if (/(?:ch|sh|x|z|ss|o)es$/.test(w)) return w.slice(0, -2);
   return w.slice(0, -1);
@@ -225,6 +228,9 @@ function theyThenVerb(rest: string): { text: string; ok: boolean } {
   return { text: m[1]! + m[2]! + keep + rest.slice(m[0].length), ok: true };
 }
 
+/** Words after which a name is the subject of a new clause ("... and Namea stands"). */
+const SUBJECT_INTRODUCERS: ReadonlySet<string> = new Set(["and", "but", "while", "as", "then", "when", "because", "so", "if", "that", "where", "though", "until"]);
+
 /** The houseguest's own first name never reaches the image provider: it becomes the pronoun (or the possessive). */
 function dropOwnName(t: string, ownName: string | undefined, subj: string): string {
   const first = (ownName ?? "").trim().split(/\s+/)[0] ?? "";
@@ -232,14 +238,20 @@ function dropOwnName(t: string, ownName: string | undefined, subj: string): stri
   const esc = first.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const poss = subj === "He" ? "his" : subj === "She" ? "her" : "their";
   const plural = subj === "They";
-  let out = t.replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, "gu"), poss);
-  const re = new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, "u");
+  // case-insensitive ("namea stands"), except for a given name that is also an everyday word ("May", "Will"): there only the capitalised form is the name
+  const flags = COMMON_WORD_NAMES.has(first.toLowerCase()) ? "u" : "iu";
+  let out = t.replace(new RegExp(`\\b${esc}(?:'s|\u2019s)(?![\\p{L}])`, `g${flags}`), poss);
+  const re = new RegExp(`\\b${esc}(?![\\p{L}\\p{N}_-])`, flags);
   for (let guard = 0, m = re.exec(out); m !== null && guard < 20; guard++, m = re.exec(out)) {
     const head = out.slice(0, m.index);
     const initial = head.trim() === "" || /[.!?]\s+$/.test(head);
     let rest = out.slice(m.index + m[0].length);
+    // the name is a SUBJECT at the start of a sentence or clause; after a verb or preposition ("the camera catches Namea") a subject pronoun would be ungrammatical, so use the safe wording
+    const prev = /([A-Za-z]+)\s*$/.exec(head)?.[1]?.toLowerCase();
+    const subjectPosition = initial || /[,;:\u2014\u2013(-]\s*$/.test(head) || (prev !== undefined && SUBJECT_INTRODUCERS.has(prev));
     let word: string;
-    if (!plural) word = initial ? subj : subj.toLowerCase();
+    if (!subjectPosition) word = "the houseguest";
+    else if (!plural) word = initial ? subj : subj.toLowerCase();
     else {
       const r = theyThenVerb(rest);
       if (r.ok) { word = initial ? "They" : "they"; rest = r.text; } else word = initial ? "The houseguest" : "the houseguest";

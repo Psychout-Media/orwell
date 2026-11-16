@@ -118,11 +118,23 @@ def plural_verb(v: str):
         return _IRREGULAR_PLURAL[w]
     if not re.fullmatch(r"[a-z]+s", w) or re.search(r"(?:ss|us|ous|ics)$", w) or len(w) < 4:
         return None
+    if len(w) == 4 and w.endswith("ies"):
+        return w[:-1]  # lies, ties, dies, vies: "lie", not "ly" (review of #2781)
+    if re.search(r"[^aeiou]uses$", w) and len(w) > 4:
+        return None  # focuses, pauses: "focus" or "pause" cannot be told apart safely: the caller says "the houseguest"
     if re.search(r"[^aeiou]ies$", w):
         return w[:-3] + "y"
     if re.search(r"(?:ch|sh|x|z|ss|o)es$", w):
         return w[:-2]
     return w[:-1]
+
+
+# Given names that are also everyday words or months: for these only the capitalised form is the name ("may" the verb is not). Same list as src/engine/commonWordNames.ts.
+_COMMON_WORD_NAMES = frozenset((
+    "may will grace hope summer faith mark art rose june april august dawn joy ivy pearl amber frank lane chase cliff drew gene guy hunter miles "
+    "autumn winter storm river sky rain bill jack rich ray jay pat griffin penny trinity violet wade willow").split())
+# Words after which a name is the subject of a new clause ("... and Namea stands").
+_SUBJECT_INTRODUCERS = frozenset("and but while as then when because so if that where though until".split())
 
 
 def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
@@ -132,21 +144,26 @@ def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
     phys = (profile or {}).get("physicalCharacteristics")
     cam = phys.get("onCamera") if isinstance(phys, dict) else None
     first = str((npc or {}).get("name") or "").split(" ")[0]
-    if not (isinstance(cam, str) and first and re.search(r"\b%s\b" % re.escape(first), cam)):
+    flags = 0 if first.lower() in _COMMON_WORD_NAMES else re.IGNORECASE  # "namea stands" is still the name; "may" the verb is not
+    if not (isinstance(cam, str) and first and re.search(r"\b%s\b" % re.escape(first), cam, flags)):
         return False
     pin = str((npc or {}).get("genderPresentation") or "").lower()
     subj, poss = {"man": ("he", "his"), "woman": ("she", "her")}.get(pin, ("they", "their"))
     plural = subj == "they"
     esc = re.escape(first)
-    out = re.sub(r"\b%s(?:'s|\u2019s)(?![^\W\d_])" % esc, poss, cam)
-    pat = re.compile(r"\b%s(?![^\W_-])" % esc)
+    out = re.sub(r"\b%s(?:'s|\u2019s)(?![^\W\d_])" % esc, poss, cam, flags=flags)
+    pat = re.compile(r"\b%s(?![^\W_-])" % esc, flags)
     for _ in range(20):
         m = pat.search(out)
         if not m:
             break
         head, rest = out[:m.start()], out[m.end():]
         initial = head.strip() == "" or re.search(r"[.!?]\s+$", head) is not None
-        if not plural:
+        pw = re.search(r"([A-Za-z]+)\s*$", head)
+        subject_position = initial or re.search(r"[,;:\u2014\u2013(-]\s*$", head) is not None or (pw is not None and pw.group(1).lower() in _SUBJECT_INTRODUCERS)
+        if not subject_position:
+            word = "the houseguest"  # after a verb or preposition ("the camera catches Namea"): a subject pronoun would be ungrammatical
+        elif not plural:
             word = subj.capitalize() if initial else subj
         else:
             vm = re.match(r"^(\s+)((?:(?:[A-Za-z]+ly|always|sometimes|often|never|perhaps)\s+)?)([A-Za-z]+)", rest)
@@ -255,6 +272,7 @@ class SeasonGate:
                "oncam_end": " ".join(_norm(phys.get("onCamera")).split()[-3:]),
                "ident_open": " ".join(_norm(card.get("identityConcept")).split()[:2]),
                "oncam_open": " ".join(_norm(phys.get("onCamera")).split()[:3]),
+               "hair_open": " ".join(_norm(phys.get("photoHair")).split()[:2]),
                "mark": ("" if _norm(phys.get("distinguishingMark")).startswith("none") else _norm(phys.get("distinguishingMark")))}  # "none notable" is the engine's deliberately repeated plain face, not a repeated mark
         # cast-level repetition: REPORT-ONLY codes (counted in the season line); the writer is told what is taken
         for code, key in (("rep-oncamera-end", "oncam_end"), ("rep-ident-open", "ident_open"), ("rep-mark", "mark")):
@@ -281,11 +299,11 @@ class SeasonGate:
 
     def taken_phrases(self, hid: str) -> dict:
         """What earlier cards in this cast already use, for the next writer's prompt (writer-side repetition fix)."""
-        out = {"oncamera_endings": [], "oncamera_openings": [], "identity_openers": [], "marks": []}
+        out = {"oncamera_endings": [], "oncamera_openings": [], "photohair_openings": [], "identity_openers": [], "marks": []}
         for o, r in self.registry.items():
             if o == hid:
                 continue
-            for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
+            for k, key in (("oncamera_endings", "oncam_end"), ("oncamera_openings", "oncam_open"), ("photohair_openings", "hair_open"), ("identity_openers", "ident_open"), ("marks", "mark")):
                 if r.get(key) and r[key] not in out[k]:
                     out[k].append(r[key])
         return {k: v for k, v in out.items() if v}

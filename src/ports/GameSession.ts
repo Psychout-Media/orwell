@@ -1890,18 +1890,14 @@ export interface MarkHouseguestMetOpts {
 export interface HouseSearchEntry {
   id: EntityId;
   name: string;
-  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "behind-door" | "told";
+  status: "here" | "awake" | "asleep" | "arriving" | "unseen" | "lead" | "unknown";
   /**
-   * The room id. ORW-462 (Kevin, 2026-11-15: the player is not omniscient): named only where the player can see (their own room and the rooms in sightline) or for the houseguest they are LOOKING FOR
-   * (`behind-door`: an unlocked room they can open and look into; `told`: the diary room or the HOH room, which a houseguest who knows says). Absent for everyone else ("unseen"), for a sleeper not being looked for,
-   * and for one who has not walked in yet at the premiere entrances.
+   * The room id. ORW-462 (Kevin, 2026-11-15: the game must not confirm where someone is if the player does not know): named only where the player can SEE now (their own room and the rooms in sightline), or, for the
+   * houseguest they are LOOKING FOR, as a `lead` from the player's own record (a witnessed "walked into X", or the last-known sighting in view): never confirmed. Absent for everyone else ("unseen"), for a houseguest nobody here
+   * can place (`unknown`), for a sleeper not being looked for, and for one who has not walked in yet at the premiere entrances.
    */
   room?: string;
-  /** ORW-462: what the player can do next ("open the door to the kitchen and look") - only on a `behind-door` entry. */
-  action?: string;
-  /** ORW-462: for a `told` entry (diary room / HOH room): who says so - an awake houseguest in the player's room, absent when the house's public knowledge is the source. */
-  toldBy?: NamedRef;
-  /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Absent for a sleeper. */
+  /** Can the player walk in? `closed` = a door that stays shut to the player (the HOH room while another houseguest holds it). Present only for a houseguest in view. */
   access?: "open" | "closed";
   /** The engine's ready-made sentence, e.g. "HOH room, door closed" / "bedroom A (open: the player can walk in)" / "asleep in bedroom B". The narrator quotes it. */
   fact: string;
@@ -2607,6 +2603,7 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
+/** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
 export interface HangOutView {
   /** false = nothing happened (no state change): see `reason`. */
@@ -3207,7 +3204,8 @@ export interface GameSession {
    * ADJACENT room. Grounds lingering play — "who's here? who's nearby?" has an engine answer the
    * narrator queries instead of inventing. `null` before a game starts (or once the player is out).
    */
-  whereabouts(opts?: { search?: boolean; lookingFor?: string }): WhereaboutsView | null;
+  /** `lookingFor` only means something on a search: it is typed so a named lookup cannot be passed without `search: true` (review of #2804). */
+  whereabouts(opts?: { search?: boolean; lookingFor?: undefined } | { search: true; lookingFor?: string }): WhereaboutsView | null;
 
   /**
    * The player walks to a room (L21/L24) — the player is a person, so THEY direct their movement;

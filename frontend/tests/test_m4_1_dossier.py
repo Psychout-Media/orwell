@@ -133,7 +133,7 @@ def test_dossier_route_never_leaks_a_vault_shaped_field(monkeypatch):
     assert body["found"] is True
     assert body["name"] == "Alex"
     assert "archetype" not in body["persona"]  # ORW-458: the mechanic label never reaches the dossier
-    assert body["persona"]["strategyStyle"] == "social"
+    assert "strategyStyle" not in body["persona"]  # ORW-466: nor does the strategy style
     assert body["persona"]["biography"] == "Loves puzzles."
     assert any(b["content"] == "Alex pulls you aside in the kitchen." for b in body["history"])
     assert body["deals"][0]["terms"] == "Won't nominate each other"
@@ -238,7 +238,7 @@ def test_public_persona_is_an_explicit_allowlist():
         "physicalCharacteristics": {"x": 1}, "voice": "raspy",
     }
     out = orwell_routes._public_persona(poisoned)
-    assert out == {"strategyStyle": "social"}  # ORW-458: the archetype is not on the allowlist
+    assert out == {}  # ORW-458 / ORW-466: neither the archetype nor the strategy style is on the allowlist
 
 
 def test_public_deal_is_an_explicit_allowlist():

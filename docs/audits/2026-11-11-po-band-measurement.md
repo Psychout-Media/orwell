@@ -43,7 +43,7 @@ Bar was hardened >= ~25% of the drifted set: met (100%). The "scripted arm yield
 
 ## Method
 
-- Instrument: `tests/calibration/calibrationPoTarget.test.ts` shard mode (`ORWELL_PO_ARM/FROM/TO/OUT`), 3 arms x 8 seed slices run in parallel (24 processes) on the 10.0.1.98 runner via `/home/ryne/orwell-locks/remote`; shards recombined with `summarize()` + `poViolations()`. Engine-only seeded sims through the production `composeRuntime`; **no model call of any kind**.
+- Instrument: `tests/calibration/calibrationPoTarget.test.ts` shard mode (`ORWELL_PO_ARM/FROM/TO/OUT`), 3 arms x 8 seed slices run in parallel (24 processes) on a build runner via `<rig home>/orwell-locks/remote`; shards recombined with `summarize()` + `poViolations()`. Engine-only seeded sims through the production `composeRuntime`; **no model call of any kind**.
 - Each config = `env` switches only (`=0` for default-on flags; `ORWELL_FLAGS_OFF=1` for all-off). Seeds 1..100, identical across configs.
 - Wall time: about 4.3 minutes per 100-seed x 3-arm config (about 12-14 CPU-seconds per season); the 300-seed run the plan calls for is about 13 minutes wall on that runner.
 - Harness fix (the only code change, `tests/calibration/calibrationArms.ts`): on a `held` advance, call `endHeldNight(..., { direct: true })` and set `ORWELL_BEDTIME_GATE=0`, exactly as `tests/property/juryReachShared.ts` does. The night HOLD stays on; only the narrator-facing bedtime refusal is off for the sim player. No assertion or band was touched. Consequence: these runs are on the default profile with the bedtime gate off.
