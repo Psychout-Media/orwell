@@ -1,6 +1,5 @@
+import { testTmpDir } from "../support/freshTmpDir";
 import { describe, it, expect } from "vitest";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -12,7 +11,7 @@ import { PLAYER, npc } from "../../src/domain/ids";
  * each store must be deep-equal after. A pre-change save (those keys absent) round-trips with the keys still absent (no spurious empty maps). Mutation: drop any one map from the snapshot => red.
  * Roles only.
  */
-const dir = (): string => mkdtempSync(join(tmpdir(), "orwell-b20-"));
+const dir = (): string => testTmpDir("orwell-b20-");   // removed when its test ends
 type Live = Record<string, unknown> & { npcMemory?: unknown; beliefs?: unknown; assurances?: unknown; voteRecord?: unknown; deducedCulprits?: unknown };
 type Sess = { live: Live; copresenceToldLedger(): { record(h: string, f: string, l: string, t: unknown): boolean; snapshot(): unknown }; noteMessage(r: { messageId: string }): unknown; snapshot(): { live?: Live; seenMessageIds?: string[]; toldLedger?: unknown } };
 
