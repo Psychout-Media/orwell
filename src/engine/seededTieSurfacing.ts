@@ -15,10 +15,9 @@
  * coming to know it. The sealed reason the two know each other never crosses; only that the house has
  * started to read them as close.
  *
- * CALIBRATION (sacred — mandate #4): this is TEXTURE, never the spine, and it is OPT-IN.
- *   • The caller (`GameSessionAdapter.advanceSeededTies`) runs this ONLY behind the default-OFF
- *     `ORWELL_SEEDED_TIE_SURFACING` flag, so the seeded juryReach / gradient / UAT sims (which set it
- *     nowhere) never enter this code at all — the off-screen tick is byte-identical to the pre-feature
+ * CALIBRATION (sacred — mandate #4): this is TEXTURE, never the spine, and it is gated by a flag (default ON; `=0` turns it off).
+ *   • The caller (`GameSessionAdapter.advanceSeededTies`) runs this ONLY behind the
+ *     `ORWELL_SEEDED_TIE_SURFACING` flag (default ON; `=0` turns it off), so the seeded juryReach / gradient / UAT sims that run with it off never enter this code at all — the off-screen tick is byte-identical to the pre-feature
  *     build (no extra draw, no extra event, no fold).
  *   • Even when ON, every roll here is on the caller's DEDICATED rng (off the game seed + a tick
  *     counter), never the shared society/competition/vote stream.
