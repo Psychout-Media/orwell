@@ -49,6 +49,15 @@ describe("a pull-them-in goal forms an alliance with its target (ORW-341)", () =
     expect(allied(s, holder, target)).toBe(true);
   });
 
+  it("ORW-507: a holder who already founded a full alliance does not found a second one to pull a target in", async () => {
+    const { s, holder, target, bond, goal, give, rng } = await setup();
+    const crew = s.livingIds().filter((i) => i !== PLAYER && i !== holder && i !== target).slice(0, ALLIANCE.maxNpcSize - 1);
+    s.alliances.add("Full", holder, crew, 1);
+    bond(holder, target, 0.7); give(goal("pull-them-in", holder, target));
+    s.formNpcAlliances(rng());
+    expect(s.alliances.all().filter((x) => x.founder === holder)).toHaveLength(1);
+  });
+
   it("an unwilling target never joins (the consent holds)", async () => {
     const { s, holder, target, bond, goal, give, rng } = await setup();
     bond(holder, target, 0.3); give(goal("pull-them-in", holder, target));
