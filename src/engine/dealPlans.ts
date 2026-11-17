@@ -60,14 +60,15 @@ export const DEAL_PLANS = {
   cultureLean: 0.25,
 } as const;
 
-/** The plans each deal kind allows when the holder is two-faced (the first is the one a "now" roll favours). */
-const TWO_FACED: Readonly<Record<string, readonly PlanKind[]>> = {
-  safety: ["break-at", "this-week"],
-  vote: ["flip"],
-  "final-two": ["cut-final-three", "break-at", "this-week"],
-  "target-other": ["break-at", "this-week"],
-  "protect-third": ["break-at", "this-week"],
-};
+/** The share of two-faced plans of each shape, by deal kind (engine mechanics, never player text). A vote deal is always a flip; the rest split on one roll. */
+const PLAN_SHARES = {
+  /** safety / target-other / protect-third: this share break at the moment the deal was meant to cover; the rest keep it this week only. */
+  breakNowShare: 0.5,
+  /** final-two: this share cut at the final three, then this share break at a later vote; the rest keep it this week only. */
+  cutShare: 1 / 3,
+  laterBreakShare: 1 / 3,
+} as const;
+const TWO_FACED_KINDS: ReadonlySet<DealKind> = new Set<DealKind>(["safety", "vote", "final-two", "target-other", "protect-third"]);
 
 export interface PlanInputs {
   kind: DealKind;
@@ -97,13 +98,16 @@ export function twoFacedChance(i: PlanInputs): number {
 
 /** Decide the plan: `rolls.twoFaced` decides keep vs two-faced, `rolls.which` picks among the plans the kind allows. Deterministic in its inputs. */
 export function decidePlan(i: PlanInputs, rolls: { twoFaced: number; which: number }): DealPlan {
-  const options = TWO_FACED[i.kind];
-  if (!options || !(rolls.twoFaced < twoFacedChance(i))) return { kind: "keep" };
-  const kind = options[Math.min(options.length - 1, Math.floor(clamp01(rolls.which) * options.length))]!;
-  if (kind === "break-at") return { kind, moment: { week: i.week + (i.kind === "final-two" ? 1 + Math.floor(clamp01(rolls.which) * 3) : 0), at: i.kind === "final-two" ? "vote" : "nominations" } };
-  if (kind === "this-week") return { kind, moment: { week: i.week + 1, at: "nominations" } };
-  if (kind === "flip") return { kind, moment: { week: i.week, at: "vote" } };
-  return { kind };
+  if (!TWO_FACED_KINDS.has(i.kind) || !(rolls.twoFaced < twoFacedChance(i))) return { kind: "keep" };
+  const r = clamp01(rolls.which);
+  if (i.kind === "vote") return { kind: "flip", moment: { week: i.week, at: "vote" } };
+  if (i.kind === "final-two") {
+    if (r < PLAN_SHARES.cutShare) return { kind: "cut-final-three" };
+    if (r < PLAN_SHARES.cutShare + PLAN_SHARES.laterBreakShare) return { kind: "break-at", moment: { week: i.week + 1 + Math.floor(((r - PLAN_SHARES.cutShare) / PLAN_SHARES.laterBreakShare) * 3), at: "vote" } };
+    return { kind: "this-week", moment: { week: i.week + 1, at: "nominations" } };
+  }
+  if (r < PLAN_SHARES.breakNowShare) return { kind: "break-at", moment: { week: i.week, at: "nominations" } };
+  return { kind: "this-week", moment: { week: i.week + 1, at: "nominations" } };
 }
 
 /** Record a plan (append-only: an existing plan for the same deal and holder is never replaced). */
