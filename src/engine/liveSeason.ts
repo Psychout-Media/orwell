@@ -899,6 +899,8 @@ export interface LiveSeasonState {
    * bookkeeping of already-broadcast events; persisted (0030); legacy saves default to empty.
    */
   resume?: Record<EntityId, number>;
+  /** 0193: the endgame weeks whose final-two promises were tested out loud (once each). Engine-only. */
+  endgameTested?: number[];
   /** This week's drawn veto comp (def id) — held across a Houseguest's-Choice pause so the resume runs the SAME comp. */
   vetoComp?: string;
   /**
@@ -1214,6 +1216,8 @@ export interface SeasonCtx {
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /** 0154 (caught in a lie): the eviction count is PUBLIC (who left, how many votes read "evict", who was eligible to vote) - never a ballot. The adapter catches any "I voted to keep you" the count rules out. Absent => nothing. */
   evictionCountPublic?: (tally: { evictee: EntityId; evictVotes: number; voters: readonly EntityId[] }) => void;
+  /** 0193 (ORW-623): at four left or fewer, "can I beat you?" as a push on evicting / nominating `target` (+ = the decider can't beat them). Absent => 0 => byte-identical. */
+  endgameFor?: (target: EntityId, decider: EntityId) => number;
   /** B4 slice 8: the HOH's nominations are final and did NOT include the houseguests they had assured 'safe'/'loyal' - those assurances were KEPT (resolved + the assured remembers a favor, by the adapter). */
   assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
   /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
@@ -2334,6 +2338,8 @@ export function voteChoice(
     -((ctx.favorShieldFor?.(n, voter) ?? 0) * (ctx.dealTrustFor?.(voter, n) ?? 1)), // ORW-617: scaled by trust like a deal, so any holder's honored favor weighs the same
     // 0180 part 2: the herd - where this voter has heard the house is going (tips a close call only). Absent provider => 0 => byte-identical.
     ctx.herdFor?.(n, voter, fn) ?? 0,
+    // 0193 (ORW-623): at four left or fewer, the voter's own "can I beat you?" read. Absent provider => 0 => byte-identical.
+    ctx.endgameFor?.(n, voter) ?? 0,
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2351,7 +2357,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd", "endgame"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -3570,6 +3576,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
         ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181: someone the HOH truly likes is harder to put up
+        ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193: at four left, who the HOH can't beat goes up
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
         why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
       });
@@ -3876,6 +3883,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
+    ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193
     why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
 }

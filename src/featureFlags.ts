@@ -123,6 +123,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_TRAPS', key: 'traps', parser: 'defaultOn' },
   // 0180 / ORW-552 (Theme 3 slice 12 part 1): house norms - the house shuns a houseguest (or the player) it KNOWS broke their word (each observer's own held beliefs). `=0` = no shunning.
   { envKey: 'ORWELL_HOUSE_NORMS', key: 'houseNorms', parser: 'defaultOn' },
+  // 0193 / ORW-623: the endgame changes the rules of trust - at four left, "can I beat you?" pushes nominations and the vote, tilts reassurances toward faking, and final twos get tested out loud. `=0` = off.
+  { envKey: 'ORWELL_ENDGAME_TRUST', key: 'endgameTrust', parser: 'defaultOn' },
   // 0178 / ORW-552 (Theme 3 slice 1): two-faced deals - each NPC's secret plan for a deal it agreed to (keep / this week / break at a moment / flip at the vote / cut at the final three), carried out at its moment. `=0` = no plans.
   { envKey: 'ORWELL_DEAL_PLANS', key: 'dealPlans', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
