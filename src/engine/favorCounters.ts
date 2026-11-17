@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp01Raw as clamp01 } from "../domain/num";
 import { FAVOR } from "./favorConstants";
 
 /**
@@ -36,8 +37,6 @@ export interface CounterRound {
 export function counterStreamKey(seed: number | string, dealId: string, week: number, round: number): string {
   return `${seed}:favors:${dealId}:${week}:${round}`;
 }
-
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 
 /**
  * One side weighs what is in front of it. `incoming` is the ask the other side just made (none on round 1: the offer itself); `asked` is every target already asked in this negotiation, so a
