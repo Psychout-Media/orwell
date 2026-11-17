@@ -42,8 +42,42 @@ PROBLEM_WORDS = {
     "eyes-off": "eyes looking straight at the camera",
     "not-a-portrait": "a head-and-shoulders portrait photo",
     "missing-feature": "every stated visible feature (glasses, piercings, facial hair, hair colour, length and style)",
+    # ORW-480: the realism codes
+    "not-a-real-photo": "a real, unposed photograph with real skin texture, not a studio, stock, glossy or rendered look",
+    "bad-held-object": "natural hands and held objects with correct fingers, grip and shape, or nothing held",
+    "fake-clothes": "ordinary real garments with proper seams, fit and structure",
+    # ORW-480: a frame or border (a black edge, a film-scan rim) and a provider watermark
+    "frame-or-border": "a photograph that runs to all four edges: no frame, border, black edge or film-scan rim",
+    "watermark": "no watermark, sparkle, star or logo mark in any corner",
 }
 KNOWN_CODES = frozenset(PROBLEM_WORDS)
+
+
+def has_border(png: bytes) -> bool:
+    """A cheap, deterministic edge test (no model call): True when all four edges of the picture are one flat, very dark (or very light) band, as a black frame or a
+    film-scan rim is. Needs Pillow; without it, or on an unreadable image, False."""
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(png))
+        im.load()
+        im = im.convert("L")
+        im.thumbnail((256, 256))
+        w, h = im.size
+        t = max(2, int(min(w, h) * 0.03))
+        px = im.load()
+
+        def band(coords):
+            vals = [px[x, y] for x, y in coords]
+            mean = sum(vals) / len(vals)
+            sd = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+            return mean, sd
+        sides = (
+            band((x, y) for x in range(w) for y in range(t)), band((x, y) for x in range(w) for y in range(h - t, h)),
+            band((x, y) for x in range(t) for y in range(h)), band((x, y) for x in range(w - t, w) for y in range(h)),
+        )
+        return all(sd < 7 and (mean < 28 or mean > 238) for mean, sd in sides)
+    except Exception:  # failsoft-ok: best-effort-enrichment (no edge verdict: the vision check still looks)
+        return False
 
 
 def problems_in_words(codes: list) -> str:
@@ -181,9 +215,21 @@ def facts_from_prompt(prompt: str) -> dict:
         first = re.split(r",| and ", m.group(1))[0].strip()
         if first:
             facts["clothing"] = first[:120]
-    m = re.search(r"Setting: the house ([^,.]+)", prompt)
+    m = re.search(r"Setting: (?:the house )?([^,.]+)", prompt)
     if m:
         facts["spot"] = m.group(1).strip()[:80]
+    if "The moment:" in prompt and "Setting:" in prompt:
+        # ORW-480: a candid brief. The moment may be a laugh, mid-word, looking away, with loose hairs: those are not faults.
+        # Eyes on the lens only when the moment says so.
+        facts["candid"] = True
+        mm = re.search(r"The moment: ([^.]+)\.", prompt)
+        facts["moment"] = mm.group(1).strip()[:200] if mm else ""
+        if re.search(r"\b(?:into|at|on|toward|towards) the (?:lens|camera)\b", facts["moment"], re.I):
+            facts["eyes_on_camera"] = True
+        feats = visible_features(prompt)
+        if feats:
+            facts["features"] = feats
+        return facts
     seg = ""
     if "Setting:" in prompt:
         head = prompt.split("Setting:", 1)[0]
@@ -210,7 +256,9 @@ def facts_block(facts: dict) -> str:
     if facts.get("clothing"):
         lines.append(f"Main clothing piece: {facts['clothing']}")
     if facts.get("spot"):
-        lines.append(f"Spot: the house {facts['spot']}")
+        lines.append(f"Spot: {facts['spot']}" if facts.get("candid") else f"Spot: the house {facts['spot']}")
+    if facts.get("moment"):
+        lines.append(f"Intended moment (any of it is fine, including laughing, mid-word, looking away): {facts['moment']}")
     if facts.get("features"):
         lines.append("Stated visible features (each must be visible): " + ", ".join(facts["features"]))
     if facts.get("eyes_on_camera"):
@@ -227,14 +275,37 @@ _CHECKLIST = (
     "wrong-presentation (the clothes contradict the stated gender presentation), "
     "eyes-off (eyes not on the camera; only judge this when the facts say eyes on camera was asked), "
     "not-a-portrait (not a head-and-shoulders or waist-up portrait photo), "
-    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour, length or style, is not in the photo)"
+    "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour, length or style, is not in the photo), "
+    "frame-or-border (a black or white frame, border or film-scan edge around the picture), "
+    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner)"
 )
+
+
+_REALISM_CHECKLIST = (
+    "not-a-real-photo (it does not look like a real photograph: a glossy studio or stock-photo look, plastic or airbrushed skin, "
+    "a rendered or illustrated look, a blurred-away background that hides the place), "
+    "bad-held-object (hands or a held object look unnatural: wrong finger count, fused or bent fingers, a held thing with a wrong shape), "
+    "fake-clothes (the clothes are not real garments: impossible construction, melted seams, a collar or lapel that makes no sense, a lanyard or badge as costume), "
+    "frame-or-border (a black or white frame, border or film-scan edge around the picture), "
+    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner)"
+)
+# codes that do not apply to a candid brief: the moment may be a laugh or a glance, and loose hairs are asked for
+_CANDID_SKIPPED = ("messy-hair", "mouth-mid-word", "not-a-portrait")
+
+
+def _checklist_for(facts: dict) -> str:
+    base = _CHECKLIST
+    if facts.get("candid"):
+        base = ", ".join(part for part in re.split(r", (?=[a-z]+(?:-[a-z]+)+ \()", _CHECKLIST)
+                         if not part.startswith(_CANDID_SKIPPED))
+        return base + ", " + _REALISM_CHECKLIST
+    return base
 
 
 def build_request(model_id: str, image_url: str, facts: dict) -> dict:
     text = (
-        "You are a strict photo editor for a reality-TV cast portrait. Look at the photo and list only the "
-        "problems that are clearly present. Checklist codes: " + _CHECKLIST + ".\n\n"
+        "You are a strict photo editor for a reality-TV cast photo. Look at the photo and list only the "
+        "problems that are clearly present. Checklist codes: " + _checklist_for(facts) + ".\n\n"
         "Facts about who should be shown:\n" + facts_block(facts) + "\n\n"
         'Answer with JSON only, no other text: {"problems": ["code", ...]} (an empty list if the photo is fine).'
     )
@@ -293,7 +364,8 @@ def _parse_problems(data: dict) -> Optional[list]:
     return out
 
 
-def _record_spend(user, data: dict) -> None:
+def _record_spend(user, data: dict, call_class: str = CHECK_CALL_CLASS) -> Optional[float]:
+    """Ledger the call; return its dollar cost when the provider returned it (or it was estimated), else None."""
     try:
         from src import orwell_token_ledger
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
@@ -309,18 +381,19 @@ def _record_spend(user, data: dict) -> None:
                                            cached or 0, usage.get("completion_tokens") or 0)
             estimated = cost is not None
             if not estimated:
-                return  # an unpriced model has no honest dollar figure: never ledger a 0.0 cost as if it were measured
+                return None  # an unpriced model has no honest dollar figure: never ledger a 0.0 cost as if it were measured
         extra = {"cost_estimated": True} if estimated else {}
         orwell_token_ledger.record_turn(
-            user, call_class=CHECK_CALL_CLASS,
+            user, call_class=call_class,
             input_tokens=usage.get("prompt_tokens") or 0,
             cached_tokens=cached or 0,
             cache_miss_tokens=usage.get("prompt_cache_miss_tokens"),
             output_tokens=usage.get("completion_tokens") or 0,
             call_site="photo-check", model=str(data.get("model") or "") or None,
             cost=cost or 0.0, provider=CHECK_PROVIDER, **extra)
+        return float(cost) if cost is not None else None
     except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
-        pass
+        return None
 
 
 def _check_model_id(user) -> str:
@@ -367,14 +440,161 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
     data = resp.json()
     if not isinstance(data, dict):
         return None
-    _record_spend(user, data)
+    cost = _record_spend(user, data)
     problems = _parse_problems(data)
     if problems and facts.get("gender") == "nonbinary":
         # no clothing contradicts a nonbinary presentation: the rule has no meaning there (review of #2748)
         problems = [p for p in problems if p != "wrong-presentation"]
     if problems is None:
         return None
+    if cost is not None:
+        try:  # ORW-480: the check's cost joins the photo's running total for the attempt log (the verdict dict stays as it was)
+            from src import orwell_portraits as P
+            P._note_gen_cost(cost)
+        except Exception:  # failsoft-ok: observability
+            pass
     return {"ok": not problems, "problems": problems}
+
+
+# ── ORW-480: the cast-level look: ONE vision call over a contact sheet of the whole cast ─────────────────
+CAST_CALL_CLASS = "portrait-cast-check"
+CAST_RESHOOT_MAX = 3            # most photos one cast look may send back for a re-shoot (each is a paid image)
+_TILE = 256
+_COLS = 5
+_REPEAT_KINDS = ("prop", "pose", "room", "light")
+_REPEAT_MIN = {"prop": 2, "pose": 3, "room": 3, "light": 3}
+
+CAST_REASON_WORDS = {
+    "pair": "a clearly different face from the rest of the cast: another face shape, nose, eyes, brows and jaw than the others",
+    "prop": "no held object that other photos in the cast already show",
+    "pose": "a different pose from the others in the cast",
+    "room": "a different place from the others in the cast",
+    "light": "a different kind of light from the others in the cast",
+}
+
+
+def contact_sheet(pngs: list) -> Optional[str]:
+    """A numbered grid (1..n, left to right, top to bottom) of the cast photos as one JPEG data URL, or None without Pillow."""
+    try:
+        from PIL import Image, ImageDraw
+        rows = (len(pngs) + _COLS - 1) // _COLS
+        sheet = Image.new("RGB", (_COLS * _TILE, rows * _TILE), "white")
+        for i, png in enumerate(pngs):
+            im = Image.open(io.BytesIO(png))
+            im.load()
+            im = im.convert("RGB")
+            im.thumbnail((_TILE, _TILE))
+            x, y = (i % _COLS) * _TILE, (i // _COLS) * _TILE
+            sheet.paste(im, (x + (_TILE - im.width) // 2, y + (_TILE - im.height) // 2))
+            d = ImageDraw.Draw(sheet)
+            d.rectangle((x, y, x + 34, y + 26), fill="black")
+            d.text((x + 6, y + 6), str(i + 1), fill="white")
+        buf = io.BytesIO()
+        sheet.save(buf, "JPEG", quality=85)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # failsoft-ok: best-effort-enrichment (no sheet, no cast look; every photo stands)
+        return None
+
+
+def build_cast_request(model_id: str, image_url: str, n: int) -> dict:
+    text = (
+        f"This is a contact sheet of {n} reality-TV cast photos, numbered 1 to {n} (number in the top-left corner of each). "
+        "Each photo is a different person. Answer two things.\n"
+        "1) pairs: any two photos whose people look like the SAME person or near twins (face shape, nose, eyes, jaw), as number pairs.\n"
+        "2) repeats: anything shown too often across photos. kind is one of prop (the same held object on 2 or more photos), "
+        "pose (the same body pose on 3 or more), room (the same room or background on 3 or more), light (the same lighting on 3 or more). "
+        "Give the photo numbers that share it and a few words naming it.\n"
+        'Answer with JSON only, no other text: {"pairs": [[1, 2]], "repeats": [{"kind": "prop", "numbers": [3, 4], "what": "a white mug"}]}. '
+        "Use empty lists when there is nothing."
+    )
+    return {"model": model_id, "messages": [{"role": "user", "content": [
+        {"type": "text", "text": text}, {"type": "image_url", "image_url": {"url": image_url}}]}],
+        "temperature": 0, "max_tokens": 3000}
+
+
+def _parse_cast(data: dict, n: int) -> Optional[dict]:
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except Exception:
+        return None
+    if isinstance(content, list):
+        content = "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    if not isinstance(content, str) or not content.strip():
+        return None
+    m = re.search(r"\{.*\}", content, re.S)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+    except Exception:
+        return None
+    if not isinstance(obj, dict) or not isinstance(obj.get("pairs", []), list) or not isinstance(obj.get("repeats", []), list):
+        return None
+    ok_num = lambda x: isinstance(x, int) and not isinstance(x, bool) and 1 <= x <= n  # noqa: E731
+    pairs = [[a, b] for p in obj.get("pairs", []) if isinstance(p, list) and len(p) == 2
+             for a, b in [(p[0], p[1])] if ok_num(a) and ok_num(b) and a != b]
+    repeats = []
+    for r in obj.get("repeats", []):
+        if not isinstance(r, dict) or r.get("kind") not in _REPEAT_KINDS or not isinstance(r.get("numbers"), list):
+            continue
+        nums = sorted({x for x in r["numbers"] if ok_num(x)})
+        if len(nums) >= _REPEAT_MIN[r["kind"]]:
+            repeats.append({"kind": r["kind"], "numbers": nums, "what": str(r.get("what") or "")[:80]})
+    return {"pairs": pairs, "repeats": repeats}
+
+
+def cast_sends_back(result: dict, ids: list, spared: set, limit: int = CAST_RESHOOT_MAX) -> dict:
+    """{houseguest id: reason in words} of the photos to re-shoot: the LATER photo of each look-alike pair, and every photo
+    after the first of a repeat. A photo in `spared` (already re-shot once) is never sent back; at most `limit` in all."""
+    out: dict = {}
+    def add(num: int, key: str) -> None:
+        hid = ids[num - 1]
+        if hid not in spared and hid not in out and len(out) < limit:
+            out[hid] = CAST_REASON_WORDS[key]
+    for a, b in result.get("pairs", []):
+        add(max(a, b), "pair")
+    for r in result.get("repeats", []):
+        for num in r["numbers"][1:]:
+            add(num, r["kind"])
+    return out
+
+
+async def _cast_call(pngs: list, user) -> Optional[dict]:
+    import httpx
+    sheet = contact_sheet(pngs)
+    if sheet is None:
+        return None
+    model_id = _check_model_id(user)
+    url, headers = await asyncio.to_thread(_resolve_deepseek, model_id, user or None)
+    async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_S * 2) as client:
+        resp = await client.post(url, json=build_cast_request(model_id, sheet, len(pngs)), headers=headers)
+    if resp.status_code != 200:
+        logger.info("[portrait-check] cast http %s", resp.status_code)
+        return None
+    data = resp.json()
+    if not isinstance(data, dict):
+        return None
+    cost = _record_spend(user, data, call_class=CAST_CALL_CLASS)
+    result = _parse_cast(data, len(pngs))
+    if result is not None and cost is not None:
+        result["cost"] = cost
+    return result
+
+
+async def check_cast(pngs: list, user) -> Optional[dict]:
+    """ONE vision call over a contact sheet of the cast: {"pairs": [[i, j]], "repeats": [{kind, numbers, what}]} (1-based
+    photo numbers), or None when skipped (fail open). Never raises. Needs at least 3 photos."""
+    try:
+        from src import orwell_portraits as P
+        if P.image_gen_disabled() or not check_enabled(user) or len(pngs or []) < 3:
+            return None
+        return await asyncio.wait_for(_cast_call(pngs, user), timeout=CHECK_TIMEOUT_S * 2)
+    except BaseException as e:  # failsoft-ok: fail-open (the cast stands as shot)
+        if isinstance(e, (KeyboardInterrupt, SystemExit)) or (
+                isinstance(e, asyncio.CancelledError) and not isinstance(e, asyncio.TimeoutError)):
+            raise
+        logger.info("[portrait-check] cast look skipped: %s", type(e).__name__)
+        return None
 
 
 def check_enabled(user) -> bool:

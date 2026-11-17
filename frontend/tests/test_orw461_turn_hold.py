@@ -171,8 +171,12 @@ def test_a_turn_admitted_before_the_hold_is_counted_so_the_updater_waits_for_it(
         return {"started": True, "beatSeq": 10}
     monkeypatch.setattr(ws_routes, "_engine_state", _state)
 
+    import asyncio
+    gate = asyncio.Event()
+
     def _factory(d, canonical, user):
         async def _agen():
+            await gate.wait()   # alive and never registers a stream: the admission stays counted for as long as this run lives (ORW-491)
             yield H.sse_done()
         return _agen()
 
@@ -185,6 +189,7 @@ def test_a_turn_admitted_before_the_hold_is_counted_so_the_updater_waits_for_it(
         ws.client_send({"t": "turn", "ch": "chat", "cid": "c1", "d": {"message": "hello", "clientMsgId": "m-9", "expectedBeatSeq": 10}})
         await ws.recv_where(lambda f: f.get("t") == "ack" and f.get("cid") == "c1")
         assert "m-9" in ti._admitting and _inflight(tmp_path) == 1   # admitted: in the count until its stream registers (the stub never registers one)
+        gate.set()
         await H.stop(ws, t)
         await H.aclose_runs()
 

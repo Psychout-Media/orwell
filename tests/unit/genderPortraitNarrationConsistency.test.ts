@@ -14,7 +14,7 @@ import type { GameStateView } from "../../src/ports/GameSession";
  * inferred gender/pronouns from the name each turn — so the photo and the prose could disagree.
  *
  * These tests lock the regression closed: for every active houseguest the gender the PORTRAIT encodes
- * (ORW-380 v3: the subject noun man / woman / nonbinary person in the portrait's "Waist-up portrait of a N-year-old ..." sentence, `portraitGenderRe`) MUST equal the gender the
+ * (ORW-380 v3: the subject noun man / woman / nonbinary person in the portrait's "The subject is a N-year-old ..." sentence, `portraitGenderRe`) MUST equal the gender the
  * NARRATION voice-anchor encodes (`genderPresentationPhrase` + the pronoun set in `renderGameContext`), and BOTH
  * must derive from the same stored `genderPresentation`. Roles only — no fixture names asserted.
  */
@@ -27,9 +27,9 @@ function rosterLineFor(ctx: string, name: string): string | undefined {
 }
 
 /** ORW-380: the v3 portrait subject line carries the gender as man / woman / nonbinary person. */
-// Anchored on the subject sentence ("Waist-up portrait of a 31-year-old ... man with ..."), so freeform look text elsewhere in the prompt can never satisfy it.
+// Anchored on the subject sentence ("The subject is a 31-year-old ... man with ..."), so freeform look text elsewhere in the prompt can never satisfy it.
 const portraitGenderRe = (g: string): RegExp =>
-  g === "nonbinary" ? /Waist-up portrait of an? \d+-year-old [^.]*?nonbinary person with a soft androgynous look/ : new RegExp(`Waist-up portrait of an? \\d+-year-old (?:[A-Za-z -]+ )?${g} with`);
+  g === "nonbinary" ? /The subject is an? \d+-year-old [^.]*?nonbinary person with a soft androgynous look/ : new RegExp(`The subject is an? \\d+-year-old (?:[A-Za-z -]+ )?${g} with`);
 
 describe("#1140 — portrait and narration voice the SAME stored gender presentation", () => {
   it("every active houseguest's narration gender + pronouns match the portrait's gender, all from one facet", () => {

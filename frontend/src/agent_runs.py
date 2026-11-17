@@ -19,7 +19,7 @@ import json
 import logging
 import os
 import time
-from typing import AsyncGenerator, Dict, Optional
+from typing import AsyncGenerator, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,7 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
 
 
 def start(session_id: str, agen: AsyncGenerator[str, None], *, queue: bool = False,
-          lead_event: Optional[str] = None) -> _Run:
+          lead_event: Optional[str] = None, on_finish: Optional[Callable[[], None]] = None) -> _Run:
     """Start a detached run draining `agen` for a session.
 
     Default (plain chat): if a run is already in flight for this session (a rapid double-send), it is
@@ -261,6 +261,14 @@ def start(session_id: str, agen: AsyncGenerator[str, None], *, queue: bool = Fal
     if lead_event:
         _publish(run, lead_event)
     run.task = asyncio.create_task(_drain(session_id, agen, prev_task))
+    if on_finish is not None:
+        # ORW-491 admission hand-off hook: fires on EVERY end of this run's task (done, error, cancelled while queued or running, cancelled before its first step), exactly once.
+        def _fin(_t: "asyncio.Task") -> None:
+            try:
+                on_finish()
+            except Exception:  # noqa: BLE001 - a hook must never affect a run
+                logger.warning("[agent-run] on_finish hook failed", exc_info=True)
+        run.task.add_done_callback(_fin)
     return run
 
 
