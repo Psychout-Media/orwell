@@ -174,7 +174,7 @@ NON_BUMPING_WRITES = frozenset({
     # admin / sandbox levers and next-season warm-up: not turn-time writes, no beatSeq bump counted
     "configure", "overrideMechanic", "manageSandbox", "setTimeOfDay", "setBehavioralFlags", "preSeedNextSeason",
     # reads that are not in the read cache's PURE_READS
-    "getOffscreenSceneSkeletons", "dayLedger", "openLedgerHere", "groupsAwaitingWords", "allianceNameTickets", "recallSceneMemories", "seasonRetrospective", "sealedFromHouse",
+    "getOffscreenSceneSkeletons", "recordPromiseTerm", "dayLedger", "openLedgerHere", "groupsAwaitingWords", "allianceNameTickets", "recallSceneMemories", "seasonRetrospective", "sealedFromHouse",
     "knowledgeScopeManifest", "producerVault", "premiereIntros", "finaleView", "getPortraitPrompt", "sandboxHealth",
     "inspectNonVaultState", "getBehavioralFlags", "playerTagline", "worldSnapshotView", "endOfSessionSummary", "askProducers",
 })
