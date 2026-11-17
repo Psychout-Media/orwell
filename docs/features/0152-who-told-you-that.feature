@@ -1,5 +1,5 @@
 # Feature 0152 - "who told you that?" (theme 2, slice 4b).
-# Design note: 0152-what-you-hear.md. Plan: the vault note "Theme 2 Slice Plan", slice 4. Builds on 0149 (the claims core).
+# Design note: 0151-what-you-hear.md (covers both halves of slice 4). Plan: the vault note "Theme 2 Slice Plan", slice 4. Builds on 0149 (the claims core).
 # When the player is in the room, a houseguest who trusts them can pass on something they BELIEVE (a belief the engine holds for them, mistakes included),
 # hedged by how sure they are. The engine decides whether, what and how sure; the narrator only voices it. The player can then ask "who told you that?":
 # the engine decides whether the houseguest names their source or protects it, and the answer is the houseguest's BELIEF (their recorded source), which can be wrong.

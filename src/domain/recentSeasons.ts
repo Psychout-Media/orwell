@@ -33,7 +33,7 @@ const MAX_ITEM_CHARS = 120;
 
 export const emptyLedger = (): RecentSeasonsLedger => ({ version: 1, seasons: [] });
 
-const cleanList = (xs: unknown): string[] => {
+const cleanList = (xs: unknown, max = MAX_ITEMS_PER_KIND): string[] => {
   if (!Array.isArray(xs)) return [];
   const out: string[] = [];
   const seen = new Set<string>();
@@ -43,7 +43,7 @@ const cleanList = (xs: unknown): string[] => {
     if (!v || seen.has(v.toLowerCase())) continue;
     seen.add(v.toLowerCase());
     out.push(v);
-    if (out.length >= MAX_ITEMS_PER_KIND) break;
+    if (out.length >= max) break;
   }
   return out;
 };
@@ -96,4 +96,22 @@ export function factsOfCast(cards: ReadonlyArray<{ name?: string; vocation?: str
   return {
     names: pick((c) => c.name), hometowns: pick((c) => c.hometown), vocations: pick((c) => c.vocation), marks: pick((c) => mark(c.distinguishingMark)),
   };
+}
+
+/** The avoid lists as they cross the front-end/engine boundary: plain string arrays, same keys as `SeasonFacts`. */
+export type AvoidWire = { readonly [K in FactKind]?: readonly string[] };
+
+/** Read an avoid input from a tool call. Anything malformed is dropped (never an error); undefined when nothing is left. */
+export function avoidFromWire(raw: unknown): AvoidSets | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  // the wire list is every remembered season merged (up to LEDGER_WINDOW x the per-season cap): never cut the newest
+  const set = (k: FactKind): Set<string> => new Set(cleanList(o[k], LEDGER_WINDOW * MAX_ITEMS_PER_KIND).map((v) => v.toLowerCase()));
+  const out: AvoidSets = { names: set("names"), hometowns: set("hometowns"), vocations: set("vocations"), marks: set("marks"), phrases: set("phrases") };
+  return FACT_KINDS.some((k) => out[k].size > 0) ? out : undefined;
+}
+
+/** The wire form of a ledger's avoid sets (what the front end sends with preSeedCast and createCharacter). */
+export function avoidToWire(a: AvoidSets): AvoidWire {
+  return { names: [...a.names], hometowns: [...a.hometowns], vocations: [...a.vocations], marks: [...a.marks], phrases: [...a.phrases] };
 }

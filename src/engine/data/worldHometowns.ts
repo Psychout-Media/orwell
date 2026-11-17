@@ -12,7 +12,7 @@ import { buildTable, drawConstrained } from "./worldSampler";
 import { implausibleBecause, countRejection, type AcceptanceReport } from "./worldPlausibility";
 
 /** 1 = the world's own frequency. Slightly below 1 so the five largest cities do not take a third of all draws. */
-export const HOMETOWN_FLATTEN = 0.5;
+export const HOMETOWN_FLATTEN = 0.85;
 /** No more than this many of one state in a cast. */
 export const MAX_PER_STATE = 2;
 /** No more than this many of one place size class in a cast. */
