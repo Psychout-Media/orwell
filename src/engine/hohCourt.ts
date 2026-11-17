@@ -156,3 +156,22 @@ export function thirdPersonImpact(kind: string, persuasiveness: number, suscepti
   const sway = Math.max(THIRD_PERSON_SWAY.min, Math.min(THIRD_PERSON_SWAY.max, 0.5 + clamp01(persuasiveness) * 0.5 + clamp01(susceptibility) * 0.5));
   return { affinity: base.affinity * sway, threat: base.threat * sway };
 }
+
+/**
+ * ORW-610 (owner ruling 2026-11-17): the engine never acts for the player. The player's OWN recorded talk to the sitting HOH this week (pleading for safety, campaigning, naming someone) counts as a pitch
+ * on the same terms as an NPC's. Until ORW-609 lands a recorded scene kind and actor, a talk counts when the scene's kind is one of the persuasion-like engine keys (or it named a third person).
+ * ORW-609 replaces `isPitchLikeTalk` with its recorded scene kind. Pure.
+ */
+export const PLAYER_PITCH = { talkKinds: ["strategy", "alliance", "conflict"] as readonly string[], perTalk: 0.5 } as const;
+export interface PlayerPitchRecord { week: number; hoh: EntityId; talks: number; named?: EntityId }
+export const isPitchLikeTalk = (kind: string | undefined, named: EntityId | undefined): boolean => named !== undefined || (kind !== undefined && PLAYER_PITCH.talkKinds.includes(kind));
+export function foldPlayerTalk(prev: PlayerPitchRecord | undefined, week: number, hoh: EntityId, named: EntityId | undefined): PlayerPitchRecord {
+  const same = prev && prev.week === week && prev.hoh === hoh;
+  return { week, hoh, talks: (same ? prev.talks : 0) + 1, ...(named !== undefined ? { named } : same && prev.named !== undefined ? { named: prev.named } : {}) };
+}
+/** The pitch the player's own talk makes to `holder` this week, or none. A named third person makes it an information pitch against them; otherwise a plea for safety. */
+export function playerPitchFrom(rec: PlayerPitchRecord | undefined, week: number, holder: EntityId): { kind: "safety" | "info"; strength: number; targets?: EntityId } | undefined {
+  if (!rec || rec.week !== week || rec.hoh !== holder) return undefined;
+  const strength = clamp01(rec.talks * PLAYER_PITCH.perTalk);
+  return rec.named !== undefined ? { kind: "info", strength, targets: rec.named } : { kind: "safety", strength };
+}

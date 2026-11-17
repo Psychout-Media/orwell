@@ -115,9 +115,11 @@ Then("status: the loaded session holds the order and its history the saved one h
 });
 
 Given("a status season where the player is the one in danger", function () { bag(this).sb = played(9, true, { hours: 3 }); });
-Then("status: the player carries the same protective pitch an NPC would, weighed and never voiced", function () {
+Then("status: the player is not pitched for automatically, and their own talk to the HOH counts as a pitch", function () {
   const sb = bag(this).sb!, s = priv(sb.session), hoh = s.house.npcs[0]!.id;
-  setEdge(sb.session, hoh, "player", { threat: 0.8, trust: 0.9 });
+  s.live.hoh = hoh; setEdge(sb.session, hoh, "player", { threat: 0.8, trust: 0.9 });
+  assert.equal(s.derivePitches(hoh).some((p) => p.from === "player"), false);
+  (sb.session as unknown as { notePlayerTalk(w: string[], k: string, n?: string): void }).notePlayerTalk([hoh], "strategy");
   assert.equal(s.derivePitches(hoh).find((p) => p.from === "player")?.protects, "player");
   assert.ok(s.pitchTiltFor("player", hoh) < 0);
 });

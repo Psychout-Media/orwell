@@ -627,6 +627,8 @@ export interface LiveSeasonState {
   tenure?: import("./territory").Tenure;
   /** 0173 (Theme 3 slice 11): the hidden pecking order (coarse tiers), the informal leader and lieutenants, any open vacuum, and the history. VAULT-CLASS, engine-only, monotonic count, never projected. A played game only. */
   status?: import("./hohCourt").StatusRecord;
+  /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
+  playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];

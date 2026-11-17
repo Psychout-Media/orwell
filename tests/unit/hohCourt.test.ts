@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveStatus, advanceStatus, vacuumSplit, tierOf, courtPull, thirdPersonImpact, emptyStatus, HOH_COURT, type StatusRecord } from "../../src/engine/hohCourt";
+import { playerPitchFrom, foldPlayerTalk, isPitchLikeTalk, deriveStatus, advanceStatus, vacuumSplit, tierOf, courtPull, thirdPersonImpact, emptyStatus, HOH_COURT, type StatusRecord } from "../../src/engine/hohCourt";
 import { formGoalCampaigns, deriveDrive } from "../../src/engine/campaigns";
 import { deriveNpcCompIntent } from "../../src/engine/liveSeason";
 import { hashSeed } from "../../src/engine/characterFactory";
@@ -203,18 +203,30 @@ describe("the live game (played, engine-only)", () => {
     expect(mine[0]).toMatchObject({ target: b, goal: "evict" });
     expect(s.campaigns.filter((c) => !c.id.endsWith(":goal") && c.status === "active").length).toBeLessThanOrEqual(4);
   });
-  it("the player plugged in: the player carries the same protective pitch, weighed but never voiced", () => {
+  it("the player is never pitched for automatically; their OWN talk to the HOH counts as a pitch on the NPC terms, weighed and never voiced", () => {
     const sb = played(9, true, { hours: 3 });
     const s = priv(sb.session);
-    const hoh = s.house.npcs[0]!.id;
+    const hoh = s.house.npcs[0]!.id, other = s.house.npcs[1]!.id;
+    s.live.hoh = hoh;
     setEdge(sb.session, hoh, "player", { threat: 0.8, trust: 0.9 });
-    const from = s.derivePitches(hoh).map((p) => p.from);
-    expect(from).toContain("player");
-    expect(s.derivePitches(hoh).find((p) => p.from === "player")!.protects).toBe("player");
+    expect(s.derivePitches(hoh).map((p) => p.from), "no automatic pitch for the player").not.toContain("player");
+    (sb.session as unknown as { notePlayerTalk(w: string[], k: string | undefined, n: string | undefined): void }).notePlayerTalk([hoh], "bonding", undefined);
+    expect(s.derivePitches(hoh).map((p) => p.from), "a bonding chat is not a pitch").not.toContain("player");
+    (sb.session as unknown as { notePlayerTalk(w: string[], k: string | undefined, n: string | undefined): void }).notePlayerTalk([hoh], "strategy", undefined);
+    const plea = s.derivePitches(hoh).find((p) => p.from === "player")!;
+    expect(plea).toMatchObject({ kind: "safety", protects: "player" });
     expect(s.pitchTiltFor("player", hoh)).toBeLessThan(0);
-    const off = played(9, false, { hours: 3 });
-    setEdge(off.session, priv(off.session).house.npcs[0]!.id, "player", { threat: 0.8, trust: 0.9 });
-    expect(priv(off.session).derivePitches(priv(off.session).house.npcs[0]!.id).map((p) => p.from)).not.toContain("player");
+    (sb.session as unknown as { notePlayerTalk(w: string[], k: string | undefined, n: string | undefined): void }).notePlayerTalk([hoh], "strategy", other);
+    const named = s.derivePitches(hoh).find((p) => p.from === "player")!;
+    expect(named.strength).toBeGreaterThan(plea.strength - 1e-9);
+    expect(s.derivePitches(hoh).find((p) => p.from === "player")).toMatchObject({ kind: "info", targets: other });
+    expect(s.pitchTiltFor(other, hoh)).toBeGreaterThan(0);
+    // a talk to somebody else, a talk in a later week, and the flag off all count for nothing
+    s.live.week += 1;
+    expect(s.derivePitches(hoh).map((p) => p.from)).not.toContain("player");
+    const off = played(9, false, { hours: 3 }); const so = priv(off.session); const h2 = so.house.npcs[0]!.id; so.live.hoh = h2;
+    (off.session as unknown as { notePlayerTalk(w: string[], k: string | undefined, n: string | undefined): void }).notePlayerTalk([h2], "strategy", undefined);
+    expect(so.derivePitches(h2).map((p) => p.from)).not.toContain("player");
   });
   it("when the player is HOH the houseguests who would lobby come to them, as approaches (not recorded as the player's own acts)", () => {
     const sb = played(9, true, { hours: 3 });

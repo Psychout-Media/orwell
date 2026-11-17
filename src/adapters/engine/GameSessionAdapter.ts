@@ -291,7 +291,7 @@ import { traitContradictions, repairHeightBuild } from "../../domain/traitConsis
 import { PLAYER } from "../../domain/ids";
 import { pairBondMult } from "../../engine/homophily";
 import { bumpTenure, sharedTopRoom, territoryNudge } from "../../engine/territory";
-import { deriveStatus, advanceStatus, vacuumSplit, courtPull, thirdPersonImpact, HOH_COURT, type StatusRecord } from "../../engine/hohCourt";
+import { isPitchLikeTalk, foldPlayerTalk, playerPitchFrom, deriveStatus, advanceStatus, vacuumSplit, courtPull, thirdPersonImpact, HOH_COURT, type StatusRecord } from "../../engine/hohCourt";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
@@ -1355,11 +1355,10 @@ export class GameSessionAdapter implements GameSession {
       const cunning = Math.max(0, Math.min(1, npc.character.stats.mental));
       pitches.push({ from: id, kind: chooseOffer({ loyalty, cunning, chaos: 1 - loyalty }), strength: threat, protects: id });
     }
-    // ORW-610 (the player plugged in): the rule is the same for everyone. The player, when the HOH reads them as a threat, carries the same protective pitch an NPC does. It is only WEIGHED (the tilt):
-    // it is never recorded as something the player said or did, and it never becomes a deal (the engine does not speak for the player).
-    if (this.hohCourtOn() && holder !== PLAYER && !evicted.has(PLAYER)) {
-      const threat = Math.max(0, Math.min(1, this.rel.edge(holder, PLAYER).threat));
-      if (threat > 0) pitches.push({ from: PLAYER, kind: "safety", strength: threat, protects: PLAYER });
+    // ORW-610 (owner ruling 2026-11-17): the engine never acts for the player. Only the player's OWN recorded talk to this HOH this week counts as a pitch, on the same terms as an NPC's (weighed, never voiced).
+    if (this.hohCourtOn() && holder !== PLAYER && !evicted.has(PLAYER) && this.live) {
+      const mine = playerPitchFrom(this.live.playerPitch, this.live.week, holder);
+      if (mine) pitches.push({ from: PLAYER, kind: mine.kind, strength: mine.strength, ...(mine.targets ? { targets: mine.targets } : { protects: PLAYER }) });
     }
     return pitches;
   }
@@ -6556,6 +6555,12 @@ export class GameSessionAdapter implements GameSession {
         }
       }
     }
+  }
+  /** ORW-610: the player's own recorded talk with these houseguests (called by the recorded-interaction path). Counts when the sitting HOH was in it and it was pitch-like. Played games only; flag-gated. */
+  notePlayerTalk(withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined): void {
+    const s = this.live;
+    if (!this.hohCourtOn() || !s?.hoh || s.hoh === PLAYER || !withIds.includes(s.hoh) || !isPitchLikeTalk(kind, named)) return;
+    s.playerPitch = foldPlayerTalk(s.playerPitch, s.week, s.hoh, named);
   }
   /** 0173: engine-only read of a houseguest's coarse tier, the informal leader and the lieutenants (tests and later engine slices; never a tool, never projected). */
   statusRead(): { tiers: Readonly<Record<EntityId, number>>; leader?: EntityId; lieutenants: readonly EntityId[]; vacuumSince?: number; count: number; history: StatusRecord["history"] } | undefined {

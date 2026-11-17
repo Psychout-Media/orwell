@@ -113,6 +113,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // Phase 2 of "the player can play offense" (0085 follow-on): a LANDED evict-shaped pitch the player
   // makes (recordInteraction's aboutEdges, Phase 1) folds into the player's OWN persistent campaign,
   // mirroring formCampaigns/advanceCampaign/campaignTilt — self-gated by the session's own campaign flag.
+  commands.setPlayerTalkNote((withIds, kind, named) => session.notePlayerTalk(withIds, kind, named));
   commands.setPlayerCampaignFold((target, holder) => session.foldPlayerCampaignMove(target, holder));
   // #1419 — the player-side social-fatigue fold: a recorded scene's INITIATOR moves the needle
   // ASYMMETRICALLY when sleep-deprived (WARMING folds dampened, SOURING amplified — "harder to scheme

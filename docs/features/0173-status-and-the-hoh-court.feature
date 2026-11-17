@@ -41,7 +41,7 @@ Feature: The house has a hidden pecking order, courts the HOH, and scrambles whe
 
   Scenario: The player is plugged in to the court
     Given a status season where the player is the one in danger
-    Then status: the player carries the same protective pitch an NPC would, weighed and never voiced
+    Then status: the player is not pitched for automatically, and their own talk to the HOH counts as a pitch
     And status: when the player is HOH the houseguests who would lobby come to them as approaches
 
   Scenario: A third-person action moves the listener
