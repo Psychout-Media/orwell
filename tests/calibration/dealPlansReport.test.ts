@@ -14,6 +14,7 @@ type Deal = { id: string; parties: string[]; madeWeek?: number };
 
 describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
   it("prints the rate of two-faced plans, by kind and by deals made before", async () => {
+    const byParty: Record<string, { n: number; twoFaced: number }> = {};
     const byKind: Record<string, number> = {}, byCount: Record<string, { n: number; twoFaced: number }> = {}, outcomes: Record<string, number> = {};
     let total = 0;
     const perSeed: string[] = [];
@@ -27,6 +28,8 @@ describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
           const idx = deals.findIndex((d) => d.id === dealId);
           for (const [holder, p] of Object.entries(byHolder)) {
             total++;
+            const party = deals[idx]?.parties.includes("player") ? "npc-to-player" : "npc-to-npc";
+            const bp = (byParty[party] ??= { n: 0, twoFaced: 0 }); bp.n++; if (p.kind !== "keep") bp.twoFaced++;
             byKind[p.kind] = (byKind[p.kind] ?? 0) + 1;
             outcomes[`${p.kind}:${p.outcome ?? "pending"}`] = (outcomes[`${p.kind}:${p.outcome ?? "pending"}`] ?? 0) + 1;
             const before = deals.slice(0, Math.max(0, idx)).filter((d) => d.parties.includes(holder)).length;
@@ -43,6 +46,7 @@ describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
     console.log(`DEALPLANS seeds=${N} plans=${total} two-faced=${pct(total - (byKind.keep ?? 0), total)}% by-kind ${JSON.stringify(byKind)}`);
     console.log(`DEALPLANS by deals-made-before: ${Object.entries(byCount).sort().map(([k, v]) => `${k}: ${pct(v.twoFaced, v.n)}% of ${v.n}`).join(" | ")}`);
     console.log(`DEALPLANS outcomes ${JSON.stringify(outcomes)}`);
+    console.log(`DEALPLANS by party: ${Object.entries(byParty).map(([k, v]) => `${k}: ${pct(v.twoFaced, v.n)}% of ${v.n}`).join(" | ")}`);
     console.log(`DEALPLANS two-faced share per season: ${perSeed.join(" | ")}`);
   }, 3_600_000);
 });
