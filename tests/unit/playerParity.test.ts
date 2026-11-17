@@ -149,12 +149,9 @@ describe("deals: the player's breaks and keeps are costed like any houseguest's"
     expect(r.b).toEqual(r.a);
   });
 
-  // ASYMMETRY (reported, not fixed here): GameSessionAdapter.sealedBreak (src/adapters/engine/GameSessionAdapter.ts:14758)
-  // returns false whenever the BREAKER is the player. A deal broken by an NPC's SECRET eviction ballot is shared across
-  // every voter who could have cast it (#1963, no jury demerit, no named memory), but the same break by the PLAYER's
-  // secret ballot lands the full, attributed betrayal + demerit + "deal-broken" memory on the player — the wronged NPC
-  // effectively learns how the player voted. `it.fails` until the rule (or a ruling) settles it.
-  it.fails("a deal broken by a SECRET eviction ballot is sealed the same whether the breaker is the player or an NPC", () => {
+  // Found by this suite and FIXED in ORW-615: `sealedBreak` used to exempt the player as breaker, so the wronged NPC in effect learned how the player
+  // voted (full attributed betrayal + demerit + "deal-broken" memory). The player's secret ballot is now sealed like anyone's.
+  it("a deal broken by a SECRET eviction ballot is sealed the same whether the breaker is the player or an NPC", () => {
     const sb = new GameSessionRegistry().sandboxFor(`parity-sealed-${Math.random()}`);
     sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
     sb.session.advanceGame(); sb.session.advanceGame();
@@ -264,13 +261,9 @@ describe("live loop: the player's acts settle the same promises as an NPC's", ()
     expect(row[PLAYER]).toEqual(row[sender]);
   });
 
-  // ASYMMETRY (reported, not fixed here): an NPC HOH's nominations settle the HOH's casual assurances
-  // (src/engine/liveSeason.ts:3454-3455, and :284-286 on the staged ceremony), but the PLAYER HOH's nominations do not
-  // (applyDecision "nominations", src/engine/liveSeason.ts:3887-3899, and the `fromPlayer` skip at :284). The same gap
-  // covers the player HOH's replacement nominee (:268 `!o.fromPlayer`, and the plain path at :3979-3983). So a player who
-  // assured a houseguest "you're safe" and then nominated them pays nothing, where an NPC HOH pays the assured's trust and
-  // a grudge. `it.fails` until a fix or a ruling.
-  it.fails("the HOH's nominations break (and keep) the HOH's assurances whether the HOH is an NPC or the player", () => {
+  // Found by this suite and FIXED in ORW-615: the player HOH's nominations and replacement (staged and plain paths) used to skip the assurance settlement,
+  // so a player who told a houseguest "you're safe" and then nominated them paid nothing where an NPC HOH pays the assured's trust and a grudge.
+  it("the HOH's nominations break (and keep) the HOH's assurances whether the HOH is an NPC or the player", () => {
     const calls = (hohIsPlayer: boolean): string[] => {
       const { s, ctx } = liveHouse(3);
       const log: string[] = [];

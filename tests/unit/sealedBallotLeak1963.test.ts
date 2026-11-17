@@ -133,14 +133,16 @@ describe("the live adapter wires the sealed predicate and the suspects (#1963)",
     expect(sealed.manner).toBeUndefined(); // no demerit names them
   });
 
-  it("the PLAYER's own vote is never sealed from themselves: the break lands on the player alone", () => {
+  it("ORW-615: the PLAYER's secret ballot is as secret from the wronged houseguest as anyone's: the break is shared across every voter who could have cast it", () => {
     const { rel, ids, p } = house(72);
     const [w, v1] = [ids[0]!, ids[2]!];
     p.live.eviction = { voteOf: { [PLAYER]: w, [v1]: w } } as never;
-    p.deals.make([w, PLAYER], "safety", "keep each other safe", undefined, 1);
+    const deal = p.deals.make([w, PLAYER], "safety", "keep each other safe", undefined, 1);
     const [bp, b1] = [rel.edge(w, PLAYER).trust, rel.edge(w, v1).trust];
     p.reconcileDeals({ actor: PLAYER, kind: "vote-evict", targets: [w] });
-    expect(rel.edge(w, PLAYER).trust).toBeLessThan(bp);
-    expect(rel.edge(w, v1).trust).toBe(b1); // an innocent voter is not touched
+    expect(deal.status).toBe("broken");
+    expect(rel.edge(w, PLAYER).trust).toBeLessThan(bp); // the player is among the suspects...
+    expect(rel.edge(w, v1).trust).toBeLessThan(b1); // ...and so is every other voter who voted to evict them: the wronged cannot tell which
+    expect(deal.sealedBallot).not.toBe(true); // the player's OWN view of their own break is never sealed from themselves
   });
 });
