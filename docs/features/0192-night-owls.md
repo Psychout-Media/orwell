@@ -18,6 +18,7 @@ whispered scheme, a confession, a bonding talk, or a fight. Sleepers never take 
   else a confession (`homesick-talk`) when low, else bonding (`bed-talk` / `tell-stories`; another awake houseguest in that room joins, so a trio can form).
 - Every talk is a hidden house-life event (witness set = the people in it, never the player; `houseLife.nightOwl = true`, engine-only). A player who walks into the room later meets it through the existing walk-in
   rule (ORW-473); nothing is decided for the player.
+  **Amendment (2026-11-17):** the walk-in rule catches a night-owl talk of any kind and of any size, including a trio (every member still there and awake, same guards), behind `ORWELL_WALKIN_GROUPS` (default ON). The player gets only the participants and each one's reaction manner, never the talk (see 0049).
 - The player who stays up (`HourView.nightOwl.playerUp`) can be the partner. The houseguest then comes to them through the desire clock's own approach path (`goalApproaches` with goal `night-owl`) and its guards
   (trust floor, avoidant tie, cooldown); a player who has turned in is never a candidate.
 

@@ -49,20 +49,21 @@ type Hack = {
 type Ev = { id: string; ts: number; type: string; initiator: string; witnessSet: string[]; hidden: boolean; content: string; houseLife?: Record<string, unknown> };
 
 /** The player is in the backyard; A and B are in the kitchen and a hidden private talk between them is on the record; everyone else is asleep in a bed. */
-function stage(action = "pitch", played = true) {
+function stage(action = "pitch", played = true, group = 2, nightOwl = false) {
   const s = toNominations();
   const h = s as unknown as Hack;
   const npcs = s.livingIds().filter((id) => id !== PLAYER);
   const [A, B] = [npcs[0]!, npcs[1]!];
-  const seats: Array<[EntityId, string]> = [[PLAYER, "backyard"], [A, "kitchen"], [B, "kitchen"]];
+  const crew = npcs.slice(0, group); // two = a pair; more = a group talk
+  const seats: Array<[EntityId, string]> = [[PLAYER, "backyard"], ...crew.map((id): [EntityId, string] => [id, "kitchen"])];
   for (const id of npcs) if (!seats.some(([x]) => x === id)) seats.push([id, "bedroom-c"]);
   h.presence = new Map(seats);
-  h.awakeNow = () => new Set<EntityId>([PLAYER, A, B]);
+  h.awakeNow = () => new Set<EntityId>([PLAYER, ...crew]);
   h.live.playedGame = played;
   const orig = (s as unknown as { record: { events: () => Ev[]; hidden: unknown } }).record;
-  const talk: Ev = { id: "offscreen:strategy:test", ts: 1, type: "strategy", initiator: A, witnessSet: [A, B], hidden: true, content: "A and B plotted against C", houseLife: { action, place: "kitchen", manner: "low", truthful: true, stretch: 1, at: s.inGameAbsHour() } };
+  const talk: Ev = { id: "offscreen:strategy:test", ts: 1, type: "strategy", initiator: A, witnessSet: crew, hidden: true, content: "A and B plotted against C SENTINEL-HIDDEN", houseLife: { ...(nightOwl ? { nightOwl: true } : {}), action, place: "kitchen", manner: "low", truthful: true, stretch: 1, at: s.inGameAbsHour() } };
   s.setRecordProviders({ events: () => [...orig.events(), talk] as never, hidden: orig.hidden as never });
-  return { s, h, A, B };
+  return { s, h, A, B, crew };
 }
 const sheet = (h: Hack, by: Record<string, { candor: number; ap: number; ao: number }>, A: EntityId, B: EntityId): void => {
   const arch = (c: number) => (c > 0.7 ? { archetype: "hothead", strategyStyle: "emotional" } : c > 0.3 ? { archetype: "floater", strategyStyle: "social" } : { archetype: "villain", strategyStyle: "strategic" });
@@ -194,5 +195,67 @@ describe("walking in on a private talk", () => {
     for (let i = 0; i < 4000; i++) { const r = walkInReaction({ candor: rnd(), affinityToPlayer: rnd(), affinityToOther: rnd() }, 0); count.set(r, (count.get(r) ?? 0) + 1); }
     for (const k of WALK_IN_REACTIONS) expect(count.get(k) ?? 0, k).toBeGreaterThan(200); // all four stay reachable
     expect(Object.keys({ candor: 0, affinityToPlayer: 0, affinityToOther: 0 })).not.toContain("stakes");
+  });
+});
+
+describe("walking in on a group talk (ORW-473 amendment, 0192)", () => {
+  const groupSheet = (x: ReturnType<typeof stage>) => { x.h.agendaCharacterOf = () => ({ archetype: "floater", strategyStyle: "social" }); };
+  afterEach(() => { delete process.env.ORWELL_WALKIN_GROUPS; });
+
+  it("a night-owl trio is caught: all three are named, each plays it off with a manner, and each remembers it", () => {
+    const x = stage("bed-talk", true, 3, true); groupSheet(x);
+    x.s.noteMessage({ messageId: "g1" });
+    x.s.movePlayer("kitchen");
+    const w = x.s.getGameState().walkedIn!;
+    expect(w).toBeDefined();
+    expect(w.with.map((p) => p.id).sort()).toEqual([...x.crew].sort());
+    expect(w.reactions.map((r) => r.id).sort()).toEqual([...x.crew].sort());
+    for (const r of w.reactions) expect(r.line.length).toBeGreaterThan(10);
+    const npcs = (x.s as unknown as { house: { npcs: { id: string; soul: { memory: string[] } }[] } }).house.npcs;
+    for (const id of x.crew) expect(npcs.find((n) => n.id === id)!.soul.memory.some((m) => m.includes("walked in on my private talk")), id).toBe(true);
+  });
+
+  it("an ordinary gathering of four is caught once, and not again", () => {
+    const x = stage("pitch", true, 4); groupSheet(x);
+    x.s.noteMessage({ messageId: "g1" });
+    x.s.movePlayer("kitchen");
+    expect(x.s.getGameState().walkedIn!.with).toHaveLength(4);
+    x.s.noteMessage({ messageId: "g2" }); x.s.movePlayer("backyard"); x.s.noteMessage({ messageId: "g3" }); x.s.movePlayer("kitchen");
+    expect(x.s.getGameState().walkedIn).toBeUndefined();
+  });
+
+  it("the same guards apply: one of the group gone, headless, a non-private action, or a stale talk is not caught", () => {
+    const gone = stage("pitch", true, 3); groupSheet(gone); gone.h.presence.set(gone.crew[2]!, "living-room"); gone.s.movePlayer("kitchen");
+    expect(gone.s.getGameState().walkedIn, "one has left").toBeUndefined();
+    const asleep = stage("pitch", true, 3); groupSheet(asleep); asleep.h.awakeNow = () => new Set<EntityId>([PLAYER, ...asleep.crew.slice(0, 2)]); asleep.s.movePlayer("kitchen");
+    expect(asleep.s.getGameState().walkedIn, "one is asleep").toBeUndefined();
+    const headless = stage("pitch", false, 3); headless.s.movePlayer("kitchen");
+    expect(headless.s.getGameState().walkedIn).toBeUndefined();
+    const cook = stage("cook", true, 3); cook.s.movePlayer("kitchen");
+    expect(cook.s.getGameState().walkedIn).toBeUndefined();
+    const old = stage("pitch", true, 3); groupSheet(old);
+    const evs = (old.s as unknown as { record: { events: () => Ev[] } }).record.events();
+    (evs[evs.length - 1]!.houseLife as { at: number }).at = old.s.inGameAbsHour()! - 3;
+    old.s.movePlayer("kitchen");
+    expect(old.s.getGameState().walkedIn, "three hours old").toBeUndefined();
+  });
+
+  it("flag off (ORWELL_WALKIN_GROUPS=0): a group is not caught, a pair still is", () => {
+    process.env.ORWELL_WALKIN_GROUPS = "0";
+    const trio = stage("pitch", true, 3); groupSheet(trio); trio.s.movePlayer("kitchen");
+    expect(trio.s.getGameState().walkedIn).toBeUndefined();
+    const pair = stage(); groupSheet(pair); pair.s.movePlayer("kitchen");
+    expect(pair.s.getGameState().walkedIn).toBeDefined();
+  });
+
+  it("wall: the group's view carries only the participants and manner lines - no hidden content, no number, no raw reaction", () => {
+    const x = stage("drive-a-wedge", true, 3, true); groupSheet(x);
+    x.s.movePlayer("kitchen");
+    const w = x.s.getGameState().walkedIn!;
+    expect(w).toBeDefined();
+    const text = JSON.stringify(w);
+    expect(text).not.toMatch(/SENTINEL-HIDDEN|plotted|wedge|pitch|strategy|nightOwl|bed-talk|\d\.\d/i);
+    for (const r of WALK_IN_REACTIONS) expect(text.includes(`"${r}"`), r).toBe(false);
+    expect(JSON.stringify(x.s.getGameState())).not.toContain("SENTINEL-HIDDEN");
   });
 });
