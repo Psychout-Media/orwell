@@ -201,7 +201,7 @@ describe("ORW-432 what moved and what did not", () => {
       return createHash("sha256").update(all).digest("hex");
     };
     expect(run(true)).toBe("23a86119fd0d9952f1a535083bd67f5500e9ef2e64a3ebb691c5d6a6606073ee"); // identical on main and on the ORW-508 branch with ORW-508's and ORW-480's changed fields blanked: no other random draw moved
-    expect(run(false)).toBe("b30a7db3df6814428e5205b140514f407a8c8a12f37fb1b2bcfa2fbf609b6142"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
+    expect(run(false)).toBe("0f55970ff6051dfc9541d48f2fe2cf37f50edbc6ec631b63baebcd0509b256d7"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
   });
 });
 

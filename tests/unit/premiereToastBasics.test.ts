@@ -64,6 +64,6 @@ describe("the champagne toast gives real first impressions", () => {
   it("stays Vault-free: no secret, tie or hidden fields ride the card", () => {
     const sb = premiere(5);
     const c = JSON.stringify(sb.session.premiereIntros()!.met[0]);
-    expect(c).not.toMatch(/hidden|secret|tie|soul|vault|trust|threat/i);
+    expect(c).not.toMatch(/\b(hidden|secret|tie|soul|vault|trust|threat)\b/i); // ORW-508: whole words (a real town name like Whittier contains "tie")
   });
 });
