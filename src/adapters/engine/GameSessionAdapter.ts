@@ -14042,6 +14042,7 @@ export class GameSessionAdapter implements GameSession {
     const seed = this.gameSeed ?? 0;
     const steps = formPlan(goal, hv, { kind: a.kind, with: [...a.with], ...(a.about ? { about: a.about } : {}) }, (k) => agendaRoll(seed, owner, `plan:${goal.id}:d${day}:${k}`));
     mine.push({ goalId: goal.id, steps, at: 1, madeDay: day, lastDay: day, status: steps.length > 1 ? "active" : "done" });
+  }
   /** ORW-622: the holder's grudge strand toward each of these houseguests (only those with one), from the bond record. */
   private rivalryStrandsOf(holder: EntityId, others: readonly EntityId[]): ReadonlyMap<EntityId, number> {
     const reader = this.bondReader();
