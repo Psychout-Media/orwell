@@ -10,7 +10,7 @@ export interface MixScene { type: string; action: string; msg: number; week: num
 
 export interface MixGame { scenes: MixScene[]; /** alliance betrayals recorded (events of type betrayal) */ betrayals: number; /** of those, the ones a goal clash caused (an NPC turning on a fellow member) */ goalClashBreaks: number; /** alliance betrayals by game week (the week the event happened in) */ betrayalsByWeek: Record<number, number> }
 
-export async function playMixGame(seed: number, messages: number, opts: { advanceEvery?: number; /** stop as soon as the game reaches this week (default: play all `messages`) */ stopAtWeek?: number; /** 0178: read the finished sandbox (a report hook; read-only) */ inspect?: (session: unknown) => void } = {}): Promise<MixGame> {
+export async function playMixGame(seed: number, messages: number, opts: { advanceEvery?: number; /** stop as soon as the game reaches this week (default: play all `messages`) */ stopAtWeek?: number; /** 0178: read the finished sandbox (a report hook; read-only) */ inspect?: (session: unknown) => void; /** 0178: an active player - called after each message, may call tools (the report makes deals) */ onMessage?: (call: (name: string, args: Record<string, unknown>) => Promise<unknown>, i: number) => Promise<void> } = {}): Promise<MixGame> {
   const every = opts.advanceEvery ?? 12; // ORW-518: the late-game guard advances faster so EVERY seed reaches the late weeks (at 12 a played week is ~400 messages)
   const user = `mixdrv-${seed}`;
   const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
@@ -21,6 +21,7 @@ export async function playMixGame(seed: number, messages: number, opts: { advanc
   let seen = 0, week = 1;
   for (let i = 0; i < messages; i++) {
     await mcp.callTool("noteMessage", { messageId: `${user}-${i}` });
+    if (opts.onMessage) await opts.onMessage((n, a) => mcp.callTool(n, a), i);
     if (i % every === every - 1) {
       const adv = (await mcp.callTool("advanceGame", {})) as { pending?: { kind: string; options?: Array<{ id: string }> }; held?: unknown };
       if (adv.held) await endHeldNight((n, a) => mcp.callTool(n, a), `md${seed}`, undefined, { stopWhenDue: true }); // ORW-445: a due 4pm event must fire, not be slept through (the phase now agrees with milestoneDue at the edge)

@@ -49,6 +49,10 @@ describe("adapter provider (ORWELL_ASSURANCES)", () => {
   it("an insincere (strategic-lie) assurance never protects", () => {
     const { sb, holder, assured } = started(); const g = sb.session as unknown as G;
     g.recordAssurance({ from: holder, to: assured, kind: "safe", sincerity: 0, source: "npc" });
+    // the engine decides an NPC's sincerity itself (its own roll on the shared faking model, ORW-601), so pin THIS one insincere through the store (test seam)
+    const live = sb.session.snapshot().live as { assurances: { items: { sincerity: number }[] } };
+    for (const it of ((sb.session as unknown as { live: typeof live }).live.assurances.items)) it.sincerity = 0;
+    expect(live.assurances.items.length).toBe(1);
     expect(g.assuranceProtects(assured, holder)).toBe(false);
   });
   it("nominating the assured resolves the open assurance as broken (exactly once)", () => {
