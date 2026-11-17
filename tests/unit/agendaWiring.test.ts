@@ -21,9 +21,11 @@ function withoutAgendas<T>(fn: () => T): T {
 /** ORW-314: agendas present but their pull on decisions zeroed (the season as it was before decisions read goals). */
 function withPullZeroed<T>(fn: () => T): T {
   // ORW-317: a settled goal also moves mood now (goal mood), so "agendas present but with no effect" zeroes that too.
-  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled };
+  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled, hohRead: proto.hohTargetReadOf };
   proto.agendaPullOf = () => ({ value: 0 }); proto.appraiseSettled = () => {};
-  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; }
+  // ORW-573 (ORW-633): the voter's knowledge-based read of the HOH's target is part of "decisions read what the houseguest knows", not of the pre-wiring season: pin it to the hidden threat read (same seam as stagedEvictionBallots).
+  proto.hohTargetReadOf = function (this: { rel: { edge(a: string, b: string): { threat: number } } }, _v: string, h: string, fn: readonly [string, string]) { return this.rel.edge(h, fn[0]).threat >= this.rel.edge(h, fn[1]).threat ? fn[0] : fn[1]; };
+  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; proto.hohTargetReadOf = keep.hohRead; }
 }
 const outcome = (l: Live) => JSON.stringify({ winner: l.winner, evictionOrder: l.evictionOrder, jury: l.jury, finalTwo: l.finalTwo, voteRecord: l.voteRecord });
 const strip = (l: Live): string => JSON.stringify({ ...l, agendas: undefined });
