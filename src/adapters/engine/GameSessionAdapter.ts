@@ -251,7 +251,7 @@ import { strategicDriveWeight } from "../../engine/offscreen";
 import type { EmotionalEvent } from "../../engine/emotionalArc";
 import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
-import { MANNER_GRADING, MANNER_THRESHOLDS, JURY_MEMORY } from "../../engine/juryConstants";
+import { MANNER_GRADING, MANNER_THRESHOLDS, JURY_MEMORY, JURY_GRUDGE } from "../../engine/juryConstants";
 import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
@@ -1594,7 +1594,7 @@ export class GameSessionAdapter implements GameSession {
    * own records (`truthOf`); its intent is "inform" (the narrator's speaker's real reason is unknown). A kind the claim set does not have, or ids
    * not in the house, make no claim (`tellClaim` refuses). Returns the claims told.
    */
-  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[]): SpokenClaim[] {
+  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[], origin: "narrated" | "player" = "narrated"): SpokenClaim[] {
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return [];
     const kind = c.kind as SpokenClaimKind;
     const live = this.live;
@@ -1628,7 +1628,7 @@ export class GameSessionAdapter implements GameSession {
       const isTrue = truthOf(base, facts);
       // What the speaker meant: passing on what they believe (or what is true) is "inform"; a false claim they do not hold is a lie ("mislead"; the retrospective reads it).
       const holds = claimsOf(live?.beliefs, speaker).some((b) => b.value && !b.refuted && b.subject === base.subject && (base.object === undefined || b.object === undefined || b.object === base.object));
-      const t = this.tellClaim({ ...base, isTrue, intent: isTrue || holds ? "inform" : "mislead", origin: "narrated" });
+      const t = this.tellClaim({ ...base, isTrue, intent: isTrue || holds ? "inform" : "mislead", origin });
       if (t) told.push(t);
     }
     return told;
@@ -5707,6 +5707,7 @@ export class GameSessionAdapter implements GameSession {
     const seen = new Set(live.grudgesSeen ?? []);
     const before = seen.size;
     const day = live.dayNumber ?? 1;
+    const gone = new Set(live.evictionOrder);
     const note = (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number): void => {
       if (holder === PLAYER || seen.has(mark)) return;
       seen.add(mark);
@@ -5716,13 +5717,15 @@ export class GameSessionAdapter implements GameSession {
       const row = live.npcMemory![holder] ?? {};
       for (const subject of Object.keys(row).sort() as EntityId[]) for (const e of row[subject] ?? []) {
         const kind: GrudgeKind | undefined = e.kind === "deal-broken" ? "deal-broken" : e.kind === "nominated-by-friend" || e.kind === "replaced-by-friend" ? "cut-by-ally" : undefined;
-        if (kind) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
+        if (kind && !gone.has(holder)) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
       }
     }
     for (const d of this.deals.all) {
       if (d.status !== "broken" || !d.brokenBy || !(d.learned === true || (d.learned === undefined && !d.sealedBallot))) continue; // ORW-597: no grudge before they learn of it; never against a secret voter
       const [a, b] = d.parties;
-      note(`d:${d.id}`, d.brokenBy === a ? b : a, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
+      const wronged = d.brokenBy === a ? b : a;
+      if (!this.holderKnowsOfBreak(wronged, d)) continue;
+      note(`d:${d.id}`, wronged, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
     }
     const evicted = new Set(live.evictionOrder);
     const manner = live.mannerByEvictee ?? {};
@@ -5768,6 +5771,16 @@ export class GameSessionAdapter implements GameSession {
   private juryEaseOf(holder: EntityId, subject: EntityId): number {
     const p = this.juryPersonalityOf()?.get(holder);
     return p ? juryEaseFactor(p(subject)) : 1;
+  }
+
+  /**
+   * 0182 (Fable review) + ORW-597: a grudge from a broken deal counts only for a holder who COULD KNOW of the break. A party to the deal who LEARNED of it (`DealLedger.learnOfBreak` sets `learned`: the breaker's
+   * own public act against them, or catching the lie) holds it for good, even once evicted (a juror keeps it). A deal with no learned mark (an older save) counts only for a party still in the house, since an
+   * evicted houseguest cannot learn of a later break (the jury house is sequestered).
+   */
+  private holderKnowsOfBreak(holder: EntityId, d: { parties: readonly [EntityId, EntityId]; learned?: boolean }): boolean {
+    if (!d.parties.includes(holder)) return false;
+    return d.learned === true || !(this.live?.evictionOrder ?? []).includes(holder);
   }
 
   /** 0182 PR 2: whether `holder` is a grudge-keeper toward `subject` (the same read `grudgeOf` uses). */
@@ -10434,6 +10447,8 @@ export class GameSessionAdapter implements GameSession {
       ...(BELIEF_RULES.strength === "full" ? { dealTrustFor: (h: EntityId, other: EntityId) => dealTrust(this.rel.edge(h, other).trust) } : {}), // 0160 (Ryne Q3): a deal weighs as far as the holder trusts the other party
       ...(this.dealPlansEnabled && this.live?.dealPlans ? { flipVoteFor: (v: EntityId, fn: readonly [EntityId, EntityId]) => fn.find((n) => this.flipsAtThisVote(v, n)) } : {}), // 0178: a flip plan casts the vote
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
+      // 0182 PR 3: a bitter juror. Played games with the grudge book only, so a headless sim carries no hook (+0, byte-identical).
+      ...(this.grudgesOn() ? { juryGrudgeFor: (j: EntityId, f: EntityId) => this.juryGrudgeFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
       ...(this.endgameMemoryEnabled ? { endgameMemoryFor: (s: EntityId, d: EntityId) => this.endgameMemoryFor(s, d) } : {}),
@@ -16451,6 +16466,14 @@ export class GameSessionAdapter implements GameSession {
     return Math.max(-JURY_MEMORY.max, Math.min(JURY_MEMORY.max, (0 - this.memoryTiltFor(finalist, juror)) * JURY_MEMORY.scale));
   }
 
+  /** 0182 PR 3 - a bitter juror's signed lean (<= 0) toward `finalist`: -scale x freshness x severity of the grudge the juror holds against them, clamped to JURY_GRUDGE.max. Pure read (no fold, no rng); 0 for the player as a juror. The overlap with manner and memory is netted by the caller. */
+  juryGrudgeFor(juror: EntityId, finalist: EntityId): number {
+    if (juror === PLAYER || !this.grudgesOn()) return 0;
+    const g = this.grudgeOf(juror, finalist, false);
+    if (!g) return 0;
+    return -Math.min(JURY_GRUDGE.max, JURY_GRUDGE.scale * g.freshness * g.severity);
+  }
+
   /** ORW-87 - the Final-3 eviction and the secret-veto replacement read the NPC's memory ledger too. ON by default; `=0` turns it off. Read only for a played game (`live.playedGame`), so headless calibration sims stay byte-identical. */
   private endgameMemoryEnabled = flagDefaultOn("ORWELL_ENDGAME_MEMORY");
   setEndgameMemoryEnabled(on: boolean): void { this.endgameMemoryEnabled = on; }
@@ -18162,9 +18185,28 @@ export class GameSessionAdapter implements GameSession {
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     // 0155 / ORW-330 slice 6: a claim the narrator wrote on its own becomes an engine claim (a re-statement above never re-tells it).
-    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string));
+    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string), p.speaker === OPEN_LEDGER_PLAYER && p.kind.toLowerCase() === "statement" ? "player" : "narrated");
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
+  }
+
+  /**
+   * ORW-612 part C - the player's own word about a third person ("X is targeting you"). The scene belt proposes `{ to, about, kind, object? }`; the ENGINE re-validates everything and writes it through the open-ledger door with the
+   * PLAYER as speaker (`recordOpenLedger` -> `tellNarratedClaim(..., "player")`): the claim's truth comes from the engine's records, the listener's belief goes through `tellClaim` (trust in the player, credulity, credibility),
+   * and a false claim is a lie on the record (the player holds no engine beliefs). A kind outside the claim set, an unknown or absent houseguest, or a refused entry makes no claim and never throws. Gated by ORWELL_PROMISE_TERMS
+   * and the open ledger; off => nothing.
+   */
+  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string }): { accepted: boolean; reason?: string } {
+    if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (!req || typeof req.to !== "string" || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
+    if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(req.kind)) return { accepted: false, reason: "bad-shape" };
+    const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
+    const objectOk = req.object === undefined || (typeof req.object === "string" && known.has(req.object));
+    if (!known.has(req.to) || !known.has(req.about) || !objectOk || req.to === req.about) return { accepted: false, reason: "bad-speaker" };
+    const text = `${this.nameOf(PLAYER)} told ${this.nameOf(req.to as EntityId)} about ${this.nameOf(req.about as EntityId)}${req.object ? ` and ${this.nameOf(req.object as EntityId)}` : ""} (${req.kind.replace(/-/g, " ")})`;
+    const r = this.recordOpenLedger({ text, speaker: OPEN_LEDGER_PLAYER, addressedTo: [req.to], kind: "statement", about: req.about, claim: { kind: req.kind, subject: req.about, ...(req.object ? { object: req.object } : {}) } });
+    return r.accepted ? { accepted: true } : { accepted: false, reason: r.reason ?? "refused" };
   }
 
   /**
