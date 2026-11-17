@@ -103,6 +103,17 @@ export function mannerLeanOf(manner: EvictionManner): number {
 }
 
 /**
+ * 0182 PR 3 - the bitter-juror term, net of what the lean already counts. `raw` is the grudge's signed lean (<= 0). `covered` is the weighted size of the grievance the lean already carries for the
+ * same juror and finalist (the negative manner term plus the negative memory term). The grudge adds ONLY the part those do not cover: max(0, |raw| - covered), negated. So a juror whose only wrong is
+ * already counted as a manner grievance (or a remembered nomination) gets nothing extra, and the sum of grudge + covered never exceeds the larger of the two. Pure.
+ */
+export function bitterJurorExtra(raw: number, covered: number): number {
+  const r = Number.isFinite(raw) ? Math.min(0, raw) : 0;
+  const c = Number.isFinite(covered) ? Math.max(0, covered) : 0;
+  return -Math.max(0, -r - c);
+}
+
+/**
  * The signed GAME-RESPECT split between two finalists' public resumes (comp wins): the share of
  * the pair's combined resume this finalist owns, centered (±0.5). Both résumé-less ⇒ 0 (neutral).
  * Pure; weighted by `JURY_WEIGHTS.gameRespect` at the call site (ruling 2026-06-11).

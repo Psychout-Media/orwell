@@ -119,7 +119,7 @@ def test_belt_prompt_is_a_rule_with_no_examples_or_menu_and_every_hop_is_wired()
     assert '_validate_promise(obj.get("promise"), ids, valid)' in src
     assert '**({"promise": entry["promise"]} if entry.get("promise") else {})' in src
     assert '**({"promise": promise} if promise else {})' in src
-    assert "promise=promise)" in src  # staged
+    assert "promise=promise, statement=statement)" in src  # staged (ORW-612 C appended the sibling)
 
 
 def test_the_engine_closed_set_is_the_fe_set_plus_open_text():
