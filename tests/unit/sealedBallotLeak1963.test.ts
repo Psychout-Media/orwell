@@ -137,7 +137,7 @@ describe("the live adapter wires the sealed predicate and the suspects (#1963)",
     const { rel, ids, p } = house(72);
     const [w, v1] = [ids[0]!, ids[2]!];
     p.live.eviction = { voteOf: { [PLAYER]: w, [v1]: w } } as never;
-    const deal = p.deals.make([w, PLAYER], "safety", "keep each other safe", undefined, 1);
+    const deal = p.deals.make([w, PLAYER], "safety", "keep each other safe", undefined, 1) as { status: string; sealedBallot?: boolean };
     const [bp, b1] = [rel.edge(w, PLAYER).trust, rel.edge(w, v1).trust];
     p.reconcileDeals({ actor: PLAYER, kind: "vote-evict", targets: [w] });
     expect(deal.status).toBe("broken");
