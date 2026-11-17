@@ -187,6 +187,7 @@ def test_kickoff_runs_once_in_background_and_releases_the_guard(monkeypatch):
         return {}
 
     monkeypatch.setattr(g, "run_group_words", fake_run)
+    monkeypatch.setattr(g, "run_name_tickets", fake_run)  # part c2 rides the same single-flight run
 
     async def go():
         g.kickoff_group_identity("u")
@@ -196,7 +197,7 @@ def test_kickoff_runs_once_in_background_and_releases_the_guard(monkeypatch):
         await asyncio.sleep(0.01)
 
     run(go())
-    assert ran == ["u", "u"]
+    assert ran == ["u", "u", "u", "u"]  # words + names per run
 
 
 def test_the_engine_wrappers_dispatch_the_two_tools(monkeypatch):

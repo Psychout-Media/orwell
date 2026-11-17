@@ -18,8 +18,13 @@ Only records that already exist, at the severity they already carry: a friend's 
 ## Read
 `grudgeOf(holder, subject)` on the adapter: kind, freshness, severity, peak, or null. Engine-only, not on any port, tool or projection.
 
+## PR 2: revenge and repair (decisions; no new text)
+- Revenge: the agenda view's grudge salience combines the memory ledger's read with the book's weight (freshness x severity x `GRUDGES.revengeWeight`) as a probabilistic-or, leaned by the house's loyalty and paranoia dials (1/1.35..1.35). The existing revenge bar (0.6) is the only chance: a fresher grudge crosses sooner, a repaired one reads fainter (the memory read is scaled by the eased share) and no longer opens a goal. No new rng.
+- Repair, each deduped by a `repair:` mark and eased through the book's cap (0.6 of the peak) and mirrored into the bond record's `foldRepair` (wronged toward wrongdoer; the bond's peak resentment stays): a kept promise (`REPAIR.kept`), the wrongdoer's own bonding scene with the wronged within a few days (`REPAIR.scene`, once per pair and week), a shared enemy (`REPAIR.enemy`, once per pair, third and week). Scaled by the holder's forgiveness nature and inversely by the house's loyalty.
+- Hesitation (slice 4) only reads resentment: a repair raises it slowly, a grudge adds no bonus.
+
 ## Left for later PRs
-PR 2: revenge goals read freshness, repair hooks (kept promise, bonding scene, shared enemy) call the ease. PR 3: bitter jurors and the played-game measurement lane.
+PR 3: bitter jurors and the played-game measurement lane.
 
 ## Gates
 BDD `0182-grudges.feature` and `tests/unit/grudges.test.ts` (pure book, each fold source, flag-off byte-identity, persistence, wall).
