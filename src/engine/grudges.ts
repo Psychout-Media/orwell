@@ -92,7 +92,8 @@ export function noteGrudge(book: GrudgeBook, holder: EntityId, subject: EntityId
   if (!row) { book[key] = { kind, week, day, severity: sev, peak: sev, eased: 0, refKey }; return true; }
   const newer = week > row.week || (week === row.week && day >= row.day);
   let changed = false;
-  if (sev > row.severity || newer) {
+  // ORW-605: a smaller wrong never resets an older, larger grudge's clock (week, day, kind). Only a wrong at least as severe (and newer, or strictly graver) takes over the row.
+  if (sev > row.severity || (sev === row.severity && newer)) {
     if (row.kind !== kind || row.week !== week || row.day !== day || row.refKey !== refKey) changed = true;
     row.kind = kind; row.week = week; row.day = day; row.refKey = refKey;
   }
