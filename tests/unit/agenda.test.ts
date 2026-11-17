@@ -359,3 +359,54 @@ describe("ORW-329: the rival pull reaches decisions", () => {
     expect(goalPull(fam, RIVAL, board()).value).toBeLessThan(-0.5);
   });
 });
+
+describe("ORW-571: a goal that was acted for is not faded by the night", () => {
+  const seasonOf = (a: Agenda): Goal => a.goals.find((g) => g.horizon === "season" && g.kind !== "keep-my-secret")!;
+  const nights = (a0: Agenda, v: AgendaView, n: number, served: (a: Agenda) => string[] | undefined): Agenda => {
+    let a = a0;
+    for (let d = 3; d < 3 + n; d++) {
+      const ids = served(a);
+      a = mullAgenda(ids ? { ...a, served: ids } : a, v, board({ day: d }), SEED);
+    }
+    return a;
+  };
+  it("a served season goal survives 12 nights while the same goal, neglected, is given up", () => {
+    const v = view(char("floater"));
+    const a0 = seedAgenda(v, board(), SEED);
+    const id = seasonOf(a0).id;
+    const kept = nights(a0, v, 12, () => [id]);
+    expect(kept.goals.some((g) => g.id === id)).toBe(true);
+    const neglected = nights(a0, v, 12, () => undefined);
+    expect(neglected.goals.some((g) => g.id === id)).toBe(false);
+    expect(neglected.history.some((g) => g.id === id && g.status === "dropped")).toBe(true);
+  });
+  it("a served goal gains commitment and the record is spent with the night (served the next night or it fades again)", () => {
+    const v = view(char("floater"));
+    const a0 = seedAgenda(v, board(), SEED);
+    const g0 = seasonOf(a0);
+    const after = mullAgenda({ ...a0, served: [g0.id] }, v, board({ day: 3 }), SEED);
+    expect(after.served).toBeUndefined();
+    expect(after.goals.find((g) => g.id === g0.id)!.commitment).toBeGreaterThanOrEqual(g0.commitment);
+    const again = mullAgenda(after, v, board({ day: 4 }), SEED);
+    expect(again.goals.find((g) => g.id === g0.id)?.commitment ?? 0).toBeLessThan(after.goals.find((g) => g.id === g0.id)!.commitment);
+  });
+  it("a long con that is kept up outlives its horizon; the same con, neglected, dies; the progress passed explicitly counts the same", () => {
+    const v = view(char("mastermind", {}, "under-the-radar"), { threats: [{ toward: RIVAL, threat: 0.6 }], affinity: [{ toward: RIVAL, affinity: 0.7 }] });
+    let a0: Agenda | undefined;
+    for (let i = 0; i < 80 && !a0; i++) { const a = seedAgenda({ ...v, owner: `npc:c${i}` }, board(), SEED + i); if (active(a, "long-con", RIVAL)) a0 = a; }
+    expect(a0).toBeDefined();
+    const vv = { ...v, owner: a0!.owner };
+    const id = active(a0!, "long-con", RIVAL)!.id;
+    const kept = nights(a0!, vv, 14, () => [id]);
+    expect(active(kept, "long-con", RIVAL)).toBeDefined();
+    const viaArg = (() => { let a = a0!; for (let d = 3; d < 17; d++) a = mullAgenda(a, vv, board({ day: d }), SEED, new Set([id])); return a; })();
+    expect(active(viaArg, "long-con", RIVAL)).toBeDefined();
+    expect(active(nights(a0!, vv, 14, () => undefined), "long-con", RIVAL)).toBeUndefined();
+  });
+  it("the served record survives a re-check and a JSON round trip", () => {
+    const v = view(char("floater"));
+    const a0 = { ...seedAgenda(v, board(), SEED), served: ["x"] };
+    expect(recheckAgenda(a0, v, board({ day: 3 }), "comp-result", SEED).served).toEqual(["x"]);
+    expect(JSON.parse(JSON.stringify(a0))).toEqual(a0);
+  });
+});
