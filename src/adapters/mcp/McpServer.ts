@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -521,6 +521,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
   }
 }
 
+/** ORW-584: what the player channel may carry of a confide: whether they opened up, how much, and what was said. Never whether it was true. */
+function playerConfideResult(r: ConfideResult | null): { disclosed: boolean; tier: ConfideResult["tier"]; content?: string } | null {
+  if (!r) return null;
+  return { disclosed: r.disclosed, tier: r.tier, ...(r.content !== undefined ? { content: r.content } : {}) };
+}
+
 export class McpServer {
   constructor(private readonly channel: OutwardChannel, private readonly deps: McpDeps) {}
 
@@ -710,11 +716,13 @@ export class McpServer {
         // 0075 — the trust-gated confidence: the engine decides + records; the model voices the result.
         // A10/#591 — the optional at-most-once idempotencyKey rides positionally (makeDeal/expose/trade
         // pick it up via their req cast; confide takes positional args, so thread it here).
-        return this.deps.session.confide(
+        // ORW-584 (Vault Wall): the engine's own truth-record (`truthful`) never crosses to the narrator, or it could write a tell around a lie.
+        // The port result keeps it (the engine reads it, and the replay cache stores it whole); only this player-channel boundary drops it.
+        return playerConfideResult(this.deps.session.confide(
           args["npcId"] as EntityId,
           args["expectedBeatSeq"] as number | undefined,
           args["idempotencyKey"] as string | undefined,
-        );
+        ));
       case "askJuror": // 0129 slice 3 — the engine gates + picks + records; the model voices the result
         return this.deps.session.askJuror(
           args["jurorId"] as EntityId,
