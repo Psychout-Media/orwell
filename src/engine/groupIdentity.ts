@@ -30,7 +30,9 @@ export const GROUP_IDENTITY = {
 } as const;
 
 /** One stored identity: write-once, monotonic, engine-only. `kind` says what it is a floor for. */
-export interface GroupIdentityEntry { name?: string; spot?: string; kind: "debrief" | "alliance"; since: number; seen?: boolean; words?: GroupWords }
+export interface GroupIdentityEntry { name?: string; spot?: string; kind: "debrief" | "alliance"; since: number; seen?: boolean; words?: GroupWords; sealed?: SealedName }
+/** ORW-566 part c2: the alliance's SECRET name (hidden, engine-only, never projected). `floor` is the name composed at formation; `name` is the floor until the members' own authored name lands, once. */
+export interface SealedName { name: string; floor: string; authored: boolean }
 
 /** (`seen`: the player was in the room when the pair kept the habit: monotonic, set once seen.) */
 /** ORW-566 part c: the words the model wrote for one group, from the members' PUBLIC facts only. Write-once per group id. */
