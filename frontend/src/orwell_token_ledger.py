@@ -34,15 +34,21 @@ Boundaries (mirrors the sync ledger)
   * **Per-user isolated.** Entries live under the user's key; ``get_recent`` /
     ``game_cost_total`` / ``check_soft_alert`` answer only that user's slice.
   * **Logging must never hurt the app.** The recorder swallows its own errors.
+  * **Writing is off the caller's thread.** ``record_turn`` builds the entry (so the
+    call-site / day context of the caller applies), then hands it to ONE daemon writer
+    thread. Readers and ``clear`` drain the queue first (``flush``) so they never miss a
+    just-recorded entry; an ``atexit`` hook drains it at shutdown.
 """
 
 from __future__ import annotations
 
+import atexit
 import contextvars
 import datetime as _dt
 import json
 import logging
 import math
+import queue
 import sys
 import threading
 import time
@@ -67,6 +73,98 @@ _MAX_PER_USER = 500
 # Defence in depth on the id / call-class / provider fields. These are short identifiers;
 # a pathological client can never write a body through them.
 _MAX_ID_LEN = 80
+
+# The per-call write runs on ONE daemon writer thread off a queue, so a model-call turn never
+# pays for a read/append/trim/write of the (growing) store on its own thread. The entry is still
+# BUILT on the caller's thread (call-site / played-day context lives there); only the locked
+# load/append/rollup/write + the log line move to the writer. Readers and ``clear`` call ``flush``
+# so they see everything recorded before them; ``atexit`` drains at shutdown.
+_QUEUE: "queue.Queue[tuple[str, dict] | None]" = queue.Queue()
+_WRITER_STARTED = False
+_WRITER_START_LOCK = threading.Lock()
+_FLUSH_POLL_SECONDS = 0.002
+
+
+def _writer_loop() -> None:
+    """Consume the queue: apply one entry per item, forever. Never raises — a failed write is
+    logged at debug and the loop continues (ledgering must never hurt the app, nor die)."""
+    while True:
+        item = _QUEUE.get()
+        try:
+            if item is None:  # shutdown sentinel — drain done, exit the thread
+                break
+            user_key, entry = item
+            try:
+                _apply_entry(user_key, entry)
+            except Exception as e:  # pragma: no cover - defence in depth
+                try:
+                    logger.debug("[orwell] token-ledger write failed: %s", e)
+                except Exception:
+                    pass
+        finally:
+            _QUEUE.task_done()
+
+
+def _apply_entry(user_key: str, entry: dict) -> None:
+    """The locked store work one queued entry needs: ring append + atomic write, roll-up fold +
+    write, then the structured log line. Runs ONLY on the writer thread."""
+    with _LOCK:
+        data = _load()
+        bucket = data.get(user_key)
+        if not isinstance(bucket, list):
+            bucket = []
+        bucket.append(entry)
+        if len(bucket) > _MAX_PER_USER:
+            bucket = bucket[-_MAX_PER_USER:]  # bounded — drop oldest
+        data[user_key] = bucket
+        # Runs on every model call: compact JSON, no fsync (see _write_fast).
+        _write_fast(LEDGER_PATH, data)
+        roll = _load_rollup()
+        _roll_up(roll, user_key, entry)
+        _write_fast(_rollup_path(), roll)
+    _log_line(user_key, entry)
+
+
+def _ensure_writer() -> None:
+    """Start the writer thread once, lazily (first record — never at import)."""
+    global _WRITER_STARTED
+    if _WRITER_STARTED:
+        return
+    with _WRITER_START_LOCK:
+        if _WRITER_STARTED:
+            return
+        t = threading.Thread(target=_writer_loop, name="orwell-token-ledger-writer", daemon=True)
+        t.start()
+        _WRITER_STARTED = True
+
+
+def flush(timeout: float = 5.0) -> bool:
+    """Block until every entry queued SO FAR has been written; ``True`` when drained within
+    ``timeout``. Cheap no-op when nothing is pending. Never raises."""
+    try:
+        try:
+            limit = float(timeout)
+        except (TypeError, ValueError):
+            limit = 5.0
+        deadline = time.monotonic() + max(0.0, limit)
+        while True:
+            with _QUEUE.mutex:  # the queue's own lock guards unfinished_tasks
+                pending = _QUEUE.unfinished_tasks
+            if pending <= 0:
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(_FLUSH_POLL_SECONDS)
+    except Exception:  # pragma: no cover - defence in depth
+        return False
+
+
+def _atexit_flush() -> None:
+    """Drain at shutdown so trailing entries are not lost (daemon threads die at interpreter exit)."""
+    flush(5.0)
+
+
+atexit.register(_atexit_flush)
 
 
 def _key(user: str | None) -> str:
@@ -360,6 +458,7 @@ def _roll_up(roll: dict, user_key: str, entry: dict) -> None:
 
 def get_rollup(user: str | None) -> dict:
     """The user's roll-up ``{"daily": {date: {"site|model": counters}}, "gameDays": {"session:day": counters}}``."""
+    flush()
     with _LOCK:
         roll = _load_rollup()
     u = roll.get(_key(user))
@@ -403,7 +502,10 @@ def record_turn(
     Every argument is coerced to a small number / id / known token; message bodies,
     narration, prompts, responses, casting answers, and any engine secret CANNOT be
     stored — that is a hard invariant, enforced by the coercion in ``_entry`` rather than
-    by careful callers. Errors are swallowed: ledgering must never hurt the app."""
+    by careful callers. Errors are swallowed: ledgering must never hurt the app.
+
+    The entry is BUILT here (so the caller's call-site / played-day context applies) and the
+    store write happens on the daemon writer thread; readers and ``clear`` drain via ``flush``."""
     try:
         entry = _entry(
             session=session,
@@ -425,22 +527,8 @@ def record_turn(
             calls=calls,
             day=day if day is not None else current_game_day(user),
         )
-        k = _key(user)
-        with _LOCK:
-            data = _load()
-            bucket = data.get(k)
-            if not isinstance(bucket, list):
-                bucket = []
-            bucket.append(entry)
-            if len(bucket) > _MAX_PER_USER:
-                bucket = bucket[-_MAX_PER_USER:]  # bounded — drop oldest
-            data[k] = bucket
-            # Runs on every model call: compact JSON, no fsync (see _write_fast).
-            _write_fast(LEDGER_PATH, data)
-            roll = _load_rollup()
-            _roll_up(roll, k, entry)
-            _write_fast(_rollup_path(), roll)
-        _log_line(k, entry)
+        _ensure_writer()
+        _QUEUE.put((_key(user), entry))
     except Exception as e:  # pragma: no cover - defence in depth
         try:
             logger.debug("[orwell] token-ledger record failed: %s", e)
@@ -451,6 +539,7 @@ def record_turn(
 def game_cost_total(user: str | None, session: Any) -> float:
     """Sum of ``cost`` over this user's entries for ``session`` (per-user scoped).
     A missing/corrupt store or an unknown session answers ``0.0``."""
+    flush()
     sess = _clean_id(session)
     with _LOCK:
         bucket = _load().get(_key(user))
@@ -467,6 +556,7 @@ def get_recent(user: str | None, limit: int = 50) -> list[dict]:
     """The user's most-recent ledger entries (newest last), capped at ``limit``.
     Strictly per-user: never returns another user's entries. A missing/corrupt store
     answers ``[]``."""
+    flush()
     try:
         n = int(limit)
     except (TypeError, ValueError):
@@ -483,6 +573,7 @@ def get_recent(user: str | None, limit: int = 50) -> list[dict]:
 def check_soft_alert(user: str | None, session: Any, threshold_usd: Any) -> bool:
     """``True`` iff this user's running cost for ``session`` is strictly over
     ``threshold_usd``. A non-positive (or unusable) threshold ⇒ ``False`` (no alert)."""
+    flush()
     try:
         threshold = float(threshold_usd)
     except (TypeError, ValueError):
@@ -494,6 +585,7 @@ def check_soft_alert(user: str | None, session: Any, threshold_usd: Any) -> bool
 
 def clear(user: str | None) -> None:
     """Drop the user's ledger (used by a full account/factory reset). Per-user scoped."""
+    flush()
     k = _key(user)
     with _LOCK:
         data = _load()
