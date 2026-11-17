@@ -68,6 +68,8 @@ export class EngineCommandsAdapter implements EngineCommands {
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
   private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
+  private promiseSink?: (p: { by: EntityId; to: EntityId; what: string; subject?: EntityId }) => { accepted: boolean; assuranceWritten: boolean };
+  private statementSink?: (s: { to: EntityId; about: EntityId; kind: string; object?: EntityId }) => { accepted: boolean };
   private heardAboutMeSink?: (h: { teller: EntityId; listeners: EntityId[]; nature: "targeting" | "betrayal" }) => void;
   private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }) => void;
   /**
@@ -200,6 +202,16 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** B4 - wire the assurance ledger so a recorded casual assurance is kept on the live state. Unwired => inert. */
   setAssuranceSink(fn: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }) => void): void {
     this.assuranceSink = fn;
+  }
+
+  /** ORW-586 - wire the typed-promise writer so a recorded scene's `promise` becomes a termed open-ledger entry (and its assurance row). Unwired => inert. */
+  setPromiseSink(fn: (p: { by: EntityId; to: EntityId; what: string; subject?: EntityId }) => { accepted: boolean; assuranceWritten: boolean }): void {
+    this.promiseSink = fn;
+  }
+
+  /** ORW-612 part C - wire the player-statement writer so a recorded scene's `statement` becomes a claim the listener holds as a belief. Unwired => inert. */
+  setStatementSink(fn: (s: { to: EntityId; about: EntityId; kind: string; object?: EntityId }) => { accepted: boolean }): void {
+    this.statementSink = fn;
   }
 
   /** B24 - wire the heard-about-me writer so a recorded tell about the player becomes a belief claim for each named listener. Unwired => inert. */
@@ -573,8 +585,23 @@ export class EngineCommandsAdapter implements EngineCommands {
       const touched = (req.toward ?? awakeNamed).filter((id) => id !== PLAYER); // the NAMED partners (not presence-expanded bystanders)
       if (touched.length > 0) this.sceneMemorySink(touched, req.kind);
     }
+    // ORW-586: a typed promise rides the recorded scene (the engine validates; a refused or malformed one is ignored). When it writes the matching assurance row itself, the scene's own casual assurance of the same speaker is not written twice.
+    let assuranceCovered = false;
+    if (this.promiseSink && req.promise && typeof req.promise.what === "string") {
+      const by = req.promise.from ?? req.initiator;
+      const tos = by === PLAYER ? awakeNamed.filter((id) => id !== PLAYER) : [PLAYER];
+      for (const to of tos) {
+        const r = this.promiseSink({ by, to, what: req.promise.what, ...(req.promise.subject ? { subject: req.promise.subject } : {}) });
+        if (r.assuranceWritten && by === (req.assurance?.from ?? req.initiator)) assuranceCovered = true;
+      }
+    }
+    // ORW-612 part C: the player's own word about a third person rides the recorded scene. Only to a NAMED, awake partner; the engine re-validates; a refused or malformed one is ignored.
+    if (this.statementSink && req.statement && typeof req.statement.to === "string" && typeof req.statement.about === "string" && typeof req.statement.kind === "string"
+      && req.initiator === PLAYER && awakeNamed.includes(req.statement.to)) {
+      try { this.statementSink({ to: req.statement.to, about: req.statement.about, kind: req.statement.kind, ...(req.statement.object ? { object: req.statement.object } : {}) }); } catch { /* ignored by design */ }
+    }
     // B4: a casual assurance rides the recorded scene (one per recorded scene per assured party; an idempotent replay returned earlier). Inert unwired / flag off.
-    if (this.assuranceSink && req.assurance) {
+    if (this.assuranceSink && req.assurance && !assuranceCovered) {
       const from = req.assurance.from ?? req.initiator;
       const sincerity = typeof req.assurance.sincerity === "number" ? req.assurance.sincerity : 1;
       const tos = from === PLAYER ? awakeNamed.filter((id) => id !== PLAYER) : [PLAYER]; // the NAMED partners (not the presence-expanded bystanders)
