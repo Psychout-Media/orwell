@@ -14725,10 +14725,15 @@ export class GameSessionAdapter implements GameSession {
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
-    if (d.accept || !d.reason) return null;
-    // ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
-    // The real reason stays engine-only (the stated-reason record, for the post-crown retrospective; and `refusalReal` for the counteroffer's own read).
-    const real: RealReason = { decision: "deal-consent", decider: npcId, choice: PLAYER, terms: [], refusal: d.reason };
+    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+  }
+  /**
+   * ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
+   * The real reason stays engine-only (the stated-reason record, for the post-crown retrospective; and `refusalReal` for the counteroffer's own read).
+   */
+  private statedRefusal(npcId: EntityId, reason: DealRefusalReason): DealRefusal {
+    const live = this.live!;
+    const real: RealReason = { decision: "deal-consent", decider: npcId, choice: PLAYER, terms: [], refusal: reason };
     const day = live.dayNumber ?? live.week;
     const character = this.agendaCharacterOf(npcId);
     const stated = character ? explainDecision(real, character, this.gameSeed ?? 0, day) : { kind: "nothing-personal" as const, about: PLAYER, candor: "cover" as const };
@@ -14736,7 +14741,7 @@ export class GameSessionAdapter implements GameSession {
       (live.statedReasons ??= []).push({ week: live.week, day, decider: npcId, decision: "deal-consent", public: true, real, stated });
     }
     const refusal: DealRefusal = { refused: true, reason: stated.kind };
-    this.refusalReal.set(refusal, d.reason);
+    this.refusalReal.set(refusal, reason);
     return refusal;
   }
   /** ORW-608: the real reason behind a refusal object, engine-only (never on the object itself, so it can never cross the wall). */

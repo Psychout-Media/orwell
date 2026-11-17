@@ -39,7 +39,7 @@ describe("ORW-82 consent chain: break a deal, then propose to the same NPC", () 
     // nothing is reset: the break's own consequences (the betrayal fold on the edge + the remembered grudge) are what the engine now reads
     const second = s.makeDeal(req(npc, "vote"));
     expect(isRefusal(second), "a new proposal to the NPC the player just betrayed is refused").toBe(true);
-    expect(isRefusal(second) && ["grudge", "distrust", "threat", "targeted"].includes(second.reason), "refused for the break's own consequence").toBe(true); // ORW-545: the betrayed NPC now also holds a lied-to-me belief about the breaker, and the player has just put them on the block: "targeted" ("believes you are already coming after them") is the same consequence read through the belief layer
+    expect(isRefusal(second) && ["grudge", "distrust", "threat", "targeted"].includes((s as unknown as { refusalReal: WeakMap<object, string> }).refusalReal.get(second as object) ?? ""), "refused for the break's own consequence").toBe(true); // ORW-545: the betrayed NPC now also holds a lied-to-me belief about the breaker, and the player has just put them on the block: "targeted" ("believes you are already coming after them") is the same consequence read through the belief layer
     expect(JSON.stringify(second), "the refusal carries no numbers").not.toMatch(/\d\.\d/);
     expect((s.getGameState().deals ?? []).filter((d) => d.status === "open"), "no new open deal was recorded").toHaveLength(0);
   });
