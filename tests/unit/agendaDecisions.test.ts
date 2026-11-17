@@ -172,3 +172,46 @@ describe("ORW-578: the retrospective's real-reason line follows the same sign ru
     expect(line).not.toContain("a deal they had made");
   });
 });
+
+describe("ORW-578 part 3: Houseguest's Choice and a thrown competition carry a reason", () => {
+  it("an NPC's Houseguest's Choice pick is a choice FOR someone: a bond or a memory is loyalty, their own strategy is a plan, never a threat read", () => {
+    const hc = (terms: Array<{ name: string; value: number }>) => truthfulKind({ decision: "hc-pick", decider: "holder", choice: "pick", terms: terms as RealReason["terms"] });
+    expect(hc([{ name: "bond", value: 0.7 }, { name: "goal", value: 0.1 }])).toBe("loyal-to-my-side");
+    expect(hc([{ name: "bond", value: 0.1 }, { name: "goal", value: 0.6 }])).toBe("had-it-planned");
+    expect(hc([{ name: "bond", value: -0.2 }])).toBe("nothing-personal");
+  });
+  it("the pick's reason is recorded once, public, about the houseguest picked; never for the player's own pick", async () => {
+    const { noteHcPickReason } = await import("../../src/engine/liveSeason");
+    const s = { week: 3, dayNumber: 9, active: ["holder", "pick", "a"], statedReasons: [] as unknown[] } as never as Parameters<typeof noteHcPickReason>[0];
+    const ctx = {
+      player: "player", agendaPullFor: () => ({ value: 0 }), rel: { bondStrength: () => 0.8 }, hcStrategyFor: () => 0.1,
+      statedReasonFor: (r: RealReason) => ({ kind: truthfulKind(r), about: r.choice, candor: "truth" as const }),
+    } as never as Parameters<typeof noteHcPickReason>[1];
+    noteHcPickReason(s, ctx, "holder", "pick");
+    noteHcPickReason(s, ctx, "holder", "pick");
+    noteHcPickReason(s, ctx, "player", "pick");
+    const log = (s as unknown as { statedReasons: Array<{ decision: string; public: boolean; stated: { kind: string; about: string } }> }).statedReasons;
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ decision: "hc-pick", public: true, stated: { kind: "loyal-to-my-side", about: "pick" } });
+  });
+  it("a thrown competition's honest reason is loyalty to the ally it was thrown for", () => {
+    expect(truthfulKind({ decision: "comp-throw", decider: "thrower", choice: "ally", terms: [{ name: "bond", value: 0.9 }] })).toBe("loyal-to-my-side");
+  });
+  it("a thrown competition is never admitted aloud: its reason is a record for the retrospective only, never in a player or admin view", async () => {
+    const { GameSessionRegistry } = await import("../../src/composition/registry");
+    const { PLAYER } = await import("../../src/domain/ids");
+    const sb = new GameSessionRegistry().sandboxFor("orw578-throw");
+    sb.session.createCharacter({ playerName: "The Player", seed: 5 });
+    const seam = sb.session as unknown as { live: { playedGame?: boolean; statedReasons?: Array<{ decision: string; public: boolean; real: { choice: string } }> }; noteCompThrowReason(id: string, others: readonly string[]): void; statedReasonsFor(id: string): unknown[] };
+    seam.live.playedGame = true;
+    const [thrower, ally, other] = sb.session.livingIds().filter((id) => id !== PLAYER);
+    seam.noteCompThrowReason(thrower!, [ally!, other!]);
+    seam.noteCompThrowReason(thrower!, [ally!, other!]);
+    const rows = (seam.live.statedReasons ?? []).filter((r) => r.decision === "comp-throw");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.public).toBe(false);
+    expect(seam.statedReasonsFor(thrower!)).toEqual([]);
+    const out = JSON.stringify([await sb.mcp.player.callTool("getGameState", {}), await sb.mcp.player.callTool("getMomentPrompt", {}), await sb.mcp.admin.callTool("inspectNonVaultState", {})]);
+    expect(out).not.toMatch(/comp-throw|threw the competition/);
+  });
+});
