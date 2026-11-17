@@ -153,6 +153,7 @@ module.exports = {
       "docs/features/0169-gossip-feeds-beliefs.feature",
       "docs/features/0177-house-graph.feature",
       "docs/features/0183-private-habits-and-group-identity.feature",
+      "docs/features/0172-groups-roles-and-cracking.feature",
       "docs/features/0176-homophily-and-territory.feature",
       "docs/features/0185-mood-contagion.feature",
       "docs/features/0182-grudges.feature",
