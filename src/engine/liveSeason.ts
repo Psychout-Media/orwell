@@ -1178,6 +1178,8 @@ export interface SeasonCtx {
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** 0163 / ORW-539: the bond between two OTHER houseguests as `holder` can see it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   perceivedBondFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** ORW-573: which of the final two `voter` reads as the HOH's target, from what the voter knows (beliefs, the HOH's public reasons, how the block was set). Absent => the hidden read (byte-identical). */
+  hohTargetReadFor?: (voter: EntityId, hoh: EntityId, fn: readonly [EntityId, EntityId]) => EntityId;
   /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
   flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
@@ -2294,8 +2296,10 @@ export function voteChoice(
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the
   // target and sends the pawn home. No HOH (or the voter IS the HOH, e.g. a tie-break) ⇒ no term.
   const B = RELATIONSHIP_CONSTANTS.baseline;
+  // ORW-573 (Fable T1-5): in a played game the voter reads the HOH's target from what THEY know (`hohTargetReadFor`: what they were told, what the HOH said
+  // aloud, how the block was set) - never the HOH's hidden threat numbers. A headless sim carries no hook and keeps the old read (byte-identical).
   const hohTarget = hoh && hoh !== voter && !fn.includes(hoh)
-    ? (ctx.rel.edge(hoh, fn[0]).threat >= ctx.rel.edge(hoh, fn[1]).threat ? fn[0] : fn[1])
+    ? (ctx.hohTargetReadFor ? ctx.hohTargetReadFor(voter, hoh, fn) : (ctx.rel.edge(hoh, fn[0]).threat >= ctx.rel.edge(hoh, fn[1]).threat ? fn[0] : fn[1]))
     : undefined;
   const hohAlignment = hohTarget
     ? (ctx.rel.bondStrength(voter, hoh!) - (B.trust + B.affinity) / 2) - (ctx.rel.edge(voter, hoh!).threat - B.threat)
