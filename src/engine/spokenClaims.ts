@@ -93,14 +93,20 @@ export interface ClaimContext {
   credulity?: (listener: EntityId) => number;
   /** ORW-587 (T2-4): how far the listener believes THIS speaker's word, 0..1 (1 = never caught lying; from the listener's own caught-lie record, B48). Scales the belief's confidence. Absent = 1 (unchanged). */
   credibility?: (listener: EntityId, speaker: EntityId) => number;
+  /** ORW-618 (0189 part 2): the jurors (and the player only as a juror) when the claim is told in the jury house; see `claimProblem`. Absent = the house. */
+  jury?: readonly EntityId[];
 }
 
 /** Why a claim is refused (a programming error in the caller, never a game event). Undefined = valid. */
-export function claimProblem(c: ClaimInput, living: readonly EntityId[]): string | undefined {
+export function claimProblem(c: ClaimInput, living: readonly EntityId[], jury?: readonly EntityId[]): string | undefined {
   if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return "unknown kind";
   if (!CLAIM_INTENTS.includes(c.intent)) return "unknown intent";
-  const inHouse = (id: EntityId | undefined) => id !== undefined && living.includes(id);
-  if (!inHouse(c.speaker) || !inHouse(c.listener) || !inHouse(c.subject)) return "not in the house";
+  // ORW-618 (0189 part 2): the SEQUESTER. In the jury house (`jury` given, the jurors, and the player only when the player IS a juror) a claim may pass ONLY between two jurors; a juror never speaks to
+  // or hears from anyone still in the house. What a claim is ABOUT may still be a houseguest in the house (jurors talk about the finalists). Absent `jury` = exactly the house rule.
+  const pair = jury !== undefined && jury.includes(c.speaker) && jury.includes(c.listener);
+  const inHouse = (id: EntityId | undefined) => id !== undefined && (living.includes(id) || (pair && jury!.includes(id)));
+  const inRoom = (id: EntityId): boolean => (pair ? jury!.includes(id) : living.includes(id));
+  if (!inRoom(c.speaker) || !inRoom(c.listener) || !inHouse(c.subject)) return "not in the house";
   if (c.speaker === c.listener) return "speaker is the listener";
   if (c.subject === c.speaker && !ABOUT_OWN_VOTE.has(c.kind)) return "a claim is about someone else"; // a houseguest may claim their OWN vote ("I voted to keep you")
   if (ABOUT_LISTENER.has(c.kind) && c.subject === c.listener) return "a claim is about someone else";
@@ -145,7 +151,7 @@ export function claimConfidence(trustInSpeaker: number, credited: boolean): numb
  * false: the listener cannot tell (Q3 - no built-in tells).
  */
 export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input: ClaimInput, ctx: ClaimContext): SpokenClaim | undefined {
-  if (claimProblem(input, ctx.living) !== undefined) return undefined;
+  if (claimProblem(input, ctx.living, ctx.jury) !== undefined) return undefined;
   log.seq += 1;
   const claim: SpokenClaim = {
     id: `claim:${log.seq}`, speaker: input.speaker, listener: input.listener, kind: input.kind, subject: input.subject,

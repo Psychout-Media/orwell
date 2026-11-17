@@ -26,3 +26,28 @@ Feature: Jurors compare notes, find out who lied to whom, and arrive at the fina
     Given an unplayed game whose jury has a juror who holds that a finalist lied to them
     When the jury house runs its stretches
     Then no juror is told anything
+
+  # Part 2: the player as a juror, both directions, through the existing claim machinery (no new tool, read or projection).
+
+  Scenario: Claims pass only between jurors
+    Given a game where the player holds a juror's seat
+    Then a juror and the player can tell each other things
+    But nobody still in the house can tell, or be told by, a juror or the player
+
+  Scenario: With the player still in the house nothing passes either way
+    Given a game where the player is still in the house and a juror holds a belief
+    Then no juror tells the player anything and the player can tell no juror anything
+
+  Scenario: A juror tells the player only what they hold, as a certainty band
+    Given a game where the player holds a juror's seat and a juror holds a belief
+    When that juror confides in the player
+    Then what the player hears has only the kind, the names and a certainty band
+
+  Scenario: The sealed ballot is never what a juror says
+    Given a game where the player holds a juror's seat and a recorded ballot but no juror holds a belief
+    Then no juror tells the player anything
+
+  Scenario: The player's own words reach a juror and a false one is on the record
+    Given a game where the player holds a juror's seat
+    When the player tells a juror something false in their own words
+    Then the juror holds it as told by the player and it is a lie on the record
