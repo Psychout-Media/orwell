@@ -33,6 +33,7 @@ import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
+import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
@@ -292,6 +293,7 @@ import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } 
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
+import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -5085,6 +5087,7 @@ export class GameSessionAdapter implements GameSession {
     // on the OLD array references) must be dropped; a stale clone could otherwise be reused for a new
     // soul that happens to match a length, persisting the wrong history.
     this.soulCloneCache.clear();
+    this.houseGraphCache = undefined; // derived state: recomputed from the restored bonds
     // 0065 Part A — resume the beat counter at the saved value (restart-safe CAS). Absent on a pre-0065
     // save ⇒ 0 (the next commit bumps it).
     this.beatSeq = core.beatSeq ?? 0;
@@ -5570,6 +5573,19 @@ export class GameSessionAdapter implements GameSession {
     const day = live.dayNumber ?? 1;
     for (let d = live.bondsDay ?? day; d < day; d++) nightPasses(store);
     live.bondsDay = day;
+  }
+
+  /** Derived state, NEVER snapshotted: the last house graph, reused within one in-game day. */
+  private houseGraphCache: DailyHouseGraph | undefined;
+
+  /**
+   * Theme 3 (0177): the house graph (cliques, hubs, loners, brokers), re-derived at most once per in-game day from `bondReader()`. ENGINE-ONLY, like `bondReader()`:
+   * not on the GameSession port, never a tool, never projected; later engine slices consume it. Read-only (no rng, no writes, no edge creation); the cache is derived
+   * from the bonds and is not persisted, so snapshots are byte-identical whether or not it was ever read.
+   */
+  houseGraph(): DailyHouseGraph {
+    this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
+    return this.houseGraphCache;
   }
 
   livingIds(): EntityId[] {
@@ -12201,6 +12217,10 @@ export class GameSessionAdapter implements GameSession {
    */
   private goalMoodEnabled = flagDefaultOn("ORWELL_GOAL_MOOD");
   setGoalMoodEnabled(on: boolean): void { this.goalMoodEnabled = on; }
+  /** ORW-567 / spec 0185 (Theme 3 slice 15): mood contagion. `ORWELL_MOOD_CONTAGION=0` opts out. Played games only (headless calibration byte-identical). */
+  private moodContagionEnabled = flagDefaultOn("ORWELL_MOOD_CONTAGION");
+  setMoodContagionEnabled(on: boolean): void { this.moodContagionEnabled = on; }
+  private moodContagionOn(): boolean { return this.moodContagionEnabled && this.live?.playedGame === true; }
   private appraiseSettled(id: EntityId, before: Agenda | undefined, after: Agenda): void {
     if (!this.goalMoodEnabled || !this.live || !before) return;
     for (const g of after.history.slice(before.history.length)) {
@@ -12462,7 +12482,7 @@ export class GameSessionAdapter implements GameSession {
     switch (ev.beat) {
       case "hoh-competition": {
         const winner = ev.participants[0];
-        if (winner) this.inflect(winner, "comp-win");
+        if (winner) { this.inflect(winner, "comp-win"); this.spreadMood(winner, MOOD_CONTAGION.WIN_MAGNITUDE, "good", "comp-win"); }
         // E51 (`comp-loss`): a loss stings where it was genuinely CONTESTED — the final-3 HOH
         // crown, where each loser just watched their endgame narrow. Losing a 13-player
         // mid-season HOH comp is background noise (folding it for the whole house weekly would
@@ -12480,7 +12500,7 @@ export class GameSessionAdapter implements GameSession {
       }
       case "veto-competition": {
         const holder = s?.vetoHolder;
-        if (holder) this.inflect(holder, "comp-win");
+        if (holder) { this.inflect(holder, "comp-win"); this.spreadMood(holder, MOOD_CONTAGION.WIN_MAGNITUDE, "good", "comp-win"); }
         // E51: the rest of the six-player field contested and lost (the participants ARE the field).
         for (const h of ev.participants) if (h !== holder) this.inflect(h, "comp-loss");
         break;
@@ -12494,7 +12514,9 @@ export class GameSessionAdapter implements GameSession {
       case "eviction": {
         const evictee = ev.participants[0];
         if (!evictee) break;
-        this.blindsideClosestAlly(evictee);
+        const hit = this.blindsideClosestAlly(evictee);
+        // ORW-567 (mood contagion): a shocking exit rattles the evictee's circle most and the house a little (the closest ally already took the full blindside).
+        this.spreadMood(evictee, shockOf(s?.mannerByEvictee?.[evictee]), "bad", "blindside", hit);
         // E51: the nominee who sat on the block and SURVIVED is emboldened — the 0041 arc beat.
         const survivor = s?.eviction?.nominees.find((n) => n !== evictee);
         if (survivor) this.inflect(survivor, "survived-vote");
@@ -12507,9 +12529,9 @@ export class GameSessionAdapter implements GameSession {
   private static readonly ALLY_TRUST_FLOOR = 0.5;
 
   /** The evictee's most-trusting surviving ally reads the eviction as a blindside (distress ▲, volatility ▲). */
-  private blindsideClosestAlly(evictee: EntityId): void {
+  private blindsideClosestAlly(evictee: EntityId): EntityId | undefined {
     const s = this.live;
-    if (!s) return;
+    if (!s) return undefined;
     let ally: EntityId | undefined;
     let best = GameSessionAdapter.ALLY_TRUST_FLOOR;
     for (const h of s.active) {            // s.active already excludes the just-removed evictee
@@ -12518,6 +12540,26 @@ export class GameSessionAdapter implements GameSession {
       if (trust > best) { best = trust; ally = h; }
     }
     if (ally) this.inflect(ally, "blindside");
+    return ally;
+  }
+
+  /**
+   * ORW-567 / spec 0185: spread a mood impulse from `source` to the living NPCs, each catching a fraction by how close they are (bonds, via the bond reader: never the
+   * relationship model). Engine-only; the player is never touched (their mood is theirs); `skip` already took the full impulse. Surfaces only through the existing mood channels.
+   */
+  private spreadMood(source: EntityId, magnitude: number, mood: "bad" | "good", event: EmotionalEvent, skip?: EntityId): void {
+    if (!this.moodContagionOn() || !(magnitude > 0) || !this.house) return;
+    const candidates = this.livingIds().filter((id) => id !== PLAYER && id !== source && id !== skip);
+    const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
+    for (const { id, scale } of catchScales({ reader: this.bondReader(), source, magnitude, mood, candidates, dials })) this.catchMood(id, event, scale);
+  }
+
+  /** A caught mood: the arc moves by a fraction (no rng, no memory note, no recall record: filler would drown real recall, the C12/E55 lesson). The history still records it. */
+  private catchMood(id: EntityId, event: EmotionalEvent, scale: number): void {
+    const soul = this.soulObj(id);
+    if (!soul) return;
+    evolveEmotion(soul, event, undefined, undefined, { soulDepth: this.soulDepthEnabled, scale, ...(this.driftFixEnabled ? { negativityBias: true } : {}) });
+    if (this.npcTellsEnabled) { const r = refreshTells(soul, this.week); soul.tells = r.tells; this.tellOnsetCount += r.onsets; }
   }
 
   /** Deepen a houseguest's soul from an off-screen scene (0038/0041): the house lives between turns.

@@ -147,6 +147,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
   // 0176 / ORW-561 (theme 3 slice 10, part 2): territory - a hidden tenure map (hours per room), a mild pull toward people who share your top room, and a small capped bond nudge for roommates and shared-room pairs. A played game only. `=0` opts out.
   { envKey: 'ORWELL_TERRITORY', key: 'territory', parser: 'defaultOn' },
+  // 0185 / ORW-567 (theme 3 slice 15): mood contagion - a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little. Moves the existing mood only. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_MOOD_CONTAGION', key: 'moodContagion', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },
