@@ -671,6 +671,8 @@ export interface LiveSeasonState {
    */
   /** 0178 (Theme 3 slice 1): each NPC's SECRET PLAN for each deal they agreed to (`dealPlans.ts`). Append-only, engine-only (Vault class), never projected; the retrospective shows it after the crown. */
   dealPlans?: PlanStore;
+  /** 0195 (ORW-628): evictees whose holdings were settled (deals lapsed, favors passed or lapsed, assurances lapsed). Engine-only, once each. */
+  evictedTaken?: EntityId[];
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string; /** 0171 (ORWELL_FAVORS): a counter in play - the round it is and what the houseguest asks for instead. Rides the one standing offer slot. */ counter?: { round: number; ask: { kind: "target" | "protect"; target: EntityId } | { kind: "vote" } }; /** 0171: this standing offer is a FAVOR between the houseguest and the player: `favorId` set = the houseguest calls in a favor the player owes them; absent = they ask the player for a new one. */ favor?: { favorId?: string } };
   /** 0171: counters the player accepted whose condition (a rival goes up / someone is kept safe) is not yet true. Booked as a favor only when the condition holds at that week's eviction; otherwise lapsed. Append-only, engine-only. */
   favorConditions?: Array<{ id: string; owedBy: EntityId; owedTo: EntityId; origin: string; kind: "target" | "protect"; target: EntityId; week: number; state: "waiting" | "booked" | "lapsed" }>;

@@ -123,6 +123,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_TRAPS', key: 'traps', parser: 'defaultOn' },
   // 0180 / ORW-552 (Theme 3 slice 12 part 1): house norms - the house shuns a houseguest (or the player) it KNOWS broke their word (each observer's own held beliefs). `=0` = no shunning.
   { envKey: 'ORWELL_HOUSE_NORMS', key: 'houseNorms', parser: 'defaultOn' },
+  // 0195 / ORW-628: what the evicted take with them - their deals, favors and assurances leave with them (a held favor may pass to their closest ally), and the house reacts. `=0` = off.
+  { envKey: 'ORWELL_EVICTED_TAKE', key: 'evictedTake', parser: 'defaultOn' },
   // 0178 / ORW-552 (Theme 3 slice 1): two-faced deals - each NPC's secret plan for a deal it agreed to (keep / this week / break at a moment / flip at the vote / cut at the final three), carried out at its moment. `=0` = no plans.
   { envKey: 'ORWELL_DEAL_PLANS', key: 'dealPlans', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
