@@ -1,9 +1,14 @@
-import type { EntityId } from "../domain/ids";
+import { PLAYER, type EntityId } from "../domain/ids";
 import { clamp } from "../domain/num";
 
 /** The kinds and commitment levels of a bond (engine-only enums; `bonds.ts` re-exports them). */
 export type BondKind = "none" | "friendship" | "showmance" | "mentor" | "business" | "rivals-turned-allies" | "protector" | "puppet-master";
 export type Commitment = "none" | "casual" | "final-two" | "ride-or-die";
+/**
+ * ORW-622 (Ryne approved 2026-11-17, Fable idea #17): MIXED RELATIONSHIPS. A bond carries several strands at once, each with its own weight 0..1, so behaviour can
+ * split: a showmance and a final-two pact can protect someone at the vote while a grudge makes the holder snap at them over dinner. `kind` stays the dominant one.
+ */
+export type Strand = "friendship" | "romance" | "pact" | "owed" | "owing" | "rivalry";
 
 /**
  * Feature 0175 (Theme 3 Core 1, ORW-552) - THE BOND RECORD: what a houseguest carries about each other houseguest beyond today's trust / affinity / threat.
@@ -119,6 +124,17 @@ export function sceneRoles(initiator: EntityId, witnessSet: readonly EntityId[],
 }
 
 /**
+ * ORW-609: who is who in a RECORDED player scene (the player is always a witness). The actor is the event's initiator when that houseguest is in the scene, else the player.
+ * A houseguest who acted does it TO the player; when the player acted, the recipient is the first houseguest the scene names. Everyone else only watched.
+ */
+export function recordedSceneRoles(initiator: EntityId, witnessSet: readonly EntityId[]): { actor: EntityId; recipient: EntityId | undefined; bystanders: EntityId[] } {
+  const all = [...new Set(witnessSet)];
+  const actor = initiator !== PLAYER && all.includes(initiator) ? initiator : PLAYER;
+  const recipient = actor === PLAYER ? all.find((x) => x !== PLAYER) : PLAYER;
+  return { actor, recipient, bystanders: all.filter((x) => x !== actor && x !== recipient) };
+}
+
+/**
  * A scene the participants shared: every ordered pair among them folds it. With no `who`, both directions alike (they were all there: the original fold, byte-identical).
  * ORW-598: with `who.initiator`, the recipient's view of the initiator moves by the full weight and the initiator's view of the recipient by `initiatorShare` of it;
  * `who.bystanders` (watchers, not in the scene) move only their own view of each participant, by `bystanderShare`, never the participants' pair.
@@ -192,6 +208,25 @@ export function nightPasses(store: BondStore): void {
  * The kind of a bond, read from its record (the holder's side). Deterministic, first match wins. "mentor" and "puppet-master" need reads later slices add
  * (age and game experience; who steers whose votes): until then they are never returned.
  */
+/** ORW-622: how much each commitment level binds, as the pact strand (an engine table over the closed commitment enum; not a pick). */
+const PACT_STRAND: Readonly<Record<Commitment, number>> = { none: 0, casual: 0.35, "final-two": 0.7, "ride-or-die": 1 };
+
+/**
+ * ORW-622: every strand the bond carries right now, with its weight (only those above 0). Several at once is the point: friendship is warmth; romance is the romance
+ * scenes (full at a showmance) scaled by warmth; the pact is the commitment the pair's deals hold; owed / owing is the debt either way; rivalry is the grudge.
+ */
+export function strandsOf(rec: BondRecord): Partial<Record<Strand, number>> {
+  const out: Partial<Record<Strand, number>> = {};
+  const put = (k: Strand, v: number): void => { const c = clamp(v, 0, 1); if (c > 0) out[k] = c; };
+  put("friendship", rec.warmth);
+  put("romance", (Math.min(rec.romance, BOND.showmanceScenes) / BOND.showmanceScenes) * clamp(rec.warmth * 2, 0, 1));
+  put("pact", PACT_STRAND[rec.commitment]);
+  put("owed", rec.debt);
+  put("owing", -rec.debt);
+  put("rivalry", rec.resentment);
+  return out;
+}
+
 export function kindOf(rec: BondRecord): BondKind {
   if (rec.romance >= BOND.showmanceScenes && rec.warmth >= BOND.friendshipAt) return "showmance";
   if (rec.peakResentment >= BOND.rivalsPeak && rec.warmth >= BOND.friendshipAt && rec.resentment < BOND.rivalsPeak / 2) return "rivals-turned-allies";

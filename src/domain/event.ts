@@ -26,6 +26,8 @@ export interface GameEvent {
   /** Off-screen flag. Invariant: an event the player witnessed is NEVER hidden. */
   hidden: boolean;
   content: string;
+  /** ORW-609: the `kind` a recorded player scene was filed under (bonding / conflict / alliance ...). ENGINE-ONLY (the bond record reads it); never projected. Absent on every other event. */
+  interactionKind?: string;
   /** Content before any hidden-element / player-subject / scheme-target enrichment. Used by getOffscreenSceneSkeletons to return only the Vault-free public projection. */
   baseContent?: string;
   /**
