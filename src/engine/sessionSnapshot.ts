@@ -10,6 +10,8 @@ import type { Campaign, Drive } from "./campaigns";
 import type { Trajectory, FoldSignal } from "./trajectory";
 import type { Alliance } from "./alliances";
 import { isAgendaSuperset } from "./agenda";
+import { beliefStoreSuperset } from "./beliefStore";
+import { claimLogSuperset } from "./spokenClaims";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
@@ -966,6 +968,13 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
     const next = laterAgendas[id];
     if (!next || !isAgendaSuperset(prev, next)) return "agendas";
   }
+
+  // claims (0149 / ORW-591): the season's claim log is append-only - no claim told is ever lost, and its id counter never goes back.
+  if (!claimLogSuperset(later.live?.claims, earlier.live?.claims)) return "claims";
+
+  // beliefs (#2017 / ORW-591): a belief once held is never lost (nor a telling folded into it), except by the per-holder cap's compaction, which
+  // takes refuted beliefs before live ones (`beliefStoreSuperset`).
+  if (!beliefStoreSuperset(later.live?.beliefs, earlier.live?.beliefs)) return "beliefs";
 
   return null;
 }

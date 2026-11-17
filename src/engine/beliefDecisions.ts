@@ -1,5 +1,5 @@
 import type { EntityId } from "../domain/ids";
-import { claimsOf, targetsMeTilt, type BeliefClaim, type BeliefStore } from "./beliefStore";
+import { claimsOf, evidenceKey, targetsMeTilt, type BeliefClaim, type BeliefStore } from "./beliefStore";
 import { REASONS } from "./agendaConstants";
 import { CONVICTION } from "./beliefConviction";
 import { THREAT_NATURES } from "./gossipBeliefs";
@@ -95,18 +95,25 @@ function weightNow(c: BeliefClaim, kind: GrievanceKind, week: number): number {
   return BELIEF_PULL.kindWeight[kind] * conviction * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
 }
 
-/** How strongly `holder` believes they have a grievance against `subject`, 0..1 (several beliefs stack with diminishing returns). */
+/**
+ * How strongly `holder` believes they have a grievance against `subject`, 0..1 (several beliefs stack with diminishing returns). ORW-591 (Fable
+ * T2-8): only DISTINCT evidence stacks - one source repeating the same thing is one piece of evidence (`evidenceKey`), counted at its strongest;
+ * two different sources, or two separate things the holder saw or deduced, each count.
+ */
 export function believedGrievance(store: BeliefStore | undefined, holder: EntityId, subject: EntityId, week: number): { strength: number; top?: GrievanceKind } {
-  let keep = 1;
+  const strongest = new Map<string, number>();
   let top: { kind: GrievanceKind; w: number } | undefined;
   for (const c of claimsOf(store, holder)) {
     if (c.subject !== subject) continue;
     const kind = grievanceOf(c, holder);
     if (!kind) continue;
     const w = weightNow(c, kind, week);
-    keep *= 1 - Math.min(1, w);
+    const key = evidenceKey(c);
+    strongest.set(key, Math.max(strongest.get(key) ?? 0, w));
     if (!top || w > top.w) top = { kind, w };
   }
+  let keep = 1;
+  for (const w of strongest.values()) keep *= 1 - Math.min(1, w);
   return top ? { strength: 1 - keep, top: top.kind } : { strength: 0 };
 }
 
