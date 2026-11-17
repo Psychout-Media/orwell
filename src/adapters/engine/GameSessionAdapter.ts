@@ -105,7 +105,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
-import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
+import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { validateTraits, validateCulture, validateReflection } from "../../engine/npcMindsAuthored";
@@ -5600,7 +5600,8 @@ export class GameSessionAdapter implements GameSession {
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
   /**
-   * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you") learns of a quiet break with
+   * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you"), or that the breaker is TARGETING
+   * them (a told "they're coming after you", a spy's report), learns of a quiet break with
    * that breaker, and only then reacts (`DealLedger.learnOfBreak`). What they hold, never the truth. A side-stream rng only for the shock's own jitter.
    */
   private learnBreaksOvernight(): void {
@@ -5613,7 +5614,9 @@ export class GameSessionAdapter implements GameSession {
       const wronged = deal.parties.find((p) => p !== breaker);
       if (!wronged) continue;
       const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
-        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)));
+        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)
+          // ORW-597 follow-up: being told (and believing) the breaker is coming after you exposes their promise to you as hollow (a spy's report, a told claim)
+          || (b.kind === "targets-me" && (b.object === undefined || b.object === wronged))));
       if (!caught) continue;
       this.deals.learnOfBreak(deal as Deal, {
         rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
@@ -14647,7 +14650,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private maybeCounterOffer(npcId: EntityId, askedKind: DealReqKind, refusal: DealRefusal): { kind: string; terms: string } | undefined {
     const s = this.live;
-    if (!s || refusal.reason !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
+    if (!s || this.refusalReal.get(refusal) !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
     if (s.dealOffer || s.finished || s.beat === "finale" || s.beat === "complete" || askedKind === "safety") return undefined;
     if (this.dealOfferPartyGone(npcId) || this.memoryBlocksPlayerDeal(npcId)) return undefined;
     if (this.dealConsentRefusal(npcId, "safety") !== null) return undefined;
@@ -14722,8 +14725,22 @@ export class GameSessionAdapter implements GameSession {
       ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
-    return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
+    if (d.accept || !d.reason) return null;
+    // ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
+    // The real reason stays engine-only (the stated-reason record, for the post-crown retrospective; and `refusalReal` for the counteroffer's own read).
+    const real: RealReason = { decision: "deal-consent", decider: npcId, choice: PLAYER, terms: [], refusal: d.reason };
+    const day = live.dayNumber ?? live.week;
+    const character = this.agendaCharacterOf(npcId);
+    const stated = character ? explainDecision(real, character, this.gameSeed ?? 0, day) : { kind: "nothing-personal" as const, about: PLAYER, candor: "cover" as const };
+    if (live.playedGame === true && !(live.statedReasons ?? []).some((r) => r.week === live.week && r.decider === npcId && r.decision === "deal-consent" && r.day === day)) {
+      (live.statedReasons ??= []).push({ week: live.week, day, decider: npcId, decision: "deal-consent", public: true, real, stated });
+    }
+    const refusal: DealRefusal = { refused: true, reason: stated.kind };
+    this.refusalReal.set(refusal, d.reason);
+    return refusal;
   }
+  /** ORW-608: the real reason behind a refusal object, engine-only (never on the object itself, so it can never cross the wall). */
+  private refusalReal = new WeakMap<DealRefusal, DealRefusalReason>();
 
   /**
    * 0093 — the secret-power per-moment seeded rng, keyed on (game seed, use, factId/subject, week, phase).
