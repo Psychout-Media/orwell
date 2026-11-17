@@ -290,7 +290,8 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
-import { edgeBondReader, type BondReader } from "../../engine/bonds";
+import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
+import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -5526,7 +5527,49 @@ export class GameSessionAdapter implements GameSession {
    * the house graph (Overseer B) and Theme 3's decisions read it. Read-only (a read never creates an edge). Feature 0175 swaps in the full bond record behind it.
    */
   bondReader(): BondReader {
-    return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
+    if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
+    this.foldBonds();
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, this.favorDebt ? { favorDebt: this.favorDebt } : {});
+  }
+  /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
+  private favorDebt?: DebtSource;
+  setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** 0175: the bond record (`ORWELL_BOND_RECORD`, default ON; `=0` = the edge-only reader and no record kept). Nothing decides from it yet, so it moves no outcome. */
+  private bondRecordEnabled = flagDefaultOn("ORWELL_BOND_RECORD");
+  setBondRecordEnabled(on: boolean): void { this.bondRecordEnabled = on; }
+  /**
+   * 0175: fold what happened since the last fold into the bond record. Deterministic, no rng, idempotent (an event cursor and a seen-list of deal / save
+   * marks): scenes the pair shared (house-life and recorded interactions of a folding kind), deals kept and broken (`brokenBy`), a veto save, the commitment
+   * the pair's open deals hold, and one night's repair per in-game day passed. Engine-only.
+   */
+  private foldBonds(): void {
+    const live = this.live;
+    if (!this.bondRecordEnabled || !live || !this.house) return;
+    const store = (live.bonds ??= {});
+    const events = this.record?.events() ?? [];
+    for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
+      const e = events[i]!;
+      if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
+      if (!e.houseLife && e.witnessSet.length > 4) continue; // a whole-house moment is not a pair's scene
+      foldScene(store, e.type as SceneFold, e.witnessSet);
+    }
+    live.bondsCursor = events.length;
+    const seen = new Set(live.bondsSeen ?? []);
+    const mark = (k: string): boolean => { if (seen.has(k)) return false; seen.add(k); return true; };
+    const open = new Map<string, string[]>();
+    for (const d of this.deals.all) {
+      const [a, b] = d.parties;
+      if (d.status === "broken" && d.brokenBy && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
+      else if (d.status === "kept" && mark(`kept:${d.id}`)) foldKept(store, a, b);
+      else if (d.status === "open") for (const [x, y] of [[a, b], [b, a]] as const) (open.get(bondKey(x, y)) ?? open.set(bondKey(x, y), []).get(bondKey(x, y))!).push(d.kind);
+    }
+    if (live.vetoHolder && live.saved && live.saved !== live.vetoHolder && mark(`save:${live.week}:${live.vetoHolder}:${live.saved}`)) foldSave(store, live.vetoHolder, live.saved);
+    for (const k of open.keys()) store[k] ??= emptyBond();
+    for (const [k, r] of Object.entries(store)) r.commitment = commitmentFor(open.get(k) ?? [], r);
+    live.bondsSeen = [...seen];
+    const day = live.dayNumber ?? 1;
+    for (let d = live.bondsDay ?? day; d < day; d++) nightPasses(store);
+    live.bondsDay = day;
   }
 
   livingIds(): EntityId[] {
@@ -10260,6 +10303,7 @@ export class GameSessionAdapter implements GameSession {
       for (let i = 0; i < steps; i++) evolveEmotion(hg.soul, "calm", undefined, undefined, { soulDepth: this.soulDepthEnabled });
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
+    this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
     return steps;
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */

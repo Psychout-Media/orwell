@@ -65,4 +65,12 @@ describe("the bond read API (bonds.ts)", () => {
     const names = [...PLAYER_TOOLS, ...ADMIN_TOOLS, ...DEBUG_VAULT_TOOLS].map((t) => t.name);
     expect(names.some((n) => /bond/i.test(n))).toBe(false);
   });
+  it("a second debt source (the favor ledger) adds to the record's debt, clamped -1..1", async () => {
+    const { recordBondReader } = await import("../../src/engine/bonds");
+    const rel = new RelationshipModel(0.5);
+    const store = { "h|a": { warmth: 0, debt: 0.5, resentment: 0, strain: 0, history: 1, romance: 0, peakResentment: 0, commitment: "none" as const } };
+    const r = recordBondReader(rel, () => store, () => ["h", "a"], () => 1, { favorDebt: (h, o) => (h === "h" && o === "a" ? 0.8 : -0.2) });
+    expect(r.bond("h", "a").debt).toBe(1);
+    expect(r.bond("a", "h").debt).toBeCloseTo(-0.2, 12);
+  });
 });
