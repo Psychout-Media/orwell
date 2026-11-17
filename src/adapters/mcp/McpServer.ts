@@ -247,6 +247,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "joinAlliance": // 0107 Phase B
       guardSyncFields(false);
       if (!isStr(args["allianceId"])) refuse("allianceId", "an alliance id (string)");
+      if (args["name"] !== undefined && !isStr(args["name"])) refuse("name", "a name (string) or omitted"); // ORW-509
       return;
     case "confide":
       guardSyncFields(true); // 0065 Part A CAS + Part B at-most-once idempotencyKey (A10/#591 — confide folds the bond bump / lie ledger; the key makes a stale-409 re-drive at-most-once)

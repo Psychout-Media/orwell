@@ -1,5 +1,6 @@
 import type { EventStore } from "../ports/EventStore";
 import type { RandomnessSource } from "../ports/RandomnessSource";
+import { composedAt, joinWords } from "./data/composedFloor";
 
 /**
  * Varied, state-derived house-event content + the week's day index (audit E58).
@@ -77,9 +78,71 @@ export const HOUSE_EVENT_POOL: ReadonlyArray<string> = [
   "A birthday toast with makeshift decorations turns into a rare all-house gathering.",
 ];
 
+/**
+ * ORW-509: the composed house-event floor. 32 fixed lines recurred inside one season and across seasons; a line is now a time-of-day lead (optional) +
+ * a happening + a turn, drawn from one index so a season never repeats one and two seasons almost never share one. The 32 authored lines are kept as the
+ * first region of the space. The writer (when reachable) authors house-event flavour from the season's own facts; this is the offline floor.
+ */
+const EVENT_TIMES: readonly string[] = [
+  "", "", "Just before breakfast,", "Mid-morning,", "Right after lunch,", "Late in the afternoon,", "Just after dinner,", "Near midnight,", "In the small hours,",
+  "Between challenges,", "Right after a diary-room call,", "Halfway through a house chore,",
+];
+const EVENT_SETUPS: readonly string[] = [
+  "a broken blender sends a smoothie across the kitchen", "a stuck window leaves the living room freezing", "a forgotten pot boils dry on the stove",
+  "a crossword on the coffee table draws a small crowd", "a shower-schedule chart appears on the bathroom door", "a bag of mystery snacks arrives from production",
+  "a card game on the patio gets heated over the rules", "a loud storm knocks out the lights for a minute", "a hairdryer blows a fuse in the bathroom",
+  "a lost sock sparks a house-wide search", "a pillow fight breaks out in the bedroom", "a cooking attempt in the kitchen goes spectacularly wrong",
+  "a thermostat dispute pits the cold sleepers against everyone else", "a pool float drifts over the fence and a chase follows", "a speaker wakes half the house with a test tone",
+  "a moving-day pile of laundry blocks the hallway", "a birthday that nobody planned for gets a hasty cake", "a wobbly chair gives out at the dining table",
+  "a yoga session in the yard collects an unexpected audience", "a prank with plastic wrap turns the fridge into a puzzle", "a roast of the day's drama starts at the kitchen counter",
+  "a bathroom line stretches down the hall", "a stack of dishes sits untouched until someone snaps", "a whiteboard of house rules gets some pointed edits",
+  "a bird gets into the living room", "a long, lazy afternoon on the lawn drifts into storytelling", "a bad smell sends everyone hunting for its source",
+  "a cooking pot is claimed and then argued over", "a late snack run empties the pantry", "a board game turns into a grudge match", "a mattress gets dragged out to the yard",
+  "a diary-room summons interrupts a card game", "a sudden heatwave sends everyone to the pool", "a leaky tap becomes the day's main topic",
+  "a quiet read in the sun is broken by a loud argument two rooms away", "a game of charades turns oddly serious", "a pile of fan mail gets read aloud",
+  "a snoring complaint goes round the bedrooms", "a mislabeled lunch box sparks a small mystery", "a high-stakes hand of cards at the kitchen island splits the table",
+  "a dance-off in the living room draws a crowd", "a sunrise workout is skipped by all but two", "a stuck jar lid becomes a test of pride",
+  "a rumor about the next challenge spreads through the house", "a heavy rain leaves the backyard a swamp", "a tray of cookies goes missing before it cools",
+  "a spilled drink on the couch starts a blame game", "a surprise visit from the production crew about a noise complaint", "a sing-along in the kitchen collects harmonies",
+  "a late-night snack ritual becomes a house tradition", "a sunburn comparison on the patio gets competitive", "a power-nap schedule becomes a strategic matter",
+  "a sock puppet show in the bedroom gets surprisingly good", "a quiet chess match in the lounge draws a whispering crowd", "a vegetable garden bet is settled in the yard",
+  "a nickname given as a joke starts to stick", "a stack of letters is sorted by who got the most", "a hallway echo test turns into a shouting contest",
+  "a first aid kit gets used for a trivial scrape", "a houseplant is named and then mourned", "an old magazine pile gets raided for quizzes",
+];
+const EVENT_TURNS: readonly string[] = [
+  "and the whole house ends up laughing about it", "and tempers fray before anyone has eaten", "until Big Brother calls the house to order", "and two housemates quietly slip off to talk",
+  "and old grievances surface along with it", "before the mood in the room shifts for the rest of the day", "and someone keeps score in their head", "and an unlikely pair ends up on the same side",
+  "and by dinner it is the only thing anyone is talking about", "and the loudest voice in the room loses the argument", "while the quieter ones watch and take notes",
+  "and a small truce is made and almost kept", "until someone leaves the room without a word", "and nobody can agree on what actually happened", "and a joke lands wrong with someone",
+  "and the story is already being retold by the next room", "before a late apology makes it worse", "and the house splits into two camps without noticing", "and half the room goes quiet",
+  "and somebody gets the last word in the diary room", "and the afternoon dissolves into gossip", "until the silence gets awkward", "and a stray comment lingers long after",
+  "and for once the whole house agrees", "and an old favorite becomes a point of contention", "before it all gets blamed on whoever is out of the room",
+  "and a promise to fix it is made and forgotten", "and the sulking runs well into the evening", "and a quiet kindness from someone surprises the room",
+  "and the competitive streak in the house shows itself", "and it becomes a running joke by morning", "and people start choosing sides",
+  "before someone offers to clean it up and everyone pretends not to hear", "until a peace offering of snacks changes the mood", "and a stray word gets taken the wrong way",
+  "and the host's name for it is the one that sticks", "and a rivalry gets a new chapter", "and the evening runs on longer than planned", "until two people realize they agree after all",
+  "and a favorite chair is claimed for the night", "and by morning it is somehow forgotten by all but one", "and the house settles into an uneasy routine",
+  "and the noise carries to every room", "and a wary glance passes between two longtime rivals", "and someone retreats to the yard to cool off",
+  "and an inside joke is born", "and the group chat of whispers is busy all night", "and no one admits to starting it", "and the mood lifts for the first time all week",
+  "and the whole thing is shrugged off by morning", "and a small kindness is quietly remembered",
+];
+
+export const HOUSE_EVENT_SPACE = HOUSE_EVENT_POOL.length + EVENT_TIMES.length * EVENT_SETUPS.length * EVENT_TURNS.length;
+
+/** The `index`th house-event line: the authored classics first, then the composed lines. Pure. */
+export function houseEventLineAt(index: number): string {
+  const i = ((Math.floor(index) % HOUSE_EVENT_SPACE) + HOUSE_EVENT_SPACE) % HOUSE_EVENT_SPACE;
+  if (i < HOUSE_EVENT_POOL.length) return HOUSE_EVENT_POOL[i]!;
+  const [time, setup, turn] = composedAt([EVENT_TIMES, EVENT_SETUPS, EVENT_TURNS], i - HOUSE_EVENT_POOL.length) as [string, string, string];
+  const lead = time ? `${time} ${setup}` : `${setup[0]!.toUpperCase()}${setup.slice(1)}`;
+  return `${joinWords([lead, turn])}.`.replace(/^(\w)/, (c) => c.toUpperCase());
+}
+
 export interface HouseEventOpts {
   week: number;
   phase: string;
+  /** ORW-509 season memory: lines the previous seasons used (an explicit input, default empty). They are skipped while the draw can land elsewhere. */
+  avoid?: ReadonlySet<string>;
 }
 
 /**
@@ -101,14 +164,17 @@ const RECENT_WINDOW = Math.max(1, Math.min(10, HOUSE_EVENT_POOL.length - 1));
 export function nextHouseEvent(events: EventStore, rng: RandomnessSource, opts: HouseEventOpts): string {
   const prior = events.query({ type: "house-event" });
   const recentContents = prior.slice(-RECENT_WINDOW).map((e) => e.content);
-  const pool = HOUSE_EVENT_POOL.filter((line) => !recentContents.some((content) => content.includes(line)));
-  // If the recency window ever exhausts the whole pool (only possible with an unusually
-  // shallow custom pool, e.g. in a narrow test), fall back to the full pool rather than
-  // indexing into an empty array — variety degrades gracefully, it never throws.
-  const candidates = pool.length > 0 ? pool : HOUSE_EVENT_POOL;
-  // ENG-3 (#628): rng.next() ∈ [0,1), so `Math.floor(rng.next() * candidates.length)` is
-  // already in [0, candidates.length) — no trailing `% length` needed.
-  const line = candidates[Math.floor(rng.next() * candidates.length)]!;
+  // ONE rng.next() draw, exactly as before (the main stream's consumption is unchanged). It addresses the whole composed space; a line that is in the recent
+  // window, or in the previous seasons' `avoid`, moves the pick to the next index (bounded probes, then the drawn line stands: never a blocked call).
+  const start = Math.floor(rng.next() * HOUSE_EVENT_SPACE);
+  const avoid = opts.avoid;
+  let line = houseEventLineAt(start);
+  for (let k = 0; k < 64; k++) {
+    const cand = houseEventLineAt(start + k);
+    if (recentContents.some((content) => content.includes(cand)) || avoid?.has(cand)) continue;
+    line = cand;
+    break;
+  }
   const day = dayOfWeek(opts.phase);
   const stamp = day === null ? `Week ${opts.week}` : `Week ${opts.week}, day ${day}`;
   return `${stamp}: ${line}`;

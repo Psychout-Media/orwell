@@ -586,6 +586,8 @@ export interface LiveSeasonState {
   beds?: import("./beds").BedsState;
   /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
   houseTheme?: string;
+  /** ORW-509: the full definition when the season's house was authored by the writer (accepted by `acceptHouseThemeDraft`); re-registered on load so `houseTheme` resolves. Absent for a library theme or none. */
+  houseThemeDef?: import("./data/houseThemes").HouseTheme;
   /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
   priorHouseThemes?: string[];
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
@@ -749,6 +751,13 @@ export interface LiveSeasonState {
    * 0042 library floor stands, byte-identical to the pre-feature model. Persisted with the season (0030).
    */
   competitionFiction?: CompetitionFiction;
+  /** ORW-509: the titles the writer authored for this season's competitions (newest last, bounded). Handed back to the writer as "already used" so a season does not repeat its own themes; counted refusals in `compThemeRejects`. Absent until one is authored. */
+  recentCompThemes?: string[];
+  compThemeRejects?: number;
+  /** ORW-509: narrator-proposed alliance names the naming rules refused (the engine's name stood). */
+  allianceNameRejects?: number;
+  /** ORW-509: authored houses refused at adoption (reused the last seasons' rooms); plain labels stood. */
+  houseThemeRejects?: number;
   /** The in-progress live finale sub-loop (0037); set when the finale begins. */
   finale?: FinaleProgress;
   /** The in-progress live eviction sub-loop (0047); set while a weekly eviction stages its reveal. */
