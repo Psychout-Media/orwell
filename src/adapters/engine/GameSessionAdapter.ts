@@ -14395,9 +14395,11 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
-  private ownPushAgainstPlayer(npcId: EntityId): number {
-    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
-    return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
+  private ownPushAgainstPlayer(npcId: EntityId): number { return this.ownPushAgainst(npcId, PLAYER); }
+  /** The NPC's own push against `target` (their active campaign on that seat, else their drive). The same read for the player and for any houseguest (ORW-613). */
+  private ownPushAgainst(npcId: EntityId, target: EntityId): number {
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === target);
+    return Math.max(0, drivePushFor(this.drives.get(npcId), target, own ? { goal: own.goal, progress: own.progress } : undefined));
   }
 
   private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
@@ -16091,7 +16093,7 @@ export class GameSessionAdapter implements GameSession {
         const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
         const w = weighDealBreak({
           kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
-          ownPush: other === PLAYER ? this.ownPushAgainstPlayer(npc) : 0, agendaPull: this.agendaPullOf(other, npc).value,
+          ownPush: this.ownPushAgainst(npc, other), agendaPull: // ORW-613: the same push against an NPC partner as against the player this.agendaPullOf(other, npc).value,
           loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
           credibility: cred, reliableShare, endgame,
         });
