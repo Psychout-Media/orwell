@@ -198,12 +198,11 @@ describe("ORW-618 part 2 (5): the wall, through the tool boundary", () => {
       return seen.join("\n");
     };
     const all = await sweep();
-    // The jury prompt already voices each juror from their own witnessed knowledge (0129 slice 2). Part 2 must add NOTHING beyond that: the same sweep with the new tells switched off hits exactly the same sentinels.
+    // The jury house takes the same disclosure gate as the house: a juror's off-screen knowledge (the planted `npcknow` sentinel) never reaches the narrator, with the new tells on or off.
+    for (const s of sentinels) expect(all.includes(s), `${s} leaked`).toBe(false);
     sess.setClaimsToPlayerEnabled(false);
     sess.claimsToPlayerDecided.clear();
-    const base = await sweep();
-    const hits = (text: string): string[] => sentinels.filter((s) => text.includes(s));
-    expect(hits(all)).toEqual(hits(base));
+    for (const s of sentinels) expect((await sweep()).includes(s), `${s} leaked (tells off)`).toBe(false);
     expect(all).not.toMatch(/claim:\d|isTrue/);
   });
 });
