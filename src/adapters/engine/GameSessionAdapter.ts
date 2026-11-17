@@ -34,6 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
+import { GRUDGES, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -5576,6 +5577,76 @@ export class GameSessionAdapter implements GameSession {
     live.bondsDay = day;
   }
 
+  /** 0182 (Theme 3 slice 5, PR 1): the grudge book (`ORWELL_GRUDGES`, default ON; `=0` opts out). Played games only, and it needs the bond record. Nothing decides from it yet. */
+  private grudgesEnabled = flagDefaultOn("ORWELL_GRUDGES");
+  setGrudgesEnabled(on: boolean): void { this.grudgesEnabled = on; }
+  private grudgesOn(): boolean { return this.grudgesEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+  /**
+   * 0182: fold the wrongs the engine already recorded into the grudge book: an ally's cut (a friend's nomination or replacement, an alliance betrayal), a broken deal, a vote or
+   * blindside the evictee holds, a claim of being lied to or voted against. Severity is the magnitude those records already carry. Deterministic, no rng, idempotent (own seen-marks);
+   * the player is never a holder. Writes nothing (not even an empty book) until a grudge exists, so a game with none is byte-identical.
+   */
+  private foldGrudges(): void {
+    const live = this.live;
+    if (!this.grudgesOn() || !live || !this.house) return;
+    const seen = new Set(live.grudgesSeen ?? []);
+    const before = seen.size;
+    const day = live.dayNumber ?? 1;
+    const note = (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number): void => {
+      if (holder === PLAYER || seen.has(mark)) return;
+      seen.add(mark);
+      noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark);
+    };
+    for (const holder of Object.keys(live.npcMemory ?? {}).sort() as EntityId[]) {
+      const row = live.npcMemory![holder] ?? {};
+      for (const subject of Object.keys(row).sort() as EntityId[]) for (const e of row[subject] ?? []) {
+        const kind: GrudgeKind | undefined = e.kind === "deal-broken" ? "deal-broken" : e.kind === "nominated-by-friend" || e.kind === "replaced-by-friend" ? "cut-by-ally" : undefined;
+        if (kind) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
+      }
+    }
+    for (const d of this.deals.all) {
+      if (d.status !== "broken" || !d.brokenBy) continue;
+      const [a, b] = d.parties;
+      note(`d:${d.id}`, d.brokenBy === a ? b : a, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
+    }
+    const evicted = new Set(live.evictionOrder);
+    const manner = live.mannerByEvictee ?? {};
+    for (const wronged of Object.keys(manner).sort() as EntityId[]) for (const who of Object.keys(manner[wronged] ?? {}).sort() as EntityId[]) {
+      const m = manner[wronged]![who]!;
+      const sev = m.intensity ?? 1;
+      const at = (flag: string): string => `n:${wronged}|${who}|${flag}`;
+      // an unevicted houseguest's betrayal is an ally's cut (the alliance paths); an evictee's is the vote that sent them out. Blindsided is noted last so it wins a tie.
+      if (m.disrespected) note(at("disrespected"), wronged, who, "vote-against", sev, live.week);
+      if (m.betrayed) note(at("betrayed"), wronged, who, evicted.has(wronged) ? "vote-against" : "cut-by-ally", sev, live.week);
+      if (m.blindsided) note(at("blindsided"), wronged, who, "blindsided", sev, live.week);
+    }
+    for (const holder of Object.keys(live.beliefs ?? {}).sort() as EntityId[]) for (const c of live.beliefs![holder] ?? []) {
+      if (!c.value || c.refuted) continue;
+      if (c.kind === "lied-to-me") note(`c:${c.id}`, holder, c.subject, "lied-to", c.confidence, c.week);
+      else if (c.kind === "voted-against-me") note(`c:${c.id}`, holder, c.subject, "vote-against", c.confidence, c.week);
+    }
+    if (seen.size !== before) live.grudgesSeen = [...seen];
+  }
+
+  /**
+   * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
+   * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
+   */
+  grudgeOf(holder: EntityId, subject: EntityId): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
+    if (holder === PLAYER) return null;
+    this.foldGrudges();
+    const row = this.live?.grudges?.[grudgeKey(holder, subject)];
+    if (!row || !this.live) return null;
+    const hg = this.house?.npcs.find((n) => n.id === holder);
+    const keeper = forgivenessTraitFor(this.live.npcMemory?.[holder]?.[subject], {
+      ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}),
+      volatility: this.soulObj(holder)?.volatility ?? 0.5,
+      closeness: this.rel.bondStrength(holder, subject),
+    }) === "grudge-keeper";
+    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper });
+    return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak };
+  }
+
   /** Derived state, NEVER snapshotted: the last house graph, reused within one in-game day. */
   private houseGraphCache: DailyHouseGraph | undefined;
 
@@ -10323,6 +10394,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
     return steps;
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
