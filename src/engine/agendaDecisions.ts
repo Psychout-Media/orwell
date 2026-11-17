@@ -21,7 +21,7 @@ import { agendaRoll } from "./agenda";
 import { REASONS } from "./agendaConstants";
 
 /** Which way a decision cuts against a candidate: nominate / vote to evict / final-HOH eviction are "against"; a veto save is "for". */
-export type DecisionKind = "nominate" | "replacement" | "veto" | "veto-hold" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+export type DecisionKind = "nominate" | "replacement" | "veto" | "veto-hold" | "hc-pick" | "comp-throw" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
 
 export interface GoalPull {
   /** Signed: positive = the agenda wants this candidate OUT; negative = it wants them kept. Same scale as a threat read. */
@@ -78,6 +78,8 @@ export interface RealReason {
   goalId?: string;
   terms: DecisionTerm[];
   tactic?: "direct" | "pawn" | "backdoor";
+  /** ORW-608: a refused deal's real reason (engine-only; never projected). */
+  refusal?: "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
 }
 
 /** What a houseguest SAYS their reason was. A closed set the narrator voices in the houseguest's own words. */
@@ -96,7 +98,19 @@ export type Candor = "truth" | "part-truth" | "cover";
 export interface StatedReason { kind: StatedReasonKind; about: EntityId; /** VAULT-CLASS: whether the stated reason is honest. Never sent to the narrator. */ candor: Candor }
 
 /** The honest way to say the real reason. */
+/** ORW-608: the refusal reasons a houseguest never states truthfully (they would reveal a scheme or a hidden read): they always give a cover. */
+const NEVER_STATED: ReadonlySet<string> = new Set(["targeted", "opposed"]);
+
 export function truthfulKind(real: RealReason): StatedReasonKind {
+  if (real.decision === "deal-consent") {
+    // ORW-608 (Ryne 2026-11-17, (a)): a refused deal's honest reason, in the stated-reason vocabulary. A scheme against the player or a belief they are coming after you is never said.
+    switch (real.refusal) {
+      case "distrust": return "didnt-trust-you";
+      case "threat": return "biggest-threat";
+      case "grudge": return "came-after-me";
+      default: return "nothing-personal";
+    }
+  }
   if (real.decision === "veto-hold") return "keeping-the-noms"; // ORW-578 part 2b: not using the veto is keeping the HOH's nominations
   if (real.tactic === "pawn") return "pawn-youll-be-fine";
   switch (real.goalKind) {
@@ -108,6 +122,15 @@ export function truthfulKind(real: RealReason): StatedReasonKind {
   // ORW-578 (Fable T1-11): the reason is the term that PUSHED the choice - the largest POSITIVE contribution to the chosen option's score - never the largest
   // by size regardless of sign (a protective term that pulled AGAINST the choice is not why they made it).
   const top = real.terms.filter((t) => t.value > 0).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))[0];
+  if (real.decision === "comp-throw") return "loyal-to-my-side"; // ORW-578 part 3: a throw hands a close ally the power
+  if (real.decision === "hc-pick") {
+    // ORW-578 part 3: Houseguest's Choice is a pick FOR someone, like a save: a bond or a memory is loyalty; the holder's own strategy is a plan.
+    switch (top?.name) {
+      case "bond": case "memory": return "loyal-to-my-side";
+      case "goal": return "had-it-planned";
+      default: return "nothing-personal";
+    }
+  }
   if (real.decision === "veto") {
     // A save is a choice FOR someone: what pushed it is a bond, a debt, a promise or the house - never "you are the biggest threat".
     switch (top?.name) {
@@ -148,6 +171,8 @@ export function explainDecision(real: RealReason, speaker: AgendaCharacter, seed
   const roll = agendaRoll(seed, real.decider, `reason:${real.decision}:${real.choice}:d${day}`);
   // A backdoor: the HOH tells the pawns they are pawns and never names the real target (the classic lie).
   if (real.tactic === "backdoor" && real.decision === "nominate") return { kind: "pawn-youll-be-fine", about: real.choice, candor: "cover" };
+  // ORW-608: a refusal for a reason that would give away a scheme or a hidden read is always a cover story.
+  if (real.decision === "deal-consent" && real.refusal !== undefined && NEVER_STATED.has(real.refusal)) return { kind: real.refusal === "opposed" ? "nothing-personal" : "didnt-trust-you", about: real.choice, candor: "cover" };
   let candor = (REASONS.candorByArchetype[speaker.archetype] ?? 0.5) + (REASONS.candorByStyle[speaker.strategyStyle] ?? 0);
   if (SECRETIVE.has(honest)) candor -= REASONS.secretivePenalty;
   candor = clamp01(candor);

@@ -30,7 +30,8 @@ function lukewarm(played: boolean, offersOn = true) {
   // a typical-newcomer read (no drag) refuses an ask to throw a comp for COST alone, yet takes a mutual safety pact
   const e = g.rel.edge(npc, PLAYER);
   e.trust = 0.25; e.affinity = 0.25; e.threat = 0.3;
-  expect(g.dealConsentRefusal(npc, "comp-throw", "ask")?.reason).toBe("cost");
+  const cr = g.dealConsentRefusal(npc, "comp-throw", "ask");
+  expect(cr && (g as unknown as { refusalReal: WeakMap<object, string> }).refusalReal.get(cr)).toBe("cost"); // ORW-608: the real reason is engine-only
   expect(g.dealConsentRefusal(npc, "safety")).toBeNull();
   return { sb, g, npc };
 }

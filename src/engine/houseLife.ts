@@ -19,6 +19,7 @@
  * existing interaction types.
  */
 import { TERRITORY } from "./territory";
+import { PLAYER } from "../domain/ids";
 import type { EntityId } from "../domain/ids";
 import type { Room } from "../domain/house";
 import type { InteractionType } from "./relationshipConstants";
@@ -160,6 +161,8 @@ export interface HourView {
   whereabouts: ReadonlyMap<EntityId, Room>;
   /** The holder's affinity and threat reads (0..1). */
   affinity: ReadonlyMap<EntityId, number>;
+  /** ORW-622 (mixed relationships): the holder's grudge strand toward each houseguest (0..1), from the bond record. Rubs at dinner even when they are warm. Absent = byte-identical. */
+  rivalry?: ReadonlyMap<EntityId, number>;
   threat: ReadonlyMap<EntityId, number>;
   /** Alliance mates now. */
   mates: readonly EntityId[];
@@ -171,6 +174,9 @@ export interface HourView {
   timeOfDay: TimeOfDay;
   day: number;
   hour: number;
+  /** ORW-581 (Fable T1-14): which stretch of this same game hour this is (0 or absent = the first). More than one off-screen tick can land in one hour (a beat that covered
+   *  hours, a nap, a hang-out); the hour's rolls key on it so a second stretch rolls fresh dice instead of replaying the first one's choices. */
+  repeat?: number;
   /** True while a competition is running: public reactions only. */
   inCompetition: boolean;
   /** ORW-466 slice 4 (assigned beds): the room they sleep in (the HOH room for the HOH), their roommates and the one who shares their double. All absent in a game without beds (headless,
@@ -190,6 +196,10 @@ export interface HourView {
   culture?: HouseCulture;
   /** ORW-566 (spec 0183): the close pairs this houseguest keeps a debrief spot with, ONLY in the hours after a ceremony (the caller builds it; absent = byte-identical). `key` is the pair's stable key. */
   pairHabits?: ReadonlyArray<{ with: EntityId; room: Room; key: string }>;
+  /** 0173 (Theme 3 slice 11): the court. The new HOH is sought out: `pull` is this houseguest's per-hour chance of going to them, `danger` when they are on the block or the HOH reads them as a threat. Absent = byte-identical. */
+  court?: { pull: number; danger: boolean };
+  /** ORW-620 (night owls): present only when the late-night mode is on in a played game. `playerUp`: the player is still awake, so an awake houseguest may seek THEM out (through the desire clock's own approach path); absent = byte-identical. */
+  nightOwl?: { playerUp: boolean };
 }
 
 export interface PlannedAction {
@@ -211,6 +221,10 @@ export interface PlannedAction {
   habit?: string;
   /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
   fold?: InteractionType;
+  /** 0173: this step is the houseguest seeking out the HOH (the court). Engine-only. */
+  court?: boolean;
+  /** ORW-620: this step is a late-night talk among the awake few (the caller stamps it on the event; engine-only). */
+  nightOwl?: boolean;
 }
 
 /** ORW-324: how quick this houseguest is to direct friction (0..1), by archetype. A hothead clashes, a peacemaker almost never. */
@@ -302,7 +316,8 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
  * Purposeful actions go where the partner is (they walk there on purpose); house life happens in its usual room or where they are.
  */
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
-  const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:d${v.day}h${v.hour}:${salt}`);
+  const hourKey = `d${v.day}h${v.hour}${v.repeat ? `r${v.repeat}` : ""}`; // ORW-581: the first stretch of an hour keys exactly as before; a repeat gets its own dice
+  const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:${hourKey}:${salt}`);
   const pool = others(v);
   const cul = v.culture;
   const cGossip = cul?.gossip ?? 1, cFlirt = cul?.flirting ?? 1, cLie = cul?.lying ?? 1;
@@ -347,13 +362,18 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     if (step) return finish(step);
   }
 
+  // 0173: the court. After their own goals, a houseguest seeks out the sitting HOH (the ones in danger far more often); the HOH room is where they go. A keyed roll only (no shared draw).
+  if (v.court && v.hoh && v.hoh !== v.owner && pool.includes(v.hoh) && !avoid.has(v.hoh) && roll("court") < v.court.pull) {
+    return { ...finish({ kind: v.court.danger ? "beg" : "check-in", with: [v.hoh] }), court: true };
+  }
+
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance * cFlirt) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
   // ORW-566 (spec 0183): a close pair keeps a private debrief at their own spot in the hours after a ceremony. Keyed roll only (no shared draw); the partner must ALREADY be at the spot (only the actor moves,
   // review of #2850) or it falls through to ordinary life; the meetings dial scales how often.
   if (v.pairHabits?.length) {
     const mine = v.pairHabits.filter((h) => pool.includes(h.with) && roomOf(v, h.with) === h.room && !avoid.has(h.with)).sort((a, b) => a.key.localeCompare(b.key));
-    const h = mine.find((x) => agendaRoll(seed, v.owner, `habit-pair:${x.key}:d${v.day}h${v.hour}`) < HOUSE_LIFE.pairHabitPull * (cul?.meetings ?? 1));
+    const h = mine.find((x) => agendaRoll(seed, v.owner, `habit-pair:${x.key}:${hourKey}`) < HOUSE_LIFE.pairHabitPull * (cul?.meetings ?? 1));
     if (h) return finish({ kind: "debrief", with: [h.with], place: h.room, habit: h.key });
   }
   // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
@@ -378,6 +398,32 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     const max = ACTIONS[k].partners.max;
     return finish({ kind: k, with: company.slice(0, max), ...(spot ? { place: spot } : {}) });
   }
+  // ORW-620 (night owls, Ryne approved 2026-11-17): in the night hours the few who are still UP gather and talk. Only the awake are in `pool` (a sleeper never schemes, ORW-572), the partner is whoever
+  // is up (the player too when they are), and the talk is built from the holder's own state: a pressing goal's step, a clash with someone they rub wrong, a confession when low, otherwise bonding. A keyed roll
+  // only (no shared draw); a seeded, bounded pull replaces an ordinary free hour, never a goal hour.
+  if (v.nightOwl && (v.timeOfDay === "night" || v.timeOfDay === "late-night") && pool.length > 0 && pool.length <= HOUSE_LIFE.nightOwlMaxOthers
+      && roll("owl") < HOUSE_LIFE.nightOwlPull * (v.timeOfDay === "late-night" ? HOUSE_LIFE.nightOwlLateScale : 1)) {
+    const company = (p: EntityId): number => pool.filter((q) => q !== p && roomOf(v, q) === roomOf(v, p)).length;
+    const candidates = pool.filter((p) => !avoid.has(p) && (p !== PLAYER || v.nightOwl!.playerUp));
+    const buddy = byScore(candidates.length ? candidates : [], (p) => (v.affinity.get(p) ?? 0.4) + roll(`owl-who:${p}`) * 0.3 + company(p) * HOUSE_LIFE.nightOwlGatherLean + (roomOf(v, p) === v.room ? 0.1 : 0))[0];
+    const withPlayer = (kind: ActionKind, partner: EntityId): PlannedAction => ({ ...finish({ kind, with: [partner] }), nightOwl: true });
+    if (buddy) {
+      // scheming: a goal they are driven by whose step lands on someone awake (the step only names the awake)
+      for (const g of ordered) {
+        if (g.commitment * 0.8 <= roll(`owl-goal:${g.id}`)) continue;
+        const step = nextStepFor(g, v, roll(`variant:${g.id}`));
+        if (step && step.with.length > 0 && (v.nightOwl.playerUp || !step.with.includes(PLAYER))) return { ...finish(step), nightOwl: true };
+      }
+      const aff = v.affinity.get(buddy) ?? 0.4;
+      const sore = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - aff) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(buddy) ?? 0);
+      // a fight: dislike, a short temper and a low mood (the same friction shape as ordinary life, but the small hours rub raw)
+      if (sore > 0 && roll("owl-fight") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2)) return withPlayer("confront", buddy);
+      if (v.emotional < HOUSE_LIFE.nightOwlConfessMood) return withPlayer("homesick-talk", buddy);
+      // bonding, and the room fills: another awake houseguest already in their room joins (a trio)
+      const joiners = pool.filter((q) => q !== buddy && !avoid.has(q) && q !== PLAYER && roomOf(v, q) === roomOf(v, buddy)).slice(0, 1);
+      return { ...finish({ kind: roll("owl-bond") < 0.5 ? "bed-talk" : "tell-stories", with: [buddy, ...joiners] }), nightOwl: true };
+    }
+  }
   if (v.emotional < 0.3) {
     const friend = byScore(here, (p) => v.affinity.get(p) ?? 0)[0];
     return finish(friend && (v.affinity.get(friend) ?? 0) > 0.55 ? { kind: "homesick-talk", with: [friend] } : { kind: roll("vent") < 0.5 ? "vent-in-diary-room" : "mull", with: [] });
@@ -391,7 +437,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       const mate = v.bedPartner && roomies.includes(v.bedPartner) && roll("bedmate") < HOUSE_LIFE.bedPartnerPull
         ? v.bedPartner
         : byScore(roomies, (p) => (v.affinity.get(p) ?? 0.4) + roll(`roomie:${p}`) * 0.3)[0]!;
-      const sore = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+      const sore = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(mate) ?? 0); // ORW-622: a grudge strand rubs too
       const rub = sore > 0 && roll("roomie-friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
@@ -399,7 +445,8 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
-  const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+  // ORW-622: a grudge strand rubs at dinner even with someone they are warm toward (a pact can still protect them at the vote).
+  const dislike = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(partner) ?? 0);
   const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
   // ORW-324: talking about whoever isn't in the room is half of Big Brother downtime (the house's ordinary gossip, not a scheme).
   const absent = [...v.threat.keys()].filter((p) => p !== partner && roomOf(v, p) !== v.room).sort((a, b) => (v.threat.get(b) ?? 0) - (v.threat.get(a) ?? 0) || a.localeCompare(b));

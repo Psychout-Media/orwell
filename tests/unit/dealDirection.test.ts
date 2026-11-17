@@ -56,7 +56,7 @@ describe("the live deal: offer binds the player, ask binds the NPC", () => {
       const a = setup(5, `a-${kind}`);
       Object.assign(a.p.rel.edge(a.npc, PLAYER), NEUTRAL);
       const refused = a.s.makeDeal(req(a.npc, kind, "ask"));
-      expect(isRefusal(refused) && refused.reason, kind).toBe("cost");
+      expect(isRefusal(refused) && realOf(a.s, refused), kind).toBe("cost");
       expect(a.p.deals.open()).toHaveLength(0);
       const b = setup(5, `b-${kind}`);
       Object.assign(b.p.rel.edge(b.npc, PLAYER), ALLY);
@@ -80,6 +80,10 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { buildSandbox } from "../support/sandbox";
+
+/** ORW-608: the REAL refusal reason is engine-only (never on the outward object); tests read it through the adapter's private map (TEST-ONLY seam). */
+const realOf = (session: unknown, r: unknown): string | undefined => (session as { refusalReal: WeakMap<object, string> }).refusalReal.get(r as object);
+
 
 describe("the MCP boundary carries the direction (the FE write-back wiring)", () => {
   function server() {

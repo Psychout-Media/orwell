@@ -91,3 +91,38 @@ export const BEARING_MAX = 0.18;
  * grievance out of the house, so the manner is read too and the LARGER of the two wins. Values sit on the BEARING_THRESHOLDS tiers (0.07 = "warm" anger, 0.13 = "burning"). ASSUMED, pending Ryne.
  */
 export const MANNER_GRUDGE = { disrespected: 0.07, wronged: 0.13 } as const;
+
+/**
+ * ORW-582 - the jury house is calmer than the house: a juror's feelings fade only a little, and their
+ * grudges ease a little faster, at a rate set by who they are. `baseRate` MUST stay below the in-house
+ * `OVERNIGHT_DRIFT.RATE` (pinned by test). `keeperMult`/`easygoingMult`/`sentimentalMult` bound the
+ * personality multiplier; `jitter` is the seeded per-juror spread; `easeGain` scales the grudge-ease boost.
+ * Played games only; the dial to shrink if a gate moves is `baseRate` (and `easeGain`).
+ */
+export const JURY_FADE = {
+  baseRate: 0.015,
+  keeperMult: 0.35,
+  easygoingMult: 1.4,
+  sentimentalMult: 0.6,
+  jitter: 0.15,
+  easeGain: 0.25,
+} as const;
+
+/**
+ * ORW-618 (0189) - the jury house has a life: jurors compare notes, find out who lied to whom, and arrive at the finale changed. Played games only.
+ * Every number the note-sharing and the feeling shift use lives here. Bounded on purpose: a chill house, a small change per person.
+ */
+export const JURY_LIFE = {
+  /** The base chance, per teller and listener pair and direction per stretch, that the teller passes one thing on (scaled by the teller's openness toward the subject). */
+  shareProb: 0.45,
+  /** Most things shared in one stretch, across the whole jury house. */
+  maxSharesPerStretch: 4,
+  /** A passed-on belief lands at the teller's confidence times this (a retelling is a little less sure). */
+  retellDecay: 0.85,
+  /** Below this confidence a juror does not pass a belief on. */
+  minConfidence: 0.3,
+  /** The trust a juror loses toward the subject of an adverse thing they were told, before confidence and personality scaling. */
+  trustShift: 0.05,
+  /** The most trust one juror can lose toward one subject through what other jurors told them, over the whole stay (derived from the recorded impact, nothing extra persisted). */
+  shiftCap: 0.12,
+} as const;

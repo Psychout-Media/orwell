@@ -251,6 +251,7 @@ describe("pure: recordDealEntry, the deal link and old saves", () => {
 describe("a simulated season of deals: the open bound is never reached", () => {
   it("striking deals every day with whoever is here, weekly evictions, no model: open lines stay under the bound; each deal has at most one line", () => {
     const { g, view: v0 } = startAtNominations(4002);
+    g.setHouseNormsEnabled(false); // 0180: this checks the open ledger's bound, not trust; the house's norms (shunning, the herd, scapegoats) would only change how many deals land
     let view = v0;
     const rng = new SeededRandom(456);
     let day = -1; let made = 0; let maxOpen = 0; let guard = 0;

@@ -13,6 +13,8 @@ import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { DealRefusal, DealView } from "../../src/ports/GameSession";
 import { resolvePending } from "../support/answerPending";
+/** ORW-608: the REAL refusal reason is engine-only (never on the outward object); steps read it through the adapter's private map (TEST-ONLY seam). */
+const realReason = (g: unknown, r: unknown): string | undefined => (r ? (g as { refusalReal: WeakMap<object, string> }).refusalReal.get(r as object) : undefined);
 
 // Feature 0142 - Deal depth II (ORW-88): counteroffers, owed favors, conditional / information / package deals, NPCs weighing a break.
 // Roles only. Every scenario drives the REAL live adapter of a fresh registry sandbox, flagged as a PLAYED game (a person is playing),
@@ -84,7 +86,7 @@ const askThrow = (l: Live) => l.s.makeDeal({ with: l.npc, kind: "comp-throw", di
 function lukewarm(): Live {
   const l = game(true, "counter");
   setEdge(l.g, l.npc, PLAYER, LUKEWARM);
-  assert.equal(l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")?.reason, "cost", "the ask is refused for cost alone");
+  assert.equal(realReason(l.g, l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")), "cost", "the ask is refused for cost alone");
   assert.equal(l.g.dealConsentRefusal(l.npc, "safety"), null, "the NPC would take a safety pact");
   return l;
 }
@@ -103,7 +105,7 @@ When("the player asks that NPC to throw a competition", function (this: BbWorld)
 Then("the ask is refused and the NPC counters with the safety pact the engine says it would take", function (this: BbWorld) {
   const c = st(this);
   assert.equal(c.refusal?.refused, true);
-  assert.equal(c.refusal?.reason, "cost");
+  assert.equal(realReason(c.live!.g, c.refusal), "cost"); // ORW-608: the real reason is engine-only; the outward one is what the NPC says
   assert.equal(c.refusal?.counteroffer?.kind, "safety");
 });
 
@@ -200,7 +202,7 @@ Then("the deal is kept and the player holds a banked favor from that NPC", funct
 Given("a played game where an NPC owes the player a favor and would refuse a comp-throw ask for cost alone", function (this: BbWorld) {
   const l = game(true, "favor");
   setEdge(l.g, l.npc, PLAYER, LUKEWARM);
-  assert.equal(l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")?.reason, "cost", "without the favor the ask is refused for cost");
+  assert.equal(realReason(l.g, l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")), "cost", "without the favor the ask is refused for cost");
   l.g.bankOwedFavor(l.npc, PLAYER);
   st(this).live = l;
 });

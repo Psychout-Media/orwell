@@ -26,6 +26,8 @@ export interface GameEvent {
   /** Off-screen flag. Invariant: an event the player witnessed is NEVER hidden. */
   hidden: boolean;
   content: string;
+  /** ORW-609: the `kind` a recorded player scene was filed under (bonding / conflict / alliance ...). ENGINE-ONLY (the bond record reads it); never projected. Absent on every other event. */
+  interactionKind?: string;
   /** Content before any hidden-element / player-subject / scheme-target enrichment. Used by getOffscreenSceneSkeletons to return only the Vault-free public projection. */
   baseContent?: string;
   /**
@@ -38,7 +40,7 @@ export interface GameEvent {
    * was said was TRUE (false = the speaker said something it knew was untrue: the hook for themes 2 and 4). ENGINE-ONLY (Vault class):
    * it rides hidden events, never a projection.
    */
-  houseLife?: { action: string; place: string; manner: string; truthful: boolean; about?: string; /** ORW-337: the PUBLIC name of the house ritual this scene was, when it was one */ ritual?: string; /** the stretch (one hour of house life) it belongs to */ stretch: number; /** ORW-473: the absolute in-game hour it happened (days elapsed * 24 + clock hour); absent when the clock was off */ at?: number;
+  houseLife?: { /** ORW-620: a late-night talk among the awake few (engine-only, never projected) */ nightOwl?: boolean; action: string; place: string; manner: string; truthful: boolean; about?: string; /** ORW-337: the PUBLIC name of the house ritual this scene was, when it was one */ ritual?: string; /** the stretch (one hour of house life) it belongs to */ stretch: number; /** ORW-473: the absolute in-game hour it happened (days elapsed * 24 + clock hour); absent when the clock was off */ at?: number;
     /** ORW-539: the houseguests (not taking part) who were in that room when it happened and so could SEE it. Engine-only; never projected. Absent = nobody / an older save. */ seenBy?: string[]; /** ORW-566 (spec 0183): the key of the private pair habit this scene was (a debrief at the pair's own spot). Engine-only; never projected. */ habit?: string };
 }
 

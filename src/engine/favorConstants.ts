@@ -22,8 +22,6 @@ export const FAVOR = {
   honorLoyaltySlope: 0.3,
   honorBondSlope: 0.25,
   honorThreatSlope: 0.4,
-  /** The shield an honored favor adds against evicting the holder at that vote: this share of a formal deal's honor weight. */
-  shieldShareOfDealHonor: 0.6,
   /** Refusing a called-in favor costs the holder's trust in the debtor at this share of a betrayal-shock; a witness takes the existing deal witness factor of it. */
   refusalScale: 0.6,
   /** A holder not on the block passes a favor to a nominee they are at least this close to (rel.bondStrength). */
@@ -34,4 +32,6 @@ export const FAVOR = {
   /** A refused favor leaves the wronged houseguest a memory at this share of a broken assurance's memory severity, and a grudge at this share of a broken deal's. */
   refusalMemoryShare: 0.6,
   refusalGrudgeShare: 0.6,
+  /** ORW-575: an honored favor leaves the caller a memory at this share of a broken assurance's severity (the mirror of a refusal's). */
+  repaidMemoryShare: 0.6,
 } as const;
