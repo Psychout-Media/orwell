@@ -1,6 +1,6 @@
 # 0180 - House norms (Theme 3 slice 12, part 1)
 
-Summary: the house enforces its own rules. A houseguest the house KNOWS has broken their word is shunned, by the people who know it and not only by the people they wronged. Part 1 is the promise-keeping norm. Bandwagons and dissent (part 2) and scapegoats (part 3) follow. Flag `ORWELL_HOUSE_NORMS`, default ON (`=0` means no shunning). Engine-only; the player never sees a number.
+Summary: the house enforces its own rules. A houseguest the house KNOWS has broken their word is shunned, by the people who know it and not only by the people they wronged. Part 1 is the promise-keeping norm, part 2 is bandwagons and dissent, and part 3 is scapegoats. Flag `ORWELL_HOUSE_NORMS`, default ON (`=0` means no shunning). Engine-only; the player never sees a number.
 
 ## Rule
 - **What counts is what each observer holds**, never the hidden truth (Theme 2's pathways):
@@ -22,9 +22,19 @@ Summary: the house enforces its own rules. A houseguest the house KNOWS has brok
   - It happens once per pair per week (`live.dissentNoticed`).
   - Ballots stay secret: only what was said and heard counts.
 
+## Part 3: scapegoats
+In a **hard week**, the house unites against one target.
+- **A hard week:** at least 40% of the house is rattled (mood below 0.4). The lean grows to full when everyone is rattled.
+- **The target:** whoever the most houseguests hold a grievance against. It must be at least 30% of the house, with a clear lead.
+  - A grievance is what each holder holds: a caught lie, being targeted, a vote against them, or a rumor of lying, scheming or voting against someone. It counts from this week or last, unrefuted.
+- **The lean:** a houseguest deciding a nomination or a vote leans toward the scapegoat (`SCAPEGOAT.weight` 0.2 × hardness). Someone without a grievance of their own follows at half that.
+- **Where it shows:** the lean rides the decider's belief term, so the decision's "why" names it as a belief.
+- **When there is none:** a calm week, or a house with no clear focus, has no scapegoat.
+
 ## The player in both directions
 - **The player's actions move NPC state:** a player who breaks their word to two people, once the house knows, is shunned like anyone.
 - **NPCs act toward the player:** the shunning is the same hidden edge every nomination, vote and deal decision already reads, so it shows up in how the house treats the player.
+- **Scapegoat:** the player can be the house's scapegoat when the house holds the most grievances against them; the player's own choices take no lean.
 - **Dissent:** a player who tells someone they voted against the house is noticed like anyone. The houseguests the player is heard to be going after count as voices in the herd. The player's own vote stays theirs.
 - **Known gap:** the player exposing a liar does not yet shun them. What the player says becomes no claim (Fable P-5, a separate card). When P-5 lands, the player's own words become one more pathway.
 

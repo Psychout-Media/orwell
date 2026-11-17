@@ -296,7 +296,7 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
-import { dissentMove, heardDissenters, herdPull, herdVoices, knownBreaches, normStrength, shunMove } from "../../engine/houseNorms";
+import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
@@ -5554,6 +5554,28 @@ export class GameSessionAdapter implements GameSession {
    * person: a bounded move in their own read of them (affinity and trust down), deeper per further incident, scaled by the house culture. Each incident is folded
    * once (`normsApplied`). The player can be the one shunned. Engine-only; a side-stream rng only for the edge's own jitter.
    */
+  private scapegoatsOn(): boolean { return this.houseNormsEnabled && this.live?.playedGame === true; }
+  private scapegoatCache?: { key: string; scapegoat: EntityId | undefined; hardness: number };
+  /** 0180 part 3: the house's scapegoat this beat (from what each houseguest holds) and how hard the week is (the house's moods). Cached per committed beat. */
+  private houseScapegoat(): { scapegoat: EntityId | undefined; hardness: number } {
+    const s = this.live!;
+    const key = `${s.week}:${s.dayNumber ?? 0}:${this.beatSeq}`;
+    if (this.scapegoatCache?.key !== key) {
+      const living = this.livingIds();
+      const npcs = living.filter((id) => id !== PLAYER);
+      const hardness = weekHardness(npcs.map((id) => this.emotionalReadOf(id)));
+      this.scapegoatCache = { key, hardness, scapegoat: hardness > 0 ? findScapegoat(s.beliefs ?? {}, npcs, living, s.week) : undefined };
+    }
+    return this.scapegoatCache;
+  }
+  /** 0180 part 3: `decider`'s lean toward nominating / evicting `subject` as the house's scapegoat. The player's own choices are theirs (0). */
+  private scapegoatLeanFor(subject: EntityId, decider: EntityId): number {
+    const s = this.live;
+    if (!this.scapegoatsOn() || !s || decider === PLAYER || !s.beliefs) return 0;
+    const { scapegoat, hardness } = this.houseScapegoat();
+    if (scapegoat === undefined || scapegoat === decider) return 0;
+    return scapegoatLean(subject, scapegoat, hardness, holdsGrievance(s.beliefs[decider] ?? [], decider, subject, s.week));
+  }
   /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee`, from the voices they hold this week, scaled by the culture's alliance-size dial. */
   private herdFor(nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]): number {
     const s = this.live;
@@ -10372,7 +10394,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
-      ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
+      ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
       ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),

@@ -58,3 +58,22 @@ Feature: House norms
     And a lopsided eviction where the player voted the other way, and a majority voter heard about it
     When the night passes
     Then the majority voter's read of the player cools
+
+  # Part 3 - scapegoats: in a hard week the house unites against the one it holds the most grievances against.
+  Scenario: In a hard week the house leans on the one it holds the most grievances against
+    Given a played season with house norms on
+    And half the house holds a grievance against one houseguest
+    When the week turns hard, with most of the house rattled
+    Then a houseguest deciding a nomination or a vote leans toward that houseguest, and toward no one else
+    And a houseguest without a grievance of their own leans less than one with
+
+  Scenario: A calm week has no scapegoat
+    Given a played season with house norms on
+    And half the house holds a grievance against one houseguest
+    Then no one's decisions lean toward them as a scapegoat
+
+  Scenario: The player can be the house's scapegoat
+    Given a played season with house norms on
+    And half the house holds a grievance against the player
+    When the week turns hard, with most of the house rattled
+    Then a houseguest deciding a nomination or a vote leans toward the player

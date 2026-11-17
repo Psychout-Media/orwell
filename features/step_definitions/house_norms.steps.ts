@@ -168,3 +168,49 @@ Then("the majority voter's read of the player cools", function () {
   const sb = bag(this).sb!; const h = herd(this);
   assert.ok(seam(sb).rel.edge(h.holder!, PLAYER).affinity < h.before!.affinity, "the player's dissent went unnoticed");
 });
+
+// ---- Part 3: scapegoats ----
+type GoatSeam = Seam & { ctx(): { beliefTiltFor?: (s: string, d: string) => number }; emotionalReadOf(id: string): number; beatSeq: number };
+type GoatBag = { goat?: string; withGrievance?: string; without?: string; other?: string };
+const goat = (w: unknown): GoatBag => ((w as { goat0180?: GoatBag }).goat0180 ??= {});
+function grievancesAgainst(w: unknown, subjectIsPlayer: boolean): void {
+  const sb = bag(w).sb!; const g = goat(w); const live = seam(sb).live;
+  const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
+  g.goat = subjectIsPlayer ? PLAYER : npcs[npcs.length - 1];
+  const holders = npcs.filter((id) => id !== g.goat).slice(0, Math.ceil(npcs.length / 2));
+  g.withGrievance = holders[0]; g.without = npcs.find((id) => id !== g.goat && !holders.includes(id)); g.other = npcs.find((id) => id !== g.goat && id !== g.withGrievance && id !== g.without);
+  live.beliefs = Object.fromEntries(holders.map((h) => [h, [{ id: `${h}|lied-to-me|${g.goat}||${live.week}`, holder: h, kind: "lied-to-me", subject: g.goat!, value: true, origin: "witnessed", confidence: 0.8, week: live.week } as BeliefClaim]]));
+}
+const lean = (w: unknown, subject: string, decider: string): number => (seam(bag(w).sb!) as unknown as GoatSeam).ctx().beliefTiltFor?.(subject, decider) ?? 0;
+const baseline = (w: unknown, subject: string, decider: string): number => {
+  const s = seam(bag(w).sb!) as unknown as GoatSeam & { scapegoatLeanFor(a: string, b: string): number };
+  return lean(w, subject, decider) - s.scapegoatLeanFor(subject, decider);
+};
+Given("half the house holds a grievance against one houseguest", function () { grievancesAgainst(this, false); });
+Given("half the house holds a grievance against the player", function () { grievancesAgainst(this, true); });
+When("the week turns hard, with most of the house rattled", function () {
+  const s = seam(bag(this).sb!) as unknown as GoatSeam;
+  s.emotionalReadOf = () => 0.2; // TEST-ONLY seam: the house's moods
+  s.beatSeq += 1; // a new beat: the house's read refreshes
+});
+Then("a houseguest deciding a nomination or a vote leans toward that houseguest, and toward no one else", function () {
+  const g = goat(this);
+  assert.ok(lean(this, g.goat!, g.withGrievance!) > baseline(this, g.goat!, g.withGrievance!), "no lean toward the scapegoat");
+  assert.equal(lean(this, g.other!, g.withGrievance!), baseline(this, g.other!, g.withGrievance!), "the lean reached someone who is not the scapegoat");
+});
+Then("a houseguest without a grievance of their own leans less than one with", function () {
+  const g = goat(this);
+  const withG = lean(this, g.goat!, g.withGrievance!) - baseline(this, g.goat!, g.withGrievance!);
+  const without = lean(this, g.goat!, g.without!) - baseline(this, g.goat!, g.without!);
+  assert.ok(without > 0 && without < withG, `with a grievance ${withG}, without ${without}`);
+});
+Then("no one's decisions lean toward them as a scapegoat", function () {
+  const s = seam(bag(this).sb!) as unknown as { scapegoatLeanFor(a: string, b: string): number; emotionalReadOf(id: string): number; beatSeq: number };
+  s.emotionalReadOf = () => 0.7; s.beatSeq += 1; // a calm house
+  const g = goat(this);
+  assert.equal(s.scapegoatLeanFor(g.goat!, g.withGrievance!), 0);
+});
+Then("a houseguest deciding a nomination or a vote leans toward the player", function () {
+  const g = goat(this);
+  assert.ok(lean(this, PLAYER, g.withGrievance!) > baseline(this, PLAYER, g.withGrievance!), "the house did not lean toward the player as its scapegoat");
+});

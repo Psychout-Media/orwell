@@ -106,3 +106,56 @@ export function dissentMove(evictVotes: number, voters: number): { affinity: num
   const k = Math.min(1, (share - HERD.dissentMinMajority) / Math.max(1e-9, (voters - 1) / voters - HERD.dissentMinMajority));
   return { affinity: HERD.dissentAffinity * k, trust: HERD.dissentTrust * k };
 }
+
+/**
+ * Feature 0180 part 3 - SCAPEGOATS. PURE: no rng, no I/O. In a HARD week (much of the house rattled), the house unites against ONE target: the houseguest (or the
+ * player) the most houseguests hold a grievance against. Each houseguest's grievances are what THEY hold (a lie caught, being targeted, a vote against them, a rumor
+ * of lying or scheming), never the hidden truth. A decider who holds a grievance against the scapegoat leans in fully; one who does not follows the house at a share.
+ * The lean rides the decider's belief term (nominations and votes), so a decision's "why" names it as a belief. A calm week, or a house with no clear focus, has none.
+ */
+export const SCAPEGOAT = {
+  /** A houseguest is rattled below this mood (0..1). */
+  rattledBelow: 0.4,
+  /** The week is hard from this share of the house rattled; the lean grows to full when everyone is. */
+  hardShare: 0.4,
+  /** The scapegoat needs at least this share of the house holding a grievance against them, and to lead the next by at least one holder. */
+  minHolderShare: 0.3,
+  /** The lean at full hardness for a decider who holds a grievance (+ toward nominating / evicting the scapegoat). */
+  weight: 0.2,
+  /** A decider with no grievance of their own follows the house at this share. */
+  followShare: 0.5,
+  /** Grievances count from this many weeks back (0 = this week only). */
+  lookbackWeeks: 1,
+} as const;
+
+const GRIEVANCE_RUMORS: ReadonlySet<string> = new Set(["lying", "going-after", "talking-about", "voted-against"]);
+
+/** Does `holder` hold a current grievance against `subject` (their own beliefs, this week or the last)? */
+export function holdsGrievance(held: readonly BeliefClaim[], holder: EntityId, subject: EntityId, week: number): boolean {
+  if (holder === subject) return false;
+  return held.some((b) => b.value && !b.refuted && b.subject === subject && b.week >= week - SCAPEGOAT.lookbackWeeks
+    && (b.kind === "lied-to-me" || b.kind === "targets-me" || b.kind === "voted-against-me" || (b.kind === "heard-rumor" && GRIEVANCE_RUMORS.has(b.nature ?? "") && b.object !== holder)));
+}
+
+/** How hard the week is, 0..1, from the house's moods: 0 below `hardShare` rattled, 1 when all are. */
+export function weekHardness(moods: readonly number[]): number {
+  if (moods.length === 0) return 0;
+  const share = moods.filter((m) => m < SCAPEGOAT.rattledBelow).length / moods.length;
+  return share < SCAPEGOAT.hardShare ? 0 : Math.min(1, (share - SCAPEGOAT.hardShare) / (1 - SCAPEGOAT.hardShare));
+}
+
+/** The house's scapegoat, if any: the subject the most holders hold a grievance against, with at least `minHolderShare` of the holders and a clear lead. */
+export function findScapegoat(beliefsByHolder: Readonly<Record<EntityId, readonly BeliefClaim[]>>, holders: readonly EntityId[], subjects: readonly EntityId[], week: number): EntityId | undefined {
+  if (holders.length === 0) return undefined;
+  const counts = subjects.map((s) => ({ s, n: holders.filter((h) => holdsGrievance(beliefsByHolder[h] ?? [], h, s, week)).length }))
+    .sort((a, b) => b.n - a.n || (a.s < b.s ? -1 : a.s > b.s ? 1 : 0));
+  const [top, next] = counts;
+  if (!top || top.n / holders.length < SCAPEGOAT.minHolderShare || (next && next.n >= top.n)) return undefined;
+  return top.s;
+}
+
+/** The lean `decider` adds toward `subject`: the full weight x hardness for the scapegoat when the decider holds a grievance, the follow share when not; 0 for anyone else. */
+export function scapegoatLean(subject: EntityId, scapegoat: EntityId | undefined, hardness: number, deciderHoldsGrievance: boolean): number {
+  if (scapegoat === undefined || subject !== scapegoat || hardness <= 0) return 0;
+  return SCAPEGOAT.weight * hardness * (deciderHoldsGrievance ? 1 : SCAPEGOAT.followShare);
+}
