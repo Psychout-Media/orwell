@@ -252,8 +252,11 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
   const aff = (p: EntityId): number => v.affinity.get(p) ?? 0.4;
   const thr = (p: EntityId): number => v.threat.get(p) ?? 0.3;
   const voters = pool.filter((p) => p !== v.hoh && !v.nominees.includes(p) && p !== t);
-  const pick = (k: ActionKind, partners: EntityId[], about?: EntityId) =>
-    partners.length >= ACTIONS[k].partners.min ? { kind: k, with: partners.slice(0, Math.max(ACTIONS[k].partners.min, 1) || 0), goalId: goal.id, goalKind: goal.kind, ...(about ? { about } : {}) } : undefined;
+  // ORW-572 (Fable T1-3, Ryne: "sleep means no scheming"): a step only ever names a partner who is in the hour view (awake and reachable); a named HOH or target who is asleep or away is dropped, and a step that then lacks its partner is not taken.
+  const pick = (k: ActionKind, partners: EntityId[], about?: EntityId) => {
+    const here = partners.filter((p) => pool.includes(p));
+    return here.length >= ACTIONS[k].partners.min ? { kind: k, with: here.slice(0, Math.max(ACTIONS[k].partners.min, 1) || 0), goalId: goal.id, goalKind: goal.kind, ...(about ? { about } : {}) } : undefined;
+  };
   switch (goal.kind) {
     case "get-them-out": case "revenge": {
       if (!t) return undefined;
