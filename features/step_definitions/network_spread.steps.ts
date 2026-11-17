@@ -13,7 +13,7 @@ import type { NetworkRoles } from "../../src/engine/networkSpread";
 /**
  * Feature 0179 - the house's shape in the spread (Theme 3 slice 9). The house is a REAL registry sandbox: its bonds are set through the relationship model, and
  * the roles the spread reads come from the adapter's own `networkRoles()` (the house graph derived from the bond read). The telling is the real co-presence
- * spread (`spreadBetween`), each trial on a fresh knowledge store and told ledger, with the house's real edges. TEST-ONLY seams: the relationship model.
+ * spread (`spreadBetween`), each trial on a fresh knowledge store and told ledger, with the house's real edges. TEST-ONLY seams: the relationship model, the day's cached house graph.
  * Roles only: two cliques, a broker, a loner.
  */
 type Bag = { sb?: UserSandbox; a?: string[]; b?: string[]; broker?: string; loner?: string; withShape?: number; without?: number; toLoner?: number; toFriend?: number };
@@ -36,6 +36,8 @@ Given("a played season whose house has two close cliques, a broker tied into bot
   for (const g of [b.a, b.b]) for (let i = 0; i < g.length; i++) for (let j = i + 1; j < g.length; j++) close(g[i]!, g[j]!);
   for (const m of [...b.a.slice(0, 2), ...b.b.slice(0, 2)]) close(b.broker!, m);
   close(b.loner!, b.a[2]!); // one close friend, no clique: a loner by the graph, and as close to that friend as the friend's clique mates (so only the shape differs)
+  // TEST-ONLY seam: the house graph is derived once a day, and seeking (which now reads the shape) already derived today's from the opening bonds; derive it afresh from these
+  (sb.session as unknown as { houseGraphCache?: unknown }).houseGraphCache = undefined;
   const roles = sb.session.networkRoles()!;
   assert.ok(roles.isBroker(b.broker!), "the house graph does not read the broker as a broker");
   assert.ok(roles.isLoner(b.loner!), "the house graph does not read the loner as a loner");

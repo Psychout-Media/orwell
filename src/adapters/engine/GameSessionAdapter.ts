@@ -299,7 +299,7 @@ import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engin
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
-import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
+import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -5750,9 +5750,11 @@ export class GameSessionAdapter implements GameSession {
   /** 0179: the roles the spread reads (from today's house graph), or undefined when off. Engine-only. */
   networkRoles(): NetworkRoles | undefined {
     if (!this.networkSpreadEnabled || !this.house) return undefined;
-    const reader = this.bondReader();
-    return rolesFromGraph(this.houseGraph().graph, (a, b) => reader.tie(a, b));
+    const graph = this.houseGraph().graph;
+    if (this.networkRolesCache?.graph !== graph) { const reader = this.bondReader(); this.networkRolesCache = { graph, roles: rolesFromGraph(graph, (a, b) => reader.tie(a, b)) }; }
+    return this.networkRolesCache.roles; // one derivation per day's graph (seeking reads it once per holder per move)
   }
+  private networkRolesCache?: { graph: HouseGraph; roles: NetworkRoles };
 
   houseGraph(): DailyHouseGraph {
     this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
