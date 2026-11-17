@@ -154,6 +154,7 @@ module.exports = {
       "docs/features/0176-homophily-and-territory.feature",
       "docs/features/0170-npc-deals-and-hoh-deal.feature",
       "docs/features/0185-mood-contagion.feature",
+      "docs/features/0181-bond-feelings.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
