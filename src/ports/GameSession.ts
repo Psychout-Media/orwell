@@ -2973,7 +2973,7 @@ export interface RecordCastGenesisResult {
   house?: { accepted: boolean; rejected: Record<string, number>; id?: string };
 }
 
-/** The Vault-free skeleton of one recorded off-screen scene — public participant ids, room, and nature only (0070). */
+/** The skeleton of one off-screen scene the player WITNESSED (0070; ORW-570: a hidden NPC-to-NPC scene is Vault-class and is never returned). */
 export interface OffscreenSceneSkeleton {
   /** The event id — used by the FE to address the texture write-back. */
   eventId: string;

@@ -11224,6 +11224,11 @@ export class GameSessionAdapter implements GameSession {
       .sort((a, b) => b.affinity - a.affinity);
   }
 
+  /** ORW-572 (Ryne: sleep means no scheming): the campaign actors who are awake now (the whole house when the clock is off, so that path is unchanged). */
+  private awakeCampaignActors(): CampaignActor[] {
+    const awake = this.awakeNow();
+    return awake ? this.campaignActors().filter((a) => awake.has(a.id)) : this.campaignActors();
+  }
   private campaignActors(): CampaignActor[] {
     return this.livingIds().filter((id) => id !== PLAYER).map((id) => ({
       id, persuasiveness: this.influenceOf(id).persuasiveness,
@@ -11272,7 +11277,7 @@ export class GameSessionAdapter implements GameSession {
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
-      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
+      for (const f of formCampaigns(this.awakeCampaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
         if (activeCount() >= CAMPAIGN.maxConcurrent) break;
         if (!this.campaigns.some((c) => c.status === "active" && c.owners[0] === f.owners[0])) this.campaigns.push(f);
       }
@@ -11284,8 +11289,9 @@ export class GameSessionAdapter implements GameSession {
     // anyone, defeating the per-beat-throttled, pitch-earned design (`foldPlayerCampaignMove`) and the
     // spec's own rule ("no NPC acts on the campaign except in response to the player's actual recorded
     // moves" — this guards the mirror case: nothing autonomously acts FOR the player either).
+    const awakeNowSet = this.awakeNow();
     this.campaigns = this.campaigns
-      .map((c) => c.status === "active" && c.owners[0] !== PLAYER
+      .map((c) => c.status === "active" && c.owners[0] !== PLAYER && (awakeNowSet === null || awakeNowSet.has(c.owners[0]!) || beat >= c.deadlineBeat) // ORW-572: a sleeping owner's campaign makes no move (it still resolves at its deadline)
         ? advanceCampaign(c, { rng, beat, alliesOf: (id) => this.allyReadsOf(id).map((a) => a.toward) })
         // …but a player campaign still EXPIRES at its deadline (no free progress, no diffusion — only the resolution), so a
         // stale entry can't keep pushing nominations / veto saves / votes (now that they are mechanical) or hold a slot.
@@ -11555,7 +11561,7 @@ export class GameSessionAdapter implements GameSession {
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
     this.alliances.stamp(beat, this.live?.dayNumber ?? this.live?.week);
-    const npcs = this.livingIds().filter((id) => id !== PLAYER);
+    const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake found alliances
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a)) + this.territoryBondNudge(a, b); // ORW-561: roommates / a shared top room add a small capped nudge to the mutual-bond input (the floors below are unchanged)
     // ORW-341: in a game a person PLAYS an NPC's own agenda also builds alliances (a last-alliance-standing or run-the-house aim founds one; a pull-them-in goal extends or founds one with its target, below).
@@ -12016,7 +12022,7 @@ export class GameSessionAdapter implements GameSession {
   secretBarterTick(events: EventStore, knowledge: KnowledgeService): void {
     if (!this.secretBarterEnabled || !this.house) return;
     void events; // the transfer records THROUGH `knowledge` (transmitGossip) — the store is the caller's contract
-    const npcs = this.livingIds().filter((id) => id !== PLAYER);
+    const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake trade secrets
     if (npcs.length < 2) return; // nobody to trade between
     // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves,
     // never the player — a player-subject belief rides the ordinary PV1/gossip path, not a barter). Stable
@@ -17764,19 +17770,21 @@ export class GameSessionAdapter implements GameSession {
    */
   getOffscreenSceneSkeletons(): import("../../ports/GameSession").OffscreenSceneSkeleton[] {
     if (!this.house || this.lastTickOffscreenIds.length === 0) return [];
+    // ORW-570 (Fable T1-1, the BDD Auditor's ruling): an NPC-to-NPC scene whose witness set excludes the player is Vault-class: its people, its nature
+    // and its text alike. This read is on the PLAYER channel, so it returns NO hidden scene at all (an empty list for the off-screen society); it
+    // keeps returning an event the player witnessed, should the tick registry ever hold one. Hidden-scene texture, if wanted later, is rebuilt on the
+    // sealed-prompt pattern (k-anonymous inputs, decoys, an opaque ticket, engine-side storage), never on this read.
     const events = this.record?.events() ?? [];
     const byId = new Map(events.map((e) => [e.id, e]));
     const result: import("../../ports/GameSession").OffscreenSceneSkeleton[] = [];
     for (const id of this.lastTickOffscreenIds) {
       const ev = byId.get(id);
-      if (!ev || !ev.hidden) continue; // only hidden events are part of the off-screen texture layer
-      // Apply texture override if one exists; otherwise the deterministic template content stands.
-      const prose = this.textureOverrides.get(id) ?? ev.baseContent ?? ev.content;
+      if (!ev || ev.hidden) continue;
       result.push({
         eventId: ev.id,
         nature: ev.type,
-        participants: [...ev.witnessSet], // public participant ids (no Vault content)
-        templateContent: prose,
+        participants: [...ev.witnessSet],
+        templateContent: this.textureOverrides.get(id) ?? ev.baseContent ?? ev.content,
       });
     }
     return result;
@@ -17795,9 +17803,10 @@ export class GameSessionAdapter implements GameSession {
     const sanitized = sanitizeFlavor(content, 1000);
     if (!sanitized) return { ok: false };
     // Verify the event exists, is hidden, and was not witnessed by the player — content-only guard.
+    // ORW-570 (the Auditor's follow-up): this is a PLAYER-channel write keyed by event id, so a well-formed request gets the SAME bare receipt whether the id is a hidden scene, a witnessed one or unknown: it cannot probe whether a hidden scene exists. Only a hidden scene's text is stored.
     const events = this.record?.events() ?? [];
     const ev = events.find((e) => e.id === eventId);
-    if (!ev || !ev.hidden) return { ok: false };
+    if (!ev || !ev.hidden) return { ok: true };
     this.textureOverrides.set(eventId, sanitized);
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { ok: true };
