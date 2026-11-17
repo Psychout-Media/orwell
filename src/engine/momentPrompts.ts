@@ -878,7 +878,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "If the veto is used, the HOH then names the replacement nominee ONLY from the game's recorded pick — " +
     "never invent or guess who — and voice that naming with its own beat of dread. Close the ritual with " +
     "the ceremony's own sign-off, some version of 'this veto meeting is adjourned,' then let the room's " +
-    "reactions land before moving on.",
+    "reactions land before moving on. WHY: the veto holder's reason, and the HOH's reason for the replacement, " +
+    "come only from the line in their block of the room list that begins 'said aloud', in their own words; give " +
+    "no other reason of your own, and with none listed, the decision stands with no reason given.",
   eviction:
     "MOMENT — Eviction. The house votes by SECRET BALLOT and someone walks; the GAME decides the vote " +
     "(the HOH votes ONLY to break a tie — never say the HOH already voted). The reveal is STAGED: each advanceGame hands you ONE anonymized ballot (\"a " +
@@ -940,7 +942,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "the final HOH sits the two down and names who they are taking to the Final 2 and who they are " +
     "sending to the jury, in their own words. Play the weight of it (a season decided on one person's " +
     "choice), then the goodbye and the walk. Voice ONLY the evictee the game hands you — never announce " +
-    "who is cut before the game's `final-eviction` beat names them.",
+    "who is cut before the game's `final-eviction` beat names them. WHY: an NPC final HOH's reason comes only " +
+    "from the line in their block of the room list that begins 'said aloud', in their own words; give no other " +
+    "reason of your own, and with none listed, they cut without explaining.",
   "twist-reveal":
     "MOMENT — A production twist fires. Big Brother interrupts the house with a reveal the game " +
     "just handed you (e.g. a DOUBLE EVICTION: the night is not over — a new HOH, a fast ceremony, a " +
