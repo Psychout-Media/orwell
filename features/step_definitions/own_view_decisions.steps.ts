@@ -12,7 +12,7 @@ import type { Pitch } from "../../src/engine/lobbying";
 import type { DecisionWhy } from "../../src/engine/decisionWhy";
 
 /**
- * Feature 0190 - NPC decisions read the decider's own view (ORW-574). Drives the REAL adapter through a registry sandbox. TEST-ONLY seams: the live season,
+ * Feature 0191 - NPC decisions read the decider's own view (ORW-574). Drives the REAL adapter through a registry sandbox. TEST-ONLY seams: the live season,
  * the relationship model and the adapter's private decision reads named in `Seam`. Roles only.
  */
 type Seam = {
@@ -30,12 +30,12 @@ type Seam = {
 };
 type Bag = { sb?: UserSandbox; npcs?: EntityId[]; seen?: unknown; seen2?: unknown; sbs?: UserSandbox[] };
 const B = RELATIONSHIP_CONSTANTS.baseline;
-const bag = (w: unknown): Bag => ((w as { ov0190?: Bag }).ov0190 ??= {});
+const bag = (w: unknown): Bag => ((w as { ov0191?: Bag }).ov0191 ??= {});
 const seam = (w: unknown): Seam => bag(w).sb!.session as unknown as Seam;
 let n = 0, seq = 0;
 
 function season(playedGame = true, seed = 21): { sb: UserSandbox; npcs: EntityId[] } {
-  const sb = new GameSessionRegistry().sandboxFor(`ov0190-${n++}`);
+  const sb = new GameSessionRegistry().sandboxFor(`ov0191-${n++}`);
   sb.session.createCharacter({ playerName: "The Player", seed });
   const s = sb.session as unknown as Seam;
   s.live.playedGame = playedGame; s.live.beliefs = {}; s.live.resume = {};
@@ -45,7 +45,7 @@ function season(playedGame = true, seed = 21): { sb: UserSandbox; npcs: EntityId
 }
 function scene(w: unknown, type: string, pair: [EntityId, EntityId], seenBy: EntityId[]): void {
   bag(w).sb!.engine.events.record({
-    id: `ov0190-scene-${seq++}`, ts: 1000 + seq, type, initiator: pair[0], witnessSet: [...pair], hidden: !pair.includes(PLAYER), content: "they talk",
+    id: `ov0191-scene-${seq++}`, ts: 1000 + seq, type, initiator: pair[0], witnessSet: [...pair], hidden: !pair.includes(PLAYER), content: "they talk",
     houseLife: { action: "talk", place: "kitchen", manner: "warm", truthful: true, stretch: 0, seenBy },
   });
 }

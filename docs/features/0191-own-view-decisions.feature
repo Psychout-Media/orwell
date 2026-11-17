@@ -1,4 +1,4 @@
-# Feature 0190 - NPC decisions read the decider's own view (ORW-574, Fable audit T1-6; widens 0163; Ryne 11-03: "what each NPC believes").
+# Feature 0191 - NPC decisions read the decider's own view (ORW-574, Fable audit T1-6; widens 0163; Ryne 11-03: "what each NPC believes").
 # In a PLAYED game, comp intent, Houseguest's Choice, the nomination tactic, pitch strength, the vote's jury term and HOH-target read, vote counting, the final
 # HOH's estimate and the floater/duo read take how someone ELSE feels only as the decider can see it: their own edges, the public record (archetype, comp
 # wins), the scenes they were in or watched, and their beliefs. Never another houseguest's hidden edge or stat. A decider who has not seen reads a neutral

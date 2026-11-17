@@ -1,4 +1,4 @@
-# 0190 - NPC decisions read the decider's own view (ORW-574, Fable audit T1-6; widens 0163)
+# 0191 - NPC decisions read the decider's own view (ORW-574, Fable audit T1-6; widens 0163)
 
 Ryne 11-03: NPCs decide "from their own view... what each NPC believes". Fable's audit T1-6 found decisions that still read another houseguest's
 hidden edge or stat. In a **played game** (`live.playedGame`) with `ORWELL_OWN_VIEW` on (default ON), each site below reads the DECIDER's view:
@@ -23,5 +23,5 @@ games and `ORWELL_OWN_VIEW=0` keep the old reads byte for byte; no new rng draws
 ## Gates
 
 - `tests/unit/ownViewDecisions.test.ts` (one per site, hidden state perturbed with the perceived state fixed, then the perceived state moved).
-- `docs/features/0190-own-view-decisions.feature` ("own view:" steps): per-family scenarios, flag-off/headless identity, no-leak, determinism.
+- `docs/features/0191-own-view-decisions.feature` ("own view:" steps): per-family scenarios, flag-off/headless identity, no-leak, determinism.
 - Measured, never gated: house mix, jury reach and gradient (reported on the card).

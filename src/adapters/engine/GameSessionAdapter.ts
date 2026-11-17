@@ -1327,7 +1327,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
   private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
   setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
-  /** 0190 / ORW-574 (Fable T1-6): in a played game NPC decisions read the decider's own view (`ORWELL_OWN_VIEW`, default ON; OFF => the hidden reads, byte-identical). */
+  /** 0191 / ORW-574 (Fable T1-6): in a played game NPC decisions read the decider's own view (`ORWELL_OWN_VIEW`, default ON; OFF => the hidden reads, byte-identical). */
   private ownViewEnabled = flagDefaultOn("ORWELL_OWN_VIEW");
   setOwnViewEnabled(on: boolean): void { this.ownViewEnabled = on; }
   /**
@@ -16986,7 +16986,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * ORW-574 (Fable T1-6): the OWN-VIEW gate. A played game (`live.playedGame`) with `ORWELL_OWN_VIEW` on (0190; widens 0163, "decisions read what the decider can see"):
+   * ORW-574 (Fable T1-6): the OWN-VIEW gate. A played game (`live.playedGame`) with `ORWELL_OWN_VIEW` on (0191; widens 0163, "decisions read what the decider can see"):
    * a decision reads how someone else feels only through the decider's perception. Headless seeded sims (calibration, jury reach, UAT) never set `playedGame`, so they keep the
    * old reads byte for byte.
    */
