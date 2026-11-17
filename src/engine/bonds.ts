@@ -3,7 +3,7 @@ import { clamp01 } from "../domain/num";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { DECISION } from "./decisionConstants";
 import type { RelationshipModel } from "./relationships";
-import { BOND, bondOf, bondStrengthOf, kindOf, type BondStore } from "./bondRecord";
+import { BOND, bondOf, bondStrengthOf, kindOf, strandsOf, type BondStore, type Strand } from "./bondRecord";
 
 /**
  * Theme 3 Core 1 (ORW-552, Ryne approved 2026-11-17) - THE BOND PER PAIR: the read API.
@@ -17,7 +17,7 @@ import { BOND, bondOf, bondStrengthOf, kindOf, type BondStore } from "./bondReco
  * full bond record (the extra fields then carry real values, and `strength` blends warmth and resentment) behind the same interface.
  */
 import type { BondKind, Commitment } from "./bondRecord";
-export type { BondKind, Commitment } from "./bondRecord"; // defined beside the record (no import cycle); the read API re-exports them
+export type { BondKind, Commitment, Strand } from "./bondRecord"; // defined beside the record (no import cycle); the read API re-exports them
 
 /** `holder`'s DIRECTED view of `other` (lopsided: bond(a, b) is not bond(b, a)). */
 export interface BondView {
@@ -41,6 +41,8 @@ export interface BondView {
   /** Count of shared key moments. */
   history: number;
   kind: BondKind;
+  /** ORW-622: every strand the bond carries at once, each 0..1 (only those present). Readers take the strand that matters to them: protection at the vote, friction at dinner. */
+  strands: Partial<Record<Strand, number>>;
   commitment: Commitment;
   /** `holder`'s private pecking order: 1 = matters most; null = not ranked. */
   rank: number | null;
@@ -80,7 +82,7 @@ export function edgeBondReader(rel: RelationshipModel, living: () => readonly En
     const e = rel.peek(holder, other);
     return {
       holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
-      warmth: e.affinity, debt: 0, resentment: 0, peakResentment: 0, strain: 0, history: 0, kind: "none", commitment: "none", rank: null,
+      warmth: e.affinity, debt: 0, resentment: 0, peakResentment: 0, strain: 0, history: 0, kind: "none", strands: e.affinity > 0 ? { friendship: Math.min(1, e.affinity) } : {}, commitment: "none", rank: null,
       strength: edgeStrength(rel, holder, other),
     };
   };
@@ -115,7 +117,7 @@ export function recordBondReader(rel: RelationshipModel, store: () => BondStore 
       return {
         holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
         warmth: r.warmth, debt: Math.max(-1, Math.min(1, r.debt + (opts.favorDebt?.(holder, other) ?? 0))), resentment: r.resentment, peakResentment: r.peakResentment, strain: r.strain, history: r.history,
-        kind: kindOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
+        kind: kindOf(r), strands: strandsOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
         strength: strengthOf(holder, other),
       };
     },
