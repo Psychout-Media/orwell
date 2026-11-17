@@ -34,6 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
+import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sharedScenes } from "../../engine/bondJealousy";
 import { GRUDGES, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
@@ -10396,6 +10397,7 @@ export class GameSessionAdapter implements GameSession {
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
+    this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
     return steps;
   }
@@ -11341,7 +11343,7 @@ export class GameSessionAdapter implements GameSession {
         const goal = goals[0];
         if (!goal || !this.alliances.byId(al.id)) continue;
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
-        const hold = this.bondFeelingsOn() ? breakDivisor(this.bondReader().bond(m, goal.target!)) : 1; // ORW-568 / 0181: a real feeling for the target raises the bar (threshold only; the draw is unchanged)
+        const hold = this.bondFeelingsOn() ? breakDivisor(this.bondReader().bond(m, goal.target!)) + BOND_JEALOUSY.splitBreakK * this.splitOf(m, goal.target!) : 1; // ORW-568 / 0181: a real feeling for the target raises the bar (threshold only; the draw is unchanged)
         if (roll >= ALLIANCE.goalClashBreak / this.cultureMult("loyalty") / hold) continue; // ORW-551 slice 3: a loyal house breaks over a goal clash less often (threshold only; the draw is unchanged)
         const target = goal.target!;
         this.alliances.stamp(this.beatSeqNow(), day);
@@ -12720,7 +12722,77 @@ export class GameSessionAdapter implements GameSession {
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */
   private feelingKeepOf(other: EntityId, holder: EntityId): number {
     if (holder === PLAYER || other === holder || !this.bondFeelingsOn()) return 0;
-    return feelingKeep(this.bondReader().bond(holder, other));
+    const reader = this.bondReader();
+    return adjustedKeep(feelingKeep(reader.bond(holder, other)), this.jealousyOf(holder, other), loyaltySplitOver(holder, other, reader)); // 0181 part 2: jealousy slips the closeness, a divided loyalty adds to it
+  }
+
+  /** 0181 part 2: how jealous `holder` is right now over the close friend `close` (0 when none). */
+  private jealousyOf(holder: EntityId, close: EntityId): number {
+    let v = 0;
+    for (const [k, j] of Object.entries(this.live?.jealousy ?? {})) if (j.close === close && k.startsWith(`${holder}|`)) v = Math.max(v, j.value);
+    return v;
+  }
+
+  /** 0181 part 2: `holder`'s divided loyalty over `other` (0 for the player and with the feature off). */
+  private splitOf(holder: EntityId, other: EntityId): number {
+    if (holder === PLAYER || !this.bondFeelingsOn()) return 0;
+    return loyaltySplitOver(holder, other, this.bondReader());
+  }
+
+  /**
+   * 0181 part 2 - the nightly feelings tick (next to the bond fold, no rng, no text). JEALOUSY: for every NPC holder close to X who watches X spend more recent scenes (and warmth) on a third person Y than on them, a hidden
+   * overlay `live.jealousy` follows the reading up and otherwise fades; once a week it also stirs the holder's mood (the existing agitation impulse, scaled). A bonding scene between the holder and X since the last tick
+   * handles it first: the overlay for that close friend is cleared and no new reading is taken for the pair tonight. It never writes the bond record (the Auditor owns it): its only effects are the holder's mood and a damp on
+   * their feeling-keep for X (`feelingKeepOf`). Never the player as holder.
+   */
+  private feelingsTick(): void {
+    const live = this.live;
+    if (!live || !this.house || !this.bondFeelingsOn()) return;
+    const events = this.record?.events() ?? [];
+    const from = Math.min(live.jealousyCursor ?? 0, events.length);
+    const soothed = new Set<string>();
+    for (let i = from; i < events.length; i++) {
+      const e = events[i]!;
+      if ((e.type !== "bonding" && e.type !== "alliance" && e.type !== "showmance") || e.witnessSet.length < 2) continue;
+      for (const a of e.witnessSet) for (const b of e.witnessSet) if (a !== b) soothed.add(jealousyKey(a, b));
+    }
+    live.jealousyCursor = events.length;
+    const scenes: Array<readonly EntityId[]> = [];
+    for (let i = Math.max(0, events.length - BOND_JEALOUSY.window); i < events.length; i++) {
+      const e = events[i]!;
+      if (SCENE_FOLDS.has(e.type) && e.witnessSet.length >= 2 && (e.houseLife || e.witnessSet.length <= 4)) scenes.push(e.witnessSet);
+    }
+    const overlay = live.jealousy;
+    if (overlay) for (const [k, j] of Object.entries(overlay)) if (soothed.has(jealousyKey(k.split("|")[0]!, j.close))) j.value = 0; // handled: a bonding scene with the close friend came first
+    const living = this.livingIds();
+    const reader = this.bondReader();
+    const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
+    const readings = new Map<string, { value: number; close: string }>();
+    for (const x of living) for (const y of living) {
+      if (x === y) continue;
+      const xy = sharedScenes(scenes, x, y);
+      if (xy < BOND_JEALOUSY.minScenes) continue;
+      for (const h of living) {
+        if (h === PLAYER || h === x || h === y || soothed.has(jealousyKey(h, x))) continue;
+        const value = jealousy({
+          closeWarmth: reader.bond(h, x).warmth, rivalWarmth: reader.bond(h, y).warmth,
+          xyWarmth: reader.bond(x, y).warmth, xhWarmth: reader.bond(x, h).warmth, xyScenes: xy, xhScenes: sharedScenes(scenes, x, h),
+        }, dials);
+        const k = jealousyKey(h, y), prev = readings.get(k);
+        if (value > 0 && (!prev || value > prev.value)) readings.set(k, { value, close: x });
+      }
+    }
+    const keys = new Set([...Object.keys(overlay ?? {}), ...readings.keys()]);
+    for (const k of [...keys].sort()) {
+      const [h, y] = k.split("|") as [string, string];
+      const old = overlay?.[k], read = readings.get(k);
+      const value = nextJealousy(old?.value ?? 0, read?.value ?? 0);
+      if (!old && !(value > 0)) continue;
+      const o = ((live.jealousy ??= {})[k] ??= { value: 0, week: live.week, close: read?.close ?? old!.close });
+      o.value = value;
+      if (read) { o.close = read.close; if (read.value >= (old?.value ?? 0)) o.week = live.week; }
+      if (read && value > 0 && markFeeling((live.jealousySeen ??= []), jealousyMoodKey(live.week, h, y))) this.catchMood(h, "scheme", value * BOND_JEALOUSY.moodWeight);
+    }
   }
 
   /**
