@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { AdvanceView, SubmitDecisionReq } from "../../src/ports/GameSession";
+import { buildSystemPrompt } from "../../src/engine/momentPrompts";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { deduceEvictionVoters } from "../../src/engine/voteDeduction";
@@ -146,3 +148,13 @@ function answer(p: NonNullable<AdvanceView["pending"]>): SubmitDecisionReq {
   if (p.kind === "comp-round") return { kind: "comp-round", intent: "compete" };
   return { kind: p.kind, vote: p.options?.[0]?.id } as never;
 }
+
+describe("ORW-514 the narrator prompt: the disclosure line is on outside the jury house, off inside it", () => {
+  it("the same view builds a prompt with the line when the lever is on and without it when the jury-house gate turns it off", () => {
+    const v = new GameSessionAdapter().createCharacter({ playerName: "P", seed: 11 });
+    const LINE = "only what the engine has put on the table";
+    expect(buildSystemPrompt("jury", v, undefined, undefined, undefined, undefined, { disclosureEngine: true })).toContain(LINE);
+    expect(buildSystemPrompt("jury", v, undefined, undefined, undefined, undefined, { disclosureEngine: false })).not.toContain(LINE);
+    expect(buildSystemPrompt("jury", v)).not.toContain(LINE);
+  });
+});
