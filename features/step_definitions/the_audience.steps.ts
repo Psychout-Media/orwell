@@ -10,10 +10,11 @@ import { PLAYER } from "../../src/domain/ids";
 type Seam = {
   live: { playedGame?: boolean; week: number; finished?: boolean; weekDigests?: unknown[]; audience?: { live: { view: Record<string, number> }; full: { view: Record<string, number> } } };
   record?: { events(): unknown[] }; audienceAfterEviction(): void; onPlayerEvent?: (c: string, w: string[], k: string) => void;
+  exitCrowd(id: string): string | undefined; rel: { edge(a: string, b: string): { threat: number } };
   seasonRetrospective(): { americasFavorite?: { name: string } } | null;
 };
-type Bag = { sb?: UserSandbox; g?: Seam; events: string[]; villain?: string };
-const bag = (w: unknown): Bag => ((w as { aud0190?: Bag }).aud0190 ??= { events: [] });
+type Bag = { sb?: UserSandbox; g?: Seam; events: string[]; heard: Array<{ c: string; w: string[] }>; villain?: string; evictee?: string; threat?: Map<string, number> };
+const bag = (w: unknown): Bag => ((w as { aud0190?: Bag }).aud0190 ??= { events: [], heard: [] });
 let n = 0;
 
 Given("a played season with the audience on", function () {
@@ -23,7 +24,7 @@ Given("a played season with the audience on", function () {
   b.sb.session.createCharacter({ playerName: "The Player", seed: 95 });
   b.g = b.sb.session as unknown as Seam;
   b.g.live.playedGame = true;
-  const prior = b.g.onPlayerEvent; b.g.onPlayerEvent = (c, w, k) => { b.events.push(c); prior?.(c, w, k); };
+  const prior = b.g.onPlayerEvent; b.g.onPlayerEvent = (c, w, k) => { b.events.push(c); b.heard.push({ c, w: [...w] }); prior?.(c, w, k); };
 });
 const npcs = (b: Bag) => b.sb!.session.livingIds().filter((id) => id !== PLAYER);
 Given("a week where the HOH nominated two houseguests and one was evicted", function () {
@@ -59,4 +60,47 @@ Then("no favorite is named while the season is live", function () {
 Then("after the crown the retrospective names America's Favorite", function () {
   const b = bag(this); b.g!.live.finished = true;
   assert.ok(b.g!.seasonRetrospective()?.americasFavorite?.name);
+});
+
+// Follow-up: the walk out at the exit interview, the player's own crowd, and the fan reward read as a threat.
+const inProgress = (b: Bag, evictee: string): void => {
+  const live = b.g!.live as Record<string, unknown> & { week: number };
+  const [hoh, other] = npcs(b).filter((id) => id !== evictee);
+  Object.assign(live, { hoh, nominees: [evictee, other], finalNominees: [evictee, other], vetoHolder: hoh, vetoUsed: false });
+  b.evictee = evictee;
+};
+Given("an eviction in progress whose evictee is a houseguest", function () { const b = bag(this); inProgress(b, npcs(b)[0]!); });
+Given("an eviction in progress whose evictee is the player", function () { inProgress(bag(this), PLAYER); });
+When("the evictee's exit interview begins", function () { const b = bag(this); b.g!.exitCrowd(b.evictee!); });
+Then("the crowd they walk out to is decided, in words and never a number", function () {
+  const b = bag(this); const line = b.heard.find((h) => /walks out/.test(h.c));
+  assert.ok(line, "no walk out"); assert.doesNotMatch(line!.c, /\d/);
+});
+Then("the house hears it, the evictee is not told the house's news", function () {
+  const b = bag(this); const line = b.heard.find((h) => /walks out/.test(h.c))!;
+  assert.ok(line.w.length > 0); assert.ok(!line.w.includes(b.evictee!));
+});
+Then("when the eviction is over the walk out is not repeated", function () {
+  const b = bag(this); const live = b.g!.live as Record<string, unknown> & { week: number };
+  live.weekDigests = [{ week: live.week, hoh: live.hoh, nominees: live.finalNominees, vetoHolder: live.vetoHolder, vetoUsed: false, evictee: b.evictee, juryCount: 0 }];
+  b.g!.audienceAfterEviction();
+  assert.equal(b.heard.filter((h) => /walks out/.test(h.c)).length, 1);
+});
+Then("the player alone hears the crowd they walk out to", function () {
+  const own = bag(this).heard.filter((h) => /walks out of the house/.test(h.c));
+  assert.equal(own.length, 1); assert.deepEqual(own[0]!.w, [PLAYER]);
+});
+Given("a fan-reward week the player won HOH and used the veto", function () {
+  const b = bag(this); const [a, c] = npcs(b); const live = b.g!.live as Record<string, unknown> & { week: number; active: string[] };
+  live.week = 4;
+  b.g!.live.weekDigests = [{ week: 4, hoh: PLAYER, nominees: [a, c], vetoHolder: PLAYER, vetoUsed: true, evictee: a, juryCount: 0 }];
+  live.active = live.active.filter((id) => id !== a);
+  b.threat = new Map(npcs(b).map((h) => [h, b.g!.rel.edge(h, PLAYER).threat]));
+});
+Then("the player wins the viewers' vote", function () {
+  assert.ok(bag(this).events.some((c) => /wins the viewers' vote/.test(c) && c.startsWith("The Player")));
+});
+Then("every houseguest reads the player as more of a threat than before", function () {
+  const b = bag(this);
+  for (const [h, t] of b.threat!) assert.ok(b.g!.rel.edge(h, PLAYER).threat > t, "a houseguest did not read the favorite as a threat");
 });
