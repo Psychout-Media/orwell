@@ -45,7 +45,7 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
   // actually serialise: the ledger entry's `kind` (cast — there is no engine write path for free text; the real writers `remember` / `recordRumorClaim` take enums) and the
   // claim's `id` + `nature` + `kind`. Injected into the snapshot the same way the soul/hidden strings above are (`remember` / `beliefNomTiltFor` are private). Each row sits beside
   // a REAL-kind row so the engine genuinely consumes this holder's memory/beliefs in nominations and votes, and the sentinel rows are built to SURVIVE the ledger cap (a
-  // future-dated, severity-1 entry never decays or evicts) and the belief compaction (confidence 1.0 is never the lowest) for the whole season.
+  // future-dated, severity-1 entry never decays or evicts) and the belief compaction (ORW-591: refuted first, then oldest; these rows are never refuted, and the finish check proves they survive) for the whole season.
   const live = core.live!;
   const ledger = (live.npcMemory ??= {});
   const store = (live.beliefs ??= {});
