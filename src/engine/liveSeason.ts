@@ -8,6 +8,7 @@ import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
 import { questionsAfterVote, type VoteQuestion } from "./voteQuestions";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
 import type { BondStore } from "./bondRecord";
+import type { PlanStore } from "./dealPlans";
 import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
 
@@ -655,6 +656,8 @@ export interface LiveSeasonState {
    * Both persist with the season (0030). Absent unless the `ORWELL_NPC_DEAL_OFFERS` layer is on ⇒
    * byte-identical when off.
    */
+  /** 0178 (Theme 3 slice 1): each NPC's SECRET PLAN for each deal they agreed to (`dealPlans.ts`). Append-only, engine-only (Vault class), never projected; the retrospective shows it after the crown. */
+  dealPlans?: PlanStore;
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string };
   lastDealOfferWeek?: number;
   /**
