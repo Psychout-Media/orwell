@@ -47,6 +47,14 @@ def _clamp(v: str, n: int) -> str:
     return v[:n].rstrip() if len(v) > n else v
 
 
+def _already_used_line(staging: dict) -> str:
+    """ORW-509: the theme titles already used this season and the last. The engine REFUSES a repeat, so the writer is told up front (no extra call: this rides the call that already runs)."""
+    used = [str(t) for t in (staging.get("recentThemes") or []) if t][-24:]
+    if not used:
+        return ""
+    return "Already used (this season and the last) - the theme and its setting must be different from all of these: " + "; ".join(used) + "\n"
+
+
 def _synthesis_messages(staging: dict) -> list[dict]:
     """Build the prompt: hand the model the comp type + participants + the FIXED winner + the FIXED drop
     order + the 0042 library scaffold, and ask for a theme/premise plus one fiction line PER DROP, IN THE
@@ -72,7 +80,9 @@ def _synthesis_messages(staging: dict) -> list[dict]:
         f"Winner (outlasts everyone): {winner}.\n"
         f"Eliminated, in the EXACT order they go out (earliest first) — write one line for each, in this order:\n"
         f"{ordered}\n\n"
-        f"Library inspiration to riff on (optional): {lib.get('name', '')} — {lib.get('premise', '')}\n\n"
+        f"A starting spark you may DEPART from freely (not a menu; invent your own setting from the field and the kind of contest): "
+        f"{lib.get('name', '')} — {lib.get('premise', '')}\n"
+        f"{_already_used_line(staging)}\n"
         "JSON only:"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]

@@ -1167,7 +1167,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         // so this is byte-identical there and only narrows on the opt-in live-time path.
         witnessSet: [PLAYER, ...awakeIds],
         hidden: false,
-        content: nextHouseEvent(sandbox.engine.events, ambientRng, { week: core.week, phase: core.phase }), // E58: varied + day-indexed, never a verbatim repeat
+        content: nextHouseEvent(sandbox.engine.events, ambientRng, { week: core.week, phase: core.phase, ...(core.worldAvoid?.eventLines?.length ? { avoid: new Set(core.worldAvoid.eventLines) } : {}) }), // E58: varied + day-indexed, never a verbatim repeat
       });
     }
   }

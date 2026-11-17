@@ -16,8 +16,8 @@ import { BOND, bondOf, bondStrengthOf, kindOf, type BondStore } from "./bondReco
  * This file is the CONTRACT (posted on ORW-552). `edgeBondReader` is the first reader, over the relationship model alone; feature 0175 replaces it with the
  * full bond record (the extra fields then carry real values, and `strength` blends warmth and resentment) behind the same interface.
  */
-export type BondKind = "none" | "friendship" | "showmance" | "mentor" | "business" | "rivals-turned-allies" | "protector" | "puppet-master";
-export type Commitment = "none" | "casual" | "final-two" | "ride-or-die";
+import type { BondKind, Commitment } from "./bondRecord";
+export type { BondKind, Commitment } from "./bondRecord"; // defined beside the record (no import cycle); the read API re-exports them
 
 /** `holder`'s DIRECTED view of `other` (lopsided: bond(a, b) is not bond(b, a)). */
 export interface BondView {

@@ -1,6 +1,9 @@
 import type { EntityId } from "../domain/ids";
 import { clamp } from "../domain/num";
-import type { BondKind, Commitment } from "./bonds";
+
+/** The kinds and commitment levels of a bond (engine-only enums; `bonds.ts` re-exports them). */
+export type BondKind = "none" | "friendship" | "showmance" | "mentor" | "business" | "rivals-turned-allies" | "protector" | "puppet-master";
+export type Commitment = "none" | "casual" | "final-two" | "ride-or-die";
 
 /**
  * Feature 0175 (Theme 3 Core 1, ORW-552) - THE BOND RECORD: what a houseguest carries about each other houseguest beyond today's trust / affinity / threat.

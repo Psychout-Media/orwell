@@ -587,6 +587,8 @@ export interface LiveSeasonState {
   beds?: import("./beds").BedsState;
   /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
   houseTheme?: string;
+  /** ORW-509: the full definition when the season's house was authored by the writer (accepted by `acceptHouseThemeDraft`); re-registered on load so `houseTheme` resolves. Absent for a library theme or none. */
+  houseThemeDef?: import("./data/houseThemes").HouseTheme;
   /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
   priorHouseThemes?: string[];
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
@@ -610,9 +612,13 @@ export interface LiveSeasonState {
   npcMindsAuthored?: NpcMindsAuthored;
   /** ORW-551 / spec 0168: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
   houseLeans?: import("./houseLeans").HouseLeans;
+  /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
+  tenure?: import("./territory").Tenure;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
+  /** ORW-565: the absolute in-game hour ((day-1)*24 + clock hour) the veto DRAW finished (the field was published). Played games only; the competition waits a minimum gap after it. Re-armed each week. */
+  vetoDrawnAtAbs?: number;
   vetoHolder?: EntityId;
   vetoUsed: boolean;
   saved?: EntityId;
@@ -757,6 +763,13 @@ export interface LiveSeasonState {
    * 0042 library floor stands, byte-identical to the pre-feature model. Persisted with the season (0030).
    */
   competitionFiction?: CompetitionFiction;
+  /** ORW-509: the titles the writer authored for this season's competitions (newest last, bounded). Handed back to the writer as "already used" so a season does not repeat its own themes; counted refusals in `compThemeRejects`. Absent until one is authored. */
+  recentCompThemes?: string[];
+  compThemeRejects?: number;
+  /** ORW-509: narrator-proposed alliance names the naming rules refused (the engine's name stood). */
+  allianceNameRejects?: number;
+  /** ORW-509: authored houses refused at adoption (reused the last seasons' rooms); plain labels stood. */
+  houseThemeRejects?: number;
   /** The in-progress live finale sub-loop (0037); set when the finale begins. */
   finale?: FinaleProgress;
   /** The in-progress live eviction sub-loop (0047); set while a weekly eviction stages its reveal. */
@@ -2471,13 +2484,25 @@ export function vetoDrawStage(s: Pick<LiveSeasonState, "beat" | "vetoField">): b
   return s.beat === "veto-competition" && !s.vetoField;
 }
 
+/**
+ * ORW-565 (Ryne: "the veto draw should always be in the morning"): in a game a person is playing, the draw is due in the MORNING band of the veto day and nowhere else. If the clock is already
+ * past the morning (the afternoon starts) and the draw has not begun (no ceremony open, nothing pending), it missed its slot. We do NOT run it late and we do NOT rewind the clock: the day's
+ * night gate is simply re-armed, so the draw waits for the next morning through the SAME machinery every event already uses (ORW-258: the house turns in, or the clock reaches the next 8am, and the
+ * day-break comes first). That cannot deadlock (the night always ends: the player turns in or the clock runs out) and cannot skip a day of the season structure (the veto day moves one day later;
+ * every beat after it keeps its order). It is a pure read of persisted state, so a restore across it holds the same way. Headless sims are never `playedGame`, so they are untouched.
+ */
+export function drawMissedMorning(s: Pick<LiveSeasonState, "beat" | "vetoField" | "playedGame" | "nightDepth" | "ceremony" | "pending" | "preVetoNightPassed" | "twist">): boolean {
+  return s.playedGame === true && s.nightDepth !== undefined && s.preVetoNightPassed === true && vetoDrawStage(s) && !s.ceremony && !s.pending
+    && s.twist?.phase !== "running" && s.nightDepth + 1e-6 >= CLOCK.phaseStartsHour.afternoon;
+}
+
 /** ORW-116 (b): would the NEXT ordinary advance be a night-gate day-break (the beat that rolls the night)? Pure read of the same one-shot flags `advance` tests. */
 export function nightBreakPending(s: LiveSeasonState): boolean {
   if (s.twist?.phase === "running" || s.nightDepth === undefined) return false;
   switch (s.beat) {
     case "hoh-competition": return s.week === 1 ? !s.firstNightPassed && (s.dayNumber ?? 1) < 2 : s.playedGame === true && !s.preHohNightPassed; // ORW-258: only for a game a person is playing (clockInteractive): headless calibration sims keep their cadence // ORW-258: every week's HOH is the day AFTER the eviction
     case "nominations": return !s.preNomsNightPassed;
-    case "veto-competition": return !s.preVetoNightPassed && vetoDrawStage(s); // ORW-281: the night before the DRAW (the competition shares the draw day)
+    case "veto-competition": return vetoDrawStage(s) && (!s.preVetoNightPassed || drawMissedMorning(s)); // ORW-565: a draw that missed its morning waits for the next one // ORW-281: the night before the DRAW (the competition shares the draw day)
     case "veto-ceremony": return !s.preVetoCeremonyNightPassed;
     case "eviction": return !s.preEvictionNightPassed && !s.eviction;
     default: return false;
@@ -2621,7 +2646,7 @@ function rollWeek(s: LiveSeasonState): void {
     juryCount: Math.max(0, s.evictionOrder.length - preJuryEvictionCount(s)),
   });
   s.outgoingHoh = s.hoh;
-  s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined;
+  s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined; s.vetoDrawnAtAbs = undefined;
   s.vetoHolder = undefined; s.vetoUsed = false; s.saved = undefined;
   s.replacement = undefined; s.finalNominees = undefined; s.vetoComp = undefined;
   s.preNomsNightPassed = undefined; // #1320: re-arm the night-gate for the new reign (undefined ⇒ serialization-neutral)
@@ -3387,7 +3412,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // Phase 3a NIGHT-GATE: the veto comp is its own day (Day 3, after nominations on Day 2). The first
       // advance into it crosses the night as a one-shot diegetic day-break, before the chip draw. GATED on
       // the clock ⇒ a clock-off calibration game skips it ⇒ byte-identical.
-      if (ctx.nightGate && !s.preVetoNightPassed && vetoDrawStage(s) && s.twist?.phase !== "running") {
+      if (ctx.nightGate && (!s.preVetoNightPassed || drawMissedMorning(s)) && vetoDrawStage(s) && s.twist?.phase !== "running") {
         if (ctx.nightHold && nightHeld(s)) return null; // ORW-116 (b): never auto-run the night
         s.preVetoNightPassed = true;
         crossToNextDay(s);

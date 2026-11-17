@@ -90,11 +90,64 @@ export const ALLIANCE_NAMES: readonly string[] = [
   "The Regulators", "The Hitmen", "The Bloc Party", "The Round Table", "The Cartel",
 ];
 
-/** Pick an unused alliance name (seeded); falls back to a numbered one if the pool is exhausted. */
-export function pickAllianceName(rng: { int(n: number): number }, taken: ReadonlySet<string>): string {
-  const free = ALLIANCE_NAMES.filter((n) => !taken.has(n));
-  if (free.length > 0) return free[rng.int(free.length)]!;
-  return `${ALLIANCE_NAMES[rng.int(ALLIANCE_NAMES.length)]!} ${taken.size + 1}`;
+/**
+ * ORW-509: the composed alliance-name floor. A house of 18 names ran dry and fell back to "The Core 2"; names are now composed from parts (the 18 classics
+ * stay as one region), so a season never repeats a name and two seasons rarely share one. The writer still names live alliances from the cast's own
+ * story; this is what the engine says offline. Generic, BB-plausible, never a houseguest name.
+ */
+const ALLIANCE_COLLECTIVES: readonly string[] = [
+  "Brigade", "Committee", "Core", "Nucleus", "Quad", "Pact", "Syndicate", "Crew", "Founders", "Outsiders", "Regulators", "Hitmen", "Cartel", "Council", "Coalition",
+  "Posse", "Union", "Guild", "Order", "Network", "Collective", "Faction", "Cabal", "Alliance", "Squad", "Circle", "Cooperative", "Society", "Wolf Pack", "Task Force",
+  "Roundtable", "Board", "Firm", "Mob", "Lodge", "Tribe", "Gang", "Band", "Ring", "Clique", "Camp", "Table", "Troop", "League", "Party", "Fellowship", "Majority",
+  "Minority", "Underground", "Resistance", "Dynasty", "Empire", "Legion", "Orchard", "Vault Club", "Group Chat", "Study Group", "Book Club", "Welcome Committee",
+];
+const ALLIANCE_QUALITIES: readonly string[] = [
+  "Quiet", "Silent", "Loyal", "Last", "First", "Midnight", "Backyard", "Kitchen", "Wildcard", "Underdog", "Sleeper", "Golden", "Iron", "Velvet", "Tidal", "Hidden",
+  "Rogue", "Bold", "Steady", "Careful", "Reckless", "Honest", "Sunday", "Late-Night", "Fearless", "Patient", "Narrow", "Broken", "Rising", "Unlikely", "Cold",
+  "Clever", "Scrappy", "Secret", "Ride-or-Die", "Odd", "Lucky", "Moonlit", "Hot", "Dusty",
+];
+const ALLIANCE_PLACES: readonly string[] = [
+  "Pantry", "Patio", "Hammock", "Hot Tub", "Kitchen", "Couch", "Laundry", "Back Porch", "Hallway", "Bunk", "Rooftop", "Garden", "Gym", "Pool", "Fire Pit", "Porch",
+  "Basement", "Attic", "Driveway", "Dock",
+];
+const ALLIANCE_NUMBERS: readonly string[] = ["Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
+const ALLIANCE_NUMBER_NOUNS: readonly string[] = ["Pack", "Squad", "Strong", "Deep", "Club", "Alliance", "Plan", "Rule", "Pact", "Count"];
+
+/** Every composed name, once: the 18 classics first, then the four composed shapes with any repeat of an earlier name dropped (a name never sits in two regions). */
+const ALLIANCE_NAME_LIST: readonly string[] = (() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (n: string): void => { if (!seen.has(n)) { seen.add(n); out.push(n); } };
+  for (const n of ALLIANCE_NAMES) add(n);
+  for (const c of ALLIANCE_COLLECTIVES) add(`The ${c}`);
+  for (const q of ALLIANCE_QUALITIES) for (const c of ALLIANCE_COLLECTIVES) add(`The ${q} ${c}`);
+  for (const w of ALLIANCE_PLACES) for (const c of ALLIANCE_COLLECTIVES) add(`${w} ${c}`);
+  for (const n of ALLIANCE_NUMBERS) for (const k of ALLIANCE_NUMBER_NOUNS) add(`${n} ${k}`);
+  return out;
+})();
+
+/** How many distinct names the composed floor can make. */
+export const ALLIANCE_NAME_SPACE = ALLIANCE_NAME_LIST.length;
+
+/** The `index`th composed alliance name (any integer; wraps). Pure. */
+export function allianceNameAt(index: number): string {
+  return ALLIANCE_NAME_LIST[((Math.floor(index) % ALLIANCE_NAME_SPACE) + ALLIANCE_NAME_SPACE) % ALLIANCE_NAME_SPACE]!;
+}
+
+/**
+ * Pick an unused alliance name (seeded). ONE `rng.int` draw, exactly as before (the main stream's consumption is unchanged); the draw addresses the whole
+ * composed space, and a taken name moves to the next free one (bounded, then a numbered plain fallback, which a space this size never reaches in a season).
+ * `avoid` is the previous seasons' names (an explicit input, default empty): they are skipped while any other name is left, so two seasons do not share names.
+ */
+export function pickAllianceName(rng: { int(n: number): number }, taken: ReadonlySet<string>, avoid: ReadonlySet<string> = new Set()): string {
+  const start = rng.int(ALLIANCE_NAME_SPACE);
+  for (const skipAvoid of [true, false]) {
+    for (let k = 0; k < ALLIANCE_NAME_SPACE; k++) {
+      const name = allianceNameAt(start + k);
+      if (!taken.has(name) && !(skipAvoid && avoid.has(name))) return name;
+    }
+  }
+  return `${allianceNameAt(start)} ${taken.size + 1}`;
 }
 
 /** Whether two member lists are the same set (order-independent) — the NPC-formation dedup. */
@@ -248,6 +301,14 @@ export class AllianceStore {
   }
 
   forMember(member: EntityId): Alliance[] { return alliancesOf(this.alliances, member); }
+
+  /** ORW-509: set an alliance's name (the caller has already applied the naming rules). */
+  rename(id: string, name: string): Alliance | undefined {
+    const i = this.alliances.findIndex((a) => a.id === id);
+    if (i < 0) return undefined;
+    this.alliances[i] = { ...this.alliances[i]!, name };
+    return this.alliances[i];
+  }
 
   byId(id: string): Alliance | undefined { return this.alliances.find((a) => a.id === id); }
 
