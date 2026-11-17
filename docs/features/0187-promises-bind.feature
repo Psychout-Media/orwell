@@ -45,3 +45,14 @@ Feature: A promise with a term is kept or broken by what happens on the board, n
     Given a house where a promiser has promised a promisee not to nominate them
     When the promiser nominates the promisee
     Then no player or admin view shows a promise term or a judgement note
+
+  Scenario: The player's typed promise on a recorded scene is judged by the engine at the nominations
+    Given promise terms: a house where the player typed a promise not to nominate a houseguest
+    When promise terms: the player's nominations leave that houseguest off the block
+    Then promise terms: the typed promise is closed as kept by the engine and its assurance is kept
+    And promise terms: a malformed promise on a recorded scene is ignored and the scene still records
+
+  Scenario: A withdrawn promise cannot be broken later
+    Given a house where a promiser has promised a promisee not to nominate them
+    When promise terms: the promiser's promise is withdrawn and they then nominate the promisee
+    Then promise terms: nothing is folded and the assurance row is lapsed
