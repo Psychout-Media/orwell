@@ -1,5 +1,5 @@
 /**
- * Feature 0175 - house graph tunables. Engine-only; none of these ever crosses to the player.
+ * Feature 0177 - house graph tunables. Engine-only; none of these ever crosses to the player.
  * Strengths are closeness in [0, 1] as the bond layer reports them (never shown as numbers).
  */
 export const HOUSE_GRAPH = {

@@ -4,9 +4,9 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { deriveHouseGraph, type GraphTie, type HouseGraph } from "../../src/engine/houseGraph";
 
-/** Feature 0175 - drives the pure derive function directly. Roles only. */
+/** Feature 0177 - drives the pure derive function directly. Roles only. */
 type Bag = { members: Set<string>; ties: GraphTie[]; graph?: HouseGraph; a?: HouseGraph; b?: HouseGraph };
-const bag = (w: unknown): Bag => ((w as { hg0175?: Bag }).hg0175 ??= { members: new Set(), ties: [] });
+const bag = (w: unknown): Bag => ((w as { hg0177?: Bag }).hg0177 ??= { members: new Set(), ties: [] });
 const ids = (s: string): string[] => s.split(",").map((x) => x.trim());
 const mutual = (b: Bag, x: string, y: string): void => { b.members.add(x); b.members.add(y); b.ties.push({ from: x, to: y, strength: 0.9 }, { from: y, to: x, strength: 0.9 }); };
 

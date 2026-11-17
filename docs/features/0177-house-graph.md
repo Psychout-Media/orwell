@@ -1,4 +1,4 @@
-# 0175 - The house graph (Theme 3, core 1: the graph half)
+# 0177 - The house graph (Theme 3, core 1: the graph half)
 
 Status: built, engine-only, NOT WIRED. Owner: Overseer B. The bond-per-pair half is the Auditor's (ORW-552).
 
@@ -17,4 +17,4 @@ Status: built, engine-only, NOT WIRED. Owner: Overseer B. The bond-per-pair half
 `houseGraphFromReader(reader)` takes the local `GraphBondReader { living(); tie(a,b); day?() }`, which the Auditor's `BondReader` satisfies structurally. `deriveDailyHouseGraph(reader, prev?)` is the pure derive-daily helper (re-derives once per in-game day, otherwise returns `prev`). Neither is wired into `GameSessionAdapter` or the snapshot; that waits for the bond read API. Until it lands, the stub adapter tie is `clamp01((rel.bondStrength(a,b) - baseline) / DECISION.nomination.floaterBondSpan)`, symmetrized by min. Do not wire it from here.
 
 ## Gates
-BDD `0175-house-graph.feature` (steps in `features/step_definitions/house_graph.steps.ts`) and `tests/unit/houseGraph.test.ts` (scenarios, totality, 200 seeded 16-member graphs: cliques valid, no loner in a clique, brokers never loners, order-stable).
+BDD `0177-house-graph.feature` (steps in `features/step_definitions/house_graph.steps.ts`) and `tests/unit/houseGraph.test.ts` (scenarios, totality, 200 seeded 16-member graphs: cliques valid, no loner in a clique, brokers never loners, order-stable).

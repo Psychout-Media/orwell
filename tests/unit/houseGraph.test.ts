@@ -8,7 +8,7 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 const mutual = (a: string, b: string, s = 0.9): GraphTie[] => [{ from: a, to: b, strength: s }, { from: b, to: a, strength: s }];
 const group = (m: string[]): GraphTie[] => m.flatMap((a, i) => m.slice(i + 1).flatMap((b) => mutual(a, b)));
 
-describe("feature 0175 house graph", () => {
+describe("feature 0177 house graph", () => {
   const two = [...group(["m1", "m2", "m3"]), ...group(["m4", "m5", "m6"])];
   const members = ["m1", "m2", "m3", "m4", "m5", "m6", "m7"];
   it("finds a broker between two cliques", () => {

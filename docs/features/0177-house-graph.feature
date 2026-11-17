@@ -1,4 +1,4 @@
-# Feature 0175 - the house graph (Theme 3, core 1; the graph half, built by Overseer B). Design note: 0175-house-graph.md.
+# Feature 0177 - the house graph (Theme 3, core 1; the graph half, built by Overseer B). Design note: 0177-house-graph.md.
 # Engine-only reads derived from the bonds: cliques, hubs, loners, brokers. Never shown, no numbers, no surface. Pure and not yet wired
 # (wiring waits for the bond read API on ORW-552). Roles only.
 

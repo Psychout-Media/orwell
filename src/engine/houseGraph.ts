@@ -1,7 +1,7 @@
 import { HOUSE_GRAPH } from "./houseGraphConstants";
 
 /**
- * Feature 0175 - the house graph (Theme 3, core 1). PURE and ENGINE-ONLY: derived from the bonds,
+ * Feature 0177 - the house graph (Theme 3, core 1). PURE and ENGINE-ONLY: derived from the bonds,
  * read by later slices (gossip routing, status, blocs), NEVER shown, no player-facing surface, no
  * numbers in its output. It wraps the bond layer; it never reads or writes the relationship model.
  *
