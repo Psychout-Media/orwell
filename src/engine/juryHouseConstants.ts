@@ -91,3 +91,19 @@ export const BEARING_MAX = 0.18;
  * grievance out of the house, so the manner is read too and the LARGER of the two wins. Values sit on the BEARING_THRESHOLDS tiers (0.07 = "warm" anger, 0.13 = "burning"). ASSUMED, pending Ryne.
  */
 export const MANNER_GRUDGE = { disrespected: 0.07, wronged: 0.13 } as const;
+
+/**
+ * ORW-582 - the jury house is calmer than the house: a juror's feelings fade only a little, and their
+ * grudges ease a little faster, at a rate set by who they are. `baseRate` MUST stay below the in-house
+ * `OVERNIGHT_DRIFT.RATE` (pinned by test). `keeperMult`/`easygoingMult`/`sentimentalMult` bound the
+ * personality multiplier; `jitter` is the seeded per-juror spread; `easeGain` scales the grudge-ease boost.
+ * Played games only; the dial to shrink if a gate moves is `baseRate` (and `easeGain`).
+ */
+export const JURY_FADE = {
+  baseRate: 0.015,
+  keeperMult: 0.35,
+  easygoingMult: 1.4,
+  sentimentalMult: 0.6,
+  jitter: 0.15,
+  easeGain: 0.25,
+} as const;
