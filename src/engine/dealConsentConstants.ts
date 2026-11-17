@@ -54,11 +54,4 @@ export const DEAL_CONSENT = {
 export type DealRefusalReason = "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
 
 /** The narratable line per reason (no numbers, no Vault: how the houseguest would carry themselves, never why in terms of a hidden score). */
-export const DEAL_REFUSAL_LINE: Record<DealRefusalReason, string> = {
-  distrust: "doesn't trust you enough yet to shake on this",
-  threat: "sees you as too big a threat to tie themselves to",
-  targeted: "believes you are already coming after them",
-  opposed: "is already working against you in this game and will not tie themselves to you",
-  grudge: "is still holding a grudge over how you have treated them",
-  cost: "this ask costs them too much for where the two of you stand",
-};
+/** ORW-608 (Ryne 2026-11-17): the six fixed refusal lines are gone; a refusal carries the stated reason the houseguest gives (`agendaDecisions.explainDecision`), voiced in their own words. */
