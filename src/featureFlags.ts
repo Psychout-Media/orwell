@@ -126,6 +126,9 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HEARD_ABOUT_ME', key: 'heardAboutMe', parser: 'defaultOn' },
   // 0173 (theme 3 slice 11): status and the HOH court - a hidden pecking order and informal leaders (never shown), houseguests seeking out the new HOH (the ones in danger most, the player-HOH too), a power vacuum when a leader leaves, and the third-person goal actions (campaign against, wedge, lobby for, count votes) moving the listener's read of the named person. A played game only. `=0` opts out.
   { envKey: 'ORWELL_HOH_COURT', key: 'hohCourt', parser: 'defaultOn' },
+  // ORW-620 (spec 0192): late-night talks among the houseguests still awake, catchable by a player who stays up; sleepers never scheme. ON by default; `=0` turns it off.
+  // ORW-629 (spec 0199): the HOH room is opened to the whole house; a rare snub the house reads as rude; a mask that slips by how well a guest can act; photos and a letter reveal one true backstory fact. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_HOH_ROOM', key: 'hohRoom', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
   // 0168 / ORW-551 (house culture slice 1): a played season draws a loose seeded blend of a few culture leans, stored engine-only; nothing reads it yet, so no dial moves. `=0` opts out.
   { envKey: 'ORWELL_HOUSE_CULTURE', key: 'houseCulture', parser: 'defaultOn' },
@@ -166,7 +169,6 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NARRATION_USAGE', key: 'narrationUsage', parser: 'defaultOn' },
   // 0179 / ORW-552 (Theme 3 slice 9): the house's shape in the co-presence spread - brokers carry news across cliques, weak ties carry across, loners hear late. `=0` = the spread reads no shape.
   { envKey: 'ORWELL_NETWORK_SPREAD', key: 'networkSpread', parser: 'defaultOn' },
-  // ORW-620 (spec 0192): late-night talks among the houseguests still awake, catchable by a player who stays up; sleepers never scheme. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_NIGHT_OWLS', key: 'nightOwls', parser: 'defaultOn' },
   // B49 / PO ruling card 24: the hard per-season counts (NPC confide lies 2, player exposes 3, trades 5) stop being a design rule - ON leaves only a high safety valve and an escalating, recipient-scaled REPETITION COST on each further expose/trade/lie by the same actor. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_NO_HARD_CAPS', key: 'noHardCaps', parser: 'defaultOn' },
