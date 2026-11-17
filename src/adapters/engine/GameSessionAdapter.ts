@@ -55,8 +55,9 @@ import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } 
 import { issueNightBatch, validateAllianceName, normName, type TraitTable } from "../../engine/allianceNaming";
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
-import { JURY_HOUSE } from "../../engine/juryHouseConstants";
-import { juryFadeRate, juryEaseFactor, type JuryPersonality } from "../../engine/juryFade";
+import { JURY_HOUSE, JURY_LIFE } from "../../engine/juryHouseConstants";
+import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality } from "../../engine/juryFade";
+import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
@@ -1583,11 +1584,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.live) return undefined;
     const live = this.live;
     const living = this.livingIds();
-    if (claimProblem(input, living) !== undefined) return undefined; // review of #2858: a refused claim allocates and persists nothing (no claim log, no belief store)
+    const jury = this.juryPool();
+    if (claimProblem(input, living, jury) !== undefined) return undefined; // review of #2858: a refused claim allocates and persists nothing (no claim log, no belief store)
     const log = (live.claims ??= { seq: 0, items: [] });
     const beliefs = this.npcBeliefsEnabled ? (live.beliefs ??= {}) : undefined;
     const told = tellClaim(log, beliefs, input, {
-      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living,
+      week: live.week, ...(live.dayNumber !== undefined ? { day: live.dayNumber } : {}), living, ...(jury ? { jury } : {}),
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
       ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
@@ -1597,6 +1599,15 @@ export class GameSessionAdapter implements GameSession {
     // ORW-594 (Fable T2-13): a vote claim told AFTER this week's count went public is checked against it at once (the public tally only, never a ballot).
     if (told && told.kind === "voted-to-keep") { const t = this.publicTallyThisWeek(); if (t) this.evictionCountPublic(t); }
     return told;
+  }
+  /**
+   * ORW-618 (0189 part 2): the jury house's claim pool - the jurors, and the player only when the player IS a juror - or undefined (the house rule, unchanged) unless a person is playing, the jury house is on and the player
+   * holds a juror's seat. `claimProblem` lets a claim pass ONLY between two members of this pool (the sequester): a juror never speaks to or hears from anyone still in the house.
+   */
+  private juryPool(): EntityId[] | undefined {
+    if (!this.juryHouseEnabled || this.live?.playedGame !== true) return undefined;
+    const roster = this.juryHouseView()?.jurors;
+    return roster ? [...roster.map((j) => j.id), PLAYER] : undefined;
   }
   /**
    * 0154 / ORW-330 slice 5a - the ONE catch: `holder` caught `liar` in a lie. Takes back the belief(s) the told claim(s) planted (`refuteToldBelief`: refuteClaim + `refuted = true`, id kept) and writes
@@ -1920,20 +1931,23 @@ export class GameSessionAdapter implements GameSession {
     const c = this.agendaCharacterOf(id);
     return c ? Math.max(0, Math.min(1, (REASONS.candorByArchetype[c.archetype] ?? 0.5) + (REASONS.candorByStyle[c.strategyStyle] ?? 0))) : 0.5;
   }
-  private claimsToPlayerFor(id: EntityId): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+  private claimsToPlayerFor(id: EntityId, jury = false): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
     const live = this.live;
     if (!this.claimsToPlayerEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || id === PLAYER) return undefined;
+    // ORW-618 (0189 part 2): in the jury house a juror the player lives with may confide one thing they HOLD, through this same decision (the same `tellsYou` fields, a band only). Only another juror,
+    // only while the player holds a juror's seat; its own salted side stream so the house's rolls never move; no planted lie (a juror speaks only from what they hold).
+    if (jury && !this.juryPool()?.includes(id)) return undefined;
     const done = this.claimsToPlayerDecided.get(id);
     if (done && done.epoch === this.disclosureEpoch) return done.tells;
     const day = live.dayNumber ?? 0;
     const log = live.claims?.items ?? [];
     const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
-    // ORW-594 (Fable T2-12): ONE roll per houseguest per part of the day (not per player turn, which made "confides rarely" near-certain over a day of turns). The key is
-    // the persisted clock (week, day, part of day), so a restart rolls the same. With the clock off, the day is the part.
-    const attemptKey = `${id}:${live.week}:${day}:${live.timeOfDay ?? ""}`;
+    // ORW-594 (Fable T2-12): ONE roll per houseguest per part of the day (not per player turn). The key is the persisted clock (week, day, part of day), so a restart rolls the same. With the clock off, the day is the part.
+    // ORW-618: the jury house rolls on its own salted stream ("jury:"), so the in-house rolls never shift.
+    const attemptKey = `${jury ? "jury:" : ""}${id}:${live.week}:${day}:${live.timeOfDay ?? ""}`;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}`));
     const decided = decideTellToPlayer(live.beliefs?.[id] ?? [], {
-      holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id),
+      holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: jury ? 0 : this.audienceAround(id), candor: this.candorOf(id),
       toldToday: toldTodayBy(told, live.week, day),
       alreadyTold: new Set(told.map((c) => toPlayerKey(c.kind, c.subject, c.object))), roll: rng.next(),
     });
@@ -1943,7 +1957,7 @@ export class GameSessionAdapter implements GameSession {
       const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
       if (claim) tells = { kind: b.kind, subject: this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), certainty: decided.band };
     }
-    if (!tells) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
+    if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
   }
@@ -5820,22 +5834,26 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s || !s.beliefs) return;
     const seed = this.gameSeed ?? 0;
-    for (const deal of this.deals.all) {
-      if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) continue;
-      const breaker = deal.brokenBy;
-      const wronged = deal.parties.find((p) => p !== breaker);
-      if (!wronged) continue;
-      const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
-        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)
+    for (const deal of this.deals.all) this.learnBreakIfCaught(deal as Deal, seed);
+  }
+  /** ORW-597 (shared with ORW-618): the gate for ONE deal. The wronged side learns of a quiet break only once they hold that the breaker lied; `learnOfBreak` applies the reaction once. */
+  private learnBreakIfCaught(deal: Deal, seed: number): void {
+    const s = this.live;
+    if (!s || !s.beliefs) return;
+    if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) return;
+    const breaker = deal.brokenBy;
+    const wronged = deal.parties.find((p) => p !== breaker);
+    if (!wronged) return;
+    const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
+      && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)
           // ORW-597 follow-up: being told (and believing) the breaker is coming after you exposes their promise to you as hollow (a spy's report, a told claim)
           || (b.kind === "targets-me" && (b.object === undefined || b.object === wronged))));
-      if (!caught) continue;
-      this.deals.learnOfBreak(deal as Deal, {
-        rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
-        juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
-        revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
-      });
-    }
+    if (!caught) return;
+    this.deals.learnOfBreak(deal, {
+      rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+      juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
+      revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+    });
   }
   /** 0171: the favor ledger IS the favor-debt source (signed like `BondView.debt`: + means `other` owes `holder`). Never written into the relationship model's own debt fields. Undefined when favors are off. */
   private ownFavorDebt(): DebtSource | undefined { return this.favorsEnabled ? (holder, other) => this.favors.debtBetween(holder, other) : undefined; }
@@ -12425,6 +12443,7 @@ export class GameSessionAdapter implements GameSession {
         row[g.finalist] = Math.min(JURY_HOUSE.adjustmentCap, (row[g.finalist] ?? 0) + g.delta);
       }
     }
+    if (this.live.playedGame === true) this.juryLife(jurors);
     // #1790 AC1 — TRAITORS' FURY: route the POSSIBLY-WRONG deduced blame into each juror's knowledge,
     // then diffuse it through the jury-house gossip graph as named-blame grievance. FLAG-GATED: with the
     // flag OFF this entire block is a no-op (zero draws, zero beliefs, zero diffuse) — byte-identical.
@@ -12494,6 +12513,47 @@ export class GameSessionAdapter implements GameSession {
         });
       }
     }
+  }
+
+  /**
+   * ORW-618 (0189), played games only: the jury house has a life. Once per stretch the jurors compare notes (`planJuryNotes`: each passes on what they themselves hold, never the sealed
+   * ballot), the listener's belief and trust toward the subject move a bounded amount at the listener's own personality (ORW-582), and a wronged juror who now holds that the breaker lied
+   * learns of the quiet break through the ORW-597 gate (`learnOfBreak`, once). One rule keyed on holder and subject (the player and an NPC finalist alike). Its own seeded side stream,
+   * no shared rng; engine-only state change, no text (the narrator voices it later from the facts). The player as a juror is not a node here (part 2, the wall call).
+   */
+  private juryLife(jurors: readonly EntityId[]): void {
+    const live = this.live;
+    if (!live || !this.npcBeliefsEnabled || !live.beliefs) return;
+    const personality = this.juryPersonalityOf();
+    if (!personality) return;
+    const multOf = (holder: EntityId, subject: EntityId): number => { const p = personality.get(holder); return p ? juryPersonalityMult(p(subject)) : 1; };
+    const rng = new SeededRandom(hashSeed(`jury-life:${this.gameSeed ?? ""}:${this.juryHouseTickCount}`));
+    const rel = { edge: (a: EntityId, b: EntityId) => this.rel.edge(a, b) };
+    const shares = planJuryNotes({
+      jurors, beliefs: live.beliefs, rng,
+      talks: (a, b) => gossipEdgeAffinity(rel, a, b) > JURY_HOUSE.affinityEdge,
+      opennessOf: multOf,
+    });
+    const heardLie = new Set<EntityId>();
+    for (const sh of shares) {
+      const mult = multOf(sh.to, sh.subject);
+      let impact: { trust: number } | undefined;
+      if (sh.adverse) {
+        const spent = (live.beliefs[sh.to] ?? []).reduce((n, c) => (c.id.includes("|jury-note:") && c.subject === sh.subject && !c.refuted ? n + Math.abs(c.impact?.trust ?? 0) : n), 0);
+        const want = Math.min(JURY_LIFE.trustShift * sh.confidence * mult, Math.max(0, JURY_LIFE.shiftCap - spent));
+        const edge = this.rel.edge(sh.to, sh.subject);
+        const next = Math.max(0, edge.trust - want);
+        if (want > 0) { impact = { trust: next - edge.trust }; edge.trust = next; }
+      }
+      recordClaim(live.beliefs, {
+        id: `${sh.to}|${sh.kind}|${sh.subject}|jury-note:${sh.from}|${live.week}`, holder: sh.to, kind: sh.kind, subject: sh.subject,
+        ...(sh.object !== undefined ? { object: sh.object } : {}), ...(sh.nature !== undefined ? { nature: sh.nature } : {}),
+        value: true, origin: "told", source: sh.from, confidence: sh.confidence, week: live.week, ...(impact ? { impact } : {}),
+      });
+      if (sh.kind === "lied-to-me") heardLie.add(sh.to);
+    }
+    // Lie discovery: a juror who now holds that the breaker lied to them learns of the quiet break once (the ORW-597 gate).
+    if (heardLie.size > 0) for (const deal of this.deals.all) if (deal.parties.some((p) => heardLie.has(p))) this.learnBreakIfCaught(deal as Deal, this.gameSeed ?? 0);
   }
 
   /** Turn the JURY-HOUSE grudge layer on/off (0100). Off by default — the calibration harness leaves it off
@@ -17996,7 +18056,7 @@ export class GameSessionAdapter implements GameSession {
         // under-called tool. Each only when set (absent ⇒ the entry is byte-identical to before).
         // 0129: in the jury house a juror's block omits the engine-seeded vote-deduction beliefs (sealed ballot, E12).
         const knows = juryMode
-          ? dedupeKeepNewest((this.npcKnowledge?.known(p.id) ?? [])
+          ? dedupeKeepNewest(this.voiceKnownFacts(p.id) // ORW-618: the jury house takes the SAME disclosure gate as the house (the shared ground only); a juror's off-screen knowledge reaches the player only as a juror chooses to say it (`tellsYou`)
               .filter((f) => !GameSessionAdapter.isSealedAttribution(f))
               .map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP)
           : v.knows;
@@ -18012,7 +18072,7 @@ export class GameSessionAdapter implements GameSession {
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
-          ...(juryMode ? {} : (() => { const t = this.claimsToPlayerFor(p.id); return t ? { tellsYou: t } : {}; })()),
+          ...(() => { const t = this.claimsToPlayerFor(p.id, juryMode); return t ? { tellsYou: t } : {}; })(),
         };
         return e;
       })
@@ -18546,8 +18606,13 @@ export class GameSessionAdapter implements GameSession {
     const { claim, ...entry } = (req ?? {}) as RecordOpenLedgerReq; // 0155: the structured claim is the engine's to handle; the ledger entry itself is unchanged
     const p = openLedgerProposal(entry, known);
     if (typeof p === "string") return { accepted: false, reason: p };
-    const wa = this.whereabouts();
+    // ORW-618 (0189 part 2): the player as a JUROR is out of the house, so the room is the jury house and who is present is the jurors. Every party must be a juror (or the player): the sequester.
+    const pool = this.juryPool();
+    const wa: { room: string; present: readonly NamedRef[] } | null = pool
+      ? { room: "jury-house", present: pool.filter((id) => id !== PLAYER).map((id) => ({ id, name: this.nameOf(id) })) }
+      : this.whereabouts();
     if (!wa) return { accepted: false, reason: "no-game" };
+    if (pool && [p.speaker, ...p.addressedTo, ...(p.parties ?? [])].some((id) => id !== OPEN_LEDGER_PLAYER && !pool.includes(id))) return { accepted: false, reason: "bad-addressee" };
     // ORW-448: a COMMITMENT-like entry (not about a third person) between exactly the player and one houseguest, made within a few beats of an active deal between those two, is that agreement: remember its id.
     const everyone = [...new Set([p.speaker, ...p.addressedTo, ...(p.parties ?? [])])];
     const hg = everyone.filter((id) => id !== OPEN_LEDGER_PLAYER);
