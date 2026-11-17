@@ -67,7 +67,7 @@ describe("ORW-84: an open protective deal changes who an NPC HOH nominates (live
     expect(DEAL_NOMS.protectivePush).toBeLessThan(0);
     expect(DEAL_NOMS.protectivePush).toBeGreaterThanOrEqual(-0.5);
     const src = readFileSync("src/adapters/engine/GameSessionAdapter.ts", "utf8");
-    expect(src).toMatch(/return bound \? DEAL_NOMS\.protectivePush(?: \* \(BELIEF_RULES\.strength === "full" \? dealTrust\(this\.rel\.edge\(holder, target\)\.trust\) : 1\))? : 0;/); // 0160 (Ryne Q3): scaled by trust in full strength
+    expect(src).toMatch(/(?:return|const base =) bound \? DEAL_NOMS\.protectivePush(?: \* \(BELIEF_RULES\.strength === "full" \? dealTrust\(this\.rel\.edge\(holder, target\)\.trust\) : 1\))? : 0;/); // 0160 (Ryne Q3): scaled by trust in full strength
     expect(src).not.toMatch(/return bound \? -0\.\d+ : 0;/);
   });
 });

@@ -59,6 +59,14 @@ export interface Deal {
   status: DealStatus;
   /** Theme 3 / 0175: who broke the deal, when `status` is "broken" (absent on saves from before it, and on every other status). */
   brokenBy?: EntityId;
+  /**
+   * ORW-597 (Fable T3-1, design hole 1): has the wronged party LEARNED of the break? A break by a public act (nominating, replacing) is learned at once; a quiet,
+   * deliberate break is not, until a pathway (the breaker's later public act against them, or catching the breaker lying to them) - only then does the wronged side
+   * react. A sealed-ballot break is never learned by name. Absent (older saves, and every non-broken deal) reads as learned unless the ballot is sealed.
+   */
+  learned?: boolean;
+  /** ORW-597: the break was cast by a SECRET eviction ballot - never learned by name, whatever later pathway fires. */
+  secretVote?: boolean;
   /** The event that recorded the deal being made (player-witnessed → knowledge; NPC↔NPC → Vault). */
   madeEventId?: string;
   /** The event that recorded it being kept/broken (set on reconciliation). */
