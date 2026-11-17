@@ -144,7 +144,7 @@ export function courtPull(inDanger: boolean): number { return inDanger ? HOH_COU
  * read of that third person takes a bounded step (engine keys, never shown). The step is scaled by how persuasive the speaker is against how easily swayed the listener is, within `swayMin..swayMax`.
  */
 export const THIRD_PERSON: Readonly<Record<string, { affinity: number; threat: number }>> = {
-  "campaign-against": { affinity: -0.03, threat: 0.035 },
+  "campaign-against": { affinity: -0.03, threat: 0.0175 }, // the threat part is halved: a campaign already reaches its listeners through `campaignTiltFor` (the Auditor's review of #2972), so the read moves only half as much here
   "drive-a-wedge": { affinity: -0.03, threat: 0.02 },
   "lobby-for": { affinity: 0.03, threat: -0.02 },
   "count-votes": { affinity: -0.01, threat: 0.02 },
@@ -159,10 +159,10 @@ export function thirdPersonImpact(kind: string, persuasiveness: number, suscepti
 
 /**
  * ORW-610 (owner ruling 2026-11-17): the engine never acts for the player. The player's OWN recorded talk to the sitting HOH this week (pleading for safety, campaigning, naming someone) counts as a pitch
- * on the same terms as an NPC's. Until ORW-609 lands a recorded scene kind and actor, a talk counts when the scene's kind is one of the persuasion-like engine keys (or it named a third person).
+ * on the same terms as an NPC's. Until ORW-609 lands a recorded scene kind and actor, a talk counts when the scene's kind is one of the persuasion-like engine keys (or it named a third person). A fight (conflict) with the HOH is NOT a plea for safety.
  * ORW-609 replaces `isPitchLikeTalk` with its recorded scene kind. Pure.
  */
-export const PLAYER_PITCH = { talkKinds: ["strategy", "alliance", "conflict"] as readonly string[], perTalk: 0.5 } as const;
+export const PLAYER_PITCH = { talkKinds: ["strategy", "alliance"] as readonly string[], perTalk: 0.5 } as const;
 export interface PlayerPitchRecord { week: number; hoh: EntityId; talks: number; named?: EntityId }
 export const isPitchLikeTalk = (kind: string | undefined, named: EntityId | undefined): boolean => named !== undefined || (kind !== undefined && PLAYER_PITCH.talkKinds.includes(kind));
 export function foldPlayerTalk(prev: PlayerPitchRecord | undefined, week: number, hoh: EntityId, named: EntityId | undefined): PlayerPitchRecord {
