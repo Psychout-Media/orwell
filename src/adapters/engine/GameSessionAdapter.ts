@@ -3453,6 +3453,17 @@ export class GameSessionAdapter implements GameSession {
     }
     return out;
   }
+  /** ORW-583: the same disclosure gate `knows` passes, applied to the houseguest's hunches and stances (the jury house is exempt, as it is for `knows`). */
+  private voiceGateOn(): boolean { return this.disclosureEngineOn() && !this.juryHouseView(); }
+  /** ORW-583: a hunch reaches the narrator only when the player holds the same claim (identical content; a suspicion carries no lineage), so a suspicion no engine decision has put on the table is never voiced. */
+  private voiceSuspectFacts(holder: EntityId): ReadonlyArray<{ content: string }> {
+    const mine = this.npcKnowledge?.suspicions(holder) ?? [];
+    if (!this.voiceGateOn()) return mine;
+    const pid = this.house!.player.id;
+    const theirs = [...(this.npcKnowledge?.known(pid) ?? []), ...(this.npcKnowledge?.suspicions(pid) ?? [])];
+    const contents = new Set(theirs.map((f) => f.content));
+    return mine.filter((f) => contents.has(f.content));
+  }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
   /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
   private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
@@ -3637,7 +3648,7 @@ export class GameSessionAdapter implements GameSession {
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       suspects: (() => {
-        const base = (this.npcKnowledge?.suspicions(id) ?? [])
+        const base = this.voiceSuspectFacts(id)
           .slice(-GameSessionAdapter.VOICE_SUSPECTS_CAP)
           .map((f) => this.humanize(f.content));
         // 0105: a houseguest's DRIVE (0086) gives them a specific, Vault-safe suspicion — the wary
@@ -3645,14 +3656,15 @@ export class GameSessionAdapter implements GameSession {
         // specific to voice them watching (anchoring the 0084 mood). Present ONLY when the drive layer is
         // live (⇒ campaigns off ⇒ no drive ⇒ this is absent ⇒ byte-identical projection). The PLAN, the
         // intensity, the campaign never cross — only the hunch the houseguest would act out anyway.
-        if (isActive) {
+        if (isActive && !this.voiceGateOn()) {
           const drv = this.drives.get(id);
           const hunch = drv ? driveSuspicion(drv, drv.target !== undefined ? this.nameOf(drv.target) : undefined) : null;
           if (hunch && !base.includes(hunch)) base.push(hunch);
         }
         return base;
       })(),
-      stances: others.map((other) => ({
+      // ORW-583: with the disclosure gate on, only the houseguest's stance toward the player is handed over; a read of a third party is held back like an undelivered fact.
+      stances: others.filter((other) => !this.voiceGateOn() || other === this.house!.player.id).map((other) => ({
         toward: { id: other, name: this.nameOf(other) },
         stance: relationshipLabel(this.rel.edge(id, other), dispositionOf(npc.character.archetype)),
       })),
