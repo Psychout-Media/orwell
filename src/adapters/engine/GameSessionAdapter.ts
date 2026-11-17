@@ -17651,19 +17651,21 @@ export class GameSessionAdapter implements GameSession {
    */
   getOffscreenSceneSkeletons(): import("../../ports/GameSession").OffscreenSceneSkeleton[] {
     if (!this.house || this.lastTickOffscreenIds.length === 0) return [];
+    // ORW-570 (Fable T1-1, the BDD Auditor's ruling): an NPC-to-NPC scene whose witness set excludes the player is Vault-class: its people, its nature
+    // and its text alike. This read is on the PLAYER channel, so it returns NO hidden scene at all (an empty list for the off-screen society); it
+    // keeps returning an event the player witnessed, should the tick registry ever hold one. Hidden-scene texture, if wanted later, is rebuilt on the
+    // sealed-prompt pattern (k-anonymous inputs, decoys, an opaque ticket, engine-side storage), never on this read.
     const events = this.record?.events() ?? [];
     const byId = new Map(events.map((e) => [e.id, e]));
     const result: import("../../ports/GameSession").OffscreenSceneSkeleton[] = [];
     for (const id of this.lastTickOffscreenIds) {
       const ev = byId.get(id);
-      if (!ev || !ev.hidden) continue; // only hidden events are part of the off-screen texture layer
-      // Apply texture override if one exists; otherwise the deterministic template content stands.
-      const prose = this.textureOverrides.get(id) ?? ev.baseContent ?? ev.content;
+      if (!ev || ev.hidden) continue;
       result.push({
         eventId: ev.id,
         nature: ev.type,
-        participants: [...ev.witnessSet], // public participant ids (no Vault content)
-        templateContent: prose,
+        participants: [...ev.witnessSet],
+        templateContent: this.textureOverrides.get(id) ?? ev.baseContent ?? ev.content,
       });
     }
     return result;
@@ -17682,9 +17684,10 @@ export class GameSessionAdapter implements GameSession {
     const sanitized = sanitizeFlavor(content, 1000);
     if (!sanitized) return { ok: false };
     // Verify the event exists, is hidden, and was not witnessed by the player — content-only guard.
+    // ORW-570 (the Auditor's follow-up): this is a PLAYER-channel write keyed by event id, so a well-formed request gets the SAME bare receipt whether the id is a hidden scene, a witnessed one or unknown: it cannot probe whether a hidden scene exists. Only a hidden scene's text is stored.
     const events = this.record?.events() ?? [];
     const ev = events.find((e) => e.id === eventId);
-    if (!ev || !ev.hidden) return { ok: false };
+    if (!ev || !ev.hidden) return { ok: true };
     this.textureOverrides.set(eventId, sanitized);
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { ok: true };
