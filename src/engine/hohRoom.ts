@@ -1,3 +1,4 @@
+import { clamp01 } from "../domain/num";
 import type { EntityId } from "../domain/ids";
 import { agendaRoll } from "./agenda";
 
@@ -35,7 +36,6 @@ export const HOH_ROOM = {
   minSentence: 14,
 } as const;
 
-const clamp01 = (n: number): number => (n < 0 ? 0 : n > 1 ? 1 : n);
 
 export type SlipDirection = "resentment" | "fear";
 

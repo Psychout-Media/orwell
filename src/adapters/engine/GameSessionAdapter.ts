@@ -16684,7 +16684,8 @@ export class GameSessionAdapter implements GameSession {
     // their REAL engine-grounded read — Vault-only (witnessed by them alone), reaching no one.
     if (ev) this.recordCeremonyConfessionals(ev);
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
-    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) { this.recordLobbyPitches(ev.participants[0]); this.recordHohRoom(ev.participants[0]); } // B38: the pitches made to the new HOH are real, mostly hidden, events // ORW-629: then the room is opened to the whole house
+    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
+    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordHohRoom(ev.participants[0]); // ORW-629: then the room is opened to the whole house
     if (ev && ev.beat === "nominations") { this.mintNpcDeal(); if (this.npcDealsEnabled) this.mintManyNpcDeals(); }
     // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
     if (ev) this.deliverInformationDeals();
