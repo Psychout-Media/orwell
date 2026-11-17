@@ -85,6 +85,7 @@ import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
+import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
@@ -15668,7 +15669,7 @@ export class GameSessionAdapter implements GameSession {
     if (ev) this.recordCeremonyConfessionals(ev);
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
-    if (ev && ev.beat === "nominations") this.mintNpcDeal();
+    if (ev && ev.beat === "nominations") { this.mintNpcDeal(); if (this.npcDealsEnabled) this.mintManyNpcDeals(); }
     // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
     if (ev) this.deliverInformationDeals();
     // 0041: the season changes a houseguest — fold the beat's emotional impact into the involved souls
@@ -16095,7 +16096,52 @@ export class GameSessionAdapter implements GameSession {
   dealNomPushFor(target: EntityId, holder: EntityId): number {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
-    return bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
+    const base = bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
+    // 0170: the holder's OWN secret plan (flip / break at the nominations) turns the protective push into a positive one. No plan source / flag off => `base` unchanged.
+    return this.npcDealsEnabled && this.live ? planAwareDealPush(base, holder, target, this.live.week, this.deals.serialize(), this.planSourceOverride ?? this.dealPlanSource()) : base;
+  }
+
+  /** 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. ON unless `ORWELL_NPC_DEALS=0`; OFF => `mintNpcDeal` alone, byte-identical to before. */
+  private npcDealsEnabled = flagDefaultOn("ORWELL_NPC_DEALS");
+  setNpcDealsEnabled(on: boolean): void { this.npcDealsEnabled = on; }
+  /** The secret plan store (the Auditor's 0178, `live.dealPlans`) is the ONE plan model: the holder's own plan is read through `dealPlanSource()`. A test may inject its own read. */
+  private planSourceOverride?: PlanSource;
+  setPlanSource(src: PlanSource | undefined): void { this.planSourceOverride = src; }
+
+  /** The bond read this slice needs, over today's relationship model WITHOUT creating an edge: one snapshot per call, an unknown pair reads as the baseline. */
+  private pairBondRead(): PairBondRead {
+    const base = RELATIONSHIP_CONSTANTS.baseline;
+    const edges = new Map<string, { trust: number; affinity: number }>();
+    for (const e of this.rel.serialize().edges) edges.set(`${e.from}->${e.to}`, e);
+    const span = DECISION.nomination.floaterBondSpan;
+    return {
+      bond: (holder, other) => {
+        const e = edges.get(`${holder}->${other}`) ?? base;
+        const strength = Math.max(0, Math.min(1, ((e.trust + e.affinity) / 2 - (base.trust + base.affinity) / 2) / span));
+        return { trust: e.trust, warmth: e.affinity, strength };
+      },
+    };
+  }
+
+  /**
+   * 0170 - at the nomination ceremony the house may seal several NPC-to-NPC pacts, each side's secret plan comes from the 0178 planner like every deal. Hidden like the legacy pact (witnesses = the two NPCs);
+   * its own seeded side stream `${seed}:npc-deals:${week}:${pairKey}`, so no shared stream moves. The pact itself is the ordinary ledger entry.
+   */
+  private mintManyNpcDeals(): void {
+    const s = this.live;
+    if (!s || !this.house || !this.onPlayerEvent) return;
+    const npcs = s.active.filter((id) => id !== PLAYER);
+    const seed = this.gameSeed ?? "";
+    const proposals = proposeNpcDeals({
+      week: s.week, npcs, bonds: this.pairBondRead(),
+      isTaken: (a, b) => this.deals.open().some((d) => (d.parties.includes(a) && d.parties.includes(b)) || ((d.parties.includes(a) || d.parties.includes(b)) && d.madeWeek === s.week)),
+      stream: (pairKey) => new SeededRandom(hashSeed(`${seed}:npc-deals:${s.week}:${pairKey}`)),
+    });
+    for (const p of proposals) {
+      const [a, b] = p.parties;
+      const evId = this.onPlayerEvent(`${this.nameOf(a)} and ${this.nameOf(b)} settle a quiet ${p.kind} understanding`, [a, b], "deal");
+      this.deals.make(p.parties, p.kind, "a quiet pact sealed away from the cameras", evId, s.week); // its plans: main's planAndCarryOutDeals, like every deal
+    }
   }
 
   /** B26 - a juror's finale lean reads their memory of the finalist too. ON unless `ORWELL_JURY_MEMORY=0`. OFF => no ctx provider => byte-identical. */
