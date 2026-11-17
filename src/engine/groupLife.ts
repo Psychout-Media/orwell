@@ -10,6 +10,7 @@
  * tie between members goes to a keyed roll, then the id.
  */
 import type { EntityId } from "../domain/ids";
+import type { ClaimInput } from "./spokenClaims";
 
 /** The engine roles of a member of an alliance. Keys, not words: never shown to a player. */
 export type GroupRole = "leader" | "strategist" | "shield" | "swing" | "glue" | "comp-threat";
@@ -27,7 +28,12 @@ export interface GroupLife {
   /** The target the majority has agreed (the Borda head of the members' cut orders). */
   agreed?: EntityId;
   /** A member who is here only to learn the group's plans, and the person they really work for. `reported` is the last target they passed on. */
-  spy?: { member: EntityId; reportsTo: EntityId; reported?: EntityId };
+  spy?: { member: EntityId; reportsTo: EntityId; reported?: EntityId; /** The spy has turned: "quiet" stopped reporting, "double-cross" now passes a wrong target, "confessed" told the group and stopped. */ turned?: "quiet" | "double-cross" | "confessed" };
+  /** The targets whose agreed-target threat step has already been taken (once per alliance and target, however often the agreed target flips back). */
+  bumped?: EntityId[];
+  /** How many of the evictions (the eviction order's length) this group has been weighed against, and whether each of the last ones was its own agreed target (the last two kept). */
+  evictSeen?: number;
+  evictWon?: boolean[];
   /** This group formed against another one (its id). */
   shadowOf?: string;
   /** A shadow group has already formed against this one. */
@@ -64,6 +70,19 @@ export const GROUP_LIFE = {
   planThreatBump: 0.03,
   /** The bounded threat step a leaked plan lands on the wronged one's read of each member of the group that planned it. */
   leakThreatBump: 0.08,
+  /** A spy who comes to like the group more than the person they work for turns: the daily chance is `turnBase` plus `turnGapK` times the margin, never above `turnMax`. */
+  turnBase: 0.1,
+  turnGapK: 1,
+  turnMax: 0.6,
+  /** Once turned, the share of candor that becomes a confession, and of cunning (the less candid) a double cross. */
+  confessShare: 0.5,
+  crossShare: 0.5,
+  /** An outsider feels threatened by a group when their own mean threat read of its members is at least this. */
+  shadowThreat: 0.3,
+  /** A group "holds a voting majority" of the house when it is more than this share of the remaining houseguests. */
+  majorityShare: 0.5,
+  /** The evictions in a row a group must have carried to dominate. */
+  streakLen: 2,
 } as const;
 
 /** The roles in the order they are offered. Only a tie between two roles' best candidates reads this order. */
@@ -192,4 +211,73 @@ export function collision(orders: Readonly<Record<EntityId, readonly EntityId[]>
   for (const [m, order] of Object.entries(orders)) { const head = order[0]; if (head && mine.has(head) && head !== m) by.set(head, [...(by.get(head) ?? []), m]); }
   const top = [...by.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))[0];
   return top ? { cut: top[0], cutters: [...top[1]].sort() } : undefined;
+}
+
+/** What a spy reads about their own loyalties. All 0..1 except `gap`, which is warmth for the group minus the bond to the person they work for. */
+export interface SpyRead { gap: number; candor: number; cunning: number }
+export type SpyTurn = "stay" | "quiet" | "confess" | "double-cross";
+
+/** The spy's warmth for the group minus the bond to the one they really work for (mean directed bond to the members, less the directed bond to the patron). */
+export function spyGap(toMembers: readonly number[], toPatron: number): number {
+  return (toMembers.length ? toMembers.reduce((t, x) => t + x, 0) / toMembers.length : 0) - toPatron;
+}
+
+/**
+ * Does a spy turn genuinely loyal? Only when their warmth for the group outweighs the bond to the one they work for; then a keyed daily roll against a chance that grows with the margin. A turned spy
+ * confesses with the share their candor sets, double-crosses (keeps reporting, but a wrong target) with the share their cunning sets among the less candid, and otherwise just stops. Pure; both rolls are the caller's keyed draws.
+ */
+export function spyTurn(r: SpyRead, rollTurn: number, rollKind: number): SpyTurn {
+  if (!(r.gap > 0)) return "stay";
+  if (rollTurn >= Math.min(GROUP_LIFE.turnMax, GROUP_LIFE.turnBase + r.gap * GROUP_LIFE.turnGapK)) return "stay";
+  const confess = clamp(r.candor) * GROUP_LIFE.confessShare;
+  const cross = clamp(r.cunning) * (1 - clamp(r.candor)) * GROUP_LIFE.crossShare;
+  return rollKind < confess ? "confess" : rollKind < confess + cross ? "double-cross" : "quiet";
+}
+
+/** Does this target still owe the alliance its threat step? Once per target; a flip-flop back to a target already bumped takes none. */
+export function bumpOnce(bumped: readonly EntityId[] | undefined, target: EntityId): { bump: boolean; bumped: EntityId[] } {
+  const seen = bumped ?? [];
+  return seen.includes(target) ? { bump: false, bumped: [...seen] } : { bump: true, bumped: [...seen, target] };
+}
+
+export type Dominance = "crown" | "majority" | "streak";
+/** Does ONE group dominate the house? It holds the HOH, or has a voting majority of the remaining houseguests, or carried the last `streakLen` evictions. Undefined when it does not. */
+export function dominance(i: { holdsCrown: boolean; members: number; living: number; won: readonly boolean[] }): Dominance | undefined {
+  if (i.holdsCrown) return "crown";
+  if (i.living > 0 && i.members / i.living > GROUP_LIFE.majorityShare) return "majority";
+  const n = GROUP_LIFE.streakLen;
+  return i.won.length >= n && i.won.slice(-n).every(Boolean) ? "streak" : undefined;
+}
+
+/** Fold the evictions since the last look into the group's record: each is a win when the evictee was its agreed target. Keeps the last `streakLen`. */
+export function foldEvictions(seen: number, won: readonly boolean[], order: readonly EntityId[], agreed: EntityId | undefined): { seen: number; won: boolean[] } {
+  const next = [...won];
+  for (let i = seen; i < order.length; i++) next.push(agreed !== undefined && order[i] === agreed);
+  return { seen: Math.max(seen, order.length), won: next.slice(-GROUP_LIFE.streakLen) };
+}
+
+/** The outsiders who feel threatened by the group: their own mean threat read of its members is at least `shadowThreat`, most threatened first (the id breaks a tie). */
+export function threatenedBy(reads: ReadonlyArray<{ id: EntityId; threat: number }>): EntityId[] {
+  return reads.filter((r) => r.threat >= GROUP_LIFE.shadowThreat).sort((a, b) => b.threat - a.threat || a.id.localeCompare(b.id)).map((r) => r.id);
+}
+
+/** The member who drives the plan against `target`: the leader when their own first cut is the target, else the first member whose first cut it is, else the leader. Never `except`. Undefined when no member is left. */
+export function plannerOf(target: EntityId, orders: Readonly<Record<EntityId, readonly EntityId[]>>, roles: Readonly<Record<EntityId, GroupRole>>, members: readonly EntityId[], except: readonly EntityId[] = []): EntityId | undefined {
+  const ms = [...members].filter((m) => !except.includes(m)).sort();
+  const leader = ms.find((m) => roles[m] === "leader");
+  if (leader && orders[leader]?.[0] === target) return leader;
+  return ms.find((m) => orders[m]?.[0] === target) ?? leader ?? ms[0];
+}
+
+/**
+ * ONE told claim about a group's plan: the listener is the target ("targets-you", about the planner) or another houseguest ("going-after", the planner and the target). `told` is the target the speaker names; it is true
+ * only when it is the group's agreed target. Undefined when the claim has no sense (the planner is the speaker or the listener).
+ */
+export function planClaim(i: { speaker: EntityId; listener: EntityId; planner: EntityId | undefined; told: EntityId; agreed: EntityId | undefined; mislead: boolean }): ClaimInput | undefined {
+  const { speaker, listener, planner, told } = i;
+  if (planner === undefined || planner === speaker || planner === listener) return undefined;
+  const base = { speaker, listener, isTrue: told === i.agreed, intent: i.mislead ? "mislead" : "inform" } as const; // origin absent = an engine claim
+  if (listener === told) return { ...base, kind: "targets-you", subject: planner } as ClaimInput;
+  if (told === planner || told === speaker) return undefined;
+  return { ...base, kind: "going-after", subject: planner, object: told } as ClaimInput;
 }
