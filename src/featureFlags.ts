@@ -123,6 +123,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NETWORK_SPREAD', key: 'networkSpread', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.
   { envKey: 'ORWELL_BOND_RECORD', key: 'bondRecord', parser: 'defaultOn' },
+  // ORW-625: plans that last longer than an hour - each goal's stored short plan, carried across hours and days, dropped only for a reason. `=0` = the hour re-rolls each step.
+  { envKey: 'ORWELL_GOAL_PLANS', key: 'goalPlans', parser: 'defaultOn' },
   // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
   { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
   // 0188 / ORW-619: the trap - a suspicious houseguest tells one person a made-up secret and watches whether it comes back (the player can be trapped too). `=0` = no traps.

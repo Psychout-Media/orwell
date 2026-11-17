@@ -4,7 +4,7 @@ import { PLAYER } from "../../src/domain/ids";
 import { seamOf, triadSession, flatten, close, runDays } from "../support/triadsSeam";
 
 /** Feature 0174 - the live session: a PLAYED chat-paced game keeps triad history only with the flag on, deterministically, and nothing of it reaches a view. Roles only. */
-type Live = { week: number; triads?: { drift?: Record<string, number>; courted?: unknown[]; kingmakers?: Array<{ week: number; voter: string; evictee: string }> }; evictionOrder: string[]; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }> };
+type Live = { week: number; triads?: { drift?: Record<string, number>; courted?: unknown[]; kingmakers?: Array<{ week: number; voter: string; evictee: string }> }; evictionOrder: string[]; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }>; weekDigests?: Array<{ week: number; evictee: string | null; hoh: string | null }> };
 async function season(seed: number, on: boolean, weeks = 5) {
   const prev = process.env.ORWELL_TRIADS; process.env.ORWELL_TRIADS = on ? "1" : "0";
   try {
@@ -23,7 +23,12 @@ describe("a played season (ORWELL_TRIADS)", () => {
     for (const k of a.live.triads?.kingmakers ?? []) {
       const rec = a.live.voteRecord!.find((r) => r.week === k.week)!;
       expect(rec.evictee).toBe(k.evictee);
-      expect(Object.keys(rec.voteOf)).toContain(k.voter); // a ballot that was cast (or the HOH tie-break in the record)
+      // a ballot that was cast - or, on a tied vote, the week's HOH who broke it (an NPC HOH's tie-break is not a recorded ballot: liveSeason's tie-break path)
+      if (!Object.keys(rec.voteOf).includes(k.voter)) {
+        const evictVotes = Object.values(rec.voteOf).filter((t) => t === k.evictee).length;
+        expect(evictVotes * 2, "a kingmaker outside the ballots is only the HOH breaking a tie").toBe(Object.keys(rec.voteOf).length);
+        expect(a.live.weekDigests?.find((d) => d.week === k.week && d.evictee === k.evictee)?.hoh).toBe(k.voter);
+      }
     }
   }, 600_000);
   it("no player or admin view carries a triad, a courted flag or a kingmaker while the season lives", async () => {

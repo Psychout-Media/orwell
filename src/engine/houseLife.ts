@@ -152,6 +152,8 @@ export interface HourView {
   owner: EntityId;
   character: AgendaCharacter;
   agenda: Agenda | undefined;
+  /** ORW-625: the step each goal's stored plan says is next (goal id -> step). A goal with a plan takes ITS step, waiting for the partner, instead of re-rolling the hour. Absent = byte-identical. */
+  plans?: ReadonlyMap<string, PlanStep>;
   habits: readonly Habit[];
   /** Soul emotional state 0..1 (0.5 calm). */
   emotional: number;
@@ -274,6 +276,39 @@ function others(v: HourView): EntityId[] {
 const roomOf = (v: HourView, p: EntityId): Room => v.whereabouts.get(p) ?? v.room;
 const byScore = (xs: EntityId[], f: (p: EntityId) => number): EntityId[] => [...xs].sort((a, b) => f(b) - f(a) || a.localeCompare(b));
 
+/**
+ * ORW-625 (Ryne approved 2026-11-17, Fable idea #2) - PLANS THAT LAST LONGER THAN AN HOUR. A goal's next step used to be re-rolled every game hour, so nobody worked a
+ * plan across a day. Now the first hour a goal acts, a short plan is formed from it (`formPlan`: the steps it would take, fixed once), stored, and carried across hours and
+ * days: each hour the goal takes its plan's next step, waiting for that step's partner if they are not here; it is dropped only for a reason (the goal ends, a partner
+ * leaves the game, or it stalls). So a player can notice someone working on a person over days. Pure here; the adapter stores and advances the plan.
+ */
+export interface PlanStep { kind: ActionKind; with: EntityId[]; about?: EntityId }
+export const GOAL_PLAN = {
+  /** How many steps a plan holds (formed once, from the goal's own fitting actions). */
+  steps: 3,
+  /** A plan with no step taken for this many days is dropped as stalled (a fresh one forms the next time the goal acts). */
+  stallDays: 2,
+} as const;
+/** Form a plan for a goal: the step it takes now, then the next ones it would take, each from its own fixed variant (no re-roll later). Steps with no partner reachable now are kept as they are (they wait). */
+export function formPlan(goal: Goal, v: HourView, first: PlanStep, variantOf: (k: number) => number): PlanStep[] {
+  const steps: PlanStep[] = [first];
+  for (let k = 1; steps.length < GOAL_PLAN.steps && k < GOAL_PLAN.steps * 4; k++) {
+    const s = nextStepFor(goal, v, variantOf(k));
+    if (!s) continue;
+    const step: PlanStep = { kind: s.kind, with: [...s.with], ...(s.about ? { about: s.about } : {}) };
+    const last = steps[steps.length - 1]!;
+    if (last.kind === step.kind && last.with.join() === step.with.join()) continue; // a plan is a sequence, not the same move three times
+    steps.push(step);
+  }
+  return steps;
+}
+/** The plan's step as an action for this hour, if its partner(s) are reachable now; undefined = wait (the plan keeps its place). */
+export function planStepNow(step: PlanStep, goal: Goal, v: HourView): (Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room }) | undefined {
+  const pool = others(v);
+  if (!step.with.every((p) => pool.includes(p))) return undefined;
+  return { kind: step.kind, with: [...step.with], goalId: goal.id, goalKind: goal.kind, ...(step.about ? { about: step.about } : {}) };
+}
+
 /** The next step for one goal: an action, with whom, about whom. Returns undefined when nothing useful can be done this hour. */
 export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room } | undefined {
   // A season-long aim is lived in many small ways, not one repeated move: `variant` (a 0..1 roll) picks among its fitting actions.
@@ -387,7 +422,9 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     // A season-long MAIN aim is a background pull; week goals and emergent season goals (revenge, a long con, a secret) are the pressing ones.
     const drive = g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1);
     if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win
-    const step = nextStepFor(g, v, roll(`variant:${g.id}`));
+    // ORW-625: a goal with a stored plan takes the plan's next step (and waits for its partner if they are not reachable this hour: no re-roll).
+    const planned = v.plans?.get(g.id);
+    const step = planned ? planStepNow(planned, g, v) : nextStepFor(g, v, roll(`variant:${g.id}`));
     if (step) return finish(step);
   }
 
