@@ -711,6 +711,13 @@ export interface LiveSeasonState {
    */
   feelingsSeen?: string[];
   /**
+   * 0181 part 2 (Theme 3 slice 4, ORW-568) - JEALOUSY (`bondJealousy.ts`): a hidden overlay per `holder|rival` (value 0..cap, the close friend it is over, the week it last rose), the dedupe list of mood hits
+   * (`jealousySeen`, ordered, never pruned) and the event cursor the nightly tick has read up to (a bonding scene ahead of the tick handles it). ENGINE-ONLY (Vault class), never projected; absent on old saves.
+   */
+  jealousy?: Record<string, { value: number; week: number; close: string }>;
+  jealousySeen?: string[];
+  jealousyCursor?: number;
+  /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
    * Append-only for the season. Absent until the first claim is told (absent => byte-identical season state).
