@@ -185,3 +185,15 @@ describe("ORW-591 the save check guards the claim log and the beliefs", () => {
     }
   });
 });
+
+describe("ORW-591: a re-record never revives a refuted belief", () => {
+  it("a stronger re-record of the same claim id keeps the refuted flag and what the refutation took back", async () => {
+    const { recordClaim } = await import("../../src/engine/beliefStore");
+    const store: Record<string, Array<Record<string, unknown>>> = {};
+    const base = { id: "h|lied-to-me|x|1", holder: "h", kind: "lied-to-me", subject: "x", value: true, origin: "told", confidence: 0.4, week: 1 };
+    recordClaim(store as never, base as never);
+    Object.assign(store.h![0]!, { refuted: true, reversed: { trust: 0.02 } });
+    expect(recordClaim(store as never, { ...base, confidence: 0.9 } as never)).toBe(true);
+    expect(store.h![0]).toMatchObject({ confidence: 0.9, refuted: true, reversed: { trust: 0.02 } });
+  });
+});

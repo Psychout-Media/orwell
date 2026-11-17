@@ -96,8 +96,14 @@ export function recordClaim(store: BeliefStore, claim: Omit<BeliefClaim, "id"> &
   const at = list.findIndex((c) => c.id === full.id);
   if (at >= 0) {
     if (full.confidence <= list[at]!.confidence) return false;
-    const folded = list[at]!.alsoClaims;
-    list[at] = folded && !full.alsoClaims ? { ...full, alsoClaims: folded } : full; // ORW-591: the tellings folded into it are never forgotten
+    const prev = list[at]!;
+    const folded = prev.alsoClaims;
+    list[at] = {
+      ...full,
+      ...(folded && !full.alsoClaims ? { alsoClaims: folded } : {}), // ORW-591: the tellings folded into it are never forgotten
+      // ORW-591: a refuted belief stays refuted - a stronger re-record of the same claim never revives it (or forgets what its refutation took back)
+      ...(prev.refuted ? { refuted: true, ...(prev.reversed ? { reversed: prev.reversed } : {}) } : {}),
+    };
     return true;
   }
   list.push(full);
