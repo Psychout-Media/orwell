@@ -126,7 +126,7 @@ SYSTEM = (
     "a hobby or a family object is welcome. Before you answer, ask of every brief: would a stranger guess this person's job from the place and the objects alone? If so, choose another place and other objects. The place is never their workplace or a place of their trade (a used-car salesperson not on a car lot, a groundskeeper not on a ball field, a dance instructor not in a dance studio, a line cook not on the restaurant's back landing, a deckhand not on a dock with crab pots), and when the facet is near their work, near means beside, across from or down the road from it, never at it, and no object of the trade shows. No work grime either: no dirt, grease, sawdust or paint on their arms, hands, face or clothes, no grimy, dirty or stained shirt, unless the facet is a hobby that is genuinely that (gardening soil on a gardener's hands). Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
     "nothing is acted. Never change their hair or its styling, whatever the activity. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
     "background (animals, vehicles, a view) is welcome and wanted but out of focus; no other person appears anywhere in the frame, and an object is always a thing, never a person or a pet with its owner. "
-    "Clothes are worn the way that person would on an ordinary day. No readable brand names, signs or text, and no object that carries or invites writing (a labelled cassette or tape, a poster, a sign, a note, a letter, a menu, a book cover). Do not write the person's name: say "
+    "Clothes are worn the way that person would on an ordinary day. Clothes carry no logos, emblems, crests, team, school, university or brand names, no slogans, and no printed words or graphics of any kind: describe every garment by its colour, its fabric and its cut alone, never by a name printed on it. No readable brand names, signs or text, and no object that carries or invites writing (a labelled cassette or tape, a poster, a sign, a note, a letter, a menu, a book cover). Do not write the person's name: say "
     "'the person'. Do not describe framing, lens or camera. Invent from the sheet; do not reuse wording between people. Every object, signature item and place is used by ONE "
     "person only: when 'alreadyUsed' lists things, choose different ones."
 )
@@ -166,6 +166,7 @@ CODE_WORDS = {
     "job-caption": "the job must not show in the place or the action; use a hobby, family or hometown facet",
     "work-gear": "no uniform, scrubs, apron, badge, lanyard, hard hat or stethoscope anywhere",
     "text-or-brand": "no readable text, signs, logos or brand names",
+    "clothes-text": "clothes carry no logos, emblems, crests, team, school, university or brand names, no slogans and no printed words: describe garments by colour, fabric and cut only",
     "signature-not-visible": "the signature must show in a half-length frame (head to mid-torso with the hands): nothing below the belt, no footwear",
     "writing-on-object": "no object that carries writing (a labelled cassette, a poster, a sign, a note, a letter, a menu): choose a plain object",
     "acted-or-odd-pose": "a natural upright pose only: no hunch, slump, sprawl, fists, pointing, flexing, eyes shut",
@@ -255,6 +256,29 @@ HAT_RE = re.compile(r"\b(?:hat|cap|beanie|fedora|visor|bonnet)\b", re.I)
 PERSON_PHOTO_OK_RE = re.compile(r"^(?:an?|the|one|two|some)?\s*(?:old |framed |small |faded |family )*(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b(?!.*\b(?:held|holding|carried|carrying|handed|beside|next to|with|by)\b)", re.I)
 PERSON_OBJ_RE = re.compile(r"\b(?:neighbou?rs?|friends?|kids?|child|children|sons?|daughters?|boys?|girls?|mans?|men|womans?|women|customers?|clients?|patients?|mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|babys?|baby|couple|crowd|people|passers?-?by|strangers?|someone|somebody|persons?|dog walker|owner|worker|workers|coach|teammates?|teacher|students?|family members?)\b", re.I)
 SUNGLASSES_RE = re.compile(r"\b(?:sunglasses|shades|goggles)\b", re.I)
+# Clothes carry nothing readable (ORW-480 round 20: "Worn-in LSU Tigers striped polo shirt"). Generic patterns over a name list: a team/school/brand word anywhere
+# (case-insensitive), or a capitalized name sitting on a garment word — the name half is case-sensitive, so an ordinary lowercase outfit never trips it.
+# The garment words are ones a print sits on: never trousers, jeans or shoes.
+CLOTHES_GARMENT = "shirt|polo|tee|t-shirt|sweater|sweatshirt|hoodie|cardigan|jacket|coat|cap|hat|beanie|jersey|uniform|hood|top"
+CLOTHES_TEXT_WORDS = ("logo", "logotype", "emblem", "crest", "slogan", "mascot", "varsity", "letterman",
+                      "graphic tee", "university", "collegiate", "alumni")
+CLOTHES_WORD_RE = re.compile(r"\b(?:logo|logotypes?|emblems?|crests?|slogans?|mascots?|varsity|letterman|"
+                             r"graphic\s+tee|team\s+\w+|university|collegiate|alumni)\b", re.I)
+CLOTHES_NAME_RE = re.compile(r"\b[A-Z][A-Za-z.']*(?:\s+[A-Z][A-Za-z.']*)?\s+(?:\w+\s+)?(?:" + CLOTHES_GARMENT + r")\b")
+CLOTHES_TEXT_RE = re.compile(CLOTHES_WORD_RE.pattern + "|" + CLOTHES_NAME_RE.pattern)
+
+
+def _lower_clause_starts(text: str) -> str:
+    """Lowercase the first letter of each clause: a wear line capitalizes its items ("Navy hoodie, Black denim jacket"), which is not a name."""
+    return re.sub(r"(^|[,;:]\s*|\.\s+)([A-Z])", lambda m: m.group(1) + m.group(2).lower(), str(text or ""))
+
+
+def clothes_has_text(text: str) -> bool:
+    """The clothes or the signature name a team, school, brand or logo, or sit a capitalized name on a garment word."""
+    t = str(text or "")
+    return bool(CLOTHES_WORD_RE.search(t) or CLOTHES_NAME_RE.search(_lower_clause_starts(t)))
+
+
 INDOOR_RE = re.compile(r"\b(?:indoors?|inside|kitchen|living room|bedroom|dining|diner|booth|café|cafe|studio|shop(?! (?:window|front))|church (?:hall|basement|kitchen)|garage|hallway|stairwell|apartment|bar|kitchenette|bathroom|office|classroom|gym|locker|barn)\b", re.I)
 OUTDOOR_RE = re.compile(r"\b(?:outdoors?|outside|yard|garden|porch|steps|stoop|dock|pier|beach|river|lake|trail|field|street|sidewalk|road|park|lot|ditch|bank|roof|balcony|patio|driveway|hill|dune|farm|orchard|court)\b", re.I)
 DARK_TOP_RE = re.compile(r"\b(?:black|charcoal|navy|dark (?:grey|gray|blue))\b", re.I)
@@ -569,6 +593,10 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for k in ("where", "doing", "wear", "signature", "expressionBody"):
         if isinstance(out.get(k), str) and bad_rx.search(out[k]):
             out[k] = _drop_clauses(out[k], bad_rx) or out[k]
+    # nothing readable on the clothes or the signature: a clause naming a team, school, brand or logo is dropped (the other fields may name a place that legitimately holds such words)
+    for k in ("wear", "signature"):
+        if isinstance(out.get(k), str) and clothes_has_text(out[k]):
+            out[k] = _drop_clauses(_lower_clause_starts(out[k]), CLOTHES_TEXT_RE) or out[k]
     # no work grime on the person or what they hold (a place may be a muddy trail): a clause that shows dirt, grease, sawdust or paint is dropped unless the facet is a hobby
     no_grime = grime_forbidden(anchors)
     if no_grime:
@@ -725,6 +753,9 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("work-gear")
     if TEXT_RE.search(body) or BRAND_RE.search(body):
         codes.append("text-or-brand")
+    # the clothes and the signature carry nothing readable: no team, school, brand or logo on a garment (ORW-480 round 20)
+    if clothes_has_text(brief["wear"] + " " + brief["signature"]):
+        codes.append("clothes-text")
     if LOWER_BODY_RE.search(brief["signature"]) and not look:
         codes.append("signature-not-visible")
     if any(WRITING_OBJ_RE.search(x) for x in brief["inFrame"]) or (WRITING_OBJ_RE.search(brief["signature"]) and not look):
@@ -910,7 +941,7 @@ def check_cast(cards: list, anchors: dict, briefs: dict, relax: int = 0) -> dict
 # ---------------------------------------------------------------------------------------------------- the editor pass
 EDITOR_SYSTEM = SYSTEM + (
     "\nYou are now the EDITOR. You get only the people whose briefs failed a check, each with their sheet, their anchors, the codes that failed, and the briefs "
-    "of the people already accepted (so you can differ from them). Rewrite each failing brief in full, fixing every code. Ask of each rewrite: would a stranger guess their job from the place and the objects alone? If so, move to a different place of their life. Dress them for the dealt season and weather, and keep them clean of work grime. For each person under 'complete', keep the brief as it is "
+    "of the people already accepted (so you can differ from them). Rewrite each failing brief in full, fixing every code. Ask of each rewrite: would a stranger guess their job from the place and the objects alone? If so, move to a different place of their life. Dress them for the dealt season and weather, keep them clean of work grime, and keep their clothes free of any logo, emblem, team, school, university or brand name, slogan or printed word — colour, fabric and cut only. For each person under 'complete', keep the brief as it is "
     "and give back the same JSON shape with the missing parts added (a second object, a signature), different from everything in 'alreadyUsed'. Answer with the same JSON shape keyed by id, "
     "only for the people given."
 )

@@ -1020,3 +1020,23 @@ def test_round19_no_work_grime_unless_the_life_area_is_that():
     fixed = B.repair_brief(c, {**base, "wear": "a dirty work shirt, dark jeans", "doing": "paused at the rail, grimy arms at rest"}, an)
     assert "work-grime" not in B.check_brief(c, an, fixed) and "dirty" not in fixed["wear"] and "grimy" not in fixed["doing"]
     assert "grime" in B.SYSTEM and "work-grime" in B.CODE_WORDS
+
+
+def test_round20_clothes_carry_no_team_school_or_brand_name():
+    # round 20: a brief dressed a prison chaplain in "Worn-in LSU Tigers striped polo shirt"
+    for t in ("Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers", "a faded varsity jacket over a white tee",
+              "a grey hoodie with the university crest", "a navy cap with a team logo", "a black graphic tee, ripped jeans"):
+        assert B.clothes_has_text(t), t
+    # ordinary outfits, including the capitalized item lists the writer often gives, are not names
+    for t in ("a faded navy polo shirt, khaki trousers", "a cream cable-knit sweater", "Navy hoodie, Black denim jacket, grey joggers",
+              "Lightweight khaki trousers; Canvas sneakers", "a soft cream knit cardigan over a smocked cotton blouse"):
+        assert not B.clothes_has_text(t), t
+    cs = cards(); c = cs[0]
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    base = good_brief(c, 0)
+    bad = {**base, "wear": "Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers"}
+    assert "clothes-text" in B.check_brief(c, an, bad)
+    assert "clothes-text" not in B.check_brief(c, an, {**base, "wear": "Navy hoodie, Black denim jacket, grey joggers"})
+    # the repair drops the printed garment's clause and keeps the rest
+    fixed = B.repair_brief(c, bad, an)
+    assert "LSU" not in fixed["wear"] and "khaki trousers" in fixed["wear"].lower()
