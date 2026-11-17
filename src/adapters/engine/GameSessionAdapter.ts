@@ -299,7 +299,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
-import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
+import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances, blameForTargeting } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
@@ -3290,8 +3290,8 @@ export class GameSessionAdapter implements GameSession {
    */
   private onSurfaceToHouseguest?: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number) => boolean;
   /** 0066 Phase-2: per-NIGHT conflict tally per houseguest (cleared at each new day). A character conflict
-   *  drains the people in it ⇒ they turn in earlier tonight. In-memory + ephemeral (a mid-day reload simply
-   *  resets it); only ever populated on the clock-ON path, so the calibration spine is unaffected. */
+   *  drains the people in it ⇒ they turn in earlier tonight. ORW-581 (Fable T1-14): saved with the season (`nightConflicts`), so a mid-night
+   *  restart turns the same people in at the same hour; only ever populated on the clock-ON path, so the calibration spine is unaffected. */
   private nightConflicts = new Map<EntityId, number>();
 
   /**
@@ -3528,7 +3528,7 @@ export class GameSessionAdapter implements GameSession {
     return mine.filter((f) => contents.has(f.content));
   }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
-  /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
+  /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). ORW-581 (Fable T1-14): persisted in the snapshot (`bringUp`), so a restart neither repeats a memory nor grants an extra mention. */
   private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
   /** floor/bar/chanceScale/top as before (ASSUMED, tunable). `repeatDays`: a memory raised in the last N in-game days is not raised again. `maxPerDay`: the ceiling for the most talkative/aggrieved houseguest. */
   private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8, repeatDays: 3, maxPerDay: 3 } as const;
@@ -4981,6 +4981,9 @@ export class GameSessionAdapter implements GameSession {
       ...(this.legendCount > 0 ? { legendCount: this.legendCount } : {}),
       ...(this.legendLastActTick > 0 ? { legendLastActTick: this.legendLastActTick } : {}),
       ...(this.lastConfessionalSweepDay > 0 ? { lastConfessionalSweepDay: this.lastConfessionalSweepDay } : {}),
+      // ORW-581 (Fable T1-14): tonight's conflict tally and the houseguests' raised-memory record survive a restart (absent => none, byte-shaped as an older save).
+      ...(this.nightConflicts.size ? { nightConflicts: Object.fromEntries(this.nightConflicts) } : {}),
+      ...(this.bringUp.size ? { bringUp: Object.fromEntries([...this.bringUp].map(([k, v]) => [k, { day: v.day, used: v.used, recent: v.recent.map((r) => ({ ...r })) }])) } : {}),
       // 0099 (hidden half) — the DEDICATED secret-barter rng tick counter + the monotonic count of secrets
       // spent into the hidden economy, persisted so the isolated barter stream + the non-degradation count
       // survive a restart (0007/0030). Absent ⇒ 0 on restore (byte-shaped as a pre-0099-barter save / off).
@@ -5316,6 +5319,8 @@ export class GameSessionAdapter implements GameSession {
     this.legendCount = core.legendCount ?? 0;
     this.legendLastActTick = core.legendLastActTick ?? 0;
     this.lastConfessionalSweepDay = core.lastConfessionalSweepDay ?? 0; // 0122 — restore the sweep watermark
+    this.nightConflicts = new Map(Object.entries(core.nightConflicts ?? {})); // ORW-581
+    this.bringUp = new Map(Object.entries(core.bringUp ?? {}).map(([k, v]) => [k, { day: v.day, used: v.used, recent: v.recent.map((r) => ({ ...r })) }] as const)); // ORW-581
     // 0101/#1401: restore the showrunner's production bible + its monotonic count (absent on a pre-0101
     // save / when the layer is off ⇒ []/0 — byte-identical to a pre-feature load).
     this.showrunnerNotes = core.showrunnerNotes ? cloneSession(core.showrunnerNotes) : [];
@@ -8398,6 +8403,7 @@ export class GameSessionAdapter implements GameSession {
       this.resetLegends(); // 0101 — a fresh season has minted no legend, the cap unspent
       this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh season hasn't swept any in-game day yet
+    this.nightConflicts = new Map(); this.bringUp = new Map(); // ORW-581: a fresh season starts with no fights tonight and nothing raised
       this.resetSecretBarter(); // 0099 — a fresh season has bartered no secret off-screen
       this.resetShowrunner(); // 0101/#1401 — a fresh season's production bible is empty
       // 0116 — carry the model-authored genesis layer off the warm: the validated tie graph (preferred
@@ -8733,6 +8739,7 @@ export class GameSessionAdapter implements GameSession {
     this.resetLegends(); // 0101 — a warmed/fresh cast has minted no legend, the cap unspent
     this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh/warmed season hasn't swept any in-game day yet
+    this.nightConflicts = new Map(); this.bringUp = new Map(); // ORW-581: a fresh season starts with no fights tonight and nothing raised
     this.resetSecretBarter(); // 0099 — a warmed/fresh cast has bartered no secret off-screen
     this.resetShowrunner(); // 0101/#1401 — a warmed/fresh cast carries no producer notes yet
     // 0116 — a freshly-warmed cast carries no model-authored genesis yet (recordCastGenesis, if the FE
@@ -9252,6 +9259,7 @@ export class GameSessionAdapter implements GameSession {
     this.resetLegends(); // 0101 — a fresh season has minted no legend, the cap unspent
     this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh season hasn't swept any in-game day yet
+    this.nightConflicts = new Map(); this.bringUp = new Map(); // ORW-581: a fresh season starts with no fights tonight and nothing raised
     this.resetSecretBarter(); // 0099 — a fresh season has bartered no secret off-screen
     this.resetShowrunner(); // 0101/#1401 — a fresh season's production bible is empty
     // Full-fidelity recall (L27b): the authored hidden detail is recorded into each NPC's AUTHORITATIVE
@@ -11464,6 +11472,7 @@ export class GameSessionAdapter implements GameSession {
    */
   campaignTick(): void {
     if (!this.campaignsEnabled || !this.house) return;
+    this.syncTargetsMeClaims(); // ORW-581: the threat reads below see the beliefs as of this tick, written here rather than inside the reads
     this.campaignTickCount += 1;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:campaigns:${this.campaignTickCount}`));
     const beat = this.beatSeqNow();
@@ -11580,6 +11589,7 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     this.drives = nextDrives;
+    this.syncTargetsMeClaims(); // ORW-581: the campaigns just formed or advanced are believed by their targets from now on
     // 0107 Phase B: NPCs name alliances off-screen + pitch the player (gated by campaignsEnabled ⇒ the
     // passive calibration harness forms none ⇒ the cement provider stays 0 ⇒ juryReach byte-identical).
     // ORW-353: a persist inside these commits, and a commit runs the tick again; without a standing cap on alliances each nested tick could found another, so the alliance pass is not re-entered.
@@ -12708,6 +12718,11 @@ export class GameSessionAdapter implements GameSession {
     const seed = this.gameSeed ?? 0;
     const day = s.dayNumber ?? s.week;
     const hour = this.inGameHour() ?? stretchIndex;
+    // ORW-581 (Fable T1-14): the hour's rolls key on (day, hour), so a second stretch in the same game hour (the extra ticks of a beat that covered hours, a nap, a hang-out)
+    // replayed the first one's choices. Count the stretches lived in this absolute hour (persisted with the season, so a restart counts on rather than replaying) and key on it.
+    const absNow = this.inGameAbsHour();
+    let repeat = 0;
+    if (absNow !== undefined) { repeat = s.lifeHour?.at === absNow ? s.lifeHour.n + 1 : 0; s.lifeHour = { at: absNow, n: repeat }; }
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     const authored = s.npcMindsAuthored?.traits ?? {};
     const plans: PlannedAction[] = [];
@@ -12741,7 +12756,7 @@ export class GameSessionAdapter implements GameSession {
         ...(showmance && where.has(showmance) ? { showmance } : {}),
         ...this.roommateView(bedsNow, id, inHouse, where),
         ...(kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
-        timeOfDay: tod, day, hour, inCompetition: false,
+        timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
@@ -12788,7 +12803,7 @@ export class GameSessionAdapter implements GameSession {
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
         // 0153 / ORW-330 slice 3: a speech action is a real claim the engine decides (plant a lie, leak a belief, confirm one, fish for one), checked against its own truth.
-        this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}`);
+        this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-581: a repeated hour says things fresh too
       }
     }
     return out;
@@ -14001,6 +14016,7 @@ export class GameSessionAdapter implements GameSession {
     if ((!this.live!.pending || this.live!.pending.kind === "ceremony-step") && !this.live!.finished) {
       const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
       const cerBefore = ceremonyRef(this.live!); // ORW-281 4a: the open ceremony step (if any) BEFORE this advance
+      this.syncTargetsMeClaims(); // ORW-581: the beliefs the beat's decisions read are written here, at commit time (never inside a scoring read)
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
@@ -14091,6 +14107,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       // The beat-deterministic rng lets the Houseguest's-Choice resume run the veto comp reproducibly (B45).
       const cerBefore = ceremonyRef(this.live!);
+      this.syncTargetsMeClaims(); // ORW-581: as before a beat
       const ev = applyDecision(this.live!, this.toDecisionInput(req), this.ctx(), this.beatRng());
       if (cerBefore) { // ORW-281 4a: the binding choice is a ceremony step - it charges its share of the clock
         const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
@@ -16640,27 +16657,60 @@ export class GameSessionAdapter implements GameSession {
   }
 
 
+  /**
+   * The holder's believed grievance against `subject` (0150 `beliefPull`), as a pure read. ORW-581 (Fable T1-14): a scoring read no longer writes. In a played
+   * game the "they are targeting me" claims are written at commit time (`syncTargetsMeClaims`, before a beat or a decision and around the campaign tick); a
+   * headless sim keeps the legacy write-on-read so its seeded spine is byte-identical.
+   */
   private beliefNomTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.live || holder === PLAYER || !this.npcBeliefsEnabled) return 0;
-    const live = this.live;
+    if (this.live.playedGame !== true) this.noteTargetsMeClaims(holder); // headless only: the legacy write-on-read, byte for byte
+    return beliefPull(this.live.beliefs, holder, subject, this.live.week); // 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
+  }
+
+  /**
+   * ORW-581 (Fable T1-14): the commit-time step that writes every living houseguest's "they are targeting me" claims, so the scoring reads that use them never
+   * write. Played games only, and only when the belief-nomination layer is on (the only readers); a headless sim is untouched.
+   */
+  private syncTargetsMeClaims(): void {
+    if (!this.live || this.live.playedGame !== true || !this.npcBeliefsEnabled || !this.npcBeliefNomsEnabled) return;
+    for (const id of this.livingIds()) if (id !== PLAYER) this.noteTargetsMeClaims(id);
+  }
+
+  /**
+   * The WRITE: a holder who knows a live evict campaign is aimed at them believes someone is targeting them (a tell, 0.8), and a betrayal rumor heard this week
+   * says the same at half its confidence. Idempotent per week (claim ids key on holder, source and week; `recordClaim` keeps the stronger). In a played game the
+   * name they settle on is their own read (`blameForTargeting`), decided once per campaign and week; a headless sim keeps the legacy flat 20% uniform misread.
+   */
+  private noteTargetsMeClaims(holder: EntityId): void {
+    const live = this.live!;
     const store = (live.beliefs ??= {});
     const week = live.week;
+    const played = live.playedGame === true;
     const living = this.livingIds().filter((id) => id !== holder);
     for (const c of this.campaigns) {
       if (c.status !== "active" || c.goal !== "evict" || c.target !== holder || !c.knownTo.includes(holder)) continue;
       const owner = c.owners[0];
       if (!owner || owner === holder) continue;
+      const tail = `|c:${c.id}|${week}`;
+      if (played && claimsOf(store, holder).some((x) => x.kind === "targets-me" && x.id.startsWith(`${holder}|targets-me|`) && x.id.endsWith(tail))) continue; // ORW-581: the blame for this campaign this week is already settled
       const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:targets-me:${week}:${holder}:${c.id}`));
-      const wrong = rng.next() < 0.2 && living.length > 2;
-      const pool = living.filter((id) => id !== owner);
-      const claimed = wrong ? pool[Math.floor(rng.next() * pool.length)]! : owner;
-      recordClaim(store, { id: `${holder}|targets-me|${claimed}|c:${c.id}|${week}`, holder, kind: "targets-me", subject: claimed, object: holder, value: true, origin: "told", confidence: 0.8, week });
+      let claimed: EntityId;
+      if (played) {
+        claimed = blameForTargeting(owner, living.filter((id) => id !== owner),
+          { trust: (id) => this.rel.edge(holder, id).trust, threat: (id) => this.rel.edge(holder, id).threat },
+          RELATIONSHIP_CONSTANTS.baseline, () => rng.next());
+      } else {
+        const wrong = rng.next() < 0.2 && living.length > 2;
+        const pool = living.filter((id) => id !== owner);
+        claimed = wrong ? pool[Math.floor(rng.next() * pool.length)]! : owner;
+      }
+      recordClaim(store, { id: `${holder}|targets-me|${claimed}${tail}`, holder, kind: "targets-me", subject: claimed, object: holder, value: true, origin: "told", confidence: 0.8, week });
     }
     for (const r of claimsOf(store, holder)) {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
-    return beliefPull(store, holder, subject, week); // 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
   }
 
   /** The residual edge carry for the memory floor: what the relationship edge still holds, so nothing is counted twice. */

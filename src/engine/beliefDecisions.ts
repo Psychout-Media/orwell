@@ -33,6 +33,42 @@ export const BELIEF_PULL = {
   revengeBar: 0.75,
 };
 
+/**
+ * ORW-581 (Fable T1-14): who a houseguest BLAMES when they are told a campaign is after them. The name they settle on comes from their own read, not a flat
+ * coin: the more they trust the real owner (against how much they already fear them), the likelier they look past them - to whoever they already read as the
+ * biggest threat. At a baseline read the chance of a wrong name is the old flat 0.2.
+ */
+export const TARGETS_ME_READ = {
+  /** The chance of a wrong name at a baseline read of the owner (the old flat value). */
+  baseWrong: 0.2,
+  /** How far the holder's lean toward the owner (trust minus threat, above the baseline's) moves that chance. */
+  trustSpan: 0.5,
+  minWrong: 0.05,
+  maxWrong: 0.45,
+  /** Seeded noise on the threat read when picking who they blame instead (near-equal threats are not a fixed order). */
+  blameJitter: 0.15,
+} as const;
+
+/**
+ * Pure: the houseguest the holder believes is targeting them. `others` are the living houseguests other than the holder and the real owner (the player
+ * included: the same rule names them). `roll` supplies the caller's seeded draws (one for the misread, then one per candidate in sorted order).
+ */
+export function blameForTargeting(
+  owner: EntityId, others: readonly EntityId[], read: { trust(id: EntityId): number; threat(id: EntityId): number },
+  baseline: { trust: number; threat: number }, roll: () => number,
+): EntityId {
+  if (others.length === 0) return owner;
+  const lean = read.trust(owner) - read.threat(owner) - (baseline.trust - baseline.threat);
+  const pWrong = Math.max(TARGETS_ME_READ.minWrong, Math.min(TARGETS_ME_READ.maxWrong, TARGETS_ME_READ.baseWrong + TARGETS_ME_READ.trustSpan * lean));
+  if (roll() >= pWrong) return owner;
+  let best: EntityId = owner, bestScore = -Infinity;
+  for (const id of [...others].sort()) {
+    const score = read.threat(id) + TARGETS_ME_READ.blameJitter * roll();
+    if (score > bestScore) { best = id; bestScore = score; }
+  }
+  return best;
+}
+
 type GrievanceKind = keyof typeof BELIEF_PULL.kindWeight;
 
 /** The grievance a belief carries against its subject, if any (believed true, not refuted). */

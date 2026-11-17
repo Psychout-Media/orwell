@@ -18,7 +18,7 @@ function resolveLegally(s: GameSession, p: NonNullable<AdvanceView["pending"]>):
   if (p.kind === "nominations") return s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
   if (p.kind === "veto-decision") return s.submitDecision({ kind: "veto-decision", use: false });
   if (p.kind === "replacement") return s.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
-  if (p.kind === "houseguests-choice") return s.submitDecision({ kind: "houseguests-choice", choice: p.options[0] } as never);
+  if (p.kind === "houseguests-choice") return s.submitDecision({ kind: "houseguests-choice", choice: (p.options[0] as { id: string }).id } as never); // the id (a latent bug: the whole option was passed; no seed handed the player the chip before)
   if (p.kind === "comp-round" || p.kind === "comp-intent") { s.submitDecision({ kind: p.kind, intent: "compete" }); return; }
   if (p.kind === "goodbye-message") { s.submitDecision({ kind: "goodbye-message", statement: "bye", vote: p.options[0]?.id }); return; }
   return s.submitDecision({ kind: p.kind, vote: p.options?.[0]?.id } as never);

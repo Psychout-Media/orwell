@@ -919,6 +919,8 @@ export interface LiveSeasonState {
   pitched?: Record<string, number>;
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
+  /** ORW-581 (Fable T1-14, played games only): the absolute in-game hour of the last house-life stretch and how many stretches came before it in that same hour (0 = it was the first). Keys a repeated hour's rolls fresh. */
+  lifeHour?: { at: number; n: number };
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   /** ORW-443: the #2736 cap withheld an approach THIS turn (per-turn; cleared at the next conversation tick). Vault-free flag, narration-only. */
   approachHeld?: true;
@@ -3681,16 +3683,7 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
   const fn = s.finalNominees!;
   const staying = fn[0] === holder ? fn[1] : fn[0];
   const hoh = s.hoh!;
-  const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
-  // ORW-87: + the HOH's memory of the option. ORW-305: the named terms (threat, paranoia, memory); the score is their sum.
-  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood, ctx.paranoiaMult), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
-  const replaceScore = (t: EntityId): number => sumVals(replaceVals(t));
-  const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
-  {
-    const ru = runnerUp(options, replacement, replaceScore);
-    const nm = ["threat", "paranoia", "memory"] as const;
-    recordWhy(s, hoh, { kind: "secret-veto-replacement", options: ru !== undefined ? [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement)), whyOption(ru, "runner-up", nm, replaceVals(ru), replaceScore(ru))] : [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement))] });
-  }
+  const replacement = s.playedGame === true ? playedSecretVetoReplacement(s, ctx, holder, staying, options) : legacySecretVetoReplacement(s, ctx, hoh, options);
   s.finalNominees = [staying, replacement];
   (s.firedTwists ??= []).push({ kind: "secret-veto", beat: s.week });
   return {
@@ -3699,6 +3692,30 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
       `${hoh} must name ${replacement} as the replacement nominee`,
     participants: [holder, hoh, replacement, staying],
   };
+}
+
+/**
+ * ORW-581 (Fable T1-14): in a played game the HOH names the secret-veto replacement with the SAME read as any veto replacement (threat, blocs, agenda shields,
+ * deals and campaigns, memory, beliefs, mood, and the pawn-or-target branch on their stored target), not a thinner threat + paranoia + memory sum. The holder
+ * is the nominee who came down; `staying` is the one left on the block. A player candidate is read by the same terms as anyone (the read has no player case).
+ */
+function playedSecretVetoReplacement(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, staying: EntityId, options: EntityId[]): EntityId {
+  const hoh = s.hoh!;
+  // The breakdown is filed as the secret-veto kind; the HOH's stated reason is a replacement's, as for any replacement they name.
+  return npcReplacementPick(s, ctx, holder, options, staying, (w) => { recordWhy(s, hoh, { ...w, kind: "secret-veto-replacement" }); noteStatedReason(s, ctx, hoh, w); });
+}
+
+/** The pre-ORW-581 secret-veto read (threat, paranoia, memory), kept for headless sims so their seeded seasons stay byte-identical. */
+function legacySecretVetoReplacement(s: LiveSeasonState, ctx: SeasonCtx, hoh: EntityId, options: EntityId[]): EntityId {
+  const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
+  // ORW-87: + the HOH's memory of the option. ORW-305: the named terms (threat, paranoia, memory); the score is their sum.
+  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood, ctx.paranoiaMult), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
+  const replaceScore = (t: EntityId): number => sumVals(replaceVals(t));
+  const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
+  const ru = runnerUp(options, replacement, replaceScore);
+  const nm = ["threat", "paranoia", "memory"] as const;
+  recordWhy(s, hoh, { kind: "secret-veto-replacement", options: ru !== undefined ? [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement)), whyOption(ru, "runner-up", nm, replaceVals(ru), replaceScore(ru))] : [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement))] });
+  return replacement;
 }
 
 /**
@@ -3784,9 +3801,10 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
   return saved;
 }
 
-/** The NPC HOH's replacement read (shared by the one-beat resolution and the staged ceremony; no rng). */
-function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[]): EntityId {
-  return replacementPick(s.hoh!, otherNominee(s, saved), options, s.active, ctx.rel, {
+/** The NPC HOH's replacement read (shared by the one-beat resolution, the staged ceremony and, in a played game, the secret-veto replacement; no rng).
+ *  `remaining` is the nominee left on the block (the veto's other nominee unless given); `why` is where the reason is recorded. */
+function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[], remaining: EntityId = otherNominee(s, saved), why: WhySink = reasonSinkFor(s, ctx, s.hoh!)): EntityId {
+  return replacementPick(s.hoh!, remaining, options, s.active, ctx.rel, {
     blocs: currentBlocs(s, ctx),
     mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
     style: ctx.nominationStyleOf?.(s.hoh!),
@@ -3799,7 +3817,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
-    why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
+    why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
 }
 
