@@ -7,6 +7,7 @@ import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../dom
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
 import { questionsAfterVote, type VoteQuestion } from "./voteQuestions";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
+import type { BondStore } from "./bondRecord";
 import type { PlanStore } from "./dealPlans";
 import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
@@ -612,6 +613,10 @@ export interface LiveSeasonState {
   npcMindsAuthored?: NpcMindsAuthored;
   /** ORW-551 / spec 0168: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
   houseLeans?: import("./houseLeans").HouseLeans;
+  /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
+  groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** ORW-566: the absolute in-game hour the last ceremony beat (nominations, veto ceremony, eviction) resolved at; opens the after-ceremony debrief window. Played games only; absent otherwise. Engine-only. */
+  lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
   tenure?: import("./territory").Tenure;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
@@ -694,6 +699,15 @@ export interface LiveSeasonState {
    * this `live` state, so it is persisted and restored with the season exactly like `juryGrudge`.
    */
   beliefs?: BeliefStore;
+  /**
+   * 0175 (Theme 3 Core 1, ORW-552) - the BOND RECORD per ordered pair (`bondRecord.ts`): warmth, debts, resentment, strain, shared history, commitment.
+   * Folded by the engine from the event record and the deal ledger (`bondsCursor` = events folded so far; `bondsSeen` = deal and save marks already
+   * folded; `bondsDay` = the last day night-repair ran). ENGINE-ONLY (Vault class), never projected. Absent => no bond record yet (old saves read neutral).
+   */
+  bonds?: BondStore;
+  bondsCursor?: number;
+  bondsSeen?: string[];
+  bondsDay?: number;
   /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
