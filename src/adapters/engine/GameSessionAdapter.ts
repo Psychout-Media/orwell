@@ -230,7 +230,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -279,6 +279,7 @@ import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
+import { pairBondMult } from "../../engine/homophily";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
@@ -3791,6 +3792,24 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-508: the public `background` is the engine's own one-line job phrase — `characterFactory`
+   * composes it as `articleFor(vocation) + " " + vocation`. When a writer changes the vocation and the
+   * background is EXACTLY that composed form of the PRIOR job (case-insensitive, trimmed), recompose it
+   * from the new vocation with the same article rule, so the person never reads as two different people
+   * (a "machinist" background on a groundskeeper). Any other background — an authored sentence, a longer
+   * phrase — is left untouched: ONLY the engine's composed form is replaced. Returns whether it changed.
+   */
+  private followJobInBackground(target: Houseguest, priorVocation?: string): boolean {
+    const vocation = target.character.vocation;
+    if (vocation === undefined || priorVocation === undefined || vocation === priorVocation) return false;
+    const bg = target.character.background;
+    const composed = `${articleFor(priorVocation)} ${priorVocation}`;
+    if (bg.trim().toLowerCase() !== composed.trim().toLowerCase()) return false;
+    target.character.background = `${articleFor(vocation)} ${vocation}`;
+    return true;
+  }
+
+  /**
    * The deep-profile write-back seam (feature 0058 / ledger L28b) — the FE producer-LLM authors a
    * houseguest's rich §3 profile and writes it BACK here so the ENGINE becomes the airtight source of
    * truth (mirrors the 0051 portrait handshake). NOW LIVE: it validates (non-player-mirroring),
@@ -3957,6 +3976,9 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.vocation === "string" && req.vocation.trim().length > 0) {
       target.character.vocation = req.vocation.trim();
       if (target.character.vocation !== priorVocation) publicFields.push("vocation");
+      // ORW-508: the background composed from the OLD job follows the new one (only the engine's own
+      // `article + vocation` form — an authored background sentence is left exactly as it is).
+      if (this.followJobInBackground(target, priorVocation)) publicFields.push("background");
     }
     // Did the occupation the player infers actually change? Drives the hidden-stake re-ground in step 2.
     const occupationChanged = target.character.vocation !== priorVocation;
@@ -4322,10 +4344,16 @@ export class GameSessionAdapter implements GameSession {
       if (c.archetype !== undefined) { target.character.archetype = c.archetype; touched = true; }
       if (c.stats !== undefined) { target.character.stats = { ...c.stats }; touched = true; }
       if (c.hiddenElements !== undefined) { target.character.hiddenElements = c.hiddenElements; touched = true; }
+      const priorVocation = target.character.vocation; // ORW-508: the job before this proposal touched it
       if (c.vocation !== undefined) { target.character.vocation = c.vocation; touched = true; }
       if (c.hometown !== undefined) { target.character.hometown = c.hometown; touched = true; }
       if (c.demeanor !== undefined) { target.character.demeanor = c.demeanor; touched = true; }
       if (c.background !== undefined) { target.character.background = c.background; touched = true; }
+      // ORW-508: after the folds — a vocation the proposal changes must not leave the engine's composed
+      // background naming the old job. Evaluated AFTER the background fold so a SUPPLIED background always
+      // wins first: this fires only when none arrived (or the supplied one is itself the composed form of
+      // the prior job — the same lockstep rule as recordCastProfile, never an authored sentence).
+      if (this.followJobInBackground(target, priorVocation)) touched = true;
       // Authoring the biography over the floor placeholder is the same season-start UPGRADE as
       // recordCastProfile (#1067): mark the provenance so the 0031 superset check reads it as an
       // accretion, not degradation, once the cast goes live.
@@ -6119,12 +6147,25 @@ export class GameSessionAdapter implements GameSession {
    * flag is on AND the clock is running ⇒ the hidden society + its seeded calibration spine are BYTE-
    * IDENTICAL; the asymmetric fold fires only on the live clock-ON game. Pure — no rng, no number crosses.
    */
-  socialFoldValence(id: EntityId): { warm: number; sore: number } {
+  socialFoldValence(id: EntityId, holder?: EntityId, about?: EntityId): { warm: number; sore: number } {
     // ORW-551 slice 3: the house culture's bonding dial scales how fast bonds form (warming folds x b) and how hard slights land (souring folds / b), on top of the fatigue valence. b === 1 (no culture) leaves the valence untouched.
     const b = this.cultureMult("bonding");
     let v = { warm: 1, sore: 1 };
     if (this.socialFatigueEnabled) { const deficit = this.restDeficitOf(id); v = { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) }; }
-    return b === 1 ? v : { warm: v.warm * b, sore: v.sore / b };
+    // ORW-561 / spec 0176 (homophily): when the call names the edge's two ends, a pair who are alike bond faster and sour slower, an unlike pair the reverse (a pure magnitude; engine-only).
+    const m = this.pairHomophilyMult(holder, about);
+    const k = b * m;
+    return k === 1 ? v : { warm: v.warm * k, sore: v.sore / k };
+  }
+
+  /** ORW-561 / spec 0176 (slice 10, part 1): like attracts like. `ORWELL_HOMOPHILY=0` opts out. Applies only in a played game (`live.playedGame`), so headless calibration is byte-identical. */
+  private homophilyEnabled = flagDefaultOn("ORWELL_HOMOPHILY");
+  setHomophilyEnabled(on: boolean): void { this.homophilyEnabled = on; }
+  private pairHomophilyMult(a?: EntityId, b?: EntityId): number {
+    if (!this.homophilyEnabled || !a || !b || a === b || this.live?.playedGame !== true || !this.house) return 1;
+    const facets = (id: EntityId) => (id === PLAYER ? this.house!.player : this.house!.npcs.find((n) => n.id === id))?.character;
+    const ca = facets(a), cb = facets(b);
+    return ca && cb ? pairBondMult(ca, cb) : 1;
   }
 
   /** The hidden rest deficit (0..1) a houseguest carries TODAY: tonight's immediate deficit (graded by how
