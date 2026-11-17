@@ -160,6 +160,7 @@ module.exports = {
       "docs/features/0181-bond-feelings.feature",
       "docs/features/0187-promises-bind.feature",
       "docs/features/0171-favor-economy.feature",
+      "docs/features/0189-jury-house-life.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

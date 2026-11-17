@@ -55,8 +55,9 @@ import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } 
 import { issueNightBatch, validateAllianceName, normName, type TraitTable } from "../../engine/allianceNaming";
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
-import { JURY_HOUSE } from "../../engine/juryHouseConstants";
-import { juryFadeRate, juryEaseFactor, type JuryPersonality } from "../../engine/juryFade";
+import { JURY_HOUSE, JURY_LIFE } from "../../engine/juryHouseConstants";
+import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality } from "../../engine/juryFade";
+import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
@@ -5608,20 +5609,24 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s || !s.beliefs) return;
     const seed = this.gameSeed ?? 0;
-    for (const deal of this.deals.all) {
-      if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) continue;
-      const breaker = deal.brokenBy;
-      const wronged = deal.parties.find((p) => p !== breaker);
-      if (!wronged) continue;
-      const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
-        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)));
-      if (!caught) continue;
-      this.deals.learnOfBreak(deal as Deal, {
-        rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
-        juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
-        revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
-      });
-    }
+    for (const deal of this.deals.all) this.learnBreakIfCaught(deal as Deal, seed);
+  }
+  /** ORW-597 (shared with ORW-618): the gate for ONE deal. The wronged side learns of a quiet break only once they hold that the breaker lied; `learnOfBreak` applies the reaction once. */
+  private learnBreakIfCaught(deal: Deal, seed: number): void {
+    const s = this.live;
+    if (!s || !s.beliefs) return;
+    if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) return;
+    const breaker = deal.brokenBy;
+    const wronged = deal.parties.find((p) => p !== breaker);
+    if (!wronged) return;
+    const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
+      && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)));
+    if (!caught) return;
+    this.deals.learnOfBreak(deal, {
+      rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+      juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
+      revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+    });
   }
   /** 0171: the favor ledger IS the favor-debt source (signed like `BondView.debt`: + means `other` owes `holder`). Never written into the relationship model's own debt fields. Undefined when favors are off. */
   private ownFavorDebt(): DebtSource | undefined { return this.favorsEnabled ? (holder, other) => this.favors.debtBetween(holder, other) : undefined; }
@@ -11857,6 +11862,7 @@ export class GameSessionAdapter implements GameSession {
         row[g.finalist] = Math.min(JURY_HOUSE.adjustmentCap, (row[g.finalist] ?? 0) + g.delta);
       }
     }
+    if (this.live.playedGame === true) this.juryLife(jurors);
     // #1790 AC1 — TRAITORS' FURY: route the POSSIBLY-WRONG deduced blame into each juror's knowledge,
     // then diffuse it through the jury-house gossip graph as named-blame grievance. FLAG-GATED: with the
     // flag OFF this entire block is a no-op (zero draws, zero beliefs, zero diffuse) — byte-identical.
@@ -11926,6 +11932,47 @@ export class GameSessionAdapter implements GameSession {
         });
       }
     }
+  }
+
+  /**
+   * ORW-618 (0189), played games only: the jury house has a life. Once per stretch the jurors compare notes (`planJuryNotes`: each passes on what they themselves hold, never the sealed
+   * ballot), the listener's belief and trust toward the subject move a bounded amount at the listener's own personality (ORW-582), and a wronged juror who now holds that the breaker lied
+   * learns of the quiet break through the ORW-597 gate (`learnOfBreak`, once). One rule keyed on holder and subject (the player and an NPC finalist alike). Its own seeded side stream,
+   * no shared rng; engine-only state change, no text (the narrator voices it later from the facts). The player as a juror is not a node here (part 2, the wall call).
+   */
+  private juryLife(jurors: readonly EntityId[]): void {
+    const live = this.live;
+    if (!live || !this.npcBeliefsEnabled || !live.beliefs) return;
+    const personality = this.juryPersonalityOf();
+    if (!personality) return;
+    const multOf = (holder: EntityId, subject: EntityId): number => { const p = personality.get(holder); return p ? juryPersonalityMult(p(subject)) : 1; };
+    const rng = new SeededRandom(hashSeed(`jury-life:${this.gameSeed ?? ""}:${this.juryHouseTickCount}`));
+    const rel = { edge: (a: EntityId, b: EntityId) => this.rel.edge(a, b) };
+    const shares = planJuryNotes({
+      jurors, beliefs: live.beliefs, rng,
+      talks: (a, b) => gossipEdgeAffinity(rel, a, b) > JURY_HOUSE.affinityEdge,
+      opennessOf: multOf,
+    });
+    const heardLie = new Set<EntityId>();
+    for (const sh of shares) {
+      const mult = multOf(sh.to, sh.subject);
+      let impact: { trust: number } | undefined;
+      if (sh.adverse) {
+        const spent = (live.beliefs[sh.to] ?? []).reduce((n, c) => (c.id.includes("|jury-note:") && c.subject === sh.subject && !c.refuted ? n + Math.abs(c.impact?.trust ?? 0) : n), 0);
+        const want = Math.min(JURY_LIFE.trustShift * sh.confidence * mult, Math.max(0, JURY_LIFE.shiftCap - spent));
+        const edge = this.rel.edge(sh.to, sh.subject);
+        const next = Math.max(0, edge.trust - want);
+        if (want > 0) { impact = { trust: next - edge.trust }; edge.trust = next; }
+      }
+      recordClaim(live.beliefs, {
+        id: `${sh.to}|${sh.kind}|${sh.subject}|jury-note:${sh.from}|${live.week}`, holder: sh.to, kind: sh.kind, subject: sh.subject,
+        ...(sh.object !== undefined ? { object: sh.object } : {}), ...(sh.nature !== undefined ? { nature: sh.nature } : {}),
+        value: true, origin: "told", source: sh.from, confidence: sh.confidence, week: live.week, ...(impact ? { impact } : {}),
+      });
+      if (sh.kind === "lied-to-me") heardLie.add(sh.to);
+    }
+    // Lie discovery: a juror who now holds that the breaker lied to them learns of the quiet break once (the ORW-597 gate).
+    if (heardLie.size > 0) for (const deal of this.deals.all) if (deal.parties.some((p) => heardLie.has(p))) this.learnBreakIfCaught(deal as Deal, this.gameSeed ?? 0);
   }
 
   /** Turn the JURY-HOUSE grudge layer on/off (0100). Off by default — the calibration harness leaves it off
