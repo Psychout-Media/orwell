@@ -13,18 +13,4 @@ export const NPC_DEALS = {
   proposeBase: 0.12,
   proposePerTrust: 0.5,
   proposePerWarmth: 0.15,
-  plan: {
-    /** The holder's own chance of planning to break: base + weights on how little they trust the partner, how disloyal they are, and how many pacts they have already made (a prolific dealmaker leans to break). */
-    trustMid: 0.6,
-    lowTrustWeight: 0.6,
-    loyaltyMid: 0.5,
-    disloyalWeight: 0.5,
-    
-    nominationsShareSafety: 0.45,
-    /** Among the plans to break a final-two: the share that cut at the final three; then the share that break at the next nominations; the rest break at the vote. */
-    cutShareFinalTwo: 0.4,
-    nominationsShareFinalTwo: 0.3,
-    /** Among the plans to keep a safety pact: the share that keep it for this week only. */
-    thisWeekShare: 0.3,
-  },
 } as const;

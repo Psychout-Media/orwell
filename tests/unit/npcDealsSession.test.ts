@@ -3,12 +3,12 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import { nominationPlan } from "../../src/engine/season";
 import { RelationshipModel } from "../../src/engine/relationships";
-import { planFor, type DealPlan, type PlanSource } from "../../src/engine/npcDeals";
+import type { DealPlan, PlanSource } from "../../src/engine/npcDeals";
 import { playDealsGame } from "../support/npcDealsDriver";
 
 /** Feature 0170 - the live session: plan-aware nominations, the injected hooks, persistence, flag-off identity and the Vault. Roles only. */
 type G = {
-  setNpcDealsEnabled(on: boolean): void; setPlanSource(s: PlanSource | undefined): void; setRecordPlan(f: ((d: string, h: string, p: DealPlan) => void) | undefined): void;
+  setNpcDealsEnabled(on: boolean): void; setPlanSource(s: PlanSource | undefined): void;
   dealNomPushFor(t: string, h: string): number; mintManyNpcDeals(): void; setOnPlayerEvent(f: (c: string, w: string[], t?: string) => string | undefined): void;
   deals: { make(p: [string, string], k: string, t: string, e?: string, w?: number): { id: string; status: string }; serialize(): Array<{ id: string; status: string; kind: string; parties: string[]; madeWeek?: number }>; npcOnly(): unknown[] };
   rel: { edge(a: string, b: string): { trust: number; affinity: number } };
@@ -62,30 +62,25 @@ describe("plan-aware nomination push (flag ORWELL_NPC_DEALS)", () => {
 });
 
 describe("minting several pacts", () => {
-  it("hands each side's plan to the optional hook and records the pact hidden between the two", () => {
+  it("records the pact as an ordinary hidden ledger deal between two NPCs, with no plan of its own", () => {
     for (let seed = 1; seed < 40; seed++) {
       const { g } = started(seed);
       for (const a of g.livingIds()) for (const b of g.livingIds()) if (a !== b) { const e = g.rel.edge(a, b); e.trust = 0.95; e.affinity = 0.95; }
-      const plans: Array<[string, string, DealPlan]> = [];
       const events: Array<{ witnesses: string[]; type?: string }> = [];
-      g.setRecordPlan((d, h, p) => plans.push([d, h, p]));
       const prev = (g as unknown as { onPlayerEvent: (c: string, w: string[], t?: string) => string | undefined }).onPlayerEvent;
       g.setOnPlayerEvent((c, w, t) => { events.push({ witnesses: w, type: t }); return prev(c, w, t); });
       const before = g.deals.serialize().length;
       g.mintManyNpcDeals();
       const made = g.deals.serialize().slice(before);
       if (made.length === 0) continue;
-      expect(plans.length).toBe(made.length * 2);
-      for (const d of made) {
-        expect(d.parties).not.toContain(PLAYER);
-        expect(plans.filter((p) => p[0] === d.id).map((p) => p[1]).sort()).toEqual([...d.parties].sort());
-      }
+      for (const d of made) expect(d.parties).not.toContain(PLAYER);
+      expect((g.live as unknown as { dealPlans?: unknown }).dealPlans).toBeUndefined(); // minting writes no plan: main's planner does, in a played game
       for (const e of events) { expect(e.witnesses).not.toContain(PLAYER); expect(e.type).toBe("deal"); expect(e.witnesses.length).toBe(2); }
       return;
     }
     throw new Error("no seed minted a pact");
   });
-  it("with no hook wired nothing is kept and nothing throws", () => {
+  it("never throws", () => {
     const { g } = started(3);
     for (const a of g.livingIds()) for (const b of g.livingIds()) if (a !== b) { const e = g.rel.edge(a, b); e.trust = 0.95; e.affinity = 0.95; }
     expect(() => g.mintManyNpcDeals()).not.toThrow();
@@ -139,31 +134,66 @@ describe("a played season", () => {
 });
 function g_setPlans(gm: { session: unknown }): void { (gm.session as G).setPlanSource({ planOf: () => ({ kind: "break-at", moment: { week: 1, at: "nominations" } }) }); }
 
-describe("0170 the plans flow into the Auditor's plan store by default (0178)", () => {
-  it("a sealed pact's two plans are written to live.dealPlans, append-only, and survive a save/load", () => {
-    const { g } = started(11);
-    const live = g.live as unknown as { dealPlans?: Record<string, Record<string, unknown>> };
-    for (let i = 0; i < 6 && !Object.keys(live.dealPlans ?? {}).length; i++) { g.mintManyNpcDeals(); (g as unknown as { live: { week: number } }).live.week += 0; }
-    const before = JSON.stringify(live.dealPlans ?? {});
-    if (!Object.keys(live.dealPlans ?? {}).length) return; // this seed sealed no pact this week; the unit tests above cover the proposal
-    const ids = Object.keys(live.dealPlans!);
-    for (const id of ids) expect(Object.keys(live.dealPlans![id]!).length).toBe(2);
-    const core = g.snapshot();
-    g.restore(core);
-    expect(JSON.stringify((g.live as unknown as { dealPlans?: unknown }).dealPlans ?? {})).toBe(before);
-  });
-});
+type Played = { week: number; beat: string; playedGame?: boolean; dealPlans?: Record<string, Record<string, { kind: string; moment?: { week: number; at: string }; madeWeek: number; outcome?: string }>> };
+type PG = G & { planAndCarryOutDeals(): void };
+/** A played-game pact between the HOH and one other NPC, sealed through mintManyNpcDeals' ledger path (only that pair is trusting), planned by main's planner. */
+function playedPact() {
+  for (let seed = 1; seed < 80; seed++) {
+    const { g, hoh, other } = started(seed);
+    const live = g.live as unknown as Played;
+    const rel = g.rel as unknown as { edge(a: string, b: string): { trust: number; affinity: number } };
+    for (const a of g.livingIds()) for (const b of g.livingIds()) if (a !== b && !(a === hoh && b === other) && !(a === other && b === hoh)) { const e = rel.edge(a, b); e.trust = 0.1; e.affinity = 0.1; }
+    for (const [a, b] of [[hoh, other], [other, hoh]] as const) { const e = rel.edge(a, b); e.trust = 0.95; e.affinity = 0.95; }
+    g.mintManyNpcDeals();
+    const d = g.deals.serialize().find((x) => x.parties.includes(hoh) && x.parties.includes(other) && x.madeWeek === live.week);
+    if (!d) continue;
+    live.playedGame = true; live.beat = "hoh-competition"; // played, and not yet at any plan's moment
+    (g as PG).planAndCarryOutDeals(); // main's planner gives each promisor their secret plan
+    return { g: g as PG, hoh, other, live, id: d.id };
+  }
+  throw new Error("no seed sealed the pact");
+}
+const statusOf = (g: G, id: string) => g.deals.serialize().find((d) => d.id === id)!.status;
 
-describe("0170 the honest plan really keeps the pact under main's 0178 carry-out (the audit's 30% hole)", () => {
-  it("a this-week plan from planFor is not carried out at that week's vote; a break-at-vote plan is", () => {
-    for (const [plan, expectBroken] of [[planFor("safety", 1, 0, 0.5, 0), false], [{ kind: "break-at", moment: { week: 1, at: "vote" } }, true]] as const) {
-      const { g, hoh, other } = started(21);
-      const live = g.live as unknown as { week: number; beat: string; playedGame?: boolean; dealPlans?: Record<string, Record<string, unknown>> };
-      live.playedGame = true; live.week = 1; live.beat = "eviction";
-      const d = g.deals.make([hoh, other], "safety", "t", undefined, 1);
-      (live.dealPlans ??= {})[d.id] = { [hoh]: { ...plan, madeWeek: 1 }, [other]: { kind: "keep", madeWeek: 1 } };
-      (g as unknown as { planAndCarryOutDeals(): void }).planAndCarryOutDeals();
-      expect(d.status === "broken").toBe(expectBroken);
+describe("0170 the pact is planned by main's planner and the push reads that plan (PLAYED path, real carry-out)", () => {
+  it("main plans a pact the module sealed, for every promisor, like any deal", () => {
+    const { live, id, hoh, other } = playedPact();
+    expect(Object.keys(live.dealPlans![id]!).sort()).toEqual([hoh, other].sort());
+  });
+  it("a break-at-nominations plan for the HOH: the carry-out breaks the pact, and the push on the former partner is positive THAT week only", () => {
+    const { g, hoh, other, live, id } = playedPact();
+    live.dealPlans![id]![hoh] = { kind: "break-at", moment: { week: live.week, at: "nominations" }, madeWeek: live.week };
+    live.dealPlans![id]![other] = { kind: "keep", madeWeek: live.week };
+    live.beat = "nominations";
+    g.planAndCarryOutDeals(); // runs before the nominations push is read (advanceOneBeat)
+    expect(statusOf(g, id)).toBe("broken");
+    expect(live.dealPlans![id]![hoh]!.outcome).toBe("carried-out");
+    expect(g.dealNomPushFor(other, hoh)).toBeGreaterThan(0);
+    live.week += 1;
+    expect(g.dealNomPushFor(other, hoh)).not.toBeGreaterThan(0);
+  });
+  it("a kept pact keeps the protective push, and so does a pact whose plan is not a nominations break", () => {
+    for (const plan of [{ kind: "keep" }, { kind: "break-at", moment: { week: 99, at: "vote" } }, { kind: "this-week", moment: { week: 99, at: "nominations" } }]) {
+      const { g, hoh, other, live, id } = playedPact();
+      live.dealPlans![id]![hoh] = { ...plan, madeWeek: live.week };
+      live.dealPlans![id]![other] = { kind: "keep", madeWeek: live.week };
+      live.beat = "nominations";
+      g.planAndCarryOutDeals();
+      expect(statusOf(g, id)).toBe("open");
+      expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0);
     }
+  });
+  it("headless (not a played game): main's planner runs nothing, so no plan exists and the push is today's protective one", () => {
+    const { g, hoh, other } = started(9);
+    g.deals.make([hoh, other], "safety", "t", undefined, g.live!.week);
+    (g as PG).planAndCarryOutDeals();
+    expect((g.live as unknown as Played).dealPlans).toBeUndefined();
+    expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0);
+  });
+  it("flag off: a played game's push is the protective one even with a nominations-break plan standing", () => {
+    const { g, hoh, other, live, id } = playedPact();
+    live.dealPlans![id]![hoh] = { kind: "break-at", moment: { week: live.week, at: "nominations" }, madeWeek: live.week };
+    g.setNpcDealsEnabled(false);
+    expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0);
   });
 });

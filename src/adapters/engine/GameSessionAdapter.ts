@@ -82,7 +82,7 @@ import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
-import { proposeNpcDeals, planAwareDealPush, type RecordPlan, type PairBondRead } from "../../engine/npcDeals";
+import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
@@ -15853,16 +15853,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. ON unless `ORWELL_NPC_DEALS=0`; OFF => `mintNpcDeal` alone, byte-identical to before. */
   private npcDealsEnabled = flagDefaultOn("ORWELL_NPC_DEALS");
   setNpcDealsEnabled(on: boolean): void { this.npcDealsEnabled = on; }
-  /** The secret plan store (the Auditor's 0178, `live.dealPlans`) is wired by default: the holder's own plan is read through `dealPlanSource()` and a minted pact's two plans are written to it append-only. A test may inject its own read/write. */
+  /** The secret plan store (the Auditor's 0178, `live.dealPlans`) is the ONE plan model: the holder's own plan is read through `dealPlanSource()`. A test may inject its own read. */
   private planSourceOverride?: PlanSource;
   setPlanSource(src: PlanSource | undefined): void { this.planSourceOverride = src; }
-  private recordPlanOverride?: RecordPlan;
-  setRecordPlan(fn: RecordPlan | undefined): void { this.recordPlanOverride = fn; }
-  private recordNpcPlan(dealId: string, holder: EntityId, plan: DealPlan): void {
-    if (this.recordPlanOverride) { this.recordPlanOverride(dealId, holder, plan); return; }
-    if (!this.live) return;
-    recordPlan((this.live.dealPlans ??= {}), dealId, holder, plan, this.live.week);
-  }
 
   /** The bond read this slice needs, over today's relationship model WITHOUT creating an edge: one snapshot per call, an unknown pair reads as the baseline. */
   private pairBondRead(): PairBondRead {
@@ -15880,29 +15873,23 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * 0170 - at the nomination ceremony the house may seal several NPC-to-NPC pacts, each side holding its OWN secret plan. Hidden like the legacy pact (witnesses = the two NPCs);
-   * its own seeded side stream `${seed}:npc-deals:${week}:${pairKey}`, so no shared stream moves. The plans go to the optional store hook; the pact itself is the ordinary ledger entry.
+   * 0170 - at the nomination ceremony the house may seal several NPC-to-NPC pacts, each side's secret plan comes from the 0178 planner like every deal. Hidden like the legacy pact (witnesses = the two NPCs);
+   * its own seeded side stream `${seed}:npc-deals:${week}:${pairKey}`, so no shared stream moves. The pact itself is the ordinary ledger entry.
    */
   private mintManyNpcDeals(): void {
     const s = this.live;
     if (!s || !this.house || !this.onPlayerEvent) return;
     const npcs = s.active.filter((id) => id !== PLAYER);
     const seed = this.gameSeed ?? "";
-    const made = (id: EntityId): number => this.deals.all.filter((d) => d.parties.includes(id)).length; // every deal they are party to, of any status (as the player-deal plans count: 0178)
     const proposals = proposeNpcDeals({
       week: s.week, npcs, bonds: this.pairBondRead(),
       isTaken: (a, b) => this.deals.open().some((d) => (d.parties.includes(a) && d.parties.includes(b)) || ((d.parties.includes(a) || d.parties.includes(b)) && d.madeWeek === s.week)),
-      dealsMade: made,
-      loyaltyOf: (id) => Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id), this.cultureMult("loyalty")))),
-      breakLean: this.cultureMult("lying") / this.cultureMult("loyalty"),
       stream: (pairKey) => new SeededRandom(hashSeed(`${seed}:npc-deals:${s.week}:${pairKey}`)),
     });
     for (const p of proposals) {
       const [a, b] = p.parties;
       const evId = this.onPlayerEvent(`${this.nameOf(a)} and ${this.nameOf(b)} settle a quiet ${p.kind} understanding`, [a, b], "deal");
-      const deal = this.deals.make(p.parties, p.kind, "a quiet pact sealed away from the cameras", evId, s.week);
-      this.recordNpcPlan(deal.id, a, p.planA);
-      this.recordNpcPlan(deal.id, b, p.planB);
+      this.deals.make(p.parties, p.kind, "a quiet pact sealed away from the cameras", evId, s.week); // its plans: main's planAndCarryOutDeals, like every deal
     }
   }
 

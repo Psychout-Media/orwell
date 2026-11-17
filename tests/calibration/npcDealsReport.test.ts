@@ -1,10 +1,10 @@
 import { describe, it } from "vitest";
 import { playDealsGame } from "../support/npcDealsDriver";
-import type { DealPlan } from "../../src/engine/npcDeals";
+type DealPlan = { kind: string; moment?: unknown; outcome?: string };
 
 /**
  * Feature 0170 - REPORT, NOT A GATE (no cap on false deals, per the owner's ruling: the rate is measured and reported, never limited). Plays N paired PLAYED seasons (same seeds) with the NPC-deal layer ON
- * (an in-memory plan store injected, so plans exist and steer the nominations) and OFF (the season as it was), and prints: pacts made, kept, broken and still open; by the holder's plan kind; per season culture.
+ * (PLAYED path: main's 0178 planner plans every pact and carries the betrayals out; plans are read from `live.dealPlans`) and OFF (the season as it was), and prints: pacts made, kept, broken and still open; by the holder's plan kind; per season culture.
  * Skipped unless ORWELL_NPC_DEALS_REPORT=1. ORWELL_NPC_DEALS_REPORT_SEEDS sets N (default 12), ORWELL_NPC_DEALS_REPORT_START the first seed (default 1), ORWELL_NPC_DEALS_REPORT_WEEKS stops each season at that week (default: play to the crown; a full chat-paced season is slow).
  *   ORWELL_NPC_DEALS_REPORT=1 npx vitest run tests/calibration/npcDealsReport.test.ts
  */
@@ -13,7 +13,7 @@ const N = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_SEEDS ?? "12", 10)
 const MAX_WEEK = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_WEEKS ?? "99", 10);
 const START = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_START ?? "1", 10);
 type Deal = { id: string; status: string; parties: string[]; kind: string };
-type S = { deals: { npcOnly(): Deal[] }; setNpcDealsEnabled(on: boolean): void; setPlanSource(s: unknown): void; setRecordPlan(f: unknown): void; live: { houseLeans?: Array<{ id: string }> | Record<string, unknown>; finished?: boolean; nightDepth?: number; timeOfDay?: string; pending?: unknown; winner?: string; finalTwo?: string[]; evictionOrder: string[] } };
+type S = { deals: { npcOnly(): Deal[] }; setNpcDealsEnabled(on: boolean): void; live: { dealPlans?: Record<string, Record<string, DealPlan>>; houseLeans?: Array<{ id: string }> | Record<string, unknown>; finished?: boolean; nightDepth?: number; timeOfDay?: string; pending?: unknown; winner?: string; finalTwo?: string[]; evictionOrder: string[] } };
 interface Row { seed: number; deals: Deal[]; plans: Map<string, DealPlan>; leans: string[]; winner?: string; playerOut: number | null; finished: boolean }
 
 async function play(seed: number, on: boolean): Promise<Row> {
@@ -23,10 +23,10 @@ async function play(seed: number, on: boolean): Promise<Row> {
     // The mix-driver pace (a message per tick, an advance every 6th): the chat-paced path is the one that runs the ceremony hooks the pacts hang on.
     const g = await playDealsGame(seed, 9000, {
       advanceEvery: 6, user: `npcdeals-report-${seed}-${on}`,
-      setup: (sess) => { if (on) { const x = sess as unknown as S; x.setRecordPlan((d: string, h: string, p: DealPlan) => plans.set(`${d}|${h}`, p)); x.setPlanSource({ planOf: (d: string, h: string) => plans.get(`${d}|${h}`) }); } },
       until: (x) => (x.session as unknown as S).live.finished === true || x.week() >= MAX_WEEK,
     });
     const s = g.session as unknown as S; const l = s.live;
+    for (const [d, by] of Object.entries(l.dealPlans ?? {})) for (const [h, p] of Object.entries(by)) plans.set(`${d}|${h}`, p);
     const idx = l.evictionOrder.indexOf("player");
     const leans = Array.isArray(l.houseLeans) ? l.houseLeans.map((x) => x.id) : [];
     return { seed, deals: s.deals.npcOnly(), plans, leans, ...(l.winner ? { winner: l.winner } : {}), playerOut: idx >= 0 ? idx + 1 : null, finished: l.finished === true };

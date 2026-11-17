@@ -6,26 +6,26 @@ import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { nominationPlan } from "../../src/engine/season";
 import { RelationshipModel } from "../../src/engine/relationships";
-import type { DealPlan, PlanSource } from "../../src/engine/npcDeals";
+import type { PlanSource } from "../../src/engine/npcDeals";
 import { playDealsGame, type DealsGame } from "../../tests/support/npcDealsDriver";
 
 // Feature 0170 - NPC deals and the HOH deal. Roles only. The plan store is injected (a stand-in here); the pact ledger is the real one.
 type Deal = { id: string; status: string; kind: string; parties: EntityId[]; madeWeek?: number };
 type G = {
-  setNpcDealsEnabled(on: boolean): void; setPlanSource(s: PlanSource | undefined): void; setRecordPlan(f: ((d: string, h: string, p: DealPlan) => void) | undefined): void;
+  setNpcDealsEnabled(on: boolean): void; setPlanSource(s: PlanSource | undefined): void;
   setOnPlayerEvent(f: (c: string, w: string[], t?: string) => string | undefined): void; onPlayerEvent: (c: string, w: string[], t?: string) => string | undefined;
-  dealNomPushFor(t: string, h: string): number; mintManyNpcDeals(): void; livingIds(): string[];
+  dealNomPushFor(t: string, h: string): number; mintManyNpcDeals(): void; planAndCarryOutDeals(): void; livingIds(): string[];
   deals: { make(p: [string, string], k: string, t: string, e?: string, w?: number): Deal; serialize(): Deal[]; npcOnly(): Deal[] };
   rel: { edge(a: string, b: string): { trust: number; affinity: number } };
-  live?: { week: number }; snapshot(): unknown; restore(c: unknown): void; advanceGame(): unknown;
+  live?: { week: number; beat?: string; playedGame?: boolean; dealPlans?: Record<string, Record<string, { kind: string; moment?: { week: number; at: string }; madeWeek: number; outcome?: string }>> }; snapshot(): unknown; restore(c: unknown): void; advanceGame(): unknown;
 };
 interface Ctx {
   g?: G; hoh?: EntityId; partner?: EntityId; trusted?: EntityId; distrusted?: EntityId; nominees?: EntityId[]; seeds: Array<{ g: G; hoh: EntityId; trusted: EntityId; distrusted: EntityId }>;
-  plans: Array<[string, string, DealPlan]>; events: Array<{ w: string[]; t?: string }>; made: Deal[];
+  events: Array<{ w: string[]; t?: string }>; made: Deal[];
   game?: DealsGame; copy?: G; first?: Deal[]; snap1?: { deals: Array<{ id: string }> }; runs: string[];
 }
 const state = new WeakMap<object, Ctx>();
-const st = (w: BbWorld): Ctx => { let c = state.get(w); if (!c) { c = { seeds: [], plans: [], events: [], made: [], runs: [] }; state.set(w, c); } return c; };
+const st = (w: BbWorld): Ctx => { let c = state.get(w); if (!c) { c = { seeds: [], events: [], made: [], runs: [] }; state.set(w, c); } return c; };
 
 function seat(seed: number): { g: G; a: EntityId; b: EntityId; c: EntityId } {
   const s = new GameSessionRegistry().sandboxFor(`npc-deals-${seed}-${Math.random()}`).session as unknown as G & { createCharacter(a: unknown): void };
@@ -37,22 +37,41 @@ function seat(seed: number): { g: G; a: EntityId; b: EntityId; c: EntityId } {
 const warm = (g: G): void => { for (const x of g.livingIds()) for (const y of g.livingIds()) if (x !== y) { const e = g.rel.edge(x, y); e.trust = 0.95; e.affinity = 0.95; } };
 const ids6 = (g: G): EntityId[] => g.livingIds().filter((i) => i !== PLAYER).slice(0, 6);
 
-Given("npc deals: a nervous houseguest trades the HOH their vote for safety", function (this: BbWorld) {
-  const c = st(this); const t = seat(7); c.g = t.g; c.hoh = t.a; c.partner = t.b; // `hoh` = the nervous one, who wins next; `partner` = the former HOH
-  const d = t.g.deals.make([t.b, t.a], "safety", "a quiet pact sealed away from the cameras", undefined, t.g.live!.week);
-  d.status = "kept"; // the pact ran its course with the week
-  (c as Ctx & { dealId?: string }).dealId = d.id;
+/** A played-game pact between the HOH and one NPC, sealed through mintManyNpcDeals' ledger path (only that pair is trusting) and planned by main's planner. */
+function playedPact(): { g: G; hoh: EntityId; partner: EntityId; id: string } {
+  for (let seed = 1; seed < 80; seed++) {
+    const t = seat(seed);
+    for (const x of t.g.livingIds()) for (const y of t.g.livingIds()) if (x !== y) { const e = t.g.rel.edge(x, y); const pair = (x === t.a && y === t.b) || (x === t.b && y === t.a); e.trust = pair ? 0.95 : 0.1; e.affinity = pair ? 0.95 : 0.1; }
+    t.g.setNpcDealsEnabled(true); t.g.mintManyNpcDeals();
+    const d = t.g.deals.serialize().find((x) => x.parties.includes(t.a) && x.parties.includes(t.b) && x.madeWeek === t.g.live!.week);
+    if (!d) continue;
+    t.g.live!.playedGame = true; t.g.live!.beat = "hoh-competition";
+    t.g.planAndCarryOutDeals();
+    return { g: t.g, hoh: t.a, partner: t.b, id: d.id };
+  }
+  assert.fail("no seed sealed the pact");
+}
+Given("npc deals: a nervous houseguest and the HOH seal a pact in a played game", function (this: BbWorld) {
+  const c = st(this) as Ctx & { dealId?: string }; const p = playedPact(); c.g = p.g; c.hoh = p.hoh; c.partner = p.partner; c.dealId = p.id;
 });
-Given("npc deals: that houseguest's own plan is to turn on the HOH once safe", function (this: BbWorld) {
-  const c = st(this) as Ctx & { dealId?: string }; const week = c.g!.live!.week;
-  c.g!.setPlanSource({ planOf: (id, h) => (id === c.dealId && h === c.hoh ? { kind: "break-at", moment: { week, at: "nominations" } } : undefined) });
-  c.g!.setNpcDealsEnabled(true);
+Given("npc deals: the deal-plan planner has the HOH's plan be to break it at the nominations", function (this: BbWorld) {
+  const c = st(this) as Ctx & { dealId?: string }; const live = c.g!.live!; const store = live.dealPlans![c.dealId!]!;
+  store[c.hoh!] = { kind: "break-at", moment: { week: live.week, at: "nominations" }, madeWeek: live.week };
+  store[c.partner!] = { kind: "keep", madeWeek: live.week };
 });
-When("npc deals: that houseguest wins the next HOH and names the nominees", function (this: BbWorld) {
-  const c = st(this); c.g!.live!.week += 1;
+When("npc deals: the carry-out runs at the nominations and the HOH names the nominees", function (this: BbWorld) {
+  const c = st(this); c.g!.live!.beat = "nominations"; c.g!.planAndCarryOutDeals();
   c.nominees = nominationPlan(c.hoh!, ids6(c.g!), new RelationshipModel(0.5), { dealPush: (t) => c.g!.dealNomPushFor(t, c.hoh!) }).nominees as EntityId[];
 });
-Then("npc deals: the former HOH is among the nominees", function (this: BbWorld) { const c = st(this); assert.ok(c.nominees!.includes(c.partner!)); });
+Then("npc deals: the pact is broken and the former partner is among the nominees", function (this: BbWorld) {
+  const c = st(this) as Ctx & { dealId?: string };
+  assert.equal(c.g!.deals.serialize().find((d) => d.id === c.dealId)!.status, "broken");
+  assert.ok(c.nominees!.includes(c.partner!));
+});
+Then("npc deals: the lean toward the former partner ends with that week", function (this: BbWorld) {
+  const c = st(this); assert.ok(c.g!.dealNomPushFor(c.partner!, c.hoh!) > 0);
+  c.g!.live!.week += 1; assert.ok(!(c.g!.dealNomPushFor(c.partner!, c.hoh!) > 0));
+});
 
 Given("npc deals: an NPC HOH holds a safety deal with two houseguests, one they trust and one they do not", function (this: BbWorld) {
   const c = st(this);
@@ -77,32 +96,23 @@ Then("npc deals: the distrusted houseguest is named more often than the trusted 
   assert.ok(c.named!.distrusted > c.named!.trusted, JSON.stringify(c.named));
 });
 
-Given("npc deals: two NPCs strike a deal off-screen", function (this: BbWorld) {
+Given("npc deals: two NPCs strike a deal off-screen in a played game", function (this: BbWorld) {
   const c = st(this);
   for (let seed = 1; seed < 60; seed++) {
     const t = seat(seed); warm(t.g);
-    const plans: Array<[string, string, DealPlan]> = []; const events: Array<{ w: string[]; t?: string }> = [];
-    t.g.setRecordPlan((d, h, p) => plans.push([d, h, p]));
+    const events: Array<{ w: string[]; t?: string }> = [];
     const prev = t.g.onPlayerEvent; t.g.setOnPlayerEvent((x, w, ty) => { events.push({ w, t: ty }); return prev(x, w, ty); });
     t.g.setNpcDealsEnabled(true);
     const before = t.g.deals.serialize().length; t.g.mintManyNpcDeals();
     const made = t.g.deals.serialize().slice(before);
-    if (made.length && plans.some((p) => p[0] === made[0]!.id)) { c.g = t.g; c.plans = plans; c.events = events; c.made = made; return; }
+    if (made.length) { t.g.live!.playedGame = true; t.g.live!.beat = "hoh-competition"; c.g = t.g; c.events = events; c.made = made; return; }
   }
   assert.fail("no seed struck a deal");
 });
-Then("npc deals: each side's plan was handed to the plan store, and the two plans can differ", function (this: BbWorld) {
+When("npc deals: the deal-plan planner runs", function (this: BbWorld) { st(this).g!.planAndCarryOutDeals(); });
+Then("npc deals: each side of the pact holds a plan in the plan store", function (this: BbWorld) {
   const c = st(this);
-  for (const d of c.made) assert.deepEqual(c.plans.filter((p) => p[0] === d.id).map((p) => p[1]).sort(), [...d.parties].sort());
-  let differ = false;
-  for (let seed = 1; seed < 120 && !differ; seed++) {
-    const t = seat(seed % 12 + 1); warm(t.g); const got: Array<[string, string, DealPlan]> = [];
-    // a different house each try: vary the HOH's pair loyalty by seed through the trust of one side
-    t.g.rel.edge(t.a, t.b).trust = 0.5 + (seed % 7) / 20; t.g.setRecordPlan((d, h, p) => got.push([d, h, p])); t.g.setNpcDealsEnabled(true); t.g.mintManyNpcDeals();
-    const ids = [...new Set(got.map((x) => x[0]))];
-    for (const id of ids) { const two = got.filter((x) => x[0] === id); if (two.length === 2 && JSON.stringify(two[0]![2]) !== JSON.stringify(two[1]![2])) differ = true; }
-  }
-  assert.ok(differ, "the two sides never held different plans");
+  for (const d of c.made) assert.deepEqual(Object.keys(c.g!.live!.dealPlans?.[d.id] ?? {}).sort(), [...d.parties].sort());
 });
 Then("npc deals: the deal's event names only those two as witnesses", function (this: BbWorld) {
   const c = st(this); assert.ok(c.events.length > 0);
@@ -130,9 +140,9 @@ Given("npc deals: two seasons prepared from the same seed", function (this: BbWo
 });
 When("npc deals: each house proposes its week's deals", function (this: BbWorld) {
   const c = st(this); c.runs = [];
-  for (const s of c.seeds) { const plans: unknown[] = []; s.g.setRecordPlan((d, h, p) => plans.push([d, h, p])); s.g.mintManyNpcDeals(); c.runs.push(JSON.stringify([s.g.deals.serialize(), plans])); }
+  for (const s of c.seeds) { s.g.mintManyNpcDeals(); s.g.live!.playedGame = true; s.g.live!.beat = "hoh-competition"; s.g.planAndCarryOutDeals(); c.runs.push(JSON.stringify([s.g.deals.serialize(), s.g.live!.dealPlans ?? {}])); }
 });
-Then("npc deals: both hold the same deals and plans in the same order", function (this: BbWorld) { const c = st(this); assert.equal(c.runs[0], c.runs[1]); assert.ok(JSON.parse(c.runs[0]!)[0].length > 0); });
+Then("npc deals: both hold the same deals and plans in the same order", function (this: BbWorld) { const c = st(this); assert.equal(c.runs[0], c.runs[1]); assert.ok(JSON.parse(c.runs[0]!)[0].length > 0); assert.ok(Object.keys(JSON.parse(c.runs[0]!)[1]).length > 0); });
 
 Given("npc deals: a played season where NPCs struck deals", async function (this: BbWorld) {
   const c = st(this); c.game = await playDealsGame(3, 900, { until: (x) => x.week() >= 3, user: `bdd-npcdeals-save-${Math.random()}` });
@@ -147,4 +157,16 @@ Then("npc deals: a later save never holds fewer deals", async function (this: Bb
   const c = st(this); await c.game!.more(700, (x) => x.week() >= 5);
   const later = JSON.parse(JSON.stringify(c.game!.session.snapshot())) as { deals: Array<{ id: string }> }; const ids = new Set(later.deals.map((d) => d.id));
   for (const d of c.snap1!.deals) assert.ok(ids.has(d.id)); assert.ok(later.deals.length >= c.snap1!.deals.length);
+});
+
+Given("npc deals: a pact whose HOH holder plans to keep it", function (this: BbWorld) {
+  const c = st(this) as Ctx & { dealId?: string }; const p = playedPact(); c.g = p.g; c.hoh = p.hoh; c.partner = p.partner; c.dealId = p.id;
+  const live = c.g.live!; live.dealPlans![p.id]![p.hoh] = { kind: "keep", madeWeek: live.week }; live.dealPlans![p.id]![p.partner] = { kind: "keep", madeWeek: live.week };
+});
+Then("npc deals: the HOH's lean toward the partner stays protective after the carry-out", function (this: BbWorld) {
+  const c = st(this); c.g!.live!.beat = "nominations"; c.g!.planAndCarryOutDeals(); assert.ok(c.g!.dealNomPushFor(c.partner!, c.hoh!) < 0);
+});
+Then("npc deals: in a headless game the planner runs nothing and the lean is protective", function (this: BbWorld) {
+  const t = seat(9); t.g.setNpcDealsEnabled(true); t.g.deals.make([t.a, t.b], "safety", "t", undefined, t.g.live!.week);
+  t.g.planAndCarryOutDeals(); assert.equal(t.g.live!.dealPlans, undefined); assert.ok(t.g.dealNomPushFor(t.b, t.a) < 0);
 });
