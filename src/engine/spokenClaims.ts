@@ -67,7 +67,7 @@ export interface SpokenClaim {
   /** What the speaker really meant by it. Engine-only. */
   intent: ClaimIntent;
   /** Q6 seam: who decided the claim. "engine": the engine chose it. "narrated" (0155, slice 6): the narrator wrote it on its own and the open ledger handed it to the engine, which gave it its truth. */
-  origin: "engine" | "narrated";
+  origin: "engine" | "narrated" | "player";
 }
 
 /** The season's claims, oldest first. Append-only. Engine-only (rides on `LiveSeasonState.claims`). */
@@ -77,7 +77,7 @@ export interface ClaimInput {
   speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId;
   isTrue: boolean; intent: ClaimIntent;
   /** 0155: set to "narrated" for a claim the open ledger caught; absent = an engine claim. */
-  origin?: "narrated";
+  origin?: "narrated" | "player";
 }
 
 export interface ClaimContext {

@@ -204,12 +204,15 @@ export interface DealView {
 
 /**
  * NPC deal CONSENT: the houseguest DECLINED the player's proposed deal (the ENGINE decided, from the NPC's own read of the player; the narrator only voices it). No deal was
- * recorded and nothing was folded. `reason` is a coarse, Vault-free category; `narratable` is an in-fiction line (no numbers). Distinct from `null`, which stays "invalid request".
+ * recorded and nothing was folded. `reason` is what the houseguest SAYS (ORW-608), never the real reason. Distinct from `null`, which stays "invalid request".
  */
 export interface DealRefusal {
   refused: true;
-  reason: "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
-  narratable: string;
+  /**
+   * ORW-608 (Ryne 2026-11-17, (a)): the reason the houseguest GIVES, in the stated-reason vocabulary - honest, softened or a cover story as the engine decides from their
+   * candor; the real reason is never revealed (it stays engine-only and reaches only the post-crown retrospective). The narrator voices it in the houseguest's own words.
+   */
+  reason: StatedReasonView["kind"];
   /** 0142: a lukewarm houseguest (reason `cost`) answers with terms instead of a flat no. Present only when one now stands as the open `openDealOffer` (the player accepts or declines it with submitDecision deal-offer). */
   counteroffer?: { kind: string; terms: string };
 }
@@ -2166,7 +2169,7 @@ export interface HouseguestMoveResult {
  * The ONLY thing about a decision's why that reaches the narrator. Never the candor (truth / part-truth / cover), never the goal, never the terms: those stay engine-side.
  */
 export interface StatedReasonView {
-  decision: "nominate" | "replacement" | "veto" | "veto-hold" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+  decision: "nominate" | "replacement" | "veto" | "veto-hold" | "hc-pick" | "comp-throw" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
   kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it" | "keeping-the-noms";
   about: NamedRef;
 }

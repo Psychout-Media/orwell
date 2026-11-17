@@ -24,6 +24,9 @@ export const CAUGHT_LIE = {
    * a lapsed promise and not as bad as a broken deal. Rng-free and trust-only; the lie's other bite is the `lied-to-me` claim itself (credibility, B48; revenge, 0150).
    */
   trustDrop: 0.2,
+  /** ORW-594 (Fable T2-13): more "I voted to keep them" claims reached one listener than the public count has keep votes, so some of them lied; the listener suspects the
+   *  ones they trust least. A deduction (it can be wrong), so below a certainty and below the 0150 revenge bar on its own. */
+  counting: 0.6,
 } as const;
 
 /** ORW-616: how much trust a caught lie costs, from the confidence of the evidence that caught it (0..1). Rng-free, bounded by `CAUGHT_LIE.trustDrop`. */
@@ -47,6 +50,20 @@ export function voteCountRulesOut(tally: PublicTally, claim: ClaimLike): boolean
   if (claim.kind !== "voted-to-keep" || claim.object === undefined) return false;
   if (!tally.voters.includes(claim.subject)) return false;
   return claim.object === tally.evictee && tally.voters.length > 0 && tally.evictVotes >= tally.voters.length;
+}
+
+/**
+ * ORW-594 (Fable T2-13): CATCH BY COUNTING. The claims one listener heard this eviction that a voter kept the evictee (`voted-to-keep`, object = the evictee),
+ * counted by distinct voter. The public count says how many keep votes exist (voters - evict votes); if more voters claimed to keep the evictee than that,
+ * at least the excess lied. The listener cannot know which: they suspect the ones they trust least (`trustOf`, ties by id). Returns those suspected (empty when
+ * the claims fit the count). Reads the public count and the claims the listener was told - never a ballot.
+ */
+export function overclaimedKeeps(tally: PublicTally, heard: readonly ClaimLike[], trustOf: (subject: EntityId) => number): EntityId[] {
+  const claimants = [...new Set(heard.filter((c) => c.kind === "voted-to-keep" && c.object === tally.evictee && tally.voters.includes(c.subject)).map((c) => c.subject))];
+  const keepVotes = Math.max(0, tally.voters.length - tally.evictVotes);
+  const excess = claimants.length - keepVotes;
+  if (excess <= 0) return [];
+  return claimants.sort((a, b) => trustOf(a) - trustOf(b) || (a < b ? -1 : a > b ? 1 : 0)).slice(0, excess);
 }
 
 const pairKey = (a: EntityId, b: EntityId): string => [a, b].sort().join("|");

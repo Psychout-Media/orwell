@@ -150,11 +150,15 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0183 / ORW-566 (Theme 3 slice 7 a-b): close pairs keep a private debrief spot after ceremonies, alliances are named from the house's own authored words, a third houseguest who sees a habit starts to suspect the pair. Played games only. `=0` is the kill switch.
   { envKey: 'ORWELL_GROUP_IDENTITY', key: 'groupIdentity', parser: 'defaultOn' },
   // 0176 / ORW-561 (theme 3 slice 10, part 1): homophily - houseguests who are alike (look, age, region, job, temperament) bond a little faster and sour slower, a mismatched pair the reverse. A played game only. `=0` opts out.
+  // 0172 / ORW-603, ORW-611 (Theme 3 slice 6): alliances hold hidden roles, an inner circle, a private cut order, a spy or a shadow group, and can crack; a pitch shows only the roster the player was told; plans aimed at the player are acted on. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_GROUP_ROLES', key: 'groupRoles', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
   // 0176 / ORW-561 (theme 3 slice 10, part 2): territory - a hidden tenure map (hours per room), a mild pull toward people who share your top room, and a small capped bond nudge for roommates and shared-room pairs. A played game only. `=0` opts out.
   { envKey: 'ORWELL_TERRITORY', key: 'territory', parser: 'defaultOn' },
   // 0185 / ORW-567 (theme 3 slice 15): mood contagion - a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little. Moves the existing mood only. A played game only. `=0` opts out.
   { envKey: 'ORWELL_MOOD_CONTAGION', key: 'moodContagion', parser: 'defaultOn' },
+  // 0184 / ORW-564 (theme 3 slice 8, part 1): reputations - what each houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them. Hidden. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
+  { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
   { envKey: 'ORWELL_FAVORS', key: 'favors', parser: 'defaultOn' },
   // 0182 / ORW-569 (theme 3 slice 5, PR 1): the grudge book - a hidden record of who holds a grudge against whom and why, fading but never zero. Nothing decides from it yet. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
   { envKey: 'ORWELL_GRUDGES', key: 'grudges', parser: 'defaultOn' },
