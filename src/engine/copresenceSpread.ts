@@ -5,6 +5,7 @@ import { disclosureDecision, topHeldFacts, type DisclosureInput, type HeldFact }
 import { heldCandidates, type ToldLedger, type Told } from "./heldFacts";
 import { GOSSIP } from "./gossip";
 import type { StrategyStyle } from "./characterFactory";
+import { networkMotive, type NetworkRoles } from "./networkSpread";
 
 /**
  * B10 / B11 slice 3 (design S3) - the scene-time SPREAD. For each CO-PRESENT pair of a night's off-screen scenes (the scene IS the co-presence: both are in the room), each side, as holder,
@@ -43,6 +44,8 @@ export interface SpreadDeps {
    * confidence, so the caller can record a `heard-rumor` belief claim. Read-only: it fires AFTER the transmit, draws no randomness, and moves no edge. Only fired for a fact with a subject.
    */
   onTold?: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; slipped: boolean; content: string }) => void;
+  /** 0179 (Theme 3 slice 9): the house's shape (brokers, cliques, weak ties, loners) adds to the share motive (`networkSpread.ts`). Absent => byte-identical. */
+  network?: NetworkRoles;
 }
 
 /**
@@ -90,7 +93,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
   if (cands.length === 0) return [];
   const rng = d.rngFor(holder, listener);
   const held: HeldFact[] = cands.map((c) => {
-    const motive = factMotive(c, holder, listener, d);
+    const motive = d.network ? Math.max(0, Math.min(1, factMotive(c, holder, listener, d) + networkMotive(holder, listener, c.subject, d.network))) : factMotive(c, holder, listener, d);
     // Telling something about YOURSELF is the risky class; a third party's business is cheap.
     const risk = c.subject === holder ? 0.8 : c.firstHand ? 0.35 : 0.2;
     return { factId: c.factId, motive, risk, ...(c.subject !== undefined ? { subject: c.subject } : {}) };
