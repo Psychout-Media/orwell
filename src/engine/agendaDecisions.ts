@@ -21,7 +21,7 @@ import { agendaRoll } from "./agenda";
 import { REASONS } from "./agendaConstants";
 
 /** Which way a decision cuts against a candidate: nominate / vote to evict / final-HOH eviction are "against"; a veto save is "for". */
-export type DecisionKind = "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+export type DecisionKind = "nominate" | "replacement" | "veto" | "veto-hold" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
 
 export interface GoalPull {
   /** Signed: positive = the agenda wants this candidate OUT; negative = it wants them kept. Same scale as a threat read. */
@@ -90,12 +90,14 @@ export type StatedReasonKind =
   | "didnt-trust-you"     // "I never knew where you stood"
   | "had-it-planned"      // "this was always the plan"
   | "nothing-personal"    // "it's purely strategic, nothing personal"
-  | "house-wants-it";     // "it's what the house wanted"
+  | "house-wants-it"      // "it's what the house wanted"
+  | "keeping-the-noms";   // ORW-578: "I'm keeping the nominations the same" (a veto holder who does not use it)
 export type Candor = "truth" | "part-truth" | "cover";
 export interface StatedReason { kind: StatedReasonKind; about: EntityId; /** VAULT-CLASS: whether the stated reason is honest. Never sent to the narrator. */ candor: Candor }
 
 /** The honest way to say the real reason. */
 export function truthfulKind(real: RealReason): StatedReasonKind {
+  if (real.decision === "veto-hold") return "keeping-the-noms"; // ORW-578 part 2b: not using the veto is keeping the HOH's nominations
   if (real.tactic === "pawn") return "pawn-youll-be-fine";
   switch (real.goalKind) {
     case "revenge": return "came-after-me";
@@ -132,6 +134,7 @@ const PART_TRUTH: Readonly<Record<StatedReasonKind, StatedReasonKind>> = {
   "came-after-me": "biggest-threat", "had-it-planned": "biggest-threat", "loyal-to-my-side": "nothing-personal",
   "pawn-youll-be-fine": "pawn-youll-be-fine", "kept-my-word": "kept-my-word", "didnt-trust-you": "biggest-threat",
   "biggest-threat": "biggest-threat", "nothing-personal": "nothing-personal", "house-wants-it": "house-wants-it",
+  "keeping-the-noms": "keeping-the-noms",
 };
 
 /**

@@ -12537,6 +12537,7 @@ export class GameSessionAdapter implements GameSession {
         case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
         case "replacement": return s.replacement === c;
         case "veto": return s.saved === c;
+        case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
         case "final-hoh-evict": return s.evictee === c;
         case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
         case "vote": return s.evictee === c;
