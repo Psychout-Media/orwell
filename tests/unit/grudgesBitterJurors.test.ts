@@ -161,3 +161,92 @@ describe("byte-identity and the wall", () => {
     for (const w of ["juryGrudge", "grudges", "freshness", "refKey"]) expect(state).not.toContain(w);
   }, 120000);
 });
+
+// ---- Fable review fixes (ORW-569 PR 3) ----
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { freshness, noteGrudge } from "../../src/engine/grudges";
+import type { AgendaView } from "../../src/engine/agenda";
+
+type Sess = {
+  live: { active: string[]; week: number; playedGame?: boolean; evictionOrder: string[]; houseLeans?: unknown; npcMemory?: Record<string, Record<string, Array<{ kind: string; week: number; severity: number }>>> };
+  deals: { make(p: [string, string], k: string, t: string, e?: string, w?: number): { id: string; status: string; brokenBy?: string } };
+  grudgeOf(h: string, s: string): { freshness: number; severity: number } | null;
+  juryGrudgeFor(j: string, f: string): number;
+  agendaView(id: string): AgendaView;
+  setGrudgesEnabled(on: boolean): void; noteMessage(a: { messageId: string }): unknown;
+};
+const startSess = (seed: number, n: string): Sess => {
+  const sb = new GameSessionRegistry().sandboxFor(`bj-fix-${n}-${seed}`);
+  sb.session.createCharacter({ playerName: "The Player", seed });
+  const s = sb.session as unknown as Sess;
+  s.setGrudgesEnabled(true); s.noteMessage({ messageId: "m1" });
+  s.live.houseLeans = { leans: [] };
+  return s;
+};
+const two = (s: Sess): [string, string] => { const n = s.live.active.filter((x) => x.startsWith("npc:")); return [n[0]!, n[1]!]; };
+
+describe("Fable review: the real played path, and the four fixes", () => {
+  it("(2) a smaller newer slight does not reset an older, larger grudge's clock", () => {
+    const big: Record<string, never> = {}; void big;
+    const book: import("../../src/engine/grudges").GrudgeBook = {};
+    noteGrudge(book, "h", "s", "blindsided", 0.9, 1, 1, "big");
+    const before = freshness(book["h|s"]!, 30);
+    noteGrudge(book, "h", "s", "lied-to", 0.2, 29, 1, "small");
+    expect(freshness(book["h|s"]!, 30)).toBe(before);
+    expect(book["h|s"]).toMatchObject({ kind: "blindsided", week: 1, severity: 0.9, peak: 0.9 });
+  });
+  it("(3) a mended grudge stays mended: the jury term and the agenda read both stay reduced after a kept promise", () => {
+    const s = startSess(3, "mend"); const [H, S] = two(s);
+    s.live.npcMemory = { [H]: { [S]: [{ kind: "nominated-by-friend", week: 1, severity: 0.9 }] } };
+    s.live.playedGame = true;
+    s.grudgeOf(H, S);
+    const jury0 = Math.abs(s.juryGrudgeFor(H, S));
+    const sal0 = s.agendaView(H).grudges.find((g) => g.toward === S)!.salience;
+    const d = s.deals.make([H, S], "safety", "terms", undefined, 1); d.status = "kept";
+    s.grudgeOf(H, S); // folds the repair
+    const jury1 = Math.abs(s.juryGrudgeFor(H, S));
+    const sal1 = s.agendaView(H).grudges.find((g) => g.toward === S)!.salience;
+    expect(jury1).toBeGreaterThan(0);
+    expect(jury1).toBeLessThan(jury0);
+    expect(sal1).toBeLessThan(sal0);
+    s.grudgeOf(H, S); s.live.week += 0;
+    expect(Math.abs(s.juryGrudgeFor(H, S))).toBe(jury1); // a second read never refills it
+    expect(JURY_GRUDGE.scale * 1 * 1).toBeLessThanOrEqual(JURY_GRUDGE.max); // a full-strength grudge does not saturate the cap, so every ease shows
+  });
+  it("(1) a broken deal counts only for a holder who could know: a party still in the house, not an evicted one", () => {
+    const s = startSess(3, "know"); const n = s.live.active.filter((x) => x.startsWith("npc:"));
+    s.live.playedGame = true;
+    const a = s.deals.make([n[0]!, n[1]!], "safety", "terms", undefined, 1); a.status = "broken"; a.brokenBy = n[1]!;
+    const b = s.deals.make([n[2]!, n[3]!], "safety", "terms", undefined, 1); b.status = "broken"; b.brokenBy = n[3]!;
+    s.live.evictionOrder = [...s.live.evictionOrder, n[2]!]; // the wronged party of the second deal is already gone
+    expect(s.grudgeOf(n[0]!, n[1]!)).not.toBeNull();
+    expect(s.grudgeOf(n[2]!, n[3]!)).toBeNull();
+    expect(s.juryGrudgeFor(n[2]!, n[3]!)).toBe(0);
+    expect(s.grudgeOf(n[1]!, n[0]!)).toBeNull(); // the one who broke it holds nothing
+  });
+  it("(4) the real path: a broken deal folds a real grudge, and the juror's final vote differs from the same juror without it (identical relationships)", async () => {
+    const run = async (seed: number, broken: boolean): Promise<{ votes: number; against: boolean }> => {
+      const user = `bj-real-${seed}-${broken}`;
+      const { reg } = await liveFinale(user, seed, { finalists: [PLAYER, RIVAL], jury: JURY9, edgeTo: () => EVEN });
+      const snap = reg.snapshot(user) as SessionSnapshot;
+      const live = snap.live as unknown as { playedGame?: boolean; evictionOrder: string[] };
+      live.playedGame = true; live.evictionOrder = []; // the jurors are still in the house when the deal breaks
+      reg.restore(user, snap);
+      const adapter = reg.sandboxFor(user).session as unknown as Pick<GameSessionAdapter, "setJuryMemoryEnabled" | "setAdvanceGateEnabled" | "setGrudgesEnabled" | "juryGrudgeFor"> & Omit<Sess, "setGrudgesEnabled" | "juryGrudgeFor">;
+      adapter.setJuryMemoryEnabled(true); adapter.setAdvanceGateEnabled(false); adapter.setGrudgesEnabled(true);
+      if (broken) for (const j of JURY9) { const d = adapter.deals.make([j, PLAYER], "safety", "terms", undefined, 1); d.status = "broken"; d.brokenBy = PLAYER; }
+      for (const j of JURY9) adapter.grudgeOf(j, PLAYER); // the REAL fold (`foldGrudges`) notes the rows
+      (adapter as unknown as { live: { evictionOrder: string[] } }).live.evictionOrder = [...JURY9]; // they are voted out, then sit the jury
+      const folded = adapter.juryGrudgeFor(JURY9[0]!, PLAYER);
+      const player = reg.resolver()("player", user) as Parameters<typeof driveFinaleSeam>[0];
+      const views = await driveFinaleSeam(player);
+      const reveals = views.filter((v) => v.event?.beat === "finale-reveal").map((v) => v.event!.content);
+      return { votes: reveals.filter((c) => c.endsWith("votes for Player")).length, against: folded < 0 };
+    };
+    let none = 0, grudged = 0, hold = true;
+    for (const seed of SEEDS) { const a = await run(seed, false), b = await run(seed, true); none += a.votes; grudged += b.votes; hold &&= !a.against && b.against; }
+    expect(hold, "the real fold created the grudge only where a deal broke").toBe(true);
+    if (process.env.BITTER_LOG) console.log(`REAL control=${none} brokenDeal=${grudged}`);
+    expect(grudged, `broken-deal ${grudged} < control ${none}`).toBeLessThan(none);
+  }, 240000);
+});

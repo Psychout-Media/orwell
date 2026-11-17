@@ -66,7 +66,24 @@ Given("a juror whose ally cut them and who now sits on the jury against that all
 Then("at the finale the juror leans against that finalist", function () { const b = (this as unknown as { bitter0182: Bitter }).bitter0182; assert.equal(b.none, 0); assert.ok(b.fresh < 0); });
 Then("the lean is sharper when the grudge is fresh than when it is old", function () { const b = (this as unknown as { bitter0182: Bitter }).bitter0182; assert.ok(b.fresh < b.old); });
 Then("the lean is still there when the grudge is old", function () { assert.ok((this as unknown as { bitter0182: Bitter }).bitter0182.old < 0); });
-Then("a juror whose only wrong is already counted as a manner grievance gets nothing extra", function () {
+Then("a wrong the juror's manner grievance already counts adds nothing extra", function () {
   const b = (this as unknown as { bitter0182: Bitter }).bitter0182;
-  assert.equal(Math.abs(bitterJurorExtra(b.fresh, 0.48)), 0);
+  const covered = 0.8 * 0.6; // the betrayed manner term at its weight
+  assert.ok(b.fresh < 0);
+  assert.equal(Math.abs(bitterJurorExtra(b.fresh, covered)), 0);
+});
+Then("a deal the finalist broke, which no manner counts, makes the juror lean against them by a real amount", async function () {
+  const user = "bj-deal";
+  const { reg } = await liveFinale(user, 3, { finalists: [PLAYER, npc(10)], jury: JURY9 });
+  const snap = reg.snapshot(user) as SessionSnapshot;
+  const live = snap.live as unknown as { playedGame?: boolean; evictionOrder: string[] };
+  live.playedGame = true; live.evictionOrder = []; // still in the house when the deal breaks
+  reg.restore(user, snap);
+  const a = reg.sandboxFor(user).session as unknown as { juryGrudgeFor(j: string, f: string): number; deals: { make(p: [string, string], k: string, t: string, e?: string, w?: number): { status: string; brokenBy?: string } }; grudgeOf(h: string, s: string): unknown; live: { evictionOrder: string[] } };
+  const d = a.deals.make([JURY9[0]!, PLAYER], "safety", "terms", undefined, 1); d.status = "broken"; d.brokenBy = PLAYER;
+  a.grudgeOf(JURY9[0]!, PLAYER); // the real fold
+  a.live.evictionOrder = [...JURY9];
+  const lean = a.juryGrudgeFor(JURY9[0]!, PLAYER);
+  assert.ok(lean < -0.01, `the grudge leans the juror away by ${lean}`);
+  assert.equal(a.juryGrudgeFor(JURY9[1]!, PLAYER), 0); // a juror nobody wronged is untouched
 });

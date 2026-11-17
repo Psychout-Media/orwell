@@ -5658,6 +5658,7 @@ export class GameSessionAdapter implements GameSession {
     const seen = new Set(live.grudgesSeen ?? []);
     const before = seen.size;
     const day = live.dayNumber ?? 1;
+    const gone = new Set(live.evictionOrder);
     const note = (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number): void => {
       if (holder === PLAYER || seen.has(mark)) return;
       seen.add(mark);
@@ -5667,13 +5668,15 @@ export class GameSessionAdapter implements GameSession {
       const row = live.npcMemory![holder] ?? {};
       for (const subject of Object.keys(row).sort() as EntityId[]) for (const e of row[subject] ?? []) {
         const kind: GrudgeKind | undefined = e.kind === "deal-broken" ? "deal-broken" : e.kind === "nominated-by-friend" || e.kind === "replaced-by-friend" ? "cut-by-ally" : undefined;
-        if (kind) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
+        if (kind && !gone.has(holder)) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
       }
     }
     for (const d of this.deals.all) {
       if (d.status !== "broken" || !d.brokenBy) continue;
       const [a, b] = d.parties;
-      note(`d:${d.id}`, d.brokenBy === a ? b : a, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
+      const wronged = d.brokenBy === a ? b : a;
+      if (!this.holderKnowsOfBreak(wronged, d)) continue;
+      note(`d:${d.id}`, wronged, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
     }
     const evicted = new Set(live.evictionOrder);
     const manner = live.mannerByEvictee ?? {};
@@ -5693,6 +5696,15 @@ export class GameSessionAdapter implements GameSession {
     }
     this.foldRepairs(seen);
     if (seen.size !== before) live.grudgesSeen = [...seen];
+  }
+
+  /**
+   * 0182 (Fable review): a grudge from a broken deal counts only for a holder who COULD KNOW of the break: a party to the deal who is still in the house (an evicted houseguest cannot learn of a later
+   * break: the jury house is sequestered). The ledger carries no break week or "who learned" field yet, so this is the party and still-present check; when the Auditor's `DealLedger.learnOfBreak`
+   * (ORW-597) lands, replace the body with that call and nothing else changes.
+   */
+  private holderKnowsOfBreak(holder: EntityId, d: { parties: readonly [EntityId, EntityId] }): boolean {
+    return d.parties.includes(holder) && !(this.live?.evictionOrder ?? []).includes(holder);
   }
 
   /** 0182 PR 2: whether `holder` is a grudge-keeper toward `subject` (the same read `grudgeOf` uses). */

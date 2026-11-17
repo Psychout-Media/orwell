@@ -30,4 +30,5 @@ Feature: A broken bond leaves a grudge with a memory that fades but is never zer
     Then at the finale the juror leans against that finalist
     And the lean is sharper when the grudge is fresh than when it is old
     And the lean is still there when the grudge is old
-    And a juror whose only wrong is already counted as a manner grievance gets nothing extra
+    And a wrong the juror's manner grievance already counts adds nothing extra
+    And a deal the finalist broke, which no manner counts, makes the juror lean against them by a real amount

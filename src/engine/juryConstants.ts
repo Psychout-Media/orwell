@@ -102,9 +102,9 @@ export const JURY_MEMORY = { scale: 1, max: 0.15 } as const;
 /**
  * 0182 PR 3 (flag ORWELL_GRUDGES, played games only): a BITTER juror. The grudge book's freshness x severity, scaled by `scale`, lowers the juror's lean toward the finalist they hold it against,
  * clamped to `max`. `max` is sized UNDER `|MANNER_LEAN.betrayed| x JURY_WEIGHTS.manner` (0.48), the same rule as `JURY_HOUSE.adjustmentCap`, so a grudge can tilt a close vote but never out-vote the manner term.
- * The dial to retune if the played-game lane shifts win rates is `scale` ONLY (never `JURY_WEIGHTS.gameRespect`).
+ * `scale` equals `max` on purpose: freshness x severity is at most 1, so the term never saturates at the cap and every bit of easing (a mend) shows in the vote. The dial to retune if the played-game lane shifts win rates is `scale` ONLY (never `JURY_WEIGHTS.gameRespect`).
  */
-export const JURY_GRUDGE = { scale: 0.3, max: 0.2 } as const;
+export const JURY_GRUDGE = { scale: 0.2, max: 0.2 } as const;
 
 /**
  * ORW-129 (Ryne: "fades, leaves a trace") - what a `mend` appeal leaves behind. A mend used to dissolve a juror's MISTAKEN grievance completely; now most of it clears and a small lingering doubt remains:
