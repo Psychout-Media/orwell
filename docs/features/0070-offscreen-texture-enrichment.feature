@@ -11,6 +11,7 @@ Feature: 0070 — off-screen society texture enrichment
     Given a live game with off-screen scenes recorded this tick
     When the off-screen scene skeletons are read over the player channel
     Then the skeletons are Vault-free — public participants, room, and nature only
+    # (ORW-570: a hidden scene is Vault-class, so that player-channel read returns none of it; the write-back below addresses a scene by the id the engine-side driver holds)
     When voiced texture is written back over the channel for a recorded off-screen scene
     Then the texture write-back is accepted over the channel
     And the addressed scene now carries the voiced texture as its content

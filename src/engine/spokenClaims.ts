@@ -91,6 +91,8 @@ export interface ClaimContext {
   credited?: (listener: EntityId, speaker: EntityId) => boolean;
   /** 0160 (conviction): how readily the listener believes what they are told, 0..1 (0.5 = at the source's word). Absent = 0.5 (unchanged). */
   credulity?: (listener: EntityId) => number;
+  /** ORW-587 (T2-4): how far the listener believes THIS speaker's word, 0..1 (1 = never caught lying; from the listener's own caught-lie record, B48). Scales the belief's confidence. Absent = 1 (unchanged). */
+  credibility?: (listener: EntityId, speaker: EntityId) => number;
 }
 
 /** Why a claim is refused (a programming error in the caller, never a game event). Undefined = valid. */
@@ -155,7 +157,8 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
   if (beliefs && claim.listener !== PLAYER) {
     const b = beliefFor(claim);
     const fromSource = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
-    const confidence = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
+    const convinced = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
+    const confidence = ctx.credibility ? convinced * Math.max(0, Math.min(1, ctx.credibility(claim.listener, claim.speaker))) : convinced; // ORW-587: a speaker the listener caught lying lands weaker
     recordClaim(beliefs, {
       id: `${claim.listener}|${b.kind}|${b.subject}|${claim.id}`, holder: claim.listener, kind: b.kind, subject: b.subject,
       ...(b.object !== undefined ? { object: b.object } : {}), ...(b.nature !== undefined ? { nature: b.nature } : {}),
