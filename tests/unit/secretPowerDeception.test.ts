@@ -10,8 +10,8 @@ import type { TradeResult, ExposeResult } from "../../src/ports/GameSession";
  * Features 0093 + 0099 — DECEPTION is first-class (owner direction 2026-06-27). Any use may be truthful
  * OR a BLUFF, and BOTH NPCs and the player can lie. A bluff invents a claim, reads NOTHING from the Vault,
  * folds on BELIEF (trust × plausibility), and the engine NEVER tells the player whether it matched a
- * truth; a later contradicting genuine pathway delivers a betrayal-grade, recoverable hit to the bluffer
- * (the passive lie-catch). Roles only — no names; all fixtures generated.
+ * truth; a later contradicting genuine pathway catches the bluffer out (the passive lie-catch), at the SAME cost any
+ * caught liar pays (ORW-616: a lied-to-me claim + a bounded trust hit, `caughtLieCostParity616.test.ts`). Roles only — no names; all fixtures generated.
  */
 
 function startedSeason(user: string, seed: number): UserSandbox {
@@ -59,7 +59,7 @@ describe("deception — the player can BLUFF (a fabricated claim), folded on bel
 });
 
 describe("deception — the PASSIVE LIE-CATCH: a later contradicting truth punishes the bluffer", () => {
-  it("a believed bluff, then the REAL truth reaching the same houseguest, deals the bluffer a betrayal-grade hit", () => {
+  it("a believed bluff, then the REAL truth reaching the same houseguest, costs the bluffer that houseguest's trust", () => {
     const sb = startedSeason("dc-catch", 4);
     const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
     const subject = npcs[0]!; // the player lies ABOUT this houseguest
@@ -79,9 +79,8 @@ describe("deception — the PASSIVE LIE-CATCH: a later contradicting truth punis
     const truth = sb.session.tradeSecret({ factId: real, toNpcId: recipient }) as TradeResult;
     expect(truth.accepted).toBe(true);
     const after = edge(sb, recipient, PLAYER);
-    // The recipient realizes the player lied to them — a betrayal-grade trust blow (recoverable, never a number).
-    expect(after.trust).toBeLessThan(before.trust - 0.15);
-    expect(after.threat).toBeGreaterThan(before.threat);
+    // The recipient realizes the player lied to them — the caught-lie trust blow (ORW-616; recoverable, never a number).
+    expect(after.trust).toBeLessThan(before.trust);
     // The caught bluff is cleared (it can't re-fire).
     expect(sb.session.snapshot().secretPlayerBluffBelief?.[recipient] ?? []).not.toContain(subject);
   });

@@ -43,6 +43,7 @@ _DECISION_KINDS = [
     "juror-vote",
     # 0130: the player-evictee's exit interview (posture + optional words) rides the same seam.
     "exit-interview",
+    "meeting-answer",  # ORW-596: the player's own-words answer to an NPC accusation (open state like deal-offer, never a blocking pending card)
     # 0133: an early-evicted player's spectator choice and finale-night interview (both real pendings).
     "spectator-choice",
     "finale-interview",

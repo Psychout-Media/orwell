@@ -51,10 +51,12 @@ export function deriveNpcCompIntent(
     maxThreatOnMe: number;
     /** Whether the field holds any other competitor (a lone competitor just competes). */
     hasOthers: boolean;
+    /** ORW-577: the holder's own agenda says they want the power (an active win-power goal): they compete rather than throw or play safe. Absent = unchanged. */
+    wantsPower?: boolean;
   },
   t: typeof COMP_INTENT_THRESHOLDS = COMP_INTENT_THRESHOLDS,
 ): Intent {
-  if (p.nominee || !p.hasOthers) return "compete";
+  if (p.nominee || !p.hasOthers || p.wantsPower === true) return "compete";
   // THROW: a lay-low houseguest hands a very close ally the power and keeps their own head down.
   if (p.aggression < t.layLowAggression && p.bestAllyBond > t.throwToAllyBond) return "throw";
   // PLAY-SAFE: a cautious houseguest a competitor already reads as a real threat avoids painting a bigger target.
@@ -627,6 +629,10 @@ export interface LiveSeasonState {
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
   tenure?: import("./territory").Tenure;
+  /** 0173 (Theme 3 slice 11): the hidden pecking order (coarse tiers), the informal leader and lieutenants, any open vacuum, and the history. VAULT-CLASS, engine-only, monotonic count, never projected. A played game only. */
+  status?: import("./hohCourt").StatusRecord;
+  /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
+  playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
@@ -717,6 +723,9 @@ export interface LiveSeasonState {
   bonds?: BondStore;
   /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
   normsApplied?: Record<string, number>;
+  /** 0186 (Theme 3 slice 14): exposures already applied (`holder|doubleDealer|rival`) and twists already reopened (`twistKey`, plus `dealId|twistKey` per deal handled). Engine-only (Vault class), never projected; idempotent. */
+  dealExposed?: string[];
+  dealReopened?: string[];
   /** 0180 part 2: the dissent already noticed, `${week}|${holder}|${dissenter}` (engine-only; idempotent). */
   dissentNoticed?: string[];
   bondsCursor?: number;
@@ -750,6 +759,8 @@ export interface LiveSeasonState {
   claims?: import("./spokenClaims").ClaimLog;
   /** 0156 / ORW-330 slice 7a: the season's house meetings (`houseMeeting.ts`), append-only, kept whole, ENGINE-ONLY and never projected whole (only `houseMeetingThePlayerHeard` as names). Absent until the first meeting. */
   houseMeetings?: import("./houseMeeting").HouseMeeting[];
+  /** ORW-593: the last house meeting handed to the narrator (its id, and the player message it rode on), so a restart cannot replay it. Persisted with the season (it used to be memory-only); absent until one is shown. */
+  houseMeetingShown?: { id: string; msg?: string };
   /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
   assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**
@@ -759,6 +770,19 @@ export interface LiveSeasonState {
    * the season lives; the attribution surfaces only through the post-season retrospective.
    */
   voteRecord?: Array<{ week: number; evictee: EntityId; voteOf: Record<EntityId, EntityId> }>;
+  /**
+   * 0174 (Theme 3 slice 13, ORWELL_TRIADS) - triads, swing votes and kingmakers. ENGINE-ONLY (Vault class), never projected, never a tool, never a number to the player; shown only in the 0048 retrospective.
+   * `day` = the last in-game day the triad drift ran; `drift` = what each pair has drifted so far (kept for good, capped); `courted` = per week, the swing voters pitched this vote with who pitched and the
+   * price tier; `kingmakers` = per week, who decided a close vote (history only). Monotone, never deleted. Absent => none yet (old saves read none).
+   */
+  triads?: {
+    day?: number;
+    drift?: Record<string, number>;
+    courted?: Array<{ week: number; voter: EntityId; bidders: EntityId[]; tier: number; gap: number }>;
+    kingmakers?: Array<{ week: number; voter: EntityId; evictee: EntityId; courted: boolean }>;
+    /** The firmness of each NPC ballot at the last vote's preview (engine-only; replaced each week). */
+    lastGaps?: { week: number; gaps: Record<EntityId, number> };
+  };
   /** ORW-342 (Vault-class, engine-only): the open "who voted against me / who flipped" questions the eviction votes leave NPCs with, each with the holder's OWN deduced suspect (never the sealed ballot). Played games only. */
   voteQuestions?: VoteQuestion[];
   /**
@@ -1198,6 +1222,13 @@ export interface SeasonCtx {
   favorsAtTally?: (finalNominees: readonly EntityId[], voters: readonly EntityId[]) => void;
   /** 0171: the bounded shield a favor `voter` honored for `nominee` at this vote adds against evicting them (>= 0). Absent => 0, byte-identical. */
   favorShieldFor?: (nominee: EntityId, voter: EntityId) => number;
+  /**
+   * 0174 / Theme 3 slice 13 (ORWELL_TRIADS): the nominees are final and the vote is about to open - what each NPC voter would pick and how firmly (the gap between their two scores, >= 0),
+   * so the engine can see which ballot decides it and let both camps court that voter. Read-only preview (no `why` record, no rng); the PLAYER's ballot is never previewed. Played games only; absent => nothing, byte-identical.
+   */
+  swingAtVote?: (view: { nominees: readonly EntityId[]; voters: readonly EntityId[]; previews: ReadonlyArray<{ voter: EntityId; pick: EntityId; gap: number }> }) => void;
+  /** 0174: the eviction is decided - who left, every ballot (`voter -> evicted`) and the HOH, so a close vote's deciding ballot can be recorded as history (never read by a decision). Played games only; absent => nothing. */
+  triadsAtResult?: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => void;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -3109,6 +3140,21 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
 function startEvictionVote(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
   const fn = s.finalNominees!;
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
+  if (ctx.swingAtVote) {
+    const blocs = currentBlocs(s, ctx);
+    const previews: Array<{ voter: EntityId; pick: EntityId; gap: number }> = [];
+    for (const v of voters) {
+      if (v === ctx.player) continue;
+      let gap = 0;
+      const pick = voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined, (w) => {
+        const o = w.options;
+        const top = o.find((x) => x.role === "chosen"), run = o.find((x) => x.role === "runner-up");
+        gap = Math.max(0, (top?.total ?? 0) - (run?.total ?? 0));
+      });
+      previews.push({ voter: v, pick, gap });
+    }
+    ctx.swingAtVote({ nominees: fn, voters, previews });
+  }
   if (voters.includes(ctx.player)) {
     s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
     return null;
@@ -3125,6 +3171,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // E12: the ballots are recorded ENGINE-ONLY for the 0048 retrospective unsealing — the week's
   // secret votes become tellable only once the season is over.
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
+  ctx.triadsAtResult?.({ evictee, voteOf: e.voteOf, hoh: s.hoh ?? undefined }); // 0174: a close vote's deciding ballot, history only
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
   ctx.evictionCountPublic?.({ evictee, evictVotes: votesToEvict.length, voters: Object.keys(e.voteOf) }); // 0154: the count is public now; counts and the eligible list only, never who voted for whom
   // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
