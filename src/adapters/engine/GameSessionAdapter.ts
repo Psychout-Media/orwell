@@ -11125,6 +11125,11 @@ export class GameSessionAdapter implements GameSession {
       .sort((a, b) => b.affinity - a.affinity);
   }
 
+  /** ORW-572 (Ryne: sleep means no scheming): the campaign actors who are awake now (the whole house when the clock is off, so that path is unchanged). */
+  private awakeCampaignActors(): CampaignActor[] {
+    const awake = this.awakeNow();
+    return awake ? this.campaignActors().filter((a) => awake.has(a.id)) : this.campaignActors();
+  }
   private campaignActors(): CampaignActor[] {
     return this.livingIds().filter((id) => id !== PLAYER).map((id) => ({
       id, persuasiveness: this.influenceOf(id).persuasiveness,
@@ -11173,7 +11178,7 @@ export class GameSessionAdapter implements GameSession {
     const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
-      for (const f of formCampaigns(this.campaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
+      for (const f of formCampaigns(this.awakeCampaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
         if (activeCount() >= CAMPAIGN.maxConcurrent) break;
         if (!this.campaigns.some((c) => c.status === "active" && c.owners[0] === f.owners[0])) this.campaigns.push(f);
       }
@@ -11185,8 +11190,9 @@ export class GameSessionAdapter implements GameSession {
     // anyone, defeating the per-beat-throttled, pitch-earned design (`foldPlayerCampaignMove`) and the
     // spec's own rule ("no NPC acts on the campaign except in response to the player's actual recorded
     // moves" — this guards the mirror case: nothing autonomously acts FOR the player either).
+    const awakeNowSet = this.awakeNow();
     this.campaigns = this.campaigns
-      .map((c) => c.status === "active" && c.owners[0] !== PLAYER
+      .map((c) => c.status === "active" && c.owners[0] !== PLAYER && (awakeNowSet === null || awakeNowSet.has(c.owners[0]!) || beat >= c.deadlineBeat) // ORW-572: a sleeping owner's campaign makes no move (it still resolves at its deadline)
         ? advanceCampaign(c, { rng, beat, alliesOf: (id) => this.allyReadsOf(id).map((a) => a.toward) })
         // …but a player campaign still EXPIRES at its deadline (no free progress, no diffusion — only the resolution), so a
         // stale entry can't keep pushing nominations / veto saves / votes (now that they are mechanical) or hold a slot.
@@ -11383,7 +11389,7 @@ export class GameSessionAdapter implements GameSession {
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
     this.alliances.stamp(beat, this.live?.dayNumber ?? this.live?.week);
-    const npcs = this.livingIds().filter((id) => id !== PLAYER);
+    const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake found alliances
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a)) + this.territoryBondNudge(a, b); // ORW-561: roommates / a shared top room add a small capped nudge to the mutual-bond input (the floors below are unchanged)
     // ORW-341: in a game a person PLAYS an NPC's own agenda also builds alliances (a last-alliance-standing or run-the-house aim founds one; a pull-them-in goal extends or founds one with its target, below).
@@ -11844,7 +11850,7 @@ export class GameSessionAdapter implements GameSession {
   secretBarterTick(events: EventStore, knowledge: KnowledgeService): void {
     if (!this.secretBarterEnabled || !this.house) return;
     void events; // the transfer records THROUGH `knowledge` (transmitGossip) — the store is the caller's contract
-    const npcs = this.livingIds().filter((id) => id !== PLAYER);
+    const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake trade secrets
     if (npcs.length < 2) return; // nobody to trade between
     // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves,
     // never the player — a player-subject belief rides the ordinary PV1/gossip path, not a barter). Stable
