@@ -89,8 +89,9 @@ async def author_house(brief: Optional[dict], seed, llm_fn: LlmFn, write_fn: Wri
     for attempt in range(1 + max(0, retries)):
         try:
             text = await llm_fn(build_messages(brief, seed, rejected))
-        except Exception as e:  # fail-soft: a model error never blocks the season
-            logger.info("[house-authoring] model call failed: %s", e)
+        except Exception as e:  # fail-soft: a model error never blocks the season, but it is recorded
+            from src import log_rings  # #1599: fail-soft, never silent
+            log_rings.record_soft_failure("house-authoring:model-failed", e, corrected="the plain house labels stand")
             return {"accepted": False, "attempts": attempt + 1, "rejected": {"model": 1}}
         house = parse_house(text)
         if house is None:
@@ -99,7 +100,8 @@ async def author_house(brief: Optional[dict], seed, llm_fn: LlmFn, write_fn: Wri
         try:
             res = await write_fn({"npcs": [], "house": house})
         except Exception as e:
-            logger.info("[house-authoring] write-back failed: %s", e)
+            from src import log_rings  # #1599: fail-soft, never silent
+            log_rings.record_soft_failure("house-authoring:write-failed", e, corrected="the plain house labels stand")
             return {"accepted": False, "attempts": attempt + 1, "rejected": {"write": 1}}
         h = (res or {}).get("house") or {}
         if h.get("accepted"):
@@ -129,5 +131,6 @@ async def run_house(seed, owner: Optional[str]) -> dict:
 
         return await author_house(genesis.generate_season_brief(int(seed)), seed, llm_fn, _write)
     except Exception as e:
-        logger.info("[house-authoring] skipped: %s", e)
+        from src import log_rings  # #1599: fail-soft, never silent
+        log_rings.record_soft_failure("house-authoring:skipped", e, corrected="the plain house labels stand")
         return {"accepted": False, "attempts": 0, "rejected": {"error": 1}}

@@ -202,7 +202,7 @@ const EXP_ALLY_CORES = [
 const EXP_ALLY_CLOSERS = [", like with everything", ", it's kind of wild", ", no question about it", ", and I'd do it in a heartbeat", ", honestly, completely"];
 
 /** Varied target/ally phrasings ({T}/{A} = names) — seeded pick, grounded in the same engine truth. */
-const TARGET_LINES = widen([
+export const TARGET_LINES = widen([
   "I need {T} gone — they're my biggest threat",
   "every road to the end runs through {T}, and they have to go",
   "{T} is the one I'm watching — they're playing everybody",
