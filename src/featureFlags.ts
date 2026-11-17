@@ -113,6 +113,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_VOTE_TALK', key: 'voteTalk', parser: 'defaultOn' },
   // 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (scenes they were in or watched, allied-with beliefs), blended with the truth. `=0` = the hidden-truth read.
   { envKey: 'ORWELL_PERCEIVED_BONDS', key: 'perceivedBonds', parser: 'defaultOn' },
+  // 0190 / ORW-574 (Fable T1-6): in a PLAYED game an NPC's decisions read the decider's own view (what they saw, were told, believe, and the public record), never another houseguest's hidden edges or stats. `=0` = the hidden reads, byte-identical.
+  { envKey: 'ORWELL_OWN_VIEW', key: 'ownView', parser: 'defaultOn' },
   // 0179 / ORW-552 (Theme 3 slice 9): the house's shape in the co-presence spread - brokers carry news across cliques, weak ties carry across, loners hear late. `=0` = the spread reads no shape.
   { envKey: 'ORWELL_NETWORK_SPREAD', key: 'networkSpread', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.

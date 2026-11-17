@@ -1325,6 +1325,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
   private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
   setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
+  /** 0190 / ORW-574 (Fable T1-6): in a played game NPC decisions read the decider's own view (`ORWELL_OWN_VIEW`, default ON; OFF => the hidden reads, byte-identical). */
+  private ownViewEnabled = flagDefaultOn("ORWELL_OWN_VIEW");
+  setOwnViewEnabled(on: boolean): void { this.ownViewEnabled = on; }
   /**
    * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). ON unless
    * `ORWELL_NPC_MEMORY_STANDALONE=0` (flipped ON with the memories, #2059; the 3-arm PO bands held). OFF ⇒ the
@@ -10606,7 +10609,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
-      ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
+      ...((this.perceivedBondsEnabled || this.ownViewOn()) && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
       // ORW-574 (Fable T1-6): how someone else trusts / reads a threat in someone, as the DECIDER can see it. Played games only (`ownViewOn`); absent => the old reads, byte-identical.
       ...(this.ownViewOn() ? {
         perceivedTrustFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedTrust(holder, from, to),
@@ -16797,11 +16800,11 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * ORW-574 (Fable T1-6): the OWN-VIEW gate. A played game (`live.playedGame`) with `ORWELL_PERCEIVED_BONDS` on (0163, "decisions read what the decider can see", widened here):
+   * ORW-574 (Fable T1-6): the OWN-VIEW gate. A played game (`live.playedGame`) with `ORWELL_OWN_VIEW` on (0190; widens 0163, "decisions read what the decider can see"):
    * a decision reads how someone else feels only through the decider's perception. Headless seeded sims (calibration, jury reach, UAT) never set `playedGame`, so they keep the
    * old reads byte for byte.
    */
-  private ownViewOn(): boolean { return this.perceivedBondsEnabled && this.live?.playedGame === true; }
+  private ownViewOn(): boolean { return this.ownViewEnabled && this.live?.playedGame === true; }
   /** ORW-574: the public menace of a houseguest anyone can read - the edge baseline, the public archetype's competitive menace (the move-in read) and the public comp wins. */
   private publicMenace(id: EntityId): number {
     const { baseline, MOVE_IN } = RELATIONSHIP_CONSTANTS;
