@@ -56,6 +56,7 @@ import { issueNightBatch, validateAllianceName, normName, type TraitTable } from
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
+import { juryFadeRate, juryEaseFactor, type JuryPersonality } from "../../engine/juryFade";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
@@ -111,7 +112,7 @@ import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { validateTraits, validateCulture, validateReflection } from "../../engine/npcMindsAuthored";
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, Goal, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
-import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids } from "../../engine/agenda";
+import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids, agendaRoll } from "../../engine/agenda";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { buildHouseStories } from "../../engine/houseStory";
@@ -5696,6 +5697,32 @@ export class GameSessionAdapter implements GameSession {
     if (seen.size !== before) live.grudgesSeen = [...seen];
   }
 
+  /** ORW-582 (flag `ORWELL_JURY_HOUSE`): the NPC jurors, each with their jury-house personality read toward a subject; undefined when the jury house is off or empty. Engine-only. */
+  private juryPersonalityOf(): Map<EntityId, (subject: EntityId) => JuryPersonality> | undefined {
+    if (!this.juryHouseEnabled || !this.house || !this.live) return undefined;
+    const ids = (this.live.evictionOrder ?? []).slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id).slice(-9);
+    if (ids.length === 0) return undefined;
+    const seed = hashSeed(`jury-fade:${this.gameSeed ?? ""}`);
+    return new Map(ids.map((id) => [id, (subject: EntityId): JuryPersonality => ({
+      keeper: this.grudgeKeeper(id, subject),
+      volatility: this.soulObj(id)?.volatility ?? 0.5,
+      roll: agendaRoll(seed, id, "jury-fade"),
+    })] as const));
+  }
+
+  /** ORW-582: per juror, the nightly fade rate toward a given subject (one rule; the subject only selects the pair's own forgiveness read). */
+  private juryFadeRateOf(): Map<EntityId, (subject: EntityId) => number> | undefined {
+    const m = this.juryPersonalityOf();
+    if (!m) return undefined;
+    return new Map([...m].map(([id, p]) => [id, (subject: EntityId) => juryFadeRate(p(subject))] as const));
+  }
+
+  /** ORW-582: how much faster `holder`'s grudge eases than in the house (1 for a non-juror). */
+  private juryEaseOf(holder: EntityId, subject: EntityId): number {
+    const p = this.juryPersonalityOf()?.get(holder);
+    return p ? juryEaseFactor(p(subject)) : 1;
+  }
+
   /** 0182 PR 2: whether `holder` is a grudge-keeper toward `subject` (the same read `grudgeOf` uses). */
   private grudgeKeeper(holder: EntityId, subject: EntityId): boolean {
     const hg = this.house?.npcs.find((n) => n.id === holder);
@@ -5714,7 +5741,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     const row = live?.grudges?.[grudgeKey(holder, subject)];
     if (!live || !row || holder === PLAYER) return;
-    const eased = easeGrudge(row, repairAmount(base, { keeper: this.grudgeKeeper(holder, subject), loyalty: this.cultureMult("loyalty") }));
+    const eased = easeGrudge(row, repairAmount(base * this.juryEaseOf(holder, subject), { keeper: this.grudgeKeeper(holder, subject), loyalty: this.cultureMult("loyalty") }));
     if (eased > 0) foldRepair((live.bonds ??= {}), holder, subject, eased);
   }
 
@@ -5794,7 +5821,7 @@ export class GameSessionAdapter implements GameSession {
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
     const keeper = this.grudgeKeeper(holder, subject);
-    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper });
+    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper }) / this.juryEaseOf(holder, subject);
     return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak };
   }
 
@@ -13947,16 +13974,25 @@ export class GameSessionAdapter implements GameSession {
     if (s.feelDriftDay !== undefined && day <= s.feelDriftDay) return;
     const b = RELATIONSHIP_CONSTANTS.baseline;
     const ref = s.feelRef ?? {};
-    const edges = this.rel.serialize().edges.filter((e) => e.from === PLAYER || e.to === PLAYER);
+    // ORW-582: a juror's feelings toward every houseguest still in the game fade by ONE rule (their own, from who they are), never keyed on the subject.
+    const jurorRate = this.juryFadeRateOf();
+    const living = new Set(this.livingIds());
+    const jurorEdge = (from: EntityId, to: EntityId): boolean => jurorRate !== undefined && jurorRate.has(from) && to !== from && living.has(to);
+    const edges = this.rel.serialize().edges.filter((e) => e.from === PLAYER || e.to === PLAYER || jurorEdge(e.from, e.to));
     const held = new Set<string>();
     for (const e of edges) {
       const r = ref[`${e.from}->${e.to}`] ?? [b.trust, b.affinity, b.threat];
       if (e.trust !== r[0] || e.affinity !== r[1] || e.threat !== r[2]) held.add(`${e.from}->${e.to}`);
     }
-    this.rel.driftTowardBaseline(OVERNIGHT_DRIFT.RATE, (from, to) => (from === PLAYER || to === PLAYER) && !held.has(`${from}->${to}`));
+    this.rel.driftTowardBaselineBy((from, to) => {
+      if (held.has(`${from}->${to}`)) return undefined;
+      const jr = jurorRate?.get(from);
+      if (jr !== undefined && from !== to && living.has(to)) return jr(to);
+      return from === PLAYER || to === PLAYER ? OVERNIGHT_DRIFT.RATE : undefined;
+    });
     const next: Record<string, [number, number, number]> = {};
     for (const e of this.rel.serialize().edges) {
-      if (e.from === PLAYER || e.to === PLAYER) next[`${e.from}->${e.to}`] = [e.trust, e.affinity, e.threat];
+      if (e.from === PLAYER || e.to === PLAYER || jurorEdge(e.from, e.to)) next[`${e.from}->${e.to}`] = [e.trust, e.affinity, e.threat];
     }
     s.feelRef = next;
     s.feelDriftDay = day;

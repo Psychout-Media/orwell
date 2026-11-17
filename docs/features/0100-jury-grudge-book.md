@@ -334,3 +334,11 @@ model voices); `src/engine/jury.ts` / `juryConstants.ts`, `src/engine/gossip.ts`
 `src/engine/liveSeason.ts` (`mannerByEvictee` / `edgeAsJuryRel`), `composition/orchestrator.ts`
 (`defaultApply`); `CLAUDE.md` (jury management is a real mechanic; secret ballots; the last-evicted
 juror breaks a tie). **Tracks #882.**
+
+## ORW-582 amendment: calmer jury house, equal fade
+
+A juror's feelings toward every houseguest still in the game ease a small share toward neutral each night
+(`JURY_FADE.baseRate`, kept below the in-house `OVERNIGHT_DRIFT.RATE`), by one rule that never looks at who the
+subject is. The rate is scaled by the juror's own nature (grudge-keeper toward that person, soul volatility, a
+seeded per-juror jitter). Jurors' grudges also ease a little faster than in the house (never to zero, still capped
+at the ease cap). Played games with the jury house on only.
