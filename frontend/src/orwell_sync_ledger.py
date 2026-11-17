@@ -169,12 +169,12 @@ BUMPING_WRITES = frozenset({
 #: classified (a decision was made) and is never counted.
 NON_BUMPING_WRITES = frozenset({
     "recordRoomCanon", "recordNarrationUse", "recordOpenLedger", "resolveOpenLedger", "recordDaySummary", "recordLookExtras", "recordNpcTraits",
-    "recordNpcReflections", "recordHouseCulture", "recordGroupIdentity", "recordWorldSnapshot", "recordCastProfile", "recordCastIdentity",
+    "recordNpcReflections", "recordHouseCulture", "recordGroupIdentity", "recordAllianceName", "recordWorldSnapshot", "recordCastProfile", "recordCastIdentity",
     "recordProducerProfile", "recordCompetitionFiction", "recordOffscreenSceneTexture",
     # admin / sandbox levers and next-season warm-up: not turn-time writes, no beatSeq bump counted
     "configure", "overrideMechanic", "manageSandbox", "setTimeOfDay", "setBehavioralFlags", "preSeedNextSeason",
     # reads that are not in the read cache's PURE_READS
-    "getOffscreenSceneSkeletons", "dayLedger", "openLedgerHere", "groupsAwaitingWords", "recallSceneMemories", "seasonRetrospective", "sealedFromHouse",
+    "getOffscreenSceneSkeletons", "dayLedger", "openLedgerHere", "groupsAwaitingWords", "allianceNameTickets", "recallSceneMemories", "seasonRetrospective", "sealedFromHouse",
     "knowledgeScopeManifest", "producerVault", "premiereIntros", "finaleView", "getPortraitPrompt", "sandboxHealth",
     "inspectNonVaultState", "getBehavioralFlags", "playerTagline", "worldSnapshotView", "endOfSessionSummary", "askProducers",
 })

@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordGroupIdentityReq, RecordGroupIdentityResult, GroupAwaitingWordsView, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordGroupIdentityReq, RecordGroupIdentityResult, GroupAwaitingWordsView, AllianceNameTicketView, RecordAllianceNameReq, RecordAllianceNameResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
@@ -35,7 +35,7 @@ import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/v
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sharedScenes } from "../../engine/bondJealousy";
-import { GRUDGES, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, type GrudgeKind } from "../../engine/grudges";
+import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -52,6 +52,7 @@ import {
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
 import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
+import { issueNightBatch, validateAllianceName, normName, type TraitTable } from "../../engine/allianceNaming";
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
@@ -296,7 +297,7 @@ import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "..
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
 import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
@@ -5628,24 +5629,108 @@ export class GameSessionAdapter implements GameSession {
       if (c.kind === "lied-to-me") note(`c:${c.id}`, holder, c.subject, "lied-to", c.confidence, c.week);
       else if (c.kind === "voted-against-me") note(`c:${c.id}`, holder, c.subject, "vote-against", c.confidence, c.week);
     }
+    this.foldRepairs(seen);
     if (seen.size !== before) live.grudgesSeen = [...seen];
+  }
+
+  /** 0182 PR 2: whether `holder` is a grudge-keeper toward `subject` (the same read `grudgeOf` uses). */
+  private grudgeKeeper(holder: EntityId, subject: EntityId): boolean {
+    const hg = this.house?.npcs.find((n) => n.id === holder);
+    return forgivenessTraitFor(this.live?.npcMemory?.[holder]?.[subject], {
+      ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}),
+      volatility: this.soulObj(holder)?.volatility ?? 0.5,
+      closeness: this.rel.bondStrength(holder, subject),
+    }) === "grudge-keeper";
+  }
+
+  /**
+   * 0182 PR 2: ease ONE directed grudge (wronged `holder` toward `subject`) by a repair of `base`, scaled by the holder's nature and the house's loyalty. The book caps the total (partly, never
+   * fully); the bond record's strain and resentment ease by what the book actually eased (peak and history stay). No rng, no text. Nothing happens without an open row.
+   */
+  private repairGrudge(holder: EntityId, subject: EntityId, base: number): void {
+    const live = this.live;
+    const row = live?.grudges?.[grudgeKey(holder, subject)];
+    if (!live || !row || holder === PLAYER) return;
+    const eased = easeGrudge(row, repairAmount(base, { keeper: this.grudgeKeeper(holder, subject), loyalty: this.cultureMult("loyalty") }));
+    if (eased > 0) foldRepair((live.bonds ??= {}), holder, subject, eased);
+  }
+
+  /**
+   * 0182 PR 2: the repairs, each deduped by a `repair:` mark in `grudgesSeen`: a promise the breaker kept to the wronged; the wrongdoer's own bonding scene with the wronged soon after the wrong
+   * (once per pair and week); a third person both hold a grudge against (once per pair, third and week). Only runs once a grudge exists, so a game with none is byte-identical.
+   */
+  private foldRepairs(seen: Set<string>): void {
+    const live = this.live;
+    if (!live?.grudges || !this.house) return;
+    const mark = (k: string): boolean => { if (seen.has(k)) return false; seen.add(k); return true; };
+    for (const d of this.deals.all) {
+      if (d.status !== "kept" || !mark(`repair:kept:${d.id}`)) continue;
+      const [a, b] = d.parties;
+      this.repairGrudge(a, b, REPAIR.kept);
+      this.repairGrudge(b, a, REPAIR.kept);
+    }
+    const events = this.record?.events() ?? [];
+    const day = live.dayNumber ?? 1;
+    for (let i = live.grudgesCursor ?? 0; i < events.length; i++) {
+      const e = events[i]!;
+      if (e.type !== "bonding" || e.witnessSet.length !== 2) continue;
+      const holder = e.witnessSet.find((x) => x !== e.initiator);
+      if (!holder || holder === PLAYER || !e.witnessSet.includes(e.initiator)) continue;
+      const row = live.grudges[grudgeKey(holder, e.initiator)];
+      if (!row || live.week - row.week > 1 || day - row.day > REPAIR.sceneDays || day < row.day) continue;
+      if (mark(`repair:scene:${holder}|${e.initiator}|${live.week}`)) this.repairGrudge(holder, e.initiator, REPAIR.scene);
+    }
+    live.grudgesCursor = events.length;
+    const evicted = new Set(live.evictionOrder);
+    const byThird = new Map<EntityId, EntityId[]>();
+    for (const k of Object.keys(live.grudges).sort()) {
+      const [h, t] = k.split("|") as [EntityId, EntityId];
+      if (evicted.has(t) || evicted.has(h)) continue;
+      (byThird.get(t) ?? byThird.set(t, []).get(t)!).push(h);
+    }
+    for (const [third, holders] of [...byThird].sort((x, y) => x[0].localeCompare(y[0]))) {
+      for (let i = 0; i < holders.length; i++) for (let j = i + 1; j < holders.length; j++) {
+        const [x, y] = [holders[i]!, holders[j]!];
+        if (mark(`repair:enemy:${x}|${y}|${third}|${live.week}`)) { this.repairGrudge(x, y, REPAIR.enemy); this.repairGrudge(y, x, REPAIR.enemy); }
+      }
+    }
+  }
+
+  /**
+   * 0182 PR 2: the REVENGE read. The grudge book's weight (freshness x severity) is combined with the memory ledger's own salience (a probabilistic-or, never added on top), leaned by the house's
+   * loyalty (deeper) and paranoia (hair-trigger) within 1/1.35..1.35. A repaired grudge reads fainter, so it can drop below the revenge bar and the existing retirement drops the goal. No rng.
+   */
+  private foldBookIntoGrudges(owner: EntityId, grudges: AgendaView["grudges"]): void {
+    // a READ: it never folds (the book is folded overnight and by `grudgeOf`), so reading an agenda never moves the season's state (agendaWiring: pull zeroed == no agendas)
+    const live = this.live;
+    if (!live?.grudges) return;
+    const bound = (x: number): number => Math.min(GRUDGES.MAX_FACTOR, Math.max(1 / GRUDGES.MAX_FACTOR, x));
+    const dial = bound(this.cultureMult("loyalty")) * bound(this.cultureMult("paranoia"));
+    for (const key of Object.keys(live.grudges).sort()) {
+      if (!key.startsWith(`${owner}|`)) continue;
+      const toward = key.slice(owner.length + 1) as EntityId;
+      const row = live.grudges[key]!;
+      const g = this.grudgeOf(owner, toward, false);
+      if (!g) continue;
+      const easedShare = row.peak > 0 ? Math.min(GRUDGES.EASE_CAP, row.eased / row.peak) : 0;
+      const at = grudges.findIndex((x) => x.toward === toward);
+      const memory = at >= 0 ? grudges[at]!.salience * (1 - easedShare) : 0;
+      const sal = combineSalience(memory, g.freshness * g.severity, dial);
+      if (at >= 0) grudges[at] = { ...grudges[at]!, salience: sal };
+      else if (sal > 0) grudges.push({ toward, salience: sal, ref: row.kind });
+    }
   }
 
   /**
    * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
    * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
    */
-  grudgeOf(holder: EntityId, subject: EntityId): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
+  grudgeOf(holder: EntityId, subject: EntityId, fold = true): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
     if (holder === PLAYER) return null;
-    this.foldGrudges();
+    if (fold) this.foldGrudges();
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
-    const hg = this.house?.npcs.find((n) => n.id === holder);
-    const keeper = forgivenessTraitFor(this.live.npcMemory?.[holder]?.[subject], {
-      ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}),
-      volatility: this.soulObj(holder)?.volatility ?? 0.5,
-      closeness: this.rel.bondStrength(holder, subject),
-    }) === "grudge-keeper";
+    const keeper = this.grudgeKeeper(holder, subject);
     const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper });
     return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak };
   }
@@ -10397,6 +10482,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
     return steps;
@@ -11375,12 +11461,85 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-566: store the alliance's name in the house's words, write-once (hidden, engine-only). Only when the name came from the house, i.e. it differs from the stock pick that was drawn. */
   private noteAllianceIdentity(id: string, name: string, founder: EntityId): void {
     const s = this.live;
-    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !s.npcMindsAuthored?.culture) return;
-    const culture = s.npcMindsAuthored.culture;
-    const spot = nicknameOf(culture, this.presence?.get(founder));
-    if (culture.spots.some((x) => x.nickname === name) || culture.rituals.some((r) => r.name === name) || (culture.runningJoke ?? "").startsWith(name)) {
-      noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0 });
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true) return;
+    const culture = s.npcMindsAuthored?.culture;
+    if (culture) {
+      const spot = nicknameOf(culture, this.presence?.get(founder));
+      if (culture.spots.some((x) => x.nickname === name) || culture.rituals.some((r) => r.name === name) || (culture.runningJoke ?? "").startsWith(name)) {
+        noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0 });
+      }
     }
+    // ORW-566 part c2: EVERY NPC alliance gets a secret name at formation: the floor (the name it formed with, already composed from the house's words or the stock table) now, the members' own authored name later through the sealed-prompt door.
+    const have = (s.groupIdentity ??= {})[id] ?? { kind: "alliance" as const, since: this.inGameAbsHour() ?? 0 };
+    s.groupIdentity[id] = { ...have, sealed: { name, floor: name, authored: false } };
+    (s.namePending ??= []).push(id);
+  }
+  /** ORW-566 part c2: the coarse PUBLIC traits one living houseguest carries (the same facets any housemate can read across the room). Engine-side only; the writer never sees whose they are. */
+  private traitTable(): TraitTable {
+    const table = new Map<EntityId, string[]>();
+    const chars = new Map<EntityId, { archetype?: string; strategyStyle?: string; demeanor?: string; age?: number; hometown?: string; vocation?: string }>();
+    for (const n of this.house?.npcs ?? []) chars.set(n.id, n.character as never);
+    const pc = (this.house?.player as { character?: unknown } | undefined)?.character;
+    if (pc && this.house) chars.set(this.house.player.id, pc as never);
+    for (const id of this.livingIds()) {
+      const c = chars.get(id);
+      if (!c) continue;
+      const t: string[] = [];
+      if (c.archetype) t.push(`archetype: ${c.archetype}`);
+      if (c.strategyStyle) t.push(`plays the game as: ${c.strategyStyle}`);
+      if (c.demeanor) t.push(`demeanor: ${c.demeanor}`);
+      if (typeof c.age === "number") t.push(`age: in their ${Math.floor(c.age / 10) * 10}s`);
+      const state = c.hometown?.split(",").pop()?.trim();
+      if (state) t.push(`from the state or region: ${state}`);
+      if (c.vocation) t.push(`work: ${c.vocation}`);
+      table.set(id, t);
+    }
+    return table;
+  }
+  /** ORW-566 part c2: once per in-game night, issue the FIXED-SIZE batch (real tickets padded with decoys) and let last night's unanswered ones lapse. Keyed hashing only: no shared rng, so a seeded game stays byte-identical. */
+  private issueNameTickets(): void {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !this.house) return;
+    const night = s.dayNumber ?? s.week;
+    if (s.nameNight === night) return;
+    s.nameNight = night;
+    s.namePending = (s.namePending ?? []).filter((id) => this.alliances.byId(id) !== undefined && s.groupIdentity?.[id]?.sealed?.authored === false);
+    s.nameTickets = issueNightBatch({
+      seed: this.gameSeed ?? 0, night,
+      pending: s.namePending.map((id) => ({ id, members: this.alliances.byId(id)!.members })),
+      table: this.traitTable(), culture: s.npcMindsAuthored?.culture,
+    });
+  }
+  /** ORW-566 part c2: tonight's unanswered sealed-prompt tickets: `{ticket, prompt}` only, in ticket order (which is a keyed hash, so it says nothing). */
+  allianceNameTickets(): AllianceNameTicketView[] {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !this.house) return [];
+    return Object.entries(s.nameTickets ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([ticket, t]) => ({ ticket, prompt: t.prompt }));
+  }
+  /** ORW-566 part c2: answer one ticket. Single-use; a bare `{accepted:true}` for a real, a decoy and a refused name alike (a decoy's name is discarded; a refused real name leaves the floor); `{accepted:false}` only for a ticket the engine does not hold. */
+  recordAllianceName(req: RecordAllianceNameReq): RecordAllianceNameResult {
+    const s = this.live;
+    const key = typeof req?.ticket === "string" ? req.ticket : "";
+    const t = s?.nameTickets?.[key];
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !this.house || !t) return { accepted: false };
+    delete s.nameTickets![key];
+    const id = t.kind === "real" ? t.allianceId : undefined;
+    const entry = id ? s.groupIdentity?.[id] : undefined;
+    if (id && entry?.sealed && !entry.sealed.authored && this.alliances.byId(id)) {
+      s.namePending = (s.namePending ?? []).filter((x) => x !== id); // consumed: a refused name falls back to the floor for good
+      const peopleWords = new Set([PLAYER, ...this.house.npcs.map((n) => n.id)].flatMap((x) => this.nameOf(x).toLowerCase().split(/\s+/)).filter((w) => w.length > 2 && w !== "the"));
+      const takenNorm = new Set<string>((this.worldAvoid.allianceNames ?? []).map(normName));
+      for (const a of this.alliances.all()) {
+        if (a.id === id) continue;
+        takenNorm.add(normName(a.name));
+        const other = s.groupIdentity?.[a.id]?.sealed?.name;
+        if (other) takenNorm.add(normName(other));
+      }
+      const name = validateAllianceName(req.name, { peopleWords, takenNorm });
+      if (name) entry.sealed = { ...entry.sealed, name, authored: true };
+    }
+    this.backgroundPersist();
+    return { accepted: true };
   }
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
@@ -12225,6 +12384,7 @@ export class GameSessionAdapter implements GameSession {
       const top = entries.filter((e) => kinds.has(e.kind)).sort((a, b) => b.severity - a.severity || a.kind.localeCompare(b.kind))[0]!;
       grudges.push({ toward, salience: sal, ref: top.kind });
     }
+    if (this.grudgesOn() && owner !== PLAYER) this.foldBookIntoGrudges(owner, grudges);
     const mates = new Set<EntityId>();
     for (const a of this.alliances.forMember(owner)) for (const m of a.members) if (m !== owner) mates.add(m);
     const tie = this.seededRels.ties.find((t) => t.a === owner || t.b === owner);

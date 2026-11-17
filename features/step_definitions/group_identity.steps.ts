@@ -95,3 +95,49 @@ Then("no player or admin view shows a habit, a spot key or a group identity", as
   const blob = JSON.stringify(surfaces);
   for (const k of ["groupIdentity", "pairHabits", "lastCeremonyAbsHour", '"habit"', key!]) assert.ok(!blob.includes(k), `a live surface carries ${k}`);
 });
+
+// ---- Part c2 (ORW-566): formation-time alliance naming through the anonymized sealed-prompt door ----
+type Priv2 = Omit<Priv, "live"> & { live: { dayNumber?: number; week: number; groupIdentity?: Record<string, { sealed?: { name: string; floor: string; authored: boolean } }> }; noteAllianceIdentity(id: string, n: string, f: string): void };
+const addAlliance = (p: Priv2, n: string, f: string, m: string[]): { id: string; name: string } => p.alliances.add(n, f, m, 1) as { id: string; name: string };
+function night(s: GameSessionAdapter, p: Priv2): void { p.live.dayNumber = (p.live.dayNumber ?? p.live.week) + 1; s.settleOvernight(1); }
+Given("an alliance of houseguests has formed in a played game", function () {
+  const g = stage(7, undefined, true, false);
+  const p = g.p as unknown as Priv2;
+  const al = addAlliance(p, "Stock Pact", g.a, [g.a, g.b]);
+  p.noteAllianceIdentity(al.id, al.name, g.a);
+  Object.assign(bag(this), { s: g.s, sb: g.sb, p: g.p, key: al.id });
+});
+Then("it holds a floor name from the moment it formed", function () {
+  const p = bag(this).p as unknown as Priv2;
+  assert.deepEqual(p.live.groupIdentity![bag(this).key!]!.sealed, { name: "Stock Pact", floor: "Stock Pact", authored: false });
+});
+Then("a name the members author later replaces the floor once and shows up in no player or admin view", async function () {
+  const { s, key } = bag(this);
+  const p = bag(this).p as unknown as Priv2;
+  night(s!, p);
+  const t = Object.entries((p.live as unknown as { nameTickets: Record<string, { kind: string; allianceId?: string }> }).nameTickets).find(([, x]) => x.kind === "real" && x.allianceId === key)![0];
+  assert.deepEqual(s!.recordAllianceName({ ticket: t, name: "Zzsentinel Lanterns" }), { accepted: true });
+  assert.equal(p.live.groupIdentity![key!]!.sealed!.name, "Zzsentinel Lanterns");
+  assert.deepEqual(s!.recordAllianceName({ ticket: t, name: "Again" }), { accepted: false });
+  const seen = JSON.stringify([s!.allianceNameTickets(), s!.groupsAwaitingWords(), await bag(this).sb!.mcp.player.callTool("getGameState", {})]);
+  assert.ok(!seen.includes("entinel"));
+});
+Given("one night with no new alliance and one night with a new alliance", function () {
+  const shapes: string[] = [];
+  for (const formed of [false, true]) {
+    const g = stage(7, undefined, true, false);
+    const p = g.p as unknown as Priv2;
+    if (formed) { const al = addAlliance(p, "Stock Pact", g.a, [g.a, g.b]); p.noteAllianceIdentity(al.id, al.name, g.a); }
+    night(g.s, p);
+    const out = g.s.allianceNameTickets();
+    shapes.push(JSON.stringify(out.map((o) => [Object.keys(o).join(","), o.prompt.split("\n").length, (JSON.parse(o.prompt.split("\n")[1]!) as { sharedTraits: string[] }).sharedTraits.length])));
+    if (!formed) bag(this).blob = JSON.stringify(out);
+    else bag(this).blob += JSON.stringify(out) + `|${g.a}|${g.b}`;
+  }
+  bag(this).counts = { same: shapes[0] === shapes[1] ? 1 : 0 };
+});
+Then("both nights hand the writer the same number of tickets with the same shape", function () { assert.equal(bag(this).counts!["same"], 1); });
+Then("no ticket names a member, a count, a room or a day", function () {
+  const [blob, a, b] = bag(this).blob!.split("|");
+  assert.ok(!blob!.includes(a!) && !blob!.includes(b!) && !/alliance|room|day \d|week \d/i.test(blob!.split("\\n").filter((_, i) => i % 2 === 1).join(" ")));
+});
