@@ -278,6 +278,7 @@ import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
+import { pairBondMult } from "../../engine/homophily";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
@@ -6113,12 +6114,25 @@ export class GameSessionAdapter implements GameSession {
    * flag is on AND the clock is running ⇒ the hidden society + its seeded calibration spine are BYTE-
    * IDENTICAL; the asymmetric fold fires only on the live clock-ON game. Pure — no rng, no number crosses.
    */
-  socialFoldValence(id: EntityId): { warm: number; sore: number } {
+  socialFoldValence(id: EntityId, holder?: EntityId, about?: EntityId): { warm: number; sore: number } {
     // ORW-551 slice 3: the house culture's bonding dial scales how fast bonds form (warming folds x b) and how hard slights land (souring folds / b), on top of the fatigue valence. b === 1 (no culture) leaves the valence untouched.
     const b = this.cultureMult("bonding");
     let v = { warm: 1, sore: 1 };
     if (this.socialFatigueEnabled) { const deficit = this.restDeficitOf(id); v = { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) }; }
-    return b === 1 ? v : { warm: v.warm * b, sore: v.sore / b };
+    // ORW-561 / spec 0176 (homophily): when the call names the edge's two ends, a pair who are alike bond faster and sour slower, an unlike pair the reverse (a pure magnitude; engine-only).
+    const m = this.pairHomophilyMult(holder, about);
+    const k = b * m;
+    return k === 1 ? v : { warm: v.warm * k, sore: v.sore / k };
+  }
+
+  /** ORW-561 / spec 0176 (slice 10, part 1): like attracts like. `ORWELL_HOMOPHILY=0` opts out. Applies only in a played game (`live.playedGame`), so headless calibration is byte-identical. */
+  private homophilyEnabled = flagDefaultOn("ORWELL_HOMOPHILY");
+  setHomophilyEnabled(on: boolean): void { this.homophilyEnabled = on; }
+  private pairHomophilyMult(a?: EntityId, b?: EntityId): number {
+    if (!this.homophilyEnabled || !a || !b || a === b || this.live?.playedGame !== true || !this.house) return 1;
+    const facets = (id: EntityId) => (id === PLAYER ? this.house!.player : this.house!.npcs.find((n) => n.id === id))?.character;
+    const ca = facets(a), cb = facets(b);
+    return ca && cb ? pairBondMult(ca, cb) : 1;
   }
 
   /** The hidden rest deficit (0..1) a houseguest carries TODAY: tonight's immediate deficit (graded by how

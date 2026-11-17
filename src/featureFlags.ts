@@ -139,6 +139,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HOUSE_MEETINGS', key: 'houseMeetings', parser: 'defaultOn' },
   // 0168 / ORW-551 (house culture slice 1): a played season draws a loose seeded blend of a few culture leans, stored engine-only; nothing reads it yet, so no dial moves. `=0` opts out.
   { envKey: 'ORWELL_HOUSE_CULTURE', key: 'houseCulture', parser: 'defaultOn' },
+  // 0176 / ORW-561 (theme 3 slice 10, part 1): homophily - houseguests who are alike (look, age, region, job, temperament) bond a little faster and sour slower, a mismatched pair the reverse. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },

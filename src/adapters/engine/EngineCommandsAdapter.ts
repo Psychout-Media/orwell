@@ -10,7 +10,7 @@ import { SeededRandom } from "../random/SeededRandom";
 import type { RelationshipModel, InteractionType } from "../../engine/relationships";
 import {
   foldHiddenImpact, foldGenerativeConsequence, foldThirdPartyConsequence, foldPlayerReciprocal,
-  NO_FATIGUE, type FatigueValence,
+  NO_FATIGUE, type FatigueValence, type ValenceSource,
 } from "../../engine/consequence";
 import { rollOverhears } from "../../engine/presence";
 import { PRESENCE } from "../../engine/presenceConstants";
@@ -95,7 +95,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    * off-screen fold): a tired initiator's WARMING folds land softer, their SOURING folds cut deeper.
    * Wired from the session's rest deficit; unset / rested / clock-off ⇒ `NO_FATIGUE` ⇒ byte-identical.
    */
-  private fatigueValence?: (id: EntityId) => FatigueValence;
+  private fatigueValence?: (id: EntityId, holder?: EntityId, about?: EntityId) => FatigueValence;
   /**
    * #1318 — invoked with the NPC partners of each recorded player↔NPC scene, so the session can register
    * them as genuine premiere HOT reads (the asymmetric first-power gate unlocks on real engagement, not on
@@ -239,7 +239,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    * the social-fatigue extension is on, AND the initiator carries a rest deficit — so an unwired /
    * clock-off / rested game is byte-identical to the pre-#1419 fold.
    */
-  setFatigueValence(fn: (id: EntityId) => FatigueValence): void {
+  setFatigueValence(fn: (id: EntityId, holder?: EntityId, about?: EntityId) => FatigueValence): void {
     this.fatigueValence = fn;
   }
 
@@ -449,7 +449,9 @@ export class EngineCommandsAdapter implements EngineCommands {
     // initiator carries a rest deficit — so a clock-off / rested game is byte-identical. Applies to the
     // partner / generative / third-party folds (the actor's outgoing sway), NOT the reciprocal player→NPC
     // read (the player's own feeling) or a bystander's own-belief observation.
-    const fatigue: FatigueValence = this.fatigueValence?.(req.initiator) ?? NO_FATIGUE;
+    // ORW-561 (spec 0176): the valence is now asked PER EDGE (holder, about) so homophily can scale a pair's fold by how alike the two are; the fatigue part still reads the initiator.
+    const fv = this.fatigueValence;
+    const fatigue: ValenceSource = fv ? (holder, about) => fv(req.initiator, holder, about) : NO_FATIGUE;
     const genEdges = req.consequence?.edges?.filter((e) => isLiving(e.toward));
     if (this.rel && (genEdges?.length || (req.kind && INTERACTION_KINDS.has(req.kind)))) {
       this.rollBeatWindow();
