@@ -1720,7 +1720,7 @@ export class GameSessionAdapter implements GameSession {
       } else if (told.object !== undefined) {
         // ORW-594 (Fable T2-13): a believed keep of someone the listener liked earns the speaker a little trust; recorded on the belief, so a caught lie takes it back
         const credit = keepCredit(this.rel.edge(told.listener, told.object).affinity);
-        const belief = (live.beliefs?.[told.listener] ?? []).find((b) => b.id.endsWith(`|${told.id}`) && !b.refuted);
+        const belief = (live.beliefs?.[told.listener] ?? []).find((b) => plantedBy(b, told.id) && !b.refuted);
         if (credit > 0 && belief && !belief.impact) {
           const e = this.rel.edge(told.listener, speaker);
           const before = { trust: e.trust, affinity: e.affinity };
