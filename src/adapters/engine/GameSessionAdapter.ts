@@ -352,6 +352,7 @@ import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { sameMoment } from "../../engine/claimMoment";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -1505,7 +1506,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0154 trigger 3: a claim just told that cannot be true beside one the same speaker already told the same listener: the listener caught the lie (both planted beliefs are taken back; they cannot know which was false). */
   private catchContradiction(told: SpokenClaim): void {
     if (!this.liesCaughtWriting || !this.live?.claims || told.listener === PLAYER) return;
-    const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told));
+    const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told) && sameMoment(c, told)); // ORW-592: an honest change of position over time is no lie
     if (prior.length === 0) return;
     const held = (id: string): boolean => (this.live!.beliefs?.[told.listener] ?? []).some((b) => b.id.endsWith(`|${id}`) && !b.refuted);
     if (!prior.some((c) => held(c.id)) && !held(told.id)) return;   // already caught: never write the same lie twice
