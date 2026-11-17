@@ -86,6 +86,17 @@ function claimOf(c: string, people: ReadonlyArray<{ id: EntityId; names: readonl
     if (/\b(?:about|on)\s+me\b|behind my back/.test(after) && !second) return { kind: "talking-about", subject: first.id, object: PLAYER };
     return second ? { kind: "talking-about", subject: first.id, object: second.id } : null;
   }
+  // ORW-560: a broken word is a lie - "X told two people they were safe and then nominated them anyway", "X promised me safety and put me up", "X broke her word",
+  // "X went back on the deal", "X is a liar", "X betrayed / backstabbed / double-crossed Y". Said about named people (the second name) or about "me".
+  const PROMISED = /^\s*(?:and\s+\S+\s+)?(?:told|promised|swore|assured|gave)\b.*\b(?:safe|safety|protect|protected|keep (?:me|us|them|him|her) off|off the block|not (?:put|nominate|vote))\b.*\b(?:nominated|nominate|put (?:me|us|them|him|her|\S+) (?:up|on the block)|backdoored|voted (?:out|against|to evict)|evicted|turned on)\b/;
+  const BROKE = /^\s*(?:and\s+\S+\s+)?(?:has |have )?(?:broke|broken|went back on|gone back on|reneged on)\s+(?:her|his|their|a|the|our|my)\s+(?:word|promise|deal)\b/;
+  const LIAR = /^\s*(?:is|'s|was)\s+(?:a|such a|a total|a complete)\s+(?:liar|snake|backstabber|traitor|fraud)\b/;
+  const BETRAYED = /^\s*(?:and\s+\S+\s+)?(?:betrayed|backstabbed|back stabbed|double crossed|double-crossed|sold out|screwed over|stabbed)\b/;
+  if (PROMISED.test(after) || BROKE.test(after) || LIAR.test(after) || BETRAYED.test(after)) {
+    if (second) return { kind: "lying-about", subject: first.id, object: second.id };
+    if (/\b(?:me|myself)\b/.test(after)) return { kind: "lying-about", subject: first.id, object: PLAYER };
+    return { kind: "lying-about", subject: first.id };
+  }
   // lying
   if (/^\s*(?:is|has been|have been|was|'s|are)?\s*(?:lying|been lying|lied)\b/.test(after)) {
     if (/\bto\s+(?:me|myself)\b/.test(after) && !second) return { kind: "lying-about", subject: first.id, object: PLAYER };
