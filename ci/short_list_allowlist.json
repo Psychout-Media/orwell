@@ -189,21 +189,11 @@
   {
    "path": "frontend/routes/chat_helpers.py",
    "kind": "list",
-   "name": "_CONFESSION_DEFLECTIONS",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "transitional": "PR 2843 (replaced by composed floors)"
-  },
-  {
-   "path": "frontend/routes/chat_helpers.py",
-   "kind": "list",
    "name": "_CONFESSION_DEFLECTION_CLASSICS",
    "max": 1,
    "owner": "ORW-509",
    "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "transitional": "PR 2843",
-   "decision": "classic deflection lines kept first by PR 2843: a post-narration safety net, no model call runs at that moment; narrator rule belongs to ORW-510"
+   "decision": "authored triple kept first under 395 composed deflections: this is a post-stream screen that replaces an invented confession line, no model call runs at that moment, so the composed set is the live line; it is the floor by necessity, picked by a hash of the replaced line"
   },
   {
    "path": "frontend/routes/chat_routes.py",
@@ -1753,8 +1743,7 @@
    "max": 1,
    "owner": "ORW-511",
    "reason": "closed by design: the 13 real room ids of the floor plan, a fact of the map the engine validates",
-   "transitional": "PR 2843",
-   "decision": "closed by design: room ids are facts of the floor plan (the engine rejects any other id), dealt only to place a person; no prose to author"
+   "decision": "closed by design: the 13 room ids are floor-plan facts the engine rejects any other id for; the player-facing room NAMES and looks are authored per season at setup (orwell_house_authoring.py) and read by acceptHouseThemeDraft"
   },
   {
    "path": "src/domain/traitConsistency.ts",
@@ -1763,65 +1752,6 @@
    "max": 1,
    "owner": "ORW-508",
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
-  },
-  {
-   "path": "src/engine/alliances.ts",
-   "kind": "list",
-   "name": "ALLIANCE_COLLECTIVES",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record",
-   "transitional": "PR 2843"
-  },
-  {
-   "path": "src/engine/alliances.ts",
-   "kind": "list",
-   "name": "ALLIANCE_NAMES",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "transitional": "PR 2843 (replaced by composed floors)"
-  },
-  {
-   "path": "src/engine/alliances.ts",
-   "kind": "list",
-   "name": "ALLIANCE_NUMBERS",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "transitional": "PR 2843",
-   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record"
-  },
-  {
-   "path": "src/engine/alliances.ts",
-   "kind": "list",
-   "name": "ALLIANCE_NUMBER_NOUNS",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "transitional": "PR 2843",
-   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record"
-  },
-  {
-   "path": "src/engine/alliances.ts",
-   "kind": "list",
-   "name": "ALLIANCE_PLACES",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "transitional": "PR 2843",
-   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record"
-  },
-  {
-   "path": "src/engine/alliances.ts",
-   "kind": "list",
-   "name": "ALLIANCE_QUALITIES",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these",
-   "decision": "composed component of the alliance-name floor (PR 2843): the narrator voices the alliance pitch but the name is engine-dealt; whether a writer-supplied name validated by the engine replaces it is ORW-509's decision to record",
-   "transitional": "PR 2843"
   },
   {
    "path": "src/engine/bedClaims.ts",
@@ -1962,8 +1892,7 @@
    "max": 1,
    "owner": "ORW-511",
    "reason": "unassigned at seed time: needs a reviewer",
-   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
-   "transitional": "PR 2843"
+   "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
    "path": "src/engine/competitionThemes.ts",
@@ -1972,8 +1901,7 @@
    "max": 1,
    "owner": "ORW-511",
    "reason": "unassigned at seed time: needs a reviewer",
-   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
-   "transitional": "PR 2843"
+   "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
    "path": "src/engine/competitionThemes.ts",
@@ -1982,8 +1910,7 @@
    "max": 1,
    "owner": "ORW-511",
    "reason": "unassigned at seed time: needs a reviewer",
-   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
-   "transitional": "PR 2843"
+   "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
    "path": "src/engine/competitionThemes.ts",
@@ -1992,8 +1919,7 @@
    "max": 1,
    "owner": "ORW-511",
    "reason": "unassigned at seed time: needs a reviewer",
-   "decision": "composed component of the competition-world floor (PR 2843): the per-competition writer call exists (orwell_gen_competitions.py), so this is the offline floor and engine skin; ORW-509 records the remaining live-authoring decision",
-   "transitional": "PR 2843"
+   "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
    "path": "src/engine/confessionalConstants.ts",
@@ -2059,8 +1985,7 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "composed curiosity-needle floor (PR 2843)",
-   "decision": "composed needle floor (PR 2843): the live path is the producer instruction (momentPrompts.ts:653) and curiosityNeedle has no production caller, so this floor reaches no player",
-   "transitional": "PR 2843"
+   "decision": "offline floor only: the live needle is voiced by the producer from CURIOSITY_NEEDLE_INSTRUCTION; composedCuriosityNeedle has no production caller, so this reaches no player"
   },
   {
    "path": "src/engine/curiosityNeedleComposed.ts",
@@ -2069,8 +1994,7 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "composed curiosity-needle floor (PR 2843)",
-   "decision": "composed needle floor (PR 2843): the live path is the producer instruction (momentPrompts.ts:653) and curiosityNeedle has no production caller, so this floor reaches no player",
-   "transitional": "PR 2843"
+   "decision": "offline floor only: the live needle is voiced by the producer from CURIOSITY_NEEDLE_INSTRUCTION; composedCuriosityNeedle has no production caller, so this reaches no player"
   },
   {
    "path": "src/engine/data/anchorWords.ts",
@@ -2079,8 +2003,7 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "random-anchor word list added by PR 2843",
-   "transitional": "PR 2843",
-   "decision": "(a) YES this is the anchor half of the rule: two words are dealt per moment on a side stream and handed to the narrator, which authors the detail live; a 182-word entropy source is the right shape for an anchor list"
+   "decision": "the anchor half of the rule, not a menu: two words per moment are dealt on a side stream keyed on the season seed and day and handed to the narrator (flavourSeed) as a random starting point; the narrator authors the detail live, so a 182-word entropy source is the right shape"
   },
   {
    "path": "src/engine/data/givenNames.ts",
@@ -2450,8 +2373,7 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "decision": "composed component of the house-event floor (PR 2843): the narrator voices the recorded line; handing it the line as a seed with recent lines is ORW-509's decision to record",
-   "transitional": "PR 2843"
+   "decision": "offline floor under live authoring: when today's house event is recorded the status carries flavourSeed (two random anchors plus the lines already used this season and last) and the turn's narrator authors this cast's own version in the call that already runs; these axes only compose the recorded seed line"
   },
   {
    "path": "src/engine/houseEvents.ts",
@@ -2460,17 +2382,7 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "decision": "composed component of the house-event floor (PR 2843): the narrator voices the recorded line; handing it the line as a seed with recent lines is ORW-509's decision to record",
-   "transitional": "PR 2843"
-  },
-  {
-   "path": "src/engine/houseEvents.ts",
-   "kind": "list",
-   "name": "HOUSE_EVENT_POOL",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "transitional": "PR 2843 (replaced by composed floors)"
+   "decision": "offline floor under live authoring: when today's house event is recorded the status carries flavourSeed (two random anchors plus the lines already used this season and last) and the turn's narrator authors this cast's own version in the call that already runs; these axes only compose the recorded seed line"
   },
   {
    "path": "src/engine/houseLeans.ts",
@@ -2618,42 +2530,6 @@
    "max": 1,
    "owner": "ORW-508",
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
-  },
-  {
-   "path": "src/engine/triggers.ts",
-   "kind": "list",
-   "name": "ERUPTION_POOLS.blow-up",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "transitional": "PR 2843 (widens this pool)"
-  },
-  {
-   "path": "src/engine/triggers.ts",
-   "kind": "list",
-   "name": "ERUPTION_POOLS.mask-slips",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "transitional": "PR 2843 (widens this pool)"
-  },
-  {
-   "path": "src/engine/triggers.ts",
-   "kind": "list",
-   "name": "ERUPTION_POOLS.meltdown",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "transitional": "PR 2843 (widens this pool)"
-  },
-  {
-   "path": "src/engine/triggers.ts",
-   "kind": "list",
-   "name": "ERUPTION_POOLS.showmance-detonation",
-   "max": 1,
-   "owner": "ORW-509",
-   "reason": "world-side stock lines (confessional fallbacks, house events, eruptions, wipeout styles, snapshot flavour); ORW-509 composes or authors them",
-   "transitional": "PR 2843 (widens this pool)"
   },
   {
    "path": "src/engine/voice.ts",

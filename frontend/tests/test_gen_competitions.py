@@ -299,3 +299,12 @@ def test_kickoff_fiction_authors_when_not_yet_authored(monkeypatch):
     G._IN_FLIGHT.clear()
     _drive_kickoff("u2")
     assert ran["n"] == 1  # authored exactly once
+
+
+def test_prompt_lists_already_used_themes_and_frames_the_library_as_a_spark():
+    # ORW-509: the writer is told what this season and the last already used (no extra call); the library skin is a spark to depart from, not a menu.
+    staging = dict(_STAGING, recentThemes=["Haunted Trivia", "Frontier Challenge"])
+    user = G._synthesis_messages(staging)[1]["content"]
+    assert "Already used" in user and "Haunted Trivia" in user and "Frontier Challenge" in user
+    assert "DEPART" in user
+    assert "Already used" not in G._synthesis_messages(_STAGING)[1]["content"]

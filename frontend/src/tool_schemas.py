@@ -1673,6 +1673,7 @@ FUNCTION_TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {
                     "allianceId": {"type": "string", "description": "The id of the alliance the player was pitched (from gameStatus.alliancePitches)."},
+                    "name": {"type": "string", "description": "Optional. The name THIS group would give itself, invented from who they are and how they came together (never a houseguest's name, not one already in use). The engine accepts it only under its naming rules; otherwise its own name stands."},
                 },
                 "required": ["allianceId"],
             },

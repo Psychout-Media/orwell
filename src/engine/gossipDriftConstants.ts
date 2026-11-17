@@ -94,15 +94,26 @@ export function escalationBias(voice: VoiceProfile): number {
  * draw COUNT / POSITION is unchanged. PUBLIC phrasing only — no fact, no hidden state.
  */
 export const HEDGE_POOLS = {
-  /** The pre-feature pool — the OFF / no-voice default (byte-identical to today's `distort`). */
-  base: ["roughly", "or so I heard", "supposedly", "more or less", "the way I heard it"],
-  /** Dramatic / high-energy — embellished, certain-sounding. */
-  embellished: ["I swear", "no joke", "hand to God", "I couldn't make it up", "for real for real"],
-  /** Blunt / curt — flat, clipped. */
-  curt: ["flat out", "straight up", "no question", "period", "that's it"],
-  /** Strategic / evasive — hedged, non-committal (ambiguity). */
-  evasive: ["or so they say", "don't quote me", "allegedly", "if you believe it", "the way it's told"],
+  /** The pre-feature pool (kept first) - the OFF / no-voice default. ORW-509: widened by composition, authored classics first. */
+  base: hedgeWiden(["roughly", "or so I heard", "supposedly", "more or less", "the way I heard it"], ["give or take", "as far as I know", "from what I gather", "if memory serves", "I think", "I believe", "apparently", "so it goes", "near enough", "as I understood it"], ["", "at least", "anyway", "I guess"]),
+  /** Dramatic / high-energy - embellished, certain-sounding. */
+  embellished: hedgeWiden(["I swear", "no joke", "hand to God", "I couldn't make it up", "for real for real"], ["cross my heart", "on my life", "I kid you not", "believe me", "I was there", "honest to goodness", "word for word", "take my word for it"], ["", "I swear", "seriously", "no exaggeration"]),
+  /** Blunt / curt - flat, clipped. */
+  curt: hedgeWiden(["flat out", "straight up", "no question", "period", "that's it"], ["bluntly", "no spin", "plain as day", "end of story", "full stop", "simple as that", "make no mistake", "dead certain"], ["", "got it", "that's all", "fact"]),
+  /** Strategic / evasive - hedged, non-committal (ambiguity). */
+  evasive: hedgeWiden(["or so they say", "don't quote me", "allegedly", "if you believe it", "the way it's told"], ["who can say", "take it for what it's worth", "I couldn't swear to it", "so the story goes", "nobody will confirm it", "or so the rumor runs", "one hears things", "I'm only repeating it"], ["", "mind you", "of course", "for what it's worth"]),
 } as const;
+
+/** The authored hedges first (so the old picks stay reachable), then head x tail compositions. A hedge never carries "·" or "#": the display strip reads `· phrase#digits`. */
+function hedgeWiden(authored: string[], heads: string[], tails: string[]): readonly string[] {
+  const out = [...authored];
+  const tailsAll = [...tails, "if I'm honest", "from what I saw", "as it goes", "on balance", "I'd say"];
+  for (const h of heads) for (const t of tailsAll) {
+    const phrase = t ? `${h}, ${t}` : h;
+    if (!out.includes(phrase)) out.push(phrase);
+  }
+  return out;
+}
 
 /**
  * Choose the reteller's hedge pool from their PUBLIC voice — the phrasing texture of THIS mouth. Priority:

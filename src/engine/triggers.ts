@@ -1,3 +1,4 @@
+import { composeAll } from "./data/composedFloor";
 /**
  * TRIGGER SECRETS & HOUSE-EVENT ERUPTIONS (feature 0091) — the pure engine layer.
  *
@@ -103,7 +104,14 @@ export function shouldFire(
  * it was caused by a buried temper. Same shape as `HOUSE_EVENT_POOL` (the narrator attaches the people in
  * its own voice from the public board). Two+ lines per kind so the anti-repeat selector has a choice.
  */
-export const ERUPTION_POOLS: Record<EruptionKind, readonly string[]> = {
+const ERUPTION_PARTS: Record<EruptionKind, { cores: string[]; closers: string[] }> = {
+  "blow-up": { cores: ["An old grievance boils over into a shouting match", "A tense afternoon snaps into a heated argument", "A quarrel over something small spirals into a real fight", "Two houseguests finally say out loud what they have been thinking", "A sharp word in the hallway turns into a full confrontation", "A long-avoided conversation goes off the rails"], closers: ["that clears the room.", "that the whole house stops to watch.", "and nobody steps in.", "that carries through the walls.", "and the silence afterward is worse.", "and the house takes sides without meaning to."] },
+  "showmance-detonation": { cores: ["A showmance cracks in front of everyone", "A couple's private tension goes public", "A flirtation turns sour mid-conversation", "Two people who have been inseparable have a very visible falling-out", "A romantic rift opens at the worst possible moment", "A whispered argument between a pair gets loud"], closers: ["and the fallout splits the room.", "and everyone pretends not to listen.", "at the dinner table.", "and the rest of the house goes quiet.", "and one of them storms out.", "and it is the only thing anyone talks about all night."] },
+  "mask-slips": { cores: ["A houseguest who has played it cool finally lets the mask slip", "A carefully kept composure cracks", "An easy smile drops for a moment", "A practiced calm gives way to something rawer", "A houseguest says one thing too many", "A polished act slips for a second"], closers: ["and everyone notices.", "and the room sees a side no one expected.", "and the whole house clocks it.", "and it is not quite taken back.", "and a few glances are traded across the room.", "and the moment lingers."] },
+  meltdown: { cores: ["The pressure of the week breaks one houseguest into a public meltdown", "A houseguest comes apart over a trivial slight", "The week's strain cracks someone open in the middle of the kitchen", "A small frustration tips a houseguest over the edge", "A houseguest who has held it together all week finally does not", "A quiet houseguest dissolves into tears over something minor"], closers: ["and the room goes quiet around them.", "and others rush in to calm it.", "and nobody knows where to look.", "and it takes a long time to settle.", "and the whole house hears it.", "and it is clearly about more than the thing itself."] },
+};
+const widenEruption = (authored: readonly string[], k: EruptionKind): readonly string[] => [...authored, ...composeAll([ERUPTION_PARTS[k].cores, ERUPTION_PARTS[k].closers], (p) => `${p[0]} ${p[1]}`).filter((l) => !authored.includes(l))];
+const ERUPTION_AUTHORED: Record<EruptionKind, readonly string[]> = {
   "blow-up": [
     "A simmering grudge finally boils over into a shouting match that empties the room.",
     "A long-swallowed resentment erupts into a screaming match at the kitchen counter.",
@@ -124,6 +132,13 @@ export const ERUPTION_POOLS: Record<EruptionKind, readonly string[]> = {
     "A houseguest comes apart over a trivial slight, and the room goes quiet around them.",
     "The week's strain finally cracks someone open in the middle of the kitchen.",
   ],
+};
+/** ORW-509: the authored lines first, then core x closer compositions (one `rng.next()` draw, as before; the narrator voices it as a seed). */
+export const ERUPTION_POOLS: Record<EruptionKind, readonly string[]> = {
+  "blow-up": widenEruption(ERUPTION_AUTHORED["blow-up"], "blow-up"),
+  "showmance-detonation": widenEruption(ERUPTION_AUTHORED["showmance-detonation"], "showmance-detonation"),
+  "mask-slips": widenEruption(ERUPTION_AUTHORED["mask-slips"], "mask-slips"),
+  meltdown: widenEruption(ERUPTION_AUTHORED.meltdown, "meltdown"),
 };
 
 export interface EruptionEventOpts {

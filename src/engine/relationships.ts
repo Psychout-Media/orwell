@@ -148,6 +148,17 @@ export class RelationshipModel {
   }
 
   /** The stored (mutable) directed edge A→B, lazily created at baseline. */
+  /** Theme 3 (bonds.ts): the edge WITHOUT creating it - an unknown pair reads as a fresh baseline copy, and nothing is stored. Read-only consumers use this. */
+  peek(a: EntityId, b: EntityId): Readonly<EdgeSignals> {
+    return this.edges.get(this.key(a, b)) ?? baseline(this.constants);
+  }
+
+  /** `bondStrength` without creating either edge (see `peek`). */
+  peekBondStrength(a: EntityId, b: EntityId): number {
+    const e = this.peek(a, b);
+    return (e.trust + e.affinity) / 2 + this.constants.RELIABILITY_WEIGHT * (e.reliability - this.constants.baseline.reliability);
+  }
+
   edge(a: EntityId, b: EntityId): EdgeSignals {
     const k = this.key(a, b);
     let e = this.edges.get(k);
