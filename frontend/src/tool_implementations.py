@@ -6105,9 +6105,17 @@ async def do_confide(content: str, owner: Optional[str] = None) -> Dict:
     try:
         res = await orwell_engine.confide(npc_id, user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt the post-commit beatSeq the engine echoes (no stale-beat 409 on the next call this turn)
+        res = _strip_confide_truth(res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+def _strip_confide_truth(res):
+    """ORW-584 (Vault Wall): whether a confidence was true or a lie must never reach the narrator. The engine already omits it; this drops it again so an older engine cannot leak it through the dump."""
+    if isinstance(res, dict):
+        return {k: v for k, v in res.items() if k != "truthful"}
+    return res
 
 
 async def do_ask_juror(content: str, owner: Optional[str] = None) -> Dict:

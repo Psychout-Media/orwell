@@ -1639,7 +1639,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "confide",
-            "description": "Feature 0075 — when the player presses an ALLY they're already in a 1:1 scene with to open up ('what's really going on with you?', 'you can tell me'), call confide({npcId}). The ENGINE decides whether they actually open up, how much of their secret they share, and whether it's the truth or a lie — never invent a confession. Returns {disclosed, tier, content}: voice the returned content as that houseguest confiding; if disclosed is false, play the deflection (they're not ready / change the subject). Never state a tier or whether it's true — judging that is the player's alone.",
+            "description": "Feature 0075 — when the player presses an ALLY they're already in a 1:1 scene with to open up ('what's really going on with you?', 'you can tell me'), call confide({npcId}). The ENGINE decides whether they actually open up, how much of their secret they share — never invent a confession. Returns {disclosed, tier, content}: voice the returned content as that houseguest confiding; if disclosed is false, play the deflection (they're not ready / change the subject). Never state a tier — judging what was said is the player's alone.",
             "parameters": {
                 "type": "object",
                 "properties": {

@@ -69,7 +69,8 @@ describe("R-BND (#628) — background write-backs persist durably WITHOUT bumpin
     let skeletons: { eventId: string }[] = [];
     for (let i = 0; i < 4 && skeletons.length === 0; i++) {
       orch.advance(user, "offscreen-tick");
-      skeletons = (await server.callTool("getOffscreenSceneSkeletons", {})) as { eventId: string }[];
+      // ORW-570: the player-channel skeleton read returns NO hidden scene any more, so the ids of this tick's off-screen scenes come from the engine's own registry (the write-back tool still takes an id).
+      skeletons = ((sb.session as unknown as { lastTickOffscreenIds: string[] }).lastTickOffscreenIds).map((eventId) => ({ eventId }));
     }
     expect(skeletons.length).toBeGreaterThan(0); // seeds above are known-good; roles only
     const before = sb.session.gameStatus().beatSeq;
