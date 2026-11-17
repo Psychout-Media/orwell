@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp01 } from "../domain/num";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { DECISION } from "./decisionConstants";
 import type { RelationshipModel } from "./relationships";
@@ -58,7 +59,6 @@ export interface BondReader {
   day(): number;
 }
 
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 
 /** The edge-only strength: (bondStrength - baseline) / the floater span, clamped. The full record (0175) keeps this as its base. */
 export function edgeStrength(rel: RelationshipModel, holder: EntityId, other: EntityId): number {
