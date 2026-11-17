@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BOND, bondOf, bondStrengthOf, commitmentFor, emptyBond, foldBreak, foldKept, foldSave, foldScene, kindOf, nightPasses, type BondStore } from "../../src/engine/bondRecord";
+import { BOND, bondOf, bondStrengthOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, kindOf, nightPasses, type BondStore } from "../../src/engine/bondRecord";
 
 /** Feature 0175 - the bond record's pure rules. Roles only: a, b (a pair), c (a third). */
 describe("the bond record (bondRecord.ts)", () => {
@@ -61,5 +61,19 @@ describe("the bond record (bondRecord.ts)", () => {
     expect(bondStrengthOf(0.5, { ...emptyBond(), warmth: 1 })).toBeCloseTo(0.5 + BOND.warmthWeight, 12);
     expect(bondStrengthOf(0.1, { ...emptyBond(), resentment: 1 })).toBe(0);
     expect(bondStrengthOf(0.9, { ...emptyBond(), warmth: 1 })).toBe(1);
+  });
+  it("a repair eases the wronged side only: strain by the amount, the grudge by half, the worst of the grudge remembered", () => {
+    const store: BondStore = {};
+    foldBreak(store, "a", "b");
+    const before = { ...store["b|a"]! }, breaker = { ...store["a|b"]! };
+    foldRepair(store, "b", "a", 0.2);
+    expect(store["b|a"]!.strain).toBeCloseTo(before.strain - 0.2, 12);
+    expect(store["b|a"]!.resentment).toBeCloseTo(before.resentment - 0.2 * BOND.repairResentShare, 12);
+    expect(store["b|a"]!.peakResentment).toBe(before.peakResentment);
+    expect(store["b|a"]!.history).toBe(before.history + 1);
+    expect(store["a|b"]).toEqual(breaker);
+    foldRepair(store, "b", "a", 5);
+    expect(store["b|a"]!.strain).toBe(0);
+    expect(store["b|a"]!.resentment).toBe(0);
   });
 });

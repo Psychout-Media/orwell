@@ -53,8 +53,8 @@ describe("the bond read API (bonds.ts)", () => {
   it("the Theme 3 fields read neutral until the bond record (0175) lands", () => {
     const { reader } = house();
     const v = reader.bond("h", "a");
-    expect({ debt: v.debt, resentment: v.resentment, strain: v.strain, history: v.history, kind: v.kind, commitment: v.commitment, rank: v.rank })
-      .toEqual({ debt: 0, resentment: 0, strain: 0, history: 0, kind: "none", commitment: "none", rank: null });
+    expect({ debt: v.debt, resentment: v.resentment, peakResentment: v.peakResentment, strain: v.strain, history: v.history, kind: v.kind, commitment: v.commitment, rank: v.rank })
+      .toEqual({ debt: 0, resentment: 0, peakResentment: 0, strain: 0, history: 0, kind: "none", commitment: "none", rank: null });
   });
   it("the live adapter offers it engine-side only: no player or admin tool is named for it", () => {
     const sb = new GameSessionRegistry().sandboxFor(`bond-reader-${Math.random()}`);
