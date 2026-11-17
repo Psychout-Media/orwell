@@ -615,6 +615,10 @@ export interface LiveSeasonState {
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** 0172 / ORW-603, ORW-611 (Theme 3 slice 6; VAULT-CLASS, engine-only, persisted, never projected): per NPC alliance id, its hidden group life (roles, inner circle, purpose, private cut orders, a spy, a shadow link). Absent unless ORWELL_GROUP_ROLES drew one. */
+  groupLife?: Record<string, import("./groupLife").GroupLife>;
+  /** 0172: the last in-game day the group-life pass ran (it runs once a day). */
+  groupLifeDay?: number;
   /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed naming tickets; the last night a batch was issued. */
   namePending?: string[];
   nameTickets?: import("./allianceNaming").NameTickets;
