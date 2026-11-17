@@ -190,6 +190,8 @@ export interface HourView {
   culture?: HouseCulture;
   /** ORW-566 (spec 0183): the close pairs this houseguest keeps a debrief spot with, ONLY in the hours after a ceremony (the caller builds it; absent = byte-identical). `key` is the pair's stable key. */
   pairHabits?: ReadonlyArray<{ with: EntityId; room: Room; key: string }>;
+  /** 0173 (Theme 3 slice 11): the court. The new HOH is sought out: `pull` is this houseguest's per-hour chance of going to them, `danger` when they are on the block or the HOH reads them as a threat. Absent = byte-identical. */
+  court?: { pull: number; danger: boolean };
 }
 
 export interface PlannedAction {
@@ -211,6 +213,8 @@ export interface PlannedAction {
   habit?: string;
   /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
   fold?: InteractionType;
+  /** 0173: this step is the houseguest seeking out the HOH (the court). Engine-only. */
+  court?: boolean;
 }
 
 /** ORW-324: how quick this houseguest is to direct friction (0..1), by archetype. A hothead clashes, a peacemaker almost never. */
@@ -345,6 +349,11 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win
     const step = nextStepFor(g, v, roll(`variant:${g.id}`));
     if (step) return finish(step);
+  }
+
+  // 0173: the court. After their own goals, a houseguest seeks out the sitting HOH (the ones in danger far more often); the HOH room is where they go. A keyed roll only (no shared draw).
+  if (v.court && v.hoh && v.hoh !== v.owner && pool.includes(v.hoh) && !avoid.has(v.hoh) && roll("court") < v.court.pull) {
+    return { ...finish({ kind: v.court.danger ? "beg" : "check-in", with: [v.hoh] }), court: true };
   }
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.

@@ -201,6 +201,8 @@ export interface CampaignActor {
   allies: Array<{ toward: EntityId; affinity: number }>;
   /** Their persuasiveness — the persuasive scheme more, and their campaigns are prioritized under the cap. */
   persuasiveness: number;
+  /** ORW-577: the target of the owner's own active get-them-out goal (the agenda), when they hold one. A goal-backed campaign is formed from it (outside the cap). */
+  goalTarget?: EntityId;
 }
 
 export interface FormCampaignDeps {
@@ -265,6 +267,23 @@ export function formCampaigns(actors: readonly CampaignActor[], deps: FormCampai
       deadlineBeat: deps.beat + span,
       confidence: clamp01(strength),
       knownTo: [a.id], // owner only — the symmetric-perspective spine
+    });
+  }
+  return out;
+}
+
+/**
+ * ORW-577: the campaigns the house's own GOALS make (PURE). A houseguest whose agenda holds an active get-them-out goal on someone runs an evict campaign on that person, whatever the threat read says; the
+ * agenda is the single source of what a houseguest wants. These do not count against the `maxConcurrent` cap (the cap kept the house legible when campaigns came from threat alone). Deterministic, no rng.
+ */
+export function formGoalCampaigns(actors: readonly CampaignActor[], deps: { beat: number; c?: CampaignConstants; has: (owner: EntityId) => boolean }): Campaign[] {
+  const c = deps.c ?? CAMPAIGN;
+  const out: Campaign[] = [];
+  for (const a of [...actors].sort((x, y) => (x.id < y.id ? -1 : 1))) {
+    if (!a.goalTarget || a.goalTarget === a.id || deps.has(a.id)) continue;
+    out.push({
+      id: `campaign:${a.id}:${deps.beat}:goal`, owners: [a.id], goal: "evict", target: a.goalTarget, plan: [...PLAN_FOR.evict], progress: 0, horizon: "week", status: "active",
+      startedBeat: deps.beat, deadlineBeat: deps.beat + c.weekBeats, confidence: clamp01(a.threats.find((t) => t.toward === a.goalTarget)?.threat ?? 0.5), knownTo: [a.id],
     });
   }
   return out;
@@ -469,6 +488,8 @@ export interface DriveContext {
   aggression: number;
   /** The owner's soul emotionalState (0..1, 0.5 = calm) — a rattled soul pushes harder. */
   emotional: number;
+  /** ORW-577: the owner's own get-them-out goal target and commitment (the agenda), when they hold one. Read after the on-the-block case, before the threat read. */
+  goalTarget?: { target: EntityId; commitment: number };
 }
 
 function driveIntensity(anchor: number, ctx: DriveContext, c: DriveConstants): number {
@@ -494,6 +515,8 @@ export function deriveDrive(actor: CampaignActor, ctx: DriveContext, prior: Driv
   const topAlly = [...actor.allies].sort((a, b) => b.affinity - a.affinity)[0];
   // A real board change: on the block ⇒ self-preserve.
   if (ctx.nominated) return make("self-preserve", topThreat?.toward, topThreat?.threat ?? 0.6);
+  // ORW-577: the owner's own goal (the agenda) names who they are after; the drive follows it instead of ignoring it.
+  if (ctx.goalTarget) return make("target", ctx.goalTarget.target, ctx.goalTarget.commitment);
   // Sticky: keep a prior target while they remain a live threat (don't re-roll the agenda each tick).
   if (prior && prior.motivation === "target" && prior.target !== undefined) {
     const still = actor.threats.find((t) => t.toward === prior.target);

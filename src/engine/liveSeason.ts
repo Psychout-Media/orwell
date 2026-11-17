@@ -51,10 +51,12 @@ export function deriveNpcCompIntent(
     maxThreatOnMe: number;
     /** Whether the field holds any other competitor (a lone competitor just competes). */
     hasOthers: boolean;
+    /** ORW-577: the holder's own agenda says they want the power (an active win-power goal): they compete rather than throw or play safe. Absent = unchanged. */
+    wantsPower?: boolean;
   },
   t: typeof COMP_INTENT_THRESHOLDS = COMP_INTENT_THRESHOLDS,
 ): Intent {
-  if (p.nominee || !p.hasOthers) return "compete";
+  if (p.nominee || !p.hasOthers || p.wantsPower === true) return "compete";
   // THROW: a lay-low houseguest hands a very close ally the power and keeps their own head down.
   if (p.aggression < t.layLowAggression && p.bestAllyBond > t.throwToAllyBond) return "throw";
   // PLAY-SAFE: a cautious houseguest a competitor already reads as a real threat avoids painting a bigger target.
@@ -624,6 +626,8 @@ export interface LiveSeasonState {
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
   tenure?: import("./territory").Tenure;
+  /** 0173 (Theme 3 slice 11): the hidden pecking order (coarse tiers), the informal leader and lieutenants, any open vacuum, and the history. VAULT-CLASS, engine-only, monotonic count, never projected. A played game only. */
+  status?: import("./hohCourt").StatusRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
