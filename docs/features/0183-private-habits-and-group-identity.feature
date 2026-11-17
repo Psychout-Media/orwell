@@ -26,3 +26,14 @@ Feature: Close pairs keep private habits and the house names its groups
   Scenario: Nothing about it is visible while the season is live
     Given two close allies who have kept their habit
     Then no player or admin view shows a habit, a spot key or a group identity
+
+  # Part c2 (ORW-566): formation-time alliance naming through an anonymized sealed-prompt door.
+  Scenario: Every alliance gets a secret name when it forms and the name is never shown
+    Given an alliance of houseguests has formed in a played game
+    Then it holds a floor name from the moment it formed
+    And a name the members author later replaces the floor once and shows up in no player or admin view
+
+  Scenario: The naming door hands out the same fixed batch every night whatever formed
+    Given one night with no new alliance and one night with a new alliance
+    Then both nights hand the writer the same number of tickets with the same shape
+    And no ticket names a member, a count, a room or a day

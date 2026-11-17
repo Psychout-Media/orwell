@@ -6,6 +6,7 @@ import type { Receipt } from "../engine/receipts";
 import type { PullQuoteWeek } from "../engine/pullQuoteReel";
 import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
+import type { DealPlanRetro } from "../engine/dealPlans";
 
 /**
  * 0104 — the OUTWARD notoriety projection: only the returning player's short, Vault-free legend
@@ -268,6 +269,19 @@ export interface RecordNpcTraitsResult { accepted: number; rejected: number }
 /** ORW-319 (spec 0146 lane 2): the FE-driven house-culture write-back (spots, rituals, a running joke), from the cast's PUBLIC facets. Once per season. */
 export interface RecordHouseCultureReq { spots?: Array<{ room: string; nickname: string }>; rituals?: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }
 export interface RecordHouseCultureResult { accepted: boolean; reason?: string }
+/** ORW-566 part c (spec 0183): the model's words for one group (a new alliance or a close pair's habit). Public facts only; write-once per group id. */
+export interface RecordGroupIdentityReq { groupId: string; name?: string; ritual?: string; signal?: string; insideJoke?: string }
+export interface RecordGroupIdentityResult { accepted: boolean; reason?: string }
+/** ORW-566 part c: one group still waiting for its words: ids and a room only (never what was said or why). FE-driven infra read, never rendered, never a model lever. */
+export interface GroupAwaitingWordsView { groupId: string; kind: "alliance" | "pair"; members: string[]; room?: string; spot?: string;
+  /** The house's own authored culture (public facts the FE already wrote) and the names other groups already carry, so the writer can avoid repeating them. */
+  culture?: { spots: Array<{ room: string; nickname: string }>; rituals: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }; otherNames?: string[] }
+
+/** ORW-566 part c2 (spec 0183): one sealed-prompt ticket for an anonymous group name. `prompt` is the whole text for the writer; nothing in it or around it names, counts or places any group. A real and a decoy ticket are indistinguishable. FE-driven infra read, never a model lever. */
+export interface AllianceNameTicketView { ticket: string; prompt: string }
+/** The write-back of one ticket. A bare receipt: `{accepted:true}` for a real and a decoy ticket alike (and for a rejected name); `{accepted:false}` only for an unknown, used or expired ticket. */
+export interface RecordAllianceNameReq { ticket: string; name: string }
+export interface RecordAllianceNameResult { accepted: boolean }
 
 /** Whether the zeitgeist write-back was accepted, and the resulting source tier (0062). */
 export interface RecordWorldSnapshotResult {
@@ -2496,6 +2510,9 @@ export interface RumorMillBelief {
 export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose subject is the player: what the house got wrong about you. */ aboutYou: RumorMillBelief[] }
 
 export interface RetrospectiveView {
+  /** 0178 (Theme 3 slice 1, Ryne's Q2): every NPC's secret plan for each deal it agreed to and how it went, beside the player's own promise record (deals and promises
+   *  they said aloud, each with its status). Present ONLY on the post-season retrospective, and only when the season held a deal or a promise. */
+  dealPlans?: DealPlanRetro;
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
   rumorMill?: RumorMill;
   /** ORW-551 (spec 0168): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */
@@ -3469,6 +3486,14 @@ export interface GameSession {
   recordNpcReflections(req: RecordNpcReflectionsReq): RecordNpcReflectionsResult;
   /** ORW-319: freeze the season's house culture (validated, write-once). Not a model lever. */
   recordHouseCulture(req: RecordHouseCultureReq): RecordHouseCultureResult;
+  /** ORW-566 part c: freeze the model's words for one group (validated, write-once per group id; an alliance's name may be replaced once). Not a model lever. */
+  recordGroupIdentity(req: RecordGroupIdentityReq): RecordGroupIdentityResult;
+  /** ORW-566 part c: the groups (new alliances, close pairs with a habit) still waiting for their words, at most a couple at a time; empty when off or nobody is playing. Not a model lever. */
+  groupsAwaitingWords(): GroupAwaitingWordsView[];
+  /** ORW-566 part c2: tonight's FIXED-SIZE batch of sealed-prompt tickets still unanswered (anonymous traits + house culture only; no id, name, count, room or day). Empty when off or nobody is playing. Not a model lever. */
+  allianceNameTickets(): AllianceNameTicketView[];
+  /** ORW-566 part c2: answer one ticket with the model's name. Bare receipt for real and decoy alike; the engine validates and keeps the floor on a refusal. Not a model lever. */
+  recordAllianceName(req: RecordAllianceNameReq): RecordAllianceNameResult;
 
   /**
    * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that
