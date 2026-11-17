@@ -1159,7 +1159,7 @@ export interface SeasonCtx {
   /** B51 (ORWELL_DRIVE_DECISIONS): the decider's OWN drive toward `target` as a nomination / veto-save push (positive = toward evicting). */
   drivePushFor?: (target: EntityId, decider: EntityId) => number;
   /** ORW-314 (ORW-253 slice 2, played games only): the decider's AGENDA pull on `target` (`goalPull`, signed: + wants them out, - wants them kept), FULL STRENGTH (goals count as much as the threat read). 0 for the player. Absent => byte-identical. ENGINE-ONLY. */
-  agendaPullFor?: (target: EntityId, decider: EntityId) => GoalPull;
+  agendaPullFor?: (target: EntityId, decider: EntityId, at?: "veto") => GoalPull;
   /** ORW-314: turn an NPC decision's REAL reason into the reason the decider gives aloud (`explainDecision`; deterministic, no shared rng). Present only with `agendaPullFor`. ENGINE-ONLY: the candor never crosses. */
   statedReasonFor?: (real: RealReason, day: number) => StatedReason;
   /**
@@ -3844,7 +3844,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
   const bias = hasBias
     ? (n: EntityId): number => {
       // ORW-305: the four named bias terms, in the order they were always added; the bias is their sum.
-      const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0), -(ctx.agendaPullFor?.(n, holder).value ?? 0)]; // ORW-314: the holder's goals - a get-them-out / revenge pull cuts the save, a protect / pull-them-in / mark-before-its-stage pull raises it, FULL strength
+      const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0), -(ctx.agendaPullFor?.(n, holder, "veto").value ?? 0)]; // ORW-314: the holder's goals - a get-them-out / revenge pull cuts the save, a protect / pull-them-in / mark-before-its-stage pull raises it, FULL strength
       biasParts.set(n, parts);
       return sumVals(parts);
     }

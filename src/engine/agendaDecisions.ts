@@ -16,7 +16,7 @@
  */
 import type { EntityId } from "../domain/ids";
 import { clamp01 } from "../domain/num";
-import type { Agenda, AgendaBoard, AgendaCharacter, GoalKind } from "./agenda";
+import type { Agenda, AgendaBoard, AgendaCharacter, Goal, GoalKind } from "./agenda";
 import { agendaRoll } from "./agenda";
 import { REASONS } from "./agendaConstants";
 
@@ -35,7 +35,7 @@ export interface GoalPull {
  * How the holder's agenda pulls on `candidate`. `mates` is the holder's alliance mates now (a "last alliance standing" aim protects them).
  * Long con: before its stage the mark is KEPT close (negative); once the stage is reached, the mark is CUT (positive) - the con pays off.
  */
-export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board: AgendaBoard, mates: readonly EntityId[] = []): GoalPull {
+export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board: AgendaBoard, mates: readonly EntityId[] = [], carried?: GoalCarry): GoalPull {
   if (!agenda || candidate === agenda.owner) return { value: 0 };
   let value = 0;
   let best: { abs: number; id: string; kind: GoalKind } | undefined;
@@ -48,7 +48,7 @@ export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board:
     const w = g.commitment * REASONS.goalWeight;
     if (g.target === candidate) {
       switch (g.kind) {
-        case "get-them-out": case "revenge": note(w, g.id, g.kind); break;
+        case "get-them-out": case "revenge": note(carried ? netOfSources(g, w, carried) : w, g.id, g.kind); break;
         case "keep-them-safe": case "protect-my-person": note(-w, g.id, g.kind); break;
         case "pull-them-in": note(-w * REASONS.recruitShield, g.id, g.kind); break;
         case "long-con": {
@@ -61,7 +61,35 @@ export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board:
     }
     if (g.kind === "last-alliance-standing" && mates.includes(candidate)) note(-w * REASONS.allianceShield, g.id, g.kind);
   }
+  if (carried && value > 0) value = Math.max(0, softStack(value + carried.memory + carried.belief) - carried.memory - carried.belief);
   return best ? { value, goalId: best.id, goalKind: best.kind } : { value };
+}
+
+/**
+ * ORW-635 (stacking audit S-2): what the SAME decision's own terms already carry for a candidate, as non-negative amounts on the threat scale.
+ * A get-them-out / revenge goal is FORMED from the threat read, the grudge and the belief (`agenda.ts` `why`), and the decision already adds those
+ * three itself, so the goal's pull counts only what it brings BEYOND them. `threat` is 0 where the decision has no threat term (the veto).
+ */
+export interface GoalCarry { threat: number; memory: number; belief: number }
+
+/** The part of a push goal's pull (`w`) already carried by the decision's own threat / memory / belief terms: only the causes the goal was formed from are netted, each by at most what it was formed from. */
+function netOfSources(g: Goal, w: number, carried: GoalCarry): number {
+  let taken = 0;
+  for (const c of g.why) {
+    if (c.about !== undefined && c.about !== g.target) continue;
+    if (c.kind === "threat-read") taken += Math.min(c.weight, carried.threat);
+    else if (c.kind === "memory") taken += Math.min(c.weight * (g.kind === "get-them-out" ? 0.5 : 1), carried.memory); // a get-them-out goal took half the grudge (`agenda.ts`); a revenge goal all of it
+    else if (c.kind === "belief") taken += Math.min(c.weight, carried.belief);
+  }
+  return Math.max(0, w - REASONS.netShare * taken);
+}
+
+/** ORW-635: a smooth, strictly increasing ceiling on the stacked goal + belief + memory read for one option: the identity up to `stackKnee`, then it bends toward (never reaches) `stackCeiling`. Continuous in value and slope, so ordering is never flattened. */
+export function softStack(x: number): number {
+  const k = REASONS.stackKnee;
+  if (x <= k) return x;
+  const room = REASONS.stackCeiling - k;
+  return k + room * Math.tanh((x - k) / room);
 }
 
 // --- Reasons -------------------------------------------------------------------------------------------------------------------------

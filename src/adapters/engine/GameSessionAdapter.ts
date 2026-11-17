@@ -11072,7 +11072,7 @@ export class GameSessionAdapter implements GameSession {
       // ORW-314 (ORW-253 slice 2): the NPC's AGENDA moves nominations, the replacement, the veto save, the eviction vote and the Final HOH's eviction at full strength, and the reason each NPC gives aloud is
       // recorded. GATED on a played game that has seeded agendas (`live.playedGame` + `live.agendas`): a headless seeded sim has neither, so the ctx carries no hook and every read adds +0 (byte-identical).
       ...(this.live?.playedGame === true && this.live.agendas ? {
-        agendaPullFor: (t: EntityId, d: EntityId) => this.agendaPullOf(t, d),
+        agendaPullFor: (t: EntityId, d: EntityId, at?: "veto") => this.agendaPullOf(t, d, at),
         hohTargetReadFor: (v: EntityId, h: EntityId, fn: readonly [EntityId, EntityId]) => this.hohTargetReadOf(v, h, fn), // ORW-573: what the voter knows, never the HOH's hidden reads
         statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
       } : {}),
@@ -13924,13 +13924,18 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-314: how `decider`'s agenda pulls on `target` (`goalPull`; + = out, - = kept), full strength. The player and a houseguest with no agenda pull 0. */
-  private agendaPullOf(target: EntityId, decider: EntityId): GoalPull {
+  private agendaPullOf(target: EntityId, decider: EntityId, at?: "veto"): GoalPull {
     const s = this.live;
     const agenda = s?.agendas?.[decider];
     if (!s || !agenda || decider === PLAYER) return { value: 0 };
     const mates = new Set<EntityId>();
     for (const a of this.alliances.forMember(decider)) for (const m of a.members) if (m !== decider) mates.add(m);
-    return goalPull(agenda, target, this.agendaBoard(), [...mates].sort());
+    // ORW-635 (stacking audit S-2): the goal adds only what it brings beyond the threat / grudge / belief the same decision already counts, and the stacked read has a smooth ceiling (`goalPull`).
+    // The veto save has no threat term and no separate belief term of its own beyond the memory read, so only what it really carries is netted there.
+    const memory = this.npcMemoryEnabled ? Math.max(0, this.memoryTiltFor(target, decider)) : 0;
+    const belief = at === "veto" ? 0 : Math.max(0, (this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(target, decider) : 0) + this.scapegoatLeanFor(target, decider) : 0));
+    const threat = at === "veto" ? 0 : Math.max(0, this.rel.edge(decider, target).threat);
+    return goalPull(agenda, target, this.agendaBoard(), [...mates].sort(), { threat, memory, belief });
   }
 
   /**

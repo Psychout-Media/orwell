@@ -58,6 +58,15 @@ saw = yes (retrospective, later slice); small wants = later; motives: no hints, 
   (a secret ballot's reason is stored and never voiced). The nominations moment prompt now says to voice the decider's stated reason and give no
   other. Balance is a report, not a gate: `tests/calibration/agendaGoalsReport.test.ts` (`ORWELL_AGENDA_REPORT=1`).
 
+### ORW-635: the goal adds only its excess, under a ceiling (stacking audit S-2, 2026-11-17)
+A get-them-out or revenge goal is formed from the threat read, the grudge and a belief, and the same decision already adds those three itself, so the pull was counted twice or three times
+(goal + belief + memory on one option averaged 1.4 and reached 3.2 against a median vote gap of about 1.1). `goalPull` now takes what the decision already carries for that candidate
+(`GoalCarry`: threat, memory, belief, from the adapter's own reads) and a push goal counts only its pull beyond those, cause by cause, each netted by at most what it was formed from
+(`REASONS.netShare`, 1 = fully netted). Shields, a long con and a protect vow were not formed from those terms and keep their full pull. The stacked goal + belief + memory read then passes a
+smooth ceiling (`softStack`: the identity up to `REASONS.stackKnee` 0.8, bending toward `REASONS.stackCeiling` 1.2, strictly increasing, so ordering is never flattened). The veto save has no threat or
+belief term, so only memory is netted there. No carried read (unit callers, an actor with no agenda) is byte-identical. Played games only, as before. Gate: `tests/unit/agendaNet.test.ts`;
+measurement: `scripts/probes/agendaNetMeasure.ts`.
+
 ## Slice 3 core: hour-by-hour house life (`houseLife.ts`)
 Replaces "a pair and 1 of 7 stock scene types" with ONE action per awake houseguest per game hour (Ryne 2026-11-11: "The fact there are
 only 7 types seems wild to me."):
