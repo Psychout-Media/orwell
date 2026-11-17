@@ -713,6 +713,7 @@ export class BbWorld extends World {
   txOrch?: import("../../src/composition/orchestrator").Orchestrator;
   txServer?: import("../../src/adapters/mcp/McpServer").McpServer;
   txSkeletons?: import("../../src/ports/GameSession").OffscreenSceneSkeleton[];
+  txPlayerRead?: import("../../src/ports/GameSession").OffscreenSceneSkeleton[];
   txWriteOk?: boolean;
   txRefusedReason?: string;
   // ORW-286 item 9 (0070 scenarios 2 to 5): real two-game comparison and per-attempt refusal records.

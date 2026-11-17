@@ -1608,6 +1608,10 @@ export interface OpenDealOfferView {
   madeWeek: number;
   /** 0142 idea 4: set when the houseguest is asking to SWAP an existing deal (the public id of that deal) rather than float a new one. */
   replacesDealId?: string;
+  /** 0171: a counter in play - the round it is (1-based) and what the houseguest asks for instead (a rival goes up, or a vote). Facts only; the narrator voices them. */
+  counter?: { round: number; ask: { kind: "target" | "protect"; target: NamedRef } | { kind: "vote" } };
+  /** 0171: this offer is a favor between the houseguest and the player: `called-in` = they are collecting one the player owes them, `asked` = they ask for a new one. Facts only. */
+  favor?: { kind: "called-in" | "asked" };
   /** The narrator's voicing instruction for this offer (carried here, not in the base prompt). */
   howToVoice: string;
 }
@@ -2162,8 +2166,8 @@ export interface HouseguestMoveResult {
  * The ONLY thing about a decision's why that reaches the narrator. Never the candor (truth / part-truth / cover), never the goal, never the terms: those stay engine-side.
  */
 export interface StatedReasonView {
-  decision: "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
-  kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it";
+  decision: "nominate" | "replacement" | "veto" | "veto-hold" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+  kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it" | "keeping-the-noms";
   about: NamedRef;
 }
 
@@ -2971,7 +2975,7 @@ export interface RecordCastGenesisResult {
   house?: { accepted: boolean; rejected: Record<string, number>; id?: string };
 }
 
-/** The Vault-free skeleton of one recorded off-screen scene — public participant ids, room, and nature only (0070). */
+/** The skeleton of one off-screen scene the player WITNESSED (0070; ORW-570: a hidden NPC-to-NPC scene is Vault-class and is never returned). */
 export interface OffscreenSceneSkeleton {
   /** The event id — used by the FE to address the texture write-back. */
   eventId: string;

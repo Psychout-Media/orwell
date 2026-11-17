@@ -4,6 +4,7 @@ Sync tests driven through run_until_complete, as in test_orw362/378."""
 import asyncio
 import importlib
 import json
+import logging
 import sys
 import types
 
@@ -222,7 +223,7 @@ def test_request_body_is_image_plus_allowed_facts_only(env):
     env.replies = [_reply([])]
     _store(_entry(prompt=V3 + " named " + SECRET))
     (url, body, headers), = env.posts
-    assert url.startswith("https://api.deepseek.com/") and body["max_tokens"] == 2000
+    assert url.startswith("https://api.deepseek.com/") and body["max_tokens"] == 8000
     assert url.endswith("/chat/completions") and body["model"] == "deepseek-flash"
     (msg,) = body["messages"]
     kinds = [p["type"] for p in msg["content"]]
@@ -477,3 +478,47 @@ def test_nonbinary_and_mustache_are_read_from_the_brief():
     nb = "Waist-up portrait of a 30-year-old West African nonbinary person with a soft androgynous look. Hair: short dark curls. Wearing a grey hoodie."
     assert C.facts_from_prompt(nb)["gender"] == "nonbinary" and "Stated gender presentation: nonbinary" in C.facts_block(C.facts_from_prompt(nb))
     assert "moustache" in C.visible_features("a man with a mustache") and "moustache" in C.visible_features("a man with a moustache")
+
+
+# ---- ORW-480: the token budget, the empty cut-off retry and the proportions code ------------------------
+
+def test_build_request_asks_for_8000_tokens():
+    body = C.build_request("deepseek-flash", "data:image/png;base64,AAAA", {})
+    assert body["max_tokens"] == 8000
+
+
+def _cut_off():
+    return _Resp(200, {"choices": [{"finish_reason": "length", "message": {"content": ""}}]})
+
+
+def test_an_empty_cut_off_retries_once_and_the_good_verdict_arrives(env):
+    env.replies = [_cut_off(), _reply(["messy-hair"])]
+    verdict = _run(C.check_portrait(b"PNG", {}, "u"))
+    assert verdict == {"ok": False, "problems": ["messy-hair"]}
+    assert len(env.posts) == 2
+
+
+def test_two_empty_cut_offs_give_no_verdict_and_a_plain_empty_content_never_retries(env, caplog):
+    with caplog.at_level(logging.WARNING):
+        env.replies = [_cut_off(), _cut_off()]
+        assert _run(C.check_portrait(b"PNG", {}, "u")) is None
+    assert len(env.posts) == 2
+    assert '[portrait-check] no verdict: the model ran out of tokens' in caplog.text
+    env.replies = [_Resp(200, {"choices": [{"finish_reason": "stop", "message": {"content": ""}}]})]
+    env.posts.clear()
+    assert _run(C.check_portrait(b"PNG", {}, "u")) is None
+    assert len(env.posts) == 1  # finish_reason "stop" with empty content is not a cut-off: no retry
+
+
+def test_bad_proportions_is_known_and_in_both_checklists():
+    assert "bad-proportions" in C.KNOWN_CODES
+    assert "bad-proportions" in C._CHECKLIST and "bad-proportions" in C._REALISM_CHECKLIST
+    assert "bad-proportions" in C._checklist_for({}) and "bad-proportions" in C._checklist_for({"candid": True})
+    assert C.problems_in_words(["bad-proportions"]) == (
+        "natural adult body proportions: hands the right size for the face, head in proportion to the body, "
+        "arms and legs of natural length, every limb joined to the right shoulder or hip")
+
+
+def test_a_verdict_naming_bad_proportions_parses(env):
+    env.replies = [_reply(["bad-proportions"])]
+    assert _run(C.check_portrait(b"PNG", {}, "u")) == {"ok": False, "problems": ["bad-proportions"]}

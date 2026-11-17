@@ -27,12 +27,23 @@ function txGame(w: BbWorld, seed: number): void {
   w.txRegistry = reg; w.txUser = user; w.txSandbox = sb; w.txOrch = orch; w.txServer = server;
 }
 
+/**
+ * ORW-570: the player-channel skeleton read returns NO hidden scene any more, so these steps read the engine's OWN tick registry (the hidden scenes of the last off-screen tick),
+ * the view the engine-side texture driver would hold. Test-only: it reaches into the session the way the unit tests do.
+ */
+function tickScenes(session: object): import("../../src/ports/GameSession").OffscreenSceneSkeleton[] {
+  const s = session as unknown as { lastTickOffscreenIds: string[]; record?: { events(): Array<{ id: string; type: string; witnessSet: string[]; hidden?: boolean; baseContent?: string; content: string }> }; textureOverrides: Map<string, string> };
+  const evs = s.record?.events() ?? [];
+  return s.lastTickOffscreenIds.map((id) => evs.find((e) => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e && !!e.hidden)
+    .map((e) => ({ eventId: e.id, nature: e.type, participants: [...e.witnessSet], templateContent: s.textureOverrides.get(e.id) ?? e.baseContent ?? e.content }));
+}
+
 /** ORW-286 item 9: a game whose off-screen tick produced AT LEAST ONE scene. Scenarios 2 to 5 used to pass on an empty scene list (`if (skeletons.length > 0)`), proving nothing. */
 function txGameWithScenes(w: BbWorld, firstSeed: number): void {
   for (let seed = firstSeed; seed < firstSeed + 12; seed++) {
     txGame(w, seed);
     runOffscreenTick(w);
-    if (w.txSandbox!.session.getOffscreenSceneSkeletons().length > 0) return;
+    if (tickScenes(w.txSandbox!.session).length > 0) return;
   }
   throw new Error(`no seed in ${firstSeed}..${firstSeed + 11} produced an off-screen scene on the first tick`);
 }
@@ -50,26 +61,15 @@ Given("a live game with off-screen scenes recorded this tick", function (this: B
 
 When("the off-screen scene skeletons are read over the player channel", async function (this: BbWorld) {
   const result = await this.txServer!.callTool("getOffscreenSceneSkeletons", {});
-  this.txSkeletons = result as import("../../src/ports/GameSession").OffscreenSceneSkeleton[];
+  this.txPlayerRead = result as import("../../src/ports/GameSession").OffscreenSceneSkeleton[];
+  this.txSkeletons = tickScenes(this.txSandbox!.session); // the engine's own view of this tick's hidden scenes (the texture driver's), for the write-back steps below
 });
 
 Then("the skeletons are Vault-free — public participants, room, and nature only", function (this: BbWorld) {
-  const skeletons = this.txSkeletons!;
-  assert.ok(Array.isArray(skeletons), "expected an array of skeletons");
-  assert.ok(skeletons.length > 0, "expected at least one off-screen scene skeleton");
-  for (const sk of skeletons) {
-    assert.ok(typeof sk.eventId === "string" && sk.eventId.length > 0, "skeleton missing eventId");
-    assert.ok(typeof sk.nature === "string" && sk.nature.length > 0, "skeleton missing nature");
-    assert.ok(Array.isArray(sk.participants) && sk.participants.length >= 2, "skeleton missing participants");
-    assert.ok(typeof sk.templateContent === "string", "skeleton missing templateContent");
-    // Nature must be a known interaction type (not a Vault slug)
-    assert.ok(TYPED.has(sk.nature) || sk.nature.length > 0, "unexpected nature");
-    // No raw float / relationship number must appear in the skeleton
-    const blob = JSON.stringify(sk);
-    assert.ok(!/\d+\.\d{3,}/.test(blob), "a relationship number leaked into the skeleton");
-    // The event must be off-screen (id starts with 'offscreen:')
-    assert.ok(sk.eventId.startsWith("offscreen:"), `expected offscreen: prefix, got ${sk.eventId}`);
-  }
+  // ORW-570 (the Auditor's ruling): a hidden NPC-to-NPC scene is Vault-class (people, nature, room and text), so the PLAYER-channel read returns none of it.
+  assert.ok(Array.isArray(this.txPlayerRead), "expected an array");
+  assert.deepStrictEqual(this.txPlayerRead, [], "the player-channel read returned a hidden off-screen scene");
+  assert.ok(this.txSkeletons!.length > 0, "the engine registry holds at least one hidden scene for the write-back steps");
 });
 
 When("voiced texture is written back over the channel for a recorded off-screen scene", async function (this: BbWorld) {
@@ -87,7 +87,7 @@ Then("the texture write-back is accepted over the channel", function (this: BbWo
 
 Then("the addressed scene now carries the voiced texture as its content", async function (this: BbWorld) {
   const sk = this.txSkeletons![0]!;
-  const updated = await this.txServer!.callTool("getOffscreenSceneSkeletons", {}) as import("../../src/ports/GameSession").OffscreenSceneSkeleton[];
+  const updated = tickScenes(this.txSandbox!.session);
   const match = updated.find((s) => s.eventId === sk.eventId);
   assert.ok(match, "the addressed scene is no longer in the skeleton list");
   assert.ok(
@@ -101,12 +101,12 @@ Then("the addressed scene now carries the voiced texture as its content", async 
 Given("a live game with an enriched off-screen scene the player did not witness", async function (this: BbWorld) {
   txGameWithScenes(this, 702);
   const sb = this.txSandbox!;
-  const skeletons = sb.session.getOffscreenSceneSkeletons();
+  const skeletons = tickScenes(sb.session);
   const sk = skeletons[0]!;
   const res = sb.session.recordOffscreenSceneTexture({ eventId: sk.eventId, content: "SENTINEL-0070-enriched-hidden-scene-content-secret" });
   assert.ok(res.ok, `the enrichment write-back was refused: ${JSON.stringify(res)}`);
   // POSITIVE CONTROL: the engine really holds the enriched prose for this scene, so the absence checks below mean something.
-  assert.ok(sb.session.getOffscreenSceneSkeletons().find((s) => s.eventId === sk.eventId)!.templateContent.includes("SENTINEL-0070"), "the engine does not hold the enriched scene");
+  assert.ok(tickScenes(sb.session).find((s) => s.eventId === sk.eventId)!.templateContent.includes("SENTINEL-0070"), "the engine does not hold the enriched scene");
   this.txSkeletons = skeletons;
 });
 
@@ -150,7 +150,7 @@ Then("the player learns a sourced, possibly-drifted belief, not the raw hidden s
 
 When("a texture write-back attempts to set a witness, flip the hidden flag, or carry a relationship number", async function (this: BbWorld) {
   const sb = this.txSandbox!;
-  const sk = sb.session.getOffscreenSceneSkeletons()[0]!;
+  const sk = tickScenes(sb.session)[0]!;
   const ev = sb.engine.events.queryAll().find((e) => e.id === sk.eventId)!;
   assert.ok(ev, "the addressed scene is a recorded event");
   this.txBefore = JSON.stringify({ count: sb.engine.events.queryAll().length, witness: [...ev.witnessSet].sort(), hidden: ev.hidden, template: sk.templateContent,
@@ -183,7 +183,7 @@ Then("the write-back is refused at the channel boundary", function (this: BbWorl
 
 Then("no event is created, no witness set changes, and no relationship number crosses", function (this: BbWorld) {
   const sb = this.txSandbox!;
-  const sk = sb.session.getOffscreenSceneSkeletons()[0]!;
+  const sk = tickScenes(sb.session)[0]!;
   const ev = sb.engine.events.queryAll().find((e) => e.id === sk.eventId)!;
   const after = JSON.stringify({ count: sb.engine.events.queryAll().length, witness: [...ev.witnessSet].sort(), hidden: ev.hidden, template: sk.templateContent,
     edges: sk.participants.map((a) => sk.participants.map((b) => sb.engine.relationships.edge(a, b))) });
@@ -215,7 +215,7 @@ When("one advances an off-screen tick with the texture driver absent", function 
 When("the other advances the same tick with the texture driver present", function (this: BbWorld) {
   const b = this.txGameB!;
   b.orch.advance(b.user, "offscreen-tick");
-  const skeletons = b.sb.session.getOffscreenSceneSkeletons();
+  const skeletons = tickScenes(b.sb.session);
   assert.ok(skeletons.length > 0, "the tick produced scenes for the driver to enrich, so the comparison below is not vacuous");
   for (const sk of skeletons) assert.ok(b.sb.session.recordOffscreenSceneTexture({ eventId: sk.eventId, content: "Voiced texture for game B." }).ok);
 });
@@ -235,7 +235,7 @@ Then("both games produce the byte-identical seeded relationship fold", function 
 
 Then("only the scene prose differs between them", function (this: BbWorld) {
   const a = this.txGameA!.sb, b = this.txGameB!.sb;
-  const skA = a.session.getOffscreenSceneSkeletons(), skB = b.session.getOffscreenSceneSkeletons();
+  const skA = tickScenes(a.session), skB = tickScenes(b.session);
   assert.equal(skA.length, skB.length, "both games recorded the same number of scenes");
   assert.ok(skB.length > 0);
   for (let i = 0; i < skB.length; i++) {
@@ -257,7 +257,7 @@ Given("a live game advancing an off-screen tick", function (this: BbWorld) {
 When("the texture driver fails or no model is configured", async function (this: BbWorld) {
   // A failing driver is modelled for real: its write-backs are malformed or address nothing, and the engine must shrug them off (no model ⇒ none are attempted).
   const sb = this.txSandbox!;
-  this.txSkeletons = sb.session.getOffscreenSceneSkeletons();
+  this.txSkeletons = tickScenes(sb.session);
   this.txTemplates = this.txSkeletons.map((s) => s.templateContent);
   const real = this.txSkeletons[0]!.eventId;
   const results = [
@@ -269,8 +269,9 @@ When("the texture driver fails or no model is configured", async function (this:
 
 Then("every off-screen scene retains its deterministic template content", function (this: BbWorld) {
   const sb = this.txSandbox!;
-  assert.deepEqual(this.txFailedWrites, [false, false], "a failed driver's write-backs were accepted");
-  const now = sb.session.getOffscreenSceneSkeletons().map((s) => s.templateContent);
+  // ORW-570: an unknown id gets the same bare receipt as a hidden scene ({ ok: true }, no probing) but stores nothing (the template check below proves it); a blank write is refused.
+  assert.deepEqual(this.txFailedWrites, [true, false], "an unexpected receipt for a failed driver's write-backs");
+  const now = tickScenes(sb.session).map((s) => s.templateContent);
   assert.deepEqual(now, this.txTemplates, "a failed driver changed a scene's deterministic template content");
   for (const c of now) assert.ok(c.length > 0 && !/orphan prose/.test(c), "a scene lost its template content");
   // the template is the recorded event's own content, not something the skeleton reader invented

@@ -5,6 +5,7 @@
  * changes no relationship number. No randomness, no I/O.
  */
 import { canonHash, normalizeCanonText } from "./canonLedger";
+import { isPromiseTerm, type PromiseTerm } from "./promiseTerms";
 
 export const OPEN_LEDGER_TEXT_MAX = 240;
 export const OPEN_LEDGER_KIND_MAX = 40;
@@ -63,6 +64,8 @@ export interface OpenLedgerEntry {
   readonly day?: number;
   /** ORW-448: the id of an engine deal (between the same two people) active when this was recorded. ORW-456: once set it never changes; a spoken deal line may gain it once, when the engine records the deal. */
   readonly dealId?: string;
+  /** ORW-586: the closed, typed term of a promise the ENGINE judges from board facts (absent on every free-text entry: then nothing here changes). Set once at creation, never edited. */
+  readonly term?: PromiseTerm;
   readonly status: OpenLedgerStatus;
   /** Slice 2: why it was marked kept, broken or withdrawn (free text), and the turn it was marked. */
   readonly note?: string;
@@ -151,7 +154,7 @@ const dupKey = (speaker: string, parties: readonly string[], text: string): stri
 export function recordOpenEntry(
   ledger: OpenLedger,
   p: OpenLedgerProposal,
-  ctx: { turn: number; beatSeq: number; room: string; witnesses: readonly string[]; day?: number; dealId?: string },
+  ctx: { turn: number; beatSeq: number; room: string; witnesses: readonly string[]; day?: number; dealId?: string; term?: PromiseTerm },
 ): { ledger: OpenLedger; outcome: "recorded" | "duplicate" | OpenLedgerRejection; id?: string } {
   const witnesses = [...new Set([OPEN_LEDGER_PLAYER, ...ctx.witnesses])].sort();
   if ([p.speaker, ...p.addressedTo, ...(p.parties ?? [])].some((id) => !witnesses.includes(id))) return { ledger, outcome: "not-present" };
@@ -172,7 +175,7 @@ export function recordOpenEntry(
     id, text: p.text, speaker: p.speaker, addressedTo: p.addressedTo, kind: p.kind,
     ...(p.parties ? { parties: p.parties } : {}), ...(p.about ? { about: p.about } : {}),
     turn: ctx.turn, beatSeq: ctx.beatSeq, room: ctx.room, witnesses, quoteHash,
-    ...(ctx.day !== undefined ? { day: ctx.day } : {}), ...(ctx.dealId ? { dealId: ctx.dealId } : {}), status: "open",
+    ...(ctx.day !== undefined ? { day: ctx.day } : {}), ...(ctx.dealId ? { dealId: ctx.dealId } : {}), ...(ctx.term ? { term: ctx.term } : {}), status: "open",
   };
   return { ledger: { ...ledger, nextId: ledger.nextId + 1, entries: [...ledger.entries, entry] }, outcome: "recorded", id };
 }
@@ -346,8 +349,8 @@ export function closeOpenEntry(ledger: OpenLedger, entryId: string, status: Excl
 
 /** Mark one open entry kept, broken or withdrawn with a free-text note. Changes no relationship number. `lapsed` is engine-only: refused here. */
 export function resolveOpenEntry(
-  ledger: OpenLedger, req: unknown, turn: number,
-): { ledger: OpenLedger; outcome: "resolved" | "bad-shape" | "unknown" | "already-resolved" | "bad-status" } {
+  ledger: OpenLedger, req: unknown, turn: number, opts?: { refuseTermed?: boolean },
+): { ledger: OpenLedger; outcome: "resolved" | "bad-shape" | "unknown" | "already-resolved" | "bad-status" | "engine-judged" } {
   if (!req || typeof req !== "object" || Array.isArray(req)) return { ledger, outcome: "bad-shape" };
   if (Object.keys(req as object).sort().join(",") !== "entryId,note,status") return { ledger, outcome: "bad-shape" };
   const { entryId, status, note } = req as Record<string, unknown>;
@@ -356,6 +359,8 @@ export function resolveOpenEntry(
   const cur = ledger.entries.find((e) => e.id === entryId);
   if (!cur) return { ledger, outcome: "unknown" };
   if (cur.status !== "open") return { ledger, outcome: "already-resolved" };
+  // ORW-586: an entry that carries a term is judged by the ENGINE from board facts; a model's kept or broken is refused (it may only withdraw).
+  if (opts?.refuseTermed && cur.term && (status === "kept" || status === "broken")) return { ledger, outcome: "engine-judged" };
   return { ledger: closeOpenEntry(ledger, entryId, status as Exclude<OpenLedgerStatus, "open">, note, turn), outcome: "resolved" };
 }
 
@@ -455,17 +460,22 @@ function validEntry(e: unknown): e is OpenLedgerEntry {
 }
 
 /** Read a saved ledger; anything unreadable yields the empty ledger plus a problem count (the caller keeps the raw copy). */
-export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems: number; droppedDue?: number } {
+export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems: number; droppedDue?: number; droppedTerms?: number } {
   if (raw === undefined) return { ledger: emptyOpenLedger(), problems: 0 };
   const o = raw as { nextId?: unknown; entries?: unknown; touched?: unknown; due?: unknown } | null;
   if (!o || typeof o !== "object" || !Array.isArray(o.entries) || typeof o.nextId !== "number") return { ledger: emptyOpenLedger(), problems: 1 };
   const entries: OpenLedgerEntry[] = [];
   const seen = new Set<string>();
   let problems = 0;
+  let droppedTerms = 0;
   for (const e of o.entries as unknown[]) {
     // Counter invariants: ids are unique and every `open:N` is below the next id (a repeat or a later id would be re-issued).
-    if (validEntry(e) && !seen.has(e.id) && !(/^open:(\d+)$/.test(e.id) && Number(e.id.slice(5)) >= o.nextId) && seen.add(e.id)) entries.push(e.status === undefined ? ({ ...e, status: "open" } as OpenLedgerEntry) : e);
-    else problems++;
+    if (validEntry(e) && !seen.has(e.id) && !(/^open:(\d+)$/.test(e.id) && Number(e.id.slice(5)) >= o.nextId) && seen.add(e.id)) {
+      // ORW-586: a malformed term is DROPPED (the entry stays, as free text); it never counts as a problem, so it can never lock writes (as ORW-494's due flags).
+      let kept: OpenLedgerEntry = e.status === undefined ? ({ ...e, status: "open" } as OpenLedgerEntry) : e;
+      if ((kept as { term?: unknown }).term !== undefined && !isPromiseTerm((kept as { term?: unknown }).term)) { const { term: _bad, ...rest } = kept as OpenLedgerEntry & { term?: unknown }; kept = rest as OpenLedgerEntry; droppedTerms++; }
+      entries.push(kept);
+    } else problems++;
   }
   // ORW-448: the side maps. A malformed one counts as a problem (the caller then keeps the raw copy and locks writes).
   let touched: Record<string, number> | undefined;
@@ -489,11 +499,11 @@ export function restoreOpenLedger(raw: unknown): { ledger: OpenLedger; problems:
       due = Object.fromEntries(kept.map(([k, v]) => [k, { line: (v as OpenLedgerDue).line, offers: (v as OpenLedgerDue).offers }]));
     }
   }
-  return { ledger: { nextId: o.nextId, entries, ...(touched ? { touched } : {}), ...(due ? { due } : {}) }, problems, ...(droppedDue ? { droppedDue } : {}) };
+  return { ledger: { nextId: o.nextId, entries, ...(touched ? { touched } : {}), ...(due ? { due } : {}) }, problems, ...(droppedDue ? { droppedDue } : {}), ...(droppedTerms ? { droppedTerms } : {}) };
 }
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-const IMMUTABLE_FIELDS = ["text", "speaker", "addressedTo", "kind", "turn", "beatSeq", "room", "witnesses", "quoteHash", "parties", "about", "day"] as const;
+const IMMUTABLE_FIELDS = ["text", "speaker", "addressedTo", "kind", "turn", "beatSeq", "room", "witnesses", "quoteHash", "parties", "about", "day", "term"] as const;
 
 function sideMapsOk(earlier: OpenLedger, later: OpenLedger): boolean {
   const ids = new Map(later.entries.map((e) => [e.id, e] as const));

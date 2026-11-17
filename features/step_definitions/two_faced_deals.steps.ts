@@ -5,6 +5,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 import { PLAYER } from "../../src/domain/ids";
 import type { Deal } from "../../src/domain/deal";
 import { recordPlan, type PlanStore } from "../../src/engine/dealPlans";
+import { voteChoice } from "../../src/engine/liveSeason";
 
 /**
  * Feature 0178 - two-faced deals (Theme 3 slice 1). Drives the REAL adapter through a registry sandbox: deals go through the adapter's real deal ledger, the
@@ -12,9 +13,9 @@ import { recordPlan, type PlanStore } from "../../src/engine/dealPlans";
  * loop reads (`ctx().dealTrustFor`), and the retrospective is the real post-crown door. TEST-ONLY seams: the live season (the beat, the week, the plan store,
  * finished), the deal ledger, the adapter's private beat step and context. Roles only: a houseguest, the player.
  */
-type Live = { playedGame?: boolean; dealPlans?: PlanStore; week: number; beat: string; finished?: boolean };
+type Live = { playedGame?: boolean; dealPlans?: PlanStore; week: number; beat: string; finished?: boolean; saved?: string; vetoHolder?: string };
 type Ledger = { make(parties: [string, string], kind: string, terms: string, madeEventId?: string, madeWeek?: number): Deal; all: readonly Deal[] };
-type Seam = { live: Live; deals: Ledger; planAndCarryOutDeals(): void; ctx(): { dealTrustFor?: (h: string, o: string) => number } };
+type Seam = { live: Live; deals: Ledger; planAndCarryOutDeals(): void; rel: { edge(a: string, b: string): { trust: number; affinity: number; threat: number } }; ctx(): { flipVoteFor?: (v: string, fn: readonly [string, string]) => string | undefined } };
 type Bag = { sb?: UserSandbox; npc?: string; deal?: Deal };
 const bag = (w: unknown): Bag => ((w as { plans0178?: Bag }).plans0178 ??= {});
 const seam = (w: unknown) => bag(w).sb!.session as unknown as Seam;
@@ -84,8 +85,14 @@ When("the vote comes", function () { seam(this).live.beat = "eviction"; });
 
 Then("the deal pushes that houseguest to vote the player out, not to keep them", function () {
   const b = bag(this);
-  const trust = seam(this).ctx().dealTrustFor?.(b.npc!, PLAYER);
-  assert.ok(trust !== undefined && trust < 0, `the deal's weight at the vote is ${trust}`);
+  const other = session(this).livingIds().find((id) => id !== PLAYER && id !== b.npc)!;
+  // the houseguest's real feeling toward the player is warm: without the plan they would keep the player
+  const e = seam(this).rel.edge(b.npc!, PLAYER); e.trust = 0.9; e.affinity = 0.9; e.threat = 0;
+  const ctx = seam(this).ctx();
+  assert.equal(voteChoice(b.npc!, [PLAYER, other], ctx as never), PLAYER, "the flip plan did not cast the vote");
+  // something bigger since: the player saved them with the veto this week - the flip does not happen
+  seam(this).live.saved = b.npc!; seam(this).live.vetoHolder = PLAYER;
+  assert.notEqual(seam(this).ctx().flipVoteFor?.(b.npc!, [PLAYER, other]), PLAYER, "a flip went ahead against the one who just saved them");
 });
 
 Given("the player has promised a houseguest, aloud, to keep them off the block", function () {

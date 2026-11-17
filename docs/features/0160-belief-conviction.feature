@@ -18,11 +18,11 @@ Feature: Conviction - a houseguest acts on a belief as far as they believe it
     Given a houseguest who holds a grievance with high conviction
     Then it counts in their decisions at full weight, as a fact would
 
-  Scenario: A doubtful belief is tested, and the evidence moves the conviction toward the truth
+  Scenario: A doubtful belief is tested, and what they hear moves the conviction
     Given a houseguest who doubts something they were told that is false
     Then they take up a goal to find out, asking around
     And as the nights pass their conviction falls, until they stop believing it
-    And a doubted belief that is true grows into a conviction instead
+    And a doubted belief that a second source confirms grows into a conviction instead
 
   Scenario: A deal with someone you do not trust weighs less (Ryne on question 3: "Low trust in the person would create a low trust deal")
     Given an HOH who promised two houseguests safety, one they trust and one they do not
