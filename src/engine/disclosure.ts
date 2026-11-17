@@ -5,7 +5,7 @@ import { clampGuarded } from "../domain/num";
  * B10 / B11 slice 1 (design `info-copresence-design.md` S1) - the HOLDER'S CHOICE. When a holder and a listener share a room and the holder owns a fact the listener lacks, the engine draws ONE
  * closed-set decision: `share` (intentional, truthful or spun), `slip` (unintentional) or `hold`. Pure and deterministic given the supplied `roll` (0..1) - no rng handle, no I/O, no Vault. The
  * caller owns the dedicated per-(holder, listener, week, beat) rng and passes ONE draw; every term is bounded so no input can force or forbid a branch outright except the trust gate on risky facts.
- * Wiring (the scene tick, the told-to set, the receipt path) is a later slice behind a flag default OFF; this module changes nothing by itself.
+ * Wiring (the scene tick, the told-to set, the receipt path) is a later slice behind `ORWELL_DISCLOSURE_ENGINE` (default ON; `=0` turns it off); this module changes nothing by itself.
  */
 export type Disclosure = "share" | "slip" | "hold";
 export type Spin = "truthful" | "spun" | "lie";

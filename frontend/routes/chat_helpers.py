@@ -1189,8 +1189,9 @@ _PENDING_KIND_HINTS = {
         "submitDecision (kind 'comp-round', intent=...). This approach is declared ONCE, up front, and "
         "covers the whole comp: it is committed before the round resolves and locked once it does. The "
         "later elimination rounds narrow the field as DRAMA over an already-decided result — they are "
-        "NOT a fresh choice each round, so never re-ask the player's approach as the field thins. Never "
-        "resolve a winner yourself and never re-label a finished round."
+        "NOT a fresh choice each round, so never re-ask the player's approach as the field thins. A "
+        "non-answer (\"next\") gets one or two in-fiction lines that the approach is waiting, never a "
+        "re-narrated scene. Never resolve a winner yourself and never re-label a finished round."
     ),
 }
 
@@ -6715,6 +6716,9 @@ def _status_names(v) -> list:
     return [n.strip() for n in ((x.get("name") if isinstance(x, dict) else x) for x in (v or [])) if isinstance(n, str) and n.strip()]
 
 
+_QUOTED_SPAN_RE = re.compile(r"\"[^\"]*(?:\"|$)|\u201c[^\u201d]*(?:\u201d|$)|(?<!\w)['\u2018].*?(?:['\u2019](?!\w)|$)")  # an unterminated quote (the sentence splitter cuts at the stop inside it) runs to the end
+
+
 def _greeted_by_an_awake_houseguest(sentence: str, status: dict) -> bool:
     """True when `sentence` is a greeting (not a whole-house claim) that names a houseguest the engine's own status lists as awake and names nobody it lists as asleep. Reads only the status the screen already holds."""
     if _HOUSE_WHOLE_RE.search(sentence or "") or not isinstance(status, dict) or not isinstance(status.get("awake"), list):
@@ -6723,7 +6727,10 @@ def _greeted_by_an_awake_houseguest(sentence: str, status: dict) -> bool:
     firsts = [n.split()[0] for n in awake + asleep]
     word = lambda w: re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", sentence) is not None
     # the narrator says first names: a first name counts for an AWAKE houseguest only when it is unique in the whole roster (two Anas: stay on the safe side and drop), while ANY first name of a sleeper marks a sleeper
-    awake_hit = any(word(n) for n in awake) or any(word(n.split()[0]) and firsts.count(n.split()[0]) == 1 for n in awake)
+    # ORW-493: the awake name must be the SPEAKER, read OUTSIDE the quotes ("Good morning, Riser," someone whispers names only the addressee); a sleeper named anywhere still marks a sleeper
+    outside = _QUOTED_SPAN_RE.sub(" ", sentence)
+    outword = lambda w: re.search(r"(?<!\w)" + re.escape(w) + r"(?!\w)", outside) is not None
+    awake_hit = any(outword(n) for n in awake) or any(outword(n.split()[0]) and firsts.count(n.split()[0]) == 1 for n in awake)
     asleep_hit = any(word(n) or word(n.split()[0]) for n in asleep)
     return awake_hit and not asleep_hit
 
@@ -9139,6 +9146,11 @@ async def apply_game_framing(
         _gd = game_state.get("dayNumber") if isinstance(game_state, dict) and game_state.get("started") else None
         if isinstance(_gd, int) and not isinstance(_gd, bool) and _gd > 0:
             _LAST_FRAMED_GAME_DAY[user or "default"] = _gd
+            try:  # ORW-554: the token ledger stamps this played day on every model call until the next turn
+                from src import orwell_token_ledger as _tl_day
+                _tl_day.note_game_day(user, _gd)
+            except Exception:  # failsoft-ok: telemetry only
+                pass
         else:
             _LAST_FRAMED_GAME_DAY.pop(user or "default", None)
         # ADR 0011: stash the FRAMING beat key (the beat the model is grounded on THIS turn) so the

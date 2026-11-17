@@ -5955,6 +5955,7 @@ _INLINE_PLANNING_OPENER_RE = re.compile(
     r"^\s*(?:let(?:'s)? me\s+(?:now\s+|first\s+|then\s+|also\s+|just\s+|quickly\s+)?"
     r"(?:think|ground myself|orient myself|reason (?:this|it) through|work through|"
     r"figure out|process|look at|check|review|re-?read|parse|plan|map out|sort out)\b"
+    r"|(?:let me|i(?:'ll| will| should| need to))\s+(?:now\s+|first\s+)?get (?:a|an) (?:real |better |proper |good |quick )?(?:read|sense|feel)\b"  # ORW-541
     r"|i need to\s+(?:ground myself|orient myself|think|reason|figure out|process|check|"
     r"make sure|understand|recall|remember|re-?read|review)\b"
     r"|i should\s+(?:ground myself|orient myself|think|reason|figure out|process|check|"
@@ -7598,13 +7599,28 @@ def _forget_owner_entries(store, keys) -> None:
         raise TypeError(f"no season reset for a {type(store).__name__} store")
 
 
-def _forget_season_pacing(user) -> None:
+# ORW-499 — a per-owner SEASON GENERATION, bumped by every season reset. A restart usually lands INSIDE a
+# turn (the model calls createCharacter and the same loop keeps running), so that turn's later pacing writes
+# would put last season's state back after the reset cleared it. The public turn wrapper records the
+# generation when the turn begins and, if it moved, clears the pacing stores again when the turn ends: a
+# turn that began in an older generation leaves nothing behind. Not a pacing store itself (the reset must
+# never clear it), so it is a Counter and not listed in `_SEASON_PACING_STORES`.
+_SEASON_GENERATION: "collections.Counter[str]" = collections.Counter()
+
+
+def _season_generation(owner) -> int:
+    return _SEASON_GENERATION[_belt_key(owner)]
+
+
+def _forget_season_pacing(user, _bump: bool = True) -> None:
     """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
     stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
     and the faith queue's canonical-session key), so every variant is cleared; another owner's state is
     never touched. Registered on `orwell_engine.on_season_reset`; never raises: a store that fails is logged
     and the rest are still cleared."""
     keys = {user, user or "", _belt_key(user)}
+    if _bump:  # ORW-499: turns that began before this reset are now stale (a stale turn's own re-clear must not stale a newer turn)
+        _SEASON_GENERATION[_belt_key(user)] += 1
     try:
         keys.add(_faith_key(user))
     except Exception:
@@ -8093,6 +8109,43 @@ def _reset_turn_observability_context(token):
         logger.debug("0112: reset_observability_context failed: %s", _e)
 
 
+def turn_cache_miss_tokens(round_usages: List[Dict]) -> Optional[int]:
+    """ORW-554: the turn's uncached prompt tokens, summed over its provider rounds' usage blocks.
+
+    A round that reports a miss count contributes it. A round that reports cached tokens but NO
+    miss count contributes its own (input − cached), never below 0 — otherwise a mixed turn's
+    cacheMissTokens stops equalling inputTokens − cachedTokens. A round with no cache information
+    at all contributes nothing, so a turn where no round reports anything stays None (the ledger's
+    whole-turn derivation then stands)."""
+    rounds = [u for u in round_usages if isinstance(u, dict)]
+    if not any(u.get("cache_miss_tokens") is not None or u.get("cached_tokens") is not None for u in rounds):
+        return None
+    # Once any round reports cache information, EVERY round contributes, so the turn's miss total keeps
+    # equalling inputTokens - cachedTokens: a round with no cache info had nothing cached (its whole input missed).
+    total = 0
+    for u in rounds:
+        miss = u.get("cache_miss_tokens")
+        try:
+            if miss is not None:
+                piece = max(0, int(miss))
+            else:
+                piece = max(0, int(u.get("input_tokens") or 0) - int(u.get("cached_tokens") or 0))
+        except (TypeError, ValueError):
+            continue
+        total += piece
+    return total
+
+
+def turn_call_count(rounds_sent: int) -> int:
+    """ORW-554: every provider round actually sent this turn is one call — whether or not its
+    response carried a usage block (a round that omitted usage still cost a request)."""
+    try:
+        sent = int(rounds_sent or 0)
+    except (TypeError, ValueError):
+        sent = 0
+    return max(1, sent)
+
+
 async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     """Public entry point (0112 correlation wrap).
 
@@ -8156,12 +8209,18 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
     _ledger_tokens: list = []
+    _gen0 = _season_generation(kwargs.get("owner"))  # ORW-499: the season this turn began in
     try:
         async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        try:  # ORW-499: the season restarted mid-turn, so any pacing this turn wrote since is last season's: drop it
+            if _season_generation(kwargs.get("owner")) != _gen0:
+                _forget_season_pacing(kwargs.get("owner"), _bump=False)
+        except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
+            logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
@@ -8594,6 +8653,12 @@ async def _stream_agent_loop_impl(
             from src import orwell_day_condense, orwell_engine as _oe_dc
             if orwell_day_condense.enabled():
                 _ledger_dc = await _oe_dc.day_ledger(user=owner)
+                try:  # ORW-554: the played day the game is on = the last closed day + 1 (day 1 on an empty ledger), so the token ledger can cost a day
+                    from src import orwell_token_ledger as _tl_day
+                    _tl_day.note_game_day(owner, 1 + max([e.get("day") for e in (_ledger_dc or [])
+                                                          if isinstance(e, dict) and isinstance(e.get("day"), int)] or [0]))
+                except Exception:  # failsoft-ok: telemetry only
+                    pass
                 if _ledger_dc:
                     _pre_view_dc = messages
                     messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
@@ -8715,6 +8780,8 @@ async def _stream_agent_loop_impl(
     real_input_tokens = 0   # Accumulated real usage from API
     real_output_tokens = 0
     real_cached_tokens = 0       # ADR 0010 meter: cached-prompt tokens (cheap reads)
+    _round_usages = []           # ORW-554: per-round usage blocks (input/cached/miss), folded into the turn's totals by turn_cache_miss_tokens()
+    _rounds_sent = 0             # ORW-554: provider rounds actually issued this turn (the ledger's `calls`)
     real_reasoning_tokens = 0    # ADR 0010 meter: reasoning/thinking tokens (the cost driver)
     real_cost = 0.0              # ADR 0010 meter: authoritative per-request cost (usage.cost)
     real_cost_estimated = False  # A-3: True when any round's cost is the FE's price-table estimate (DeepSeek)
@@ -9408,6 +9475,7 @@ async def _stream_agent_loop_impl(
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
         _pd_drain = {"timed_out": False}
+        _rounds_sent += 1  # ORW-554: this round's request IS issued here — count it even if the response never carries a usage block
         async for chunk in _pd_bounded_stream(_narrator_stream_with_outage_pause(
             _candidates,
             _volatile_tail_wire(messages) if (game_mode == "game" and _volatile_tail_enabled()) else messages,
@@ -9507,6 +9575,14 @@ async def _stream_agent_loop_impl(
                         real_output_tokens += u.get("output_tokens", 0)
                         # ADR 0010 meter: accumulate the rest of the envelope per round.
                         real_cached_tokens += u.get("cached_tokens", 0) or 0
+                        # ORW-554: keep this round's cache info (None ⇒ the provider reported none for
+                        # this field) so the turn's miss total can fill a cached round that reported no
+                        # miss count, instead of summing only the rounds that did.
+                        _round_usages.append({
+                            "input_tokens": round_input,
+                            "cached_tokens": u.get("cached_tokens"),
+                            "cache_miss_tokens": u.get("cache_miss_tokens"),
+                        })
                         real_reasoning_tokens += u.get("reasoning_tokens", 0) or 0
                         if u.get("cost") is not None:
                             try:
@@ -12898,6 +12974,11 @@ async def _stream_agent_loop_impl(
                 cost_estimated=real_cost_estimated,
                 context_percent=metrics.get("context_percent", 0),
                 provider=_usage_provider,
+                call_site="narrator-turn", model=actual_model,
+                # ORW-554: calls counts EVERY round sent (usage block or not); the miss total fills a
+                # cached round that reported no miss count with its own input − cached.
+                calls=turn_call_count(_rounds_sent),
+                cache_miss_tokens=turn_cache_miss_tokens(_round_usages),
             )
         except Exception as _tl_err:
             logger.debug(f"[orwell] token-ledger record failed: {_tl_err}")

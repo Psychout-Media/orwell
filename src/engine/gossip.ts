@@ -287,7 +287,7 @@ export function diffuseGossip(deps: {
    * fold actually applied. READ-ONLY (it never touches `rel`, `rng` or any state the diffusion reads), so ABSENT ⇒ byte-identical and PRESENT ⇒ the same
    * edge moves and the same draws; it exists so the belief store can record provenance for what the edge absorbed.
    */
-  onReceipt?: (r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta }) => void;
+  onReceipt?: (r: { listener: EntityId; subject: EntityId; type: string; confidence: number; delta: EdgeDelta; /** ORW-546: who told the listener (the reteller this hop). */ source?: EntityId }) => void;
   /**
    * 0121 R1 — an explicit lineage id to seed the belief under (instead of minting a fresh `fact:<origin>:…`).
    * ABSENT (every existing caller) ⇒ mint as before, drawing `rng.int(1_000_000)` — byte-identical. PRESENT
@@ -338,6 +338,7 @@ export function diffuseGossip(deps: {
     confidence: number,
     type: string | undefined,
     subjects: readonly EntityId[] | undefined,
+    from?: EntityId,
   ): void => {
     const heard = type ? GOSSIP_HEARD[type] : undefined;
     if (!rel || !subjects || !heard || listener === PLAYER) return;
@@ -348,7 +349,7 @@ export function diffuseGossip(deps: {
       const e = rel.edge(listener, subject);
       const before = { trust: e.trust, affinity: e.affinity, threat: e.threat };
       rel.applyImpactDirected(listener, subject, scaled, rng);
-      deps.onReceipt({ listener, subject, type: type!, confidence, delta: edgeDelta(before, rel.edge(listener, subject)) });
+      deps.onReceipt({ listener, subject, type: type!, confidence, delta: edgeDelta(before, rel.edge(listener, subject)), ...(from !== undefined ? { source: from } : {}) });
     }
   };
 
@@ -421,7 +422,7 @@ export function diffuseGossip(deps: {
         if (toType) believedType.set(to, toType);
         if (toSubjects) believedSubjects.set(to, toSubjects);
         // E44: hearing it MOVES the listener's read of the (believed) subjects, hidden.
-        foldReceipt(to, confidence, toType, toSubjects);
+        foldReceipt(to, confidence, toType, toSubjects, from);
       }
     }
   }

@@ -92,6 +92,8 @@ DEFAULT_SETTINGS = {
     "portrait_parallel": 3,
     # ORW-384: deepseek-flash (DeepSeek API only, never another provider) checks every new NPC cast photo; one re-shoot fixes a failure. Fails open.
     "portrait_check_enabled": True,
+    "portrait_gemini_fallback": False,  # ORW-480: allow the Gemini chat route when GPT Image fails (off: a fallback image can carry a visible watermark)
+    "portrait_brief_enabled": False,  # ORW-480: per-person authored shot briefs for cast photos (off until approved on real photos)
     "portrait_check_model": "deepseek-flash",
     "vision_model": "",
     "vision_enabled": True,

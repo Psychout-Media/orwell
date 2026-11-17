@@ -2,6 +2,7 @@ import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
 import { recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
 import { heardConfidence, tellerReliability } from "./heardAboutMe";
+import { convictionFor } from "./beliefConviction";
 
 /**
  * Feature 0149 / ORW-330 (theme 2, slice 1) - THE CLAIMS CORE. What one houseguest tells another about the house is an ENGINE decision,
@@ -65,8 +66,8 @@ export interface SpokenClaim {
   isTrue: boolean;
   /** What the speaker really meant by it. Engine-only. */
   intent: ClaimIntent;
-  /** Q6 seam: who decided the claim. Slice 1 records engine claims only. */
-  origin: "engine";
+  /** Q6 seam: who decided the claim. "engine": the engine chose it. "narrated" (0155, slice 6): the narrator wrote it on its own and the open ledger handed it to the engine, which gave it its truth. */
+  origin: "engine" | "narrated";
 }
 
 /** The season's claims, oldest first. Append-only. Engine-only (rides on `LiveSeasonState.claims`). */
@@ -75,6 +76,8 @@ export interface ClaimLog { seq: number; items: SpokenClaim[] }
 export interface ClaimInput {
   speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId;
   isTrue: boolean; intent: ClaimIntent;
+  /** 0155: set to "narrated" for a claim the open ledger caught; absent = an engine claim. */
+  origin?: "narrated";
 }
 
 export interface ClaimContext {
@@ -86,6 +89,8 @@ export interface ClaimContext {
   trustOf: (listener: EntityId, speaker: EntityId) => number;
   /** Does the listener credit the speaker as someone who keeps their word (0121)? */
   credited?: (listener: EntityId, speaker: EntityId) => boolean;
+  /** 0160 (conviction): how readily the listener believes what they are told, 0..1 (0.5 = at the source's word). Absent = 0.5 (unchanged). */
+  credulity?: (listener: EntityId) => number;
 }
 
 /** Why a claim is refused (a programming error in the caller, never a game event). Undefined = valid. */
@@ -144,12 +149,13 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
     id: `claim:${log.seq}`, speaker: input.speaker, listener: input.listener, kind: input.kind, subject: input.subject,
     ...(input.object !== undefined ? { object: input.object } : {}),
     week: ctx.week, ...(ctx.day !== undefined ? { day: ctx.day } : {}),
-    isTrue: input.isTrue, intent: input.intent, origin: "engine",
+    isTrue: input.isTrue, intent: input.intent, origin: input.origin ?? "engine",
   };
   log.items.push(claim);
   if (beliefs && claim.listener !== PLAYER) {
     const b = beliefFor(claim);
-    const confidence = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
+    const fromSource = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
+    const confidence = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
     recordClaim(beliefs, {
       id: `${claim.listener}|${b.kind}|${b.subject}|${claim.id}`, holder: claim.listener, kind: b.kind, subject: b.subject,
       ...(b.object !== undefined ? { object: b.object } : {}), ...(b.nature !== undefined ? { nature: b.nature } : {}),

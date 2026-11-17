@@ -162,7 +162,7 @@ jobs:
           ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/)'
           # FRONTEND: the vendored Python app + this workflow.
           FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
-          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants)\.ts$|engine/castGenesis|engine/data/vocations\.ts$|domain/(house|styleFamilies|traitConsistency)\.ts$|domain/(castRealism|castAges)\.json$|composition/runtime\.ts$)|^src/main\.ts$'
+          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants|portraitPrompts)\.ts$|engine/castGenesis|engine/data/vocations\.ts$|domain/(house|styleFamilies|traitConsistency)\.ts$|domain/(castRealism|castAges)\.json$|composition/runtime\.ts$)|^src/main\.ts$'
           # ORW-416 (root cause of the #2681 main break): front-end tests also READ repo files outside frontend/ and src/ (deploy scripts, systemd units, ci/ and harness
           # scripts, a few design docs and fixtures). #2681 changed only deploy/, fe-unit was skipped, and test_orw174 (which reads deploy/orwell-backup.sh) broke every later PR.
           # frontend/tests/test_ci_fe_reads_repo_filter.py proves this list covers EVERY such path the front-end tests read.
@@ -386,6 +386,9 @@ jobs:
           # `npm run test:heavy:jury`, `:gradient`, `:jury-reweight`, `:gradient-reweight`, `:uat-reweight` (and `npm run test:heavy`).
           - leg: uat-rest
             scripts: "uat-5seed uat-decisions"
+          # ORW-551 slice 4: the 12-season house-mix guard (replaces the 2-seed unit guard). About two minutes of play in one process.
+          - leg: house-mix
+            scripts: "house-mix"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4

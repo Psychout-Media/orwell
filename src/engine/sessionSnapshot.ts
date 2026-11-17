@@ -109,6 +109,8 @@ export interface SessionCore {
   /** Named alliances (feature 0107) — explicit multi-party pacts, persisted so they survive a restart
    *  (0030) and accumulate. ENGINE-ONLY (the cement/favor magnitudes never cross). Absent ⇒ none. */
   alliances?: Alliance[];
+  /** ORW-544 / 0161 - the append-only alliance history (every form / join / leave / betray / fade / dissolve, ended alliances included). ENGINE-ONLY. Absent on a pre-0161 save / when no alliance ever existed. */
+  allianceHistory?: import("./alliances").AllianceHistoryEntry[];
   /**
    * Live NPC CAMPAIGNS (feature 0085) — persistent, adaptive strategic agendas, so a multi-week
    * campaign and its accumulated history survive a restart (0030) and ACCUMULATE, never thin
@@ -386,7 +388,7 @@ export interface SessionCore {
   showrunnerNoteCount?: number;
   /**
    * Feature 0101 (#1401) Phase-2 (#1455) — the monotonic per-season count of off-screen ticks on which the
-   * OUTCOME-AFFECTING reweight (behind `ORWELL_SHOWRUNNER_REWEIGHT`, default off) actually RE-ORDERED the
+   * OUTCOME-AFFECTING reweight (behind `ORWELL_SHOWRUNNER_REWEIGHT`, default on) actually RE-ORDERED the
    * scheduler (the producer's shortlist jumped a thread ahead of the derive order). A `SessionCoreCounts`
    * dimension (++ only, reset only at a season boundary), so a resumed game keeps the count durable and the
    * ON calibration run can prove the layer is non-vacuous. Absent on a pre-Phase-2 save / when the reweight
@@ -864,6 +866,10 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // `status` in place and never removes an entry (src/engine/deals.ts).
   const laterDealIds = new Set((later.deals ?? []).map((d) => d.id));
   for (const d of earlier.deals ?? []) if (!laterDealIds.has(d.id)) return "deals";
+
+  // allianceHistory (ORW-544 / 0161): append-only by seq; an entry is never dropped (only its `eventId` is filled in once).
+  const laterAllianceSeqs = new Set((later.allianceHistory ?? []).map((e) => e.seq));
+  for (const e of earlier.allianceHistory ?? []) if (!laterAllianceSeqs.has(e.seq)) return "allianceHistory";
 
   // deepProfiles (0058): the hidden §3 layer never loses a houseguest's entry once generated — an
   // authoring upgrade REPLACES a profile's content in place, never deletes the key.

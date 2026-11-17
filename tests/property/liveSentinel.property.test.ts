@@ -19,8 +19,12 @@ import { plantLiveSentinels, args } from "../support/liveSentinelPlanting";
 describe("B42 — the sentinel canary bites the live game (production path)", () => {
   it("no player or admin tool leaks a sentinel — across the whole game incl. the finale", async () => {
     let totalJurorsTold = 0;
-    // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 keeps askJuror's output exercised.
-    for (const seed of [2, 5, 7]) {
+    // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 kept askJuror's output exercised.
+    // 0163 (ORW-539, 2026-11-16): which seasons seat the player keeps moving with the house's balance, so (the repo's seed-search pattern, #1954) the
+    // three sweep seeds always run, and further seeds run only until askJuror has told something. Never pinned to one seed.
+    const SWEEP = [2, 5, 7], EXTRA = [3, 8, 10, 1, 4, 6, 9, 11, 12, 13, 14, 15];
+    for (const seed of [...SWEEP, ...EXTRA]) {
+      if (!SWEEP.includes(seed) && totalJurorsTold > 0) break;
       const reg = new GameSessionRegistry();
       const user = `u${seed}`;
       const player = reg.resolver()("player", user) as McpServer;

@@ -7,7 +7,7 @@ import type { KnowledgeFact } from "../domain/knowledge";
  * secret, or an origin belief with `hops` 0 / no source) or one they hold as hearsay; either way what matters for the choice is whether a given LISTENER already knows it and whether the holder
  * already decided about telling THEM. `ToldLedger` records "holder decided about listener for fact" once per (holder, fact, listener) so a fact is decided exactly once per listener (re-decided only
  * after `reopen`, e.g. when the fact is superseded). Pure state (plain JSON round-trip), no rng, no I/O, no Vault: the ledger holds ids only. Unwired - a later slice runs the decision at scene time
- * behind `ORWELL_GOSSIP_COPRESENCE` (default OFF).
+ * behind `ORWELL_GOSSIP_COPRESENCE` (default ON).
  */
 export type Told = "shared" | "slipped" | "held" | "lied";
 

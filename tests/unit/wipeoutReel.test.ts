@@ -446,3 +446,23 @@ describe("wipeoutReel — P1 fix (PR #1831 review): wipeoutHistory ⊆ AIRED ree
     }
   });
 });
+
+describe("wipeoutReel — ORW-543: each reel sentence carries its own subject", () => {
+  it("a batched round voices one sentence per dropped houseguest, each led by that houseguest (no orphan predicate)", () => {
+    const h = buildHouse(16, 3);
+    const ctx: SeasonCtx = { player: PLAYER, statsOf: h.statsOf, rel: h.rel(), wipeoutReelEnabled: true, archetypeOf: archetypeFor };
+    const { traj } = play(h.active, ctx, 3);
+    let batched = 0;
+    for (const content of traj.compEliminationContent) {
+      const m = /^(.*?); \d+ remain\. (.+)$/.exec(content);
+      if (!m) continue;
+      const ids = m[1]!.match(/npc:\d+|player/g) ?? [];
+      const body = m[2]!;
+      if (ids.length > 1) batched += 1;
+      // one sentence per dropped houseguest, in order, each opening with that subject
+      const lead = [...body.matchAll(/(?:^|\. )(npc:\d+|player) /g)].map((x) => x[1]);
+      expect(lead, content).toEqual(ids);
+    }
+    expect(batched).toBeGreaterThan(0);
+  });
+});

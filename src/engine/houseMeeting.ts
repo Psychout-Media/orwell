@@ -102,8 +102,9 @@ export function strongestGrievance(beliefs: readonly BeliefClaim[], holder: Enti
 }
 
 /** Does this NPC call a meeting today? At most once per week per house (`calledThisWeek`), only with a strong grievance, on the caller's seeded `roll`. */
-export function npcWouldCall(g: Grievance | undefined, calledThisWeek: boolean, roll: number): boolean {
-  return canCallMeeting("npc") && g !== undefined && !calledThisWeek && roll < MEETING.callChancePerDay;
+export function npcWouldCall(g: Grievance | undefined, calledThisWeek: boolean, roll: number, chanceMult = 1): boolean {
+  // ORW-551 slice 3: `chanceMult` is the house culture's meetings dial; it moves the THRESHOLD only, never the draw (1 = byte-identical).
+  return canCallMeeting("npc") && g !== undefined && !calledThisWeek && roll < MEETING.callChancePerDay * chanceMult;
 }
 
 /** The engine-only record (append-only, kept whole, NEVER projected whole). */

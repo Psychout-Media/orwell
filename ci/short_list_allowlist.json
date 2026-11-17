@@ -61,7 +61,7 @@
     },
     {
      "line": 1276,
-     "anchor": "person or topic that isn't in the most recent inbox slice \u2014 ",
+     "anchor": "person or topic that isn't in the most recent inbox slice — ",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     }
    ]
@@ -106,12 +106,12 @@
    "sites": [
     {
      "line": 2515,
-     "anchor": "\u00b7 up \" + esc(up(eng.uptimeSeconds)) : \"\") + (eng.error ? \" \u00b7",
+     "anchor": "· up \" + esc(up(eng.uptimeSeconds)) : \"\") + (eng.error ? \" ·",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
      "line": 2515,
-     "anchor": "? \" \u00b7 \" + esc(eng.latencyMs) + \" ms\" : \"\") + (eng.uptimeSeco",
+     "anchor": "? \" · \" + esc(eng.latencyMs) + \" ms\" : \"\") + (eng.uptimeSeco",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
@@ -121,7 +121,7 @@
     },
     {
      "line": 2518,
-     "anchor": "(img.model ? \" \u00b7 \" + esc(img.model) : \"\") + (img.portraits &",
+     "anchor": "(img.model ? \" · \" + esc(img.model) : \"\") + (img.portraits &",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
@@ -136,12 +136,12 @@
     },
     {
      "line": 2521,
-     "anchor": "raded ? B(false, \"DEGRADED\") + \" \u00b7 \" : \"\") + esc(st.sessions",
+     "anchor": "raded ? B(false, \"DEGRADED\") + \" · \" : \"\") + esc(st.sessions",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
      "line": 2812,
-     "anchor": "j++) out.push(\" \u2022 \" + (tw[j].kind || \"\") + (tw[j].firedWeek ",
+     "anchor": "j++) out.push(\" • \" + (tw[j].kind || \"\") + (tw[j].firedWeek ",
      "reason": "assistant/admin server text (route help, prompt for a non-game feature, log or error message)"
     },
     {
@@ -335,7 +335,7 @@
    "sites": [
     {
      "line": 93,
-     "anchor": "scenario it applies to \u2014 create any sample input it needs (e",
+     "anchor": "scenario it applies to — create any sample input it needs (e",
      "reason": "skill-authoring prompt for the assistant's skill library (non-game): samples of skill triggers, tags and test inputs"
     },
     {
@@ -659,7 +659,7 @@
    "sites": [
     {
      "line": 87,
-     "anchor": "ate POST /api/services/{domain}/{service} \u2014 call service (e.",
+     "anchor": "ate POST /api/services/{domain}/{service} — call service (e.",
      "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
     },
     {
@@ -1007,7 +1007,7 @@
    "sites": [
     {
      "line": 213,
-     "anchor": "' \u2014 check that the endpoint is running and accessible. Canno",
+     "anchor": "' — check that the endpoint is running and accessible. Canno",
      "reason": "general-assistant research or skill-teacher prompt: a JSON/format sample for a non-game output"
     }
    ]
@@ -1127,7 +1127,7 @@
     },
     {
      "line": 3129,
-     "anchor": "ix with `cd \u2026`, `source \u2026`, or chain with `&&`. env_prefix (",
+     "anchor": "ix with `cd …`, `source …`, or chain with `&&`. env_prefix (",
      "reason": "operator/error message: a sample command, path or host for an admin hint; developer-facing, not player text"
     },
     {
@@ -1162,7 +1162,7 @@
     },
     {
      "line": 144,
-     "anchor": "ma, or Diffusers. cmd MUST start with the binary directly \u2014 ",
+     "anchor": "ma, or Diffusers. cmd MUST start with the binary directly — ",
      "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
     },
     {
@@ -1337,7 +1337,7 @@
     },
     {
      "line": 794,
-     "anchor": "server \u2014 use the friendly NAME from list_cookbook_servers (e",
+     "anchor": "server — use the friendly NAME from list_cookbook_servers (e",
      "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
     },
     {
@@ -1357,7 +1357,7 @@
     },
     {
      "line": 812,
-     "anchor": "Target server \u2014 friendly NAME from list_cookbook_servers (e.",
+     "anchor": "Target server — friendly NAME from list_cookbook_servers (e.",
      "reason": "assistant tool schema: a model/host/session identifier format for a local-model admin tool; format sample, no prose to imitate"
     },
     {
@@ -1502,7 +1502,7 @@
    "sites": [
     {
      "line": 534,
-     "anchor": "'every morning\u2026', 'each day at 7:30', 'daily summarize\u2026') \u2014 ",
+     "anchor": "'every morning…', 'each day at 7:30', 'daily summarize…') — ",
      "reason": "assistant tool description or error: a usage sample for a tool-calling model in the general assistant, not game prose"
     },
     {
@@ -1522,7 +1522,7 @@
    "sites": [
     {
      "line": 871,
-     "anchor": "launches it). If the // browser blocks self-close (rare \u2014 e.",
+     "anchor": "launches it). If the // browser blocks self-close (rare — e.",
      "reason": "code comment captured inside the HTML report template string (not model-visible); no creative text"
     },
     {
@@ -1567,7 +1567,7 @@
     },
     {
      "line": 2984,
-     "anchor": "type=\"text\" class=\"ow-field\" placeholder=\"default (white) \u2014 ",
+     "anchor": "type=\"text\" class=\"ow-field\" placeholder=\"default (white) — ",
      "reason": "front-end UI hint text shown to the user in a settings or admin form; not game output and not model-visible"
     }
    ]
@@ -1627,7 +1627,7 @@
    "sites": [
     {
      "line": 3485,
-     "anchor": "Optional label for this account (e.g. \u201cWork\u201d or \u201cPersonal\u201d).",
+     "anchor": "Optional label for this account (e.g. “Work” or “Personal”).",
      "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
     },
     {
@@ -1652,7 +1652,7 @@
     },
     {
      "line": 4810,
-     "anchor": "Optional label for this account (e.g. \u201cWork\u201d or \u201cPersonal\u201d).",
+     "anchor": "Optional label for this account (e.g. “Work” or “Personal”).",
      "reason": "assistant UI hint: a label placeholder in a settings/session form; user-typed, never model-copied game text"
     },
     {
@@ -1662,7 +1662,7 @@
     },
     {
      "line": 4815,
-     "anchor": "Yes \u2014 your full email address goes here too (e.g. you@gmail.",
+     "anchor": "Yes — your full email address goes here too (e.g. you@gmail.",
      "reason": "assistant/admin text: a URL, host or account-name format hint for an integration form or tool; not game text"
     },
     {
@@ -2473,6 +2473,15 @@
    "transitional": "PR 2843 (replaced by composed floors)"
   },
   {
+   "path": "src/engine/houseLeans.ts",
+   "kind": "list",
+   "name": "LEAN_IDS",
+   "max": 1,
+   "owner": "ORW-511",
+   "reason": "closed by design: the engine's culture lean keys, drawn by a seeded side stream; never shown to the player or a model (the retrospective gets texture words only)",
+   "decision": "mechanics: an internal key set the seeded draw picks 2-3 of and blends; not player text"
+  },
+  {
    "path": "src/engine/houseLife.ts",
    "kind": "list",
    "name": "inline",
@@ -2521,14 +2530,6 @@
    "max": 1,
    "owner": "ORW-509",
    "reason": "world-side list (alliance names, confessional and deflection stock lines, curiosity needle, off-screen verbs, world snapshot, twist pool); ORW-509 PR 2843 composes these"
-  },
-  {
-   "path": "src/engine/portraitPrompts.ts",
-   "kind": "list",
-   "name": "FALLBACK_ROOMS",
-   "max": 1,
-   "owner": "ORW-480",
-   "reason": "photo track: portrait prompt tables and shot brief"
   },
   {
    "path": "src/engine/producerPersona.ts",
@@ -2992,6 +2993,60 @@
    "owner": "ORW-511",
    "reason": "closed by design: engine claim-kind ids from the 0149 fixed claim set (Ryne's Q1 seam), tried in order for a plant; never a sample of prose (the narrator words the claim)",
    "decision": "mechanics: an internal candidate list of claim kinds tried in order; not player text"
+  },
+  {
+   "path": "frontend/src/orwell_photo_brief.py",
+   "kind": "list",
+   "name": "FACETS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "shot-brief anchors: one life area per cast member so the cast photos do not converge on one setting; the DeepSeek writer authors the place, objects and wording",
+   "decision": "the writer already authors each shot live; this only picks which part of the biography to draw from. Follow-up (ORW-480): the writer names the life areas from each biography and the anchor dealing spreads them, so no fixed list remains"
+  },
+  {
+   "path": "frontend/src/orwell_photo_brief.py",
+   "kind": "list",
+   "name": "SEASONS.autumn",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "shot-brief weather anchor for the dealt season; the writer writes the sky and light",
+   "decision": "the brief writer will author the weather live from the hometown's real climate for the dealt season (ORW-480 follow-up); until then these only anchor the writer, which writes the sentence itself"
+  },
+  {
+   "path": "frontend/src/orwell_photo_brief.py",
+   "kind": "list",
+   "name": "SEASONS.spring",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "shot-brief weather anchor for the dealt season; the writer writes the sky and light",
+   "decision": "the brief writer will author the weather live from the hometown's real climate for the dealt season (ORW-480 follow-up); until then these only anchor the writer, which writes the sentence itself"
+  },
+  {
+   "path": "frontend/src/orwell_photo_brief.py",
+   "kind": "list",
+   "name": "SEASONS.summer",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "shot-brief weather anchor for the dealt season; the writer writes the sky and light",
+   "decision": "the brief writer will author the weather live from the hometown's real climate for the dealt season (ORW-480 follow-up); until then these only anchor the writer, which writes the sentence itself"
+  },
+  {
+   "path": "frontend/src/orwell_photo_brief.py",
+   "kind": "list",
+   "name": "SEASONS.winter",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "shot-brief weather anchor for the dealt season; the writer writes the sky and light",
+   "decision": "the brief writer will author the weather live from the hometown's real climate for the dealt season (ORW-480 follow-up); until then these only anchor the writer, which writes the sentence itself"
+  },
+  {
+   "path": "src/engine/performance.ts",
+   "kind": "list",
+   "name": "TRAITS",
+   "max": 1,
+   "owner": "ORW-480",
+   "reason": "closed camera-manner taxonomy: each trait is scored against the character sheet and keys its expression, posture and hand tables",
+   "decision": "traits are chosen by scoring the sheet, not dealt; the only deal is the fallback when no sheet line matches. Follow-up (ORW-480): replace that fallback with the writer naming the manner from the biography"
   }
  ]
 }

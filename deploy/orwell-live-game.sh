@@ -111,11 +111,51 @@ if row and row[0] is not None:
     print(int(row[0]))
 '
 
+# ORW-496: an absolute form of a path, resolved against the CURRENT directory (the readers below `cd /` before they open it).
+_update_abs_path() {
+  local p="$1"
+  [[ -n "$p" && "$p" != /* ]] && p="$(pwd)/${p#./}"
+  printf '%s' "$p"
+}
+# ORW-487: the SQLite file the front end really uses. $1 app dir, $2 data/.env, $3 the default file. A DATABASE_URL in the
+# environment, else in data/.env, of the form sqlite:///<path> names it (sqlite:////abs = absolute; a relative path is relative to the
+# front end's working directory, <app>/frontend, as the systemd unit runs it). Anything else (unset, another database) = the default.
+update_fe_db_path() {
+  local app="${1%/}" envf="${2:-}" def="$3" url="${DATABASE_URL:-}" p
+  if [[ -z "$url" && -n "$envf" && -r "$envf" ]]; then
+    url="$(sed -n 's/^DATABASE_URL=[[:space:]]*//p' "$envf" 2>/dev/null | tail -n1 || true)"
+    url="${url%"${url##*[![:space:]]}"}"; url="${url#[\"\']}"; url="${url%[\"\']}"
+  fi
+  if [[ "$url" == sqlite:///* ]]; then
+    p="${url#sqlite:///}"; p="${p%%\?*}"
+    if [[ -n "$p" && "$p" != :memory:* ]]; then
+      [[ "$p" == /* ]] || p="${app}/frontend/${p#./}"
+      printf '%s' "$p"; return 0
+    fi
+  fi
+  printf '%s' "$def"
+}
+# ORW-490: ONE bound helper for every wait: $1 value, $2 default, $3 max (min 1). Non-numeric -> default; leading zeros and
+# long digit strings never reach the arithmetic as written.
+update_bound() {
+  local v="$1" d="$2" mx="$3"
+  [[ "$v" =~ ^[0-9]+$ ]] && { v="${v#"${v%%[!0]*}"}"; v="${v:-0}"; }
+  [[ "$v" =~ ^[0-9]{1,6}$ ]] || v="$d"
+  (( v = 10#$v, v < 1 )) && v=1
+  (( v > mx )) && v=$mx
+  printf '%s' "$v"
+}
+# The most seconds the new-turn hold must last: the turn wait + the warm-up wait + a restart allowance (ORW-490).
+update_hold_seconds() {
+  echo $(( $(update_bound "${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" 120 300) + $(update_bound "${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" 60 300) + 150 ))
+}
+
 # One reader each. $1 db, then the privilege-dropping prefix (empty unless root). Prints <integer> | none | error,
 # or "unavailable" when this reader cannot run on this box (the caller then tries the next one).
 _live_game_read_python() {
   local db="$1" out rc=0; shift
   command -v python3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  db="$(_update_abs_path "$db")"   # ORW-496: a relative path would be read from / after the cd below
   # `|| rc=$?`: a failing read must not trip the caller's `set -e`. `cd /`: the service user may not be able to
   # enter the directory the updater was started in.
   out="$(cd / && timeout 10 "$@" python3 -I -c "$_LG_PY" "$db" "$_LG_SQL" 2>/dev/null)" || rc=$?
@@ -132,6 +172,7 @@ _live_game_read_python() {
 _live_game_read_cli() {
   local db="$1" out err rc=0; shift
   command -v sqlite3 >/dev/null 2>&1 || { echo unavailable; return 0; }
+  db="$(_update_abs_path "$db")"   # ORW-496
   err="$(mktemp 2>/dev/null)" || { echo none; return 0; }
   out="$(cd / && timeout 10 "$@" sqlite3 -readonly -cmd '.timeout 2000' "$db" "$_LG_SQL" 2>"$err")" || rc=$?
   if (( rc != 0 )); then
@@ -427,7 +468,9 @@ update_turn_hold_begin() {
   mv -fT "$tmp" "${dir}/turns-hold" 2>/dev/null || { rm -f "$tmp"; return 0; }
   echo "==> holding new turns (the game restarts in a moment; players see 'one moment')"
   # A turn admitted in the same instant as the hold may not be in the in-flight count yet: give it a moment to register before the first count is read.
-  _update_defer_sleep "${ORWELL_UPDATE_HOLD_SETTLE_SECONDS:-2}"
+  local settle="${ORWELL_UPDATE_HOLD_SETTLE_SECONDS:-2}"
+  [[ "$settle" =~ ^[0-9]{1,2}$ ]] || settle=2   # ORW-490: validated like the other bounds
+  _update_defer_sleep "$settle"
   return 0
 }
 update_turn_hold_end() {
@@ -440,10 +483,7 @@ update_turn_hold_end() {
 # $2 (optional) force_now: "1" skips the wait (emergency --force-now / ORWELL_UPDATE_FORCE_NOW=1 only; may cut a turn).
 update_wait_for_no_turn() {
   local f="$1" force_now="${2:-0}" max="${ORWELL_UPDATE_TURN_WAIT_SECONDS:-120}" start now left nap last_say=-1
-  [[ "$max" =~ ^[0-9]+$ ]] && { max="${max#"${max%%[!0]*}"}"; max="${max:-0}"; }   # ORW-465: leading zeros do not count against the length
-  [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=120   # at most six digits: a 20-digit value would wrap the arithmetic below
-  (( max = 10#$max, max < 1 )) && max=1
-  (( max > 300 )) && max=300
+  max="$(update_bound "$max" 120 300)"   # ORW-490: the one shared clamp (also sizes the hold)
   if [[ "$force_now" == "1" ]]; then
     echo "==> --force-now: not waiting for an in-flight turn (a turn may be cut)."
     return 0
@@ -496,10 +536,7 @@ update_probe_host() {
 _warm_log() { [[ -n "$1" ]] || return 0; [[ /proc/self/fd/1 -ef "$1" ]] && return 0; echo "$2" >>"$1" 2>/dev/null || true; }
 update_wait_for_warm() {
   local eng="${1:-}" fe="${2:-}" log="${3:-}" fehost="${4:-}" max="${ORWELL_UPDATE_WARM_WAIT_SECONDS:-60}" start now body msg warm_ms=""
-  [[ "$max" =~ ^[0-9]+$ ]] && { max="${max#"${max%%[!0]*}"}"; max="${max:-0}"; }   # ORW-465: leading zeros do not count against the length
-  [[ "$max" =~ ^[0-9]{1,6}$ ]] || max=60
-  (( max = 10#$max, max < 1 )) && max=1
-  (( max > 300 )) && max=300
+  max="$(update_bound "$max" 60 300)"   # ORW-490: the one shared clamp
   start="$(_update_defer_now)"
   _warm_left() { local l=$(( max - ($(_update_defer_now) - start) )); (( l < 1 )) && l=1; (( l > 3 )) && l=3; echo "$l"; }
   local eng_done=0 fe_done=0

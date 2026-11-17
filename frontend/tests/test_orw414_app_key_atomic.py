@@ -62,3 +62,61 @@ def test_many_processes_creating_at_once_agree_on_one_key(tmp_path):
     [p.join(30) for p in ps]
     assert len(keys) == 1, "racing creators ended with different keys"
     assert open(path, "rb").read() in keys
+
+
+def _no_links(monkeypatch):
+    def nolink(*a, **k):
+        raise OSError("hard links unavailable")
+    monkeypatch.setattr(os, "link", nolink)
+
+
+def test_no_link_fallback_never_overwrites_a_key_published_meanwhile(tmp_path, monkeypatch):
+    ss = _fresh(tmp_path, monkeypatch)
+    real_open = os.open
+    state = {"done": False}
+
+    def racing_open(path, flags, *a, **k):
+        # another process publishes its key after our link attempt, before our publish
+        if str(path) == str(ss._KEY_PATH) and not state["done"]:
+            state["done"] = True
+            with open(path, "wb") as fh:
+                fh.write(b"w" * 44)
+        return real_open(path, flags, *a, **k)
+
+    _no_links(monkeypatch)
+    monkeypatch.setattr(os, "open", racing_open)
+    assert ss._load_or_create_key() == b"w" * 44
+    assert ss._KEY_PATH.read_bytes() == b"w" * 44
+    assert [p.name for p in ss._KEY_PATH.parent.iterdir()] == [".app_key"]
+
+
+def test_no_link_happy_path_creates_one_owner_only_key(tmp_path, monkeypatch):
+    ss = _fresh(tmp_path, monkeypatch)
+    _no_links(monkeypatch)
+    key = ss._load_or_create_key()
+    assert len(key) == 44 and ss._KEY_PATH.read_bytes() == key
+    assert stat.S_IMODE(os.stat(ss._KEY_PATH).st_mode) == 0o600
+    assert ss._load_or_create_key() == key
+    assert [p.name for p in ss._KEY_PATH.parent.iterdir()] == [".app_key"]
+
+
+def test_no_link_empty_racing_file_is_not_returned_as_a_key(tmp_path, monkeypatch):
+    ss = _fresh(tmp_path, monkeypatch)
+    real_open = os.open
+    real_sleep = ss.time.sleep
+    state = {"done": False}
+
+    def racing_open(path, flags, *a, **k):
+        if str(path) == str(ss._KEY_PATH) and not state["done"]:
+            state["done"] = True
+            open(path, "wb").close()  # winner created the file but has not written yet
+        return real_open(path, flags, *a, **k)
+
+    def finishing_sleep(_):
+        ss._KEY_PATH.write_bytes(b"w" * 44)  # winner's write lands while we wait
+        real_sleep(0)
+
+    _no_links(monkeypatch)
+    monkeypatch.setattr(os, "open", racing_open)
+    monkeypatch.setattr(ss.time, "sleep", finishing_sleep)
+    assert ss._load_or_create_key() == b"w" * 44
