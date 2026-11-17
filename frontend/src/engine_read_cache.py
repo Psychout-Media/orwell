@@ -35,7 +35,7 @@ CACHEABLE = frozenset({"getGameState", "gameStatus"})
 # own projection behind /knowledge and /dossier, `whereabouts` the presence read behind the two 25 s presence pollers.
 PURE_READS = frozenset({
     "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead", "seasonRecap",
-    "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere",
+    "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere", "groupsAwaitingWords",
     "beatLog",  # ORW-439: the engine's per-bump cause log (diagnostic read; commits and bumps nothing)
 })
 

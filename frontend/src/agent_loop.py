@@ -10767,6 +10767,15 @@ async def _stream_agent_loop_impl(
                         except Exception as _ol_e:  # failsoft-ok: open-ledger-hook (after_turn records its own failures RED; this guards the import and the call itself)
                             logger.debug(f"[open-ledger] skipped: {_ol_e}")
 
+                    async def _group_identity_after_turn() -> None:
+                        # ORW-566 part c (spec 0183): when a new alliance or a close pair's habit appeared, the group's words are written in the
+                        # background (one cheap utility call per new group). Fire-and-forget, idempotent, fail-soft; the engine floor stands without it.
+                        try:
+                            from src import orwell_group_identity as _gi
+                            _gi.kickoff_group_identity(owner)
+                        except Exception as _gi_e:  # failsoft-ok: group-identity-hook (the driver records its own failures RED; this guards the import and the call itself)
+                            logger.debug(f"[group-identity] skipped: {_gi_e}")
+
                     async def _bank_belt_chain() -> None:
                         """Fold the social consequences of the scene this turn narrated: a struck deal (0039),
                         a press-to-open-up (0075), an outing (0093), a secret trade (0099), then the generic
@@ -10865,11 +10874,13 @@ async def _stream_agent_loop_impl(
                             if _post_turn_parallel_enabled():
                                 _side = [asyncio.ensure_future(_room_canon_after_turn()),
                                          asyncio.ensure_future(_open_ledger_after_turn()),
-                                         asyncio.ensure_future(_narration_use_after_turn())]
+                                         asyncio.ensure_future(_narration_use_after_turn()),
+                                         asyncio.ensure_future(_group_identity_after_turn())]
                             else:
                                 await _room_canon_after_turn()
                                 await _open_ledger_after_turn()
                                 await _narration_use_after_turn()
+                                await _group_identity_after_turn()
                         try:
                             await _bank_belt_chain()
                         except asyncio.CancelledError:
