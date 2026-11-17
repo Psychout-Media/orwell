@@ -149,6 +149,21 @@ describe("a sealed-ballot break names nobody", () => {
   });
 });
 
+describe("withdrawing a termed promise", () => {
+  it("lapses its assurance row with no fold: a later nomination breaks nothing, and a save keeps the lapsed row", () => {
+    const { g, promiser, promisee } = started();
+    const r = g.recordPromiseTerm({ by: promiser, to: promisee, what: "no-nominate" });
+    const t0 = trust(g, promisee, promiser);
+    expect(g.resolveOpenLedger({ entryId: r.entryId, status: "withdrawn", note: "took it back" })).toEqual({ accepted: true });
+    g.assuranceNominated(promiser, promisee);
+    expect(trust(g, promisee, promiser)).toBe(t0);
+    expect(lied(g, promisee)).toHaveLength(0);
+    expect(entry(g, r.entryId!).status).toBe("withdrawn");
+    const saved = JSON.parse(JSON.stringify(snap(g).live.assurances)) as { items: Array<{ status: string }> };
+    expect(saved.items.map((a) => a.status)).toEqual(["lapsed"]);
+  });
+});
+
 describe("persistence and the flag", () => {
   it("a save and load keeps the term and the outcome", () => {
     const { g, promiser, promisee } = started();

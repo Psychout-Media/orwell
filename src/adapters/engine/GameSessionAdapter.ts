@@ -17925,6 +17925,17 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
+  /** ORW-586: how many assurance rows exist (lets the promise sink know whether its term wrote the matching row). */
+  assuranceCount(): number { return this.live?.assurances?.items.length ?? 0; }
+
+  /** ORW-586: lapse the open assurance row a termed promise wrote (none, flag off or no ledger => nothing). Never folds. */
+  private lapseTermAssurance(term: PromiseTerm): void {
+    const kind = termAssuranceKind(term);
+    if (!kind || !this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    if (ledger.lapseMatching({ from: term.by as EntityId, to: term.to as EntityId, kind, ...(term.week !== undefined ? { week: term.week } : {}) }) > 0) this.live.assurances = ledger.toJSON();
+  }
+
   /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
   resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
     if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
@@ -17940,9 +17951,12 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, NOT a board beat
       return { accepted: true };
     }
+    const before = this.openLedger.entries.find((e) => e.id === sr.entryId);
     const out = resolveOpenEntry(this.openLedger, req, this.beatSeq, { refuseTermed: this.promiseTermsLive });
     if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
+    // ORW-586: a WITHDRAWN termed promise also lapses its assurance row (no fold), so a later board event cannot break what the speaker took back.
+    if (this.promiseTermsLive && (req as { status?: unknown }).status === "withdrawn" && before?.term) this.lapseTermAssurance(before.term);
     this.backgroundPersist(); // durable, but NOT a board beat
     return { accepted: true };
   }
