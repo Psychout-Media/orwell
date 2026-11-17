@@ -2,6 +2,7 @@ import type { EntityId } from "../domain/ids";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { DECISION } from "./decisionConstants";
 import type { RelationshipModel } from "./relationships";
+import { BOND, bondOf, bondStrengthOf, kindOf, type BondStore } from "./bondRecord";
 
 /**
  * Theme 3 Core 1 (ORW-552, Ryne approved 2026-11-17) - THE BOND PER PAIR: the read API.
@@ -90,4 +91,32 @@ export function edgeBondReader(rel: RelationshipModel, living: () => readonly En
     day,
   };
   return reader;
+}
+
+/**
+ * 0175 - the full reader: the edge plus the BOND RECORD (warmth, debts, resentment, strain, history, commitment, kind) and the holder's private pecking order
+ * (their top `BOND.rankTop` by strength, 1 = matters most). Same contract as `edgeBondReader`; a pair with no record reads exactly as the edge-only reader.
+ */
+export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number): BondReader {
+  const strengthOf = (holder: EntityId, other: EntityId): number => bondStrengthOf(edgeStrength(rel, holder, other), bondOf(store(), holder, other));
+  const ties = (holder: EntityId) => orderTies(living().filter((o) => o !== holder).map((other) => ({ other, strength: strengthOf(holder, other) })));
+  return {
+    living,
+    bond: (holder, other) => {
+      const e = rel.peek(holder, other);
+      const r = bondOf(store(), holder, other);
+      const ranked = ties(holder).filter((t) => t.strength > 0).slice(0, BOND.rankTop);
+      const at = ranked.findIndex((t) => t.other === other);
+      return {
+        holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
+        warmth: r.warmth, debt: r.debt, resentment: r.resentment, strain: r.strain, history: r.history,
+        kind: kindOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
+        strength: strengthOf(holder, other),
+      };
+    },
+    strength: strengthOf,
+    tie: (a, b) => Math.min(strengthOf(a, b), strengthOf(b, a)),
+    ties,
+    day,
+  };
 }
