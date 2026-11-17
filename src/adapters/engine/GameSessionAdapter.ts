@@ -290,6 +290,7 @@ import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "..
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, type BondReader } from "../../engine/bonds";
+import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -5078,6 +5079,7 @@ export class GameSessionAdapter implements GameSession {
     // on the OLD array references) must be dropped; a stale clone could otherwise be reused for a new
     // soul that happens to match a length, persisting the wrong history.
     this.soulCloneCache.clear();
+    this.houseGraphCache = undefined; // derived state: recomputed from the restored bonds
     // 0065 Part A — resume the beat counter at the saved value (restart-safe CAS). Absent on a pre-0065
     // save ⇒ 0 (the next commit bumps it).
     this.beatSeq = core.beatSeq ?? 0;
@@ -5521,6 +5523,19 @@ export class GameSessionAdapter implements GameSession {
    */
   bondReader(): BondReader {
     return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
+  }
+
+  /** Derived state, NEVER snapshotted: the last house graph, reused within one in-game day. */
+  private houseGraphCache: DailyHouseGraph | undefined;
+
+  /**
+   * Theme 3 (0177): the house graph (cliques, hubs, loners, brokers), re-derived at most once per in-game day from `bondReader()`. ENGINE-ONLY, like `bondReader()`:
+   * not on the GameSession port, never a tool, never projected; later engine slices consume it. Read-only (no rng, no writes, no edge creation); the cache is derived
+   * from the bonds and is not persisted, so snapshots are byte-identical whether or not it was ever read.
+   */
+  houseGraph(): DailyHouseGraph {
+    this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
+    return this.houseGraphCache;
   }
 
   livingIds(): EntityId[] {
