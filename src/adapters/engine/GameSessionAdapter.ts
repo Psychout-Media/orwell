@@ -60,7 +60,7 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
@@ -13278,6 +13278,16 @@ export class GameSessionAdapter implements GameSession {
       if (!kindredCache.has(id)) { const k = sharedTopRoom(s.tenure, id, actors); kindredCache.set(id, k.length ? new Set(k) : undefined); }
       return kindredCache.get(id);
     };
+    // ORW-590 (Fable T2-7): who is worth working on for a goal against `target`: a listener whose own read of the target is not settled (affinity and threat close together), weighted by how readily they believe a tale,
+    // with an hourly keyed rotation (agendaRoll, no shared draw). 0 = not a swing voter. Played games with the credibility layer on only; absent otherwise.
+    const swingRead = this.credibilityEnabledNow() ? (listener: EntityId, target: EntityId): number => {
+      if (listener === house.player.id) return 0; // the player's own vote is theirs: not a thing the engine ranks them by
+      const e = this.rel.edge(listener, target);
+      const pivot = 1 - Math.min(1, Math.abs(e.affinity - e.threat));
+      if (pivot < LIE_AUDIENCE.minPivot) return 0;
+      const spin = 1 + LIE_AUDIENCE.rotation * agendaRoll(seed, listener, `lie-audience:d${day}h${hour}r${repeat}:${target}`);
+      return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
+    } : undefined;
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -13298,6 +13308,7 @@ export class GameSessionAdapter implements GameSession {
         timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
+        ...(swingRead ? { swing: swingRead } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
         ...(this.courtView(id, s.hoh) ? { court: this.courtView(id, s.hoh)! } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),

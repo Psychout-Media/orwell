@@ -197,7 +197,25 @@ export interface HourView {
   pairHabits?: ReadonlyArray<{ with: EntityId; room: Room; key: string }>;
   /** 0173 (Theme 3 slice 11): the court. The new HOH is sought out: `pull` is this houseguest's per-hour chance of going to them, `danger` when they are on the block or the HOH reads them as a threat. Absent = byte-identical. */
   court?: { pull: number; danger: boolean };
+  /** ORW-590 (Fable T2-7): how much a listener is worth lying to FOR a goal aimed at `target` (0 = not a swing voter; the caller builds it from the listener's own read of the target, their credulity and a keyed rotation). Absent = the old best-friend-first order, byte-identical. */
+  swing?: (listener: EntityId, target: EntityId) => number;
 }
+
+/** ORW-590: how a goal's audience is ranked once a swing read is supplied. A swing voter always outranks a non-swing one; the bond is only a small tiebreak. */
+export const LIE_AUDIENCE = {
+  /** A listener whose own read of the target leans less than this (0..1) is "on the fence". */
+  minPivot: 0.4,
+  /** Someone already in the planter's alliance is already on side: worth less to work on. */
+  allyDiscount: 0.5,
+  /** The planter is in the room with them. */
+  sameRoom: 1.2,
+  /** The bond's weight in the order (a tiebreak: it can never lift a non-swing voter above a swing one). */
+  bondTiebreak: 0.02,
+  /** Weight on credulity (0.5 + credulity). */
+  credulityBase: 0.5,
+  /** Hourly rotation spread so the same person is not worked every hour. */
+  rotation: 0.25,
+} as const;
 
 export interface PlannedAction {
   actor: EntityId;
@@ -266,6 +284,17 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
     const here = partners.filter((p) => pool.includes(p));
     return here.length >= ACTIONS[k].partners.min ? { kind: k, with: here.slice(0, Math.max(ACTIONS[k].partners.min, 1) || 0), goalId: goal.id, goalKind: goal.kind, ...(about ? { about } : {}) } : undefined;
   };
+  // ORW-590: the people worth working on for this goal: swing voters first (by how undecided and how credulous they are, whether the planter can reach them), the bond only a small tiebreak.
+  // No swing read supplied, or nobody on the fence: the old best-friend-first order.
+  const earsFor = (target: EntityId | undefined): EntityId[] => {
+    const sw = v.swing;
+    if (!sw || !target || !voters.some((p) => sw(p, target) > 0)) return byScore(voters, aff);
+    const mine = new Set(v.mates);
+    return byScore(voters, (p) => {
+      const s = sw(p, target);
+      return s > 0 ? s * (mine.has(p) ? LIE_AUDIENCE.allyDiscount : 1) * (roomOf(v, p) === v.room ? LIE_AUDIENCE.sameRoom : 1) + LIE_AUDIENCE.bondTiebreak * aff(p) : LIE_AUDIENCE.bondTiebreak * aff(p) - 1;
+    });
+  };
   switch (goal.kind) {
     case "get-them-out": case "revenge": {
       if (!t) return undefined;
@@ -275,7 +304,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
         const heat = Math.min(1, temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1) + hot);
         if (variant < heat) return pick("confront", [t]);
       }
-      const ears = byScore(voters, aff);
+      const ears = earsFor(t);
       // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
       if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
       if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
@@ -294,7 +323,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
     case "pull-them-in": return t ? pick(among(["pitch", "check-in", "comfort", "tell-stories", "cook", "game-of-cards"] as const) === "pitch" ? (aff(t) > 0.7 ? "recruit" : "pitch") : among(["pitch", "check-in", "comfort", "tell-stories", "cook", "game-of-cards"] as const), [t]) : undefined;
     case "keep-them-safe": return t ? pick(v.hoh && v.hoh !== v.owner ? "lobby-for" : "count-votes", v.hoh && v.hoh !== v.owner ? [v.hoh] : byScore(voters, aff), t) : undefined;
     case "protect-my-person": return t ? pick(among(["check-in", "comfort", "tell-stories", "cook"] as const), [t]) : undefined;
-    case "long-con": return t ? (v.nominees.includes(t) ? pick("flip-a-vote", byScore(voters, aff), t) : pick(among(["check-in", "comfort", "tell-stories", "game-of-cards"] as const), [t], t)) : undefined;
+    case "long-con": return t ? (v.nominees.includes(t) ? pick("flip-a-vote", earsFor(t), t) : pick(among(["check-in", "comfort", "tell-stories", "game-of-cards"] as const), [t], t)) : undefined;
     case "find-out": return pick(t ? "fish" : "test-a-rumor", byScore(pool.filter((p) => p !== t), aff), t);
     case "win-power": return { kind: "study-for-comps", with: [], goalId: goal.id, goalKind: goal.kind };
     case "keep-my-secret": return undefined; // a secret is kept by what they DON'T do: it shapes speech (themes 2 and 4), not an hourly action
