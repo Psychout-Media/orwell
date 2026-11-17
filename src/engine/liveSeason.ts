@@ -1139,6 +1139,8 @@ export interface SeasonCtx {
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** 0163 / ORW-539: the bond between two OTHER houseguests as `holder` can see it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   perceivedBondFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
+  flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
   dealTrustFor?: (holder: EntityId, other: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
@@ -2181,6 +2183,13 @@ export function voteChoice(
   voter: EntityId, fn: [EntityId, EntityId], ctx: SeasonCtx, blocs: readonly Bloc[] = [], hoh?: EntityId, why?: WhySink,
 ): EntityId {
   const V = DECISION.vote;
+  // 0178 (Theme 3 slice 1): a voter whose SECRET PLAN is to flip on a nominee at this vote casts that vote - the plan decides it, not a small weight
+  // (unless something bigger has happened since; the adapter's `flipVoteFor` checks that). Absent hook => byte-identical.
+  const flipOn = ctx.flipVoteFor?.(voter, fn);
+  if (flipOn !== undefined && fn.includes(flipOn)) {
+    if (why) why({ kind: "vote", rule: "flip-plan", options: [{ option: flipOn, role: "chosen", total: 1, terms: [["deal", 1]] }, { option: fn[0] === flipOn ? fn[1] : fn[0], role: "runner-up", total: 0, terms: [] }] });
+    return flipOn;
+  }
   // The REFERENDUM ON THE HOH (PO ruling 2026-11-02): the HOH's target is the nominee the HOH reads
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the
   // target and sends the pawn home. No HOH (or the voter IS the HOH, e.g. a tie-break) ⇒ no term.

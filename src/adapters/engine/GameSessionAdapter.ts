@@ -10267,7 +10267,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       // 0160 (Ryne Q3): a deal weighs as far as its holder trusts the other party (full strength only; capped keeps the fixed weight).
-      ...(BELIEF_RULES.strength === "full" || this.dealPlansEnabled ? { dealTrustFor: (h: EntityId, other: EntityId) => this.flipsAtThisVote(h, other) ? -1 : BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(h, other).trust) : 1 } : {}), // 0178: a flip plan turns the deal's weight against the one it protected
+      ...(BELIEF_RULES.strength === "full" ? { dealTrustFor: (h: EntityId, other: EntityId) => dealTrust(this.rel.edge(h, other).trust) } : {}), // 0160 (Ryne Q3): a deal weighs as far as the holder trusts the other party
+      ...(this.dealPlansEnabled && this.live?.dealPlans ? { flipVoteFor: (v: EntityId, fn: readonly [EntityId, EntityId]) => fn.find((n) => this.flipsAtThisVote(v, n)) } : {}), // 0178: a flip plan casts the vote
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
@@ -16029,13 +16030,22 @@ export class GameSessionAdapter implements GameSession {
     const p = this.live?.dealPlans?.[dealId]?.[holder];
     return p && p.kind !== "keep" ? p : undefined;
   }
-  /** 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other`? */
+  /**
+   * 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other` - with nothing bigger since? Something bigger is: a newer
+   * deal between the two (they recommitted after the plan was made), or `other` saving `holder` with the veto this week (a debt the flip would betray outright).
+   */
   private flipsAtThisVote(holder: EntityId, other: EntityId): boolean {
     const s = this.live;
     if (!this.dealPlansEnabled || !s?.dealPlans) return false;
-    return this.deals.open().some((d) => d.parties.includes(holder) && d.parties.includes(other) && d.condition.promisors.includes(holder)
+    if (s.saved === holder && s.vetoHolder === other) return false; // they just saved the flipper
+    const pair = (d: Deal) => d.parties.includes(holder) && d.parties.includes(other);
+    return this.deals.open().some((d) => pair(d) && d.condition.promisors.includes(holder)
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
-      && (() => { const p = this.twoFacedPlan(d.id, holder); return !!p && p.kind === "flip" && !!p.moment && momentDue(p.moment, s.week, "vote"); })());
+      && (() => {
+        const p = this.twoFacedPlan(d.id, holder);
+        if (!p || p.kind !== "flip" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
+        return !this.deals.all.some((n) => n.id !== d.id && pair(n) && (n.madeWeek ?? -1) > p.madeWeek); // recommitted since: the newer deal stands
+      })());
   }
   /**
    * 0178 retune: how cunning a houseguest is about faking, 0..1. Low candor reads as cunning; a WILDCARD is unpredictable instead: their cunning is their own
