@@ -108,6 +108,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // ORW-620 (spec 0192): late-night talks among the houseguests still awake, catchable by a player who stays up; sleepers never scheme. ON by default; `=0` turns it off.
+  // ORW-629 (spec 0199): the HOH room is opened to the whole house; a rare snub the house reads as rude; a mask that slips by how well a guest can act; photos and a letter reveal one true backstory fact. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_HOH_ROOM', key: 'hohRoom', parser: 'defaultOn' },
   { envKey: 'ORWELL_NIGHT_OWLS', key: 'nightOwls', parser: 'defaultOn' },
   // ORW-473 amendment (0192): the walk-in rule also catches a talk among three or more, not only a pair. Played games only. ON by default; `=0` limits it to a pair.
   { envKey: 'ORWELL_WALKIN_GROUPS', key: 'walkinGroups', parser: 'defaultOn' },
@@ -121,6 +123,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NETWORK_SPREAD', key: 'networkSpread', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.
   { envKey: 'ORWELL_BOND_RECORD', key: 'bondRecord', parser: 'defaultOn' },
+  // ORW-625: plans that last longer than an hour - each goal's stored short plan, carried across hours and days, dropped only for a reason. `=0` = the hour re-rolls each step.
+  { envKey: 'ORWELL_GOAL_PLANS', key: 'goalPlans', parser: 'defaultOn' },
   // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
   { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
   // 0200 / ORW-632: your edit - after the crown, the season as TV would have cut it (episode facts, hero and villain edits, how the player came across); rides the post-season retrospective. `=0` = none.

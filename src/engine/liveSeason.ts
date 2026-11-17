@@ -721,6 +721,8 @@ export interface LiveSeasonState {
    * folded; `bondsDay` = the last day night-repair ran). ENGINE-ONLY (Vault class), never projected. Absent => no bond record yet (old saves read neutral).
    */
   bonds?: BondStore;
+  /** 0199 (ORW-629): HOH room visits already held (`week:hoh`) and backstory facts already revealed (`hoh|text`, each a true public facet of that HOH). Engine-only, idempotent, only grows. */
+  hohRoom?: { done: string[]; used: string[] };
   /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
   normsApplied?: Record<string, number>;
   /** 0186 (Theme 3 slice 14): exposures already applied (`holder|doubleDealer|rival`) and twists already reopened (`twistKey`, plus `dealId|twistKey` per deal handled). Engine-only (Vault class), never projected; idempotent. */
@@ -798,6 +800,8 @@ export interface LiveSeasonState {
    * handed to the narrator, under the decider's own voice block, and only for a public act. Append-only, persisted with the season. Absent until the first such decision.
    */
   statedReasons?: StatedReasonRecord[];
+  /** ORW-625: each houseguest's stored goal plans (append-only: a finished or dropped plan keeps its record and reason). ENGINE-ONLY, never projected. */
+  goalPlans?: Record<EntityId, Array<{ goalId: string; steps: import("./houseLife").PlanStep[]; at: number; madeDay: number; lastDay: number; status: "active" | "done" | "dropped"; reason?: "goal-ended" | "partner-gone" | "stalled" }>>;
   /** ORW-624: the audience outside - the public's view (what the house saw) and the full view (with hidden moments, read only after the crown), what was folded, the crowd at each walk-out and the fan rewards. ENGINE-ONLY, never projected. */
   audience?: { live: import("./audience").Standing; full: import("./audience").Standing; cursor: number; weeks: number[]; crowd: Array<{ week: number; evictee: EntityId; reaction: import("./audience").CrowdReaction }>; perks: Array<{ week: number; to: EntityId }> };
   /** 0188 / ORW-619: the traps houseguests have set (a made-up secret told to one person, watched). ENGINE-ONLY (Vault class), never projected; persisted. */

@@ -35,6 +35,7 @@ import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/v
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
+import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
@@ -60,7 +61,7 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction } from "../../engine/houseLife";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
@@ -1436,6 +1437,58 @@ export class GameSessionAdapter implements GameSession {
     for (const p of this.derivePitches(PLAYER)) {
       if (p.from === PLAYER) continue;
       (s.goalApproaches ??= {})[p.from] = { desire: p.kind === "safety" ? "plea" : p.kind === "threat" ? "probe" : "campaign", goalId: "court", hour: this.absHour() };
+    }
+  }
+  /** ORW-629 (spec 0199): the HOH room reveal. ON unless `ORWELL_HOH_ROOM=0`. Played games only; OFF or headless => nothing is read, drawn or recorded (byte-identical). */
+  private hohRoomEnabled = flagDefaultOn("ORWELL_HOH_ROOM");
+  setHohRoomEnabled(on: boolean): void { this.hohRoomEnabled = on; }
+  private hohRoomOn(): boolean { return this.hohRoomEnabled && this.live?.playedGame === true; }
+  /**
+   * ORW-629 - once per HOH crowning the new HOH's room is opened to the WHOLE house (the player too). Skipping is a rare engine-decided snub the house reads as rude (a small directed bond move, the HOH
+   * most). Up there each guest's true feeling toward the HOH stays hidden or slips by how well they can act (`hohRoom.ts`); only a SLIP is recorded, as an observable event with its direction (never the
+   * strength, never the mask). The photos and letter reveal one TRUE fact from the HOH's own public backstory to a player who came up. No number crosses; the narrator voices every line from these facts.
+   * Idempotent per (week, HOH) through `live.hohRoom` (saved).
+   */
+  private recordHohRoom(hoh: EntityId): void {
+    const s = this.live;
+    if (!this.hohRoomOn() || !s || !this.house || !this.onPlayerEvent) return;
+    const done = (s.hohRoom ??= { done: [], used: [] });
+    const key = `${s.week}:${hoh}`;
+    if (done.done.includes(key)) return;
+    done.done.push(key);
+    const seed = this.gameSeed ?? 0;
+    const living = new Set(this.livingIds());
+    const guests = this.house.npcs.filter((n) => n.id !== hoh && living.has(n.id)).map((n) => {
+      const e = this.rel.peek(n.id, hoh);
+      const row = s.grudges?.[grudgeKey(n.id, hoh)];
+      return { id: n.id, social: n.character.stats.social, affinity: e.affinity, threat: e.threat, grudge: row ? row.severity * grudgeFreshness(row, s.week) : 0 };
+    });
+    const out = decideVisit(seed, s.week, hoh, guests);
+    const playerGuest = hoh !== PLAYER && living.has(PLAYER);
+    const room = [hoh, ...out.attended, ...(playerGuest ? [PLAYER] : [])];
+    const wk = `week ${weekWords(s.week)}`;
+    const move = (from: EntityId, to: EntityId, imp: Partial<Record<"affinity" | "trust", number>>, tag: string): void => {
+      if (from === PLAYER) return; // the human forms their own read
+      this.rel.applyImpactDirected(from, to, imp, new SeededRandom(hashSeed(`${seed}:hoh-room:${tag}:${s.week}:${hoh}:${from}:${to}`)));
+    };
+    this.onPlayerEvent(`${this.nameOf(hoh)}'s room is opened to the whole house (${wk})`, room, "hoh-room");
+    for (const id of out.snubbed) {
+      this.onPlayerEvent(`${this.nameOf(id)} did not come up to ${this.nameOf(hoh)}'s room (${wk})`, room, "hoh-room");
+      move(hoh, id, HOH_ROOM.snubByHoh, "snub");
+      for (const a of out.attended) move(a, id, HOH_ROOM.snubByHouse, "snub-house");
+    }
+    for (const sl of out.slipped) {
+      this.onPlayerEvent(`${this.nameOf(sl.id)} slipped in ${this.nameOf(hoh)}'s room: ${sl.direction} showed (${wk})`, room, "hoh-room");
+      move(hoh, sl.id, HOH_ROOM.slipByHoh, "slip");
+    }
+    const npc = this.house.npcs.find((n) => n.id === hoh);
+    if (npc && playerGuest) {
+      const usedHere = new Set(done.used.filter((u) => u.startsWith(`${hoh}|`)).map((u) => u.slice(hoh.length + 1)));
+      const fact = pickBackstoryFact(seed, hoh, s.week, backstoryFacets(npc.character), usedHere);
+      if (fact) {
+        done.used.push(`${hoh}|${fact.text}`);
+        this.onPlayerEvent(`${this.nameOf(hoh)}'s photos and letter (${wk}) - ${fact.field}: ${fact.text}`, room, "hoh-room");
+      }
     }
   }
   /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
@@ -13483,7 +13536,8 @@ export class GameSessionAdapter implements GameSession {
       const others = actors.filter((x) => x !== id);
       const showmance = this.showmancePartnerOf(id);
       const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
-      plans.push(chooseHourAction({
+      if (this.goalPlansOn()) this.maintainGoalPlans(id, day);
+      const hv: Parameters<typeof chooseHourAction>[0] = {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
         affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
@@ -13501,7 +13555,11 @@ export class GameSessionAdapter implements GameSession {
         ...(this.nightOwlsEnabled && s.playedGame === true ? { nightOwl: { playerUp: playerUp } } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
         ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(playerRoom !== undefined ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
-      }, seed));
+        ...(this.goalPlansOn() ? { plans: this.planStepsFor(id) } : {}), // ORW-625: each goal's stored plan
+      };
+      const chosen = chooseHourAction(hv, seed);
+      plans.push(chosen);
+      if (this.goalPlansOn() && chosen.goalId) this.noteGoalPlan(id, chosen, hv, day); // ORW-625: form or advance the goal's plan
     }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
@@ -14225,6 +14283,51 @@ export class GameSessionAdapter implements GameSession {
    */
   private bondFeelingsEnabled = flagDefaultOn("ORWELL_BOND_FEELINGS");
   setBondFeelingsEnabled(on: boolean): void { this.bondFeelingsEnabled = on; }
+  /** ORW-625: stored goal plans (`ORWELL_GOAL_PLANS`, default ON; `=0` = the hour re-rolls each goal's step as before). Played games with agendas only. */
+  private goalPlansEnabled = flagDefaultOn("ORWELL_GOAL_PLANS");
+  setGoalPlansEnabled(on: boolean): void { this.goalPlansEnabled = on; }
+  private goalPlansOn(): boolean { return this.goalPlansEnabled && this.live?.playedGame === true && !!this.live.agendas; }
+  /** ORW-625: the next step of each of `owner`'s active plans (goal id -> step). */
+  private planStepsFor(owner: EntityId): ReadonlyMap<string, PlanStep> {
+    const out = new Map<string, PlanStep>();
+    for (const p of this.live?.goalPlans?.[owner] ?? []) if (p.status === "active" && p.steps[p.at]) out.set(p.goalId, p.steps[p.at]!);
+    return out;
+  }
+  /** ORW-625: drop a plan only for a reason - its goal ended, a partner left the game, or it stalled. The record stays (append-only). */
+  private maintainGoalPlans(owner: EntityId, day: number): void {
+    const s = this.live!;
+    const mine = s.goalPlans?.[owner];
+    if (!mine?.length) return;
+    const goals = new Map((s.agendas?.[owner]?.goals ?? []).map((g) => [g.id, g] as const));
+    const living = new Set(this.livingIds());
+    for (const p of mine) {
+      if (p.status !== "active") continue;
+      const g = goals.get(p.goalId);
+      if (!g || g.status !== "active") { p.status = "dropped"; p.reason = "goal-ended"; continue; }
+      const step = p.steps[p.at];
+      if (step && [...step.with, ...(step.about ? [step.about] : [])].some((x) => !living.has(x))) { p.status = "dropped"; p.reason = "partner-gone"; continue; }
+      if (day - p.lastDay >= GOAL_PLAN.stallDays) { p.status = "dropped"; p.reason = "stalled"; }
+    }
+  }
+  /** ORW-625: the hour's goal action forms the goal's plan (its first step) or advances it (when it is the plan's step). */
+  private noteGoalPlan(owner: EntityId, a: PlannedAction, hv: Parameters<typeof chooseHourAction>[0], day: number): void {
+    const s = this.live!;
+    const goal = (s.agendas?.[owner]?.goals ?? []).find((g) => g.id === a.goalId);
+    if (!goal) return;
+    const mine = ((s.goalPlans ??= {})[owner] ??= []);
+    const plan = mine.find((p) => p.status === "active" && p.goalId === goal.id);
+    if (plan) {
+      const step = plan.steps[plan.at];
+      if (step && step.kind === a.kind && step.with.join() === a.with.join()) {
+        plan.at += 1; plan.lastDay = day;
+        if (plan.at >= plan.steps.length) plan.status = "done";
+      }
+      return;
+    }
+    const seed = this.gameSeed ?? 0;
+    const steps = formPlan(goal, hv, { kind: a.kind, with: [...a.with], ...(a.about ? { about: a.about } : {}) }, (k) => agendaRoll(seed, owner, `plan:${goal.id}:d${day}:${k}`));
+    mine.push({ goalId: goal.id, steps, at: 1, madeDay: day, lastDay: day, status: steps.length > 1 ? "active" : "done" });
+  }
   /** ORW-622: the holder's grudge strand toward each of these houseguests (only those with one), from the bond record. */
   private rivalryStrandsOf(holder: EntityId, others: readonly EntityId[]): ReadonlyMap<EntityId, number> {
     const reader = this.bondReader();
@@ -16856,6 +16959,7 @@ export class GameSessionAdapter implements GameSession {
     if (ev) this.recordCeremonyConfessionals(ev);
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
+    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordHohRoom(ev.participants[0]); // ORW-629: then the room is opened to the whole house
     if (ev && ev.beat === "nominations") { this.mintNpcDeal(); if (this.npcDealsEnabled) this.mintManyNpcDeals(); }
     // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
     if (ev) this.deliverInformationDeals();
