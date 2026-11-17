@@ -404,6 +404,10 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (typeof args["kind"] !== "string") refuse("kind", "a free-text kind (string; empty falls back to \"claim\")");
       if (args["parties"] !== undefined && !Array.isArray(args["parties"])) refuse("parties", "an array of ids when present");
       if (args["about"] !== undefined && !isStr(args["about"])) refuse("about", "free text when present");
+      if (args["claim"] !== undefined) { // 0155: the structured claim, when the entry is one (the engine re-validates it)
+        const c = args["claim"] as Record<string, unknown> | null;
+        if (!c || typeof c !== "object" || Array.isArray(c) || !isStr(c["kind"]) || !isStr(c["subject"]) || (c["object"] !== undefined && !isStr(c["object"]))) refuse("claim", "{kind, subject, object?} strings when present");
+      }
       return;
     case "resolveOpenLedger":
       // ORW-407 slice 2: shape guard only; the engine re-validates.

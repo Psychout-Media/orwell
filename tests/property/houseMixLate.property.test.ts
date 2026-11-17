@@ -3,7 +3,7 @@ import { playMixGame, mixShares, type MixScene } from "../support/houseMixDriver
 
 /**
  * The RUNAWAY guard for the late game (ORW-350 / ORW-353). Ryne, 2026-11-14: the late season SHOULD run more scheming and gossip than week 1 when the house calls for it ("it should depend on what's happening in the house; week 1 should not be the
- * peak"), so this is NOT a parity check against the week-1 mix (that is `houseMixGuard.test.ts`, untouched, first 360 messages within 5 points of 48 / 29 / 17 / 4). It fails only when ONE activity swallows the house, or when the drama has no
+ * peak"), so this is NOT a parity check against the week-1 mix (that is `tests/uat/houseMixGuard.test.ts`, the 12-season week-1 guard (ORW-551)). It fails only when ONE activity swallows the house, or when the drama has no
  * goal or vote behind it:
  *   - late gossip above 60% (the broken game read 65-81%: every hour went to the strongest goal, which was a get-them-out campaign, and bonding all but vanished),
  *   - late bonding under 10%, or conflict above 30%, or strategy above 75% (nothing but one thing),

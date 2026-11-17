@@ -10,7 +10,7 @@
  * off — a new, separate pathway, not a mode of §5's scheduler.
  *
  * CALIBRATION (sacred — mandate #4): every roll is on a DEDICATED rng (never the shared society/
- * competition/vote stream), and the whole pathway is OPT-IN behind a default-OFF flag
+ * competition/vote stream), and the whole pathway is behind a default-ON flag (`=0` opts out)
  * (`ORWELL_TIE_REVEAL`). Off (the default, and the state the seeded juryReach/gradient/UAT sims run
  * in) ⇒ zero draws, zero folds, zero exposures — byte-identical to the pre-feature build.
  */

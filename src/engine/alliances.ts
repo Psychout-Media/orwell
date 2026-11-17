@@ -1,5 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { clamp01Raw as clamp01 } from "../domain/num";
+import { PLAYER as PLAYER_ID } from "../domain/ids";
 
 /**
  * Feature 0107 — NAMED ALLIANCES. An explicit, NAMED, multi-party pact layered over the emergent bloc
@@ -221,10 +222,67 @@ export function willingMembers(
   return out;
 }
 
+/**
+ * ORW-544 / 0161 - ALLIANCE HISTORY. The live list above loses a row when an alliance fades, falls under two members or is voted out of existence; this ledger keeps every change, so
+ * nothing about an alliance is ever deleted (non-degradation, mandate #4). APPEND-ONLY: an entry is never removed or rewritten once appended (only `eventId` is filled in the one time the
+ * engine records the matching event). Engine-only and Vault-sealed: the entries carry who was in a hidden pact, so no player or admin view reads them; the post-season retrospective may.
+ */
+export type AllianceChange = "formed" | "joined" | "left" | "betrayed" | "faded" | "dissolved";
+
+export interface AllianceHistoryEntry {
+  /** 1-based, strictly increasing, never reused (the append position). */
+  seq: number;
+  allianceId: string;
+  name: string;
+  founder: EntityId;
+  kind: AllianceChange;
+  /** The beat and (when known) the in-game day the change happened. */
+  beat: number;
+  day?: number;
+  /** The roster as it stood BEFORE a leave / betrayal / fade / dissolve (so an ended alliance keeps its whole membership), and AFTER a formation / join. */
+  members: EntityId[];
+  /** The member a `joined` / `left` / `betrayed` entry is about. */
+  who?: EntityId;
+  /** Why it ended or left: `betrayal`, `cohesion`, `evicted`, `evicted-out`, `too-few-members`. */
+  why?: string;
+  /** Whether the player was a member or had been told of the alliance when this happened (decides whether its event is visible to them). */
+  playerKnew: boolean;
+  /** The event recorded for this change (set once). */
+  eventId?: string;
+}
+
 /** A live, mutable store of named alliances (sibling to the 0039 `DealStore`). Engine-only; Vault-sealed. */
 export class AllianceStore {
   private alliances: Alliance[] = [];
   private seq = 0;
+  private log: AllianceHistoryEntry[] = [];
+  private at: { beat: number; day?: number } = { beat: 0 };
+
+  /** The append-only history, oldest first. */
+  history(): readonly AllianceHistoryEntry[] { return this.log; }
+
+  /** Stamp the beat (and in-game day) the next changes are recorded at. */
+  stamp(beat: number, day?: number): void { this.at = { beat, ...(day !== undefined ? { day } : {}) }; }
+
+  /** The entries that still need an event recorded for them. */
+  unrecorded(): AllianceHistoryEntry[] { return this.log.filter((e) => e.eventId === undefined); }
+
+  markRecorded(seq: number, eventId: string): void {
+    const e = this.log.find((x) => x.seq === seq);
+    if (e && e.eventId === undefined) e.eventId = eventId;
+  }
+
+  private note(a: Alliance, kind: AllianceChange, members: readonly EntityId[], extra: { who?: EntityId; why?: string } = {}): void {
+    this.log.push({
+      seq: (this.log[this.log.length - 1]?.seq ?? 0) + 1,
+      allianceId: a.id, name: a.name, founder: a.founder, kind,
+      beat: this.at.beat, ...(this.at.day !== undefined ? { day: this.at.day } : {}),
+      members: [...members],
+      ...(extra.who !== undefined ? { who: extra.who } : {}),
+      ...(extra.why !== undefined ? { why: extra.why } : {}),
+      playerKnew: members.includes(PLAYER_ID) || a.knownTo.includes(PLAYER_ID),
+    });
+  }
 
   all(): readonly Alliance[] { return this.alliances; }
 
@@ -238,6 +296,7 @@ export class AllianceStore {
       knownTo: [...members], // symmetric perspective: only the members know at formation
     };
     this.alliances.push(a);
+    this.note(a, "formed", a.members);
     return a;
   }
 
@@ -261,24 +320,35 @@ export class AllianceStore {
   /** Make `who` aware of an alliance (a pitch surfaces it without enrolling them). */
   reveal(id: string, who: EntityId): void {
     const a = this.byId(id);
-    if (a && !a.knownTo.includes(who)) a.knownTo.push(who);
+    if (a && !a.knownTo.includes(who)) {
+      a.knownTo.push(who);
+      // The player told of an alliance in the same pass it formed: its still-unrecorded entries are then known to them (the only field of an entry that moves, besides `eventId`, and only false -> true before its event is recorded).
+      if (who === PLAYER_ID) for (const e of this.log) if (e.allianceId === id && e.eventId === undefined) e.playerKnew = true;
+    }
   }
 
   /** Enroll `who` (they accepted a pitch); also makes them aware. No-op if already a member. */
   join(id: string, who: EntityId): Alliance | undefined {
     const a = this.byId(id);
     if (!a) return undefined;
-    if (!a.members.includes(who)) a.members.push(who);
+    const isNew = !a.members.includes(who);
+    if (isNew) a.members.push(who);
     if (!a.knownTo.includes(who)) a.knownTo.push(who);
+    if (isNew) this.note(a, "joined", a.members, { who });
     return a;
   }
 
   /** Remove `who` (they betrayed it / left); an alliance that falls below two members dissolves. */
-  removeMember(id: string, who: EntityId): void {
+  removeMember(id: string, who: EntityId, why: "betrayal" | "left" = "betrayal"): void {
     const a = this.byId(id);
     if (!a) return;
+    const before = [...a.members];
     a.members = a.members.filter((m) => m !== who);
-    if (a.members.length < 2) this.alliances = this.alliances.filter((x) => x.id !== id);
+    this.note(a, why === "betrayal" ? "betrayed" : "left", before, { who, why });
+    if (a.members.length < 2) {
+      this.alliances = this.alliances.filter((x) => x.id !== id);
+      this.note(a, "dissolved", before, { why: why === "betrayal" ? "betrayal" : "too-few-members" });
+    }
   }
 
   /** Every active alliance the two houseguests SHARE (for the betrayal-stakes fold). */
@@ -301,25 +371,38 @@ export class AllianceStore {
       a.lowDays = cohesionOf(a) < c.cohesionFloor ? (a.lowDays ?? 0) + elapsed : 0;
       if (a.lowDays >= c.fadeDays) gone.push(a);
     }
-    if (gone.length) this.alliances = this.alliances.filter((a) => !gone.includes(a));
+    if (gone.length) {
+      this.alliances = this.alliances.filter((a) => !gone.includes(a));
+      for (const a of gone) this.note(a, "faded", a.members, { why: "cohesion" });
+    }
     return gone;
   }
 
   /** Drop any member who has left the game (evicted); a one-member alliance dissolves. Returns whether anything changed. */
   prune(living: ReadonlySet<EntityId>): boolean {
     if (this.alliances.every((a) => a.members.every((m) => living.has(m)) && a.knownTo.every((k) => living.has(k)))) return false;
-    this.alliances = this.alliances
-      .map((a) => ({ ...a, members: a.members.filter((m) => living.has(m)), knownTo: a.knownTo.filter((k) => living.has(k)) }))
-      .filter((a) => a.members.length >= 2);
+    const next: Alliance[] = [];
+    for (const a of this.alliances) {
+      const kept = a.members.filter((m) => living.has(m));
+      for (const m of a.members) if (!living.has(m)) this.note(a, "left", a.members, { who: m, why: "evicted" });
+      if (kept.length >= 2) next.push({ ...a, members: kept, knownTo: a.knownTo.filter((k) => living.has(k)) });
+      else this.note(a, "dissolved", a.members, { why: "evicted-out" });
+    }
+    this.alliances = next;
     return true;
   }
 
   serialize(): Alliance[] { return this.alliances.map((a) => ({ ...a, members: [...a.members], knownTo: [...a.knownTo] })); }
 
-  load(rows: readonly Alliance[]): void {
+  serializeHistory(): AllianceHistoryEntry[] { return this.log.map((e) => ({ ...e, members: [...e.members] })); }
+
+  load(rows: readonly Alliance[], history: readonly AllianceHistoryEntry[] = []): void {
+    this.log = history.map((e) => ({ ...e, members: [...e.members] }));
     this.alliances = rows.map((a) => ({ ...a, members: [...a.members], knownTo: [...a.knownTo] }));
     // A dissolved alliance (betrayal, fade, eviction) leaves a gap in the ids, so the row count can be lower than the highest id still in use; restoring
     // `seq` from the count would hand the next alliance an id a live one already holds. Resume after the highest numeric id instead.
-    this.seq = rows.reduce((hi, a) => Math.max(hi, Number(/^alliance:(\d+)$/.exec(a.id)?.[1] ?? 0)), rows.length);
+    // ORW-544: a dissolved alliance's id lives on in the history, so the top id is read from the history too: an id is never reused, even when the highest-numbered alliance is the one that ended.
+    const idOf = (id: string): number => Number(/^alliance:(\d+)$/.exec(id)?.[1] ?? 0);
+    this.seq = Math.max(rows.length, ...rows.map((a) => idOf(a.id)), ...this.log.map((e) => idOf(e.allianceId)));
   }
 }

@@ -467,6 +467,74 @@ def _consume_gen_detail() -> Optional[str]:
     return d
 
 
+# ORW-480: the dollar cost the provider returned for the image(s) and checks of the current task, summed, consumed by the
+# attempt logger (the portrait log recorded no cost). Per asyncio task like the reasons above; None when no call returned one.
+_TASK_COST: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+_LAST_COST: Optional[float] = None
+
+
+def _note_gen_cost(cost) -> None:
+    """Add a provider-returned dollar cost (a number; anything else is ignored) to the current task's running total."""
+    global _LAST_COST
+    if isinstance(cost, bool) or not isinstance(cost, (int, float)) or cost != cost or cost < 0:
+        return
+    t = _gen_task()
+    if t is not None:
+        _TASK_COST[t] = _TASK_COST.get(t, 0.0) + float(cost)
+    else:
+        _LAST_COST = (_LAST_COST or 0.0) + float(cost)
+
+
+def _consume_gen_cost() -> Optional[float]:
+    """The summed cost noted since the last consume (None when the provider returned none), then reset."""
+    global _LAST_COST
+    t = _gen_task()
+    if t is not None and t in _TASK_COST:
+        return round(_TASK_COST.pop(t), 6)
+    c, _LAST_COST = _LAST_COST, None
+    return None if c is None else round(c, 6)
+
+
+# ORW-480: which provider and model made the image of the current task ("gpt-image" route, the Gemini fallback, a direct images API), recorded in the manifest
+# entry and the attempt log, so a photo's origin is never a guess (a fallback image can carry a provider watermark).
+_TASK_PROVIDER: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+_LAST_PROVIDER: Optional[dict] = None
+
+
+def _note_gen_provider(model_id: str, route: str) -> None:
+    global _LAST_PROVIDER
+    rec = {"model": str(model_id or "")[:80], "route": route}
+    _LAST_PROVIDER = rec          # the module-level copy serves a reader in another task (a sync caller, a test), like the generation reason
+    t = _gen_task()
+    if t is not None:
+        _TASK_PROVIDER[t] = rec
+
+
+def _peek_gen_provider() -> Optional[dict]:
+    t = _gen_task()
+    if t is not None:
+        return _TASK_PROVIDER.get(t)          # inside a task only this task's own provider counts: another task's is never borrowed
+    return _LAST_PROVIDER
+
+
+def _set_gen_provider(rec: Optional[dict]) -> None:
+    global _LAST_PROVIDER
+    t = _gen_task()
+    if t is not None:
+        if rec is None:
+            _TASK_PROVIDER.pop(t, None)
+        else:
+            _TASK_PROVIDER[t] = rec
+    else:
+        _LAST_PROVIDER = rec
+
+
+def _usage_cost(data) -> Optional[float]:
+    u = data.get("usage") if isinstance(data, dict) else None
+    c = u.get("cost") if isinstance(u, dict) else None
+    return float(c) if isinstance(c, (int, float)) and not isinstance(c, bool) else None
+
+
 # ORW-389: the houseguest id the current task is shooting, so provider log lines can name them.
 _CURRENT_HID: contextvars.ContextVar = contextvars.ContextVar("orwell_portrait_hid", default=None)
 
@@ -620,7 +688,7 @@ def _provider_error_reason(resp) -> Optional[str]:
 
 def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
                 duration_ms: int = 0, detail: Optional[str] = None,
-                check: Optional[dict] = None) -> None:
+                check: Optional[dict] = None, cost: Optional[float] = None, provider: Optional[dict] = None) -> None:
     """Append one generation attempt/outcome to the capped JSONL ring. Best-effort:
     a logging failure must never break the generation pipeline itself.
 
@@ -636,6 +704,10 @@ def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
     }
     if (not ok) and detail:
         entry["detail"] = str(detail)[:200]
+    if isinstance(provider, dict) and provider.get("route"):
+        entry["provider"] = {"model": str(provider.get("model") or "")[:80], "route": str(provider["route"])[:24]}   # ORW-480: who made the image
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
+        entry["costUsd"] = round(float(cost), 6)  # ORW-480: only when the provider returned one (images, the check and any re-shoot)
     if isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
         entry["check"] = {k: v for k, v in check.items() if k in ("ok", "problems", "reshot", "first")}
     try:
@@ -1062,10 +1134,14 @@ async def _generate_via_images_edit(client, base_url: str, model_id: str, prompt
             return None
         body = resp.json()
         imgs = body.get("data", []) if isinstance(body, dict) else []
+        _note_gen_cost(_usage_cost(body))
         if imgs and imgs[0].get("b64_json"):
+            _note_gen_provider(model_id, "images-edit")
             return base64.b64decode(imgs[0]["b64_json"])
         if imgs and imgs[0].get("url"):
             ir = await client.get(imgs[0]["url"])
+            if ir.status_code == 200:
+                _note_gen_provider(model_id, "images-edit")
             return ir.content if ir.status_code == 200 else None
         _note_gen_error("empty-response")
         return None
@@ -1256,11 +1332,13 @@ async def _generate_via_chat_completions(client, chat_url: str, model_id: str,
             data = resp.json()
         except Exception:
             return None, "bad-json", None, resp.status_code
+        _note_gen_cost(_usage_cost(data))
         img_url = _extract_chat_image_url(data)
         if not img_url:
             return None, "no-image-in-response", _chat_text_hint(data), resp.status_code
         png, fetch_reason = await _image_bytes_from_url(client, img_url)
         if png:
+            _note_gen_provider(model_id, "chat")
             return png, None, None, resp.status_code
         return None, fetch_reason or "image-decode-failed", None, resp.status_code
 
@@ -1330,6 +1408,7 @@ async def _generate_via_openrouter_images(client, base_url: str, model_id: str, 
             return None
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         cost = usage.get("cost")
+        _note_gen_cost(cost)
         try:
             from src import orwell_token_ledger
             orwell_token_ledger.record_turn(user, call_class="portrait",
@@ -1338,11 +1417,42 @@ async def _generate_via_openrouter_images(client, base_url: str, model_id: str, 
         except Exception:  # failsoft-ok: observability (ledgering must never fail a portrait)
             pass
         logger.info("[portraits] gpt-image %s cost %s for %s", model_id, cost, _hid_tag())
+        _note_gen_provider(model_id, "gpt-image")
         return png
     except Exception as e:  # failsoft-ok: handled-by-caller (reason recorded, then the Gemini fallback)
         logger.info("[portraits] gpt-image failed: %s", e)
         _note_gen_error("gpt-image-failed", type(e).__name__)
         return None
+
+
+# ORW-480: GPT Image is retried this many more times, with these waits in seconds, on a transient failure before anything else is tried.
+GPT_RETRY_WAITS_S = (3.0, 9.0)
+
+
+def _gpt_failure_retryable(err: tuple) -> bool:
+    """A transient GPT Image failure: a 429, any 5xx, a 408, a timeout or a dropped connection, whether the class or the detail carries it. A 400, a 404, an empty
+    response or an undecodable image is a failure of the content or the request that a blind retry cannot fix."""
+    cls, detail = err
+    if _is_transient_gen_error(cls) and not is_billing_error(cls, detail):
+        return True
+    if cls == "gpt-image-failed" and detail:
+        status = _http_status_of(detail)
+        if status is not None:
+            return status in (408, 429) or 500 <= status <= 599
+        return _is_transient_gen_error(str(detail).split(":")[0])
+    return False
+
+
+def gemini_fallback_enabled(user: Optional[str]) -> bool:
+    """The setting `portrait_gemini_fallback` (default off): whether a portrait that GPT Image could not make may be made by the Gemini chat route instead."""
+    try:
+        from src.settings import get_user_setting
+        v = get_user_setting("portrait_gemini_fallback", owner=user or "", default=False)
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "on", "yes")
+        return bool(v)
+    except Exception:
+        return False
 
 
 async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
@@ -1364,7 +1474,8 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
         if png:
             # ORW-389: the fallback made the photo, so the GPT Image reason is no longer a failure.
             _set_gen_state(None, None)
-            logger.info("[portraits] fallback used for %s (after gpt-image failure)", _hid_tag())
+            logger.info("[portraits] fallback used for %s (after gpt-image failure): provider gemini chat route, the image may carry a provider watermark", _hid_tag())
+            _note_gen_provider(fb_model, "gemini-fallback")
         return png
     return None
 
@@ -1506,13 +1617,26 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
             if is_openrouter and model_id.lower().startswith(OPENROUTER_GPT_IMAGE_PREFIX):
                 # ORW-362: GPT Image is served on OpenRouter's Image API only. On any failure make
                 # this one portrait with Gemini on the chat route (one attempt, no loop).
-                png = await _generate_via_openrouter_images(client, base_url, model_id, prompt,
-                                                            headers, reference_png, quality, user=user)
-                if png:
-                    return png
-                if is_billing_error(*_peek_gen_error()):
-                    return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
+                png = None
+                for _attempt in range(1 + len(GPT_RETRY_WAITS_S)):
+                    png = await _generate_via_openrouter_images(client, base_url, model_id, prompt,
+                                                                headers, reference_png, quality, user=user)
+                    if png:
+                        return png
+                    if is_billing_error(*_peek_gen_error()):
+                        return None  # ORW-397: out of credits/auth: the chat fallback would only fail the same way
+                    # ORW-480: a transient GPT Image failure (429, 5xx, a timeout, a dropped connection) is retried with a growing wait BEFORE any other provider is tried
+                    if _attempt < len(GPT_RETRY_WAITS_S) and _gpt_failure_retryable(_peek_gen_error()):
+                        logger.info("[portraits] gpt-image failed for %s (%s): retry %d after %.0fs", _hid_tag(), _peek_gen_error()[0], _attempt + 1, GPT_RETRY_WAITS_S[_attempt])
+                        await asyncio.sleep(GPT_RETRY_WAITS_S[_attempt])
+                        continue
+                    break
                 gpt_err = _peek_gen_error()  # ORW-437: the GPT class and detail are the primary cause
+                if not gemini_fallback_enabled(user):
+                    # ORW-480: no Gemini fallback by default: a fallback image can carry the provider's visible watermark. The failure is recorded (RED) and the
+                    # reconciler shoots this person again later with GPT Image.
+                    logger.info("[portraits] gpt-image failed for %s after %d tries (%s): no Gemini fallback (setting portrait_gemini_fallback is off)", _hid_tag(), 1 + len(GPT_RETRY_WAITS_S), gpt_err[0])
+                    return None
                 fb_png = await _gpt_image_fallback(client, user, prompt, reference_png, ctx=_ctx)
                 fb_err = _peek_gen_error()
                 if (not fb_png and gpt_err[0] and not is_billing_error(*fb_err)
@@ -1539,11 +1663,13 @@ async def _generate_one_inner(prompt: str, user: Optional[str],
                 _note_gen_error(f"http-{resp.status_code}", _provider_error_reason(resp))
                 return None
             data = resp.json()
+            _note_gen_cost(_usage_cost(data))
             images = data.get("data", [])
             if not images:
                 _note_gen_error("empty-response")
                 return None
             img = images[0]
+            _note_gen_provider(model_id, "images-api")
             if img.get("b64_json"):
                 return base64.b64decode(img["b64_json"])
             if img.get("url"):
@@ -1584,7 +1710,7 @@ def _prompt_fingerprint(prompt: Optional[str]) -> Optional[str]:
 # Only a portrait actually shot with the new prompt records PORTRAIT_PROMPT_VERSION (new seasons,
 # missing faces, a forced single re-shoot). A background upgrader (ORW-369) walks `stale_portrait_ids`
 # and re-shoots one houseguest at a time through `generate_and_store(..., force_ids=[id])`.
-PORTRAIT_PROMPT_VERSION = 3
+PORTRAIT_PROMPT_VERSION = 3  # ORW-380. ORW-480 (shot cards, v4) is NOT a version bump here: a bump re-shoots every live season; the owner decides when
 
 # ORW-380: prepended to the prompt of a forced upgrade re-shoot (the ORW-369 upgrader) that carries the current
 # portrait as the reference image: it keeps the person and lets the new brief change everything else.
@@ -1615,6 +1741,42 @@ def _safe_int(v, default: int = 0, floor: int = 0) -> int:
     elif not isinstance(v, int):
         return default
     return v if v >= floor else default
+
+
+# ORW-480: the shot-card wording changes every engine prompt, so a face shot before it carries a fingerprint that is not comparable with today's prompt. The version above is NOT bumped
+# (a bump lists every live face for the upgrader); instead only a face shot with this wording records it, and the fingerprint sweeps leave the others alone.
+PORTRAIT_WORDING = 4
+
+
+def _wording_only_stale(entry) -> bool:
+    """True for a face of the current version whose fingerprint predates the recorded wording: it is re-baselined quietly (never re-shot), not frozen."""
+    return (isinstance(entry, dict) and not _entry_version_stale(entry) and entry.get("source") != "upload" and bool(entry.get("fingerprint"))
+            and _safe_int(entry.get("promptWording", 0), 0) < PORTRAIT_WORDING)
+
+
+def _rebaseline_fingerprint(user, hid, fp: Optional[str]) -> None:
+    """Store today's engine fingerprint and the wording on a legacy face, image untouched, as the no-fingerprint backfill does: from the next sweep an edited
+    look is compared with this baseline and re-shoots. A failed write only means the baseline is taken again next sweep."""
+    if not fp:
+        return
+    try:
+        sid = _safe_id(str(hid))
+        manifest = load_manifest(user)
+        e = manifest.get(sid)
+        if isinstance(e, dict):
+            e["fingerprint"] = fp
+            e["promptWording"] = PORTRAIT_WORDING
+            manifest[sid] = e
+            _save_manifest(user, manifest)
+    except Exception as ex:  # failsoft-ok: best-effort-metadata (the baseline is simply taken again on the next sweep)
+        logger.info("[portraits] fingerprint baseline not saved: %s", type(ex).__name__)
+
+
+def _fingerprint_not_comparable(entry) -> bool:
+    """True when a stored face was shot under an older prompt wording or version: its fingerprint is never a re-shoot trigger."""
+    if _entry_version_stale(entry):
+        return True
+    return isinstance(entry, dict) and entry.get("source") != "upload" and bool(entry.get("fingerprint")) and _safe_int(entry.get("promptWording", 0), 0) < PORTRAIT_WORDING
 
 
 def _entry_version_stale(entry) -> bool:
@@ -1677,6 +1839,11 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         from src import orwell_portrait_check as C
         facts = C.facts_from_prompt(prompt)
         first = await C.check_portrait(png, facts, user)
+        border = C.has_border(png) and C.check_enabled(user)   # ORW-480: the free edge test; only while the photo check is on
+        if first is None and border:
+            first = {"ok": False, "problems": ["frame-or-border"]}
+        elif first is not None and border and "frame-or-border" not in first["problems"]:
+            first = {"ok": False, "problems": list(first["problems"]) + ["frame-or-border"]}
         if first is None:
             return png, None
         logger.info("[portraits] photo check for %s: %s", _hid_tag(), "ok" if first["ok"] else "problems " + ",".join(map(str, first["problems"])))
@@ -1690,6 +1857,7 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
                     return old_png.read_bytes(), {"ok": False, "problems": list(prior), "reshot": False}
             return png, {"ok": False, "problems": first["problems"], "reshot": False}
         meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
+        prov_first = _peek_gen_provider()      # ORW-480: the provider of the first image, restored when the first photo is the one kept
         fix_prompt = prompt + " Fix in this version: " + C.problems_in_words(first["problems"]) + "."
         if upgrade:  # ORW-437: the re-shoot of a FORCED UPGRADE keeps the upgrade's identity-only prefix, never the generic one
             png2 = await _generate_one(UPGRADE_IDENTITY_PREFIX + fix_prompt, user, reference_png=ref, keep_identity=False)
@@ -1698,13 +1866,18 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         logger.info("[portraits] photo re-shoot for %s: %s", _hid_tag(), "made" if png2 else "failed")
         if not png2:
             meta["reshot"] = False
+            _set_gen_provider(prov_first)
             return png, meta
         second = await C.check_portrait(png2, facts, user)
+        if C.has_border(png2) and C.check_enabled(user):
+            second = {"ok": False, "problems": (list(second["problems"]) if second else []) + (["frame-or-border"] if not second or "frame-or-border" not in second["problems"] else [])}
         if second is None:
             return png2, meta  # re-shot but the second look was skipped: keep the fix, verdict stays the first's
         meta["ok"], meta["problems"] = second["ok"], second["problems"]
-        return (png, {**meta, "ok": False, "problems": first["problems"]}) if len(second["problems"]) > len(first["problems"]) \
-            else (png2, meta)
+        if len(second["problems"]) > len(first["problems"]):
+            _set_gen_provider(prov_first)
+            return png, {**meta, "ok": False, "problems": first["problems"]}
+        return png2, meta
     except Exception as e:  # failsoft-ok: fail-open (the photo is kept as is)
         logger.info("[portraits] photo check skipped: %s", e)
         return png, None
@@ -1712,7 +1885,8 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
 
 def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: str,
                     source: str = "generated", fingerprint: Optional[str] = None,
-                    ref_clean: Optional[bool] = None, check: Optional[dict] = None) -> str:
+                    ref_clean: Optional[bool] = None, check: Optional[dict] = None,
+                    cast_look_reshot: bool = False, provider: Optional[dict] = None) -> str:
     """Persist one portrait + update the manifest; return its stored filename.
 
     `source` (G26) records HOW the portrait was made: 'generated' (text-to-image, the default),
@@ -1756,8 +1930,13 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
         entry["fingerprint"] = fingerprint
     if source != "upload":  # ORW-437: a literal upload was made by no prompt, so it carries no prompt version
         entry["promptVersion"] = PORTRAIT_PROMPT_VERSION
+        entry["promptWording"] = PORTRAIT_WORDING
     if source == "reference" and ref_clean:
         entry["refClean"] = True
+    if cast_look_reshot:  # ORW-480: this photo was re-shot once by the cast-level look; it is never sent back again
+        entry["castLookReshot"] = True
+    if isinstance(provider, dict) and provider.get("route"):  # ORW-480: which provider and route made this image (a Gemini fallback image can carry a watermark)
+        entry["provider"] = {"model": str(provider.get("model") or "")[:80], "route": str(provider["route"])[:24]}
     if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
         entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
                           "reshot": bool(check.get("reshot"))}
@@ -2132,6 +2311,13 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     cast panel's "generating" UI never lights), no last-run verdict, no look-alike pass; the swap
     still pushes the one WS arrival edge so open pages refetch the new face.
     """
+    # ORW-480: per-person authored shot briefs (setting off by default): the engine's prompt is the floor when no brief is available.
+    try:
+        from src import orwell_photo_brief as _PB
+        if _PB.brief_enabled(user) and isinstance(prompts, list) and prompts:
+            prompts = await _PB.apply_briefs(prompts, user)
+    except Exception as e:  # failsoft-ok: best-effort-enrichment (the engine's own prompts stand)
+        logger.info("[portraits] photo briefs skipped: %s", type(e).__name__)
     if not isinstance(prompts, list) or not prompts:
         return {"generated": 0, "skipped": 0, "total": 0}
 
@@ -2238,11 +2424,11 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             # legacy entry with no stored fingerprint backfills (no re-shoot) ⇒ not counted.
             stored = load_manifest(user).get(_safe_id(str(hid)))
             stored_fp = stored.get("fingerprint") if isinstance(stored, dict) else None
-            cur_fp = _prompt_fingerprint(str(entry.get("prompt")))
+            cur_fp = _prompt_fingerprint(str(entry.get("enginePrompt") or entry.get("prompt")))
             if _sid_forced(hid, stored):
                 to_generate += 1
             elif (stored_fp and cur_fp and stored_fp != cur_fp
-                    and not _entry_version_stale(stored)):
+                    and not _fingerprint_not_comparable(stored)):
                 to_generate += 1
     if to_generate and not silent:
         _progress_start(user, to_generate)
@@ -2285,7 +2471,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             return
 
         # The current facet's fingerprint (a stable hash of the engine's deterministic prompt).
-        fp = _prompt_fingerprint(str(prompt))
+        fp = _prompt_fingerprint(str(entry.get("enginePrompt") or prompt))   # ORW-480: the engine's own prompt (what the staleness sweeps compare), never the briefed one
 
         # #998: an overlapping run already CLAIMED this id and is mid-generation (claimed but not
         # yet written to disk, so the on-disk check below would not catch it) — skip, let that run
@@ -2310,7 +2496,12 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 # ORW-361: an explicit single re-shoot (the upgrader). Falls through to regenerate;
                 # the file is replaced only after the new image succeeds, stamped with the new version.
                 reshoot_ids.add(_safe_id(str(hid)))
-            elif _entry_version_stale(stored):
+            elif _wording_only_stale(stored):
+                # ORW-480: a face shot before the shot-card wording is re-baselined quietly (today's engine fingerprint), never re-shot and never frozen
+                _rebaseline_fingerprint(user, hid, fp)
+                skipped += 1
+                return
+            elif _fingerprint_not_comparable(stored):
                 # ORW-361: shot under an older prompt wording — its fingerprint is not comparable.
                 # Leave it alone: no re-shoot, no fingerprint or version change (v1 recorded explicitly).
                 _stamp_version_one(user, _safe_id(str(hid)))
@@ -2327,6 +2518,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                     # facet change re-shoots. The image bytes are untouched (generate-once preserved).
                     async with manifest_lock:
                         stored["fingerprint"] = fp
+                        stored["promptWording"] = PORTRAIT_WORDING        # the fingerprint is of today's wording: comparable from now on
                         manifest = load_manifest(user)
                         manifest[_safe_id(str(hid))] = stored
                         _save_manifest(user, manifest)
@@ -2395,7 +2587,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                     reason = f"{reason}: {_detail}"
                 if is_rate_limited(reason):
                     run["rate_limited"] = True  # ORW-378: the rest of this run goes one at a time
-                log_attempt(str(hid), False, reason, duration_ms, detail=_detail)
+                log_attempt(str(hid), False, reason, duration_ms, detail=_detail, cost=_consume_gen_cost())
                 # Stamp the failure class so the G20 reconciler can spare a TRANSIENT failure
                 # (402 credits, 429, 5xx, transport) from the permanent retry budget.
                 _record_gen_result(user, str(hid), False, reason)
@@ -2416,8 +2608,8 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             try:
                 async with manifest_lock:
                     _write_portrait(user, str(hid), png, str(name), source=source, fingerprint=fp,
-                                    ref_clean=ref_clean, check=check_meta)
-                log_attempt(str(hid), True, None, duration_ms, check=check_meta)
+                                    ref_clean=ref_clean, check=check_meta, provider=_peek_gen_provider())
+                log_attempt(str(hid), True, None, duration_ms, check=check_meta, cost=_consume_gen_cost(), provider=_peek_gen_provider())
                 _record_gen_result(user, str(hid), True)  # success clears any prior failure class
                 generated += 1
                 if not silent:
@@ -2461,6 +2653,17 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                     reshoot_ids.add(_safe_id(str(hid)))
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the L17 distinctness pass is a refinement; the as-generated cast portraits stand)
             logger.info("[portraits] L17 distinctness pass failed: %s", e)
+
+    # ORW-480: the cast-level look: ONE vision call over a contact sheet of the whole cast (look-alike pairs, a prop / pose / room /
+    # light shown too often); a flagged photo is re-shot once with the reason. Fail open, bounded, logged with its cost.
+    if generated and not silent:
+        try:
+            look = await cast_look_pass(prompts, user)
+            for hid in look.get("reshotIds", []):
+                newly_shown.append((str(hid), f"/api/orwell/portrait/{_safe_id(hid)}"))
+                reshoot_ids.add(_safe_id(str(hid)))
+        except Exception as e:  # failsoft-ok: best-effort-enrichment (the cast-level look is a refinement; the shot cast stands)
+            logger.info("[portraits] cast look failed: %s", e)
 
     if not silent:
         _progress_finish(user)  # L15: the run is done — the panel drops to the idle cadence
@@ -2607,8 +2810,8 @@ async def dedupe_lookalikes(prompts: list, user: Optional[str],
                         duration_ms, detail=_consume_gen_detail())
             continue
         try:
-            _write_portrait(user, str(hid), png, name, source="generated")
-            log_attempt(str(hid), True, None, duration_ms)
+            _write_portrait(user, str(hid), png, name, source="generated", provider=_peek_gen_provider())
+            log_attempt(str(hid), True, None, duration_ms, provider=_peek_gen_provider())
             regenerated_ids.append(str(hid))
         except Exception as e:
             # #1599 (CodeRabbit finding b): a broken look-alike regen persist must show RED — the
@@ -2617,6 +2820,75 @@ async def dedupe_lookalikes(prompts: list, user: Optional[str],
             logger.info("[portraits] L17 regen persist failed for %s: %s", hid, e)
             _note_generation_failure(user, str(hid), f"lookalike-regen-persist-failed: {e}")
     return {"regenerated": len(regenerated_ids), "regeneratedIds": regenerated_ids, "offenders": offenders}
+
+
+async def cast_look_pass(prompts: list, user: Optional[str]) -> dict:
+    """ORW-480: look at the whole cast at once (one vision call over a contact sheet) and re-shoot, once each and at most
+    `CAST_RESHOOT_MAX` photos, the ones it names (the later of two look-alikes; a prop, pose, room or light shown too often).
+    A photo already re-shot (by its own check or by an earlier cast look) is never sent back; the player's own photo is never
+    in the sheet. Each image's provider cost is logged when the provider returns one. Never raises; a skipped look changes nothing.
+    Returns ``{checked, flagged, reshotIds, cost?}``."""
+    out: dict = {"checked": 0, "flagged": {}, "reshotIds": []}
+    try:
+        from src import orwell_portrait_check as C
+        manifest = load_manifest(user)
+        ids, pngs, by_id = [], [], {}
+        for entry in prompts or []:
+            if not isinstance(entry, dict):
+                continue
+            hid = entry.get("houseguestId") or entry.get("id")
+            if not hid or not entry.get("prompt") or _safe_id(str(hid)) == PLAYER_PORTRAIT_ID:
+                continue
+            stored = manifest.get(_safe_id(str(hid)))
+            f = portrait_file(user, str(hid))
+            if f is None or (isinstance(stored, dict) and stored.get("source") == "upload"):
+                continue
+            ids.append(str(hid)); pngs.append(f.read_bytes()); by_id[str(hid)] = (entry, stored)
+        out["checked"] = len(ids)
+        result = await C.check_cast(pngs, user)
+        if result is None:
+            return out
+        if result.get("cost") is not None:
+            log_attempt("cast-look", True, None, 0, cost=result["cost"])
+        spared = {h for h, (_e, m) in by_id.items() if isinstance(m, dict) and (
+            m.get("castLookReshot") or (isinstance(m.get("check"), dict) and m["check"].get("reshot")))}
+        sends = C.cast_sends_back(result, ids, spared)
+        out["flagged"] = dict(sends)
+        logger.info("[portraits] cast look for %s: pairs=%s repeats=%s sent back=%s", _safe_user(user), result.get("pairs"),
+                    [(r["kind"], r["numbers"]) for r in result.get("repeats", [])], list(sends))
+        for hid, reason in sends.items():
+            entry, stored = by_id[hid]
+            prompt = str(entry.get("prompt") or "")
+            fix = prompt + " Fix in this version: " + reason + "."
+            _consume_gen_error(); _consume_gen_detail(); _consume_gen_cost()
+            t0 = time.monotonic()
+            token = _CURRENT_HID.set(hid)
+            try:
+                png2 = await _generate_one(fix, user)  # no reference image: the reference would carry the face being replaced
+                if not png2:
+                    log_attempt(hid, False, (_consume_gen_error() or "cast-look-reshoot-failed"), int((time.monotonic() - t0) * 1000),
+                                detail=_consume_gen_detail(), cost=_consume_gen_cost())
+                    continue
+                facts = C.facts_from_prompt(prompt)
+                second = await C.check_portrait(png2, facts, user)
+                old = ((stored or {}).get("check") or {}) if isinstance(stored, dict) else {}
+                if second is not None and not second["ok"] and len(second["problems"]) > len(old.get("problems") or []) and old.get("ok") is not False:
+                    log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check={"ok": False, "problems": second["problems"], "reshot": True},
+                                cost=_consume_gen_cost())  # the new image is worse than the old one: the old one stays, the spend is logged
+                    continue
+                meta = {"ok": True if second is None else second["ok"], "problems": [] if second is None else second["problems"], "reshot": True}
+                _write_portrait(user, hid, png2, str((stored or {}).get("name") or entry.get("name") or ""), source="generated",
+                                fingerprint=_prompt_fingerprint(str(entry.get("enginePrompt") or prompt)), check=meta, cast_look_reshot=True, provider=_peek_gen_provider())
+                log_attempt(hid, True, None, int((time.monotonic() - t0) * 1000), check=meta, cost=_consume_gen_cost(), provider=_peek_gen_provider())
+                out["reshotIds"].append(hid)
+            finally:
+                try:
+                    _CURRENT_HID.reset(token)
+                except (ValueError, RuntimeError):  # failsoft-ok: a token from another context; the value dies with the task
+                    pass
+    except Exception as e:  # failsoft-ok: fail-open (the cast stands as shot)
+        logger.info("[portraits] cast look skipped: %s", type(e).__name__)
+    return out
 
 
 async def _record_image_beats(shown: list, user: Optional[str],
@@ -2905,7 +3177,9 @@ def kickoff_authored_reshoot(hid, user: Optional[str]) -> bool:
                 except Exception:  # failsoft-ok: handled-by-terminal (orwell_engine._call already recorded record_io(ok=False) RED; this is only a staleness probe — None skips the discard optimization, backfill_missing below re-fetches)
                     p = None
                 cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
-                if cur_fp and _entry_version_stale(entry):
+                if cur_fp and _wording_only_stale(entry):
+                    _rebaseline_fingerprint(user, hid, cur_fp)      # ORW-480: a legacy face is re-baselined quietly on its first sweep
+                elif cur_fp and _fingerprint_not_comparable(entry):
                     pass  # ORW-361: older prompt wording, never a fingerprint re-shoot (ORW-369 upgrades it)
                 elif cur_fp and entry.get("fingerprint") != cur_fp:
                     logger.info("[portraits] ADR 0013: %s's stored face predates its authored "
@@ -3378,7 +3652,10 @@ async def _heal_stale_authored_faces(user: Optional[str], cards: list) -> int:
                 engine_ok = False  # engine trouble — verify nothing this sweep, try again next
                 break
             cur_fp = _prompt_fingerprint(p.get("prompt")) if isinstance(p, dict) else None
-            if cur_fp and _entry_version_stale(manifest_now.get(_safe_id(str(hid)))):
+            if cur_fp and _wording_only_stale(manifest_now.get(_safe_id(str(hid)))):
+                _rebaseline_fingerprint(user, hid, cur_fp)          # ORW-480: re-baselined quietly, compared from the next sweep on
+                continue
+            if cur_fp and _fingerprint_not_comparable(manifest_now.get(_safe_id(str(hid)))):
                 continue  # ORW-361: older prompt wording, never a fingerprint re-shoot
             if cur_fp and cur_fp != stored_fp:
                 fp_stale.append(hid)

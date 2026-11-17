@@ -33,8 +33,8 @@ function driveToPlayerEviction(s: GameSessionAdapter): { idx: number; finished: 
 
 let peUsers = 0;
 /** Start games until one evicts the player into an index the predicate accepts; stash it on the world. */
-function seedEvicting(w: BbWorld, inRange: (idx: number) => boolean, bound = 40): UserSandbox {
-  for (let seed = 1; seed <= bound; seed++) {
+function seedEvicting(w: BbWorld, inRange: (idx: number) => boolean, bound = 40, from = 1): UserSandbox {
+  for (let seed = from; seed <= bound; seed++) {
     const reg = new GameSessionRegistry();
     const user = `pe${peUsers++}`;
     const sb = reg.sandboxFor(user);
@@ -64,7 +64,8 @@ function playToEnd(s: GameSessionAdapter): { finished: boolean } {
 // --- Scenario: a pre-jury eviction reaches a defined end -----------------------
 
 Given("a started game in which the player is evicted before the jury", function (this: BbWorld) {
-  seedEvicting(this, PRE_JURY);
+  // 0163 (2026-11-16): with perceived bonds a passive player is rarely evicted before the jury; probed seeds 1-120, the first is 60. The search starts near it (a seed pick, not a weaker premise).
+  seedEvicting(this, PRE_JURY, 100, 55);
 });
 
 When("the eviction resolves", function (this: BbWorld) {

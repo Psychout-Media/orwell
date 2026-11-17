@@ -19,6 +19,7 @@ single migration pass rewrites them.
 """
 
 import os
+import time
 import logging
 from pathlib import Path
 
@@ -31,6 +32,16 @@ logger = logging.getLogger(__name__)
 _KEY_PATH = Path(__file__).resolve().parent.parent / "data" / ".app_key"
 _PREFIX = "enc:"
 _fernet: Fernet | None = None
+
+
+def _read_racing_key() -> bytes:
+    # The winner's O_EXCL create can be visible a moment before its write lands: wait for a non-empty file rather than return an empty key.
+    for _ in range(100):
+        data = _KEY_PATH.read_bytes()
+        if data:
+            return data
+        time.sleep(0.02)
+    raise RuntimeError("app key file exists but is empty")
 
 
 def _load_or_create_key() -> bytes:
@@ -53,7 +64,15 @@ def _load_or_create_key() -> bytes:
         except FileExistsError:
             return _KEY_PATH.read_bytes()  # another process published first
         except OSError:
-            os.replace(tmp, _KEY_PATH)
+            # ORW-492: no hard links here. Never overwrite: create the final path O_EXCL (0o600) and write the key in one go; a loser reads the winner's key.
+            try:
+                kfd = os.open(_KEY_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                return _read_racing_key()
+            with os.fdopen(kfd, "wb") as fh:
+                fh.write(key)
+                fh.flush()
+                os.fsync(fh.fileno())
     finally:
         try:
             os.unlink(tmp)

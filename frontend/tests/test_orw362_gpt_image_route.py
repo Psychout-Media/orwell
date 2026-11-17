@@ -115,6 +115,9 @@ def _setup(monkeypatch, model, client):
     import src.ai_interaction as ai
     monkeypatch.setattr(op, "_image_settings", lambda u: (True, model, "medium"))
     monkeypatch.setattr(op, "image_gen_disabled", lambda: False)
+    # ORW-480: these tests cover the Gemini FALLBACK path itself: the setting is on and the GPT retries are off (the retry policy has its own tests)
+    monkeypatch.setattr(op, "gemini_fallback_enabled", lambda u: True)
+    monkeypatch.setattr(op, "GPT_RETRY_WAITS_S", ())
     monkeypatch.setattr(ai, "_resolve_model",
                         lambda spec, owner=None: (BASE + "/chat/completions", spec, {"Authorization": "Bearer k"}))
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _AsyncCtx(client))

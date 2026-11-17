@@ -56,6 +56,40 @@ def night_resolved(state, evicted_before, week_before, evicted_now):
     return isinstance(wk, int) and isinstance(week_before, int) and wk > week_before
 
 
+NEAR_DUE_MINUTES = 30
+RESOLVED_TURNS: set = set()   # labels of the chat turns inside which the eviction resolved (read by live_short's K1 clock check)
+MAX_ADVANCE_TICKS = 500
+
+
+def advance_to_due(eng, minutes_before=NEAR_DUE_MINUTES, max_ticks=MAX_ADVANCE_TICKS):
+    """Move the engine's clock until the next ceremony is `minutes_before` or fewer minutes away AND the night before it has passed (ORW-258: the eviction waits behind the night; `daySchedule.tomorrow` is cleared).
+    The clock moves in BIG steps: `hangOut` (a bounded run of 15-30 minute beats, up to ~3 hours per call, clamped at the due event, no model call); a refusal or a call that does not move the clock falls back to one message tick
+    (`noteMessage`, 5 minutes and a save each: a live run that used ticks alone spent over an hour of save latency); bed at the night. True once the clock is that close (or the event is due); False if the bound ran out."""
+    def minutes(ds):
+        v = ds.get("minutesUntil")
+        return v if isinstance(v, (int, float)) else None
+    for n in range(max_ticks):
+        ds = (eng.call("getGameState") or {}).get("daySchedule") or {}
+        mu = minutes(ds)
+        # the eviction waits BEHIND the night (ORW-258): it only counts as night-of-eviction once the night has passed (`tomorrow` cleared), however few minutes the schedule reads
+        if not ds.get("tomorrow") and (ds.get("due") or (mu is not None and mu <= minutes_before)):
+            return True
+        h, _ = eng.hour()
+        if h is not None and h >= 24:
+            eng.sleep_through_night(f"e1s{n}")
+            continue
+        moved = False
+        try:
+            r = eng.call("hangOut", {"maxMinutes": 180}) or {}
+            after = minutes((eng.call("getGameState") or {}).get("daySchedule") or {})
+            moved = mu is not None and after is not None and after < mu and not (isinstance(r, dict) and r.get("refused"))
+        except RuntimeError:
+            moved = False
+        if not moved:
+            eng.call("noteMessage", {"messageId": f"e1-adv-{n}"})
+    return False
+
+
 def run(eng, play, check, chat, turns=DEFAULT_TURNS):
     """Drive to eviction night and play it through the real chat. `eng` is live_short.Engine, `play(label, text)` records one chat turn, `check` records a result."""
     from live_week import CARD, Week   # lazy: live_week imports live_short, which imports this module's caller
@@ -66,6 +100,11 @@ def run(eng, play, check, chat, turns=DEFAULT_TURNS):
     check("E1-reached-eviction-night", reached, f"phase {st.get('phase')} week {st.get('week')} at {st.get('clockLabel')} (forced entry: the engine's closed set, stopped at the eviction phase)")
     if not reached:
         return
+    # The engine's eviction ceremony is DUE on a later clock (live runs 2 and 3: the phase was "eviction" but `daySchedule.minutesUntil` read ~1290, so 16 chat turns at 5 minutes each could never reach it): move the
+    # clock with the engine's own message ticks (no model cost; the same harness jump the crossover tier uses) to ~30 minutes before the ceremony is due, then play the rest through the real chat.
+    near = advance_to_due(eng)
+    st = eng.call("getGameState")
+    check("E1b-clock-near-the-ceremony", near, f"daySchedule {(st.get('daySchedule') or {}).get('minutesUntil')} minutes until due at {st.get('clockLabel')} (moved with {NEAR_DUE_MINUTES} minutes to spare, by engine ticks)")
     before = evicted_names(eng.call("seasonRecap")); wk0 = st.get("week")
     week = Week(chat.page, chat.base)
     week.name_fn = lambda: ((eng.call("getGameState") or {}).get("player") or {}).get("name")
@@ -83,7 +122,10 @@ def run(eng, play, check, chat, turns=DEFAULT_TURNS):
             continue
         if played >= turns:
             break
-        play(f"eviction-{played + 1}", next_line(played)); played += 1
+        label = f"eviction-{played + 1}"
+        play(label, next_line(played)); played += 1
+        if len(evicted_names(eng.call("seasonRecap"))) > len(before):   # the ceremony resolved INSIDE this reply: its clock move is the engine's staged ceremony, not skipped time (live run 6: +2.1h)
+            RESOLVED_TURNS.add(label)
     st = eng.call("getGameState"); now = evicted_names(eng.call("seasonRecap"))
     resolved = resolved or night_resolved(st, before, wk0, now)
     check("E2-eviction-resolved", resolved, f"evicted before {len(before)}, after {len(now)}; week {wk0} -> {st.get('week')}; {played} chat turns and {cards} cards (bound {turns} turns)")

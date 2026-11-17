@@ -139,3 +139,48 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
   }
   return dest;
 }
+
+// ORW-559 - "go to <houseguest>": the same present-tense self-move grammar, but the destination phrase is a PERSON. The parser only
+// extracts the phrase; the engine resolves it against who the player can legitimately see (never a hidden whereabouts).
+const FIND_VERB = /^(?:find|finds|finding|look for|looks for|looking for|seek out|seeking out|search for|searching for|track down|tracking down|locate|go find|go look for|go see|go and find)\b\s*/;
+
+function personFromClause(raw: string, current: Room | null, themed?: Themed): string | null {
+  if (/\?\s*$/.test(raw.trim())) return null;
+  let s = clean(raw);
+  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(s)) return null;
+  s = s.replace(SUBJECT, "").replace(INTENT, "");
+  let rest: string | null = null;
+  const f = FIND_VERB.exec(s);
+  if (f) rest = s.slice(f[0].length);
+  else {
+    const g = GO_VERB.exec(s);
+    if (g) {
+      const after = s.slice(g[0].length);
+      rest = after.replace(/^(?:(?:back|right|straight|over|down|up)\s+)*(?:(?:in\s*to|into|to|toward|towards)\b\s*)?(?:(?:over)\s+)?(?:(?:to|and find|and look for|and see)\s+)?/, "");
+    }
+  }
+  if (rest === null) return null;
+  const p = rest.replace(PHRASE_END, "").trim();
+  if (p === "" || !/^[a-z][a-z' -]*$/.test(p) || p.split(" ").length > 3) return null;
+  if (roomFromPhrase(p, current, themed) !== null) return null; // a room word is a room, not a person
+  return p;
+}
+
+/** The houseguest name phrase the player says they are going to / looking for, or null. LAST clause wins; quoted speech is ignored. */
+export function parsePlayerPersonIntent(text: string, current: Room | null, themed?: Themed): string | null {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/\u201c[^\u201d]*\u201d/g, " ");
+  const clauses = unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? [];
+  let out: string | null = null;
+  for (const c of clauses) { if (c.trim() === "") continue; const r = personFromClause(c, current, themed); if (r !== null) out = r; }
+  return out;
+}
+
+/** Match a name phrase to ONE of the candidates by full name or first name (case/diacritic-insensitive); null when none or ambiguous. */
+export function matchHouseguestName<T extends { name: string }>(phrase: string, candidates: readonly T[]): T | null {
+  const norm = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9 -]+/g, " ").replace(/\s+/g, " ").trim();
+  const q = norm(phrase);
+  if (q === "") return null;
+  const hits = candidates.filter((c) => { const n = norm(c.name); return n === q || n.split(" ")[0] === q; });
+  return hits.length === 1 ? hits[0]! : null;
+}

@@ -7,6 +7,7 @@ import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
 import { spreadForScenes } from "../engine/copresenceSpread";
+import { natureFromContent } from "../engine/gossipBeliefs";
 import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
@@ -972,7 +973,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // confidence, and per-telling drift. The PLAYER is a node like anyone: a chain that terminates at
   // them lands the belief — a vague paraphrase with source+confidence, never the verbatim hidden
   // scene and never a number. Every retelling is a recorded, traceable event (0002).
-  // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default OFF): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
+  // B10 / B11 slice 3 (ORWELL_GOSSIP_COPRESENCE, default ON): information moves ONLY inside a scene, by the holder's seeded share / slip / hold choice, ONE hop - this REPLACES the automatic graph rumor below
   // while on (so the OFF path, which never reaches this branch, is byte-identical). Dedicated rng per (holder, listener, tick); hidden layer only; the player is never a node (off-screen scenes exclude them).
   if (core.house && scenes.length > 0 && sandbox.session.copresenceEnabledNow()) {
     // ORW-334: each pair's roll is its own purpose stream: keyed on the pair, the in-game time and the scene's order within the tick, never on how many events the store holds (so an event another feature records cannot re-roll it).
@@ -995,7 +996,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.
         ...(sandbox.session.credibilityEnabledNow() ? { credibilityOf: (h: EntityId, l: EntityId, n: number) => sandbox.session.credibilityOf(l, h, n) } : {}),
         // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
-        ...(beliefObs ? { onTold: (r: { listener: EntityId; subject: EntityId; confidence: number }) => beliefObs({ listener: r.listener, subject: r.subject, type: "gossip", confidence: r.confidence, delta: {} }) } : {}),
+        ...(beliefObs ? { onTold: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; content: string }) => beliefObs({ listener: r.listener, subject: r.subject, type: natureFromContent(r.content) ?? "gossip", confidence: r.confidence, delta: {}, source: r.holder, factId: r.factId, unfolded: true }) } : {}),
       },
     );
   } else if (core.house && scenes.length > 0 && rng.next() < GOSSIP.riseProb) {
@@ -1177,7 +1178,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // 0092 — the SECRET-PACING DRIP runs BEFORE 0060's surface-to-player decision: it PACES which sealed
   // secret edges toward THIS player and how fast (a per-week budget, relationship-weighted), routing a
   // ripe top candidate into 0060's EXISTING anchored surface path (the confidant slip / gossip chain) —
-  // it adds no new pathway. STRICTLY OPT-IN (default-OFF `ORWELL_SECRET_PACING`): when off — the default,
+  // it adds no new pathway. opt-out (default-ON `ORWELL_SECRET_PACING`): when off (`=0`),
   // and the state the seeded juryReach/gradient/UAT sims run in — it returns immediately and draws
   // nothing, so 0060's own flat path is the only one that runs and this tick is byte-identical to the
   // pre-feature build. When on, every roll is on a DEDICATED rng INSIDE the session (never this shared
@@ -1207,7 +1208,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // gossip/surfacing events it records are a type `nextHouseEvent`/confessionals never scan).
   sandbox.session.whisperPairings(sandbox.engine.knowledge);
   // 0059 §5 — the organic pre-game-TIE surfacing scheduler (the DEFERRED follow-on). Runs LAST, like the
-  // whisper above, and is STRICTLY OPT-IN (default-OFF `ORWELL_SEEDED_TIE_SURFACING`): when off — the
+  // whisper above, and is opt-out (default-ON `ORWELL_SEEDED_TIE_SURFACING`): when off — the
   // default, and the state the seeded juryReach/gradient/UAT sims run in — it returns immediately and
   // touches nothing (no draw, no event, no fold), so this tick is byte-identical to the pre-feature build.
   // When on, it surfaces a warmed seeded tie through a DEDICATED rng (never this shared stream) + 0002
@@ -1215,7 +1216,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   sandbox.session.advanceSeededTies(sandbox.engine.knowledge);
   // Feature 0095 — the pre-show-TIE REVEAL pathway (the OVERHEAR route; a SEPARATE, distinct pathway from
   // 0059 §5 above, with its own flag/gate/rng — turning one on does not turn on the other). Runs LAST,
-  // like the whisper/§5 above, and is STRICTLY OPT-IN (default-OFF `ORWELL_TIE_REVEAL`): when off — the
+  // like the whisper/§5 above, and is opt-out (default-ON `ORWELL_TIE_REVEAL`): when off — the
   // default, and the state the seeded juryReach/gradient/UAT sims run in — it returns immediately and
   // touches nothing, so this tick is byte-identical to the pre-feature build. When on, a conspicuous
   // sealed tie can come OUT for real (the actual pre-show connection, not §5's vague "seem close"),

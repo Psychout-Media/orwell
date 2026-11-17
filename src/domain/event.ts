@@ -38,7 +38,8 @@ export interface GameEvent {
    * was said was TRUE (false = the speaker said something it knew was untrue: the hook for themes 2 and 4). ENGINE-ONLY (Vault class):
    * it rides hidden events, never a projection.
    */
-  houseLife?: { action: string; place: string; manner: string; truthful: boolean; about?: string; /** ORW-337: the PUBLIC name of the house ritual this scene was, when it was one */ ritual?: string; /** the stretch (one hour of house life) it belongs to */ stretch: number; /** ORW-473: the absolute in-game hour it happened (days elapsed * 24 + clock hour); absent when the clock was off */ at?: number };
+  houseLife?: { action: string; place: string; manner: string; truthful: boolean; about?: string; /** ORW-337: the PUBLIC name of the house ritual this scene was, when it was one */ ritual?: string; /** the stretch (one hour of house life) it belongs to */ stretch: number; /** ORW-473: the absolute in-game hour it happened (days elapsed * 24 + clock hour); absent when the clock was off */ at?: number;
+    /** ORW-539: the houseguests (not taking part) who were in that room when it happened and so could SEE it. Engine-only; never projected. Absent = nobody / an older save. */ seenBy?: string[] };
 }
 
 export type Visibility = "VISIBLE" | "HIDDEN";

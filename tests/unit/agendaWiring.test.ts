@@ -51,7 +51,8 @@ describe("ORW-312: NPC agendas on the live season", () => {
       expect(zero.finished).toBe(true);
       // the mutation: agendas present, but pulling nothing, is the season as it was before the decisions read goals (and the hidden reason record is the only difference)
       expect(outcome(liveOf(zero.s))).toBe(outcome(liveOf(off.s)));
-      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined, moodCauses: undefined });
+      // 0160 (conviction): what a houseguest looks into (an agenda find-out goal) moves their beliefs overnight - an agenda effect, so beliefs are compared with the agenda fields
+      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined, moodCauses: undefined, beliefs: undefined });
       expect(noReasons(liveOf(zero.s))).toBe(noReasons(liveOf(off.s)));
       expect(liveOf(off.s).agendas).toBeUndefined();
       expect(Object.keys(liveOf(on.s).agendas ?? {})).toHaveLength(15);

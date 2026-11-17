@@ -170,6 +170,9 @@ describe("A9 engine entrances", () => {
   it("the entrance draw does not perturb the season: flag on/off reach the same full-run eviction order", () => {
     const run = (on: boolean): string[] => {
       const sb = start(7, on);
+      // 0163 (ORW-539): who is inside during the staging changes which bonding scenes each houseguest SAW, and so the bonds the HOH perceives; that is a
+      // real consequence of the staging (like the first-read fold below), so it is neutralized here too, to isolate the draw.
+      (sb.session as unknown as { setPerceivedBondsEnabled(on: boolean): void }).setPerceivedBondsEnabled(false);
       for (let i = 0; i < 8000; i++) {
         const v = sb.session.advanceGame();
         if (v.held) endHeldNightSync(sb.session, { direct: true }); // ORW-116: a held night is the player's: time passes, then they turn in

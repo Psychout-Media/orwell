@@ -24,7 +24,7 @@ import type { InteractionType } from "./relationshipConstants";
 import type { TimeOfDay } from "./timeOfDay";
 import type { Agenda, AgendaCharacter, Goal, GoalKind } from "./agenda";
 import { agendaRoll } from "./agenda";
-import { HOUSE_LIFE, type Habit } from "./houseLifeConstants";
+import { CULTURE_CANDOR_SHIFT, HOUSE_LIFE, type HouseCulture, type Habit } from "./houseLifeConstants";
 
 // --- The action library --------------------------------------------------------------------------------------------------------------
 
@@ -181,6 +181,8 @@ export interface HourView {
   candor: number;
   /** ORW-337: this season's authored house rituals (spec 0146 lane 2); absent when the model wrote none (or the write-back has not landed). */
   rituals?: ReadonlyArray<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
+  /** ORW-551 (spec 0168 slice 2): the season's house culture as multipliers on the baseline of gossip / conflict / flirting / lying. Absent = all exactly 1 = byte-identical. */
+  culture?: HouseCulture;
 }
 
 export interface PlannedAction {
@@ -290,13 +292,17 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:d${v.day}h${v.hour}:${salt}`);
   const pool = others(v);
+  const cul = v.culture;
+  const cGossip = cul?.gossip ?? 1, cFlirt = cul?.flirting ?? 1, cLie = cul?.lying ?? 1;
+  const cConflict = 1 / (cul?.conflict ?? 1); // a threshold: a lean that says "more conflict" is below 1, so it RAISES the chance
   const avoid = new Set(v.avoid ?? []);
   const here = pool.filter((p) => roomOf(v, p) === v.room && !avoid.has(p));
   const finish = (a: Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room }): PlannedAction => {
     const spec = ACTIONS[a.kind];
     const place = a.place ?? (a.with[0] !== undefined ? roomOf(v, a.with[0]) : spec.place ?? v.room);
-    const lieBase = a.goalKind === "long-con" || a.kind === "frame" || a.kind === "plant" ? HOUSE_LIFE.schemingLieBoost : 0;
-    const truthful = !spec.speech || roll("truth") < Math.max(0, v.candor - lieBase);
+    const lieBase = a.goalKind === "long-con" || a.kind === "frame" || a.kind === "plant" ? HOUSE_LIFE.schemingLieBoost * cLie : 0;
+    const candor = cul ? Math.max(0, Math.min(1, v.candor - (cLie - 1) * CULTURE_CANDOR_SHIFT)) : v.candor; // the culture shifts the speaker's own candor additively; their own term stays
+    const truthful = !spec.speech || roll("truth") < Math.max(0, candor - lieBase);
     const fold = foldOf(a.kind, a.with[0], v.mates);
     return { actor: v.owner, ...a, place, manner: mannerOf(v.emotional, a.kind), truthful, ...(fold && fold !== ACTIONS[a.kind].fold ? { fold } : {}) };
   };
@@ -330,7 +336,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   }
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
-  if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
+  if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance * cFlirt) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
   // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
   // ORW-507 (#2611): ONE ritual per time of day is chosen first (the seeded-first match, so two rituals sharing a time never double the 0.3 pull), then rolled; a ritual with nobody to share it
   // (its action needs a partner, or it has none to record: a solo ritual leaves no event) falls through to ordinary life instead of silently eating the hour.
@@ -367,7 +373,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
         ? v.bedPartner
         : byScore(roomies, (p) => (v.affinity.get(p) ?? 0.4) + roll(`roomie:${p}`) * 0.3)[0]!;
       const sore = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
-      const rub = sore > 0 && roll("roomie-friction") < HOUSE_LIFE.frictionChance * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
+      const rub = sore > 0 && roll("roomie-friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
   }
@@ -375,10 +381,10 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
   const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
-  const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
+  const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
   // ORW-324: talking about whoever isn't in the room is half of Big Brother downtime (the house's ordinary gossip, not a scheme).
   const absent = [...v.threat.keys()].filter((p) => p !== partner && roomOf(v, p) !== v.room).sort((a, b) => (v.threat.get(b) ?? 0) - (v.threat.get(a) ?? 0) || a.localeCompare(b));
-  if (!friction && absent.length > 0 && v.timeOfDay !== "late-night" && roll("gossip") < HOUSE_LIFE.gossipChance * (v.timeOfDay === "night" ? 0.6 : 1)) {
+  if (!friction && absent.length > 0 && v.timeOfDay !== "late-night" && roll("gossip") < HOUSE_LIFE.gossipChance * cGossip * (v.timeOfDay === "night" ? 0.6 : 1)) {
     return finish({ kind: "gossip", with: [partner], about: absent[Math.floor(roll("gossip-about") * Math.min(3, absent.length))]! });
   }
   const pickLife: ActionKind = friction ? "chore-fight"
