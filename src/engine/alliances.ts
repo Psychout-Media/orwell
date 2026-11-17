@@ -231,9 +231,9 @@ export function willingMembers(
  */
 export type AllianceChange = "formed" | "joined" | "left" | "betrayed" | "faded" | "dissolved" | GroupChange;
 /** 0172 (Theme 3 slice 6): the hidden group-life kinds the history also keeps. History-only: none of them records a player-facing event by itself (the act that a player can see records its own). */
-export type GroupChange = "roles" | "inner-circle" | "purpose" | "spy-planted" | "spy-report" | "shadow-formed" | "cracked" | "pitched" | "pitch-withdrawn";
+export type GroupChange = "roles" | "inner-circle" | "purpose" | "spy-planted" | "spy-report" | "spy-turned" | "spy-confessed" | "shadow-formed" | "cracked" | "pitched" | "pitch-withdrawn";
 /** The group-life kinds as a set (the event flush skips these: they are history, not events). */
-export const GROUP_CHANGES: ReadonlySet<string> = new Set<GroupChange>(["roles", "inner-circle", "purpose", "spy-planted", "spy-report", "shadow-formed", "cracked", "pitched", "pitch-withdrawn"]);
+export const GROUP_CHANGES: ReadonlySet<string> = new Set<GroupChange>(["roles", "inner-circle", "purpose", "spy-planted", "spy-report", "spy-turned", "spy-confessed", "shadow-formed", "cracked", "pitched", "pitch-withdrawn"]);
 
 export interface AllianceHistoryEntry {
   /** 1-based, strictly increasing, never reused (the append position). */

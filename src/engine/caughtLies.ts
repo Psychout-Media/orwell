@@ -1,5 +1,5 @@
 import type { EntityId } from "../domain/ids";
-import { refuteClaim, type BeliefStore } from "./beliefStore";
+import { plantedBy, refuteClaim, type BeliefStore } from "./beliefStore";
 
 type MutableEdge = { trust: number; affinity: number; threat: number };
 
@@ -79,7 +79,7 @@ export function contradicts(a: ClaimLike, b: ClaimLike): boolean {
  * The planted belief's id is `<holder>|<kind>|<subject>|<claimId>`.
  */
 export function refuteToldBelief(store: BeliefStore | undefined, holder: EntityId, claimId: string, edgeOf: (h: EntityId, s: EntityId) => MutableEdge): boolean {
-  const belief = store?.[holder]?.find((c) => c.id.endsWith(`|${claimId}`));
+  const belief = store?.[holder]?.find((c) => plantedBy(c, claimId)); // ORW-591: a repeat folded into an earlier telling's belief is found there
   if (!store || !belief || belief.refuted) return false;
   refuteClaim(store, holder, belief.id, edgeOf);
   belief.refuted = true;

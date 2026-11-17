@@ -6007,12 +6007,15 @@ def is_deal_refusal(res) -> bool:
 
 def deal_refusal_for_narrator(res: dict) -> dict:
     """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
-    why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
+    # ORW-608 (Ryne 2026-11-17): the engine hands only the reason the houseguest GIVES (a stated-reason kind: honest, softened or a cover story, the engine
+    # decided); the real reason never leaves the engine, and there are no fixed refusal lines - the narrator voices the given reason in the houseguest's own words.
+    said = str(res.get("reason") or "").strip()
     out = {
         "declined": True,
         "reason": res.get("reason"),
-        "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
-                    "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
+        "message": ("The NPC declined. No deal was made. "
+                    + (f"The reason they give you (it may be honest or a cover story; voice it in their own words, never as a quote of this label): {said}. " if said else "")
+                    + "Voice their refusal in character; do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
     }
     # ORW-481 (review 4539129295): the engine may attach a counteroffer; hand it over so the refusal is voiced WITH its terms (still no deal until the player accepts).
     counter = res.get("counteroffer")
