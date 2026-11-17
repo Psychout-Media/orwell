@@ -11023,6 +11023,7 @@ export class GameSessionAdapter implements GameSession {
       // recorded. GATED on a played game that has seeded agendas (`live.playedGame` + `live.agendas`): a headless seeded sim has neither, so the ctx carries no hook and every read adds +0 (byte-identical).
       ...(this.live?.playedGame === true && this.live.agendas ? {
         agendaPullFor: (t: EntityId, d: EntityId) => this.agendaPullOf(t, d),
+        hohTargetReadFor: (v: EntityId, h: EntityId, fn: readonly [EntityId, EntityId]) => this.hohTargetReadOf(v, h, fn), // ORW-573: what the voter knows, never the HOH's hidden reads
         statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
       } : {}),
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
@@ -13885,6 +13886,29 @@ export class GameSessionAdapter implements GameSession {
    * ORW-314: the reasons this houseguest has given aloud for a PUBLIC act that has already landed on the board this week - the stated KIND and SUBJECT only (`voiceableReason`).
    * Never the candor, the goal or the terms (they stay on `live.statedReasons`). A secret ballot is never voiced. An act the board has not yet carried (a ceremony outcome still staged) is not voiced early.
    */
+  /**
+   * ORW-573 (Fable T1-5) - which of the final two `voter` reads as the HOH's target, from what the voter KNOWS, in order:
+   *  1. what they were told and believe: a held belief that the HOH is going after one of them (the strongest held at a fact's conviction);
+   *  2. what the HOH said aloud at the ceremonies this week: a nominee told "you're a pawn" is not the target; one given a reason to go is;
+   *  3. how the block was set in public: a replacement named after a veto reads as the real target; otherwise the first name called.
+   * Never the HOH's own threat reads. Engine-only.
+   */
+  private hohTargetReadOf(voter: EntityId, hoh: EntityId, fn: readonly [EntityId, EntityId]): EntityId {
+    const s = this.live;
+    const believed = claimsOf(s?.beliefs, voter)
+      .filter((c) => c.value && !c.refuted && c.subject === hoh && c.object !== undefined && fn.includes(c.object) && c.kind === "heard-rumor" && c.nature === "going-after" && c.confidence >= CONVICTION.asFact)
+      .sort((a, b) => b.confidence - a.confidence)[0];
+    if (believed?.object) return believed.object;
+    const said = (s?.statedReasons ?? []).filter((r) => r.week === s?.week && r.public && r.decider === hoh && (r.decision === "nominate" || r.decision === "replacement") && fn.includes(r.stated.about));
+    const pawn = said.find((r) => r.stated.kind === "pawn-youll-be-fine");
+    if (pawn) return pawn.stated.about === fn[0] ? fn[1] : fn[0];
+    const reasoned = said.find((r) => r.stated.kind !== "pawn-youll-be-fine");
+    if (reasoned) return reasoned.stated.about;
+    if (s?.replacement && fn.includes(s.replacement)) return s.replacement;
+    const first = s?.nominees?.find((n) => fn.includes(n));
+    return first ?? fn[0];
+  }
+
   private statedReasonsFor(id: EntityId): StatedReasonView[] {
     const s = this.live;
     if (!s || s.playedGame !== true || !s.statedReasons?.length) return [];
