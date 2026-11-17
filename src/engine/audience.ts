@@ -22,7 +22,18 @@ export const AUDIENCE = {
   boosAt: -0.15,
   /** The weeks a fan reward is given (by week number; the engine's own schedule, not a pick). */
   perkWeeks: [4, 8] as readonly number[],
+  /**
+   * A fan reward is a PUBLIC moment the house sees: each houseguest reads the winner as a bigger jury threat ("America likes them"), more as the holder plays the social
+   * game (social 0..1 scales it within 0.5..1.5). Applies to the player as the winner; an NPC winner is told to the player as the house event it is.
+   */
+  fanThreat: 0.06,
 } as const;
+
+/** How much a fan reward raises `holder`'s read of the winner as a threat, from the holder's social game (0..1). */
+export const fanThreatFor = (social: number): number => AUDIENCE.fanThreat * (0.5 + Math.max(0, Math.min(1, social)));
+
+/** One eviction's key in the folded record (a twist night's second eviction in the same week is its own fold). */
+export const evictionKey = (week: number, evictee: EntityId): string => `${week}:${evictee}`;
 
 export type CrowdReaction = "cheers" | "mixed" | "boos" | "silence";
 
