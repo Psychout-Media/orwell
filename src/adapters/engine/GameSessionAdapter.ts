@@ -14969,12 +14969,14 @@ export class GameSessionAdapter implements GameSession {
    */
   /**
    * #1963 — is this break tied to the SECRET weekly eviction ballot AND observable through the wronged party's behaviour?
-   * Only an NPC's vote-evict that is backed by the CURRENT staged ballot (`live.eviction.voteOf`) counts: the Final-3 vote is
-   * the final HOH's open personal vote (no secret ballot exists), a stale ballot from a previous week must never attribute a
-   * later break, and a PLAYER-wronged break keeps the full fold (nothing acts on the player's hidden read).
+   * A vote-evict backed by the CURRENT staged ballot (`live.eviction.voteOf`) counts: the Final-3 vote is the final HOH's open personal
+   * vote (no secret ballot exists), a stale ballot from a previous week must never attribute a later break, and a PLAYER-wronged break
+   * keeps the full fold (nothing acts on the player's hidden read). ORW-615: the PLAYER's ballot is as secret from the wronged houseguest
+   * as anyone's (it used to be exempt, so the wronged NPC in effect learned how the player voted). The player's OWN view of their own
+   * break is a separate seal (`DealLedger.reconcile` never projection-seals the player's own vote).
    */
   private sealedBreak(wronged: EntityId, breaker: EntityId, kind: BreakCause): boolean {
-    return kind === "vote-evict" && breaker !== PLAYER && wronged !== PLAYER && this.live?.eviction?.voteOf?.[breaker] === wronged;
+    return kind === "vote-evict" && wronged !== PLAYER && this.live?.eviction?.voteOf?.[breaker] === wronged;
   }
 
   /** Everyone who voted to evict `wronged` on the CURRENT staged weekly ballot (the set a sealed break is shared across). */
