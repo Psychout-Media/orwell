@@ -885,7 +885,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // warming fold) but their barbs cut DEEPER (sore ≥ 1 amplifies the souring fold). `{1,1}` (rested /
     // flag-off / clock-off) ⇒ byte-identical to the calibration spine. GAME natures fold their full
     // valence-scaled strategic impact; FRIENDLY natures fold affinity only (unchanged nature split).
-    const sway = sandbox.session.socialFoldValence(s.initiator);
+    const sway = sandbox.session.socialFoldValence(s.initiator, s.partner, s.initiator); // ORW-561: per pair (holder = the partner, about = the initiator)
     const foldImpact = natureFoldImpact(s.type);
     const scaled = sway.warm === 1 && sway.sore === 1
       ? foldImpact
