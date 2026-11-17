@@ -91,6 +91,14 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (as["kind"] !== "safe" && as["kind"] !== "vote" && as["kind"] !== "loyal") refuse("assurance", "{ kind: 'safe' | 'vote' | 'loyal' } when present");
         if (as["sincerity"] !== undefined && typeof as["sincerity"] !== "number") refuse("assurance", "a numeric sincerity when present");
       }
+      if (args["promise"] !== undefined) {
+        const pr = args["promise"];
+        if (typeof pr !== "object" || pr === null || Array.isArray(pr)) refuse("promise", "an object when present");
+        const ps = pr as Record<string, unknown>;
+        if (typeof ps["what"] !== "string" || ps["what"] === "") refuse("promise", "{ what: a non-empty string } when present");
+        if (ps["subject"] !== undefined && !isEntityId(ps["subject"])) refuse("promise", "a houseguest id for `subject` when present");
+        if (ps["from"] !== undefined && !isEntityId(ps["from"])) refuse("promise", "a houseguest id for `from` when present");
+      }
       if (args["heardAboutMe"] !== undefined) {
         const h = args["heardAboutMe"];
         if (typeof h !== "object" || h === null || Array.isArray(h)) refuse("heardAboutMe", "an object when present");

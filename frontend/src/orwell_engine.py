@@ -1203,7 +1203,7 @@ async def run_competition(comp_type: str | None = None, participant_ids: list | 
     return await _call("runCompetition", args, user=user)
 
 
-async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, heard_about_me: dict | None = None, user: str | None = None) -> dict:
+async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, heard_about_me: dict | None = None, promise: dict | None = None, user: str | None = None) -> dict:
     """Record a player-present scene as an engine event (player-witnessed → the player's
     knowledge, never the Vault). An optional `kind` folds the hidden relationship impact (0023);
     an optional Vault-free `consequence` descriptor (ADR 0005) lets the caller PROPOSE which
@@ -1248,6 +1248,10 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     # well-formed; the engine owns how far each listener believes it and ignores it unless the flag is on (absent / flag off => byte-identical). Never free text, never a number.
     if isinstance(heard_about_me, dict) and heard_about_me.get("nature") in ("targeting", "betrayal"):
         req["heardAboutMe"] = {k: v for k, v in heard_about_me.items() if k in ("nature", "from")}
+    # ORW-586 / 0187: a TYPED promise the scene carried ({what: a closed promise kind, from?: the promiser's id, subject?: who it concerns}). Forwarded ONLY when well-formed; the engine validates the ids and presence again,
+    # judges kept or broken itself, and ignores it unless ORWELL_PROMISE_TERMS is on (absent / flag off => byte-identical). Never free text, never a number.
+    if isinstance(promise, dict) and isinstance(promise.get("what"), str) and promise.get("what"):
+        req["promise"] = {k: v for k, v in promise.items() if k in ("what", "from", "subject") and isinstance(v, str) and v}
     return await _call("recordInteraction", req, user=user)
 
 
