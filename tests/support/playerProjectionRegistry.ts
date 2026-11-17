@@ -75,6 +75,8 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "recordNpcTraits", coveredBy: "write-back", note: "ORW-319 FE write-back; bare {accepted, rejected} counts" },
   { method: "recordHouseCulture", coveredBy: "write-back", note: "ORW-319 FE write-back; bare {accepted, reason} status" },
   { method: "recordGroupIdentity", coveredBy: "write-back", note: "ORW-566 part c FE write-back; bare {accepted, reason} status" },
+  { method: "recordAllianceName", coveredBy: "write-back", note: "ORW-566 part c2 FE write-back; bare {accepted} receipt, identical for a real and a decoy ticket" },
+  { method: "allianceNameTickets", coveredBy: "read", note: "ORW-566 part c2 FE read; opaque ticket + anonymous prompt (traits shared by many living houseguests and the house culture), no ids, names, counts, rooms or days" },
   { method: "groupsAwaitingWords", coveredBy: "read", note: "ORW-566 part c FE read; group ids, member ids and a room only, never what was said" },
   { method: "recordLookExtras", coveredBy: "write-back", note: "ORW-369 FE write-back; bare {accepted, fields} status" },
   { method: "recordRoomCanon", coveredBy: "write-back", note: "FE write-back; bare status result" },

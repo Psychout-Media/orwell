@@ -1034,6 +1034,18 @@ async def groups_awaiting_words(user: str | None = None) -> list:
     return out if isinstance(out, list) else []
 
 
+async def alliance_name_tickets(user: str | None = None) -> list:
+    """ORW-566 part c2 (spec 0183): tonight's fixed-size batch of sealed naming prompts, ``[{ticket, prompt}]``. Anonymous by construction (traits shared by
+    many living houseguests and the house culture; no id, name, count, room or day). ``[]`` pre-game / flag off / nothing outstanding. FE-driven; never rendered."""
+    out = await _call("allianceNameTickets", {}, user=user)
+    return out if isinstance(out, list) else []
+
+
+async def record_alliance_name(req: dict, user: str | None = None) -> dict:
+    """ORW-566 part c2: answer one sealed-prompt ticket (``{ticket, name}``). The engine answers a bare ``{accepted}`` receipt, the same for a real and a decoy ticket."""
+    return await _call("recordAllianceName", req, user=user)
+
+
 async def world_snapshot_view(user: str | None = None) -> dict | None:
     """Feature 0062 (BE-103 close-out, the G5 gap): read the Vault-free projection of the FROZEN
     move-in zeitgeist ``record_world_snapshot`` captured — ``{ capturedFor, source, slices,
