@@ -69,6 +69,7 @@ import type { Stats } from "./season";
 import { nominationStrategy, nominationPlan, nominationScore, nominationBaseVals, replacementPick, tallyJury } from "./season";
 import { sumVals, whyOption, runnerUp, type DecisionWhy, type WhySink } from "./decisionWhy";
 import type { NpcMemoryLedger } from "./npcMemory";
+import type { GrudgeBook } from "./grudges";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
@@ -708,6 +709,12 @@ export interface LiveSeasonState {
   bondsCursor?: number;
   bondsSeen?: string[];
   bondsDay?: number;
+  /**
+   * 0182 (Theme 3 slice 5, ORW-569) - the GRUDGE BOOK (`grudges.ts`): one row per directed pair `holder|subject` for a wrong the holder remembers. Folded by the engine from the
+   * records that already exist (`grudgesSeen` = marks already folded). Monotone, never deleted. ENGINE-ONLY (Vault class), never projected. Absent => no grudges yet (old saves read none).
+   */
+  grudges?: GrudgeBook;
+  grudgesSeen?: string[];
   /**
    * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
    * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.

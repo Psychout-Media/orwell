@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordGroupIdentityReq, RecordGroupIdentityResult, GroupAwaitingWordsView, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
@@ -34,6 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
+import { GRUDGES, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -50,7 +51,7 @@ import {
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
 import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
-import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, type PairCloseness } from "../../engine/groupIdentity";
+import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
@@ -5578,6 +5579,76 @@ export class GameSessionAdapter implements GameSession {
     live.bondsDay = day;
   }
 
+  /** 0182 (Theme 3 slice 5, PR 1): the grudge book (`ORWELL_GRUDGES`, default ON; `=0` opts out). Played games only, and it needs the bond record. Nothing decides from it yet. */
+  private grudgesEnabled = flagDefaultOn("ORWELL_GRUDGES");
+  setGrudgesEnabled(on: boolean): void { this.grudgesEnabled = on; }
+  private grudgesOn(): boolean { return this.grudgesEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+  /**
+   * 0182: fold the wrongs the engine already recorded into the grudge book: an ally's cut (a friend's nomination or replacement, an alliance betrayal), a broken deal, a vote or
+   * blindside the evictee holds, a claim of being lied to or voted against. Severity is the magnitude those records already carry. Deterministic, no rng, idempotent (own seen-marks);
+   * the player is never a holder. Writes nothing (not even an empty book) until a grudge exists, so a game with none is byte-identical.
+   */
+  private foldGrudges(): void {
+    const live = this.live;
+    if (!this.grudgesOn() || !live || !this.house) return;
+    const seen = new Set(live.grudgesSeen ?? []);
+    const before = seen.size;
+    const day = live.dayNumber ?? 1;
+    const note = (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number): void => {
+      if (holder === PLAYER || seen.has(mark)) return;
+      seen.add(mark);
+      noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark);
+    };
+    for (const holder of Object.keys(live.npcMemory ?? {}).sort() as EntityId[]) {
+      const row = live.npcMemory![holder] ?? {};
+      for (const subject of Object.keys(row).sort() as EntityId[]) for (const e of row[subject] ?? []) {
+        const kind: GrudgeKind | undefined = e.kind === "deal-broken" ? "deal-broken" : e.kind === "nominated-by-friend" || e.kind === "replaced-by-friend" ? "cut-by-ally" : undefined;
+        if (kind) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
+      }
+    }
+    for (const d of this.deals.all) {
+      if (d.status !== "broken" || !d.brokenBy) continue;
+      const [a, b] = d.parties;
+      note(`d:${d.id}`, d.brokenBy === a ? b : a, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
+    }
+    const evicted = new Set(live.evictionOrder);
+    const manner = live.mannerByEvictee ?? {};
+    for (const wronged of Object.keys(manner).sort() as EntityId[]) for (const who of Object.keys(manner[wronged] ?? {}).sort() as EntityId[]) {
+      const m = manner[wronged]![who]!;
+      const sev = m.intensity ?? 1;
+      const at = (flag: string): string => `n:${wronged}|${who}|${flag}`;
+      // an unevicted houseguest's betrayal is an ally's cut (the alliance paths); an evictee's is the vote that sent them out. Blindsided is noted last so it wins a tie.
+      if (m.disrespected) note(at("disrespected"), wronged, who, "vote-against", sev, live.week);
+      if (m.betrayed) note(at("betrayed"), wronged, who, evicted.has(wronged) ? "vote-against" : "cut-by-ally", sev, live.week);
+      if (m.blindsided) note(at("blindsided"), wronged, who, "blindsided", sev, live.week);
+    }
+    for (const holder of Object.keys(live.beliefs ?? {}).sort() as EntityId[]) for (const c of live.beliefs![holder] ?? []) {
+      if (!c.value || c.refuted) continue;
+      if (c.kind === "lied-to-me") note(`c:${c.id}`, holder, c.subject, "lied-to", c.confidence, c.week);
+      else if (c.kind === "voted-against-me") note(`c:${c.id}`, holder, c.subject, "vote-against", c.confidence, c.week);
+    }
+    if (seen.size !== before) live.grudgesSeen = [...seen];
+  }
+
+  /**
+   * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
+   * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
+   */
+  grudgeOf(holder: EntityId, subject: EntityId): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
+    if (holder === PLAYER) return null;
+    this.foldGrudges();
+    const row = this.live?.grudges?.[grudgeKey(holder, subject)];
+    if (!row || !this.live) return null;
+    const hg = this.house?.npcs.find((n) => n.id === holder);
+    const keeper = forgivenessTraitFor(this.live.npcMemory?.[holder]?.[subject], {
+      ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}),
+      volatility: this.soulObj(holder)?.volatility ?? 0.5,
+      closeness: this.rel.bondStrength(holder, subject),
+    }) === "grudge-keeper";
+    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper });
+    return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak };
+  }
+
   /** Derived state, NEVER snapshotted: the last house graph, reused within one in-game day. */
   private houseGraphCache: DailyHouseGraph | undefined;
 
@@ -10325,6 +10396,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
     return steps;
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
@@ -11981,6 +12053,8 @@ export class GameSessionAdapter implements GameSession {
     if (!s || !p.habit) return;
     const culture = s.npcMindsAuthored?.culture;
     noteIdentity((s.groupIdentity ??= {}), p.habit, { kind: "debrief", spot: nicknameOf(culture, p.place) ?? this.roomRefOf(p.place), since: this.inGameAbsHour() ?? 0 });
+    // ORW-566 part c (Vault Wall ruling): a pair's habit is only ever described to the model once the player has SEEN it (was in the room); hidden habits keep the floor.
+    if (this.house && this.presence?.get(this.house.player.id) === p.place) s.groupIdentity[p.habit]!.seen = true;
     const seen = event.houseLife?.seenBy ?? [];
     const pair = [p.actor, ...p.with].slice(0, 2);
     if (seen.length > 0 && pair.length === 2 && !isPrivateRoom(p.place)) this.habitSightings.push({ pair: [pair[0]!, pair[1]!], room: p.place, onlookers: seen });
@@ -16872,6 +16946,70 @@ export class GameSessionAdapter implements GameSession {
     const c = validateCulture(req);
     if (!c) return { accepted: false, reason: "invalid" };
     (this.live.npcMindsAuthored ??= {}).culture = c;
+    this.backgroundPersist();
+    return { accepted: true };
+  }
+
+  /** Does the player already know of this group? An alliance whose `knownTo` has the player (witnessed, told or exposed), or a pair habit the player saw. Nothing hidden ever qualifies (Vault Wall ruling, ORW-566 part c). */
+  private playerKnowsGroup(id: string): boolean {
+    const a = this.alliances.byId(id);
+    if (a) return !a.members.includes(PLAYER) && a.knownTo.includes(PLAYER);
+    const e = this.live?.groupIdentity?.[id];
+    return e?.kind === "debrief" && e.seen === true && !id.split("|").includes(PLAYER);
+  }
+
+  /**
+   * ORW-566 part c (spec 0183), Vault Wall ruling: words are authored lazily AT REVEAL, and hidden groups are never described to any model. This lists ONLY groups the player could already know about
+   * (an alliance whose `knownTo` includes the player; a pair habit the player saw), at most `maxPerRead` at a time, none past the season cap; a hidden group is not mentioned at all (no ids, no members).
+   * The player's own alliances are named by the narrator and never listed. Empty when off or nobody is playing.
+   */
+  groupsAwaitingWords(): GroupAwaitingWordsView[] {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !this.house || !s || s.playedGame !== true) return [];
+    const store = s.groupIdentity ?? {};
+    const done = Object.values(store).filter((e) => e.words).length;
+    if (done >= GROUP_IDENTITY.maxAuthoredPerSeason) return [];
+    const out: GroupAwaitingWordsView[] = [];
+    const culture = s.npcMindsAuthored?.culture;
+    const otherNames = [...new Set(this.alliances.all().filter((a) => this.playerKnowsGroup(a.id) || a.members.includes(PLAYER)).map((a) => a.name))];
+    const extra = { ...(culture ? { culture } : {}), otherNames };
+    for (const a of this.alliances.all()) {
+      if (!this.playerKnowsGroup(a.id) || store[a.id]?.words) continue;
+      const room = this.presence?.get(a.founder);
+      out.push({ groupId: a.id, kind: "alliance", members: [...a.members], ...(room ? { room } : {}), ...(store[a.id]?.spot ? { spot: store[a.id]!.spot! } : {}), ...extra });
+    }
+    for (const [id, e] of Object.entries(store)) {
+      if (e.words || !this.playerKnowsGroup(id) || this.alliances.byId(id)) continue;
+      out.push({ groupId: id, kind: "pair", members: id.split("|"), ...(e.spot ? { spot: e.spot } : {}), ...extra });
+    }
+    return out.slice(0, Math.min(GROUP_IDENTITY.maxPerRead, GROUP_IDENTITY.maxAuthoredPerSeason - done));
+  }
+
+  /**
+   * ORW-566 part c (spec 0183): freeze the model's words for one group. Write-once per group id; refused for a group the player does not already know (hidden groups keep the floor until they are revealed).
+   * An alliance's NAME may be replaced once (renamed through the alliance store, which keeps the old name in its `formed` history entry); a name that collides with another alliance's, or is a houseguest's name, is dropped and the rest still lands.
+   */
+  recordGroupIdentity(req: RecordGroupIdentityReq): RecordGroupIdentityResult {
+    const s = this.live;
+    if (!this.house || !s) return { accepted: false, reason: "no-game" };
+    if (!this.groupIdentityEnabled || s.playedGame !== true) return { accepted: false, reason: "off" };
+    const id = typeof req?.groupId === "string" ? req.groupId : "";
+    const alliance = this.alliances.byId(id);
+    const have = s.groupIdentity?.[id];
+    if (!this.playerKnowsGroup(id)) return { accepted: false, reason: "unknown-group" };
+    if (have?.words) return { accepted: false, reason: "frozen" };
+    const words = validateGroupIdentity(req);
+    if (!words) return { accepted: false, reason: "invalid" };
+    if (words.name && alliance) {
+      const norm = normTitle(words.name);
+      const taken = this.alliances.all().some((x) => x.id !== alliance.id && normTitle(x.name) === norm) || (this.worldAvoid.allianceNames ?? []).some((n) => normTitle(n) === norm);
+      const peopleNames = [PLAYER, ...(this.house.npcs.map((n) => n.id))].flatMap((x) => this.nameOf(x).toLowerCase().split(/\s+/)).filter((w) => w.length > 2 && w !== "the");
+      const named = words.name.toLowerCase().replace(/['\u2019]s\b/g, "").split(/[^a-z]+/).filter(Boolean).some((w) => peopleNames.includes(w));
+      if (taken || named || norm.length < 3) delete words.name;
+      else this.alliances.rename(alliance.id, words.name);
+    }
+    if (!words.name && !words.ritual && !words.signal && !words.insideJoke) return { accepted: false, reason: "invalid" };
+    noteWords((s.groupIdentity ??= {}), id, alliance ? "alliance" : "debrief", words, this.inGameAbsHour() ?? 0);
     this.backgroundPersist();
     return { accepted: true };
   }
