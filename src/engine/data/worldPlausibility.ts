@@ -10,6 +10,7 @@
  * is likely to be.
  */
 import type { SizeClass } from "./worldPlaces";
+import { JOB_INDEX } from "./worldJobs";
 
 export interface PersonFacts { readonly vocation: string; readonly age: number; readonly state: string; readonly size: SizeClass }
 
@@ -50,6 +51,12 @@ const ORDER: Record<SizeClass, number> = { town: 0, "small-city": 1, city: 2, "b
 
 /** The name of the first rule the person breaks, or null when the combination is plausible. */
 export function implausibleBecause(p: PersonFacts): string | null {
+  // the table's own facts about a job: its age floor, and farm-style jobs that do not exist in a big city
+  const row = JOB_INDEX.get(p.vocation.toLowerCase());
+  if (row) {
+    if (p.age < row.minAge) return `min-age-${row.minAge}`;
+    if (row.maxSize && ORDER[p.size] > ORDER[row.maxSize]) return "not-big-city-farm";
+  }
   for (const r of RULES) {
     if (!r.when.test(p.vocation)) continue;
     if (r.minAge !== undefined && p.age < r.minAge) return r.name;
@@ -72,7 +79,7 @@ export function ageProblem(vocation: string, age: number): string | null {
 }
 
 /** Plain jobs that need no licence, no coast and no particular town: the fallback when the retries run out. */
-export const SAFE_VOCATIONS: readonly string[] = ["barista", "bartender", "line cook", "bank teller", "IT support specialist", "personal trainer", "hairstylist", "postal carrier"];
+export const SAFE_VOCATIONS: readonly string[] = ["barista", "bartender", "line cook", "bank teller", "personal trainer", "hairstylist", "postal carrier", "cashier"];
 
 /** Rejections counted per rule, for the season line. */
 export interface AcceptanceReport {

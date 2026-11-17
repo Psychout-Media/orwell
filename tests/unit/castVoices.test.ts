@@ -51,8 +51,10 @@ describe("cast voices (B61)", () => {
     expect(ctx).toContain(`${first.name}`);
     expect(ctx).toContain(`plays ${first.strategyStyle}`);
     expect(ctx).toContain(first.background!);
-    // never a stat or a number that reads as one beyond age
-    expect(ctx).not.toMatch(/physical|mental: |social: |trust|threat|hiddenElement/i);
+    // never a stat or a number that reads as one beyond age. ORW-508: a real job may contain the word ("physical
+    // therapist"), so the physical stat is matched as its label, like the other two stats
+    expect(ctx).not.toMatch(/physical: |mental: |social: |trust|threat|hiddenElement/i);
+    expect(ctx).not.toMatch(/\b(physical|mental|social)\s*[:=]?\s*\d/i);
   });
 
   it("an evicted houseguest's seat shows (and the departed lose the vibe line)", () => {

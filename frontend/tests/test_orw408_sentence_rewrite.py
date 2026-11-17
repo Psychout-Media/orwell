@@ -485,6 +485,12 @@ EARLY_STATUS = {"timeOfDay": "late-night", "earlyMorning": True, "clockLabel": "
     ("Everyone's up. ", False),
     ("The house is awake. ", False),
     ("'Good morning,' someone whispers. ", False),
+    ("'Good morning, Riser Role,' someone whispers. ", False),                     # ORW-493: the awake houseguest is only the addressee
+    ("\u201cGood morning, Riser,\u201d someone whispers. ", False),
+    ("Someone whispers, 'Good morning, Riser Role.' ", False),
+    ("Riser Role whispers, 'Good morning, Napper.' ", False),
+    ("Riser Role whispers, 'Good morning, everyone.' ", True),                     # the awake speaker BEFORE the quote
+    ("'Good morning, all,' Riser whispers. ", True),
     ("'Good morning,' Riser Role whispers to Napper Role. ", False),
 ])
 def test_orw454_a_greeting_by_a_named_awake_houseguest_is_kept_and_the_house_up_claim_is_dropped(monkeypatch, line, kept):
