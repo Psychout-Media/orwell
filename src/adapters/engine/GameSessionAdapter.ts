@@ -294,12 +294,13 @@ import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../..
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
-import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
+import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { knownBreaches, normStrength, shunMove } from "../../engine/houseNorms";
+import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
-import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
+import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -351,7 +352,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { beliefTruth, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -5775,6 +5776,18 @@ export class GameSessionAdapter implements GameSession {
    * not on the GameSession port, never a tool, never projected; later engine slices consume it. Read-only (no rng, no writes, no edge creation); the cache is derived
    * from the bonds and is not persisted, so snapshots are byte-identical whether or not it was ever read.
    */
+  /** 0179 (Theme 3 slice 9): the house's shape in the co-presence spread (`ORWELL_NETWORK_SPREAD`, default ON; `=0` = the spread reads no shape, byte-identical). */
+  private networkSpreadEnabled = flagDefaultOn("ORWELL_NETWORK_SPREAD");
+  setNetworkSpreadEnabled(on: boolean): void { this.networkSpreadEnabled = on; }
+  /** 0179: the roles the spread reads (from today's house graph), or undefined when off. Engine-only. */
+  networkRoles(): NetworkRoles | undefined {
+    if (!this.networkSpreadEnabled || !this.house) return undefined;
+    const graph = this.houseGraph().graph;
+    if (this.networkRolesCache?.graph !== graph) { const reader = this.bondReader(); this.networkRolesCache = { graph, roles: rolesFromGraph(graph, (a, b) => reader.tie(a, b)) }; }
+    return this.networkRolesCache.roles; // one derivation per day's graph (seeking reads it once per holder per move)
+  }
+  private networkRolesCache?: { graph: HouseGraph; roles: NetworkRoles };
+
   houseGraph(): DailyHouseGraph {
     this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
     return this.houseGraphCache;
@@ -12456,16 +12469,14 @@ export class GameSessionAdapter implements GameSession {
   private weighEvidenceOvernight(): void {
     const s = this.live;
     if (!s?.agendas || !s.beliefs || BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return;
-    const facts = this.truthFacts();
-    const day = s.dayNumber ?? s.week;
     for (const [holder, agenda] of Object.entries(s.agendas)) {
       const looking = new Set(agenda.goals.filter((g) => g.status === "active" && g.kind === "find-out" && g.test.kind === "question-answered").map((g) => (g.test as { ref: string }).ref));
       // Visible testing: the beliefs they have a find-out goal for. Quiet testing: the strongest few doubts they keep an eye on (CONVICTION_TESTS_MAX).
       const quiet = new Set((CONVICTION.askAround ? [] : (s.beliefs[holder] ?? []).filter((b) => underTest(b)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX)).map((b) => b.id));
       for (const b of s.beliefs[holder] ?? []) {
         if (!underTest(b) || !(quiet.has(b.id) || looking.has(testRef(b)))) continue;
-        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:evidence:${day}:${holder}:${b.id}`)).next();
-        b.confidence = Math.max(0, Math.min(1, b.confidence + evidenceStep(beliefTruth(b, holder, facts), roll)));
+        // ORW-585 (Fable T2): the night's evidence is what the holder holds through pathways - never the engine's truth (a sealed ballot, a hidden goal).
+        b.confidence = Math.max(0, Math.min(1, b.confidence + pathwayEvidence(b, s.beliefs[holder] ?? [], holder)));
         if (b.confidence < CONVICTION.dropBelow) {
           refuteClaim(s.beliefs, holder, b.id, (h, sub) => this.rel.edge(h, sub));
           b.refuted = true; // a belief that moved no edge is still let go

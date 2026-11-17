@@ -142,6 +142,7 @@ module.exports = {
       "docs/features/0155-ledger-claims-net.feature",
       "docs/features/0158-theme-2-end-to-end.feature",
       "docs/features/0163-decisions-read-what-they-see.feature",
+      "docs/features/0179-network-shape-in-the-spread.feature",
       "docs/features/0175-the-bond-record.feature",
       "docs/features/0178-two-faced-deals.feature",
       "docs/features/0180-house-norms.feature",
