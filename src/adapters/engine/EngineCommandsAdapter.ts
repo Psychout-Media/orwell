@@ -67,7 +67,7 @@ export class EngineCommandsAdapter implements EngineCommands {
    * everyone is up ⇒ byte-identical to the prior behavior.
    */
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
-  private sceneMemorySink?: (holders: readonly EntityId[], kind: string) => void;
+  private sceneMemorySink?: (holders: readonly EntityId[], kind: string, subject?: EntityId) => void;
   private promiseSink?: (p: { by: EntityId; to: EntityId; what: string; subject?: EntityId }) => { accepted: boolean; assuranceWritten: boolean };
   private statementSink?: (s: { to: EntityId; about: EntityId; kind: string; object?: EntityId }) => { accepted: boolean };
   private heardAboutMeSink?: (h: { teller: EntityId; listeners: EntityId[]; nature: "targeting" | "betrayal" }) => void;
@@ -91,6 +91,9 @@ export class EngineCommandsAdapter implements EngineCommands {
    * LANDED evict-shaped third-party pitch the PLAYER makes, so the session can fold it into the
    * player's own persistent campaign. Unset = standalone (no campaign effect — prior behavior).
    */
+  /** 0173 / ORW-610: the player's own recorded talk to the HOH counts as a pitch (the session decides; unwired = no-op). */
+  private playerTalkNote?: (withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined) => void;
+  setPlayerTalkNote(fn: (withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined) => void): void { this.playerTalkNote = fn; }
   private playerCampaignFold?: (target: EntityId, holder: EntityId) => void;
   /**
    * #1419 — the scene INITIATOR's ASYMMETRIC social-fatigue valence (the player-side mirror of the
@@ -195,7 +198,7 @@ export class EngineCommandsAdapter implements EngineCommands {
   }
 
   /** P4g - wire the NPC memory ledger so a recorded betrayal / conflict / kindness scene is remembered by the NPCs it touched. Unwired => inert. */
-  setSceneMemorySink(fn: (holders: readonly EntityId[], kind: string) => void): void {
+  setSceneMemorySink(fn: (holders: readonly EntityId[], kind: string, subject?: EntityId) => void): void {
     this.sceneMemorySink = fn;
   }
 
@@ -378,6 +381,7 @@ export class EngineCommandsAdapter implements EngineCommands {
     const awakeNamed = awake ? namedWitnesses.filter(isUp) : namedWitnesses; // a named sleeper is a phantom witness too
     const witnessSet = [...awakeNamed];
     if (req.initiator === PLAYER && !witnessSet.includes(PLAYER)) witnessSet.push(PLAYER);
+    if (req.initiator !== PLAYER && !witnessSet.includes(req.initiator)) witnessSet.push(req.initiator); // ORW-609: a houseguest who acted in the scene was in it (the actor is validated living above)
     if (!witnessSet.includes(PLAYER)) {
       throw new Error("recordInteraction is player-witnessed only: the witness set must include the player (off-screen scenes are the engine's to mint)");
     }
@@ -403,6 +407,7 @@ export class EngineCommandsAdapter implements EngineCommands {
       id: eventId, ts: n, type: "conversation",
       initiator: req.initiator, witnessSet,
       hidden: !witnessSet.includes(PLAYER), content: req.content,
+      ...(req.kind && INTERACTION_KINDS.has(req.kind) ? { interactionKind: req.kind } : {}), // ORW-609: the bond record reads the scene's kind
     });
     // #1318 — a recorded player↔NPC scene is a GENUINE premiere hot read. Feed the reconciled
     // caller-named partners (`namedWitnesses` + initiator, minus the player) — NOT the presence-expanded
@@ -548,6 +553,7 @@ export class EngineCommandsAdapter implements EngineCommands {
         }
       }
     }
+    if (this.playerTalkNote && req.initiator === PLAYER) this.playerTalkNote(witnessSet.filter((w) => w !== PLAYER), req.kind, req.consequence?.aboutEdges?.find((e) => e.direction === "more-threatened" && isLiving(e.about))?.about);
     // L27: index the scene's SUMMARY into each houseguest's semantic recall memory (0024) — every
     // houseguest who was in it remembers it, so later story/narrative is built from the STORE recalled
     // (ADR 0003), never the chat window. The player's own knowledge already lives in the event record.
@@ -582,8 +588,9 @@ export class EngineCommandsAdapter implements EngineCommands {
     // P4g: a betrayal / conflict / kindness scene is REMEMBERED by the NPCs it touched (0024 ledger) - bounded, deterministic, one write per recorded scene (this point is
     // reached once per recorded scene: an idempotent replay returned earlier). Inert unwired / writers off.
     if (this.sceneMemorySink && req.kind) {
-      const touched = (req.toward ?? awakeNamed).filter((id) => id !== PLAYER); // the NAMED partners (not presence-expanded bystanders)
-      if (touched.length > 0) this.sceneMemorySink(touched, req.kind);
+      const touched = (req.toward ?? awakeNamed).filter((id) => id !== PLAYER && id !== req.initiator); // the NAMED partners (not presence-expanded bystanders); never the actor
+      // ORW-609: the memory is written against whoever ACTED (the player, or the houseguest who did it to the player/the others); omitted for the player so the call is unchanged.
+      if (touched.length > 0) { if (req.initiator === PLAYER) this.sceneMemorySink(touched, req.kind); else this.sceneMemorySink(touched, req.kind, req.initiator); }
     }
     // ORW-586: a typed promise rides the recorded scene (the engine validates; a refused or malformed one is ignored). When it writes the matching assurance row itself, the scene's own casual assurance of the same speaker is not written twice.
     let assuranceCovered = false;
