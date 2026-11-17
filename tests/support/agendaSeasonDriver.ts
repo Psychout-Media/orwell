@@ -1,5 +1,6 @@
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
+import { PLAYER } from "../../src/domain/ids";
 import { resolvePending } from "../../features/support/answerPending";
 
 /**
@@ -12,7 +13,7 @@ export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?:
   const s = new GameSessionRegistry().sandboxFor(`agenda-${seed}-${Math.random()}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed });
   s.setPerConversationClockEnabled(true);
-  const live = () => s.snapshot().live as unknown as { nightDepth?: number; timeOfDay?: string; finished?: boolean; week: number };
+  const live = () => s.snapshot().live as unknown as { evictionOrder?: string[]; nightDepth?: number; timeOfDay?: string; finished?: boolean; week: number };
   for (let i = 0; i < 80 && live().nightDepth === undefined; i++) s.advanceGame();
   s.noteMessage({ messageId: "agenda-0" });
   let nights = 0;
@@ -28,6 +29,7 @@ export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?:
     } else if (l.timeOfDay === "night" || l.timeOfDay === "late-night") {
       const r = s.turnIn({}) as { held?: unknown } | undefined;
       if (!r?.held) { nights++; if (opts.mull !== false) s.settleOvernight(1); }
+      if (l.evictionOrder?.includes(PLAYER)) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); }
     } else s.advanceClockPerConversation();
   }
   return { s, nights, finished: live().finished === true };
