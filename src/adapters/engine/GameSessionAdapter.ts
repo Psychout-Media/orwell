@@ -6685,6 +6685,8 @@ export class GameSessionAdapter implements GameSession {
    * remember the player walked in. Stamped with the message it happened on, like `playerMove`, so only that turn's state carries it. Played games only.
    */
   private walkInDone: string[] = [];
+  /** ORW-473 amendment (0192): a talk among three or more (a night-owl trio, an ordinary gathering) is walked in on too. ON unless `ORWELL_WALKIN_GROUPS=0`; OFF => only a pair, byte-identical to before. */
+  private walkInGroupsEnabled = flagDefaultOn("ORWELL_WALKIN_GROUPS");
   private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
   private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
   private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
@@ -6709,25 +6711,28 @@ export class GameSessionAdapter implements GameSession {
     for (let i = events.length - 1; i >= Math.max(0, events.length - 40); i--) {
       const e = events[i]!;
       const hl = e.houseLife;
-      if (!e.hidden || !hl || hl.place !== dest || !isPrivateTalk(hl.action)) continue;
+      if (!e.hidden || !hl || hl.place !== dest || !(isPrivateTalk(hl.action) || (this.walkInGroupsEnabled && hl.nightOwl === true))) continue; // a late-night talk among the awake (0192) is a private talk whatever its kind: confession, bonding or scheme
       if (hl.at === undefined || nowHour - hl.at > WALK_IN_MAX_HOURS || nowHour < hl.at) continue; // recent in GAME time, not only by event count
       if (this.walkInDone.includes(e.id)) continue; // a talk is walked in on once
       const people = [...new Set(e.witnessSet)].filter((x) => x !== me);
-      if (people.length !== 2 || !people.every((x) => there.has(x))) continue;
+      if (people.length < 2 || (people.length > 2 && !this.walkInGroupsEnabled) || !people.every((x) => there.has(x))) continue; // a group of three or more is caught too (ORWELL_WALKIN_GROUPS); every one of them must be there and awake
       const day = this.live.dayNumber ?? 1;
       const reactions = people.map((id) => {
-        const other = people.find((x) => x !== id)!;
+        const others = people.filter((x) => x !== id);
+        const other = others[0]!; // a pair keeps its exact keys; in a group the jitter is keyed on the whole company and the feeling about "the others" is their mean
+        const otherKey = people.length === 2 ? other : others.join("+");
         const character = this.agendaCharacterOf(id);
         const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
-        const jitter = (hashSeed(`${this.gameSeed ?? ""}:walkin:${id}:${other}:${day}:${hl.stretch}`) % 800) / 10000;
-        return { id, reaction: walkInReaction({ candor, affinityToPlayer: this.rel.edge(id, me).affinity, affinityToOther: this.rel.edge(id, other).affinity }, jitter) };
+        const jitter = (hashSeed(`${this.gameSeed ?? ""}:walkin:${id}:${otherKey}:${day}:${hl.stretch}`) % 800) / 10000;
+        const affinityToOther = people.length === 2 ? this.rel.edge(id, other).affinity : others.reduce((t, o) => t + this.rel.edge(id, o).affinity, 0) / others.length;
+        return { id, reaction: walkInReaction({ candor, affinityToPlayer: this.rel.edge(id, me).affinity, affinityToOther }, jitter) };
       });
       this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
       this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
       // both remember it: a fact in each one's own memory (engine-side, never shown)
       for (const id of people) {
-        const other = people.find((x) => x !== id)!;
-        const note = `the player walked in on my private talk with ${this.nameOf(other)}`;
+        const others = people.filter((x) => x !== id).map((x) => this.nameOf(x));
+        const note = `the player walked in on my private talk with ${others.length === 1 ? others[0] : `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}`}`;
         const n = this.house.npcs.find((x) => x.id === id);
         if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
       }
