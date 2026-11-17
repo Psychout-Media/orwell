@@ -107,6 +107,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
+  // 0187 / ORW-586: promises BIND: an open-ledger entry may carry a typed term the engine judges from board facts (kept/broken + trust fold); a model may only withdraw it. Needs ORWELL_ASSURANCES. `=0` turns it off.
+  { envKey: 'ORWELL_PROMISE_TERMS', key: 'promiseTerms', parser: 'defaultOn' },
   // 0154 / ORW-330 slice 5b: after an eviction NPC voters tell one NPC how they voted ("I voted to keep you"), true or a lie, engine-decided on its own seeded stream. Needs ORWELL_NPC_BELIEFS. `=0` turns it off.
   { envKey: 'ORWELL_VOTE_TALK', key: 'voteTalk', parser: 'defaultOn' },
   // 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (scenes they were in or watched, allied-with beliefs), blended with the truth. `=0` = the hidden-truth read.
