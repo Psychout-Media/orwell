@@ -35,7 +35,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "worldSnapshotView", coveredBy: "read", note: "public real-world flavor" },
   { method: "competitionStagingView", coveredBy: "read", note: "fixed public drop order" },
   { method: "getPortraitPrompt", coveredBy: "read", note: "public-facets-only portrait prompt" },
-  { method: "getOffscreenSceneSkeletons", coveredBy: "read", note: "public participants + nature of off-screen scenes (never content)" },
+  { method: "getOffscreenSceneSkeletons", coveredBy: "read", note: "ORW-570: only player-witnessed scenes; a hidden NPC-to-NPC scene is never returned (people, nature and text are Vault-class)" },
   { method: "sealedFromHouse", coveredBy: "read", note: "FE guard support (ids sealed from the house)" },
   { method: "knowledgeScopeManifest", coveredBy: "read", note: "FE guard support: who legitimately knows what (knowledge layer only)" },
   { method: "createCharacter", coveredBy: "advance", note: "GameStateView at start" },

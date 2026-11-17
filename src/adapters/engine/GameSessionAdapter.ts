@@ -237,7 +237,7 @@ import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, str
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
-import { strategicDriveWeight, skeletonBaseLine } from "../../engine/offscreen";
+import { strategicDriveWeight } from "../../engine/offscreen";
 import type { EmotionalEvent } from "../../engine/emotionalArc";
 import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
@@ -17328,21 +17328,21 @@ export class GameSessionAdapter implements GameSession {
    */
   getOffscreenSceneSkeletons(): import("../../ports/GameSession").OffscreenSceneSkeleton[] {
     if (!this.house || this.lastTickOffscreenIds.length === 0) return [];
+    // ORW-570 (Fable T1-1, the BDD Auditor's ruling): an NPC-to-NPC scene whose witness set excludes the player is Vault-class: its people, its nature
+    // and its text alike. This read is on the PLAYER channel, so it returns NO hidden scene at all (an empty list for the off-screen society); it
+    // keeps returning an event the player witnessed, should the tick registry ever hold one. Hidden-scene texture, if wanted later, is rebuilt on the
+    // sealed-prompt pattern (k-anonymous inputs, decoys, an opaque ticket, engine-side storage), never on this read.
     const events = this.record?.events() ?? [];
     const byId = new Map(events.map((e) => [e.id, e]));
     const result: import("../../ports/GameSession").OffscreenSceneSkeleton[] = [];
     for (const id of this.lastTickOffscreenIds) {
       const ev = byId.get(id);
-      if (!ev || !ev.hidden) continue; // only hidden events are part of the off-screen texture layer
-      // Apply texture override if one exists; otherwise the deterministic template content stands.
-      // ORW-570: a house-life scene's own line names its target and scheme: the skeleton read (player channel) carries a plain line from the public people and the scene type instead.
-      const base = ev.houseLife ? skeletonBaseLine(ev.type, ev.initiator, ev.witnessSet.filter((w) => w !== ev.initiator)) : (ev.baseContent ?? ev.content);
-      const prose = this.textureOverrides.get(id) ?? base;
+      if (!ev || ev.hidden) continue;
       result.push({
         eventId: ev.id,
         nature: ev.type,
-        participants: [...ev.witnessSet], // public participant ids (no Vault content)
-        templateContent: prose,
+        participants: [...ev.witnessSet],
+        templateContent: this.textureOverrides.get(id) ?? ev.baseContent ?? ev.content,
       });
     }
     return result;
