@@ -524,8 +524,96 @@ Then("groups: the three hold roles in the history, the player holds none, the al
   const roles = history(g.p).filter((e) => e.kind === "roles" && e.allianceId === id);
   assert.ok(roles.length >= 1 && roles.every((e) => !(e.detail ?? "").includes(PLAYER)));
   assert.deepEqual([...g.p.alliances.byId(id)!.members].sort(), [PLAYER, ...x.npc!].sort());
-  assert.equal(life.cutOrder, undefined); assert.equal(life.crackedDay, undefined);
-  assert.ok(!history(g.p).some((e) => e.allianceId === id && ["cracked", "faded", "dissolved", "betrayed"].includes(e.kind)));
+  assert.ok(Object.keys(life.cutOrder ?? {}).sort().join() === [...x.npc!].sort().join()); // the NPC members hold cut orders; none of them names the player (no member's goal is their exit)
+  assert.ok(!Object.values(life.cutOrder!).flat().includes(PLAYER)); assert.notEqual(life.agreed, PLAYER);
   const blob = await surfaceBlob(g.sb);
   for (const k of WALLED) assert.ok(!blob.includes(k), `a live surface carries ${k}`);
+});
+
+// ---- ORW-616: the player's alliances fade and break like any other ----
+type Fader = { fadeAlliances(): void };
+function playerPact(seed: number, members = 3) {
+  const g = stage(seed, 3);
+  const npcs = g.ids.slice(5, 5 + members);
+  const al = g.p.alliances.add("Player Pact", PLAYER, [PLAYER, ...npcs], 1);
+  return { ...g, npcs, pact: al.id, pactName: al.name };
+}
+const eventsOf = (sb: UserSandbox, type: string) => sb.engine.events.queryAll().filter((e) => e.type === type);
+Given("groups: a season where the player belongs to an alliance whose bonds with the player have gone cold", function () {
+  const g = playerPact(7);
+  for (const m of g.npcs) { bond(g.p, PLAYER, m, 0.1); bond(g.p, m, PLAYER, 0.1); }
+  let gone = -1;
+  for (let d = 1; d <= 40 && gone < 0; d++) { g.p.live.dayNumber = d; (g.p as unknown as Fader).fadeAlliances(); if (!g.p.alliances.byId(g.pact)) gone = d; }
+  Object.assign(xb(this), { g, n: gone });
+});
+Then("groups: the alliance fades by the same days an NPC one would, and the player is told by an event that names it and no roster", function () {
+  const x = xb(this); const g = x.g as ReturnType<typeof playerPact>;
+  assert.ok(x.n! > 0, "the player's alliance never faded");
+  // an NPC pact over the same cold bonds fades on the same day
+  const twin = stage(7, 3); const t = twin.ids.slice(5, 8);
+  const npcPact = twin.p.alliances.add("Twin Pact", t[0]!, t, 1);
+  for (const a of t) for (const b of t) if (a !== b) bond(twin.p, a, b, 0.1);
+  let tg = -1; for (let d = 1; d <= 40 && tg < 0; d++) { twin.p.live.dayNumber = d; (twin.p as unknown as Fader).fadeAlliances(); if (!twin.p.alliances.byId(npcPact.id)) tg = d; }
+  assert.equal(x.n, tg);
+  assert.ok(kinds(g.p, "faded").some((e) => e.allianceId === g.pact));
+  const ev = eventsOf(g.sb, "alliance-faded").filter((e) => e.content.includes(g.pactName));
+  assert.equal(ev.length, 1);
+  assert.ok(ev[0]!.witnessSet.includes(PLAYER) && ev[0]!.hidden === false);
+  const nm = (id: EntityId) => (g.s as unknown as { nameOf(id: string): string }).nameOf(id);
+  for (const m of g.npcs) assert.ok(!ev[0]!.content.includes(nm(m)), "the event lists a member");
+});
+
+function hostileMember(g: ReturnType<typeof playerPact>, holder: EntityId): void {
+  g.p.live.agendas![holder]!.goals.push(hostileGoal(holder, g.p));
+  bond(g.p, holder, PLAYER, 0.3, 0.9);
+}
+Given("groups: a season where a member of the player's alliance has a goal to get the player out", function () {
+  const g = playerPact(7); const holder = g.npcs[0]!; hostileMember(g, holder);
+  for (let d = 1; d <= 600 && g.p.alliances.byId(g.pact)!.members.includes(holder); d++) {
+    g.p.live.dayNumber = d;
+    for (const a of g.p.alliances.all()) { a.lowDays = 0; a.checkedDay = d; }
+    (g.p as unknown as Fader).fadeAlliances();
+  }
+  Object.assign(xb(this), { g, teller: holder });
+});
+Then("groups: the member leaves and the player witnessed it as an event naming the alliance, never a roster", function () {
+  const x = xb(this); const g = x.g as ReturnType<typeof playerPact>;
+  assert.ok(!g.p.alliances.byId(g.pact)!.members.includes(x.teller!));
+  const ev = eventsOf(g.sb, "betrayal").filter((e) => e.content.includes(g.pactName));
+  assert.equal(ev.length, 1);
+  assert.ok(ev[0]!.witnessSet.includes(PLAYER) && ev[0]!.hidden === false);
+  const nm = (id: EntityId) => (g.s as unknown as { nameOf(id: string): string }).nameOf(id);
+  for (const m of g.npcs.filter((m) => m !== x.teller)) assert.ok(!ev[0]!.content.includes(nm(m)), "the event lists a member");
+});
+
+Given("groups: a season where two members of the player's alliance have a goal to get the player out and the house is late", function () {
+  for (let seed = 7; seed < 40; seed++) {
+    const g = stage(seed, 4); const [a, b, c, d] = g.members as [EntityId, EntityId, EntityId, EntityId];
+    g.p.live.evictionOrder = g.ids.filter((x) => !g.members.includes(x));
+    const al = g.p.alliances.add("Player Pact", PLAYER, [PLAYER, ...g.members], 1);
+    const gg = { ...g, npcs: g.members, pact: al.id, pactName: al.name } as ReturnType<typeof playerPact>;
+    for (const [x, y] of [[a, c], [a, d], [c, d], [d, b], [b, a], [b, c]] as const) { bond(g.p, x, y, 0.85); bond(g.p, y, x, 0.85); }
+    for (const x of [a, c]) hostileMember(gg, x);
+    g.p.alliances.byId(g.id)!.members = []; // the stock pact is not part of this season
+    for (let k = 0; k < 250 && g.p.live.groupLife?.[al.id]?.crackedDay === undefined; k++) day(g.p, g.ids, "backyard");
+    if (g.p.live.groupLife?.[al.id]?.crackedDay !== undefined) { Object.assign(xb(this), { g: gg, teller: a }); return; }
+  }
+  assert.fail("the alliance never broke away");
+});
+Then("groups: the two break away into a new alliance, and the player witnessed it as an event that names the alliance and one name only", function () {
+  const x = xb(this); const g = x.g as ReturnType<typeof playerPact>;
+  const born = g.p.alliances.all().find((a) => a.id !== g.pact && a.members.includes(x.teller!))!;
+  assert.deepEqual([...born.members].sort(), [g.npcs[0]!, g.npcs[2]!].sort());
+  const ev = eventsOf(g.sb, "alliance-break-away");
+  assert.equal(ev.length, 1);
+  assert.ok(ev[0]!.witnessSet.includes(PLAYER) && ev[0]!.hidden === false && ev[0]!.content.includes(g.pactName));
+  const nm = (id: EntityId) => (g.s as unknown as { nameOf(id: string): string }).nameOf(id);
+  assert.equal(g.npcs.filter((m) => ev[0]!.content.includes(nm(m))).length, 1);
+  assert.ok(g.p.alliances.byId(g.pact)!.members.includes(PLAYER)); // the player's own alliance carries on
+});
+Then("groups: no view shows a roster, a role or a cut order of the player's alliance", async function () {
+  const g = xb(this).g as ReturnType<typeof playerPact>;
+  const blob = await surfaceBlob(g.sb);
+  for (const k of WALLED) assert.ok(!blob.includes(k), `a live surface carries ${k}`);
+  assert.ok(!(PLAYER in g.p.live.groupLife![g.pact]!.roles));
 });
