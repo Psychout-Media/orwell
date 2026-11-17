@@ -1581,7 +1581,7 @@ export class GameSessionAdapter implements GameSession {
    * own records (`truthOf`); its intent is "inform" (the narrator's speaker's real reason is unknown). A kind the claim set does not have, or ids
    * not in the house, make no claim (`tellClaim` refuses). Returns the claims told.
    */
-  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[]): SpokenClaim[] {
+  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[], origin: "narrated" | "player" = "narrated"): SpokenClaim[] {
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return [];
     const kind = c.kind as SpokenClaimKind;
     const live = this.live;
@@ -1615,7 +1615,7 @@ export class GameSessionAdapter implements GameSession {
       const isTrue = truthOf(base, facts);
       // What the speaker meant: passing on what they believe (or what is true) is "inform"; a false claim they do not hold is a lie ("mislead"; the retrospective reads it).
       const holds = claimsOf(live?.beliefs, speaker).some((b) => b.value && !b.refuted && b.subject === base.subject && (base.object === undefined || b.object === undefined || b.object === base.object));
-      const t = this.tellClaim({ ...base, isTrue, intent: isTrue || holds ? "inform" : "mislead", origin: "narrated" });
+      const t = this.tellClaim({ ...base, isTrue, intent: isTrue || holds ? "inform" : "mislead", origin });
       if (t) told.push(t);
     }
     return told;
@@ -17857,9 +17857,28 @@ export class GameSessionAdapter implements GameSession {
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     // 0155 / ORW-330 slice 6: a claim the narrator wrote on its own becomes an engine claim (a re-statement above never re-tells it).
-    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string));
+    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string), p.speaker === OPEN_LEDGER_PLAYER && p.kind.toLowerCase() === "statement" ? "player" : "narrated");
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
+  }
+
+  /**
+   * ORW-612 part C - the player's own word about a third person ("X is targeting you"). The scene belt proposes `{ to, about, kind, object? }`; the ENGINE re-validates everything and writes it through the open-ledger door with the
+   * PLAYER as speaker (`recordOpenLedger` -> `tellNarratedClaim(..., "player")`): the claim's truth comes from the engine's records, the listener's belief goes through `tellClaim` (trust in the player, credulity, credibility),
+   * and a false claim is a lie on the record (the player holds no engine beliefs). A kind outside the claim set, an unknown or absent houseguest, or a refused entry makes no claim and never throws. Gated by ORWELL_PROMISE_TERMS
+   * and the open ledger; off => nothing.
+   */
+  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string }): { accepted: boolean; reason?: string } {
+    if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (!req || typeof req.to !== "string" || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
+    if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(req.kind)) return { accepted: false, reason: "bad-shape" };
+    const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
+    const objectOk = req.object === undefined || (typeof req.object === "string" && known.has(req.object));
+    if (!known.has(req.to) || !known.has(req.about) || !objectOk || req.to === req.about) return { accepted: false, reason: "bad-speaker" };
+    const text = `${this.nameOf(PLAYER)} told ${this.nameOf(req.to as EntityId)} about ${this.nameOf(req.about as EntityId)}${req.object ? ` and ${this.nameOf(req.object as EntityId)}` : ""} (${req.kind.replace(/-/g, " ")})`;
+    const r = this.recordOpenLedger({ text, speaker: OPEN_LEDGER_PLAYER, addressedTo: [req.to], kind: "statement", about: req.about, claim: { kind: req.kind, subject: req.about, ...(req.object ? { object: req.object } : {}) } });
+    return r.accepted ? { accepted: true } : { accepted: false, reason: r.reason ?? "refused" };
   }
 
   /**
